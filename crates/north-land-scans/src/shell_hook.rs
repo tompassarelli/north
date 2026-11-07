@@ -149,7 +149,7 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         }
     }
     if refused {
-        let _ = writeln!(out, "shell-hook: a shellHook is a pure function of the flake; north lane seed and other setup run in `north dev-shell run`");
+        let _ = writeln!(out, "shell-hook: a shellHook is a pure function of the flake; north lane seed and other setup run in `north capacity dev-shell run`");
     }
     u8::from(refused)
 }

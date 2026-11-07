@@ -43,8 +43,6 @@ Engineering and landing:
   privacy judge         Judge a text for private kinds
   docs                  Regenerate or check the docs indexes
   split move-module     Move modules into a crate
-  dev-shell run         Run a command inside the flake dev shell
-  run-bounded           Run a command bounded in time and memory
   nix                   Explain a Nix footgun, or root and collect the store
 
 System and telemetry:
@@ -53,8 +51,7 @@ System and telemetry:
   config                Manage skills and hooks, or check the package
   agents                Agent catalog, plan, usage and routines
   runtime               Update, deploy or check the north and agent runtimes
-  capacity              Machine-capacity leases, modes and the watchdog
-  nexus-run             Run a bounded CPU job on Nexus
+  capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
   watch --once          Run every work probe once and print alerts
   ops check             Check core expectations and alert on breaches
   credentials check     List fleet credentials and their expiry

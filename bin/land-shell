@@ -11,6 +11,6 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) || top=.
 if [ -z "${DEPBOX:-}" ] && [ -f "$top/Cargo.lock" ] && command -v cargo >/dev/null && [ ! -e "$HOME/.local/state/depbox/cargo-fetched/$(sha256sum "$top/Cargo.lock" | cut -c1-16)" ]; then "$depbox" fetch -- cargo fetch --locked >&2 || true; fi
 [ "$dev" -eq 1 ] || exec "$depbox" run -- "${hermetic[@]}" "$@"
 north=$(command -v north) || north=
-[ -z "$north" ] || [ -z "${DEPBOX:-}" ] || exec "$north" dev-shell run -- "${hermetic[@]}" "$@"
-if [ -n "$north" ] && "$north" dev-shell run --prepare; then exec "$depbox" run -- "$north" dev-shell run -- "${hermetic[@]}" "$@"; fi
+[ -z "$north" ] || [ -z "${DEPBOX:-}" ] || exec "$north" capacity dev-shell run -- "${hermetic[@]}" "$@"
+if [ -n "$north" ] && "$north" capacity dev-shell run --prepare; then exec "$depbox" run -- "$north" capacity dev-shell run -- "${hermetic[@]}" "$@"; fi
 exec "$depbox" run -- nix develop --offline --no-update-lock-file -c "${hermetic[@]}" "$@"

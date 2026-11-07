@@ -9,7 +9,7 @@ fn live() -> bool {
 
 fn north() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
-    command.arg("run-bounded");
+    command.args(["capacity", "bounded"]);
     command
 }
 

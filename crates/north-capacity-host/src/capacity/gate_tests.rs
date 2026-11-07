@@ -79,13 +79,13 @@ fn a_build_that_writes_a_file_the_caller_runs_is_an_artifact_build_and_checks_te
     }
 }
 
-// KEEP(bug): safe-push from a fleet session could not queue any lane since head-north's cargo build ran as depbox run -- north dev-shell run -- env ... cargo, which the gate classed as no compile, so depbox took no lease and the sandboxed cargo was refused as reaching no build host (exit 75); north#784
+// KEEP(bug): safe-push from a fleet session could not queue any lane since head-north's cargo build ran as depbox run -- north capacity dev-shell run -- env ... cargo, which the gate classed as no compile, so depbox took no lease and the sandboxed cargo was refused as reaching no build host (exit 75); north#784
 #[test]
 fn a_cargo_build_inside_depbox_through_north_dev_shell_run_is_classed_so_depbox_takes_its_lease() {
     let words = |text: &str| crate::shell::words(text).unwrap();
-    let build = words("depbox run -- north dev-shell run -- env -u GIT_AUTHOR_NAME GIT_CONFIG_GLOBAL=/dev/null cargo test -q --no-run --locked --offline -p north --test it");
+    let build = words("depbox run -- north capacity dev-shell run -- env -u GIT_AUTHOR_NAME GIT_CONFIG_GLOBAL=/dev/null cargo test -q --no-run --locked --offline -p north --test it");
     assert_eq!(class_of(&build, 0), Some(Class::Heavy));
     assert!(super::gate::agent_compile_in(&build, true));
-    assert_eq!(class_of(&words("depbox run -- north dev-shell run -- cargo check"), 0), Some(Class::Moderate));
-    assert_eq!(class_of(&words("depbox run -- north dev-shell run -- git status"), 0), None);
+    assert_eq!(class_of(&words("depbox run -- north capacity dev-shell run -- cargo check"), 0), Some(Class::Moderate));
+    assert_eq!(class_of(&words("depbox run -- north capacity dev-shell run -- git status"), 0), None);
 }

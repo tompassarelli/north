@@ -173,7 +173,7 @@ pub fn class_of(words: &[String], depth: usize) -> Option<Class> {
     class
 }
 
-/// Whether the command, through every wrapper it names (depbox, `north dev-shell run`, nix, `bash -c`), runs a Rust toolchain program that compiles; one that rewrites the lane's files (`fix`) or only prints help or a version does not, since a build host's edits never come back.
+/// Whether the command, through every wrapper it names (depbox, `north capacity dev-shell run`, nix, `bash -c`), runs a Rust toolchain program that compiles; one that rewrites the lane's files (`fix`) or only prints help or a version does not, since a build host's edits never come back.
 pub fn compiles_rust(words: &[String]) -> bool {
     let mut found = false;
     leaves(words, 0, &mut |leaf| found |= leaf.is_some_and(|leaf| RUST_PROGRAMS.contains(&shell::basename(&leaf[0])) && leaf_class(leaf).is_some() && !stays(leaf)));
@@ -203,7 +203,7 @@ fn leaves(words: &[String], depth: usize, visit: &mut dyn FnMut(Option<&[String]
                 leaves(&words[marker + 1..], depth + 1, visit);
             }
         }
-        "north" if words.get(1).map(String::as_str) == Some("dev-shell") && words.get(2).map(String::as_str) == Some("run") => {
+        "north" if words.get(1..4).is_some_and(|head| head == ["capacity", "dev-shell", "run"]) => {
             if let Some(marker) = words.iter().position(|word| word == "--") {
                 leaves(&words[marker + 1..], depth + 1, visit);
             }

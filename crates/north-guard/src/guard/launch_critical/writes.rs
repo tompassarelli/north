@@ -206,7 +206,7 @@ fn python_write_targets(words: &[String]) -> Vec<String> {
 const INTRODUCERS: &[&str] = &[
     "xargs", "-exec", "-execdir", "-ok", "-okdir", "sudo", "doas", "env", "nice", "ionice",
     "nohup", "setsid", "timeout", "stdbuf", "command", "exec", "time", "parallel", "watch",
-    "flock", "unshare", "run-bounded",
+    "flock", "unshare", "bounded",
 ];
 fn introduced(words: &[String], executable: usize, at: usize) -> bool {
     at <= executable || words[executable..at].iter().any(|s| INTRODUCERS.contains(&basename(s)))

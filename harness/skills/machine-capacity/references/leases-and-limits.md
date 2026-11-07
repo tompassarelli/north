@@ -82,7 +82,7 @@ when changing admission behavior rather than adding a parallel calculator.
 
 Agent leases expire at their reservation deadline. Run leases record the
 wrapper's host PID (from `/proc/self`, which the host resolves even inside
-run-bounded's PID namespace) and its Linux process start time, and remain
+`north capacity bounded`'s PID namespace) and its Linux process start time, and remain
 charged while that wrapper or its uniquely named scope is live and the lease is
 within its deadline. A run lease past its deadline has its scope killed and is
 reclaimed. Heavy, exclusive and gpu scopes carry no RuntimeMaxSec, because

@@ -174,7 +174,7 @@ fn warm(root: &Path, slot: &Slot, head: &str) -> u8 {
     let north = north_base::platform::north_binary::north_binary();
     let mut child = Command::new("nice");
     child.args(["-n", "19"]).arg(&north).args(["capacity", "host", "run", "--class", "heavy", "--owner", "land-offload", "--timeout-seconds", &DEADLINE.as_secs().to_string(), "--"]);
-    child.arg(&north).args(["dev-shell", "run", "--dir"]).arg(&path).args(["--", "bash", "-euo", "pipefail", "-c", &command]);
+    child.arg(&north).args(["capacity", "dev-shell", "run", "--dir"]).arg(&path).args(["--", "bash", "-euo", "pipefail", "-c", &command]);
     child.current_dir(&path).env("SCCACHE_BASEDIRS", &path).env("CARGO_BUILD_JOBS", &share).stdin(Stdio::null()).process_group(0);
     if let Some(port) = port {
         child.env("SCCACHE_SERVER_PORT", port);

@@ -107,7 +107,7 @@ pub(super) fn decide(input: &HookInput, seen: &Path) -> Verdict {
                     return Verdict::Deny(format!("nix-activity: refused, {}.\n{}", deny.why, card.render()));
                 }
                 if let Some(flake) = input.data["cwd"].as_str().and_then(|cwd| dev_shell_flake(Path::new(cwd))) {
-                    return Verdict::Deny(format!("nix-activity: refused, {}: {} has a dev shell (devShells), so add the package to it and run through `north dev-shell run -- COMMAND`.\n{}", deny.why, flake.display(), card.render()));
+                    return Verdict::Deny(format!("nix-activity: refused, {}: {} has a dev shell (devShells), so add the package to it and run through `north capacity dev-shell run -- COMMAND`.\n{}", deny.why, flake.display(), card.render()));
                 }
             }
         }
