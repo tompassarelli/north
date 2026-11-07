@@ -20,26 +20,29 @@ pub struct Org {
     pub id: String,
     pub emails: Vec<String>,
     pub keys: Vec<PathBuf>,
-    pub expires: Vec<String>,
+    pub expires: Option<Vec<String>>,
 }
 
 impl Org {
-    /// The earliest credit expiry not yet past on `today`, or `NEVER` when none is dated; an entry whose dated credit has all expired has none left.
+    /// The earliest expiry of a grant with credit left that is not yet past on `today`, or `NEVER` when no grant is dated; an entry whose dated grants are all spent or expired has none left.
     fn sorts_by(&self, today: &str) -> Option<&str> {
-        let live = self.expires.iter().map(String::as_str).filter(|date| *date >= today).min();
-        match (live, self.expires.is_empty()) {
-            (Some(date), _) => Some(date),
-            (None, true) => Some(NEVER),
-            (None, false) => None,
+        match &self.expires {
+            None => Some(NEVER),
+            Some(dates) => dates.iter().map(String::as_str).filter(|date| *date >= today).min(),
         }
     }
 
     fn line(&self) -> String {
-        format!("org={} id={} emails={} expires={}", self.name, self.id, self.emails.join(","), if self.expires.is_empty() { "unknown".to_owned() } else { self.expires.join(",") })
+        let expires = match &self.expires {
+            None => "unknown".to_owned(),
+            Some(dates) if dates.is_empty() => "none left".to_owned(),
+            Some(dates) => dates.join(","),
+        };
+        format!("org={} id={} emails={} expires={expires}", self.name, self.id, self.emails.join(","))
     }
 }
 
-/// The pool entries `[accounts.claude.api_orgs.NAME]` declares for `here`, entries sharing an id merged, each dated by its organization's `grants`.
+/// The pool entries `[accounts.claude.api_orgs.NAME]` declares for `here`, entries sharing an id merged, each dated by the grants with credit left that `grants` holds for its organization.
 pub fn declared(policy: &DocumentMut, grants: &BTreeMap<String, Vec<Grant>>, home: &Path, here: &str) -> Vec<Org> {
     let table = policy.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs")).and_then(Item::as_table_like);
     let strings = |item: Option<&Item>| -> Vec<String> { item.and_then(Item::as_array).into_iter().flatten().filter_map(|value| value.as_str().map(str::to_owned)).collect() };
@@ -51,7 +54,7 @@ pub fn declared(policy: &DocumentMut, grants: &BTreeMap<String, Vec<Grant>>, hom
         org.keys.extend(entry.get("keys").and_then(|keys| keys.get(here)).and_then(Item::as_array).into_iter().flatten().filter_map(|file| file.as_str().map(|path| expand(home, path))));
     }
     for org in merged.values_mut() {
-        org.expires = grants.get(&org.id).into_iter().flatten().map(|grant| grant.expires.clone()).collect();
+        org.expires = grants.get(&org.id).map(|open| open.iter().map(|grant| grant.expires.clone()).collect());
     }
     merged.into_values().collect()
 }
@@ -80,7 +83,7 @@ pub fn today() -> String {
 /// One line per pool entry on `here`, then the entry a launch on the pooled account takes: what `north fleet accounts --api` prints.
 pub fn listing(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec<String> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let orgs = declared(&document, &crate::credit::grants(policy), home, here);
+    let orgs = declared(&document, &crate::credit::open_grants(policy, &state_root.join("ledger.db"), &today()), home, here);
     let marks = state_root.join("api-exhausted");
     let mut lines: Vec<String> = orgs.iter().map(|org| format!("{} keys={} exhausted={}", org.line(), org.keys.len(), exhausted(&marks, org))).collect();
     let chosen = open(&orgs, &today(), |org| exhausted(&marks, org), |file| std::fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() > 0));
@@ -114,3 +117,7 @@ pub fn mark_spent(fleet: &Fleet, policy: &Path, home: &Path) -> Vec<String> {
     }
     lines
 }
+
+#[cfg(test)]
+#[path = "api_pool_tests.rs"]
+mod tests;

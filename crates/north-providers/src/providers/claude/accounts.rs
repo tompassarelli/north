@@ -86,15 +86,19 @@ fn api_accounts(provider: &ProviderName, marks: &Path, profiles: &Profiles, usab
     accounts
 }
 
+fn open_grants(policy: &Path, home: &Path) -> BTreeMap<String, Vec<Grant>> {
+    crate::credit::open_grants(policy, &home.join(".local/state/north/ledger.db"), &api_pool::today())
+}
+
 pub fn declared(path: &Path, home: &Path) -> Profiles {
     let policy = std::fs::read_to_string(path).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    profiles(&policy, &crate::credit::grants(path), home, &crate::platform::host::name())
+    profiles(&policy, &open_grants(path, home), home, &crate::platform::host::name())
 }
 
 /// The account `label` on `machine`; an api account takes the key file `machine` declares, which this host cannot read.
 pub fn on_machine(provider: &ProviderName, path: &Path, home: &Path, label: &str, machine: &str) -> NorthResult<Account> {
     let policy: DocumentMut = std::fs::read_to_string(path).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let keyed = profiles(&policy, &crate::credit::grants(path), home, machine);
+    let keyed = profiles(&policy, &open_grants(path, home), home, machine);
     let marks = home.join(".local/state/north/api-exhausted");
     if let Some((account, _)) = api_accounts(provider, &marks, &keyed, |_: &Path| true).into_iter().find(|(account, _)| account.label == label) {
         return Ok(account);

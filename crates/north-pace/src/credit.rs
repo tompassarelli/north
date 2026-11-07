@@ -63,9 +63,14 @@ pub fn spends(ledger: &Path, prices: &PriceTable) -> Result<BTreeMap<String, Vec
     Ok(found)
 }
 
-/// Charges each day's spend to the soonest-expiring grant still unexpired that day with credit left, the
-/// overflow to the next, then reports the soonest grant unexpired on `today` that has credit left.
-pub fn balance(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Option<Balance> {
+const CENT: f64 = 0.005;
+
+fn has_credit(left: f64) -> bool {
+    left >= CENT
+}
+
+/// What each grant has left after charging each day's spend to the soonest-expiring grant still unexpired that day with credit left, the overflow to the next.
+fn remaining(grants: &[Grant], spends: &[(String, f64)]) -> Vec<f64> {
     let mut left: Vec<f64> = grants.iter().map(|grant| grant.usd).collect();
     for (day, usd) in spends {
         let open: Vec<usize> = (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= day.as_str()).collect();
@@ -79,9 +84,36 @@ pub fn balance(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Optio
             left[*last] -= rest;
         }
     }
+    left
+}
+
+/// The grants unexpired on `today` that still have credit left after `spends`, soonest expiry first.
+pub fn with_credit_left(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Vec<Grant> {
+    let left = remaining(grants, spends);
+    (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= today && has_credit(left[*index])).map(|index| grants[index].clone()).collect()
+}
+
+/// Reports the soonest grant unexpired on `today` that has credit left, with what is spent of it and the grants after it.
+pub fn balance(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Option<Balance> {
+    let left = remaining(grants, spends);
     let live: Vec<usize> = (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= today).collect();
-    let current = live.iter().copied().find(|index| left[*index] > 0.0).or_else(|| live.last().copied())?;
+    let current = live.iter().copied().find(|index| has_credit(left[*index])).or_else(|| live.last().copied())?;
     Some(Balance { grant: grants[current].clone(), spent: grants[current].usd - left[current], left: left[current], later: live.iter().filter(|index| **index > current).map(|index| grants[*index].clone()).collect() })
+}
+
+/// Each organization id's grants with credit left on `today`, read from the ledger's api spend; an id appears only when it has dated grants, so an empty list means every grant is spent or expired.
+pub fn open_grants(policy: &Path, ledger: &Path, today: &str) -> BTreeMap<String, Vec<Grant>> {
+    let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(ledger, &prices)).unwrap_or_default();
+    let named = named(policy);
+    grants(policy)
+        .into_iter()
+        .filter(|(_, grants)| !grants.is_empty())
+        .map(|(id, grants)| {
+            let mine: Vec<(String, f64)> = named.iter().filter(|(_, other)| *other == id).flat_map(|(name, _)| spends.get(name).cloned().unwrap_or_default()).collect();
+            let open = with_credit_left(&grants, &mine, today);
+            (id, open)
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -91,10 +123,15 @@ pub struct Left {
     pub next_credit: Option<String>,
 }
 
-pub fn left(policy: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today: &str) -> BTreeMap<String, Left> {
+/// Every pool entry name `[accounts.claude.api_orgs.NAME]` declares, as (name, organization id).
+fn named(policy: &Path) -> Vec<(String, String)> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
     let orgs = document.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs")).and_then(Item::as_table_like);
-    let named: Vec<(String, String)> = orgs.into_iter().flat_map(|orgs| orgs.iter()).filter_map(|(name, org)| Some((name.to_owned(), org.get("id")?.as_str()?.to_owned()))).collect();
+    orgs.into_iter().flat_map(|orgs| orgs.iter()).filter_map(|(name, org)| Some((name.to_owned(), org.get("id")?.as_str()?.to_owned()))).collect()
+}
+
+pub fn left(policy: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today: &str) -> BTreeMap<String, Left> {
+    let named = named(policy);
     let grants = grants(policy);
     let next = next_credits(policy);
     named
@@ -151,16 +188,13 @@ impl Source {
 
 /// The pool entries `[accounts.claude.api_orgs.NAME]` declares, as (name, organization id), the first name of each id.
 pub fn orgs(policy: &Path) -> Vec<(String, String)> {
-    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let table = document.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs")).and_then(Item::as_table_like);
-    let mut named: Vec<(String, String)> = Vec::new();
-    for (name, org) in table.into_iter().flat_map(|table| table.iter()) {
-        let Some(id) = org.get("id").and_then(Item::as_str) else { continue };
-        if !named.iter().any(|(_, seen)| seen == id) {
-            named.push((name.to_owned(), id.to_owned()));
+    let mut first: Vec<(String, String)> = Vec::new();
+    for (name, id) in named(policy) {
+        if !first.iter().any(|(_, seen)| *seen == id) {
+            first.push((name, id));
         }
     }
-    named
+    first
 }
 
 /// Every pool entry with an unexpired grant, from the grants beside `policy`, the ledger and exhausted marks under `state` (the XDG state root).
