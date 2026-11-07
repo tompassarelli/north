@@ -37,8 +37,10 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
         lines.push(format!("the spend tripwire's session spend was not kept, so the next tick measures sessions from then: {why}"));
     }
     let accounts: std::collections::BTreeSet<&str> = samples.iter().map(|(account, _)| account.as_str()).chain(spenders.sessions.iter().map(|spender| spender.account.as_str())).collect();
+    let keyed = crate::platform::orchestration::read().map(|cfg| crate::spend::keyed(&cfg)).unwrap_or_default();
     let confirmed: Vec<Trip> = accounts
         .into_iter()
+        .filter(|account| !keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))))
         .filter_map(|account| {
             let own: Vec<Sample> = samples.iter().filter(|(name, _)| name == account).map(|(_, sample)| *sample).collect();
             tripwire::trip(&rules, account, &own, &spenders.sessions, points_per_usd(&db, account), now)
