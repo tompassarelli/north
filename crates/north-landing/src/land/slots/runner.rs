@@ -12,6 +12,7 @@ use tokio::signal::unix::{SignalKind, signal};
 
 use super::affected::{self, CHANGED_ENV, PACKAGES_ENV, Scope};
 use super::it_modules::{self, IT_ENV};
+use super::selection_record::{self, Recorded};
 use super::clippy_first;
 use super::deps;
 use super::shared_build;
@@ -137,9 +138,13 @@ async fn forward_signals(cancel: watch::Sender<bool>) {
     std::process::exit(CANCELLED);
 }
 
-fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<Scope> {
+fn scope_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<Scope> {
     if !commands.iter().any(|command| command.contains(PACKAGES_ENV) || command.contains(CHANGED_ENV)) {
         return None;
+    }
+    if let Some(scope) = recorded.and_then(|recorded| recorded.scope.clone()) {
+        say(&format!("safe-push: the after-landing Rust checks reuse the candidate's scope, {}", scope.arguments()));
+        return Some(scope);
     }
     let scope = affected::scope(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
         warn(&format!("safe-push: {error}; the Rust checks cover the whole workspace"));
@@ -160,9 +165,13 @@ fn defined_on_tree(root: &Path, arguments: &Arguments, commands: Vec<String>) ->
     commands.into_iter().filter(|command| tree.runs(command)).collect()
 }
 
-fn it_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<String> {
+fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<String> {
     if !commands.iter().any(|command| command.contains(IT_ENV)) {
         return None;
+    }
+    if let Some(filters) = recorded.and_then(|recorded| recorded.it.clone()) {
+        say(&format!("safe-push: the after-landing tests/it run reuses the candidate's selection, {filters}"));
+        return Some(filters);
     }
     let selection = it_modules::selection(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
         warn(&format!("safe-push: {error}; the tests/it run covers every module"));
@@ -289,8 +298,12 @@ async fn covers(root: &Path, head: &str, code: &str) -> bool {
 }
 
 async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environment: Environment, cancel: watch::Receiver<bool>, commands: Vec<String>) -> i32 {
-    let scope = scope_for(&root, &arguments, &commands);
-    let it = it_for(&root, &arguments, &commands);
+    let recorded = arguments.after.then(|| selection_record::load(&arguments.head)).flatten();
+    let scope = scope_for(&root, &arguments, &commands, recorded.as_ref());
+    let it = it_for(&root, &arguments, &commands, recorded.as_ref());
+    if !arguments.after && !arguments.leased {
+        selection_record::save(&arguments.head, Recorded { scope: scope.clone(), it: it.clone() });
+    }
     let trees = Trees::of(&root, &arguments.base, arguments.tree());
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let selected_paths = arguments.pinned().then(|| changed(&root, &arguments.base, &arguments.head, &[]).join("\n"));
@@ -417,8 +430,8 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     }
     let commands = { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() };
     let (_cancel_sender, cancel) = watch::channel(false);
-    let scope = scope_for(&root, &arguments, &commands);
-    let it = it_for(&root, &arguments, &commands);
+    let scope = scope_for(&root, &arguments, &commands, None);
+    let it = it_for(&root, &arguments, &commands, None);
     let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });

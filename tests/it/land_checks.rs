@@ -460,3 +460,31 @@ fn north_land_check_refuses_a_lane_that_adds_a_reference_its_module_layers_forbi
     assert_eq!(output.status.code(), Some(1), "{report}");
     assert!(report.contains("module tests may not use fleet_store"), "{report}");
 }
+
+#[test]
+fn land_after_reuses_the_candidates_selection() {
+    let record = r#"printf '%s\n' "$SAFE_PUSH_LAND_IT" >>../seen"#;
+    let line = format!("crates/ :: {record}");
+    let fixture = Fixture::new(&[("land.check", &line), ("land.after", &line)]);
+    fs::write(fixture.repo.join("structure.toml"), "[[crate_dag.crate]]\nname = \"a\"\npaths = [\"crates/a/src/**\"]\nmay_use = []\n\n[[crate_dag.crate]]\nname = \"b\"\npaths = [\"crates/b/src/**\"]\nmay_use = []\n").unwrap();
+    fs::create_dir_all(fixture.repo.join("tests/it")).unwrap();
+    fs::write(fixture.repo.join("tests/it/crates.txt"), "m1 a\nm2 b\n").unwrap();
+    git(&fixture.repo, &["add", "structure.toml", "tests"]);
+    git(&fixture.repo, &["commit", "-qm", "structure"]);
+    let before = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::create_dir_all(fixture.repo.join("crates/a/src")).unwrap();
+    fs::write(fixture.repo.join("crates/a/src/f.rs"), "\n").unwrap();
+    git(&fixture.repo, &["add", "crates"]);
+    git(&fixture.repo, &["commit", "-qm", "crate a"]);
+    let tip = git(&fixture.repo, &["rev-parse", "HEAD"]);
+
+    let candidate = fixture.command_between(&before, &tip).output().unwrap();
+    assert_eq!(candidate.status.code(), Some(0), "{}", text(&candidate));
+    let after = fixture.command_between(&tip, &tip).args(["--after", "--command", record]).output().unwrap();
+    assert_eq!(after.status.code(), Some(0), "{}", text(&after));
+    let seen = fs::read_to_string(fixture.path("seen")).unwrap();
+    let runs: Vec<&str> = seen.lines().collect();
+    assert_eq!(runs.len(), 2, "{seen}\n{}\n{}", text(&candidate), text(&after));
+    assert!(runs[0].contains("test(/m1::/)") && !runs[0].contains("m2::"), "the candidate's selection should name only the module of the changed crate: {seen}");
+    assert_eq!(runs[0], runs[1], "the after-landing run selected differently from its candidate: {seen}");
+}

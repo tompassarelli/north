@@ -5,4 +5,5 @@ pub mod infer;
 pub mod it_modules;
 pub mod runner;
 pub mod select;
+pub mod selection_record;
 pub mod shared_build;

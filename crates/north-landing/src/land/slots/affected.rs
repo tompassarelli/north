@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
 use north_base::build_inputs::rust_build_input;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::select::changed;
 
@@ -48,7 +48,7 @@ struct Dependency {
     path: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Scope {
     Workspace,
     Packages { affected: Vec<String>, changed: Vec<String> },
