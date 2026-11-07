@@ -50,7 +50,7 @@ No checked origin main (north, south, wisp, makgora, firn) sets `landing.queue` 
 `direct`. Only north sets `landing.exact`, so the train is unreachable: north's committed
 `landing.lander-host` sends each north lane to the lander or refuses it. Other repositories reach the
 lander only because both hosts' `~/.config/git/config` names `landing.lander-host = whiterabbit` and
-`landing.remote-hosts = gex45` (`land/route.rs` `decide`). On a host or sandbox `HOME` without that config,
+`landing.remote-hosts = gex45` (`land/route.rs` `decide`); since north#778 every `[hosts.NAME]` of orchestration.toml with an `ssh` destination is also an outbox host, for the route and for the lander's pull alike. On a host or sandbox `HOME` without that config,
 a repository with no committed host still lands per lane today. That includes the test fixtures, Nexus
 (which placement already forbids landing from) and any new machine. `--direct` was last used on
 2026-10-22 (`direct-landings.tsv`).

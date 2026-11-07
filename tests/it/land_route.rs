@@ -104,6 +104,7 @@ impl Fixture {
             .env("PATH", path)
             .env("REAL_NORTH", env!("CARGO_BIN_EXE_north"))
             .env("HOME", self.top().join("home"))
+            .env("AGENTS_ORCHESTRATION", self.top().join("orchestration.toml"))
             .env("XDG_STATE_HOME", self.top().join("state"))
             .env("GIT_CONFIG_GLOBAL", self.top().join(config))
             .env_remove("XDG_CONFIG_HOME")
@@ -152,8 +153,23 @@ fn a_landing_the_lander_cannot_take_is_refused_naming_why_and_pushes_and_queues_
     refused(&["--to", "main"], &format!("no lander serves this repository on {host}: north-land@repo.service is not declared"));
     fixture.settle("[landing]\n\tqueue = lander\n\tlander-host = another-host\n", "another lander host");
     fixture.work("work from an unnamed host");
-    refused(&["--to", "main"], &format!("{host} is neither landing.lander-host nor in landing.remote-hosts for main, so the lander cannot take this lane; add {host} to landing.remote-hosts"));
+    refused(&["--to", "main"], &format!("{host} is neither landing.lander-host nor in landing.remote-hosts nor an ssh table of the fleet orchestration.toml hosts for main, so the lander cannot take this lane; add {host} to landing.remote-hosts"));
     fixture.settle(&format!("[landing]\n\tqueue = lock\n\tlander-host = {host}\n"), "a lock queue");
     fixture.work("work under the lock queue");
     refused(&["--to", "main"], "landing.queue = lock in .safe-push is no longer served: the lander lands every change to main");
+}
+
+#[test]
+fn a_lane_on_a_fleet_ssh_host_the_repository_does_not_list_is_queued_for_the_lander() {
+    let fixture = Fixture::new();
+    let host = local_host();
+    fixture.settle("[landing]\n\tqueue = lander\n\tlander-host = another-host\n", "a lander elsewhere");
+    fixture.work("work from a fleet host");
+    let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
+    assert_ne!(run.status, 0, "{}", run.output);
+    assert!(run.output.contains(&format!("{host} is neither landing.lander-host")), "{}", run.output);
+    fs::write(fixture.top().join("orchestration.toml"), format!("[hosts.{host}]\nssh = \"tom@{host}\"\n")).unwrap();
+    let run = fixture.safe_push_on(&["--to", "main"], "gitconfig", &std::env::var("PATH").unwrap_or_default());
+    assert_eq!(run.status, 0, "{}", run.output);
+    assert!(run.output.contains("Done: queued (outbox)"), "{}", run.output);
 }

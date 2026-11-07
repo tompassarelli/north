@@ -23,6 +23,12 @@ pub fn read() -> Result<DocumentMut, String> {
     text.parse().map_err(|error| format!("{}: {error}", path.display()))
 }
 
+/// The names of the `[hosts.NAME]` tables that carry an `ssh` destination: the machines a lander reaches to pull an outbox from.
+pub fn ssh_hosts(cfg: &DocumentMut) -> Vec<String> {
+    let hosts = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter());
+    hosts.filter(|(_, host)| host.get("ssh").and_then(Item::as_str).is_some()).map(|(name, _)| name.to_owned()).collect()
+}
+
 /// Every repo of a project with `paused = true`, its `repos` and `dispatch_repos` both.
 pub fn set_aside_repos(cfg: &DocumentMut) -> Vec<String> {
     let listed = |item: Option<&Item>| item.and_then(Item::as_array).into_iter().flatten().filter_map(|value| value.as_str().map(str::to_owned)).collect::<Vec<_>>();

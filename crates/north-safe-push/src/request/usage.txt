@@ -14,7 +14,8 @@ Options:
   --dry-run    run all safety checks without pushing
   --to BRANCH  explicitly publish HEAD to a remote branch. On origin's default
                branch the lander lands the lane: the lander queues it
-               when this host is landing.lander-host or in landing.remote-hosts
+               when this host is landing.lander-host, an ssh host of orchestration.toml,
+               or in landing.remote-hosts
                (the committed .safe-push first, then this host's git config),
                and refuses any other host, a landing.queue other than lander,
                and --direct; the lander checks, squashes and pushes the queued

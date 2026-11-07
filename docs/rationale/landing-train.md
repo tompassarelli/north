@@ -860,7 +860,7 @@ then S2b and S2c in parallel; then S3 and S4.
   the laptop already reaches gex45 over ssh for build offloads (redesigned 2026-11-04). On a host
   that is not the committed `landing.lander-host`, `north land enqueue` writes the same ticket under
   the same queue key into `outbox/` and prints `Done: queued (outbox) <root> <branch> <sha>`. At the
-  start of each round the lander lists the outbox of each host in the committed
+  start of each round the lander lists the outbox of each ssh host of orchestration.toml's `[hosts]` and each host in
   `landing.remote-hosts` (space-separated) over ssh with `ConnectTimeout=5`, fetches each lane from
   `ssh://<host><root>` into `refs/land-remote/<host>/<branch>`, copies the ticket into its own queue
   with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages and

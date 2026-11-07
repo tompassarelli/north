@@ -33,10 +33,7 @@ impl Settings {
         let remote_ref = format!("refs/remotes/origin/{to}");
         let blob = format!("{remote_ref}:.safe-push");
         let queue = git(repo, &["config", "--blob", &blob, "--get", "landing.queue"]).unwrap_or_default();
-        let hosts = ["landing.lander-host", "landing.remote-hosts"]
-            .iter()
-            .flat_map(|key| setting::landing(repo, &remote_ref, key).split_whitespace().map(str::to_owned).collect::<Vec<_>>())
-            .collect();
+        let hosts = setting::landing(repo, &remote_ref, "landing.lander-host").split_whitespace().map(str::to_owned).chain(setting::outbox_hosts(repo, &remote_ref)).collect();
         Self { queue: if queue.is_empty() { "lander".to_owned() } else { queue }, hosts }
     }
 }
@@ -69,7 +66,7 @@ pub fn decide(settings: &Settings, host: &str, to: &str, request: &Arguments) ->
         return Route::Refused(format!("--direct is refused: the lander lands every change to {to}; run safe-push --to {to} without --direct. NOT pushed."));
     }
     if !settings.hosts.iter().any(|listed| short(listed) == host) {
-        return Route::Refused(format!("{host} is neither landing.lander-host nor in landing.remote-hosts for {to}, so the lander cannot take this lane; add {host} to landing.remote-hosts in .safe-push or this host's git config. NOT pushed."));
+        return Route::Refused(format!("{host} is neither landing.lander-host nor in landing.remote-hosts nor an ssh table of the fleet orchestration.toml hosts for {to}, so the lander cannot take this lane; add {host} to landing.remote-hosts in .safe-push or this host's git config, or give its [hosts] table an ssh destination. NOT pushed."));
     }
     Route::Lander
 }

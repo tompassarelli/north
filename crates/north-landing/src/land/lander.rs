@@ -89,7 +89,7 @@ impl Lander {
     }
 
     fn remote_hosts(&self) -> Vec<String> {
-        setting::landing(&self.repo, "refs/remotes/origin/main", "landing.remote-hosts").split_whitespace().map(str::to_owned).collect()
+        setting::outbox_hosts(&self.repo, "refs/remotes/origin/main")
     }
 
     fn fetch_lane(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
@@ -175,7 +175,7 @@ impl Lander {
         let mut waiting = Vec::new();
         for host in self.remote_hosts() {
             if !plain(&host) {
-                waiting.push(format!("landing.remote-hosts names {host:?}, which is not an ssh host name; skipped"));
+                waiting.push(format!("the outbox hosts name {host:?}, which is not an ssh host name; skipped"));
                 continue;
             }
             match self.pull_host(&host) {
