@@ -177,3 +177,21 @@ fn a_report_written_while_its_own_job_run_still_runs_scores_idle_north_730_d0351
     lines.push(text("assistant", 41, "Reading the job output next."));
     assert_eq!(transcript(&lines), "not done", "once its job has exited, the Not done report stands");
 }
+
+#[test]
+fn a_turn_a_wait_wake_up_opened_keeps_the_split_reported_before_it_north_636_d1824() {
+    let at = |n: u32| format!("2026-11-07T18:{n:02}:00Z");
+    let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let mut lines = vec![
+        text("user", 25, "Item: north#636"),
+        text("assistant", 26, "Split: I ticked one more Done-when box on north#636 with evidence. The other 17 open boxes are separate pieces of work, each already listed on north#636 for dispatch."),
+        text("user", 27, "[from service:north-fleet] [north: the run you waited on is over] pid:117681@27250137 `north check privacy judge --text -`: ended. Read its output and continue to a final report."),
+        text("assistant", 28, "Done: that notice is from the privacy check that ran when I edited the north#636 body, and the edit went through. The Split report stands."),
+    ];
+    let outcome = |lines: &[serde_json::Value]| super::row::build(&super::row::Transcript { lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) }).unwrap()["outcome"].clone();
+
+    assert_eq!(outcome(&lines), "split");
+    lines.push(text("user", 29, "[from proxy] Land the docs box too."));
+    lines.push(text("assistant", 30, "Done: landed 5f06e90dba on origin/main and ticked the docs box."));
+    assert_eq!(outcome(&lines), "done", "a turn a message opened still replaces the standing report");
+}

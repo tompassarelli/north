@@ -13,6 +13,9 @@ pub const REVIVED: &str = "[north: dispatch revived you]";
 /// Every opener a resume message starts with, which `Fleet::resumed_since_report` finds a wake by.
 pub const OPENERS: [&str; 4] = [LANDING, ADMITTED, OVER, REVIVED];
 
+/// The openers of a message that wakes a session only because something it waited on ended.
+pub const WAITS: [&str; 2] = [ADMITTED, OVER];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Landing {
     Waiting,

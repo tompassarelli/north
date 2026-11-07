@@ -108,55 +108,80 @@ fn background(line: &Value, running: &mut BTreeSet<String>) {
     }
 }
 
-/// The transcript cut at each human line, each segment marked when it is an aside north will follow with another turn
-/// (cut short by an interrupt or a delivered message, opened by one, or ended while a background command ran), and
-/// whether a background command still runs at its end.
-fn segments(lines: &[Value]) -> (Vec<(bool, Vec<&Value>)>, bool) {
-    let mut turns: Vec<(bool, Vec<&Value>)> = vec![(false, Vec::new())];
+/// One turn of a transcript: the lines from one human line to the next.
+#[derive(Default)]
+struct Turn<'a> {
+    /// north will follow it with another turn: cut short by an interrupt or a delivered message, opened by one, or
+    /// ended while a background command ran.
+    aside: bool,
+    /// Opened only because something the session waited on ended: a task notification, a job-run exit or a wait's end.
+    woken: bool,
+    /// Ended while a background command the session started still ran.
+    pending: bool,
+    lines: Vec<&'a Value>,
+}
+
+fn woken(line: &Value, said: &str) -> bool {
+    line["origin"]["kind"] == "task-notification"
+        || said.starts_with("<task-notification>")
+        || NOTIFIED.captures(said).is_some_and(|found| found.get(2).is_some())
+        || crate::fleet::resume::WAITS.iter().any(|opener| said.contains(opener))
+}
+
+/// The transcript cut at each human line, and whether a background command still runs at its end.
+fn segments(lines: &[Value]) -> (Vec<Turn<'_>>, bool) {
+    let mut turns: Vec<Turn> = vec![Turn::default()];
     let mut running: BTreeSet<String> = BTreeSet::new();
     for line in lines {
         let said = human(line).then(|| texts(line));
         let delivered = said.as_deref().is_some_and(|said| DELIVERED.iter().any(|opening| said.starts_with(opening)));
         if let Some(said) = &said {
-            mark_aside(&mut turns, delivered || !running.is_empty() || said.starts_with(INTERRUPTED));
+            end_turn(&mut turns, &running, delivered || said.starts_with(INTERRUPTED));
         }
         background(line, &mut running);
         match said {
-            Some(_) => turns.push((delivered, Vec::new())),
-            None => turns.last_mut().map_or((), |(_, turn)| turn.push(line)),
+            Some(said) => turns.push(Turn { aside: delivered, woken: woken(line, &said), ..Turn::default() }),
+            None => turns.last_mut().map_or((), |turn| turn.lines.push(line)),
         }
     }
-    mark_aside(&mut turns, !running.is_empty());
+    end_turn(&mut turns, &running, false);
     (turns, !running.is_empty())
 }
 
-fn mark_aside(turns: &mut [(bool, Vec<&Value>)], aside: bool) {
-    if aside && let Some((marked, _)) = turns.last_mut() {
-        *marked = true;
+fn end_turn(turns: &mut [Turn], running: &BTreeSet<String>, cut: bool) {
+    if let Some(turn) = turns.last_mut() {
+        turn.pending = !running.is_empty();
+        turn.aside |= cut || turn.pending;
     }
 }
 
+/// The run's report and outcome: the latest of its best-ranked turn reports, where a turn a wake-up opened never
+/// replaces an earlier report that stands (one with an opener and a final outcome, written with nothing left running).
 fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
     let (turns, waiting) = segments(lines);
-    let reports: Vec<(String, &'static str)> = turns
-        .iter()
-        .filter_map(|(aside, turn)| {
-            let assistant: Vec<&Value> = turn.iter().copied().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
-            let report = report(&assistant)?;
-            let outcome = match outcome::classify(&report, quiet_run(turn.iter().copied())) {
-                "unclear" | "not done" if *aside && !crate::platform::attribution::has_opener(&report) => "idle",
-                outcome => outcome,
-            };
-            Some((report, outcome))
-        })
-        .collect();
-    let rank = |(_, outcome): &(String, &str)| match *outcome {
+    let rank = |outcome: &str| match outcome {
         "idle" => 0,
         "unclear" => 1,
         _ => 2,
     };
-    let best = reports.iter().map(rank).max()?;
-    let (report, outcome) = reports.into_iter().rev().find(|turn| rank(turn) == best)?;
+    let mut standing = false;
+    let mut reports: Vec<(String, &'static str)> = Vec::new();
+    for turn in &turns {
+        let assistant: Vec<&Value> = turn.lines.iter().copied().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
+        let Some(report) = report(&assistant) else { continue };
+        if turn.woken && standing {
+            continue;
+        }
+        let opener = crate::platform::attribution::has_opener(&report);
+        let outcome = match outcome::classify(&report, quiet_run(turn.lines.iter().copied())) {
+            "unclear" | "not done" if turn.aside && !opener => "idle",
+            outcome => outcome,
+        };
+        standing |= opener && rank(outcome) == 2 && !turn.pending;
+        reports.push((report, outcome));
+    }
+    let best = reports.iter().map(|(_, outcome)| rank(outcome)).max()?;
+    let (report, outcome) = reports.into_iter().rev().find(|(_, outcome)| rank(outcome) == best)?;
     Some((report, if waiting && outcome != "done" { "idle" } else { outcome }))
 }
 
