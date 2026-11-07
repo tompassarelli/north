@@ -8,6 +8,7 @@ description: >-
   and reuse by input hash.
 grounded: 2026-10-15
 written: 2026-11-04
+portable: true
 metadata:
   kind: playbook
 ---

@@ -4,6 +4,7 @@ description: >-
   Build or debug Three.js scenes: materials, lighting, loading, animation, controls, shaders.
 grounded: 2026-10-09
 written: 2026-10-09
+portable: true
 ---
 
 # Three.js

@@ -4,6 +4,7 @@ description: >-
   Plan costly-to-reverse changes (interfaces, state, dependencies, boundaries); consequential briefs; prior art; hardening, security or compatibility level; price infra, CI or harness work vs features; code-health review size; delivery scope, stalled work, merging issues; resist extra process. Skip routine changes.
 grounded: 2026-10-15
 written: 2026-10-15
+portable: true
 ---
 
 # Planning
@@ -61,6 +62,6 @@ Read [pricing sources](references/pricing.md) when a price is disputed, and [not
 3. When completion stalls, reconcile passed criteria, remaining blockers and additional coverage, and record finished outcomes as complete, because starvation looks like busy progress.
 4. Choose the next repair that advances an unmet outcome, never substituting synthetic checks for human judgment or unavailable hardware, because a proxy cannot supply that observation.
 5. Record a consequential deferral or a landing over a soft target with `Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>`, because a deferral without a trigger never returns.
-6. Name a gating bar's source in its box or rationale doc; a landing needs no `Provenance:` trailer (retired 2026-11-04), because a rework signal now watches quality.
+6. Name a gating bar's source in its box or rationale doc; a landing needs no `Provenance:` trailer, because a rework signal now watches quality.
 
 Read [stewardship notes](references/stewardship.md) when resolving stalled delivery, a deferral, a Provenance record or the old gate.

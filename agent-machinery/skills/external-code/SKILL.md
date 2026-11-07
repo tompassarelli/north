@@ -4,6 +4,7 @@ description: >-
   Check license and attribution before copying, adapting, vendoring or referencing outside code.
 grounded: 2026-10-15
 written: 2026-10-15
+portable: true
 ---
 
 # External code

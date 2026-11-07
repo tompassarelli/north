@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::gate::{Budget, Verdicts};
+use super::portable;
 
 const SKILL_ROOTS: [&str; 2] = ["harness/skills", "agent-machinery/skills"];
 
@@ -21,12 +22,20 @@ pub(super) fn tree_policy(tree: &Path) -> Verdicts {
     let mut budget = Budget::default();
     let mut errors: Vec<String> = Vec::new();
     let mut count = 0;
+    let mut portable_count = 0;
     for root in SKILL_ROOTS {
         for skill in skill_files(&tree.join(root)) {
             count += 1;
-            let unit = skill.parent().and_then(Path::file_name).map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            let directory = skill.parent().unwrap_or(tree);
+            let unit = directory.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
             match fs::read_to_string(&skill) {
-                Ok(text) => budget.measure(&unit, &text),
+                Ok(text) => {
+                    budget.measure(&unit, &text);
+                    if portable::declared(&text) {
+                        portable_count += 1;
+                        errors.extend(portable::boundary(tree, directory, &unit));
+                    }
+                }
                 Err(error) => errors.push(format!("{}: {error}", skill.display())),
             }
         }
@@ -38,7 +47,7 @@ pub(super) fn tree_policy(tree: &Path) -> Verdicts {
     } else if count == 0 {
         format!("tree policy: no SKILL.md found under {} in {}", SKILL_ROOTS.join(" or "), tree.display())
     } else {
-        format!("tree policy: {count} skills · {}", budget.summary())
+        format!("tree policy: {count} skills ({portable_count} portable) · {}", budget.summary())
     };
     Verdicts { text, passed }
 }

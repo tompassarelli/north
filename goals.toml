@@ -78,8 +78,8 @@ class = "contract"
 
 [[goal]]
 name = "procedures-valid"
-source = "AGENTS.md: north config check for its procedures"
-oracle = "north config check >/dev/null 2>&1; echo $?"
+source = "AGENTS.md: north check harness tree-policy for its skills"
+oracle = "north check harness tree-policy >/dev/null 2>&1; echo $?"
 max = 0
 class = "contract"
 

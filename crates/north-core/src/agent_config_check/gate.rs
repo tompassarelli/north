@@ -37,7 +37,7 @@ pub(super) struct Verdicts {
     pub(super) passed: bool,
 }
 
-fn frontmatter(text: &str) -> Option<(String, usize)> {
+pub(super) fn frontmatter(text: &str) -> Option<(String, usize)> {
     let pattern = Regex::new(r"(?s)\A---\n(.*?)\n---\n").unwrap();
     let found = pattern.captures(text)?;
     Some((format!("{}\n", &found[1]), found.get(0)?.end()))

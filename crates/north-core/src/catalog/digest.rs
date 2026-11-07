@@ -51,15 +51,7 @@ fn digest_path(root: &Path, path: &Path, digest: &mut Sha256) -> NorthResult<()>
 }
 
 pub(super) fn catalog_digest() -> NorthResult<String> {
-    let paths = [
-        repo_root("north")?.join("agent-machinery/catalog.json"),
-        operator_catalog_path()?,
-    ];
-    let mut digest = Sha256::new();
-    for path in paths {
-        digest.update(fs::read(path)?);
-    }
-    Ok(format!("sha256:{:x}", digest.finalize()))
+    Ok(format!("sha256:{:x}", Sha256::digest(fs::read(operator_catalog_path()?)?)))
 }
 
 fn repo_revision(repo: &str) -> NorthResult<String> {

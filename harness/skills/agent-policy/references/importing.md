@@ -34,7 +34,7 @@ projections; a copied projection is neither source nor registration.
 
 ## Verify and activate
 
-Run `north config check` and the nearest check for any
+Run `north check harness tree-policy` and the nearest check for any
 executable helper; metadata validation proves shape, not judgment. Land the
 source and consumer revisions first, run `agents sync`, then inspect the
 registered IDs and provider projections. Stop at ambiguous identity or

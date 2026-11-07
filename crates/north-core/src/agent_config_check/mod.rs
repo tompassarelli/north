@@ -8,6 +8,7 @@ mod advisory;
 mod codex;
 mod gate;
 mod help_surface;
+mod portable;
 mod programs;
 mod report;
 mod roots;

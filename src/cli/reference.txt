@@ -64,7 +64,6 @@ Commands:
   config agents routines show NAME [--crons FILE|-]  Show one operator routine
   config agents routines pointer NAME [--crons FILE|-]  Print the pointer to one operator routine
   config agents usage [--refresh [--local]] [--write-pace-gate] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]  Read account usage
-  config check [--package DIR]                 Check the agent-machinery package: catalog shape, units, assets, schemas, contracts and its portable source boundary
   config check guides [--refresh] [--guides DIR]  List the vendored agent-policy guides and fail when one is over 90 days old; --refresh re-fetches them at their upstream head
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
@@ -132,7 +131,7 @@ Commands:
   config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
   check harness policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
-  check harness tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits with no other checkout or live state; the land check for harness/ and agent-machinery/
+  check harness tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits, and each portable: true skill's files against host-specific paths, names and provider directories, with no other checkout or live state; the land check for harness/ and agent-machinery/
   agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring
   test mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]  Run a mutation sweep over the named repositories and file surviving mutants
   test mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease

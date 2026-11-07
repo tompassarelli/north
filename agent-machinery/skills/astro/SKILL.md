@@ -4,6 +4,7 @@ description: >-
   Build, upgrade or debug Astro sites: .astro files, routing, content collections, islands, adapters, deploys.
 grounded: 2026-10-19
 written: 2026-10-19
+portable: true
 ---
 
 # Astro

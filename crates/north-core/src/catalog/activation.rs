@@ -6,77 +6,11 @@ use serde_json::{Map, Value, json};
 use crate::error::{NorthError, NorthResult};
 
 use super::digest::provenance;
-use super::files::{read_current, read_json};
+use super::files::read_current;
 use super::generation::publish;
 use super::paths::owner_path;
 use super::reviews::{check_reviews, skill_metadata};
 use super::{configuration, find_unit_optional, human_title, object_mut, owner, string_field, units, units_mut};
-
-pub(super) fn project_package_registrations(overlays: &Map<String, Value>) -> NorthResult<Map<String, Value>> {
-    let mut catalogs = BTreeSet::new();
-    let mut registrations = Map::new();
-    for overlay in overlays.values() {
-        for distribution in overlay
-            .get("distributions")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if distribution.get("type").and_then(Value::as_str) != Some("projectPackage") {
-                continue;
-            }
-            let catalog_owner = owner(distribution)?.clone();
-            let key = (
-                string_field(&catalog_owner, "repo")?.to_owned(),
-                string_field(&catalog_owner, "path")?.to_owned(),
-            );
-            if !catalogs.insert(key) {
-                continue;
-            }
-            let catalog = read_json(&owner_path(&catalog_owner)?)?;
-            let units = catalog
-                .get("units")
-                .and_then(Value::as_array)
-                .ok_or_else(|| {
-                    NorthError::Configuration("project package units are missing".into())
-                })?;
-            for unit in units {
-                let id = string_field(unit, "id")?;
-                let registration = catalog_registration(unit, &catalog_owner)?;
-                if registrations.insert(id.into(), registration).is_some() {
-                    return configuration(format!(
-                        "unit {id} is registered by multiple project packages"
-                    ));
-                }
-            }
-        }
-    }
-    Ok(registrations)
-}
-
-pub(super) fn catalog_registration(unit: &Value, catalog_owner: &Value) -> NorthResult<Value> {
-    let catalog_path = Path::new(string_field(catalog_owner, "path")?);
-    let base = catalog_path.parent().unwrap_or(Path::new(""));
-    let source = Path::new(string_field(unit, "source")?);
-    if source.is_absolute()
-        || source
-            .components()
-            .any(|component| component.as_os_str() == "..")
-    {
-        return configuration("project package source escapes its repository");
-    }
-    Ok(json!({
-        "kind": string_field(unit, "kind")?,
-        "category": unit.get("category").cloned().unwrap_or(Value::Null),
-        "title": unit.get("title").cloned().unwrap_or(Value::Null),
-        "triggerDescription": unit.get("triggerDescription").cloned().unwrap_or(Value::Null),
-        "members": unit.get("members").cloned().unwrap_or_else(|| json!([])),
-        "owner": {
-            "repo": string_field(catalog_owner, "repo")?,
-            "path": base.join(source).display().to_string(),
-        },
-    }))
-}
 
 pub(super) fn change_permission(id: &str, permission: &str) -> NorthResult<Value> {
     let mut activation = read_current()?;

@@ -4,6 +4,7 @@ description: >-
   TypeScript with Effect: APIs, services, typed errors, schemas, streams; or a host tool that spawns, waits, retries or parses input in a repo using Effect.
 grounded: 2026-10-15
 written: 2026-10-15
+portable: true
 ---
 
 # Effect development

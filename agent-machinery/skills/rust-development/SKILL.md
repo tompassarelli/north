@@ -4,6 +4,7 @@ description: >-
   Develop, review, debug, test or optimize Rust and Cargo code.
 grounded: 2026-10-15
 written: 2026-10-15
+portable: true
 ---
 
 # Rust development

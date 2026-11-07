@@ -4,6 +4,7 @@ description: >-
   Diagnose a non-trivial bug, regression, crash or unexplained behavior, or after two failed fixes; unexplained agent admission, startup, death, liveness or reporting failures.
 grounded: 2026-10-15
 written: 2026-10-15
+portable: true
 ---
 
 # Debugging

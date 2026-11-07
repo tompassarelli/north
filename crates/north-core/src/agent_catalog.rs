@@ -24,8 +24,6 @@ pub mod owner_modules;
 #[cfg(test)]
 #[path = "catalog/owner_modules_tests.rs"]
 mod owner_modules_tests;
-#[path = "catalog/package_check.rs"]
-mod package_check;
 #[path = "catalog/paths.rs"]
 mod paths;
 #[path = "catalog/registration_checks.rs"]
@@ -46,7 +44,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{NorthError, NorthResult};
 
 use activation::{
-    change_permission, ensure_permissions, new_unit, project_package_registrations, rebuild_projection_plan,
+    change_permission, ensure_permissions, new_unit, rebuild_projection_plan,
     recompute_activation, refresh_provenance,
 };
 use digest::catalog_digest;
@@ -185,15 +183,7 @@ fn sync() -> NorthResult<Value> {
             NorthError::Configuration("operator catalog activation is missing".into())
         })?;
 
-    let mut registrations = project_package_registrations(overlays)?;
-    for (id, registration) in operator_registrations {
-        if registrations
-            .insert(id.clone(), registration.clone())
-            .is_some()
-        {
-            return configuration(format!("unit {id} has more than one registration"));
-        }
-    }
+    let mut registrations = operator_registrations.clone();
     let skipped = skip_skills_without_checkout(&mut registrations, |repo| {
         repo_root(repo).map(|root| root.is_dir())
     })?;
@@ -418,14 +408,17 @@ fn usage() -> String {
 }
 
 
-const CONFIG_CHECK_USAGE: &str = "usage: north config check [--package DIR]
-       north config check guides [--refresh] [--guides DIR]";
+const CONFIG_CHECK_USAGE: &str = "usage: north config check guides [--refresh] [--guides DIR]";
 
 pub fn config_check(arguments: &[String]) -> NorthResult<u8> {
     let usage = || NorthError::Usage(CONFIG_CHECK_USAGE.to_owned());
-    let (guides, rest) = match arguments.split_first() {
-        Some((verb, rest)) if verb == "guides" => (true, rest),
-        _ => (false, arguments),
+    let rest = match arguments.split_first() {
+        Some((verb, rest)) if verb == "guides" => rest,
+        Some((flag, _)) if flag == "-h" || flag == "--help" => {
+            println!("{CONFIG_CHECK_USAGE}");
+            return Ok(0);
+        }
+        _ => return Err(usage()),
     };
     let mut refresh = false;
     let mut directory = None;
@@ -436,21 +429,13 @@ pub fn config_check(arguments: &[String]) -> NorthResult<u8> {
                 println!("{CONFIG_CHECK_USAGE}");
                 return Ok(0);
             }
-            "--refresh" if guides => refresh = true,
-            "--guides" if guides => directory = Some(options.next().ok_or_else(usage)?.clone()),
-            "--package" if !guides => directory = Some(options.next().ok_or_else(usage)?.clone()),
+            "--refresh" => refresh = true,
+            "--guides" => directory = Some(options.next().ok_or_else(usage)?.clone()),
             _ => return Err(usage()),
         }
     }
-    let directory = PathBuf::from(directory.unwrap_or_else(|| (if guides { guides::GUIDES_DIR } else { "agent-machinery" }).to_owned()));
-    let outcome = match (guides, refresh) {
-        (false, _) => package_check::check_package(&directory).map(|units| {
-            println!("config check: {units} units");
-            true
-        }),
-        (true, false) => guides::check(&directory),
-        (true, true) => guides::refresh(&directory).map(|()| true),
-    };
+    let directory = PathBuf::from(directory.unwrap_or_else(|| guides::GUIDES_DIR.to_owned()));
+    let outcome = if refresh { guides::refresh(&directory).map(|()| true) } else { guides::check(&directory) };
     match outcome {
         Ok(passed) => Ok(u8::from(!passed)),
         Err(message) => {
