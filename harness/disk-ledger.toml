@@ -150,3 +150,45 @@ name = "system"
 path = "/var"
 kind = "state"
 trim = "journald and the system's own retention"
+
+[[store]]
+name = "home_cargo"
+path = ".cargo"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "home_rustup"
+path = ".rustup"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "home_bun"
+path = ".bun"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "home_wc_ev"
+path = "wc-ev"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "home_w189"
+path = "w189"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "home_scratch"
+path = "scratch"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "home_fl"
+path = "fl"
+kind = "state"
+trim = "none"
