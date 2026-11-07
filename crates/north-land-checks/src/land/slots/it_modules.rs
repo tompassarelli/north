@@ -89,6 +89,7 @@ pub struct Table {
 
 const SPAWNS_NORTH: &str = "CARGO_BIN_EXE_north";
 const NARROW: &str = "narrow:";
+const TREE_WIDE: &str = "tree-wide:";
 const TESTS: &str = "tests/it";
 
 impl Table {
@@ -114,10 +115,14 @@ impl Table {
             if narrow.is_some_and(str::is_empty) {
                 return Err(format!("{TABLE}:{}: {module} has a narrow marker with no reason", index + 1));
             }
+            let tree_wide = comment.trim().strip_prefix(TREE_WIDE).map(str::trim);
+            if tree_wide.is_some_and(str::is_empty) {
+                return Err(format!("{TABLE}:{}: {module} has a tree-wide marker with no reason", index + 1));
+            }
             if narrow.is_some() && !spawners.contains(&module) {
                 return Err(format!("{TABLE}:{}: {module} does not spawn the north binary, so a narrow reason on it means nothing", index + 1));
             }
-            let crates = if spawners.contains(&module) && narrow.is_none() { known.iter().map(|name| (*name).to_owned()).collect() } else { crates };
+            let crates = if tree_wide.is_some() || (spawners.contains(&module) && narrow.is_none()) { known.iter().map(|name| (*name).to_owned()).collect() } else { crates };
             if modules.insert(module.clone(), crates).is_some() {
                 return Err(format!("{TABLE}:{}: {module} is listed twice", index + 1));
             }

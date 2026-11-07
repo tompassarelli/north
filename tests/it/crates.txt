@@ -2,6 +2,7 @@
 # The lander turns a lane's changed files into `--test it -- MODULE::` filters (SAFE_PUSH_LAND_IT): a module runs when one of its crates, or a crate that uses one, changed.
 # `north` marks a module that reads repo files outside crates/: a docs/ change selects it. Any other change outside crates/ runs every module.
 # A module whose tests spawn the north binary (CARGO_BIN_EXE_north) runs for a change to any crate, since the binary links them all; a trailing `# narrow: REASON` keeps only the crates named.
+# A module whose tests read the whole tree (every source file, not only what it imports) carries a trailing `# tree-wide: REASON` and runs for every lane, whatever it changes.
 # One line per module, merged as a set.
 agents_plan north-ops north-pace
 automation_chrome_service north
@@ -30,8 +31,8 @@ follows_release north-landing-gates north-threads
 policy_replay_case north-convo
 policy_replay_login north-convo
 threads_resume north-core north-threads
-agent_text_reads north
-affected_modules north-landing north north-land-checks north-lander
+agent_text_reads north # tree-wide: counts agent-text reads in every Rust source under src/ and crates/
+affected_modules north-landing north north-land-checks north-lander # tree-wide: reads every tests/it module and every crate the crate DAG names
 embedded_store_paths north north-base north-calibration north-claude-stream north-fleet north-guard north-lanes north-ops north-pace north-providers north-safe-push north-threads north-tune
 golden_path north-fleet north-landing north-land-checks north-lander
 land_after_set north-landing north north-land-checks north-lander

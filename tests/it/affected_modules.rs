@@ -66,3 +66,16 @@ fn a_module_that_spawns_the_north_binary_runs_for_any_crate_change_unless_its_li
 fn spawners_of_tree() -> BTreeSet<String> {
     spawners(Path::new(env!("CARGO_MANIFEST_DIR")))
 }
+
+// KEEP(bug): f0e87b7c09 changed only north-dispatch, so the land check skipped agent_text_reads, which scans every source file, and the lane landed with main red until CI caught it (north#706)
+#[test]
+fn a_tree_wide_module_runs_for_a_lane_that_changes_any_crate() {
+    let files = ["crates/north-dispatch/src/dispatch/stops.rs".to_owned(), "crates/north-dispatch/src/dispatch/tries.rs".to_owned()];
+    let selection = select(&read(STRUCTURE), &read(TABLE), &spawners_of_tree(), &files).unwrap();
+    let runs = |module: &str| match &selection {
+        Selection::Every => true,
+        Selection::Modules(modules) => modules.contains(module),
+    };
+    assert!(runs("agent_text_reads") && runs("affected_modules"), "a replay of f0e87b7c09 selects the tree-wide modules: {selection:?}");
+    assert!(select(&read(STRUCTURE), "plain north-strategy-types # tree-wide:\n", &BTreeSet::new(), &files).is_err(), "a tree-wide marker needs a reason");
+}
