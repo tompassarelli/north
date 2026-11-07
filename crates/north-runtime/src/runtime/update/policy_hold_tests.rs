@@ -40,3 +40,9 @@ fn an_unpublished_generation_keeps_the_code_runtime_and_notifies_the_proxy_once_
     assert!(settle(&layout, Some(&previous), &new, unhealthy, &mut |text: &str| notices.push(text.to_owned())).is_err());
     assert_eq!(fs::read_link(layout.current()).unwrap(), previous, "a failed health check still rolls the code back");
 }
+
+#[test]
+fn a_held_generation_names_the_gates_refusal_not_only_that_the_gate_refused() {
+    let logged = "session start 4100 tokens\nskills/shared/github/SKILL.md description is 1030 bytes, 6 over its 1024-byte cap\nagents sync: generation not published; the last published generation stays live\n";
+    assert_eq!(super::sync::held_cause(logged), "skills/shared/github/SKILL.md description is 1030 bytes, 6 over its 1024-byte cap");
+}

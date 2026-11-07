@@ -30,44 +30,11 @@ struct LandCache {
 struct State {
     #[serde(default)]
     checks: BTreeMap<String, Episode>,
-    runtime_mismatch_since: Option<u64>,
     land: Option<LandCache>,
     #[serde(default)]
     breaches: Breaches,
     #[serde(default)]
     issues: Breaches,
-}
-
-struct RuntimeInput {
-    now: u64,
-    current: Output,
-    expected: Output,
-    fetched: bool,
-}
-
-fn runtime(input: RuntimeInput, state: &mut State) -> Verdict {
-    let current = input.current?;
-    let expected = input.expected?;
-    let expected = expected.trim();
-    if expected.len() != 40 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("origin/main did not resolve to a full SHA".into());
-    }
-    if current.trim().ends_with(expected) {
-        state.runtime_mismatch_since = None;
-        return Ok(());
-    }
-    let since = *state.runtime_mismatch_since.get_or_insert(input.now);
-    if input.now.saturating_sub(since) < 15 * 60 {
-        return Ok(());
-    }
-    Err(format!(
-        "current runtime differs from origin/main {expected} for at least 15 minutes{}",
-        if input.fetched {
-            ""
-        } else {
-            " (fetch failed; using last fetched ref)"
-        }
-    ))
 }
 
 fn timestamp(text: &str) -> Option<f64> {
@@ -105,19 +72,6 @@ fn pace(input: FreshnessInput) -> Verdict {
 
 fn usage(input: FreshnessInput) -> Verdict {
     fresh(input.now, timestamp(&input.text?), 10 * 60)
-}
-
-/// A mirrored host's snapshot pull fails loudly here, since its readers see only an empty or stale ledger, and so
-/// does a snapshot older than two pull intervals, whose pulls end before they finish.
-fn snapshot_pull(snapshot: &Path, now: u64) -> Verdict {
-    if let Some(why) = crate::threads::snapshot::last_failure(snapshot) {
-        return Err(format!("the ledger snapshot pull failed: {why}"));
-    }
-    let Ok(written) = fs::metadata(snapshot).and_then(|meta| meta.modified()) else { return Ok(()) };
-    let written = written.duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    let limit = 2 * crate::threads::snapshot::SNAPSHOT_SECONDS;
-    let age = now.saturating_sub(written);
-    if age >= limit { Err(format!("the ledger snapshot was last written {} min ago; expected under {} min", age / 60, limit / 60)) } else { Ok(()) }
 }
 
 fn timer_names(config: &str) -> Result<Vec<String>, String> {
@@ -347,24 +301,18 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
         Err(e) => return Err(e.to_string()),
     };
     let repo = home.join("code/north/main");
-    let fetched = command("git", &["fetch", "-q", "origin"], Some(&repo), 20).is_ok();
-    let current = fs::read_link(home.join(".local/state/north/current"))
-        .map(|p| p.to_string_lossy().into_owned())
-        .map_err(|e| format!("current runtime: {e}"));
-    let expected = command("git", &["rev-parse", "origin/main"], Some(&repo), 5);
-    let mut results: Vec<(String, Verdict)> = vec![
-        (
-            "runtime".into(),
-            runtime(
-                RuntimeInput {
-                    now,
-                    current,
-                    expected,
-                    fetched,
-                },
-                &mut state,
-            ),
-        ),
+    if let Err(why) = command("git", &["fetch", "-q", "origin"], Some(&repo), 20) {
+        println!("health: origin/main not fetched, landing judged on the last fetched ref: {why}");
+    }
+    let world = flows::probe::world(&home, &repo, now as f64);
+    let mut ages = BTreeMap::new();
+    let mut results: Vec<(String, Verdict)> = Vec::new();
+    for flow in world.judge() {
+        let check = format!("flow {}", flow.name);
+        ages.insert(check.clone(), flow.age_s.map_or_else(|| "no time recorded".to_owned(), flows::minutes));
+        results.push((check, flow.verdict));
+    }
+    results.extend([
         (
             "pace".into(),
             pace(FreshnessInput {
@@ -379,8 +327,7 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
                 text: newest_usage(&home.join(".local/state/threads/snapshot.db")),
             }),
         ),
-        ("snapshot".into(), snapshot_pull(&home.join(".local/state/threads/snapshot.db"), now)),
-    ];
+    ]);
     let config = read(&home.join("code/nixos-config/main/hosts/whiterabbit/configuration.nix"));
     let names = config
         .as_ref()
@@ -458,10 +405,8 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
     let breaching = results.iter().filter(|(_, result)| result.is_err()).map(|(check, _)| check.clone()).collect();
     let confirmed = state.breaches.tick(&breaching);
     for (check, result) in &results {
-        println!(
-            "health: {check}: {}",
-            result.as_ref().err().map_or("ok", String::as_str)
-        );
+        let age = ages.get(check).map_or_else(String::new, |age: &String| format!(" (age {age})"));
+        println!("health: {check}{age}: {}", result.as_ref().err().map_or("ok", String::as_str));
         if let Some(line) = transition(&mut state, check, result, confirmed.contains(check), now) {
             alerts.push((check.clone(), line));
         }
@@ -505,8 +450,9 @@ pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> 
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
+        [verb] if verb == "facts" => return facts(),
         _ => {
-            eprintln!("Usage: north health [--dry-run]");
+            eprintln!("Usage: north health [--dry-run] | facts");
             return ExitCode::from(1);
         }
     };
@@ -520,7 +466,25 @@ pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> 
     }
 }
 
+fn facts() -> ExitCode {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        eprintln!("health: HOME missing");
+        return ExitCode::from(1);
+    };
+    match serde_json::to_string(&flows::facts::gather(&home)) {
+        Ok(text) => {
+            println!("{text}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("health: facts: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 mod failed_starts;
+pub mod flows;
 mod issues;
 pub mod loops;
 mod main_red;

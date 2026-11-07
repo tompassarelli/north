@@ -31,6 +31,7 @@ mod hotspots;
 mod issues;
 mod manual;
 mod nearest;
+mod pause;
 pub mod measure;
 mod plan;
 mod projects;
@@ -69,7 +70,7 @@ mod tries_tests;
 #[cfg(test)]
 mod spread_tests;
 
-const USAGE: &str = "usage: north dispatch [--dry-run] | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north dispatch [--dry-run] | pause --reason TEXT | resume | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -271,11 +272,17 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         [] => false,
         [flag] if flag == "--dry-run" => true,
         [verb, rest @ ..] if verb == "route-replay" => return nearest::replay(rest),
+        [verb, rest @ ..] if verb == "pause" => return pause::pause(rest),
+        [verb] if verb == "resume" => return pause::resume(),
         _ => {
             eprintln!("{USAGE}");
             return 2;
         }
     };
+    if !dry_run && let Some(reason) = pause::standing() {
+        println!("north dispatch: paused on this host, launching nothing: {reason}; `north dispatch resume` ends the pause");
+        return 0;
+    }
     let survey = match roster().map_err(|error| error.to_string()).and_then(|roster| survey::survey(&roster)) {
         Ok(survey) => survey,
         Err(why) => {

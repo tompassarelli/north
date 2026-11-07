@@ -30,7 +30,7 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
 - `north-providers`: `providers`, `codex` and `ledger`, the provider adapters and the run ledger they write.
   Depends on `north-base`, `north-pace`, `north-threads` and `north-fleet`. `north-guard`, `north-ops`,
   `north-dispatch`, `north-runtime`, `north-tui` and the root package import `ledger` and `providers` from it.
-- `north-health`: `health`, the `north health` checks. Depends on `north-base` and `north-threads`;
+- `north-health`: `health`, the `north health` checks. Depends on `north-base`, `north-pace` (for the launchable profiles its hooks flow reads) and `north-threads`;
   `north-ops` (for `health::loops`) and the root package import it.
 - `north-tui`: `tui`, the fleet terminal screen. Depends on `north-providers`; nothing below it uses it,
   so a screen edit rebuilds `north-tui` and the root package while `north-providers` stays cached.

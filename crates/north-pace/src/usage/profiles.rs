@@ -55,6 +55,27 @@ fn launchable(cfg: &Value, host: &str) -> Vec<(String, PathBuf)> {
     planned.chain(keyed).collect()
 }
 
+/// Each config directory a launch on `host` runs in whose settings.json registers no hooks, with why: a session started
+/// there runs without the harness's guards.
+pub fn unhooked(cfg: &Value, host: &str, home: &Path) -> Vec<String> {
+    let default = ("default".to_owned(), home.join(".claude"));
+    std::iter::once(default)
+        .chain(launchable(cfg, host))
+        .filter_map(|(label, directory)| {
+            let settings = directory.join("settings.json");
+            let why = match fs::read_to_string(&settings) {
+                Err(error) => format!("{}: {error}", settings.display()),
+                Ok(text) => match serde_json::from_str::<Value>(&text) {
+                    Err(error) => format!("{} is not JSON: {error}", settings.display()),
+                    Ok(data) if data["hooks"].as_object().is_some_and(|hooks| !hooks.is_empty()) => return None,
+                    Ok(_) => format!("{} registers no hooks", settings.display()),
+                },
+            };
+            Some(format!("{label}: {why}"))
+        })
+        .collect()
+}
+
 pub fn label_of(cfg: &Value, uuid: &str) -> Option<String> {
     cfg["accounts"]["claude"]["labels"][short_hash(uuid)].as_str().map(str::to_owned)
 }

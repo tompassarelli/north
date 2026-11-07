@@ -1,5 +1,6 @@
 pub mod agents_sync;
 pub mod autoland_status;
+pub mod dispatch_pause;
 pub mod build_inputs;
 pub mod error;
 pub mod foundation;

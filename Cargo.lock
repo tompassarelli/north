@@ -1214,11 +1214,13 @@ name = "north-health"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-pace",
  "north-threads",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
+ "toml_edit",
 ]
 
 [[package]]

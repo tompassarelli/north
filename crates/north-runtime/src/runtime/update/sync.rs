@@ -3,7 +3,7 @@ use super::super::failure::{Failure, code, failed};
 use super::super::layout::{self, Layout};
 use super::super::live;
 use super::super::remote;
-use north_base::agents_sync::POLICY_HELD;
+use north_base::agents_sync::{POLICY_HELD, UNPUBLISHED};
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -13,7 +13,6 @@ use std::time::Duration;
 const STEP_LIMIT: Duration = Duration::from_secs(300);
 const LOG_TAIL: usize = 8;
 const AGENTS_SYNC: &str = "agents sync";
-const UNPUBLISHED: &str = "agents-sync-unpublished";
 
 pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
     if fs::read_link(layout.current()).is_ok_and(|current| current == link) {
@@ -117,11 +116,7 @@ fn publication_notice(layout: &Layout, target: &str, unpublished: Option<(u8, &s
         return;
     };
     let cause = match status {
-        POLICY_HELD => logged
-            .lines()
-            .find(|line| line.starts_with("agents sync: ") && !line.contains("generation not published"))
-            .unwrap_or("agents sync: the policy gate refused the generation")
-            .to_owned(),
+        POLICY_HELD => held_cause(logged),
         _ => format!("agents sync exited {status}: {}", log_tail(logged).last().map_or("it printed nothing", String::as_str)),
     };
     if fs::read_to_string(&record).is_ok_and(|seen| seen == cause) {
@@ -133,6 +128,18 @@ fn publication_notice(layout: &Layout, target: &str, unpublished: Option<(u8, &s
         POLICY_HELD => notify(&format!("runtime {short} is live; the policy generation is held and the last published one stays live: {cause}")),
         _ => notify(&format!("runtime {short} is live; the harness generation is not published and the last published one stays live until agents sync passes on a later runtime update tick: {cause}")),
     }
+}
+
+/// Why the policy gate held the generation: its own `agents sync:` cause, else the gate's refusal printed just before
+/// the not-published line.
+pub(super) fn held_cause(logged: &str) -> String {
+    let lines: Vec<&str> = logged.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    let unpublished = lines.iter().position(|line| line.contains("generation not published"));
+    lines
+        .iter()
+        .find(|line| line.starts_with("agents sync: ") && !line.contains("generation not published"))
+        .or_else(|| lines[..unpublished?].last())
+        .map_or_else(|| "agents sync: the policy gate refused the generation".to_owned(), |line| crate::foundation::redact::redact(line))
 }
 
 fn log_tail(logged: &str) -> Vec<String> {
