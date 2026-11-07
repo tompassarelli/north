@@ -1316,6 +1316,14 @@ source = "measured: safe-push stages.tsv, 2026-10-30 to 2026-11-07, n=1835 land 
 fallback = "none: the watch always applies it"
 consumers = ["crates/north-landing/src/watch/landing.rs"]
 
+[landing_watch_queued_seconds]
+value = 600
+allowed = { min = 1, max = 604800 }
+unit = "seconds an Actions run must have waited in the queue before the GitHub watch raises its queued-run alarm"
+source = "measured: tompassarelli/north Actions runs, newest 300 read with one gh api call on 2026-11-07 (115 Cargo, Canary and Harness push runs): 114 started in 0 s and one waited 420 s; the watch's own alarms that day fired five times on Cargo or Canary runs queued 122 to 244 s and each cleared within 2 min by itself, so 120 s sits inside GitHub's normal runner queue; 600 s clears the longest queue seen (420 s) and still alarms on a stuck runner (north#816)"
+fallback = "none: the watch always applies it"
+consumers = ["crates/north-landing/src/watch/github.rs"]
+
 [land_check_budget_nextest_seconds]
 value = 100
 allowed = { min = 1, max = 3600 }

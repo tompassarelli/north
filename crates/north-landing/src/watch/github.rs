@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 
+use north_base::platform::harness::default_number;
+
 use super::facts::{RepoFacts, Run};
 use super::landing::recent_land_check_failures;
 use super::{Alert, Severity, WatchContext};
 
-const QUEUED_SECONDS: u64 = 120;
+const QUEUED_FLOOR: &str = "landing_watch_queued_seconds";
 const AUTOLAND_FAILURE_WINDOW: u64 = 1800;
 const AUTOLAND_IDLE_SECONDS: u64 = 600;
 const FAILED: [&str; 3] = ["failure", "timed_out", "startup_failure"];
@@ -68,10 +70,11 @@ fn red_main(context: &WatchContext, repo: &RepoFacts) -> Vec<Alert> {
 }
 
 fn queued(context: &WatchContext, repo: &RepoFacts) -> Option<Alert> {
-    let waiting: Vec<(u64, &Run)> = repo.runs.iter().filter(|run| matches!(run.status.as_str(), "queued" | "waiting" | "pending" | "requested")).filter_map(|run| Some((at(&run.created_at)?, run))).filter(|(created, _)| context.now.saturating_sub(*created) > QUEUED_SECONDS).collect();
+    let limit = default_number(QUEUED_FLOOR) as u64;
+    let waiting: Vec<(u64, &Run)> = repo.runs.iter().filter(|run| matches!(run.status.as_str(), "queued" | "waiting" | "pending" | "requested")).filter_map(|run| Some((at(&run.created_at)?, run))).filter(|(created, _)| context.now.saturating_sub(*created) > limit).collect();
     let (created, oldest) = waiting.iter().min_by_key(|(created, _)| *created)?;
-    let summary = format!("{}: {} Actions run(s) queued over {QUEUED_SECONDS} s, oldest {} s ({} on {})", repo.name, waiting.len(), context.now - created, oldest.name, oldest.head_branch);
-    Some(raise(repo, "queued", Severity::Warn, None, summary, created + QUEUED_SECONDS))
+    let summary = format!("{}: {} Actions run(s) queued over {limit} s, oldest {} s ({} on {})", repo.name, waiting.len(), context.now - created, oldest.name, oldest.head_branch);
+    Some(raise(repo, "queued", Severity::Warn, None, summary, created + limit))
 }
 
 fn autoland(context: &WatchContext, repo: &RepoFacts) -> Vec<Alert> {
@@ -96,3 +99,7 @@ fn autoland(context: &WatchContext, repo: &RepoFacts) -> Vec<Alert> {
     }
     alerts
 }
+
+#[cfg(test)]
+#[path = "github_tests.rs"]
+mod tests;
