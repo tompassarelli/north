@@ -31,12 +31,11 @@ fn waiting_entry(gate: &Gate, now_ms: u64) -> String {
         (None, _) => format!("the asking session {}'s question", gate.request.session),
     };
     format!(
-        "- gate {} ({}, open {hours} h): {}\n  Recommended: {recommended}\n  Alternatives: {}\n  Holds: {holds}\n  Answer: north gate answer {} N\n",
+        "- gate {} ({}, open {hours} h): {}\n  Recommended: {recommended}\n  Alternatives: {}\n  Holds: {holds}\n  Answer: by telling the proxy\n",
         gate.id,
         gate.request.session,
         one_line(&gate.request.question),
-        alternatives.join("; "),
-        gate.id
+        alternatives.join("; ")
     )
 }
 

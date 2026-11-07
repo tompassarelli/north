@@ -1,5 +1,6 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::ask_once;
+use crate::foundation::clock::Timestamp;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GateRequest {
@@ -182,21 +183,44 @@ pub fn settle(book: &dyn GateBook, id: i64, decision: Decision, now_ms: u64, del
 pub struct Authority<'a> {
     pub caller: Option<&'a str>,
     pub parent: Option<&'a str>,
+    pub typed: Option<&'a TypedTurn>,
+}
+
+/// The message Tom typed that opened a proxy's current turn: its conversation and when he sent it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypedTurn {
+    pub conversation: String,
+    pub at_ms: u64,
 }
 
 impl Authority<'_> {
     pub fn admit(&self) -> NorthResult<()> {
-        if self.caller.is_some() && self.caller != self.parent {
-            return Err(NorthError::Rejected("only Tom or the gate session's parent may answer".into()));
+        self.answerer(None).map(drop)
+    }
+
+    /// Who an answer to a gate opened at `opened_ms` is recorded as, with the note saying how it reached the gate:
+    /// Tom from his own shell, Tom relayed by a proxy whose turn he opened by typing after the gate opened, else the
+    /// gate session's parent.
+    fn answerer(&self, opened_ms: Option<u64>) -> NorthResult<(Answerer, Option<String>)> {
+        let Some(caller) = self.caller else { return Ok((Answerer::Tom, None)) };
+        if let (Some(typed), Some(opened_ms)) = (self.typed, opened_ms)
+            && typed.at_ms > opened_ms
+        {
+            let at = Timestamp::from_unix_millis(i64::try_from(typed.at_ms).unwrap_or(i64::MAX)).iso();
+            return Ok((Answerer::Tom, Some(format!("relayed by {caller} from Tom's message in conversation {} at {at}", typed.conversation))));
         }
-        Ok(())
+        if self.parent == Some(caller) {
+            return Ok((Answerer::Session(caller.to_owned()), None));
+        }
+        Err(NorthError::Rejected("only Tom, the gate session's parent, or a proxy whose current turn Tom opened by typing after the gate opened may answer".into()))
     }
 }
 
 pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&str>, authority: Authority<'_>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
-    authority.admit()?;
-    let by = authority.caller.map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
-    settle_as(book, id, Decision::Option(number), by, note, now_ms, deliver)
+    let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
+    let (by, relayed) = authority.answerer(Some(gate.opened_ms))?;
+    let note = [relayed.as_deref(), note].into_iter().flatten().collect::<Vec<_>>().join("\n");
+    settle_as(book, id, Decision::Option(number), by, Some(&note), now_ms, deliver)
 }
 
 /// One of Tom's own typed turns, as the convo store holds it, offered as the evidence for an answer a session relays.

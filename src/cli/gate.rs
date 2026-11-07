@@ -58,7 +58,8 @@ fn answer(fleet: &Fleet, id: &str, number: &str, flags: &[&str]) -> NorthResult<
     if session.is_some() {
         return Err(usage());
     }
-    let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number, note, caller.as_deref());
+    let typed = super::fleet::proxy_turn(fleet, caller.as_deref());
+    let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number, note, caller.as_deref(), typed.as_ref());
     let closure = match result {
         Err(error @ NorthError::GateAnswered { .. }) => { println!("{}", error.user_message()); return Ok(()); }
         result => result?,

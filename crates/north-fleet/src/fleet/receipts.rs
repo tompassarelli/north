@@ -147,10 +147,10 @@ fn gate_line(gate: &Gate, now_ms: u64) -> String {
     let option = |number: usize| gate.option(number).unwrap_or_default();
     let request = &gate.request;
     let Some(at) = gate.default_at_ms() else {
-        return format!("[gate {} is open: recommends {} ({}); it has no default and waits for Tom's answer, given with `north gate answer {} N`]", gate.id, request.recommend, option(request.recommend), gate.id);
+        return format!("[gate {} is open: recommends {} ({}); it has no default and waits for Tom, who answers by telling the proxy]", gate.id, request.recommend, option(request.recommend));
     };
     let left = at.saturating_sub(now_ms) / 60_000;
-    format!("[gate {} is open: recommends {} ({}); defaults to {} ({}) in {left}m unless answered with `north gate answer {} N`]", gate.id, request.recommend, option(request.recommend), request.default, option(request.default), gate.id)
+    format!("[gate {} is open: recommends {} ({}); defaults to {} ({}) in {left}m unless Tom answers by telling the proxy]", gate.id, request.recommend, option(request.recommend), request.default, option(request.default))
 }
 
 pub struct HostDeath<'a> {

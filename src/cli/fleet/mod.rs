@@ -15,6 +15,7 @@ pub(super) mod one_proxy;
 mod list;
 mod placement;
 mod ranked;
+mod typed;
 mod proxy;
 mod rebooted;
 mod relaunch;
@@ -37,6 +38,7 @@ mod waits;
 pub(super) use placement::fleet_load;
 pub(super) use proxy::run as proxy;
 pub(super) use router::{account_home, host_watch, open_fleet, roster, run};
+pub(super) use typed::proxy_turn;
 pub(super) use view::Registry;
 #[cfg(test)]
 pub(super) use row::{admitted_exchange, admitted_put, entered};

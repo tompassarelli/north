@@ -43,7 +43,7 @@ impl Fleet {
         if held.host != host {
             return Err(NorthError::Usage(format!("{session} runs on {}, not {host}", held.host)));
         }
-        gates::Authority { caller, parent: held.parent.as_deref() }.admit()?;
+        gates::Authority { caller, parent: held.parent.as_deref(), typed: None }.admit()?;
         let row = self.spool_gate_answer(session, id, number, note, caller)?;
         Ok(format!("gate {label}: answer {number} spooled as {} for {session}'s host to apply", row.id))
     }
@@ -115,7 +115,7 @@ impl Fleet {
         if asked.request.session != row.to {
             return Err(NorthError::Usage(format!("gate {gate} belongs to {}, not {}", asked.request.session, row.to)));
         }
-        self.answer_gate_with(gate, number, note, row.sender.session(), deliver).map(drop)
+        self.answer_gate_with(gate, number, note, row.sender.session(), None, deliver).map(drop)
     }
 
     pub(super) fn answer_session(&self, session: &str, text: &str) -> NorthResult<()> {
@@ -188,7 +188,7 @@ mod tests {
         let journal = laptop.root.join("worker/delivered");
         std::fs::write(&journal, "in the way").unwrap();
 
-        laptop.answer_gate(id, 1, None, None).unwrap();
+        laptop.answer_gate(id, 1, None, None, None).unwrap();
 
         assert!(laptop.gate(id).unwrap().unwrap().closure.is_some());
         assert!(worker.frames.lock().unwrap().is_empty());

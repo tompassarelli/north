@@ -31,17 +31,17 @@ impl Fleet {
         settle(self.ledger.as_ref(), id, decision, now_ms(), |session, text| self.answer_session(session, text))
     }
 
-    pub fn answer_gate(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<Closure> {
-        self.answer_gate_with(id, number, note, caller, |session, text| self.answer_session(session, text))
+    pub fn answer_gate(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>, typed: Option<&gates::TypedTurn>) -> NorthResult<Closure> {
+        self.answer_gate_with(id, number, note, caller, typed, |session, text| self.answer_session(session, text))
     }
 
-    pub(super) fn answer_gate_with(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    pub(super) fn answer_gate_with(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>, typed: Option<&gates::TypedTurn>, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
         let gate = self.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
         if gate.closure.is_some() {
             return settle(self.ledger.as_ref(), id, Decision::Option(number), now_ms(), deliver);
         }
         let asker = self.record(&gate.request.session)?;
-        gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), deliver)
+        gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref(), typed }, now_ms(), deliver)
     }
 
     pub fn relay_gate(&self, id: i64, number: usize, turn: &gates::TomTurn, relayer: &str) -> NorthResult<Closure> {
