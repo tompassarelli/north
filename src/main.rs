@@ -18,6 +18,7 @@ use north_tui::tui;
 use north_ops::ops;
 use north_runtime::{agent_contain, build_offload, land_offload, laptop_ntfy, laptop_runner, offload_cache, privacy, runtime, runtime_access, timers};
 use north_dispatch::{dispatch, laptop, loops, pacing, resident_cap, spend, tune};
+use north_flow::{agents, experiments, flow, tempo, tool_mine};
 
 static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
     run_time_data::Consumer { path: "harness/defaults.toml", validate: router::policy::validate_defaults },

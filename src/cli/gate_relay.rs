@@ -5,7 +5,7 @@ use crate::fleet::gates::TomTurn;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::ledger::outcome::read::Places;
-use crate::ops::flow::typed::typed_messages;
+use crate::flow::typed::typed_messages;
 
 pub(super) fn relay(fleet: &Fleet, id: i64, number: usize, turn: i64) -> NorthResult<String> {
     let relayer = fleet.answerer().ok_or_else(|| NorthError::Refused("--relayed-from-turn is for a fleet session relaying Tom's answer; Tom answers a gate directly".into()))?;

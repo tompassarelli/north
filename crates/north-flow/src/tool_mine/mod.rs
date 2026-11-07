@@ -8,8 +8,8 @@ use std::time::Instant;
 use serde::Deserialize;
 
 use crate::foundation::clock::Timestamp;
-use crate::ops::detectors::{Detector, Filer, Spend, record};
-use crate::ops::flow::{Machine, Places};
+use crate::detectors::{Detector, Filer, Spend, record};
+use crate::flow::{Machine, Places};
 
 use sequence::{Limits, Session, recurring};
 

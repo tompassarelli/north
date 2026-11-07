@@ -12,7 +12,7 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 
 use crate::foundation::clock::Timestamp;
-use crate::ops::flow::Places;
+use crate::flow::Places;
 use crate::threads::landing::tempo::percentiles;
 
 const USAGE: &str = "usage: north ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]";

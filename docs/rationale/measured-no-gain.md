@@ -31,8 +31,8 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   excluded zero, so routing stayed as it was ([feedback-loop.md](../feedback-loop.md#similar-task-retrieval-keep-current-routing-2026-10-15)).
   The learned routing backtest found no durable gain on 2026-10-12, and the script holding both replays was
   deleted on 2026-10-30 (cbe96542f), so the sentence saying the broad replay's CLI and arms are preserved is wrong.
-- Live code: `crates/north-ops/src/ops/flow/notes.rs:9-18` and `:28-55` (`brief_coverage`),
-  `crates/north-ops/src/ops/flow/mod.rs:93-94`, and its test at `crates/north-ops/src/ops/flow/tests.rs:87-106`.
+- Live code: `crates/north-flow/src/flow/notes.rs:9-18` and `:28-55` (`brief_coverage`),
+  `crates/north-flow/src/flow/mod.rs:93-94`, and its test at `crates/north-flow/src/flow/tests.rs:87-106`.
   `announce` prints `tagged finished worker briefs N/300 retrieval trigger; backtest requires >500` on every
   `north ledger flow` and `agents flow` run, including the 5-minute `agents-flow-stall` timer (nixos-config
   `modules/agents-flow-stall/default.nix`, enabled on whiterabbit). The trigger points at a replay that no longer
@@ -177,7 +177,7 @@ service (`modules/nexus-laptop-ntfy`). The rest ran by hand: `agents` [138], `op
 Unconditional deletions total about 2,114 lines (boxes 1 to 4, 7 and 8); box 6 adds about 220 if the handoff
 arm loses. Each box is at most 45 minutes, lands alone through safe-push, and leaves the Rust land checks green.
 
-1. Retrieval trigger. Delete `brief_coverage` and its constants and test from `crates/north-ops/src/ops/flow/`,
+1. Retrieval trigger. Delete `brief_coverage` and its constants and test from `crates/north-flow/src/flow/`,
    the `retrieval trigger` line from `announce`, and the "CLI and arms are preserved" sentence from
    feedback-loop.md. Done when: `rg -n 'retrieval trigger|brief_coverage' crates docs/feedback-loop.md` prints
    nothing on origin/main.

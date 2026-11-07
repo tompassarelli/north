@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use super::slow_test::PROFILE_MARK;
 use super::tick;
-use crate::ops::flow::{Host, Places};
+use crate::flow::{Host, Places};
 
 const STRACE: &str = "% time     seconds  usecs/call     calls    errors syscall\n------ ----------- ----------- --------- --------- ------------------\n 99.90   16.000500    16000500         1           clock_nanosleep\n  0.10    0.016000           3      3200           read\n------ ----------- ----------- --------- --------- ------------------\n100.00   16.016500                  3201           total\n";
 

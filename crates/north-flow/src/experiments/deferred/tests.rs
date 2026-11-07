@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::path::Path;
 
 use super::*;
-use crate::ops::flow::boxes::{Standing, standing};
+use crate::flow::boxes::{Standing, standing};
 
 const BODY: &str = "Class: tooling\n\nDone when:\n- [x] The code landed (abc1234)\n- [ ] `journalctl --user -u fleet-tick.service` shows no start timeout for a day after it lands.\n- [ ] Another box that is still work\n";
 

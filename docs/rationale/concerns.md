@@ -118,7 +118,7 @@ The doctor reads these lines from the registry at start and judges each subject 
 
 ### Flow alerts
 
-Each `north flow --stall-alarm` alert becomes a floor with `producer = "north flow"`, `host = "here"` and `reads = "live"`. The repository alerts read the row `north flow` already writes per repository each run (`agents/flow/REPO.json`, crates/north-ops/src/ops/flow/measure.rs); the flow run records each concern's count, worst across repositories, with one detail line per lane, host or category:
+Each `north flow --stall-alarm` alert becomes a floor with `producer = "north flow"`, `host = "here"` and `reads = "live"`. The repository alerts read the row `north flow` already writes per repository each run (`agents/flow/REPO.json`, crates/north-flow/src/flow/measure.rs); the flow run records each concern's count, worst across repositories, with one detail line per lane, host or category:
 
 - the stall notice (main idle and lanes waiting past the adaptive limit, or a landing job past twice its median) → `landing-stalled`, 0, `tell`;
 - the capacity guards `actions`, `wisp` and `reuse` ("Underused capacity") → `capacity-underused`, 0, `tell`;
@@ -129,7 +129,7 @@ Each `north flow --stall-alarm` alert becomes a floor with `producer = "north fl
 - tier routing that keeps alternating with full arms → `routing-alternating`, 0, `page`, keeping today's `supply-alert` push;
 - host saturation → `capacity-queued` (machine-capacity admission queue at most 3 for 10 minutes) and `build-disk-free` (GiB free on each policy host, its line starting at today's `build_disk_free_gib`), `tell`. It stays apart from `lander-disk-free`: one is GiB on build hosts, the other a share on lander places.
 
-The measuring functions stay (`stall::verdict`, `stranded::rows`, `refused::rows`, `routing::stalls`, `sampler::failing`, `capacity::saturation`). Deleted: the episode and delivery machinery in crates/north-ops/src/ops/flow/alerts.rs (`Record`, `State`, `alert_plan`, `episode_actions`, `deliver`, `stall_alert`), `sampler_plan` and `sampler_alert`, `routing_plan`, `routing_alert` and `alert`, `saturation_plan` and `saturation_alert`, their state files `stalls.json`, `saturation.json`, `sampler.json`, `routing.json` and `stalls.lock`, and `rolling_issue::Breaches` if nothing else uses it.
+The measuring functions stay (`stall::verdict`, `stranded::rows`, `refused::rows`, `routing::stalls`, `sampler::failing`, `capacity::saturation`). Deleted: the episode and delivery machinery in crates/north-flow/src/flow/alerts.rs (`Record`, `State`, `alert_plan`, `episode_actions`, `deliver`, `stall_alert`), `sampler_plan` and `sampler_alert`, `routing_plan`, `routing_alert` and `alert`, `saturation_plan` and `saturation_alert`, their state files `stalls.json`, `saturation.json`, `sampler.json`, `routing.json` and `stalls.lock`, and `rolling_issue::Breaches` if nothing else uses it.
 
 One announcer replaces them: each sampler tells on a state change by posture, once per episode, keyed on the concern and a digest of its detail lines (a newly stranded lane is a new episode, as it is today), and again every 6 hours while red, keeping the episode in its state file. The repository's Fleet parent stops getting its copy; the proxy routes, which is its role (docs/rationale/proxy-role.md). `--stall-alarm` keeps running `north ci-diagnose`, `north red-main-notify` and `north experiments judge`, which are not threshold alarms. The recurrence tick in src/cli/fleet/waits.rs reuses only the announcer and moves to the posture announcer with the rest.
 

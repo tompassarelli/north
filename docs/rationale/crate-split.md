@@ -130,6 +130,16 @@ About 11 s of the 17.9 s is shipping the bundle and entering the dev shell. Part
 `cargo nextest archive` over gex45 and ccx33 would split a 5 s test run and pay that shipping
 twice, so it was not built.
 
+## north-flow and north-convo (2026-11-07)
+
+north-ops was 25768 non-test lines against its 25000 cap (north#743). Reading each module's `ops::`, `super::` and
+`crate::` paths showed two clusters nothing left in the crate reaches. `flow` and `detectors` name each other, and
+`agents`, `experiments`, `tempo` and `tool_mine` reach `flow`, so those six left together as `north-flow`
+(`north split move-module --from north-ops`), taking north-ops to 18652 lines. `north-flow` re-exports north-ops'
+modules, so the `crate::ops::flow` paths inside the moved files became `crate::flow`; no module of north-ops
+reaches `north-flow`. `convo`, `context_audit` and `policy_replay` leave next as `north-convo`, which brings
+north-ops under 60% of its cap.
+
 ## north-guard
 
 `guard` and `hook` reference each other, so they left together, and `north-guard` sits above `north-core`

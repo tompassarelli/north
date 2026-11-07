@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::agent_catalog::{self, sync_gate};
 use crate::error::{NorthError, NorthResult};
-use crate::ops::agents::{self, Verb, plan};
+use crate::agents::{self, Verb, plan};
 use crate::fleet::runtimes::Runtimes;
 use crate::runtime_access::RuntimeAccess;
 use crate::pacing;

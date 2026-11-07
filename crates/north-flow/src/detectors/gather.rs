@@ -16,7 +16,7 @@ use super::slow_check;
 use super::slow_test;
 use super::{Limits, default_number, default_text};
 use crate::health::loops::{self, Declared, Origin};
-use crate::ops::flow::{Host, Places};
+use crate::flow::{Host, Places};
 use crate::platform::sqlite::{self, Access};
 
 const LANE_RECENT_S: f64 = 24.0 * 3600.0;
@@ -242,7 +242,7 @@ impl<'a> Gatherer<'a> {
 
     pub fn disks(&self) -> disk::Facts {
         let owner = fs::read_to_string(self.checkout().join(format!("docs/rationale/{DISK_DOC}.md"))).ok().and_then(|text| owner_line(&text));
-        let readings = crate::ops::flow::read_hosts(self.host, &crate::platform::orchestration::path());
+        let readings = crate::flow::read_hosts(self.host, &crate::platform::orchestration::path());
         disk::Facts { owner, hosts: readings.into_iter().map(|reading| disk::Host { name: reading.host, free_gib: reading.disk_free_gib }).collect() }
     }
 
@@ -303,7 +303,7 @@ impl Gatherer<'_> {
 
     fn attempted(&self, attempts: &BTreeMap<String, f64>) {
         let _ = fs::create_dir_all(self.places.flow());
-        if let Err(error) = serde_json::to_string(attempts).map_err(std::io::Error::other).and_then(|text| crate::ops::flow::write_atomic(&self.attempts_path(), &text)) {
+        if let Err(error) = serde_json::to_string(attempts).map_err(std::io::Error::other).and_then(|text| crate::flow::write_atomic(&self.attempts_path(), &text)) {
             eprintln!("detectors: could not record the profile attempt: {error}");
         }
     }

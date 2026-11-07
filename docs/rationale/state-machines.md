@@ -166,7 +166,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
     next start archives the directory (`crates/north-ops/src/ops/private_desktop/{session,run_state,reap}.rs`).
     Shapes: presence-flag, pid-liveness.
 32. **Experiments and deferred checks** (none counted). An extension is lost when the process dies between the body
-    edit and the key file (`crates/north-ops/src/ops/experiments/file.rs:127`); a deferred check written to an unlanded
+    edit and the key file (`crates/north-flow/src/experiments/file.rs:127`); a deferred check written to an unlanded
     lane leaves its issue closed with a waiting box (`experiments/deferred.rs:240`). Shapes: reviewer-only.
 33. **Issue bodies as shared state** (none counted). Every box writer replaces the whole body with no
     compare-and-swap (`crates/north-ops/src/ops/observation_boxes/mod.rs:43-109` reads no fresh copy), so concurrent

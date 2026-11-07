@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::steps::anchors;
-use crate::ops::detectors::{Detector, Finding};
+use crate::detectors::{Detector, Finding};
 
 pub struct Session {
     pub id: String,

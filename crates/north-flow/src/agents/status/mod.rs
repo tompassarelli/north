@@ -48,7 +48,7 @@ fn die(message: &str) -> u8 {
     2
 }
 
-pub(in crate::ops::agents) fn update_status() {
+pub(in crate::agents) fn update_status() {
     match Command::new("update-status").output() {
         Ok(done) => {
             eprint!("{}{}", String::from_utf8_lossy(&done.stdout), String::from_utf8_lossy(&done.stderr));

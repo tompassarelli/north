@@ -109,7 +109,7 @@ fn run_quote(options: &Options) -> Result<Option<String>, String> {
     let metrics = delivery_metrics(&rows, Some(&options.project));
     let eta = options.category.as_deref().map(category_eta).transpose()?;
     let (width, _) = gate_width(delivery_metrics(&rows, None).concurrency);
-    let landing = if eta.as_ref().is_some_and(|found| found.0.is_some()) { 0.0 } else { crate::ops::flow::landing_minutes(&options.project) };
+    let landing = if eta.as_ref().is_some_and(|found| found.0.is_some()) { 0.0 } else { crate::flow::landing_minutes(&options.project) };
     let quote = Quote { project: &options.project, boxes: options.boxes, metrics: &metrics, now: Timestamp::now(), width, landing, eta };
     let (mut lines, date, dollars) = quote.lines()?;
     if project.get("target").is_some() {

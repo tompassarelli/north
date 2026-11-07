@@ -6,7 +6,7 @@ use rustix::fs::{FlockOperation, flock};
 use serde::{Deserialize, Serialize};
 
 use super::Finding;
-use crate::ops::flow::{Host, Places, write_atomic};
+use crate::flow::{Host, Places, write_atomic};
 
 const FILE_LIMIT: usize = 12;
 const STATE: &str = "detectors.json";

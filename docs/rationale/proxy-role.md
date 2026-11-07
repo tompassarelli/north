@@ -80,7 +80,7 @@ session or an alarm's recipient. Its children report to nobody (`--parent none`)
 fleet session that is also called `proxy`: launches with no `--parent` and no caller
 default to that name (`src/cli/fleet/lineage.rs:19`), and `north ops check`, `north ops dividend` and
 `north ledger flow` alerts all send to it (`crates/north-dispatch/src/check/mod.rs:45`,
-`crates/north-ops/src/ops/flow/alerts.rs:68`). So the session Tom reads hears nothing, and the
+`crates/north-flow/src/flow/alerts.rs:68`). So the session Tom reads hears nothing, and the
 session that hears everything has no reader. The lander already tells a ticket's session when its
 lane lands or is refused, with the conflicting files (`crates/north-landing/src/land/bisect.rs:126`),
 but a lane the proxy pushed itself, or one an in-process subagent pushed, has no session it can reach,

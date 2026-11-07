@@ -70,10 +70,10 @@ pub(super) fn lane(arguments: &[String]) -> u8 {
 }
 
 const LEDGER: &[(&str, Run)] = &[
-    ("flow", crate::ops::flow::run),
+    ("flow", crate::flow::run),
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("scoreboard", super::super::scoreboard::run),
-    ("tempo", crate::ops::tempo::run),
+    ("tempo", crate::tempo::run),
     ("worker", super::super::worker_ledger::run),
 ];
 

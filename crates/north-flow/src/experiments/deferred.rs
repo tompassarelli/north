@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use super::file::{Filed, Issues};
 use super::registry::{self, Check, Day, Issue};
-use crate::ops::flow::boxes;
+use crate::flow::boxes;
 use crate::platform::process::run_group_within;
 
 const CHECK_WITHIN: Duration = Duration::from_secs(120);
