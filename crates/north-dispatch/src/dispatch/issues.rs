@@ -76,6 +76,10 @@ pub struct Issue {
     pub needs: Vec<String>,
     /// The newest landing the body cites, as unix seconds, read by the survey for an issue with a windowed box; 0 when none.
     pub landed: f64,
+    /// The latest `Stop: wait until` a launch on one of its takeable boxes learned (`wait_stops`), as written and as unix seconds.
+    pub learned_wait: Option<(String, f64)>,
+    /// The landings on origin/main citing it since its last report, read by the survey for an issue with a box due after landings.
+    pub landings: usize,
 }
 
 impl Issue {
@@ -111,7 +115,17 @@ impl Issue {
 
     /// The unticked product boxes whose dated check, if any, has come by `at`: the boxes a session launched now can take.
     pub fn takeable(&self, at: f64) -> impl Iterator<Item = &str> {
-        self.product_lines().filter(move |line| north_graph_ground::due_pending(line, at as i64).is_none())
+        self.product_lines().filter(move |line| !self.awaits_check(line, at))
+    }
+
+    /// Whether the box `line` still waits for its check: a date ahead of `at`, or more landings than have cited the issue since its last report.
+    fn awaits_check(&self, line: &str, at: f64) -> bool {
+        north_graph_ground::due_pending(line, at as i64).is_some() || north_graph_ground::due_landings(line).is_some_and(|wanted| self.landings < wanted)
+    }
+
+    /// Whether some unticked product box is due after a count of landings, which the survey counts from the checkout.
+    pub fn counts_landings(&self) -> bool {
+        self.product_lines().any(|line| north_graph_ground::due_landings(line).is_some())
     }
 
     /// The needs its takeable boxes name (`needs::in_box`): the laptop, a host of `hosts`, or another repository's checkout.
@@ -133,12 +147,16 @@ impl Issue {
         found
     }
 
-    /// The earliest dated check among the unticked product boxes, when every one of them is still waiting for its date.
+    /// The earliest dated check among the unticked product boxes, else the fewest landings still missing, when every one of them is still waiting.
     pub fn gated_until(&self, at: f64) -> Option<String> {
         if self.takeable(at).next().is_some() {
             return None;
         }
-        self.product_lines().filter_map(north_graph_ground::due).min().map(|(_, written)| written)
+        let dated = self.product_lines().filter_map(north_graph_ground::due).min().map(|(_, written)| written);
+        dated.or_else(|| {
+            let missing = self.product_lines().filter_map(north_graph_ground::due_landings).min()?.saturating_sub(self.landings);
+            Some(format!("{missing} more landings cite it"))
+        })
     }
 
     /// The commits the body cites, which the survey dates to anchor a windowed box.

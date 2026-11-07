@@ -31,6 +31,8 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
         stop: Default::default(),
         needs: Vec::new(),
         landed: 0.0,
+        learned_wait: None,
+        landings: 0,
     })
 }
 

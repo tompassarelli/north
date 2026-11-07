@@ -20,7 +20,7 @@ mod backlog_tests;
 pub use footprint::{Footprint, footprints};
 pub use north_graph::default_path as graph_path;
 pub use backlog::{Backlog, Entry, Held, Verdict, Worth, priority, read as read_backlog_from, read_default as read_backlog};
-pub use due::{due, pending as due_pending};
+pub use due::{due, landings as due_landings, pending as due_pending};
 pub use rules::{held_query, ready_query};
 pub use ready::command as ready_command;
 pub use reach::{Reach, ground, ground_with};

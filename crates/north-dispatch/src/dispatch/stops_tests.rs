@@ -6,7 +6,6 @@ use crate::platform::land_notice::Notice;
 use super::tests::issue;
 use std::collections::{BTreeMap, BTreeSet};
 
-
 #[test]
 fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_its_time_after_a_wait_off_the_host_after_a_host_stop_and_one_rung_up_after_a_reasoning_stop_or_a_lane_refused_twice_without_fewer_errors() {
     let session = |report: &str| serde_json::json!({
@@ -307,4 +306,42 @@ serves = ["laptop"]
     let leases = super::host_needs::of_box(&claimed, "**9. Capacity leases**", &hosts, &learned, at);
     assert_eq!(leases, ["ccx33"], "the box that learned the stop still reads it");
     assert_eq!(super::host_needs::of_box(&claimed, "a box no line holds", &hosts, &learned, at), whole, "an unmatched Box: line reads every open box");
+}
+
+#[test]
+fn north_722_waited_twice_on_one_stop_and_a_box_due_by_a_date_or_after_landings_is_held_beside_a_plain_one() {
+    let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
+    let launch = |name: &str, started: &str| record::Record { at: at(started), item: "north#722".into(), host: "cpx62".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: false, effort_arm: None, effort: None };
+    let waited = serde_json::json!({
+        "entries": [{"kind": "assistant", "text": "Not done: the debt box reads after the landings.\nStop: wait until 2026-11-07T10:00Z"}],
+        "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
+    });
+    let body = "- [ ] the after-landing debt is under 5 boxes";
+    let directory = tempfile::tempdir().unwrap();
+    let (open, holds, planned, live) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new());
+    let world = |written: &str| World { open: &open, holds: &holds, live: &live, planned: &planned, backlog: None, at: at(written) };
+    let pass = |records: &[record::Record], readable: bool, now: &str| {
+        let mut boxes = [issue("north", 722, body, &[])];
+        let show = |_: &record::Record| if readable { Ok(waited.clone()) } else { Err::<serde_json::Value, String>("no session".into()) };
+        super::survey::stopped(records, &mut boxes, show, |_| None, &mut Vec::new());
+        let launches = super::stops::last_launches(records);
+        super::wait_stops::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at(now)).unwrap();
+        let [mut issue] = boxes;
+        issue.learned_wait = super::wait_stops::holding(&super::wait_stops::read(directory.path()), &issue, at(now));
+        issues::readiness(&issue, &world(now))
+    };
+    let (first, second) = (launch("north-722-d0300", "2026-11-07T03:00Z"), launch("north-722-d0421", "2026-11-07T04:21Z"));
+    let held_until_ten = Err("its last worker stopped to wait until 2026-11-07T10:00Z".to_owned());
+    assert_eq!(pass(std::slice::from_ref(&first), true, "2026-11-07T03:30Z"), held_until_ten);
+    assert_eq!(pass(&[first.clone(), second.clone()], false, "2026-11-07T04:21Z"), held_until_ten, "the second launch's report is unread, and the wait the first learned still holds the box");
+    assert_eq!(pass(&[first, second], true, "2026-11-07T04:50Z"), held_until_ten);
+    assert_eq!(super::wait_stops::read(directory.path()).len(), 2, "one record per session that stopped on the wait");
+    assert_eq!(pass(&[], false, "2026-11-07T10:00Z"), Ok(()), "the box is ready once the wait has passed");
+
+    let held = |body: &str, landings: usize| issues::readiness(&Issue { landings, ..issue("north", 706, body, &[]) }, &world("2026-11-07T04:50Z"));
+    assert_eq!(held("- [ ] the debt is read by 2026-11-09", 0), Err("only open box waits until 2026-11-09".into()));
+    assert_eq!(held("- [ ] the debt is read after the next 10 landings", 3), Err("only open box waits until 7 more landings cite it".into()));
+    assert_eq!(held("- [ ] the debt is read after the next 10 landings", 10), Ok(()), "ten landings have cited the issue since its last report");
+    assert_eq!(held("- [ ] the cache keeps the newest row", 0), Ok(()), "a box with no due phrase is ready");
+    assert_eq!(held("- [ ] the debt is read after the next 10 landings\n- [ ] the cache keeps the newest row", 3), Ok(()), "a ready box beside a held one is takeable");
 }

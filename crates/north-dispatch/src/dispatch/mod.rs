@@ -50,6 +50,7 @@ mod tuned;
 pub mod waste;
 mod tries;
 mod wait;
+mod wait_stops;
 #[cfg(test)]
 mod backlog_tests;
 #[cfg(test)]

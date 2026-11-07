@@ -405,10 +405,18 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(format!("host-needs.jsonl unwritten, so this pass reads only the needs already in it: {why}"));
         super::host_needs::read(&record::directory())
     });
+    let waits = super::wait_stops::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
+        notes.push(format!("wait-stops.jsonl unwritten, so this pass reads only the waits already in it: {why}"));
+        super::wait_stops::read(&record::directory())
+    });
     for issue in &mut issues {
         issue.needs = super::host_needs::of(issue, &names, &learned, at);
+        issue.learned_wait = super::wait_stops::holding(&waits, issue, at);
         if issue.windowed() {
             issue.landed = landed_at(issue);
+        }
+        if issue.counts_landings() {
+            issue.landings = landings_since(issue);
         }
     }
     let history = History::new(&records);
@@ -444,4 +452,15 @@ fn landed_at(issue: &Issue) -> f64 {
     args.extend(issue.cited_shas());
     let Some(output) = crate::platform::git::run_within(&args, PROBE).filter(|output| output.status.success()) else { return 0.0 };
     String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.trim().parse::<f64>().ok()).fold(0.0, f64::max)
+}
+
+/// The landings on origin/main of the issue's repository since the issue's last report whose message cites the issue; 0 when none reads.
+fn landings_since(issue: &Issue) -> usize {
+    let Some(home) = std::env::var_os("HOME") else { return 0 };
+    let checkout = std::path::Path::new(&home).join("code").join(crate::threads::catalog::checkout(&issue.repo)).join("main");
+    let since = format!("--since=@{}", issue.touched as i64);
+    let args = ["-C", checkout.to_str().unwrap_or_default(), "log", "origin/main", &since, "--format=%B%x1e"];
+    let Some(output) = crate::platform::git::run_within(&args, PROBE).filter(|output| output.status.success()) else { return 0 };
+    let reference = issue.reference();
+    String::from_utf8_lossy(&output.stdout).split('\x1e').filter(|message| super::issues::references(message, &issue.repo).contains(&reference)).count()
 }

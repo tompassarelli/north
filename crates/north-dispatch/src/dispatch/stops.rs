@@ -1,6 +1,6 @@
 //! What the last dispatched worker's final report asks of the next launch: after `Stop: decision` or `Blocked:` the box
 //! stays skipped until the issue gets a comment or body edit newer than that report; after `Stop: wait until TIME` it
-//! stays skipped until that UTC time; after `Stop: host NEED` the next brief carries `Needs: NEED`, and every later one while a box
+//! stays skipped until that UTC time, and so does every later launch on a box that wait named (`wait_stops`); after `Stop: host NEED` the next brief carries `Needs: NEED`, and every later one while a box
 //! it named stays unticked (`host_needs`), so placement sends it to a host that serves it instead of the one that could not. After `Not done:` with `Stop: reasoning`, or after the
 //! lander refused one of the session's lanes twice for its own failing checks without fewer errors, the next launch
 //! climbs one rung of `Rung::LADDER`, and from its top rung the box waits for a decision like `Stop: decision`.
@@ -127,7 +127,7 @@ pub fn awaits_decision(issue: &Issue) -> bool {
     issue.stop.decision.or(topped).is_some_and(|stopped| issue.touched <= stopped)
 }
 
-/// The time the last report waits until, while it is still ahead of `at`.
+/// The latest time ahead of `at` the last report, or a wait an earlier launch learned (`wait_stops`) for a box still open, waits until.
 pub fn waits_until(issue: &Issue, at: f64) -> Option<&str> {
-    issue.stop.until.as_ref().filter(|(_, until)| *until > at).map(|(written, _)| written.as_str())
+    issue.stop.until.iter().chain(&issue.learned_wait).filter(|(_, until)| *until > at).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(written, _)| written.as_str())
 }
