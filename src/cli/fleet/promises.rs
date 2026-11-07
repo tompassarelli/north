@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::Duration;
@@ -5,7 +6,7 @@ use std::time::Duration;
 use north_dispatch::laptop::Zone;
 
 use crate::fleet::model::Delivery;
-use crate::fleet::promises::{Book, Promise, When};
+use crate::fleet::promises::{Book, Promise, When, landed_as};
 use crate::fleet::registry::{Fleet, root_here};
 use crate::fleet::runtime::PROXY;
 use crate::fleet::sender::Sender;
@@ -40,7 +41,8 @@ pub(super) fn due_ms(promise: &Promise, zone: &Zone) -> Option<u64> {
 pub(super) fn check(promise: &Promise, tell_proxy: &dyn Fn(&str) -> Result<(), String>) -> String {
     let cwd = if promise.cwd.is_dir() { promise.cwd.as_path() } else { Path::new("/") };
     let mut command = Command::new("sh");
-    command.args(["-c", &promise.command]).current_dir(cwd);
+    let events = fs::read_to_string(crate::platform::records_mirror::state_home().join("safe-push/events.jsonl")).unwrap_or_default();
+    command.args(["-c", &landed_as(&promise.command, &events)]).current_dir(cwd);
     let failure = match run_command_within(command, None, RUN) {
         Some(out) if out.status.success() => return format!("promise kept: {} said {:?}, and `{}` passed", promise.session, promise.line, promise.command),
         Some(out) => format!("exited {}{}", out.status.code().map_or_else(|| "on a signal".to_owned(), |code| code.to_string()), last_line(&out)),

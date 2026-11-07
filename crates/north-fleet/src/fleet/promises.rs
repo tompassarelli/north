@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,8 @@ use crate::error::NorthResult;
 const FILE: &str = "promises.jsonl";
 const CHECKED: &str = "promises-checked.jsonl";
 static COMMAND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([A-Za-z0-9_./-]+(?: [^`]+)+)`").expect("command pattern"));
+static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b").expect("sha pattern"));
+const BOX_MARKER: &str = "Done when:";
 static UTC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2})?Z\b").expect("utc time pattern"));
 static WALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(1[0-2]|0?[1-9]):([0-5]\d)\s?([AaPp])\.?[Mm]\b").expect("wall time pattern"));
 
@@ -43,10 +45,36 @@ pub fn promised(reply: &str) -> Vec<(String, String, When)> {
     reply
         .lines()
         .filter_map(|line| {
-            let command = COMMAND.captures(line)?[1].trim().to_owned();
+            let command = COMMAND.captures_iter(command_text(line)).last()?[1].trim().to_owned();
             Some((line.trim().to_owned(), command, when(line)?))
         })
         .collect()
+}
+
+fn command_text(line: &str) -> &str {
+    let is_box = line.trim_start().starts_with("- [");
+    match line.rsplit_once(BOX_MARKER) {
+        Some((_, command_line)) if is_box => command_line,
+        _ => line,
+    }
+}
+
+pub fn landed_as(command: &str, events: &str) -> String {
+    let mut landed = BTreeMap::new();
+    let mut shas: BTreeMap<u64, BTreeSet<String>> = BTreeMap::new();
+    for event in events.lines().filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok()) {
+        let (Some(pid), Some(sha)) = (event["pid"].as_u64(), event["sha"].as_str().filter(|sha| !sha.is_empty())) else { continue };
+        shas.entry(pid).or_default().insert(sha.to_owned());
+        if event["status"] == "landed" {
+            landed.insert(pid, sha.to_owned());
+        }
+    }
+    SHA.replace_all(command, |found: &regex::Captures| {
+        let token = &found[0];
+        let rebased = landed.iter().find_map(|(pid, landed_sha)| shas[pid].iter().any(|sha| sha != landed_sha && sha.starts_with(token)).then_some(landed_sha));
+        rebased.map_or_else(|| token.to_owned(), |landed_sha| landed_sha[..token.len()].to_owned())
+    })
+    .into_owned()
 }
 
 fn when(line: &str) -> Option<When> {
