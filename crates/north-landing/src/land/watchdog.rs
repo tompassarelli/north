@@ -16,7 +16,7 @@ use super::queue;
 use north_base::land_ticket::Phase;
 use super::serve::Round;
 
-pub const LEAD: &str = "lander-lead";
+pub use super::bisect::LEAD;
 pub const QUARANTINE: &str = "quarantine";
 pub const ROUNDS: &str = "watchdog/rounds.json";
 pub const PAGES: &str = "watchdog-pages.json";

@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::landing::check_findings;
 use crate::platform::attribution::Cause;
-use crate::platform::land_notice::Notice;
+pub use crate::platform::land_notice::LEAD;
+use crate::platform::land_notice::{self, Notice};
 use super::after;
 use super::checks::Verdict;
 use super::incidents;
@@ -150,15 +151,14 @@ fn refused(ticket: &Ticket, verdict: &str, log: Option<&Path>) -> String {
 }
 
 pub fn notify(ticket: &Ticket, verdict: &str, log: Option<&Path>) {
-    let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) else {
-        return;
-    };
+    let sessions = land_notice::told(ticket.session.as_deref(), verdict);
+    let Some(first) = sessions.first() else { return };
     let text = match verdict.strip_prefix("landed ") {
         Some(sha) => Notice::Landed { branch: ticket.branch.clone(), sha: sha.to_owned() }.text(),
         None => refused(ticket, verdict, log),
     };
-    if !after::send(session, &text) {
-        eprintln!("north land: could not tell session {session} about {}", ticket.branch);
+    if !sessions.iter().any(|session| after::send(session, &text)) {
+        eprintln!("north land: could not tell session {first} about {}", ticket.branch);
     }
 }
 

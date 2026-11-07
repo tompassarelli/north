@@ -5,6 +5,9 @@
 /// The fleet sender the lander signs its notices with; a session on another host sees it as `SENDER@HOST`.
 pub const SENDER: &str = "service:north-land";
 
+/// The fleet session that owns the lander; it hears what a lane with no fleet owner would.
+pub const LEAD: &str = "lander-lead";
+
 const REFUSED: &str = "north land: ";
 const DID_NOT_LAND: &str = ") did not land: ";
 const ERRORS: &str = "errors: ";
@@ -44,5 +47,25 @@ impl Notice {
         let (head, verdict) = rest.split_once(DID_NOT_LAND)?;
         let errors = lines.next().and_then(|line| line.trim().strip_prefix(ERRORS)).and_then(|count| count.parse().ok());
         Some(Self::Refused { branch: branch.to_owned(), head: head.to_owned(), verdict: verdict.to_owned(), errors })
+    }
+}
+
+/// The sessions told a lane's verdict, in order until one is reached: its owner, then the lander's lead for a conflict, which only a person resolves.
+pub fn told<'a>(owner: Option<&'a str>, verdict: &str) -> Vec<&'a str> {
+    owner.filter(|session| !session.is_empty()).into_iter().chain(verdict.starts_with("conflict ").then_some(LEAD)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // KEEP(bug): a lane with no fleet owner refused for a conflict in its own lines told no one, so it sat refused until someone read the queue (north#360)
+    #[test]
+    fn a_conflict_reaches_its_owner_then_lander_lead_and_a_sessionless_landing_reaches_no_one() {
+        assert_eq!(told(Some("n1-worker"), "conflict src/a.rs,src/b.rs"), ["n1-worker", LEAD]);
+        assert_eq!(told(None, "conflict src/a.rs"), [LEAD]);
+        assert_eq!(told(Some(""), "conflict src/a.rs"), [LEAD]);
+        assert!(told(None, "landed abc").is_empty());
+        assert_eq!(told(Some("n1-worker"), "failed clippy"), ["n1-worker"]);
     }
 }
