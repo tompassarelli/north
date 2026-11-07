@@ -3,6 +3,7 @@ use north_core::foundation::shim;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
+use sha1::{Digest, Sha1};
 use std::process::{Command, Output};
 
 const TOOLS: [&str; 46] = [
@@ -46,10 +47,90 @@ struct Matrix {
     head: String,
 }
 
-fn git(directory: &Path, arguments: &[&str]) -> String {
-    let output = Command::new("git").current_dir(directory).args(["-c", "user.name=Carry matrix", "-c", "user.email=carry@example.invalid"]).args(arguments).output().unwrap();
-    assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+const FLAKE: (&str, &str) = ("flake.nix", "{ outputs = _: { devShells = { }; }; }\n");
+const IDENTITY: &str = "Carry matrix <carry@example.invalid> 1700000000 +0000";
+
+fn hex(id: &[u8; 20]) -> String {
+    id.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn stored_zlib(data: &[u8]) -> Vec<u8> {
+    // Git reads loose objects as zlib streams, and stored deflate blocks need no compressor.
+    let mut stream = vec![0x78, 0x01];
+    let blocks: Vec<&[u8]> = data.chunks(0xffff).collect();
+    for (index, block) in blocks.iter().enumerate() {
+        let length = block.len() as u16;
+        stream.push(u8::from(index + 1 == blocks.len()));
+        stream.extend(length.to_le_bytes());
+        stream.extend((!length).to_le_bytes());
+        stream.extend_from_slice(block);
+    }
+    let (low, high) = data.iter().fold((1u32, 0u32), |(low, high), &byte| {
+        let low = (low + u32::from(byte)) % 65521;
+        (low, (high + low) % 65521)
+    });
+    stream.extend(((high << 16) | low).to_be_bytes());
+    stream
+}
+
+fn object(git_dir: &Path, kind: &str, body: &[u8]) -> [u8; 20] {
+    let mut raw = format!("{kind} {}\0", body.len()).into_bytes();
+    raw.extend_from_slice(body);
+    let id: [u8; 20] = Sha1::digest(&raw).into();
+    let name = hex(&id);
+    let path = git_dir.join("objects").join(&name[..2]).join(&name[2..]);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, stored_zlib(&raw)).unwrap();
+    id
+}
+
+fn index(git_dir: &Path, entries: &[(&str, [u8; 20], usize)]) {
+    let mut bytes = b"DIRC".to_vec();
+    bytes.extend(2u32.to_be_bytes());
+    bytes.extend((entries.len() as u32).to_be_bytes());
+    for (name, id, size) in entries {
+        let start = bytes.len();
+        bytes.extend([0u8; 24]);
+        bytes.extend(0o100644u32.to_be_bytes());
+        bytes.extend([0u8; 8]);
+        bytes.extend((*size as u32).to_be_bytes());
+        bytes.extend_from_slice(id);
+        bytes.extend((name.len() as u16).to_be_bytes());
+        bytes.extend_from_slice(name.as_bytes());
+        bytes.resize(start + (bytes.len() - start + 8) / 8 * 8, 0);
+    }
+    let checksum: [u8; 20] = Sha1::digest(&bytes).into();
+    bytes.extend(checksum);
+    fs::write(git_dir.join("index"), bytes).unwrap();
+}
+
+fn repository(worktree: &Path, history: &[(&str, &[(&str, &str)])], origin: Option<&Path>) -> Vec<String> {
+    let git_dir = worktree.join(".git");
+    for directory in ["objects/info", "objects/pack", "refs/heads", "refs/tags", "refs/remotes/origin"] {
+        fs::create_dir_all(git_dir.join(directory)).unwrap();
+    }
+    let (mut commits, mut entries) = (Vec::new(), Vec::new());
+    for (message, files) in history {
+        entries = files.iter().map(|(name, content)| (*name, object(&git_dir, "blob", content.as_bytes()), content.len())).collect();
+        let tree: Vec<u8> = entries.iter().flat_map(|(name, id, _)| [format!("100644 {name}\0").as_bytes(), id.as_slice()].concat()).collect();
+        let tree = hex(&object(&git_dir, "tree", &tree));
+        let parent = commits.last().map(|parent| format!("parent {parent}\n")).unwrap_or_default();
+        commits.push(hex(&object(&git_dir, "commit", format!("tree {tree}\n{parent}author {IDENTITY}\ncommitter {IDENTITY}\n\n{message}\n").as_bytes())));
+    }
+    let tip = commits.last().unwrap();
+    for (name, content) in history.last().unwrap().1 {
+        fs::write(worktree.join(name), content).unwrap();
+    }
+    index(&git_dir, &entries);
+    fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    fs::write(git_dir.join("refs/heads/main"), format!("{tip}\n")).unwrap();
+    let mut config = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n".to_owned();
+    if let Some(origin) = origin {
+        fs::write(git_dir.join("refs/remotes/origin/main"), format!("{tip}\n")).unwrap();
+        config.push_str(&format!("[remote \"origin\"]\n\turl = {}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[branch \"main\"]\n\tremote = origin\n\tmerge = refs/heads/main\n", origin.display()));
+    }
+    fs::write(git_dir.join("config"), config).unwrap();
+    commits
 }
 
 impl Matrix {
@@ -72,17 +153,10 @@ impl Matrix {
         shim::write_script(&bin.join("ssh"), FAKE_SSH);
         shim::write_script(&toolchain.join("cargo"), "echo \"$0\"\n");
         fs::write(host.path("orchestration.toml"), "[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
-        git(&project, &["init", "-q", "-b", "main"]);
-        fs::write(project.join("flake.nix"), "{ outputs = _: { devShells = { }; }; }\n").unwrap();
-        git(&project, &["add", "."]);
-        git(&project, &["commit", "-qm", "Base"]);
-        let base = git(&project, &["rev-parse", "HEAD"]);
+        let [base, head] = <[String; 2]>::try_from(repository(&project, &[("Base", &[FLAKE]), ("Lane", &[("change", "lane\n"), FLAKE])], None)).unwrap();
         let remote = host.path("remotes/gex45/code/proj/main");
-        git(&project, &["clone", "-q", project.to_str().unwrap(), remote.to_str().unwrap()]);
-        fs::write(project.join("change"), "lane\n").unwrap();
-        git(&project, &["add", "."]);
-        git(&project, &["commit", "-qm", "Lane"]);
-        let head = git(&project, &["rev-parse", "HEAD"]);
+        fs::create_dir_all(&remote).unwrap();
+        assert_eq!(repository(&remote, &[("Base", &[FLAKE])], Some(&project)), std::slice::from_ref(&base));
         Matrix { host, home, project, toolchain, base, head }
     }
 
