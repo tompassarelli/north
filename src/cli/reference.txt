@@ -260,8 +260,8 @@ Commands:
   runtime claude [VERSION]                      Install a checksum-verified Claude runtime, probe it and select it
   runtime agy [VERSION]                         Install a checksum-verified Agy runtime and select it
   capacity nexus [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
-  warcraft-close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
-  wc3-login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]  Type one stored Battle.net field into the verified private login window
+  desktop warcraft close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
+  desktop warcraft login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]  Type one stored Battle.net field into the verified private login window
   ops credentials check [--json] | renew [--dry-run] | import-cookies SITE [--from CHROME_PROFILE]  List every credential the fleet uses with its kind (machine or human-session), expiry and renewal path and exit 1 on any human-session, expired or undeclared one; renew runs machine renewals before expiry, batches what needs Tom into one notice 30 days ahead and writes the loop record (daily timer); import-cookies copies a declared site's sign-in from Tom's Chrome profile into the automation-chrome profile on the same machine and refuses an undeclared site
   desktop capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant

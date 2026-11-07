@@ -18,6 +18,8 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["release"], "land release", &[]),
     (&["repo", "audit"], "lane audit", &[]),
     (&["split"], "code-health split", &[]),
+    (&["warcraft-close"], "desktop warcraft close", &[]),
+    (&["wc3-login-field"], "desktop warcraft login-field", &[]),
     (&["agent-capture"], "desktop capture", &[]),
     (&["private-desktop"], "desktop private", &[]),
     (&["brief"], "work brief", &[]),

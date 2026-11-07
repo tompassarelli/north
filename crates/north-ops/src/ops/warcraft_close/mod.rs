@@ -124,7 +124,7 @@ pub fn run(arguments: &[String]) -> u8 {
     match arguments {
         [] => close(&launch, &Timing { poll: Duration::from_millis(500), polls: 20, settle: Duration::from_secs(1) }, &mut |line| println!("{line}"), &mut |line| eprintln!("{line}")),
         [flag] if flag == "-h" || flag == "--help" => {
-            println!("usage: north warcraft-close [--list]");
+            println!("usage: north desktop warcraft close [--list]");
             0
         }
         [flag] if flag == "--list" => {
@@ -132,7 +132,7 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         _ => {
-            eprintln!("usage: north warcraft-close [--list]");
+            eprintln!("usage: north desktop warcraft close [--list]");
             2
         }
     }

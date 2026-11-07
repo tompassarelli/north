@@ -41,8 +41,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("docs", crate::ops::docs::run),
     ("usage", super::agents::usage),
     ("convo", crate::convo::run),
-    ("warcraft-close", crate::ops::warcraft_close::run),
-    ("wc3-login-field", crate::ops::wc3_login_field::run),
     ("incident-mine", crate::ops::incident_mine::run),
     ("tool-mine", crate::tool_mine::run),
     ("policy-replay", crate::policy_replay::run),
@@ -237,6 +235,14 @@ fn work(arguments: &[String]) -> u8 {
 fn desktop(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if verb == "capture" => crate::ops::agent_capture::run(rest),
+        Some((verb, rest)) if verb == "warcraft" => match rest.split_first() {
+            Some((action, tail)) if action == "close" => crate::ops::warcraft_close::run(tail),
+            Some((action, tail)) if action == "login-field" => crate::ops::wc3_login_field::run(tail),
+            _ => {
+                eprintln!("usage: north desktop warcraft (close|login-field) ...");
+                2
+            }
+        },
         _ => {
             eprintln!("usage: north desktop (capture|private) ...; north desktop --help lists each");
             2

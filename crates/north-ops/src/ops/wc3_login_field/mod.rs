@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-const USAGE: &str = "Usage: north wc3-login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]";
+const USAGE: &str = "Usage: north desktop warcraft login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]";
 const LOGIN_TITLES: [&str; 3] = ["Battle.net", "Battle.net Login", "Warcraft III"];
 
 pub struct Failure(pub String, pub u8);
