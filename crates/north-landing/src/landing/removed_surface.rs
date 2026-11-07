@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 const COMMAND_TABLES: &str = "src/cli";
+const COMMAND_DEPTH: usize = 2;
 const FLAG_SOURCES: [&str; 6] = ["src", "crates", ":(exclude)*_tests.rs", ":(exclude)*/tests/*", ":(exclude)tests", ":(exclude)*.md"];
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -76,9 +77,7 @@ pub fn invocation(line: &str, prefixes: &[&str]) -> Option<Vec<String>> {
 
 pub fn removed_in(words: &[String], removed: &Removed) -> Vec<(Kind, String)> {
     let mut found = Vec::new();
-    if let Some(command) = words.first().filter(|word| !word.starts_with('-'))
-        && removed.commands.contains(command)
-    {
+    for command in words.iter().take_while(|word| !word.starts_with('-')).take(COMMAND_DEPTH).filter(|word| removed.commands.contains(word)) {
         found.push((Kind::Command, command.clone()));
     }
     for word in words.iter().filter(|word| word.starts_with("--")) {
@@ -89,3 +88,7 @@ pub fn removed_in(words: &[String], removed: &Removed) -> Vec<(Kind, String)> {
     }
     found
 }
+
+#[cfg(test)]
+#[path = "removed_surface_tests.rs"]
+mod tests;
