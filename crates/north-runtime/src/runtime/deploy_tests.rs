@@ -71,3 +71,13 @@ fn a_runtime_already_whole_on_the_host_is_not_copied_and_a_missing_one_is_copied
     whole(home, TARGET);
     assert_eq!(prepared(home), super::Prepared::Whole);
 }
+
+// KEEP(bug): on 2026-11-07 a copy of a runtime this host had already replaced waited its turn behind one global lock and was shipped anyway, holding every host's newer copy behind the slowest host (north#731)
+#[test]
+fn a_runtime_replaced_while_it_waited_its_turn_is_not_shipped() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = super::Layout { state: state.path().to_owned() };
+    let references = std::collections::BTreeSet::new();
+    let skipped = super::shipped(&layout, "no-such-host.invalid", TARGET, state.path(), &references, &|| true);
+    assert!(skipped.is_ok());
+}

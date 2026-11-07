@@ -35,6 +35,10 @@ impl Layout {
         self.state.join("ledger.db")
     }
 
+    pub fn live_sha(&self) -> Option<String> {
+        std::fs::read_link(self.current()).ok().and_then(|link| linked_sha(&link).map(str::to_owned))
+    }
+
     pub fn lander(&self) -> PathBuf {
         self.state.join("lander")
     }

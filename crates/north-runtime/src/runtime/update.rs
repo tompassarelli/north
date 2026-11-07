@@ -28,7 +28,6 @@ const ROLLBACK_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 const PASSES: usize = 5;
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
-pub(super) const DEPLOY_LOCK: &str = "runtime-deploy.lock";
 
 pub(super) mod hold;
 mod sync;
@@ -221,10 +220,8 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     }
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
-    std::thread::scope(|scope| {
-        scope.spawn(|| super::deploy::stage_for_lander(layout, target, runtime));
-        sync(layout, previous, target)
-    })
+    super::deploy::stage_for_lander(layout, target, runtime);
+    sync(layout, previous, target)
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {
@@ -375,10 +372,9 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
     let (mut status, mut ran) = attempt()?;
     if let Some(archives) = log.stale_archives().filter(|_| !status.success() && ran) {
         println!(
-            "north runtime: build of {} failed to link against stale release incremental output (build log: {}); clearing {} and {} stale rlibs and building once more",
+            "north runtime: build of {} failed to link against stale release incremental output (build log: {}); clearing the incremental output of the crates behind {} stale rlibs and building once more",
             layout::short(target),
             log.path().display(),
-            built.join("release/incremental").display(),
             archives.len()
         );
         cargo_build::recompile_from_scratch(&built, &archives)?;

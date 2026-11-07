@@ -3,7 +3,7 @@ use super::host_facts;
 use super::layout::{self, Layout, PROGRAMS, TREE};
 use super::remote::{OWN_RSH, limit, output, run, run_reporting, ssh};
 use super::store::references;
-use super::update::{DEPLOY_LOCK, built_main, checkout, lock_waiting, named_lock_waiting};
+use super::update::{built_main, checkout, lock_waiting, named_lock_waiting};
 use crate::land_offload;
 use std::collections::BTreeSet;
 use std::fs;
@@ -18,21 +18,20 @@ const PROBE: Duration = Duration::from_secs(20);
 const PROMOTE: Duration = Duration::from_secs(15 * 60);
 
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
-    let _shipping = named_lock_waiting(layout, DEPLOY_LOCK, limit(LOCK_WAIT), "north runtime deploy")?;
     let (target, runtime) = {
         let _building = lock_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
         built_main(layout, &checkout())?
     };
-    ship_to(&target, &runtime, hosts)
+    ship_to(layout, &target, &runtime, hosts, &|| false)
 }
 
 pub(super) fn deploy_live(layout: &Layout) -> Result<(), Failure> {
-    let _shipping = named_lock_waiting(layout, DEPLOY_LOCK, limit(LOCK_WAIT), "north runtime deploy")?;
-    let target = fs::read_link(layout.current()).ok().and_then(|link| layout::linked_sha(&link).map(str::to_owned)).ok_or_else(|| failed(1, "this host has no live runtime to ship"))?;
-    ship_to(&target, &layout.runtime(&target), &[])
+    let target = layout.live_sha().ok_or_else(|| failed(1, "this host has no live runtime to ship"))?;
+    ship_to(layout, &target, &layout.runtime(&target), &[], &|| layout.live_sha().is_some_and(|live| live != target))
 }
 
-fn ship_to(target: &str, runtime: &Path, hosts: &[String]) -> Result<(), Failure> {
+/// Each host takes its turn on its own lock, so a host slow to promote delays only its own next copy; a copy whose runtime a newer one has replaced here while it waited is skipped, since the newer one is shipped on its own.
+fn ship_to(layout: &Layout, target: &str, runtime: &Path, hosts: &[String], superseded: &(dyn Fn() -> bool + Sync)) -> Result<(), Failure> {
     let references = references(runtime)?;
     let hosts = if hosts.is_empty() {
         let plan = land_offload::deployment();
@@ -48,7 +47,7 @@ fn ship_to(target: &str, runtime: &Path, hosts: &[String]) -> Result<(), Failure
     }
     let failures: Vec<Failure> = std::thread::scope(|scope| {
         let references = &references;
-        let shipping: Vec<_> = hosts.iter().map(|host| scope.spawn(move || ship(host, target, runtime, references))).collect();
+        let shipping: Vec<_> = hosts.iter().map(|host| scope.spawn(move || shipped(layout, host, target, runtime, references, superseded))).collect();
         shipping.into_iter().filter_map(|shipped| shipped.join().unwrap_or_else(|_| Err(failed(1, "shipping panicked"))).err()).collect()
     });
     for failure in &failures {
@@ -58,6 +57,15 @@ fn ship_to(target: &str, runtime: &Path, hosts: &[String]) -> Result<(), Failure
         Some(failure) => Err(failure),
         None => Ok(()),
     }
+}
+
+fn shipped(layout: &Layout, host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>, superseded: &(dyn Fn() -> bool + Sync)) -> Result<(), Failure> {
+    let _turn = named_lock_waiting(layout, &host_lock("deploy", host), limit(LOCK_WAIT), "north runtime deploy")?;
+    if superseded() {
+        println!("north runtime deploy: {host}: {} was replaced here while it waited its turn; the newer runtime is shipped on its own", layout::short(target));
+        return Ok(());
+    }
+    ship(host, target, runtime, references)
 }
 
 pub(super) fn ship_runtime(host: &str, target: &str, runtime: &Path) -> Result<(), Failure> {
@@ -89,7 +97,11 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
 
 /// One lock per destination, so the land checks that find a runtime missing on a host at once ship it once and the rest find it whole, instead of each sending it over the same link.
 fn stage_lock(host: &str) -> String {
-    format!("runtime-stage-{}.lock", host.chars().map(|character| if character.is_ascii_alphanumeric() || character == '.' { character } else { '-' }).collect::<String>())
+    host_lock("stage", host)
+}
+
+fn host_lock(kind: &str, host: &str) -> String {
+    format!("runtime-{kind}-{}.lock", host.chars().map(|character| if character.is_ascii_alphanumeric() || character == '.' { character } else { '-' }).collect::<String>())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -136,20 +148,19 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     Ok(())
 }
 
+/// Detached, so the update lock is released for the next build while the copy continues; `promote` stays alive until it has shipped, and its own copy then finds the runtime whole or waits on the host's stage lock.
 pub(super) fn stage_for_lander(layout: &Layout, target: &str, runtime: &Path) {
     if fs::symlink_metadata(layout.lander()).is_err() {
         return;
     }
-    let hosts = land_offload::deployment().destinations;
-    std::thread::scope(|scope| {
-        for host in &hosts {
-            scope.spawn(move || {
-                if let Err(failure) = stage_runtime(host, target, runtime) {
-                    eprintln!("north runtime update: staging on {host} before the swap: {}; its first offloaded land check stages it instead", failure.message);
-                }
-            });
-        }
-    });
+    for host in land_offload::deployment().destinations {
+        let (target, runtime) = (target.to_owned(), runtime.to_owned());
+        std::thread::spawn(move || {
+            if let Err(failure) = stage_runtime(&host, &target, &runtime) {
+                eprintln!("north runtime update: staging on {host} before the swap: {}; its first offloaded land check stages it instead", failure.message);
+            }
+        });
+    }
 }
 
 #[cfg(test)]

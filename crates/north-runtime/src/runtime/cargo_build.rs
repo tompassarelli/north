@@ -59,19 +59,29 @@ fn prune(directory: &Path, kept: usize) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) fn forget_release_incremental(built: &Path) -> io::Result<()> {
-    match fs::remove_dir_all(built.join("release/incremental")) {
-        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-        _ => Ok(()),
-    }
-}
-
 pub(super) fn recompile_from_scratch(built: &Path, archives: &[PathBuf]) -> io::Result<()> {
-    forget_release_incremental(built)?;
+    forget_incremental_of(built, archives)?;
     for archive in archives.iter().filter(|archive| archive.starts_with(built)) {
         match fs::remove_file(archive) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Only the crates whose archives failed to link lose their incremental output, so the retry recompiles those and re-checks their dependents incrementally; clearing every crate's output made it a build from scratch of everything downstream.
+fn forget_incremental_of(built: &Path, archives: &[PathBuf]) -> io::Result<()> {
+    let crates: Vec<String> = archives.iter().filter_map(|archive| archive.file_stem()?.to_str()?.strip_prefix("lib")?.rsplit_once('-').map(|(name, _)| format!("{name}-"))).collect();
+    let incremental = built.join("release/incremental");
+    let entries = match fs::read_dir(&incremental) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        entries => entries?,
+    };
+    for entry in entries {
+        let entry = entry?;
+        if crates.iter().any(|name| entry.file_name().to_string_lossy().starts_with(name.as_str())) {
+            fs::remove_dir_all(entry.path())?;
         }
     }
     Ok(())
@@ -106,6 +116,7 @@ mod tests {
         let built = tempfile::tempdir().unwrap();
         let deps = built.path().join("release/deps");
         fs::create_dir_all(built.path().join("release/incremental/north_landing-1e6elhiv6t0d3")).unwrap();
+        fs::create_dir_all(built.path().join("release/incremental/north_ops-0a1b2c3d4e5f6")).unwrap();
         fs::create_dir_all(&deps).unwrap();
         let stale = deps.join("libnorth_landing-1cfb62536a5ed5ab.rlib");
         let sound = deps.join("libnorth_core-07k2ojj1g9fes.rlib");
@@ -118,6 +129,7 @@ mod tests {
         assert_eq!(archives, std::slice::from_ref(&stale));
         recompile_from_scratch(built.path(), &archives).unwrap();
         assert!(!stale.exists() && sound.exists());
-        assert!(!built.path().join("release/incremental").exists());
+        assert!(!built.path().join("release/incremental/north_landing-1e6elhiv6t0d3").exists());
+        assert!(built.path().join("release/incremental/north_ops-0a1b2c3d4e5f6").is_dir(), "a crate whose archive linked keeps its incremental output");
     }
 }

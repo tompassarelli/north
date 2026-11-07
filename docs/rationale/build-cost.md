@@ -143,9 +143,19 @@ stopped): the first attempt had already compiled the broken rlib and written its
 relinked it in 19 s and hit the same symbols (north#612). Now a superseded stop removes the `release/incremental` sessions of every crate whose rustc it interrupted (those
 holding a `-working` session), so the next build never reads what an interrupted rustc left behind while the crates
 that finished keep their sessions, and a build that still fails with that
-signature removes `release/incremental` and every rlib its `in archive` lines name, so the retry recompiles those
-crates from scratch. Incremental stays on. Each failed build keeps its compiler output in
+signature removes the `release/incremental` sessions of the crates behind every rlib its `in archive` lines name and those rlibs, so the retry recompiles those
+crates from scratch and re-checks their dependents incrementally (2026-11-07: removing every crate's sessions made the retry a second whole build, 123 s after a 80 s first attempt on gex45, and put b46d4c51 and 15c8ef27 at 246 s and 191 s from landing to live, north#731). Incremental stays on. Each failed build keeps its compiler output in
 `~/.local/state/north/runtime-build-logs/<sha>.log`, and its failure line names that file.
+
+### Landing to live, 2026-11-07 measurement (north#731)
+
+The `ready-live-p90` bar read 3 min (n=31) on its 1 h cell at 11:46 AM. From the laptop's `runtime-live.jsonl` and `runtime-swaps.jsonl` for 44 landings in the 2 h before it, the max host was the laptop or a host the laptop ships to in 38, and gex45 in 6. The laptop's own push-to-swap was 87 s for an isolated north-base landing (a 74 s release build: north-guard and north-ops each spend 21 to 24 s in rustc's serial front end and 21 s in codegen, then 8 s linking `north`) and 150 to 260 s when landings queued behind a build. Three costs sat outside that build:
+
+- `install` joined its staging threads inside the update lock, so the update lock, and with it the next landing's build, waited for the copy to the slowest host; and `deploy_live` began only after the laptop's health check, agents sync and old-runtime collection, behind one global `runtime-deploy.lock`, so every host waited for the slowest host's previous promotion. 260e53cd swapped on the laptop 21 s after its push and reached ccx33 and cpx62 at 174 s.
+- The stale-link retry cleared every crate's incremental output (see B2 above), a second whole build: b46d4c51 and 15c8ef27 took 242 s and 191 s on gex45.
+- gex45 and the laptop each build on their own; trusted hosts still take no runtime built on gex45.
+
+Now the other hosts start copying and promoting the moment the laptop swaps (`await_swap` in `follow.rs`), each host takes its own `runtime-deploy-HOST.lock` and skips a runtime the laptop has already replaced, `install` stages detached so the update lock no longer waits on the copy, and the retry clears only the crates behind the stale rlibs. What still bounds the bar is the build itself: a landing that changes north-base waits for the 74 s chain, and one that arrives mid-build waits for it as well.
 
 ### B3. Turn on incremental for runtime builds (candidate 2, if B2's on-row is at least 30% below off)
 

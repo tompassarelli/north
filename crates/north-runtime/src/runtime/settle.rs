@@ -34,7 +34,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     }
     let checkout = update::checkout();
     let destinations = land_offload::other_destinations();
-    let here = fs::read_link(layout.current()).ok().and_then(|link| layout::linked_sha(&link).map(str::to_owned));
+    let here = layout.live_sha();
     let mut hosts = vec![Shell::Here(host::name())];
     hosts.extend(destinations.iter().cloned().map(Shell::Ssh));
     if let Some(here) = &here {
