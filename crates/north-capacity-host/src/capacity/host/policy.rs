@@ -74,7 +74,7 @@ pub fn resource_class(kind: &str, cores: f64) -> Option<Resources> {
         "heavy" if cores < 8.0 => (cores, 8192.0),
         "heavy" => (if cores > 8.0 { 6.0 } else { 3.0 }, 8192.0),
         "gpu" => (1.0, 2048.0),
-        "runtime" => (if cores > 8.0 { 4.0 } else { pair }, 8192.0),
+        "runtime" => (if cores > 8.0 { 10.0 } else { pair }, 8192.0),
         "critical" | "tom" if cores < 8.0 => (cores, 16384.0),
         "critical" | "tom" => (cores - reserved_cpus("attended", cores), 16384.0),
         "exclusive" => (cores, 16384.0),
