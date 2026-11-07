@@ -13,6 +13,7 @@ fn show(unit: &str, value: f64) -> String {
         "%" => format!("{value:.0}%"),
         "per h" => format!("{value:.2}/h"),
         "min" => format!("{value:.0} min"),
+        "points" => format!("{value:.1}"),
         _ => format!("{value:.0}"),
     }
 }

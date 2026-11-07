@@ -10,7 +10,7 @@ use crate::router::pricing::PriceTable;
 
 pub mod marks;
 mod runs;
-pub use runs::{Finished, Open, Reading, Snapshot, store};
+pub use runs::{Finished, Open, Reading, Snapshot, api_runs, store};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Grant {
@@ -145,6 +145,18 @@ pub fn left(policy: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today:
             (name.clone(), Left { id: id.clone(), usd, next_credit: next.get(id).cloned() })
         })
         .collect()
+}
+
+/// The credit each grant still held on the day it expired, as (expiry, usd), for the grants that expired from `since_day` up to `today`, charged by every pool entry's list-price `spends` of its organization.
+pub fn expired_unspent(policy: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, since_day: &str, today: &str) -> Vec<(String, f64)> {
+    let named = named(policy);
+    let mut unspent = Vec::new();
+    for (id, grants) in grants(policy) {
+        let mine: Vec<(String, f64)> = named.iter().filter(|(_, other)| *other == id).flat_map(|(name, _)| spends.get(name).cloned().unwrap_or_default()).collect();
+        let left = remaining(&grants, &mine);
+        unspent.extend(grants.iter().zip(left).filter(|(grant, left)| grant.expires.as_str() < today && grant.expires.as_str() >= since_day && has_credit(*left)).map(|(grant, left)| (grant.expires.clone(), left)));
+    }
+    unspent
 }
 
 /// Each organization id's next credit day from `claude-accounts.toml` beside `policy`, where it declares one.

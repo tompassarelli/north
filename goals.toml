@@ -193,3 +193,17 @@ class = "debt"
 ceiling = 6
 owner = "tompassarelli/north#643"
 revisit = "launches refused by placement, counting each launch by its last placement, stay over 6 an hour for a day"
+
+[[goal]]
+name = "ready-usage-per-landing"
+source = "north#793: model usage spent per worker first try that landed over the newest 3 h, in points (percent of an account's weekly window summed across accounts, plus api list-price dollars), is at most 4 by the ledger's usage readouts, runs and api spend, so the fleet gets more landed work for the usage it spends; Tom asked for a second standing goal on 2026-11-07"
+unit = "points"
+max = 4
+class = "ready"
+
+[[goal]]
+name = "ready-stranded-usage"
+source = "north#793: no usage resets or expires unspent while ready work waits, over the newest 3 h: the share of a weekly window left at its reset, api credit at its grant's expiry and api credit left on unexpired grants, counted while a priority:now issue was open"
+unit = "points"
+max = 0
+class = "ready"

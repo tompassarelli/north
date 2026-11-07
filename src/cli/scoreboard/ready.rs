@@ -9,7 +9,7 @@ use std::path::Path;
 
 use north_goals::registry::{self, Bound, Class, Goal};
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::{Sources, Window, landing, open, state_root, tom, workers};
 use crate::foundation::clock::Timestamp;
@@ -17,6 +17,8 @@ use crate::land::trace::profile::{Trace, percentile};
 use crate::land::trace::report::{every_queue, queue_repo};
 use crate::land::trace::Spans;
 use crate::threads::attribution::Cause;
+use crate::threads::priority_log::{self, Noted};
+use crate::threads::usage_yield::{self, Facts};
 use crate::threads::calibration::rework::Sources as ReworkSources;
 
 mod table;
@@ -26,7 +28,6 @@ const DAYS: usize = 7;
 const DAY_S: i64 = 86_400;
 const NEEDED_DAYS: usize = 3;
 const PRIORITY: &str = "priority:now";
-const PRIORITY_LOG: &str = "north/scoreboard/ready-priority.jsonl";
 const PACE_HISTORY: &str = "agents/pace-control.jsonl";
 const PACE_GAP_S: f64 = 600.0;
 const NOTE_EVERY_S: i64 = 1_800;
@@ -44,10 +45,12 @@ enum Bar {
     PriorityNow,
     IdleAccount,
     LiveP90,
+    UsagePerLanding,
+    StrandedUsage,
 }
 
 impl Bar {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 13] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -59,6 +62,8 @@ impl Bar {
         Self::PriorityNow,
         Self::IdleAccount,
         Self::LiveP90,
+        Self::UsagePerLanding,
+        Self::StrandedUsage,
     ];
 
     fn goal(self) -> &'static str {
@@ -74,6 +79,8 @@ impl Bar {
             Self::PriorityNow => "ready-priority-now",
             Self::IdleAccount => "ready-idle-account",
             Self::LiveP90 => "ready-live-p90",
+            Self::UsagePerLanding => "ready-usage-per-landing",
+            Self::StrandedUsage => "ready-stranded-usage",
         }
     }
 
@@ -90,6 +97,8 @@ impl Bar {
             Self::PriorityNow => "priority:now open",
             Self::IdleAccount => "longest idle account (all)",
             Self::LiveP90 => "landing to live everywhere p90",
+            Self::UsagePerLanding => "usage per first try landed (all)",
+            Self::StrandedUsage => "usage stranded while work waited (all)",
         }
     }
 
@@ -196,20 +205,9 @@ impl Idle {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Noted {
-    at: i64,
-    repo: String,
-    count: usize,
-}
-
 fn priority_count(repo: &str) -> Option<usize> {
     let copy = north_github_mirror::store::Mirror::local().read(&north_github_mirror::store::key(repo, north_github_mirror::store::OPEN_ISSUES))?;
     Some(copy.body.as_array()?.iter().filter(|issue| issue["labels"]["nodes"].as_array().is_some_and(|labels| labels.iter().any(|label| label["name"] == PRIORITY))).count())
-}
-
-fn noted() -> Vec<Noted> {
-    fs::read_to_string(state_root().join(PRIORITY_LOG)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
 }
 
 /// Records the open priority:now counts for the history the ready table reads.
@@ -219,12 +217,12 @@ pub fn record(now: i64) {
 
 /// Appends the open priority:now counts to the daily history, at most every half hour, since GitHub keeps no past count.
 fn note(now: i64) -> Vec<Noted> {
-    let mut history = noted();
+    let mut history = priority_log::read(&state_root());
     if history.iter().any(|entry| now - entry.at < NOTE_EVERY_S) {
         return history;
     }
     let fresh: Vec<Noted> = REPOS.iter().filter_map(|repo| Some(Noted { at: now, repo: (*repo).into(), count: priority_count(repo)? })).collect();
-    let path = state_root().join(PRIORITY_LOG);
+    let path = state_root().join(priority_log::PATH);
     let text: String = fresh.iter().filter_map(|entry| serde_json::to_string(entry).ok()).map(|line| line + "\n").collect();
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -246,6 +244,7 @@ struct Records {
     priority: Vec<Noted>,
     idle: Idle,
     live: HashMap<String, Vec<(i64, f64)>>,
+    usage: Facts,
 }
 
 fn landed(db: &Connection, since: i64) -> Result<HashMap<String, Vec<(i64, f64)>>, String> {
@@ -288,6 +287,7 @@ impl Records {
             tom: tom::Tom::read(&sources.places, &sources.home, since, now)?,
             priority: note(now),
             idle: Idle::read(since),
+            usage: Facts::load(&usage_yield::Sources { db: &threads, policy: &crate::platform::orchestration::path(), state: &state_root() }, now),
             live: HashMap::from([("north".to_owned(), north_runtime::runtime::live::everywhere(&north_runtime::runtime::live::read(&sources.records.join("north"))))]),
         })
     }
@@ -334,6 +334,11 @@ impl Records {
                 (hours > 0).then(|| Reading { value: count as f64 / hours as f64, sample: hours })
             }
             Bar::PriorityNow => self.priority(repo, window),
+            Bar::UsagePerLanding => {
+                let usage = self.usage.reading(window.start, window.end, false);
+                usage.per_landing().map(|value| Reading { value, sample: usage.landed })
+            }
+            Bar::StrandedUsage => Some(Reading { value: self.usage.reading(window.start, window.end, self.work_waited(window).unwrap_or(false)).stranded(), sample: 1 }),
             Bar::IdleAccount => {
                 match self.work_waited(window)? {
                     true => Some(Reading { value: self.idle.longest_minutes(window), sample: 1 }),

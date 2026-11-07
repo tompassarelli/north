@@ -126,6 +126,15 @@ fn age(millis: i64) -> String {
     }
 }
 
+/// The list-price dollars of each api run that started at or after `since_ms`, as (start in ms, usd), every host's report counted once.
+pub fn api_runs(ledger: &Path, prices: &PriceTable, since_ms: i64) -> Result<Vec<(i64, f64)>, String> {
+    let local = finished(ledger, since_ms, since_ms)?;
+    let snapshots = stored(ledger);
+    let mut seen: HashSet<(&str, i64)> = HashSet::new();
+    let runs = local.iter().chain(snapshots.iter().flat_map(|snapshot| &snapshot.finished));
+    Ok(runs.filter(|run| run.account.starts_with("api:") && run.started_ms >= since_ms && seen.insert((&run.session, run.started_ms))).map(|run| (run.started_ms, usd(prices, run.model.as_deref(), run.tokens))).collect())
+}
+
 /// The ledger's api runs and last day of runs, and every stored snapshot's.
 pub fn read(ledger: &Path, prices: &PriceTable, now_ms: i64) -> Result<Reading, String> {
     Ok(merge(finished(ledger, 0, now_ms - DAY_MS)?, stored(ledger), prices, now_ms))

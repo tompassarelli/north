@@ -39,6 +39,7 @@ mod stall;
 mod stranded;
 mod throughput;
 pub mod typed;
+mod usage;
 
 const USAGE: &str = "usage: north ledger flow [--json] [--repo NAME]... [--stall-alarm] | north ledger flow row REPO [FIELD]... | north ledger flow detect [--dry-run]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];
@@ -217,6 +218,7 @@ pub fn run(arguments: &[String]) -> u8 {
             Err(why) => println!("outcome: unread: {why}"),
         }
         println!("{}", crate::threads::attribution::pareto_line(&places.ledger, now as i64));
+        println!("{}", usage::line(&places, now as i64));
         if let Some(reading) = crate::threads::incidents::report::week(&places.ledger, now) {
             for line in reading.lines() {
                 println!("{line}");
