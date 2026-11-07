@@ -30,7 +30,7 @@ pub struct Record {
     pub tier: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
-    /// The one box of its item the launch staffs, when the issue lets several workers take its boxes at once.
+    /// The one box of its item the launch staffs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub box_text: Option<String>,
     #[serde(default)]
@@ -73,16 +73,31 @@ pub fn append(directory: &Path, record: &Record) -> Result<(), String> {
     file.write_all(line.as_bytes()).map_err(|error| error.to_string())
 }
 
-/// The started local launches of each item launched twice or more in the last day, whose sessions
-/// decide whether those tries count.
+/// The started local launches of each item, or each box of an item, launched twice or more in the
+/// last day, whose sessions decide whether those tries count.
 pub fn contested(records: &[Record], at: f64) -> Vec<&Record> {
-    let mut started: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
-    for record in records.iter().filter(|record| record.launched && !record.cloud && !record.hand && record.box_text.is_none() && at - record.at < RETRY_WINDOW_S) {
+    let mut started: BTreeMap<(IssueRef, Option<String>), Vec<&Record>> = BTreeMap::new();
+    for record in records.iter().filter(|record| record.launched && !record.cloud && !record.hand && at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
-            started.entry(item).or_default().push(record);
+            started.entry((item, record.box_text.as_deref().and_then(crate::threads::claims::box_slug))).or_default().push(record);
         }
     }
     started.into_values().filter(|tried| tried.len() >= RETRIES).flatten().collect()
+}
+
+/// The boxes launched twice in a day that the proxy decides about, as `holds` does for a whole item: for each item the slug of each such box with why.
+/// A launch whose session `unspent` names did no work on the box is no try.
+pub fn box_retries(records: &[Record], at: f64, unspent: &BTreeMap<String, String>) -> BoxHolds {
+    let mut tries: BTreeMap<(IssueRef, String), Vec<&str>> = BTreeMap::new();
+    for record in records.iter().filter(|record| record.launched && !record.hand && !unspent.contains_key(&record.name) && at - record.at < RETRY_WINDOW_S) {
+        let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
+        tries.entry((item, slug)).or_default().push(&record.name);
+    }
+    let mut held = BoxHolds::new();
+    for ((item, slug), names) in tries.into_iter().filter(|(_, names)| names.len() >= RETRIES) {
+        held.entry(item).or_default().insert(slug, format!("north fleet dispatch, {} tries of this box in 24 h without ticking it ({}); the proxy decides the next one", names.len(), names.join(", ")));
+    }
+    held
 }
 
 /// Items launched in the last two hours, whose sessions may not show yet, and items tried twice in a

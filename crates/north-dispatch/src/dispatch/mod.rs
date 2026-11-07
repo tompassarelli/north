@@ -154,7 +154,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let mut staffed = taken.len();
         let mut launched_here = false;
         loop {
-            let box_text = if cap > 1 { issue.free_box(&taken, survey.at) } else { None };
+            let box_text = issue.free_box(&taken, survey.at);
             if cap > 1 && box_text.is_none() {
                 break;
             }

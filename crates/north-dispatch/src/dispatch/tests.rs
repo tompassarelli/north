@@ -233,9 +233,9 @@ fn a_run_that_began_before_the_proxy_paused_dispatch_launches_and_revives_nothin
     assert!(lines[0].starts_with("skip revive n-state-machines on gex45 claude:a") && lines[0].ends_with("dispatch was paused while this run was working: paused"), "{lines:?}");
 }
 
-/// north#782 had three boxes and one worker at a time: its claim covered the whole issue, so dispatch held the issue while any worker held it.
+/// north#782 had three boxes and one worker at a time. A one-worker issue is staffed one box at a time too: on 2026-11-07 first tries on north#634 (33 open boxes) ticked the box they took and still ended Not done because the brief asked for every box.
 #[test]
-fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_one_that_does_not_is_staffed_whole() {
+fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_one_that_does_not_is_staffed_one_box_at_a_time() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let body = "Workers: 3\n- [ ] the loss is classified\n- [ ] the run row names its box\n- [ ] the staffing replays\n- [ ] the docs say so";
@@ -250,8 +250,8 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     let full = decide(&surveyed(body, &["the-loss-is-classified", "the-run-row-names-its-box", "the-staffing-replays"]), "test");
     assert!(full.launches.is_empty());
     assert!(full.skipped.iter().any(|(_, why)| why.contains("3 workers hold its boxes, which is its cap of 3")), "{:?}", full.skipped);
-    assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &[])), [None], "an issue with no Workers: line is staffed whole by one launch");
-    assert!(decide(&surveyed("- [ ] a\n- [ ] b", &["a"]), "test").launches.is_empty(), "a box worker holds the issue against a whole-issue launch when the cap is one");
+    assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &[])), [Some("a".to_owned())], "an issue with no Workers: line is staffed by one launch naming its first box, so its Done when is that box and not the whole issue (north#706)");
+    assert!(decide(&surveyed("- [ ] a\n- [ ] b", &["a"]), "test").launches.is_empty(), "a held box holds the issue when the cap is one");
 }
 
 /// The 2026-11-07 3:15 PM reading: claude:a at 99% of its week took two launches and both died on the weekly limit (north#259).

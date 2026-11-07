@@ -10,7 +10,7 @@ pub const HAIKU_WAIT: &str = " Run any command that may take over a minute in th
 pub const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
 
 /// The brief for one ready issue; its first block, before the blank line, is what placement and
-/// routing read. `box_text` names the one box of an issue that lets several workers take its boxes at once on a `Box:` line, which the launch claims alone.
+/// routing read. `box_text` names the one box the launch staffs on a `Box:` line, which it claims alone and its Done when names.
 pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds, box_text: Option<&str>) -> String {
     let reference = issue.reference();
     let mut head = vec![format!("Item: {reference} {}", issue.title)];
@@ -30,9 +30,10 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
         }
     }
     head.extend((!needs.is_empty()).then(|| format!("Needs: {}", needs.join(", "))));
-    head.push(format!(
-        "Done when: every Done-when box of {reference} is ticked with its evidence, the change is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA."
-    ));
+    head.push(match box_text {
+        Some(_) => format!("Done when: its Box: box of {reference} is ticked with its evidence, any change it needed is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA if that box was its last unticked one."),
+        None => format!("Done when: every Done-when box of {reference} is ticked with its evidence, the change is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA."),
+    });
     head.push(format!("ETA: {}", grounds.eta(declared(issue, "ETA"), route)));
     head.extend(grounds.budget(route));
     head.extend(grounds.trace());
@@ -42,13 +43,13 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
         "{}\n\n{launched_by} staffed this box because a worker slot was free and {reference} was ready: open, unticked, unheld and unblocked. \
          Read it with `gh issue view {} -R {OWNER}/{}` and work {}; each box's evidence is an observation outside you. \
          Claim it with `threads claim {reference}{}` first, and stop with `Not done:` if someone else holds it. \
-         Load the skills the issue's work needs, edit in a worktree, land through safe-push, tick each box with its evidence and close the issue with the SHA on origin/main. \
+         Load the skills the issue's work needs, edit in a worktree, land through safe-push, tick each box with its evidence and close the issue with the SHA on origin/main once no box is left. \
          File a new issue only for a real blocker (a `Blocks: REPO#N` body line links it) or an outcome independent of {reference}; add the pieces of your own task as boxes on {reference}, and the filing guard refuses a split of it and a title matching an open issue. \
          End with Done:, Not done: or Split:, and Stop: with its reason: `north fleet need NAME REASON` (record it first, write no `Stop: host` line) when only another host or need (laptop, native) can finish the box, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, after adding `(not before YYYY-MM-DDTHH:MMZ)` to each box that waits so dispatch and `north graph ready` hold it.{}{}",
         head.join("\n"),
         issue.number,
         issue.repo,
-        if box_text.is_some() { "only its Box: box, because other workers take its other boxes at once, and tick that box with its evidence (close the issue only when you tick its last box)" } else { "its unticked Done-when boxes" },
+        if box_text.is_some() { "only its Box: box, and any other box the same change satisfies, because dispatch staffs its other boxes on their own; report Done: once your Box: box is ticked, whatever other boxes stay open" } else { "its unticked Done-when boxes" },
         if box_text.is_some() { " --box <the text of your Box: line>" } else { "" },
         if route.tier == Tier::Haiku { HAIKU_WAIT } else { "" },
         cleanup_orders(issue, &reference),

@@ -40,7 +40,7 @@ pub struct Survey {
     pub issues: Vec<Issue>,
     pub open: BTreeSet<IssueRef>,
     pub holds: BTreeMap<IssueRef, String>,
-    /// The boxes workers hold on issues that let several take their boxes at once, by box slug; they hold a box, not the issue.
+    /// The boxes workers hold, or that dispatch tried twice in a day, by box slug; they hold a box, not the issue.
     pub box_holds: record::BoxHolds,
     /// The fleet sessions every reached registry lists as running or parked on a wait, which own the boxes their names are on.
     pub live: BTreeSet<String>,
@@ -408,6 +408,13 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let listed = fleets::listed(&fleet_lists);
     let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref()), &mut notes);
     holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &records, at)));
+    for (item, boxes) in record::box_retries(&records, at, &unspent) {
+        let Some(issue) = issues.iter().find(|issue| issue.reference() == item) else { continue };
+        let unticked: BTreeSet<String> = issue.takeable(at).filter_map(crate::threads::claims::box_slug).collect();
+        for (slug, why) in boxes.into_iter().filter(|(slug, _)| unticked.contains(slug)) {
+            box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
+        }
+    }
     for (item, boxes) in record::box_launching(&records, at, &fleets::gone(&fleet_lists, &copies, &records, at)) {
         for (slug, why) in boxes {
             box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
