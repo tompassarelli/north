@@ -2,7 +2,8 @@
 # A sample is every Nth distinct refused command, sorted by command text, up to 30 rows; the first rows are 0, N, 2N and so on.
 # label: "true" the refusal stopped what the rule's policy forbids; "false" the command was what the policy allows
 # (a write outside main's tree, a wait of 30 seconds or less, a read-only script, lane cleanup); "unclear" the stored text does not settle it.
-# `north hook stats` prints each refusing rule's false share from the last sample of that rule.
+# `north hook stats` prints each refusing rule's false share from the last sample of that rule, and lists each rule over 10% false
+# with its `narrowed` line, or "not narrowed". The 2026-11-08 samples (north#706) cover every rule that refused from 2026-11-01 to 2026-11-08.
 
 [[sample]]
 rule = "launch-critical"
@@ -622,5 +623,3446 @@ label = "true"
 
 [[sample.row]]
 command = "until rg -q '^exit' /tmp/wt577-cold.log; do sleep 5; done; tail -3 /tmp/wt577-cold.log | cut -c1-200"
+label = "true"
+
+
+[[sample]]
+rule = "launch-critical"
+window = "2026-11-07 to 2026-11-08, after 786ac1b9d4"
+drawn = "1 in 3 of 103 distinct refused calls"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/offering_tests.rs\",\"old_string\":\"    let running = Host { bu"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-fleet/src/fleet/host.rs\",\"old_string\":\"pub const SOCKET: &str = \\\"host.sock\\\";\\n\",\"new_strin"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-ops/src/ops/remote_serve/guards.rs\",\"new_string\":\"fn incident_record(words: &[&str], grants:"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-threads/src/threads/calibration/read.rs\",\"old_string\":\"            ended: row.get::<_, Optio"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-threads/src/threads/calibration/read.rs\",\"old_string\":\"pub fn raw_runs(db: &Connection, cond"
+label = "true"
+
+[[sample.row]]
+command = "Write {\"file_path\":\"/home/tom/code/north/main/crates/north-landing/src/land/probe.rs\",\"content\":\"#[derive(Debug, PartialEq, Eq)]\\npub struct Settled<L"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/edit.py <<'E' import re p='crates/north-threads/src/threads/usage_yield/mod.rs' s=open(p).read() s=s.replac"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > crates/north-replay/src/refused.rs <<'EOF' //! `north strategy refusals`: launches placement refused in a window"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git branch keep/n791-placement-61a7d0905 61a7d0905a && git reset -q --keep origin/main && git log -1 --format='%h %s' "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git diff > /tmp/stray.patch && git apply -R /tmp/stray.patch && git status -sb | head -3 && git worktree add /home/tom"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git merge -q --ff-only origin/main 2>&1 | tail -1; rg -n \"fn free_cpus\" -B3 -A12 crates/north-capacity/src/capacity/bu"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git pull -q --ff-only 2>&1 | tail -2; sqlite3 -readonly ~/.local/state/threads/snapshot.db \".schema landings\" \".schema"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git pull -q --ff-only; wc -l crates/north-land-scans/src/strategy_replay.rs; grep -n \"head-north\\|cargo\\|fn \\|Command:"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git rebase origin/main 2>&1 | tail -5; git log --oneline -2 | cut -c1-100; git diff --stat HEAD~1 | tail -15"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree list | rg replay; cd ../worktrees/n729-policy-replay 2>&1 && printf '%s\\n' '- A rule the skill grew by, p"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && mv docs/features/03-fleet-sessions/0037-launch-relay-north-765.md /home/tom/code/north/worktrees/n765-launch-relay/doc"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && python3 - <<'E' import re p='crates/north-threads/src/threads/attribution.rs' s=open(p).read() s=s.replace(r'pattern(r"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && python3 - <<'EOF' import re p='crates/north-dispatch/src/dispatch/host_needs.rs' s=open(p).read() start=s.index('/// R"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && python3 - <<'EOF' import re p='crates/north-lanes/src/lanes/gc/liveness.rs' s=open(p).read() # remove GithubFacts stru"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && python3 - <<'EOF' import re p='crates/north-runtime/src/runtime/probe.rs' s=open(p).read() s=s.replace('''const RESIDE"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && python3 - <<'EOF' 2>/dev/null || echo nopython EOF perl -0pi -e 's|(const ADMITTED: &str = \"\\[north: your queued run w"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main/crates/north-fleet-supervisor/src/fleet/registry && python3 - <<'EOF' p='gate_commands.rs' s=open(p).read() s=s.replace(\""
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main/crates/north-frontier && python3 - <<'EOF' 2>/dev/null || echo nopython EOF perl -0pi -e 's/    Plain,\\n\\}/    Plain,\\n  "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; cat > crates/north-runtime/src/runtime/history.rs <<'EOF' //! The problems each host showed while it ran each runtime, s"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git fetch -q; git merge-base --is-ancestor d7785244c6e70feb8dba4308c9eafa5f09b690cd origin/main && echo landed; gh issue"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git status --porcelain | head -5; git reset -q --keep origin/main && git log -1 --format='%h %s' | cut -c1-80; git statu"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/bars-order 2>/dev/null || { cd /home/tom/code/north/main && git worktree add -q -b bars-order ../worktrees/bars-orde"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/south/main && git pull -q --ff-only; cat agents/routines/ssh-master-probe.md; ssh gex45 'systemctl --user list-timers --all --no-pag"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/main && git status --short; git checkout -- . 2>&1 | head -2; mkdir -p /home/tom/code/wisp/worktrees && git worktree add /home/"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code && git -C south/main pull -q --ff-only 2>/dev/null; git -C nixos-config/main pull -q --ff-only 2>/dev/null; rg -n --no-heading '\\bnorth (gh-"
+label = "true"
+
+
+[[sample]]
+rule = "launch-critical.layout"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 5 of 170 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/main && git merge-base --is-ancestor 419c9827e5 origin/main && echo ancestor; ls worktrees | head -3; git worktree add --det"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north && git -C main worktree add -q -b n636-follows-closed worktrees/n636-follows-closed origin/main && echo ok"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north && ls; cd main && git worktree add -q -b tool-mine-noise ../tool-mine-noise origin/main && cd ../tool-mine-noise/crates/north-"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && d=/tmp/s19a-mainsuite && git worktree add -q --detach $d origin/main && cd $d && bash bin/safe-push.test.sh > /tmp/s19"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q origin && git worktree add -q -b n634-core-split worktrees/n634-core-split origin/main && cd worktrees/n6"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q origin && git worktree add -q -b n748-api-runs ../n748-api-runs origin/main && cd ../n748-api-runs && git"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q origin && git worktree add -q -b n838-promises ../n838-promises origin/main && cd ../n838-promises && sed"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q origin && git worktree add -q -b rework-recall-711 ~/code/north/lanes/rework-recall-711 origin/main && cd"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q origin main && git worktree add -q -b n639-sigterm ../n639-sigterm origin/main && cd ../n639-sigterm && g"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -b gh-session-one-token-source worktrees/gh-session-one-token-source origin/main 2>&1 | tail -1; sed "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q --detach /home/tom/code/north/lane-560-verify origin/main 2>&1 | tail -2; cd /home/tom/code/north/"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q -b docs-arch-3d ../docs-arch-3d origin/main && cd ../docs-arch-3d && for f in docs/features/04-lan"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q -b issue-648-unit-read-test /home/tom/code/north/issue-648-unit-read-test origin/main && echo ok"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q -b n634-machine-bound ../n634-machine-bound origin/main && cd ../n634-machine-bound && python3 - <"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q -b n656-adopted-capture ../lanes/n656-adopted-capture origin/main && echo ok"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q -b north-625 ../north-625 origin/main && cd ../north-625 && git log -1 --oneline && rg -n \"Flush::"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q -b skills-effect-112 ../skills-effect-112 origin/main && cd ../skills-effect-112 && grep '^diff --"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q ../wt-839 -b north-839-proxy-follow origin/main 2>&1 | tail -2; cd ../wt-839 && python3 - <<'EOF' "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q worktrees/nix-d3 -b nix-d3 origin/main 2>&1 | tail -2; cd worktrees/nix-d3 && sed -n 1,400p docs/r"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree list | head -5; git worktree add -q -b n641-tom-bars ../n641-tom-bars origin/main 2>&1 | tail -2; cd ../n"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && ls ..; git worktree add -b north-578 ../north-578 origin/main 2>&1 | tail -2"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && python3 - <<'EOF' 2>/dev/null || echo nopython EOF git worktree add -q -b s73-confirm ../s73-confirm origin/main && ec"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && sed -n 75,100p Cargo.toml; git worktree add --detach /tmp/n259/wt fad7445bd7f4b3417cbb24932c7909823a893e35 2>&1 | tail"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git worktree add -b n636-pace ../n636-pace origin/main -q 2>&1|tail -2; cd ../n636-pace; sed -n 60,135p crates/north-gua"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git worktree add -q -b n634-spans-leak ../n634-spans-leak origin/main && cd ../n634-spans-leak && sed -i '117s/SAFE_PUSH"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; grep -n \"_tests\" crates/north-landing/src/land/*.rs | head -5; cat rustfmt.toml .rustfmt.toml 2>/dev/null; sed -n '/\\[wo"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees && git -C ../main worktree add -q -b n635-sweep-d n635-sweep-d origin/main && cd n635-sweep-d && gh api repos/tompas"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n680-incremental-costs; rm -rf /tmp/n680/mut && git worktree add -q --detach /tmp/n680/mut HEAD && cp -r crates/nort"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/south/main && git fetch -q origin && git worktree add -q -b cx53-stock-0711 ../cx53-stock-0711 origin/main && cd ../cx53-stock-0711 "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/nixos-config/main && git fetch -q && git worktree add -q -b firn-snapshot-cleanup ../firn-snapshot-cleanup origin/main && cd ../firn-snapsho"
+label = "true"
+
+
+[[sample]]
+rule = "worker-wait"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 22 of 687 distinct refused calls"
+narrowed = "2026-11-08 north#706: a Monitor call is read from the transcript; a loop in a heredoc body or under timeout of 60 s or less, a safe-push path or query, and test words in quotes no longer count"
+
+[[sample.row]]
+command = "/tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/chk.sh check -p north-core --tests --message-format short 2>&1 |"
+label = "true"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"L=/tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/scratchpad/push.log; until rg -q \\\"NOT pushed|✗|landed|exit|safe"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"cd /tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad; until [ -n \\\"$(cat /tmp/claude-1000/-hom"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until [ -n \\\"$(cat /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/tasks/bqtcz911o.output)\\\" ] || ! pgrep -f \\\"lan"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q '^exit ' /tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/land-cache-test.log; "
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q \\\"^exit\\\" /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/tasks/bd4wdvxzx.output 2>/dev/null; do sle"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"Firn safe-push result (exit line appears)\",\"command\":\"until grep -q '^exit=' /tmp/claude-1000/-home-tom-code-north/895929a7-62"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"edge-on capture rows and landing progress\",\"timeout_ms\":1500000,\"command\":\"P=/tmp/claude-1000/-home-tom/c37fb471-94c2-4531-861"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"journal lane bun test finishes\",\"timeout_ms\":900000,\"command\":\"until grep -q '^test=' /tmp/claude-1000/-home-tom/c37fb471-94c2"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"offload test run and tag deletion finish\",\"timeout_ms\":1800000,\"command\":\"d=/tmp/claude-1000/-home-tom-code-north/08645928-14a"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"safe-push retry result\",\"timeout_ms\":900000,\"command\":\"until grep -q \\\"^exit\\\" /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"wait for build task exit\",\"timeout_ms\":1200000,\"command\":\"while pgrep -f 'cargo build --bin north' >/dev/null; do sleep 10; do"
+label = "false"
+
+[[sample.row]]
+command = "S=/tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad; mkdir -p $S/recon; cd $S/recon cat > add393.md <<'EOF'  ## Se"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/cull635w/game-ts.md <<'EOF' # game-ts area (north#635 wisp test cull)  Before: 244 tests in 70 files (runner counts, `bun test FILE -t ZZZN"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/classic-levels && perl -0pi -e 's/Tom revised the 2026-11-03 fixed\\ncurve the same day: the choice returns, named "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -b spawn-guard-cleanup /home/tom/code/north/worktrees/spawn-guard-cleanup origin/main 2>&1 | tail -3;"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/landing-train-checks && python3 - <<'EOF' 2>/dev/null || echo nopython EOF perl -0pi -e ' s/  if \\[ \"\\$to\" = main \\]"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/runtime-no-gex45-pull && north review-gate id origin/main HEAD $(safe-push --durable-harness-paths north) 2>&1 | tai"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/main && git worktree add -q /home/tom/code/smashcraft/thrall-handle-uv -b thrall-handle-uv origin/main && cd /home/tom/co"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && mkdir -p /tmp/goldrev && cd /tmp/goldrev && B=/home/tom/code/north/worktrees/north-621-p8/bin/safe-push && sed -n '22,26p;30,36p' $B > fns."
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/makgora/main && git worktree add --detach ~/code/makgora/worktrees/wc3-1075 1a6ae4795bd3 2>&1 | tail -1 && cd ~/code/makgora/worktrees/wc3-1"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/case-results && pgrep -af \"safe-push.*case-results|sleep 240\" | head; git fetch -q && git rebase origin/main 2>&1 | tail -2;"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/land-runner-auto && f=bin/safe-push.test.sh && perl -0pi -e 's/^meet=.*\\nrunner_case runner-overlap land.runner build-host ."
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/router-stats && timeout 590 depbox run -- nix develop -c cargo test --locked --offline -p north-core --lib -- threads::calib"
+label = "true"
+
+[[sample.row]]
+command = "date +%r; ssh gex45 'cd ~/code/makgora/worktrees/makgora-d1a-corpus/ts && nohup sleep 3000 >/dev/null 2>&1 & echo holder $!; cd ~/code/makgora/worktre"
+label = "false"
+
+[[sample.row]]
+command = "mkdir -p /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/scratchpad/h && cat > /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9"
+label = "true"
+
+[[sample.row]]
+command = "ssh gex45 'N=/home/tom/.local/state/north/runtimes/2720708ac1e4ca0f28ca5898070d5b3d17c70492/north; (setsid $N private-desktop start --seconds 900 -- s"
+label = "false"
+
+[[sample.row]]
+command = "tail -c 600 /tmp/obs-bun.log; ps -eo pid,etime,args | rg 'bun test|tsc' | rg -v rg | head"
+label = "false"
+
+[[sample.row]]
+command = "timeout 120 ssh -o BatchMode=yes nexus 'D=$(mktemp -d /tmp/b5-XXXX); cd $D && (git -C ~/code/north/main cat-file -e 489bc7cbd 2>/dev/null && echo has-"
+label = "true"
+
+[[sample.row]]
+command = "timeout 55 bash -c 'while ! grep -q \"^exit=\" /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/tasks/bunljkiwc.output; do sleep 3; done'"
+label = "false"
+
+
+[[sample]]
+rule = "poll-loop"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 10 of 323 distinct refused calls"
+narrowed = "2026-11-08 north#706: a Monitor call is read from the transcript and allowed"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"J=/home/tom/.local/state/north/jobs; seen=\\\"\\\"; while true; do for n in wincap5 wincap6 od-lua-air2; do f=$(ls -t $J/$n-*.log 2>/d"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/13a74df8-a3a0-43a9-b4af-6ae30d4f81a6/tasks/b9l6817be.output; until [ -s $f ]; do slee"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/61914563-d52d-4a6e-a6cc-9fa0e64caa6e/tasks/bar34l3eu.output; until [ -s \\\"$f\\\" ] && !"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/fdc327a1-78da-49b6-a455-5bccb6fc7316/tasks/b57w0p3ef.output; until rg -q 'Finished|er"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until [ -f /tmp/lp3d.log ] && grep -q \\\"cite=\\\" /tmp/lp3d.log; do sleep 3; done; cat /tmp/lp3d.log | tail -20\",\"description\":\"feat"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until [ -s /tmp/claude-1000/-home-tom-code-north-main/701433bc-3007-4fb3-b5d4-d6df2fadb21b/tasks/bygj0tsw3.output ]; do sleep 5; d"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q '^EXIT=' /home/tom/.cache/policy-contract-523-push.log; do sleep 2; done; tail -n 25 /home/tom/.cache/policy-contrac"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q '^exit ' /tmp/helpless-lua.log; do sleep 2; done; tail -6 /tmp/helpless-lua.log\",\"description\":\"Lua32 helplessLedge "
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q '^exit ' /tmp/test1.log; do sleep 5; done; grep -E \\\"^error|test result|FAILED|failed|panicked|^exit \\\" /tmp/test1.l"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q '^exit=' /tmp/scc-t/firn-check.log; do sleep 5; done; tail -8 /tmp/scc-t/firn-check.log\",\"description\":\"firn check f"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q \\\"^exit \\\" /tmp/stop-hook-test.log; do sleep 2; done; grep -E \\\"^test result|FAILED|panicked|^error|^exit \\\" /tmp/st"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q \\\"exited with code\\\\|test result\\\" /tmp/claude-1000/-home-tom-code-north-main/e17734ee-fe4a-48ef-9bb1-8a71ef3d7e24/t"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -qE \\\"test result|error(\\\\[|:)|FAILED\\\" /tmp/claude-1000/-home-tom-code-north-main/24fc4384-2a8c-4db1-92c8-bd04cb579d3d"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until rg -q '^exit ' /tmp/p88-c.log /tmp/p88-nixos-push.log 2>/dev/null; do sleep 3; done; tail -n 3 /tmp/p88-nixos-push.log | cut"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until rg -q \\\"core exit\\\" /tmp/523-runs.log 2>/dev/null; do sleep 2; done; cat /tmp/523-runs.log\",\"description\":\"523 test runs fin"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"Illidan derive finish\",\"timeout_ms\":1800000,\"command\":\"until rg -q '^rc=' ~/.local/share/makgora-scratch/illidan-stalker2/deri"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"capacity test run finishing\",\"timeout_ms\":1500000,\"command\":\"until grep -q \\\"^exit\\\" /tmp/qf-test.log 2>/dev/null; do sleep 5;"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"claim-on-file commits landing on origin/main or safe-push ending\",\"timeout_ms\":1800000,\"command\":\"f=/tmp/claude-1000/-home-tom"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"clippy run for n626 finishes\",\"timeout_ms\":1800000,\"command\":\"until grep -q \\\"^exit\\\" /tmp/claude-1000/-home-tom-code-north-ma"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"fl-spawn map builds finish or fail\",\"timeout_ms\":1800000,\"command\":\"f=/tmp/claude-1000/-home-tom-code-smashcraft-main/2405fec3"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"keyring oracle runs finished\",\"timeout_ms\":1200000,\"command\":\"until [ -e /tmp/cpw/alldone ]; do sleep 3; done; echo finished\"}"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"n255 tests exit (second watch)\",\"timeout_ms\":1800000,\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/2ff8eb9b-349e-4a1"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"n638 cargo test via capacity gate\",\"command\":\"until grep -q '^exit' /tmp/n638-test.out 2>/dev/null; do sleep 5; done; grep -v "
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"nextest north-capacity-host finish\",\"timeout_ms\":600000,\"command\":\"until ! pgrep -f '[n]extest run -p north-capacity-host' >/d"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"north#626 named tests finishing\",\"timeout_ms\":1800000,\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/eae1bcf9-0733-4c"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"north-core heavy_command fixture test outcome\",\"timeout_ms\":1800000,\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/70"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"p88 presence test run finishing\",\"timeout_ms\":1500000,\"command\":\"until rg -q '^exit' /tmp/p88-presence-test.log 2>/dev/null; d"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"remaster_check on origin/main finishes\",\"timeout_ms\":1800000,\"command\":\"until grep -q '^exit' /tmp/remaster-187.log; do sleep "
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"safe-push landing output of n669-guards\",\"command\":\"until [ -s /tmp/claude-1000/-home-tom-code-north-main/883f365a-7ea0-419c-8"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"targeted test run completion\",\"timeout_ms\":1800000,\"command\":\"until rg -q \\\"^exit=\\\" /tmp/n560-fix.log; do sleep 5; done; rg \\"
+label = "false"
+
+
+[[sample]]
+rule = "session-kill"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 9 of 288 distinct refused calls"
+
+[[sample.row]]
+command = "C=$(cat /tmp/n259/commit); cd /tmp; for h in gex45 ccx33; do (ssh $h \"north capacity host run --class heavy --owner n259-dw --timeout-seconds 3600 -- "
+label = "false"
+
+[[sample.row]]
+command = "MC=$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs; cd /tmp/w107b && for c in a5be2536b2 6bcd0db3a8; do (cd ~/code/makgora/w"
+label = "true"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"for f in hfn-check2 hfn-base-lua hfn-adv; do ( while ! rg -q '^exit ' /tmp/$f.log; do sleep 3; done; echo \\\"== $f\\\"; rg -v '^\\\\{\\\""
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"n523 test, firn check and gex45 timing finish\",\"timeout_ms\":1800000,\"command\":\"for f in /tmp/n523-test.log /tmp/n523-firn.log "
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"window strip captures and check finishing\",\"timeout_ms\":1200000,\"command\":\"T=/tmp/claude-1000/-home-tom/c37fb471-94c2-4531-861"
+label = "false"
+
+[[sample.row]]
+command = "cat > /tmp/n634-scripts/wait20.sh <<'EOF' #!/usr/bin/env bash until [ \"$(/tmp/n634-scripts/table.sh 1793927530 | grep -vc 'after: pending')\" -ge 20 ];"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/n641-goals; { echo \"Re-land: $(head -1 /tmp/n641-msg.txt)\"; echo; echo \"The second landing was reverted when its a"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/n642-scan.sh <<'EOF' #!/bin/sh export BETTERLEAKS_CONFIG_TOML=\"$(cat /home/tom/code/north/main/crates/north"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; S=/tmp/claude-1000/-home-tom/d5348cce-138c-45ca-ad97-54c81ff750e8/scratchpad; cat > $S/brief-evict <<'EOF' Item: north#6"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/n360-land-first && f=crates/north-landing/src/land/serve.rs && perl -0pi -e 's/<<<<<<< HEAD\\n(.*?)\\|\\|\\|\\|\\|\\|\\| .*?\\n>>>>>>> "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/lander-precheck-0 && out=/tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/probe"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n572-fix; git rebase origin/main 2>&1 | tail -2; bun /tmp/n572s/scc.ts structure.toml; echo scc-ok; git log --onelin"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n731-bar && git rebase --onto origin/main n731-swap-log n731-bar 2>&1 | tail -2; git log --oneline -3 | cut -c1-80; "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/p88-threads-slice2 && sed -i '188d' crates/north-landing/src/follows_release.rs && sed -n 186,190p crates/north-land"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/gear-plain && git add docs/design/fighter-portraits.md ts/src/game/core/selectBarLayout.ts ts/src/game/ui/selectBar.ts ts"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/worktrees/rot-shot/ts && S=~/.local/state/smashcraft/shots/rot-trail && MC=/home/tom/.local/state/north/runtimes/e5aea7dd"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/readability && cat > /tmp/readability-scripts/edit16.ts <<'EOF' const file = `${Bun.argv[2]}/docs/native-window-plan."
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && d=$(mktemp -d) && cat > $d/reap.sh <<'EOF' owner=$1 root=$2 for f in \"$root\"/*.owner; do   [ \"$(cat \"$f\")\" = \"$owner\" ] || continue   base="
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/css-topbar-edits && sed -i 's/^Closes #991$/Reverts: a9899715dc8d\\nCloses #991/' reland-message.txt && full=$(cd /home/tom/code/smashcraft/mai"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp; (north retain --dry-run > /tmp/retain-dry.out 2>&1; echo \"exit $?\" >> /tmp/retain-dry.out) & disown; echo started"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/worktrees/delay1-native/ts && timeout 28 bun node_modules/typescript-native/bin/tsc --build tsconfig.json tsconfig.game.json 2>&1 | "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main; export CLAUDE_CONFIG_DIR=$HOME/.local/state/north/profiles/claude-a; declare -A S=([1]=[id] [2]=sess"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/fleet-failed-launch-dir && git add tests/it/fleet_launch.rs && git commit -qm \"wip integration test (north#583)\" && B=$(git "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/p88-hook-switch && perl -0pi -e 's/(    let \\(errors, _\\) = fixture\\.run\\(true, false\\);\\n    assert_eq!\\(errors, Vec::<Stri"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/south/worktrees/bun-144 && git fetch -q origin && git merge -q --ff-only origin/main; F=agents/decisions/makgora/perf-smooth-plan.md; sed -n"
+label = "true"
+
+[[sample.row]]
+command = "cd ~; R=~/.local/state/north/runtimes/40c2f2782825158540a80fb1dc194bf93247d609/north; L=~/.local/state/north/fleet/bd-dispatch/g1/session-streams/inde"
+label = "false"
+
+[[sample.row]]
+command = "for h in nexus gex45 ccx33; do start=$(date +%s); head -c 1073741824 /dev/zero | timeout 600 ssh -o BatchMode=yes -o ControlPath=none $h 'cat > /dev/n"
+label = "false"
+
+[[sample.row]]
+command = "m=\"Proxy, from Tom (10:13 AM): he needs 3-5x the box rate now. Go to 10 workers live at once (account a has 97% of its week; d's 5-hour window lasts u"
+label = "false"
+
+[[sample.row]]
+command = "mkdir -p ~/.local/state/smashcraft/shots/dread-pounce ~/.cache/dsnd/dread-pounce-run && cd /home/tom/code/smashcraft/worktrees/dread-pounce/ts && D=$("
+label = "true"
+
+[[sample.row]]
+command = "sed -i 's#^PD=.*#PD=$(dirname $(agents path private-desktop-development))/scripts/private-desktop.sh#' /tmp/thrall-upb-cap/run.sh; sed -i 's#timeout 4"
+label = "false"
+
+
+[[sample]]
+rule = "session-kill.self-match"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 27 of 810 distinct refused calls"
+
+[[sample.row]]
+command = "B=/home/tom/code/north/worktrees/n585-wayvnc-clipboard/target/debug/north; R=/run/user/1000/private-desktop.UwZ1lN; tr '\\0' '\\n' < /proc/$(pgrep -f \"^"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until [ -s /tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/offload.log ] && ! pgrep -f 'capa"
+label = "true"
+
+[[sample.row]]
+command = "Monitor {\"description\":\"offload test run on build host finishes\",\"timeout_ms\":1800000,\"command\":\"f=/tmp/claude-1000/-home-tom-code-north/895929a7-6218"
+label = "true"
+
+[[sample.row]]
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/345adb18-6321-4d98-8659-dfc941284e73/tasks/byurhyn21.output; pgrep -af \"privacy judge\" | head"
+label = "false"
+
+[[sample.row]]
+command = "cat /tmp/s18-wisp.log; wc -l /tmp/s18-wisp-test.log; rg -c \"\\(fail\\)\" /tmp/s18-wisp-test.log; pgrep -fa \"bun test\" | head -3"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q origin; git log origin/main --oneline -3 | cut -c1-80; ls -t ~/.local/state/north/ 2>/dev/null | head -0;"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/lander-follows-runtime && git add crates/north-landing/src/land/promote.rs crates/north-landing/src/land/replay.rs c"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/frontier-runs; cat oracle-all.log; pgrep -fa \"frontier oracle\" | cut -c1-120; ls round1/*/oracle/oracle.json | wc -l; tail -2 pilot.log"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/makgora/worktrees/latency-107/ts && rg -n \"WISP_WINDOW_SAMPLE_LOG|sampleLog\" node_modules/wisp/host | head; P=$(pgrep -f \"nativeGame|wisp.ts"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/wisp/worktrees/sc-234; pkill -f sc234-land.sh; sleep 1; GIT_TRACE=1 timeout 28 safe-push --dry-run --to main 2>&1 | rg -i \"ssh|run_command|t"
+label = "true"
+
+[[sample.row]]
+command = "f=/tmp/claude-1000/-home-tom-code-north-main/4d7758c6-7b21-418d-9a0c-591cfe0aaca2/tasks/bha84ktx8.output; until [ -s $f ] || ! pgrep -f 'cargo check -"
+label = "true"
+
+[[sample.row]]
+command = "for p in $(pgrep -f '[w]arcraft-run.sh'); do kill $p; done; sleep 3; cd ~/code/makgora/worktrees/latency-244/ts && timeout 20 bun wisp lan stop 2>&1 |"
+label = "true"
+
+[[sample.row]]
+command = "ls -la --time-style=full-iso /tmp/b6-core.log /home/tom/code/north/worktrees/b6-remote-serve/crates/north-core/src/ops/remote_serve/tests.rs; tail -c "
+label = "false"
+
+[[sample.row]]
+command = "north lane-gc --help 2>&1 | head -20; pgrep -af 'capacity host run' | head -3 | cut -c1-150"
+label = "false"
+
+[[sample.row]]
+command = "pgrep -af \"cargo|rustc\" | head -5; ls /home/tom/code/north/worktrees/rework-evidence-657/target 2>&1 | head; cat /home/tom/code/north/worktrees/rework"
+label = "false"
+
+[[sample.row]]
+command = "pgrep -af \"n677-taker-settle|gate:n676-w\" | cut -c1-200 | head; date +%r"
+label = "false"
+
+[[sample.row]]
+command = "pgrep -af '[l]an pool|[p]rivate-desktop|[l]atency-244|[n]ative-run|[w]arcraft-run' | cut -c1-120 | head; ls ~/code/wisp/worktrees ~/code/makgora/workt"
+label = "false"
+
+[[sample.row]]
+command = "pgrep -af 'lan0a|lan0b|Warcraft' | cut -c1-140 | head -5; cd ~/code/makgora/worktrees/975-wisp-pin/ts && timeout 25 bun scripts/wisp.ts lan lease rele"
+label = "false"
+
+[[sample.row]]
+command = "pgrep -af 'wisp-236/window/target|[c]argo test --release' | cut -c1-160 | head -5; cat /tmp/wisp236-local.log"
+label = "false"
+
+[[sample.row]]
+command = "pkill -f 'cargo build' ; pgrep -fa '[s]afe-push' | cut -c1-120; safe-push --help 2>&1 | head -30"
+label = "true"
+
+[[sample.row]]
+command = "rm -rf /tmp/rv-pWOz; rm -f /tmp/rv-loop.sh /tmp/rv-index; pgrep -fa \"test --offline --locked --test it\" | head -3; echo ok"
+label = "false"
+
+[[sample.row]]
+command = "sleep 20; pgrep -af 'wt577' | cut -c1-150 | head; cat /tmp/wt577-cold.log | cut -c1-200; ls /tmp/wt577-target/debug/deps 2>/dev/null | wc -l; ls /home"
+label = "false"
+
+[[sample.row]]
+command = "ssh -o BatchMode=yes gex45 'uptime; ls ~/code/makgora/ ~/.local/share/wisp/online; cat ~/.local/share/wisp/online/clone-b/held-by 2>&1; ls ~/.local/st"
+label = "false"
+
+[[sample.row]]
+command = "tail -15 /tmp/n565/push.txt; ps -o pid,etime,args --ppid $(systemctl --user show -p MainPID --value git-maintenance-nightly.service) 2>/dev/null | hea"
+label = "false"
+
+[[sample.row]]
+command = "tail -8 /tmp/claude-1000/-home-tom-code-north-main/5a6803ff-ec43-472f-8367-8cdbb364183b/tasks/bp44i3oui.output; pgrep -af \"sleep 300\" | head"
+label = "false"
+
+[[sample.row]]
+command = "timeout 110 tail --pid=$(pgrep -f 'bash bin/safe-push.test.sh' | head -1) -f /dev/null; cat /tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b"
+label = "true"
+
+[[sample.row]]
+command = "timeout 28 bash -c 'L=/home/tom/.local/state/north/land-queue/de2e0e8479546ba9/logs/post-land-848824d0a772; until rg -q \"event|landed|green\" $L.outcom"
+label = "true"
+
+[[sample.row]]
+command = "until ! pgrep -f \"ledger worker --session 0e4223d4\" >/dev/null; do sleep 1; done; tail -5 /tmp/claude-1000/-home-tom-code-north-main/1590788e-7439-480"
+label = "true"
+
+[[sample.row]]
+command = "until [ -s /tmp/claude-1000/-home-tom-code-north-main/2b99a7b5-08eb-4dfe-8468-aaf1a4e8fea3/tasks/baqb735qi.output ] && ! pgrep -f \"cargo test -p north"
+label = "true"
+
+[[sample.row]]
+command = "until [ -s /tmp/claude-1000/-tmp-lp-briefs/79e0f7a6-80b9-4fae-afb9-b372886f44cf/tasks/bl6exi92f.output ] || ! pgrep -f \"git rebase -q origin/main\" >/d"
+label = "true"
+
+
+[[sample]]
+rule = "resource-safe-search"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 10 of 301 distinct refused calls"
+
+[[sample.row]]
+command = "L=/home/tom/code/north/worktrees/spawn-guard-one-rule/crates/north-core/src/router; cd $L && python3 - <<'EOF' from pathlib import Path p = Path(\"rout"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/sc-1117/ts && rg -n \"gate-panel-buttons|gate:buttons\" --glob '*.ts' --glob '*.json' --glob '*.md' .. 2>/dev/null | grep -v n"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/grab-knockdown-only/ts/src/game/sim && grep -n \"canBeGrabbed\" -r .. | head -30; grep -n -B3 -A30 \"export function "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/nixos-config/main && rg -n -i 'drun|desktopEntr|\\.desktop|xdg.desktopEntries' --glob '!*.lock' . | head -40"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gd=$(git rev-parse --git-common-dir); ls $gd/land-queue 2>/dev/null | head; fd -t d land-queue ~/code/north -d 3 2>/de"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && rg -n \"OnCalendar|lane-gc\" --glob '!target' harness 2>/dev/null | head -5; rg -ln \"lane-gc\" ~/code/nixos-config 2>/dev"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && rg -n \"routing\\.py|run_outcome\" /home/tom/code/south /home/tom/code/nixos-config /home/tom/code/north/main --glob '!*."
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && rg -n 'snapshot-pull' --type-add 'nix:*.nix' -t nix -t rust -t toml ~/code/nixos-config . 2>/dev/null | grep -v '^./cr"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && wc -l crates/north-core/src/grounding/*.rs crates/north-core/src/grounding/sources/*; grep -rn \"distill\" --include=*.n"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; grep -rn \"NORTH_RUNTIME_LINK\\|north-land\" --include=*.nix --include=*.service --include=*.rs -l . ~/code/nixos-config 2>"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/capacity-model/crates/north-core/src/capacity/host && python3 - <<'EOF' f=open('fleet_pull.rs').read() f=f.replace('"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/fast-lane/crates/north-landing/src/land && grep -rn \"post_land\" --include=*.rs .. | grep -v \"^../land/post_land\" ; s"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n633-lander-tail/crates/north-landing/src/land; rg -n \"Lander \\{|Lander::new\" --glob '*.rs' .. ../../tests | head; r"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n708-b/crates/north-runtime/src/runtime; sed -n 270,282p update.rs; sed -n 426,431p update.rs; sed -n 585,645p updat"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/p88-router-mutants/crates/north-core/src/router && rg -n \"routing_tests|money_tests\" .. ../../ -g '*.rs' -g '*.toml'"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/self-detectors/crates/north-core/src/ops/flow && rg -n \"pending\" measure.rs | head -30; rg -n \"projected miss|projec"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/tom-class-gate/crates/north-core/src/capacity/host && grep -n \"admitted_class\\|\\\"tom\\\"\" -r .. | grep -v _tests | hea"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/sc-912/ts && rg -l \"four humans on the relay|every committed pad script parses|Frozen Throne prop near the deck|start-hol"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/south/main && git -C /home/tom/code/south/main worktree add /home/tom/code/south/worktrees/fleet-tick-enable -b fleet-tick-enable 2>"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/.local/state/north/profiles; fd -e jsonl --changed-within 31d . claude-b/projects claude-c/projects > /dev/null; for pat in 'command not found' '"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/makgora/worktrees/strike-index-codegen && sed -n 30,80p ts/src/game/presentation/heroStrikeMomentInfo.ts; cat ts/src/game/presentation/reach"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main/crates/north-core/src/capacity && rg -n \"pub(\\(crate\\))? fn (estimate_capacity|estimate_duration|clamp_to_grantable|grantable_max"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/elastic-cpu/crates/north-core/src/capacity && cat queued_ahead.rs | head -80; rg -n \"batch_fits|batch_cpus|aggregate_cpus\" -"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n522-far-lease/crates/north-core/src/fleet &&  perl -0pi -e 's/fn leased\\(&self, _session: &str\\) -> NorthResult<bool>/fn le"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/runtime-reuse-land && sed -n 1,80p crates/north-core/src/ops/runtime/deploy.rs; echo ----; sed -n 1,60p crates/north-core/sr"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/smashcraft/worktrees/spirit-wolf-slow/ts/src/game/sim/specials && sed -n 355,380p schema.ts; rg -n 'swingsThroughLanding|catchesLedge|fallLa"
+label = "false"
+
+[[sample.row]]
+command = "f=$(fd -H orchestration.toml ~/code/south 2>/dev/null | head -3); echo \"$f\"; for x in $f; do awk '/^\\[hosts|^\\[placement|^\\[dispatch/{p=1} /^\\[/{if($0"
+label = "true"
+
+[[sample.row]]
+command = "fd -t f standalone.json ~/code/makgora --changed-within 2d -d 8 2>/dev/null | head -20"
+label = "true"
+
+[[sample.row]]
+command = "ls ~/.local/bin | rg -i \"wisp|lan|game\"; rg -ln \"lan status\" ~/code/smashcraft ~/code/smashcraft-client --glob '!node_modules' 2>/dev/null | head -5; "
+label = "true"
+
+[[sample.row]]
+command = "rg -l \"full Lua32 suite belongs on the farm\" ~/.claude ~/.local/state/north/profiles/claude-d ~/code/north 2>/dev/null | head -5"
+label = "true"
+
+
+[[sample]]
+rule = "corpus-scan"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 8 of 241 distinct refused calls"
+
+[[sample.row]]
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/f1a617db-c1e5-4278-8a4a-e99b9c8902e2/tasks/bndwsrn8x.output; grep -n 'nixos-anywhere' ~/code/south/main"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && find ~/.local/state ~/code/north-data -name 'spans.jsonl' 2>/dev/null | head; env | rg NORTH_LAND; sed -n 100,150p cra"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git grep -n -i 'catch-evidence\\|catch_evidence' 89e7fc553 -- '*.rs' '*.md' '*.toml' 2>/dev/null | head -5 | cut -c1-20"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && ls ~/.local/state/north/ | head -30; ls north-data | head; rg -n \"opus-high\" -g '*.toml' -g '*.json' -g '*.jsonl' -l ."
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && rg -n \"costs.jsonl|costs_path|\\\"costs\" crates --glob '*.rs' | head -5; rg -l \"haiku\" ~/.local/state/north ~/code/north"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && rg -n 'join\\(\"' crates/north-landing/src/land/queue.rs crates/north-landing/src/land/lander.rs | head -10; rg -l 'n259"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; rg -n '\"cargo\"|cargo (metadata|fetch)' crates src --glob '!*tests*' --glob '!*.json' | head -30; rg -n \"transient infras"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n818-stale-token && rg -n \"enum Failure|struct Failure\" -A25 crates/north-landing/src | head -70; rg -n \"sheriff::ch"
+label = "true"
+
+[[sample.row]]
+command = "cd ~ && shred -u ~/.local/state/north/api-keys/anthropic ~/.local/state/north/api-keys/anthropic-apple ~/.local/state/north/api-keys/anthropic-gmail ~"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/.local/state/north && cat runtime-build-seconds 2>/dev/null; ls runtimes | wc -l; ls -lt --time-style=+%m-%dT%H:%M runtimes | head -30; journalct"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/.local/state/north && ls -t | head -5; rg -l \"9dc5d445\" . -g '*.log' 2>/dev/null | head; date -u; ssh nexus 'journalctl --user --since \"2026-11-0"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/.local/state/north && rg -l \"placement-headroom\" land-queue* collected-land 2>/dev/null | head; ls land-queue | head -5; ls land-queue/* 2>/dev/n"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/.local/state/north && sqlite3 -readonly ledger.db \".tables\" 2>&1 | tr -s ' ' '\\n' | rg -i 'fleet|session|death|revive|event' | head -20"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/.local/state/north/land-queue && for d in *; do ls $d | head -3; done 2>/dev/null | head; rg -l \"p88-capacity-logic\" . 2>/dev/null | head; rg -l "
+label = "false"
+
+[[sample.row]]
+command = "cd ~/.local/state/north; ls land-queue-hold | head; rg -l a824563fe land-queue* 2>/dev/null | head; for d in land-queue/*; do echo $d; ls $d | head -5"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/.local/state; rg -l --max-depth 4 'worker turn takes|spend tripwire' agents north 2>/dev/null | head; "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main; for n in n634-ceiling n634-lander-hold n634-lander-doctor n634-sheriff-v2 n621-p13p14 n616-clause-clippy n636-auto-adopt; do ech"
+label = "false"
+
+[[sample.row]]
+command = "d=$(find ~/.local/state/north ~/.cache/north -maxdepth 4 -type d -name runtime-build-logs 2>/dev/null | head -3); echo \"$d\"; for x in $d; do ls -lt --"
+label = "true"
+
+[[sample.row]]
+command = "fd -H -I spans.jsonl ~/.local/state/north ~/.local/state/agents 2>/dev/null | head; "
+label = "true"
+
+[[sample.row]]
+command = "fd -d 4 -t f -e db . ~/.local/state/north 2>/dev/null | head; rg -n 'fn open|\\.db\"|threads\\.db|worker.*\\.db' src/cli/scoreboard/ready.rs | head -5 | c"
+label = "true"
+
+[[sample.row]]
+command = "find ~/.local/state/north -maxdepth 4 -name .reap.json -newermt \"16:40\" -printf '%TT %p\\n' 2>/dev/null | head"
+label = "true"
+
+[[sample.row]]
+command = "hostname; ls -t ~/.local/state/north/land* 2>/dev/null | head; fd -t f ef0ef324 ~/.local/state/north 2>/dev/null | head -5; rg -l ef0ef3240 ~/.local/s"
+label = "true"
+
+[[sample.row]]
+command = "ls -la ~/.local/state/north/fleet/ 2>/dev/null | head; fd -t f 'bun-144' ~/.local/state/north ~/.local/state/agents 2>/dev/null | head; fd -t f '54933"
+label = "true"
+
+[[sample.row]]
+command = "ls -t ~/.local/state/north/land* ~/.local/state/agents/safe-push* 2>/dev/null | head; rg -ln '492c83a97' ~/.local/state/north ~/.local/state/agents 2>"
+label = "true"
+
+[[sample.row]]
+command = "ls ~/.local/state/north/ | head -50; fd -d3 -e db . ~/.local/state/north ~/.local/state/agents 2>/dev/null | head"
+label = "false"
+
+[[sample.row]]
+command = "ls ~/.local/state/north/land-queue/de2e0e8479546ba9/; ls ~/.local/state/north/land-queue/de2e0e8479546ba9/*/ | head -20; ls ~/.local/state/safe-push/l"
+label = "true"
+
+[[sample.row]]
+command = "north git-credential --help 2>&1 | head -10; env | rg -i \"^SOPS|AGE_KEY\" | sed 's/=.*/=…/'; fd -H -d 4 'keys.txt|\\.agekey' ~/.config ~/.local/state/no"
+label = "true"
+
+[[sample.row]]
+command = "rg -l \"enqueue_refuses_a_lane_carrying_a_deny_listed_value_and_writes_no_ticket \\.\\.\\. FAILED\" ~/.local/state/north ~/.local/state/safe-push 2>/dev/nu"
+label = "true"
+
+[[sample.row]]
+command = "rg -l 'n635-sweep-a' ~/.local/state/north --max-depth 4 2>/dev/null | head; "
+label = "true"
+
+[[sample.row]]
+command = "rg -l --no-ignore -uu eeba603c6 ~/code/north/main/.git/land* ~/.local/state/north 2>/dev/null | head -5"
+label = "true"
+
+
+[[sample]]
+rule = "heavy-command"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 19 distinct refused calls"
+
+[[sample.row]]
+command = "L=/tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/cores-laptop-e2e.log; unset AGENT_CAPACITY_CORES; timeout 300 "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora-client/main && git worktree add -q -b code-health-review-1103 ../worktrees/code-health-review-1103 origin/main && cd ../work"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora-client/worktrees/makgora-d1b && git status --short | head -20; (cd ui && bun install --frozen-lockfile >/dev/null 2>&1; bun "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora-client/worktrees/makgora-d1b-maps && bun scripts/kit.ts 2>&1 | tail -3 && cd ui && bun install 2>&1 | tail -1 && bun run bui"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora-client/worktrees/makgora-d1b/ui && bun test 2>&1 | grep -B5 -A15 -i 'error' | head -50"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/lanes/n396-ac-locked/lib/automation-chrome && cat >> actions.test.mjs <<'EOF'  const keyringScript = `set -eu export XDG_DATA_"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n360-s10-sheriff-queue && f=harness/scripts/main-red.test.ts && sed -i 's/import { decide, type Commit, type Situati"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/passergames/worktrees/wisp-page && sed -i \"s|^summary: Write a game once in TypeScript. Wisp compiles|summary: The engine behind Mak"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/wisp-cull; timeout 900 bun node_modules/typescript-native/bin/tsc -p /tmp/cull635w/gt/tsconfig.json > /tmp/cull635w/g"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/makgora-client/worktrees/makgora-c1 && L=/tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/scratchpad/c1.log; ( set -x; bun sc"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/worktrees/makgora-journal && bash -c 'cd ts && bun run check 2>&1 | tail -6; echo check=${PIPESTATUS[0]}; bun run test 2>&1 | tail -"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/chrome-pwstore/lib/automation-chrome; sed -i \"2s/.*/import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs\\/promis"
+label = "false"
+
+[[sample.row]]
+command = "d=$(mktemp -d /tmp/gate-loop.XXXX); mkdir -p $d/stub $d/real; cp /nix/store/r1bs0fi1i5hzr6r5f2cch3n3qfana9mi-capacity-gate-shims/bin/bun $d/shim-bun 2"
+label = "false"
+
+[[sample.row]]
+command = "nproc; systemd-run --user --quiet --unit=elastictest-probe --slice=agent-capacity-elastictest.slice sleep 60; sleep 1; U=/sys/fs/cgroup/user.slice/use"
+label = "true"
+
+[[sample.row]]
+command = "rg -n '\"(test|build|check)\"' package.json; ls node_modules >/dev/null 2>&1 || ln -s ~/code/passergames/main/node_modules node_modules; timeout 300 bun"
+label = "true"
+
+[[sample.row]]
+command = "systemctl --user is-active laptop-auto.timer; timeout 20 systemctl --user set-property --runtime agent.slice CPUQuota=2200% && systemctl --user show a"
+label = "true"
+
+[[sample.row]]
+command = "systemctl --user set-property --runtime 'app-north\\x2dland.slice' CPUQuota=600% CPUWeight=10 && systemctl --user set-property --runtime agent.slice CP"
+label = "true"
+
+[[sample.row]]
+command = "systemctl --user set-property --runtime 'app-north\\x2dland.slice' CPUWeight=1000 && systemctl --user show 'app-north\\x2dland.slice' -p CPUWeight"
+label = "true"
+
+[[sample.row]]
+command = "systemctl --user set-property --runtime agent.slice CPUQuota=1800% && systemctl --user show agent.slice -p CPUQuotaPerSecUSec -p CPUWeight; m=\"Proxy: "
+label = "true"
+
+
+[[sample]]
+rule = "heavy-command.farm"
+window = "2026-11-05 05:20 UTC to 2026-11-08, after df206b8a67"
+drawn = "1 in 1 of 3 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/cull-635/ts && (GAME_MODULES=$(cat /tmp/cull635/s2/modules.txt) bun scripts/lua-tests.ts > /tmp/cull635/s2/run2.ou"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/mk-912-red/ts && bun run test"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/select-1145/ts && cat >> src/game/ui/selectionFrames.tests.ts <<'EOF'  test(\"Every Forge fighter's tile is marked "
+label = "false"
+
+
+[[sample]]
+rule = "heavy-command.local-write"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 20 of 608 distinct refused calls"
+
+[[sample.row]]
+command = "W=/nix/store/w85nwcsr1mcykmlg6ama5ns9xgwq6rra-sccache-lane; d=$(mktemp -d /tmp/n634-sccache.XXXX); mkdir $d/src; printf '[package]\\nname=\"probe\"\\nvers"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git status -sb | head -3; grep -n \"fn .*2x\\|fn .*step\\|fn .*twice\" crates/north-dispatch/src/tune/tests.rs | head; (ti"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/deadline-router && timeout 1700 cargo test -q --workspace --no-run 2>&1 | grep -E \"^error\" -A6 | head -30 > /tmp/rou"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/i643-decision-diff && cat >> crates/north-replay/src/tests.rs <<'EOF'  #[test] fn a_placement_change_that_moves_laun"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n255-prose-done && R=crates/north-providers/src/providers/claude/runs/reports.json && cp /tmp/reports.new.json $R &&"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n621-p12b && cargo test --locked --offline --test it --no-run >/tmp/p12b-build.log 2>&1"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-lander-hold && (cargo test -p north-landing --offline --test it -- promote:: > /tmp/n634-promote-tests.log 2>&1"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-pin-candidate && f=crates/north-landing/tests/it/promote.rs && perl -0pi -e ' s/    let moved = dry_run_while\\("
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-runtime-pin && f=crates/north-runtime/src/runtime/layout.rs && sed -i '/^\\/\\/\\/ The file a check holds a shared"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n636-ckpt && f=crates/north-fleet/src/fleet/watch.rs && perl -0pi -e ' s/        if self.turns.in_flight\\(\\) \\{\\n   "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n636-reapbudget && (timeout 600 cargo check -p north-fleet --tests --message-format short > /tmp/n636-check.log 2>&1"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n641-gate-defaults && cat > crates/north-guard/src/guard/question_box_tests.rs <<'EOF' #![cfg(test)]  use super::pro"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n671-away && cargo check -p north-capacity -p north-runtime -p north-dispatch --tests > /tmp/n671-away-check.log 2>&"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n696-adopt && cargo check -p north-landing --tests --message-format short > /tmp/n696-check.log 2>&1; echo exit=$? >"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n701-judge; f=crates/north-runtime/src/privacy/judge.rs; cat > /tmp/n701-test.rs <<'EOF' #[cfg(test)] mod tests {   "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n706-nodecide && F=crates/north-fleet/src/fleet/receipts.rs && sed -i '/^    use crate::fleet::turns::TurnExit;$/d' "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n717-audit-notification && cat >> crates/north-ops/src/ops/context_audit/scan.rs <<'EOF'  #[cfg(test)] #[path = \"sca"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n733-wait-turn && sed -i 's/interactive::run(&fleet, PROXY))/interactive::run(\\&fleet, PROXY, false))/' src/cli/flee"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n759-claim-filed && grep -rn \"records_brief\\|worker_brief\" crates | head; grep -n \"claim\\|north#73\" crates/north-dis"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n782-narrow && cp tests/it/affected_modules.rs /tmp/n782-am.rs && cat >> tests/it/affected_modules.rs <<'EOF'  #[tes"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n790-resume-rest && sed -i 's|^use north_base::land_ticket::Lane;|use north_base::land_ticket::Lane;\\nuse north_base"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n793-usage-goal && sed -i 's/and the credit left on every unexpired grant no provider refusal has closed (held back)"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n834-laptop-in-use && (cargo nextest run -p north-capacity -p north-dispatch -E 'test(/mode|laptop|capacity_power|de"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-621-p13-runner && f=tests/it/land_checks.rs && perl -0pi -e 's/    fn command_between\\(&self, base: &str, head"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-832/crates/north-capacity/src/capacity && sed -i '8a mod mode_tick;' mod.rs && sed -i '12a pub use super::mode"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/scoreboard-top; sed -n 1,3p src/cli/scoreboard/mod.rs; (cargo build --bin north > /tmp/sb-build.log 2>&1; echo \"exit"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/clause/worktrees/whiterabbit/clippy-pin && git rebase -q origin/main; CARGO_TARGET_DIR=/tmp/clippy-pin-target cargo clippy --workspace --all"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/loop-cites && printf '\\n[dev-dependencies]\\ntempfile.workspace = true\\n' >> crates/north-code-health/Cargo.toml && printf '\\"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n634-red-main && (cargo nextest run --locked --offline -p north-guard heavy_command_tests habits_tests > /tmp/n634-guard.log"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n760-peer-reads && cargo test -p north-threads --lib -- threads::client:: > /tmp/n760-test.log 2>&1; echo exit $? >> /tmp/n7"
+label = "true"
+
+
+[[sample]]
+rule = "modern-search"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 4 of 124 distinct refused calls"
+
+[[sample.row]]
+command = "B=/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service; for s in agent.slice app.slice background.slice game.slice native.slice session.slice; "
+label = "true"
+
+[[sample.row]]
+command = "cat /proc/5412/comm; readlink /proc/5412/exe; tr '\\0' ' ' </proc/5412/cmdline; echo; ls ~/.local/state/north/profiles/claude-c/sessions | head -3; f=~"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/cull-635 && xargs git rm -q -- < /tmp/c635/deleted-files.txt && for f in $(cat /tmp/c635/deleted-files.txt); do s="
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && DB=$(ls ~/.local/state/north/*.db ~/.local/state/north/*/threads*.db 2>/dev/null | head); echo $DB; grep -rn \"fn threa"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && f=$(ls ~/.local/state/north/threads*.db ~/.local/state/north/*.sqlite 2>/dev/null); echo $f; grep -rn \"fn threads\\b\\|t"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q 2>&1 | tail -1; git log --oneline -1 origin/main; cat crates/north-core/src/ledger/closed_source.rs | hea"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git log --oneline -5 && ls crates | head -80 && grep -rl \"goals\" crates --include=*.rs -l | head -30; fleet=$(north fl"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && grep -i -E \"coverage|select\" ~/.local/state/agents/lane-gc/unlanded.txt | head; git worktree list | grep -i -E \"cover|"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && grep -rn \"pub mod ledger\\|mod ledger\" crates/north-guard/src | head; f=$(grep -rln \"pub fn claims(\" crates/north-guard"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && grep -rn '\"--interactive\"' src crates --include=*.rs | grep -i proxy | head; f=$(grep -rln 'north proxy \\[--interactiv"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && north fleet list 2>&1 | grep -iE 'n-test|n-cull|n-swarm|635|gate' ; git log --oneline -15 --format='%h %s' | cut -c1-1"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git merge-base --is-ancestor 7cb8795b2 900c3793e && echo laptop-ok; grep -rn \"startup tokens grew\\|generation not publis"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/cull-landing; show(){ f=$(grep -rln \"fn $1\\b\" crates/north-landing | head -1); echo \"=== $1 ($f)\"; awk -v n=\"fn $1\" "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/landing-storm-policy && grep -rn \"SAFE_PUSH_LAND_RUNNER\" --include=* -r . -l 2>/dev/null | grep -v target | head; ls"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-621-p12a && f=bin/safe-push.test.sh; for k in SAFE_PUSH_TEST_LANGUAGE_TRACE SAFE_PUSH_TEST_LANGUAGE_DENY SAFE_"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/test-cull-fleet-runtime; : > /tmp/cull-review/bodies.txt; cut -f1 /tmp/cull-review/cull-keep.tsv | while read n; do "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/main/window && f=$(grep -rl \"fn a_pushed_file_counts_as_pending_until_built\" --include=*.rs .); echo $f; grep -n \"mod tests\" -A"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/wisp-cull && for f in $(find test src examples/sample/test -name '*.test.ts' | sort); do n=$(bun test ./$f -t ZZZNOMA"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/n791s && gh issue view 791 -R tompassarelli/north --json body -q .body > body.md 2>/dev/null; grep -n '^- \\[' body.md | cut -c1-90; grep -rn '"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/.local/state/north/land-queue && find . -name '*revert-3f2f3437e*' | head; f=$(find . -name '*revert-3f2f3437e*.json' | head -1); cat \"$f\" | cut "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/.local/state/north/land-queue/de2e0e8479546ba9 && grep -l -r 'caa366c9c4ea\\|656c7cfd41ef' --include='*.json' . 2>/dev/null | head -4; grep -rh -o"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/.local/state/smashcraft/evidence/sc-851; ls -la; cat run-batch.sh; cat plan.json | head -40; ls */ 2>/dev/null | head; find . -name '*.pad' | hea"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/main && S=~/.local/share/smashcraft-build-inputs/store; for fam in stage-assets fighter-renders; do h=$(git show origin/main:build-i"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/worktrees/onyxia-portraits/ts && A=$(bun wisp inputs path assets 2>/dev/null | tail -1); echo $A; ls -L $A/fighter-renders | head; f"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && sed -n 1,40p harness/skills/workers/SKILL.md >/dev/null; grep -rn 'land-check\\|\\.safe-push' ~/code/makgora/main/.safe-push 2>/"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n112-loops && sed -i 's#crates/north-core/src/ops/dispatch/#crates/north-dispatch/src/dispatch/#g; s#crates/north-core/src/o"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/south/main; f=$(grep -rl \"B6\" agents/decisions | grep -i -E 'gex45|access' | head -3); echo $f; for x in $f; do grep -n -E '^\\s*-?\\s*\\**B(6|"
+label = "true"
+
+[[sample.row]]
+command = "for d in ~/.local/state/north/land-queue/*/; do echo \"$d: queued $(ls $d/*.json 2>/dev/null | wc -l) landing $(ls $d/landing | wc -l)\"; ls $d/landing "
+label = "true"
+
+[[sample.row]]
+command = "hostname; grep -rl w85nwcsr1mcykmlg6ama5ns9xgwq6rra ~/.local/state/nix/profiles/ /etc/profiles/per-user/tom 2>/dev/null | head -3; readlink -f ~/.loca"
+label = "true"
+
+[[sample.row]]
+command = "north fleet send --now p88-code-health \"lead-88 URGENT: do not push nixos-config again. nixos-config 15158378 points the hourly unit at 'north code-he"
+label = "true"
+
+
+[[sample]]
+rule = "masked-pipeline"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 14 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/cloud-471f61c8-60b7-5f5f-a3ed-64a64d2f6630 && cargo check -p north-landing -p north --all-targets 2>&1 | rg '^(error"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/grounding-recall-523 && sed -i 's/on the [lane], not a local account/on the cloud credit, not a local account"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/incident-test && cargo check --locked --offline -p north-landing 2>&1 | tail -1 && cargo test --locked --offline --t"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-noroom && git commit -q --amend --no-edit crates/north-landing/src/land/slots/runner/build_host_tests.rs && car"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-replay-divergence && cargo nextest run -p north-landing --test it --lib -E 'test(/promote|divergence/)' 2>&1 | "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-shell-nobuild; sed -i 's|    fs::copy(Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"bin/head-north\"), bin.join(\"h"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n641-ready-bar && (cargo test -p north-goals 2>&1 | tail -4; cargo clippy -p north -p north-goals --tests -- -D warn"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n658-offload-verdict && cargo test -q -p north-runtime --lib land_offload::ship 2>&1 | rg -v '^\\{\"decision' | tail -"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n669-graph-engine-tests && (depbox run -- nix develop -c cargo test -p north-graph --offline 2>&1 | rg \"test result|"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n697-refusal-name; cargo clippy --all-targets -p north-landing -- -D warnings 2>&1 | grep -vE '\"decision\"' | tail -3"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/main && git worktree add -q -b wisp-243-queue-deps ../worktrees/wisp-243-queue-deps refs/remotes/gex45/wisp-243-queue-deps && c"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/nixos-config/main && git fetch -q origin main && F=$(git rev-parse origin/main) && echo $F | cut -c1-8 && git log origin/main --oneline -3 |"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/north-834-envelope && cargo test -p north-capacity -p north-runtime --no-run -q 2>&1 | tail -3 && cargo test -p north-capaci"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/south/worktrees/host-follow-739 && git fetch -q && git rebase -q origin/main && timeout 25 nix flake lock --override-input firn github:tompa"
+label = "true"
+
+
+[[sample]]
+rule = "nix-activity.deny"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 7 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/sc-997-reforged-reset/ts && nix shell nixpkgs#xdotool nixpkgs#wlrctl nixpkgs#grim nixpkgs#tesseract -c bun wisp cl"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/fleet-silent-timing && north capacity host run --class heavy --owner north-628-d2021 --timeout-seconds 1700 -- nix s"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/cull-tool && (rustc -O --edition 2021 cull.rs -o cull 2>&1 || nix shell nixpkgs#rustc -c rustc -O --edition 2021 cull.rs -o cull) | tail -5; l"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp/sc1146; L=$(dirname $(agents path private-desktop-development))/scripts/private-desktop.sh; R=/run/user/1000/private-desktop.0eULtX; sleep 8; "
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp/t3src/repo/apps/server && (timeout 28 nix shell nixpkgs#nodejs_24 -c node --version 2>&1 | tail -3)"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/enigo/repo.git && timeout 1700 nix shell nixpkgs#cargo nixpkgs#rustc nixpkgs#clippy nixpkgs#pkg-config -c ~/.local/state/north/lander/tree/b"
+label = "false"
+
+[[sample.row]]
+command = "timeout 25 nix shell nixpkgs#stress -c stress --version 2>&1 | tail -2; ls /nix/store | rg -m3 \"\\-stress-[0-9]\""
+label = "true"
+
+
+[[sample]]
+rule = "git-stash"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 3 of 112 distinct refused calls"
+
+[[sample.row]]
+command = "A=/nix/store/5g5r97ir4sbiggbpgvwginy3dnqqh3r8-actionlint-1.7.12/bin/actionlint; cd ~/code/makgora/worktrees/makgora-m5 && $A -shellcheck= -pyflakes= -"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/sc-875-t8/ts; git stash -q; timeout 25 bun test test/standalonePreload.test.ts 2>&1 | tail -8 | cut -c1-200; git stash pop -"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/oracle-tag-901/ts && timeout 25 bun scripts/oracleTagsCheck.ts >/tmp/lander-lead/otag.log 2>&1; echo exit=$?; tail"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/nixos-config/worktrees/firn-snapshot-cleanup && git stash -q && bash modules/landed-rebuild/build-runtime.sh >/dev/null && git diff "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/tui-freeze-112 && git diff > /tmp/tuifreeze/fix.diff && git stash push -q -- crates/north-core/src/ledger/books.rs crates/nort"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/capacity-tree && git stash -q && north capacity host run --class moderate --owner capacity-tree --timeout-seconds 18"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/land-outcomes-wire && git stash -q && git status --short | wc -l && rm -f /tmp/l4b.log; cargo test --locked --offlin"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/lander-flakes-2 && git stash -q && timeout 25 north docs features-index --check 2>&1 | tail -2; echo \"main-state exi"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n242-placement && git stash -q && cargo test -p north-core --lib threads::client::tests::two_ingests 2>&1 | grep -E "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n360-s13-bash && git stash -q && git rebase -q origin/main && git stash pop 2>&1 | tail -3; git status --short; wc -"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-agent-compile-rule && git stash -q && git fetch -q origin && git rebase -q origin/main && git stash pop -q && g"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-head-north-once && git stash -q && rg -n \"builds_artifact|gate_tests\" crates/north-capacity-host/src/capacity/m"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-warm-slots && git fetch -q origin && git stash -q && git reset -q --hard origin/main && git stash pop -q && git"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n702-strip && git diff --name-only > /tmp/n702-spaths.txt && cat /tmp/n702-spaths.txt | wc -l && git stash -q && git"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n751-final-report && git diff --stat && cargo test -p north-fleet --lib reaper 2>&1 | tail -6; git stash -q -- crate"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n829-landed-is-done && cargo test -q -p north-threads --lib a_failed_run_is_attributed_by_its_kept_stop_line 2>&1 | "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-621-p10 && git stash push -q && git rebase origin/main 2>&1 | tail -2; git stash pop 2>&1 | tail -3; git log -"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/offload-repo-from-common-dir; cat >> crates/north-runtime/src/build_offload/tests.rs <<'EOF'  #[test] fn capacity_an"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/private-kinds && rm .pk/*.txt .pk/private-kinds.toml && rmdir .pk && git stash push -q -u -- crates/north-guard crat"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/red-ship-reuse && git stash -q && git rebase -q origin/main && git stash pop -q && sed -i 's|kill -TERM -- \"-\\$pgid\""
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/scoreboard-657 && git stash -q -u && git rebase -q origin/main && git stash pop -q && git status --short | head -3 &"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/sc-912/ts && timeout 25 bun test test/frozenThroneContrast.test.ts 2>&1 | grep -E \"^\\(fail\\)|^ *[0-9]+ (pass|fail)\"; git "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/worktrees/race-hud/ts && git stash -q && cp /tmp/race-hud-run/runner.ts ./.race-runner.ts && timeout 25 bun ./.race-runne"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/wt-mk-leap/ts && sed 's/^test(/const _t = (..._a: unknown[]) => {}; _t(/' src/game/fighters/mountain-king/thunderLeapZip."
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/g8d-237 && cat >> test/game-api-clock.test.ts <<'EOF'  test(\"the native clock reads a binary32 span within rounding o"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/edge-on-revert/ts && timeout 55 bun scripts/cueModels.ts > /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/scratchpa"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/worktrees/input-delay-soak-1122/ts && cat > /tmp/refactor1122b.ts <<'EOF' const path = process.argv[2]!; let s = await Bun.file(path"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/nixos-config/worktrees/n696-runner-slice; cat > modules/north-land/default.test.sh <<'EOF' #!/usr/bin/env bash set -euo pipefail  REPO=\"$(cd"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n360-s14-deps && git stash -q && git fetch -q && git rebase -q origin/main && git stash pop -q && git status --short"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n634-sheriff && git stash -q && git fetch -q && git rebase -q origin/main && git stash pop -q && git log --oneline -1 | cut "
+label = "true"
+
+
+[[sample]]
+rule = "tripwire"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 2 of 61 distinct refused calls"
+
+[[sample.row]]
+command = "G=$HOME/.local/state/smashcraft/shots/grom-whirlwind; cd $G; rm -rf after-window 2>/dev/null; mv after2 old-window/after2-pair 2>/dev/null; job-run --"
+label = "false"
+
+[[sample.row]]
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/51bce6d8-df5a-4095-b80b-03457fabf8e7/tasks/b23jrxkiu.output | tail -2 | cut -c1-200; type -a gh | head "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/.cache/scratch-canary-c && cd .. && rm -r scratch-canary-c 2>&1 | head -2; ls -d /home/tom/.cache/scratch-canary-c 2>&1 | head -1"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && M=~/.local/state/agents/lane-gc/mirrors/north.git; T=north-web-archive-2026-07-20; git -C $M rev-parse refs/tags/$T &&"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && export GH_TOKEN=$(cat ~/.local/state/north/gh-write-token); /run/current-system/sw/bin/gh issue view 643 -R tompassare"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 758 --repo tompassarelli/north --body 'The script pid-liveness narrowing landed as 09e994ab5, so the "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git fetch -q origin && git merge-base --is-ancestor 9edc88bb0 origin/main && echo ancestor; git worktree remove ../wor"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git push -q origin --delete claude/land-lander-infra-verdicts 2>&1 | tail -2; gh issue view 360 --json body -q .body |"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree remove --force /home/tom/code/north/worktrees/n360-refusal-inline-clippy && git branch -D n360-refusal-in"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree remove ../worktrees/ut-check 2>&1 | tail -1; git push origin --delete claude/land-lf-b11 2>&1 | tail -2; "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && rm -rf /tmp/n636scan && gh issue view 636 -R tompassarelli/north --json body -q .body > /tmp/n636body.md && python3 - "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; export GH_TOKEN=$(cat ~/.local/state/north/gh-write-token); /run/current-system/sw/bin/gh issue view 572 -R tompassarell"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/dispatch-survey-concurrent && git push -q -f origin HEAD:refs/heads/dispatch-survey-concurrent 2>&1 | tail -2; north"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/infra-verdicts && git push origin --delete claude/land-lf-b11 claude/land-lander-infra-verdicts claude/land-lander-s"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/main && gh api -X DELETE repos/tompassarelli/wisp/git/refs/heads/claude/effect-upgrade-4.0.6-3 2>&1 | tail -1; git worktree rem"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && K=/run/secrets/anthropic-proton-key; ls -l $K | cut -c1-40; curl -sS -m 20 -w '\\nHTTP %{http_code}\\n' -H \"x-api-key: $(cat $K)\" -H \"anthrop"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/rtd-check && git reset -q --hard HEAD~1 && sed -i '526,527s/^value = 1800$/value = 1801/' harness/defaults.toml && git -c user.email=a@b -c us"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp; rg -n 'SIZED_LABELS' ~/code/north/main/crates/north-ops/src/ops/flow/throughput.rs | head -2 | cut -c1-200; q='{ repository(owner:\"tompassare"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main; source /tmp/lf522/tick.sh; tick 522 'Cut `ledger.exchange` in the Nexus fleet tick' \"(done 8546fe30b (north#565, the to_node ind"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n702-spend && sed -i 's/|spender: &Spender, burst: super::tripwire::Burst|/|spender: \\&Spender, burst: Burst|/' crates/north"
+label = "true"
+
+[[sample.row]]
+command = "curl -s -m 20 https://api.anthropic.com/v1/messages -H \"x-api-key: $(cat /run/secrets/anthropic-proton-key)\" -H \"anthropic-version: 2023-06-01\" -H \"co"
+label = "true"
+
+[[sample.row]]
+command = "curl -s -o /dev/null -w '%{http_code}\\n' https://api.github.com/repos/tompassarelli/north/issues/259"
+label = "true"
+
+[[sample.row]]
+command = "env -u NORTH_FLEET_SESSION -u GH_TOKEN /run/current-system/sw/bin/gh api rate_limit --jq '.resources.core' 2>&1 | head -5; date"
+label = "true"
+
+[[sample.row]]
+command = "for n in proton apple gmail pmme; do k=$(</run/secrets/anthropic-$n-key); printf '%s ' $n; curl -s -o /dev/null -D - -H \"x-api-key: $k\" -H 'anthropic-"
+label = "true"
+
+[[sample.row]]
+command = "for org in apple pmme; do k=/run/secrets/anthropic-$org-key; [ -r $k ] || { echo \"$org: no key file\"; continue; }; r=$(curl -s -m 20 https://api.anthr"
+label = "true"
+
+[[sample.row]]
+command = "gh api /rate_limit --jq .resources.core 2>&1; env -u NORTH_FLEET_SESSION /run/current-system/sw/bin/gh api /rate_limit --jq .resources.core"
+label = "true"
+
+[[sample.row]]
+command = "ls /run/secrets/ 2>&1 | grep -i anthropic; for k in /run/secrets/anthropic-*; do echo \"$k: $(curl -s https://api.anthropic.com/v1/messages -H \"x-api-k"
+label = "true"
+
+[[sample.row]]
+command = "rm -rf /home/tom/code/makgora/worktrees/forge && cd /home/tom/code/makgora/main && git branch --list forge; git ls-remote origin forge | head -1; ls /"
+label = "true"
+
+[[sample.row]]
+command = "rm -rf /tmp/rv-pWOz /tmp/rv-clone /tmp/rv-s /tmp/rv-loop.sh /tmp/rv-index; pgrep -fa \"cargo test --offline --locked --test it\" | head -3"
+label = "true"
+
+[[sample.row]]
+command = "rm -rf /tmp/wisp243-sparse /tmp/al.yml; cd /home/tom/code/wisp/worktrees/wisp-243-queue-deps && git status --short | head -3; git log --oneline -1"
+label = "true"
+
+
+[[sample]]
+rule = "tripwire.push"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 2 of 67 distinct refused calls"
+
+[[sample.row]]
+command = "P=$(pgrep -f \"safe-push --to main\" | head -5); for p in $P; do [ \"$(readlink /proc/$p/cwd)\" = \"/home/tom/code/smashcraft/worktrees/rain-order\" ] && ki"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/rt-tool && git add -A ts/scripts/nativeCaptureRealtime.ts ts/test/nativeCaptureRealtime.test.ts ts/scripts/nativeCapture.ts "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && H='!f() { test \"$1\" = get && printf \"username=x-access-token\\npassword=%s\\n\" \"$(north gh-app-token)\"; }; f'; sha=$(git"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && args=(); for b in claude/land-lf-noise2 land-check/1c803f2e363b8d85fe05a313acaeeb9f8e27aba2 scratch/fleet-send-refused"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git push -q origin refs/tags/archive/north/agents-bin/032943611bae:refs/archive/north/agents-bin/032943611bae 2>&1; gi"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; sed -n 10,45p crates/north-core/src/catalog/live_refs_transport.rs; echo ---; git -C /home/tom/code/south/main ls-remote"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n255-ingest-overlap && for p in $(pgrep -f \"n255-test.log\"); do kill $p 2>/dev/null; done; git status --short | head"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n783-wall-clock && git add -A && git commit -q -F - <<'EOF' Refuse wall-clock reads in test code and move the existi"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/north-806 && python3 -I - <<'EOF' p='crates/north-core/src/catalog/live_refs_transport_tests.rs' s=open(p).read() ol"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/proxy-role-guard && git add crates/north-guard/src/guard/proxy_role.rs crates/north-guard/src/guard/proxy_role_tests"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/spec-batch-race; git push -q origin spec-batch-race 2>&1 | tail -2; base=$(git rev-parse origin/main); head=$(git re"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/vashj-shield-look && git add -A build-inputs tools ts/scripts/wisp/model-facts ts/src && git status --short | head -20 &&"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/worktrees/dread-pounce; for id in $(gh run list -R tompassarelli/makgora --workflow balance.yml -L 6 --json databaseId,st"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/worktrees/sc-grgl-size/ts && rg -n \"matchups\" scripts/wisp.ts | head -8; git push -q origin sc-grgl-size:claude/sc-grgl-s"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/worktrees/thrall-roll-red && git log --oneline -1 && timeout 60 git push -q gex45:code/smashcraft/main HEAD:refs/heads/th"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/chat-editbox && git push -q gex45:code/wisp/main chat-editbox:refs/heads/chat-editbox 2>&1 | tail -3; cd ~/code/smash"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/worktrees/pause-1hz && git status --short | head -5; git push origin pause-1hz 2>&1 | tail -3"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/exp && sed -i 's/| awk .{print $NF-1, $3}. |/| awk \"{print \\\\"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/.local/state/agents/lane-gc/mirrors && while read r b; do echo \"-- $r $b\"; git -C $r.git push https://github.com/tompassarelli/$r refs/archive/sw"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora-client/worktrees/makgora-c1 && git push -q origin makgora-c1 2>&1 | tail -2; gh workflow run ci.yml -R tompassarelli/makgora-client "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && S=/tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/scratchpad; git diff --binary > $S/north-main-wip.patch && g"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/elastic-cpu-b && git status --short | head; git log --oneline -1; git push -q origin elastic-cpu:refs/heads/elastic-cpu 2>&1"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/land-first-gate && git fetch -q origin main && git merge-base --is-ancestor origin/main b6c857bad && echo FF-OK && git push "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/smashcraft/worktrees/spirit-wolf-slow && git status --short; git push -q origin HEAD:refs/heads/spirit-wolf-slow 2>&1 | tail -1; git log --o"
+label = "true"
+
+[[sample.row]]
+command = "d=$(mktemp -d); cd $d && git init -q --bare -b main o.git && git clone -q o.git p 2>/dev/null && git -C p -c user.name=a -c user.email=a@b commit -q -"
+label = "false"
+
+[[sample.row]]
+command = "for p in $(pgrep -f \"/tmp/sc912-scripts/record.sh\"); do pkill -TERM -P $p; kill $p; done 2>/dev/null; cd /home/tom/code/smashcraft/sc-912-bisect && gi"
+label = "true"
+
+[[sample.row]]
+command = "mkdir -p /tmp/wisp236 && cat > /tmp/wisp236/gpu-loop.yml <<'EOF' name: GPU loop (wisp#236 scratch) on:   push:     branches: [\"farm/wisp-236-gpu-loop\""
+label = "true"
+
+[[sample.row]]
+command = "pkill -f \"[o]wner sc-vashj-roll\"; pkill -f \"[c]puField.ts --pairs\"; pkill -f \"[r]g -q .\\^exit\"; pkill -f \"[r]g -q \\\"\\^exit\"; cd /home/tom/code/smashcr"
+label = "true"
+
+[[sample.row]]
+command = "pkill -f \"safe-push --to main\" -u tom -n 2>/dev/null; timeout 15 ssh tom@gex45 'pkill -f /tmp/gpuslots/sample.sh; pgrep -fc /tmp/gpuslots/sample.sh'; "
+label = "true"
+
+[[sample.row]]
+command = "ps -eo pid,args | awk '$0 ~ /wincap[56]|od-lua-air2|run4[.]sh|run2[.]sh|mutant verify|until f=.*wincap|until rg -q \"after air-guise/ && $0 !~ /awk/ {p"
+label = "true"
+
+
+[[sample]]
+rule = "tripwire.delete"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 52 distinct refused calls"
+
+[[sample.row]]
+command = "E=$HOME/.local/state/smashcraft/evidence/fl-spawn-snap; rm -r $E/native $E/plan; for w in before after; do mkdir -p $E/plan-$w; jq -c --arg e \"$E\" --a"
+label = "true"
+
+[[sample.row]]
+command = "E=$HOME/.local/state/smashcraft/evidence/rain-pool-local; mkdir -p $E/pads; cp /tmp/rain-pad-2.pad $E/pads/rain-2.pad; cp /tmp/rain-pad-6.pad $E/pads/"
+label = "false"
+
+[[sample.row]]
+command = "E=/home/tom/.local/state/makgora/evidence/forge-popups-ui; mkdir -p $E/community && printf '#! select\\n40 click 0.6585 0.0835\\n120 click 0.6340 0.5790"
+label = "true"
+
+[[sample.row]]
+command = "E=/home/tom/.local/state/makgora/evidence/makgora-1075-dash-ledge; f=$E/dash-attack-ledge.pad; { head -2 $f; tail -n +3 $f | sort -n -s -k1,1; } > $f."
+label = "true"
+
+[[sample.row]]
+command = "E=~/.local/state/makgora/evidence/credits-1109b; mv $E/strip.jpg $E/attempt1-strip.jpg; rm -r $E/strip-frames; cd $E && { printf '#! select\\n40 click "
+label = "true"
+
+[[sample.row]]
+command = "E=~/.local/state/makgora/evidence/grab-1077-dreadlord; cd $E && sed -i -e 's/^406 a capture$/408 a capture/' -e 's/^430 a capture$/425 a capture/' -e "
+label = "true"
+
+[[sample.row]]
+command = "E=~/.local/state/makgora/evidence/tornado-975; rm -rf $E/wc3e; mkdir -p $E/wc3e; cd ~/code/makgora/worktrees/975-wisp-pin/ts && bun scripts/wisp.ts na"
+label = "true"
+
+[[sample.row]]
+command = "EV=~/.local/state/smashcraft/evidence/thrall-wolves; rm -rf $EV/take3; north private-desktop start --resolution 1280x720 --seconds 2400 -- $EV/run.sh "
+label = "true"
+
+[[sample.row]]
+command = "H=$(cat /tmp/n733-home.path); here=$(hostname); printf '[accounts.claude.profiles.a]\\n\"%s\" = { path = \"~/.local/state/north/profiles/claude-a\" }\\n' \"$"
+label = "true"
+
+[[sample.row]]
+command = "MCP=\"$(dirname \"$(agents path machine-capacity)\")/scripts/machine-capacity.mjs\"; cat > /tmp/msurf/shot.sh <<EOF #!/usr/bin/env bash set -uo pipefail T"
+label = "false"
+
+[[sample.row]]
+command = "P=~/.local/state/north/profiles/claude-c; copy=$(cat /tmp/n636-proof/copyid); ls $P/projects/-home-tom-code-north/ | sed 's/08645928[0-9a-f-]*/<id>/';"
+label = "true"
+
+[[sample.row]]
+command = "S=/home/tom/code/north-data/runtimes/cbb252dcabdfcf68d0b6d6039f27d9bb95f2db32/tree/harness/skills/private-desktop-development/scripts/private-desktop."
+label = "true"
+
+[[sample.row]]
+command = "T=$(cat /tmp/n259-scratch-path); shred -u $T/tok 2>/dev/null; rm -rf \"$T\" /tmp/n259-scratch-path; ls $T 2>&1 | head -1 cd ~/code/south; ls lanes workt"
+label = "true"
+
+[[sample.row]]
+command = "cat > /tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/sni/run.sh <<'EOF' set -u W=/home/tom/code/north/worktrees"
+label = "true"
+
+[[sample.row]]
+command = "cat > /tmp/cpu-tiers-pad/opponent-settings.pad <<'EOF' #! select cpu 40 click 0.594 0.085 140 click 0.424 0.177 260 click 0.345 0.347 380 click 0.625 "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/.local/state/safe-push && rm -r -- de2e0e8479546ba9.queue 837f74a3c64350d5.queue && rmdir -- 07e1ed3993503dd1.queue 19db5508267e7afb.queu"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/archimonde-before/ts && S=/home/tom/.local/state/makgora/shots/archimonde-boss && rm -rf $S/before-frames && bun scripts/win"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/peon-sack-take3 && sed -i 's/lean: 4, ahead: 12, knee: 12, height: -2/lean: 4, ahead: 8, knee: 12, height: -2/; s/lean: 10, "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/sc-1103-capture/ts && cat > test/native/pads/select/forge-badges.pad <<'EOF' #! select # makgora#1103: leave Contr"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/sc-875-cap/ts && rm -rf ~/.local/share/makgora-build-inputs/native-acceptance-20261103-79522b8447 && (bun wisp map"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/sc-996/ts && rm -rf ~/.local/state/makgora/evidence/996-before && PRIVATE_DESKTOP_RUN=/run/user/1000/private-deskt"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/worktrees/select-1145/ts && rm -rf ~/.local/state/makgora/shots/select-1145/forge-frames; mkdir -p ~/.local/state/makgora/sh"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git worktree remove --force /tmp/cov-repro/root.RvxD/code-north-main; for d in /tmp/cov-repro/root.*; do [ -d \"$d\" ] && "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n634-warm.scratch && gh issue view 634 --repo tompassarelli/north --json body -q .body > body.md && perl -pi -e 's/("
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n635-cull-ops-dispatch && G=$(git rev-parse --git-dir) && rm -r -- \"$G/n635-mut\" && rm -- \"$G/n635-build.log\" \"$G/RE"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n730-t3-arm/crates/north-frontier && git checkout src/session.rs && git rm -q -r --cached t3code 2>/dev/null; rm -rf"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/box-space-walk/ts && P=src/v02probe && for f in keyBindings actions padKeys; do git show v0.2:ts/src/game/input/$f.ts > $"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/main && git worktree remove --force ../vashj-shield-look && git branch -D vashj-shield-look && rm -rf ~/.local/share/smas"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/main && rm /home/tom/code/smashcraft/worktrees/rain-before/ts/node_modules && git worktree remove /home/tom/code/smashcra"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/worktrees/gauntlet-art/ts; S=~/.local/state/smashcraft/shots/gauntlet-art; rm -rf $S/work/explore-frames; cat > $S/work/h"
+label = "true"
+
+
+[[sample]]
+rule = "sops-decrypt"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 18 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && ls ~/code/south/main/secrets | rg -n 'github|nexus'; sops -d ~/code/south/main/secrets/github-app.yaml 2>&1 | sed 's/:"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && rg -n \"decrypt\" crates/north-base/src/platform/github_app.rs | head; sops -d --output-type json ~/code/south/main/secr"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && sed -n 120,145p crates/north-base/src/platform/github_app.rs; ls -l /var/lib/sops-nix/key.txt; ls ~/code/south/main/se"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; sops -d ~/code/south/main/secrets/github-app.yaml 2>&1 | head -3 | sed 's/:.*/: …/'; rg -n 'sops|age' crates/north-base/"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/south/main && sed -n 60,110p hosts/whiterabbit.nix; sed -n 90,135p agents/costs.toml; sed -n 185,200p agents/credentials.toml; cat t"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/south/main/secrets && sops -d github-app.yaml 2>&1 | sed 's/: .*/: <v>/' | head -6; echo \"XDG=$XDG_RUNTIME_DIR SOPS_AGE_KEY_FILE=$SO"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/lander-credential && sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d --output-type json ~/code/south/main/se"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/south/main && command -v gh-token openssl jq sops; mkdir -p /tmp/n522 && chmod 700 /tmp/n522 && sops -d --output-type json secrets/nexus/git"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/south/main && command -v gh-token openssl jq sops; sops -d --extract '[\"app_id\"]' secrets/github-app.yaml | wc -c; sops -d --extract '[\"app_"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/south/main/secrets && sops -d gex45/github.yaml 2>&1 | head -c 60 | sed 's/[A-Za-z0-9_]\\{20,\\}/<redacted>/g'; echo; north gh-app-token --app"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/south/main; git fetch -q origin; wt=~/code/south/worktrees/anthropic-api-key; git worktree add -q -b anthropic-api-key $wt origin/main 2>&1 "
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/south/main; ls -la /var/lib/sops-nix/key.txt; sudo -n true && echo sudo-ok; timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.t"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/south/main; t=$(mktemp); chmod 600 $t; printf 'header = \"Authorization: Bearer %s\"\\n' \"$(timeout 15 sudo -n env SOPS_AGE_KEY_FILE=/var/lib/s"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/south/worktrees/hetzner-cloud-token; git status --short; sudo env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d secrets/hetzner-cloud."
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/south/worktrees/lander-app; D=/run/user/1000/lander sops -d --extract '[\"app_id\"]' secrets/nexus/north-lander.yaml; echo a=$(sops -d --extra"
+label = "true"
+
+[[sample.row]]
+command = "d=/tmp/tmp.tJOHQWWlsl; sudo env SOPS_AGE_KEY_FILE=/var/lib/sops-nix/key.txt sops -d --output-type json ~/code/south/main/secrets/hetzner-robot.yaml | "
+label = "false"
+
+[[sample.row]]
+command = "ls -la ~/code/south/main/secrets/github-app.yaml 2>&1; sops -d ~/code/south/main/secrets/github-app.yaml 2>&1 | sed 's/:.*/: <v>/' | head -5; env | gr"
+label = "true"
+
+[[sample.row]]
+command = "set -e; cd ~/code/south/main && git fetch -q origin && git worktree add -q ~/code/south/worktrees/lander-app -b lander-app origin/main D=/run/user/100"
+label = "true"
+
+
+[[sample]]
+rule = "desktop-action"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 6 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/skill-desktop-router/harness/skills/private-desktop-development && R=references/private-desktop.md && grep -v -e '^-"
+label = "false"
+
+[[sample.row]]
+command = "niri msg action close-window --id 161 2>&1 | tail -1; cd /home/tom/code/north/main; north fleet send n733-laptop \"[from proxy] Your throwaway take-ove"
+label = "true"
+
+[[sample.row]]
+command = "niri msg action close-window --id 161; sleep 2; niri msg -j windows | jq -c '.[] | select(.title|test(\"north proxy\")) | {id,title,pid}'; ps -eo pid,ar"
+label = "true"
+
+[[sample.row]]
+command = "niri msg action close-window --id 53 2>&1 | head -1; echo closed"
+label = "true"
+
+[[sample.row]]
+command = "niri msg action close-window --id 64 && echo closed; rg -i 'error|fatal' /tmp/claude-1000/-home-tom/1d56884e-4f98-40d1-8a38-0b54825687b6/scratchpad/sl"
+label = "true"
+
+[[sample.row]]
+command = "ws=$(niri msg -j workspaces | jq -r '.[] | select(.is_focused) | .idx'); niri msg action move-window-to-workspace --window-id 53 --focus false \"$ws\" 2"
+label = "true"
+
+
+[[sample]]
+rule = "clipboard"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 5 distinct refused calls"
+
+[[sample.row]]
+command = "R=~/.local/state/agents/proxy-role/f1-test; magick -size 520x160 xc:'#1d4ed8' -fill white -pointsize 56 -gravity center -annotate 0 'ORCHID 7419' $R/0"
+label = "false"
+
+[[sample.row]]
+command = "R=~/.local/state/agents/proxy-role/f1-test; magick -size 520x160 xc:'#1d4ed8' -fill white -pointsize 56 -gravity center -annotate 0 'ORCHID 7419' $R/0"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp/sw && export XDG_RUNTIME_DIR=/run/user/1000/private-desktop.mbWiOX/runtime WAYLAND_DISPLAY=wayland-0; ls $XDG_RUNTIME_DIR | head -5; wl-copy <"
+label = "false"
+
+[[sample.row]]
+command = "niri msg action screenshot-window --id 161 --write-to-disk true 2>&1 | head -3; sleep 1; ls -t ~/Pictures/Screenshots 2>/dev/null | head -2"
+label = "true"
+
+[[sample.row]]
+command = "which convert magick 2>&1 | head -2; mkdir -p /tmp/sw/shim; REAL=$(command -v wl-paste); cat > /tmp/sw/shim/wl-paste <<EOF #!/usr/bin/env bash if [ -e"
+label = "false"
+
+
+[[sample]]
+rule = "native-evidence"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 3 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/dash-attack-ledge/ts && export NORTH_FLEET_SESSION=makgora-1075-worker PATH=$HOME/.local/bin:$PATH; E=/home/tom/.local/state"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/worktrees/wc3-1075/ts && export PATH=$HOME/.local/bin:$PATH NORTH_FLEET_SESSION=makgora-1075-wc3; E=~/.local/state/makgora/evidence/"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/smashcraft/worktrees/sc-796-balance/ts && bun scripts/wisp.ts pad 2>&1 | head -20 | cut -c1-300"
+label = "false"
+
+
+[[sample]]
+rule = "lead-timer"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 2 distinct refused calls"
+
+[[sample.row]]
+command = "CronCreate {\"cron\":\"13,43 * * * *\",\"prompt\":\"Lander-lead 30-minute status: list north lanes landed on origin/main in the last 30 min (git log origin/m"
+label = "true"
+
+[[sample.row]]
+command = "ScheduleWakeup {\"delaySeconds\":600,\"reason\":\"fallback while gex45 capacity admits the north smoke arm and oracle builds\",\"prompt\":\"Check gex45 frontie"
+label = "true"
+
+
+[[sample]]
+rule = "issue-filing"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 6 of 193 distinct refused calls"
+
+[[sample.row]]
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/88f8cb1b-18ba-404f-8b38-439dcae1e1e8/tasks/biqcr03ym.output; cd /tmp/claude-1000/corr; { echo \"Defect: "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/main && git worktree list | rg \"land-after\" ; git branch --list 'land-after*'; gh issue create -R tompassarelli/makgora --la"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/outcome-issue.md <<'EOF' Goal: no critical flow fails silently. The harness was too fragile on 2026-11-07: "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --label bug --label priority:next --label area:capacity --title \"Fleet comp"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --label enhancement --label priority:later --label area:landing --title \"Su"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --title \"After-landing runs in flight survive a lander restart instead of r"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --title 'The lander link has been held on runtime ef71d1f40 since 10:58 AM:"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north --label bug --label area:capacity --label priority:next --title \"The heavy-comm"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north --label bug --label priority:next --label area:testing --title \"Post-land tests"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north --title \"The private-text judge refuses different lines of the same text on eac"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && printf '\\nBlocks: tompassarelli/south#73\\nDefect: `safe-push --to main` in worktrees/s73-addedlines refused 6 lines, 3"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && sleep 15; gh issue create --repo tompassarelli/north --title \"north usage's API lines read as one aligned table\" --lab"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --label bug --label priority:next --label area:capacity --title \"Evict cargo-targ"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/outcome-loop && gh issue create -R tompassarelli/north --title \"Reader stamps for the five unverifiable state-file signals\" --"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/main && cat > /tmp/sc935/issue.md <<'EOF' `bun wisp headless quick-match` (the quick-match journey `bun wisp dev` runs on"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/main && sed -i '1i Defect: ran `cd ts \\&\\& bun wisp headless quick-match` on origin/main 2e2314543: exit 1, \"quick-match:"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp && gh issue create -R tompassarelli/makgora --label bug --label priority:next --label evidence:code --title \"Five tests fail on main: Arcade r"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && { printf 'Class: a mirrored host reads a ledger snapshot that never arrives\\nBlocks: tompassarelli/north#709\\nDefect: `ls -la ~/.local/stat"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp/sc1109 && sed -i '1s/.*/Blocks: tompassarelli\\/makgora#1109/' wisp-issue.md && gh issue create -R tompassarelli/wisp --title 'Frame wheel even"
+label = "false"
+
+[[sample.row]]
+command = "cd ~ && gh issue create -R tompassarelli/north --label bug --label priority:now --label area:runtime --title \"The private-text judge refuses a text on"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/nixos-config/main && gh issue create -R tompassarelli/nixos-config --title \"firn-landed-rebuild keeps its old runtime after a switch, so the"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue create -R tompassarelli/north --label bug --label priority:next --title \"Private desktop: a Rust build inside the des"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/bun-144-cargo && git diff | rg '^[+-] '; gh issue create --repo tompassarelli/north --title \"tests/stdio.rs depends on Bun l"
+label = "true"
+
+[[sample.row]]
+command = "for t in 1 2 3; do north fleet send proxy \"lead-88, for Tom's gex45 access question (read-only facts from ccx63-host, 5:2x PM): gex45 already routes 1"
+label = "true"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/north --label bug --label priority:next --label area:ledger --title \"The run ledger records another lane's commit as "
+label = "true"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/north --title \"A north verb that ignores --help runs for real when probed, so firn's unit-flags check hung a rebuild "
+label = "true"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/north --title \"Lander restart drops in-flight after-landing runs; landed batches go unverified\" --label bug --label a"
+label = "true"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/north --title \"The launch-critical guard refuses a pull or merge into a main checkout from anything but origin/main\" "
+label = "true"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/wisp --title \"Native window: labwc commits a new frame only every other vblank while windowed and grabbed (49% of vbl"
+label = "true"
+
+[[sample.row]]
+command = "head -3 /tmp/part9b/issue.md; cp /tmp/part9b/issue.md /tmp/part9b/north-issue.md; gh issue create -R tompassarelli/north --title \"Quiet latency eviden"
+label = "unclear"
+
+
+[[sample]]
+rule = "issue-labels"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 4 of 140 distinct refused calls"
+
+[[sample.row]]
+command = "cat > /tmp/claude-1000/hc/issue.md <<'EOF' A new NixOS host built from south (ccx33, 2026-11-05, north#259) could not activate home-manager until thre"
+label = "true"
+
+[[sample.row]]
+command = "cat > /tmp/fl-tools/issue.md <<'EOF' `render::gpu_tests::remaster::a_match_keeps_the_art_it_started_with_and_the_bake_waits_until_play_stops` fails in"
+label = "true"
+
+[[sample.row]]
+command = "cat > /tmp/issue653.md <<'EOF' On 2026-11-06 a laptop rebuild hung for 42 minutes. firn check's unit-flags step probes every north command a unit runs"
+label = "true"
+
+[[sample.row]]
+command = "cat > /tmp/n725/issue-incr.md <<'EOF' Measured on the 936 GiB build host on 2026-11-07 for north#725: one land-offload slot's cargo target held 32 GiB"
+label = "true"
+
+[[sample.row]]
+command = "cat > /tmp/sc798-issue.md <<'EOF' North deleted `harness/skills/machine-capacity/scripts/machine-capacity.mjs` on 2026-11-05 (north f1fdb48b67, north#"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/makgora/main && git worktree remove /home/tom/code/makgora/worktrees/land-after-push && git worktree remove /home/tom/code/makgora/w"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/issue-pool.md <<'EOF' Class: the API pool marks an org exhausted while it still holds credit Defect: on 202"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/n634-handover.md <<'EOF' Part of north#634 (a worker's build or test never queues on a full host). Tom chos"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/ssh-mux-issue.md <<'EOF' Category: performance Scope: cross-module Surface: nix  ## Problem  Every `ssh gex"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --label bug --label area:capacity --title \"Usage sampling starts one claude"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --title \"Fleet compiles that still reach the laptop after the cargo/rustc/n"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --title \"Record GitHub's remaining quota in the decision log so replay can "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --title \"Supersede an after-landing run whose check line a later landing ch"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north --label bug --label area:landing --title \"A bug-fix lane in a repository over i"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north --title \"Land cache keys ignore the test selection a check ran with\" --body \"Fo"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north -l bug -t \"A lane that adds crates the check host never fetched stalls the land"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; cat > /tmp/claude-1000/-home-tom-code-north-main/a05c6ebb-7cd9-4a43-b961-6ad927c6ceee/scratchpad/southland.md <<'EOF' On"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --label bug --title \"north runtime update rolls back new code when agents sync re"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --title \"The fleet tick cannot read this host's own api spend: a NULL account col"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n671-reland && rg -n \"tempfile\" crates/north-capacity-host/Cargo.toml; head -12 crates/north-capacity-host/src/capac"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/smashcraft/main && gh issue create -R tompassarelli/smashcraft --title \"Akama's field win rate fell to 42.7% after Wren Expert learn"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/main; cat > /tmp/chr-stranded.md <<'EOF' Two land branches are refused by Autoland and have no live session. Fleet alerts name "
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && cat > n620-blocker.md <<'E' On gex45 an agent session cannot land: `north git-credential get` prints `could not decrypt github-app.yaml`, b"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/claude-1000/issues && gh issue create -R tompassarelli/north --title \"Landing takes seconds: only fast checks before the push, verification af"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp; cat > /tmp/sc-issue.md <<'EOF' Category: debugging-unknown-cause Class: a harness unit failing on whiterabbit Spec: measured Scope: module Su"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/makgora/main && cat > /tmp/claude-1000/-home-tom/c37fb471-94c2-4531-8614-96a9966359a2/scratchpad/sdonly-issue.md <<'EOF' A community player "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && cat > \"$(git rev-parse --git-dir)/issue-body.md\" <<'EOF' Follow-up of north#360 (north release verb, release-on-tag workflow, "
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue create -R tompassarelli/north --title \"Timing-dependent fleet silent test fails under a loaded 2-CPU land check\" --bo"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main; d=$(mktemp -d); cat > $d/i.md <<'EOF' On 2026-11-07 Tom showed the Anthropic Console: $399.99 of promotional credit ($199.99 exp"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main; gh issue create -R tompassarelli/north --title \"Capacity gaming test admits the parked heavy ticket under land-check load\" --bod"
+label = "true"
+
+
+[[sample]]
+rule = "issue-cleanup"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 2 of 64 distinct refused calls"
+
+[[sample.row]]
+command = "b=$(gh issue view 678 -R tompassarelli/north --json body -q .body); printf '%s' \"$b\" | perl -0pe ' s/- \\[ \\] Clean-up: development tests turned down\\."
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && body=$(gh issue view 650 -R tompassarelli/north --json body -q .body) && body=$(printf '%s' \"$body\" | sed \\  -e 's|^- "
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && body=$(gh issue view 718 --json body --jq .body | sed 's/^- \\[ \\]/- [x]/') && gh issue edit 718 --body \"$body\" >/dev/n"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue close 650 -R tompassarelli/north -c \"Verified on origin/main: 1784c0338 (git merge-base --is-ancestor 1784c03"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue view 670 -R tompassarelli/north --json body -q .body > /tmp/n670-body.md && perl -pi -e 's/^- \\[ \\] Clean-up:"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue view 672 -R tompassarelli/north --json body -q .body > /tmp/672.md && perl -0pi -e ' s/- \\[ \\] Pace sampler c"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue view 679 --json body -q .body > /tmp/n679-body.md && sed -i 's/^- \\[ \\] /- [x] /' /tmp/n679-body.md && gh iss"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue view 738 -R tompassarelli/north --json body -q .body > /tmp/n738body.md && sed -i 's/^- \\[ \\]/- [x]/' /tmp/n7"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue view 801 -R tompassarelli/north --json body -q .body > /tmp/n801-body.md && perl -0pi -e 's/- \\[ \\] (A replay"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git merge --ff-only -q origin/main; git diff 1712686ce~1 HEAD -- crates/north-threads/src/threads/usage_yield crates/n"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git merge-base --is-ancestor b4bd8ea15 origin/main && echo onmain; gh issue view 814 -R tompassarelli/north --json bod"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git merge-base --is-ancestor da2f5f464 origin/main && echo ancestor; body=$(gh issue view 654 --json body -q .body) &&"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree remove /home/tom/code/north/worktrees/n808-watchdog-overlap && git branch -D n808-watchdog-overlap | tail"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue close 678 --comment \"Fixed by 834e58ac9: replay judges recorded gates with Judging::Recorded instead of live te"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue edit 794 -R tompassarelli/north --body-file /tmp/n794-body.md >/dev/null && gh issue close 794 -R tompassarelli"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees && git -C /home/tom/code/north/main worktree remove /home/tom/code/north/worktrees/north-651-forward-only && git -C "
+label = "unclear"
+
+[[sample.row]]
+command = "cd /tmp && gh issue edit 710 -R tompassarelli/north --body-file /tmp/n710-body.md >/dev/null && gh issue close 710 -R tompassarelli/north -c \"Verified"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /tmp && gh issue view 633 -R tompassarelli/north --json body -q .body > /tmp/b633.md && perl -0pi -e ' s/- \\[ \\] (Clean-up: development tests turne"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp && gh issue view 712 -R tompassarelli/north --json body -q .body > /tmp/b712.md && sed -i 's/^- \\[ \\] /- [x] /' /tmp/b712.md && cat >> /tmp/b7"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp && gh issue view 741 --json body -q .body > /tmp/body741.md && sed -i 's/^- \\[ \\]/- [x]/' /tmp/body741.md && gh issue edit 741 --body-file /tm"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp && gh issue view 822 --json body --jq .body > b822.md && sed -i 's/- \\[ \\]/- [x]/; s/its follow journal shows a reuse promotion that exits 0\\."
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp && rm -f n759-comment.md n759-dry-gex45.log n759-push2.log n759-push.log && gh issue view 759 -R tompassarelli/north --json body -q .body > /t"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp/claude-1000 && gh issue view 648 -R tompassarelli/north --json body -q .body > 648-body.md && perl -0pi -e ' s/- \\[ \\] (With a dangling user u"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp; gh issue view 622 -R tompassarelli/north --json body -q .body 2>/dev/null > n622.md; sed -i \\  -e 's|^- \\[ \\] Clean-up: development tests tur"
+label = "false"
+
+[[sample.row]]
+command = "cd ~ && perl -pi -e 's/^- \\[ \\] /- [x] /' /tmp/s73-move/698.md && gh issue edit 698 -R tompassarelli/north --body-file /tmp/s73-move/698.md >/dev/null"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue close 695 --comment \"Fixed by 355ae3fcb on main: the hook waits at most 7 s for the judge, refuses past it, and leave"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue view 695 --json body -q .body | sed 's/^- \\[ \\] Clean-up/- [x] Clean-up/' > /tmp/s73/695.md && gh issue edit 695 --bo"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main && git branch -r --contains 6cb02acda7 | head -1; body=$(gh issue view 816 --json body --jq .body | sed 's/- \\[ \\]/- [x]/'); gh i"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main; hostname; timeout 30 north fleet send n631-647-defer \"Proxy, about gate 173: whiterabbit IS the laptop. 'laptop' is just its rol"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/n663-cleanup; git merge-base --is-ancestor a24ec212cf origin/main && echo ancestor; gh issue view 663 -R tompassarelli/north"
+label = "false"
+
+
+[[sample]]
+rule = "public-text"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 15 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 576 --repo tompassarelli/north --body \"Owner: proxy-role-lead (north#112 R3's failover test depends o"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; S=/tmp/claude-1000/-home-tom/d5348cce-138c-45ca-ad97-54c81ff750e8/scratchpad; cat > $S/brief-adopt <<'EOF' Item: north#6"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue comment 616 -R tompassarelli/north --body \"2026-11-05 7:10 PM: nine of the fifteen repositories have release-on"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue comment 616 -R tompassarelli/north --body \"2026-11-05 7:10 PM: nine of the fifteen repositories have release-on"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && gh issue comment 562 -R tompassarelli/north --body-file /tmp/n562/comment.md | tail -1"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && mkdir -p n733-body && gh issue view 733 --repo tompassarelli/north --json body -q .body > n733-body/body.md && L=$(rg -n '^- \\[ \\] On the l"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && sed -i '25s/^- \\[ \\]/- [x]/; 25s/$/ — done 2026-11-05: release https:\\/\\/github.com\\/tompassarelli\\/north\\/releases\\/tag\\/v0.1.0, tag v0.1."
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/claude-1000/issues; printf '%s\\n' \"- [ ] Tom's window never dies on an exhausted account: before the window's account runs out (\\`agents usage"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp; printf '%s\\n' \"Lead-fleet, after your lane landed as 780100a2d: the dry run on gex45 over north's open issues printed 29 verdicts, but exit 0"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main && f=\"$(git rev-parse --absolute-git-dir)/issue-body.md\" && cat > \"$f\" <<'EOF' Follow-up of north#360 (north release verb, releas"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main; gh issue comment 616 -R tompassarelli/north --body \"2026-11-05 8:00 PM: fourteen of the fifteen repositories have release-on-tag"
+label = "true"
+
+[[sample.row]]
+command = "gh issue comment 623 -R tompassarelli/north --body \"Same cause blocks north#616 box 1: release-on-tag.yml caller commits for ten repositories have wai"
+label = "true"
+
+[[sample.row]]
+command = "gh issue edit 112 --repo tompassarelli/north --body-file /tmp/cloud/pr/b112.md | tail -n 1"
+label = "true"
+
+[[sample.row]]
+command = "perl -pi -e \"s/reaches Tom['’]s phone, not only the proxy/reaches the phone alert channel, not only the proxy/\" /tmp/cloud/pr/b112.md && rg -c -i \"tom"
+label = "unclear"
+
+[[sample.row]]
+command = "set -e; cd /tmp/cloud/pr perl -0pi -e 's/ and the fleet record stopped\\nETA:/ and the fleet record stopped; (6) a forced handover of the test proxy on"
+label = "unclear"
+
+
+[[sample]]
+rule = "privacy-judge"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 32 distinct refused calls"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/n759-comment.md <<'EOF' Landed: the claim rule as fdb0d3d34 (every issue a fleet worker files is claimed wi"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 638 -R tompassarelli/north --body \"Network-deny box decided by the working session (2026-11-06, no ga"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 730 --body-file /tmp/n730-review-comment.md 2>&1 | tail -1"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 796 -R tompassarelli/north --body \"The 30-minute watch window closed at 08:04:40 UTC. gex45 cannot re"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create --repo tompassarelli/north --title \"The api pool spends the grant that expires soonest among those wit"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north -t \"Dispatch places no box on a host whose GitHub token is stale\" -l bug -l are"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue view 691 -R tompassarelli/north --json body -q .body > /tmp/b691.md && perl -0pi -e ' s/- \\[ \\] (Cloud lane: "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && timeout 28 sleep 16; gh issue comment 259 -R tompassarelli/north --body \"Turn-cover box (the 15.2% turn size): cause f"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue comment 638 --body-file /tmp/n638-comment.md 2>&1 | tail -3"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --label enhancement --label priority:now --title \"Route each launch to the capaci"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --title \"Build capacity keeps pace with the API-credit fleet\" --label enhancement"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --title \"Move sessions off an api org the moment its recorded spend reaches its g"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git fetch -q; for c in f92679f4c5 9d69a2da5c; do git merge-base --is-ancestor $c origin/main && echo \"$c ok\"; done; gh i"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; s=/tmp/claude-1000/-home-tom-code-north-main/a05c6ebb-7cd9-4a43-b961-6ad927c6ceee/scratchpad; gh issue view 735 -R tompa"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && gh issue comment 734 --repo tompassarelli/north --body-file g734-comment.md >/dev/null && gh issue close 734 --repo tompassarelli/north >/d"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && gh issue edit 641 --body-file /tmp/n641-body.md 2>&1 | tail -1; gh issue view 641 --json body -q .body | rg -c \"recall on the blind-labelle"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /tmp && perl -0pi -e 's/- B1 contamination \\(.*?\\n/- B1 contamination (later history and records reachable from an arm): **accepted.** Each arm run"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /tmp/n765 && gh issue view 765 --repo tompassarelli/north --json body --jq .body > body.txt 2>/dev/null; cat > newbox.txt <<'EOF' - [ ] A lead runs"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp/n765 && gh issue view 765 --repo tompassarelli/north --json body --jq .body > body.txt 2>/dev/null; cat > newbox.txt <<'EOF' - [ ] A lead runs"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp; gh issue view 730 -R tompassarelli/north --json body -q .body > /tmp/n730-body.md; python3 -I /dev/stdin <<'EOF' p='/tmp/n730-body.md' s=open"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue create -R tompassarelli/north --title \"Landing refusals are the costliest harness loss: find the refusals that were t"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main; F=/tmp/claude-1000/-home-tom/d5348cce-138c-45ca-ad97-54c81ff750e8/scratchpad/703.md; gh issue view 703 --json body -q .body > $F"
+label = "true"
+
+[[sample.row]]
+command = "gh issue edit 638 --repo tompassarelli/north --body-file /tmp/n638-body.md 2>&1 | tail -2"
+label = "false"
+
+[[sample.row]]
+command = "gh issue edit 691 -R tompassarelli/north --body-file /tmp/n697m-bf/north-691.md"
+label = "false"
+
+[[sample.row]]
+command = "gh issue edit 691 -R tompassarelli/north --body-file /tmp/n697m-bf/north-691.md && gh issue edit 692 -R tompassarelli/north --body-file /tmp/n697m-bf/"
+label = "true"
+
+[[sample.row]]
+command = "sed -i \"8s|.*|- [ ] A session in gex45's own registry whose turn ends on the credit-too-low error moves to the next api org within a minute with nobod"
+label = "false"
+
+[[sample.row]]
+command = "sleep 18; cd /home/tom/code/north/main && gh issue comment 786 -R tompassarelli/north --body-file /tmp/n786_note.md 2>&1 | tail -2"
+label = "false"
+
+[[sample.row]]
+command = "sleep 18; head -c 120 /tmp/n786_note.md; echo; cd /home/tom/code/north/main && gh issue comment 786 -R tompassarelli/north --body-file /tmp/n786_note."
+label = "false"
+
+[[sample.row]]
+command = "sleep 20; cd /home/tom/code/north/main && gh issue comment 255 -R tompassarelli/north -F /tmp/c255.md 2>&1 | tail -2"
+label = "true"
+
+[[sample.row]]
+command = "sleep 20; cd /home/tom/code/north/main && gh issue comment 638 -R tompassarelli/north --body \"Network-deny box (2026-11-06): decided without a gate. A"
+label = "unclear"
+
+
+[[sample]]
+rule = "privacy-judge.pending"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 5 of 171 distinct refused calls"
+narrowed = "0a478d5770: the hook waits 38 s, past the judge's 28 s p90; no pending refusal from 18:54 to 20:58 UTC on 2026-11-07"
+
+[[sample.row]]
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/c4fd45f1-92fd-4800-8623-acb9ca1e2b69/tasks/byv52062d.output | tail -5; cd /home/tom/code/north/main && "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/c255.md <<'EOF' Reading on 2026-11-07 (host whiterabbit; ssh to Nexus and gex45 worked for these reads). No"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > /tmp/n759-comment.md <<'EOF' Landed: the claim rule as fdb0d3d34 (every issue a fleet worker files is claimed wi"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 259 -R tompassarelli/north --body \"Turn-cover box (the 15.2% turn size): cause found, fix queued with"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 737 --repo tompassarelli/north --body \"Landed as f184061c9 with the test the_pool_opens_the_org_whose"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue comment 768 -R tompassarelli/north -b \"Landed as 3d74f4d52b7169f6051ec59ae6b3464845b34b57 (on origin/main). E"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north -t \"Dispatch places no box on a host whose GitHub token is stale\" -l bug -l are"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue view 636 --json body -q .body > /tmp/n636-body.md && awk 'NR==65{print; print \"- [ ] A worker compacted by th"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git merge-base --is-ancestor 3531ba1ef origin/main && cd /tmp/ledgertest && gh issue view 802 -R tompassarelli/north -"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && sleep 20; gh issue create --repo tompassarelli/north --title \"The api pool spends the grant that expires soonest among"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue comment 829 --body-file /tmp/n829s/comment.md"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --title \"Build capacity keeps pace with the worker fleet\" --label enhancement --l"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; gh issue create -R tompassarelli/north --title \"The lander never pauses on its own check environment\" --label priority:n"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; s=/tmp/claude-1000/-home-tom-code-north-main/a05c6ebb-7cd9-4a43-b961-6ad927c6ceee/scratchpad; gh issue view 735 -R tompa"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; url=$(gh issue create -R tompassarelli/north --title \"Build capacity keeps pace with the API-credit fleet\" --label enhan"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && gh issue create --repo tompassarelli/north --title \"Delete north's model watch and laptop notifier\" --label enhancement --label area:runtim"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp && gh issue view 641 --json body -q .body > /tmp/n641-body.md && python3 -I - <<'E' s=open('/tmp/n641-body.md').read() marker=\"- [ ] The rewor"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp/n697ft && grep -n f9c4df82f comment.md && gh issue comment 697 -R tompassarelli/north -F comment.md"
+label = "unclear"
+
+[[sample.row]]
+command = "cd /tmp/n765 && gh issue view 765 --repo tompassarelli/north --json body --jq .body > body.txt 2>/dev/null; cat > newbox.txt <<'EOF' - [ ] A lead runs"
+label = "false"
+
+[[sample.row]]
+command = "cd /tmp; gh issue view 730 -R tompassarelli/north --json body -q .body > /tmp/n730-body.md; python3 -I /dev/stdin <<'EOF' p='/tmp/n730-body.md' s=open"
+label = "false"
+
+[[sample.row]]
+command = "cd ~ && sed -i '44s/the TypeScript half landed as 06ca88aff on origin\\/main (151 tests to 53) and its kept tests go to the same reviewer/the TypeScrip"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue create -R tompassarelli/north --title \"Every GitHub write is refused once by the private-text judge, then wakes the s"
+label = "false"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue create -R tompassarelli/north --title \"The proxy moves to an account with headroom before its own runs out, however i"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main; F=/tmp/claude-1000/-home-tom/d5348cce-138c-45ca-ad97-54c81ff750e8/scratchpad/703.md; gh issue view 703 --json body -q .body > $F"
+label = "true"
+
+[[sample.row]]
+command = "cd ~; gh issue edit 259 -R tompassarelli/north --body-file /tmp/n259-d2040-body2.md 2>&1 | tail -1; git -C ~/code/north/main fetch -q origin; git -C ~"
+label = "unclear"
+
+[[sample.row]]
+command = "gh issue close 828 --repo tompassarelli/north --comment \"All boxes ticked; fix da92717b6 on main. The laptop-vs-nexus dry-run divergence continues in "
+label = "false"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/nixos-config --title \"firn-landed-rebuild keeps its old runtime after a switch, so the advisory check calls a removed"
+label = "false"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/north --title \"The launch-critical guard refuses a pull or merge into a main checkout from anything but origin/main\" "
+label = "unclear"
+
+[[sample.row]]
+command = "gh issue edit 705 -R tompassarelli/north --body-file /tmp/n705-body.md.new 2>&1 | tail -1"
+label = "unclear"
+
+[[sample.row]]
+command = "gh issue edit 828 --repo tompassarelli/north --body-file /tmp/b828.txt >/dev/null && echo edited"
+label = "unclear"
+
+
+[[sample]]
+rule = "proxy-role"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 10 distinct refused calls"
+
+[[sample.row]]
+command = "cat /tmp/claude-1000/-home-tom-code-north-main/3ea3c866-129c-4aa3-b9ff-0901acd40c7c/tasks/botv9ngmx.output; cd /home/tom/code/north/worktrees/proxy-sp"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree add -q /home/tom/code/north/worktrees/proxy-spend-cap-doc -b proxy-spend-cap-doc origin/main && cd /home/"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/harness-loss-0-1 && sed -i '40s/ceiling of 1% in goals.toml/ceiling of 0.1% in goals.toml/' docs/rationale/attributi"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/proxy-spend-cap-doc && git commit -qam \"Name the worker cap the spend rule reads as 18 in its rationale page: harnes"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/safe-push-dev-shell-verb && git commit -qam \"Run the mutant land check through north capacity dev-shell run: 62a45fc"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/main && for i in $(seq 1 240); do git fetch -q origin main 2>/dev/null; if git log origin/main --format=%s -40 | rg -q '^Judge the lan"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code/north/worktrees/proxy-cap-18; git fetch -q origin && git rebase -q origin/main 2>&1 | tail -1; timeout 250 safe-push --to main 2>&1 | tail -"
+label = "false"
+
+[[sample.row]]
+command = "git commit --allow-empty --dry-run -m probe"
+label = "false"
+
+[[sample.row]]
+command = "git commit -qam \"Raise the spend rule's worker cap from 12 to 18 sessions working at once across the fleet; Tom asked for 18 on 2026-11-07, with 12 se"
+label = "false"
+
+[[sample.row]]
+command = "set -e; cd ~/code/south/worktrees/cap-raise-0330; sed -i 's/^resident_cap = 12$/resident_cap = 20/' agents/orchestration.toml; sed -i '/^# 2026-11-07 "
+label = "true"
+
+
+[[sample]]
+rule = "worker-tier.missing-facet"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 5 of 150 distinct refused calls"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of 5 added tests\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"You are a test reviewer for the north repo. Read-"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of P9b\",\"subagent_type\":\"worker\",\"run_in_background\":false,\"prompt\":\"Item: north#621 P9b review. Model: Opus "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of kept wisp tests\",\"subagent_type\":\"worker\",\"prompt\":\"Read-only adversarial review for north#635 (wisp test "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial test review\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Test-admission review (Sonnet, a di"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Argue to delete kept tests\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"You are the adversarial reviewer "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Break replay/bot canonical cycle\",\"subagent_type\":\"worker\",\"run_in_background\":true,\"prompt\":\"Workers-skill box, code-health rev"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 1\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"You are a fresh viewer. Do not read any other files and do not search th"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 3 of 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review. Spec: judged. Scope: module. Su"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull makgora tests slice 3\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Read /tmp/cull635/brief.md and do it for N=3 (slice file /"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull makgora tests slice 8\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Read /tmp/cull635/brief.md and do it for N=8 (slice file /"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull src/ tests (north#635)\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"You are culling tests in the north repo for issue tompass"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull wisp window Rust tests\",\"subagent_type\":\"worker\",\"prompt\":\"Read /tmp/cull635w/brief.md and follow it. Your area name: windo"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Fresh review of judge diff\",\"subagent_type\":\"worker\",\"prompt\":\"Read-only review. Do not edit, commit or push anything.\\n\\nReposi"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native before/after spawn strip\",\"subagent_type\":\"worker\",\"prompt\":\"Brief header: workers-skill brief; model reason: Opus becaus"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Reforged vs Classic captures on gex45\",\"subagent_type\":\"worker\",\"prompt\":\"Goal: produce Warcraft III client screenshots (not Wis"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review P2a test-only diff\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"You are the fresh reviewer (different tier) for a covered h"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review Stop-hook guard commit\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Item: north#523 review. Categ"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review cksum port diff\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"run_in_background\":true,\"prompt\":\"Sonnet because the r"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review docs-owners scan\",\"subagent_type\":\"worker\",\"prompt\":\"Fresh review (read-only; do not edit, commit or build — the machine'"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review head-north prebuild lane\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Review a harness change before it lands; do not edit "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review lander decision-log diff\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Code review only; do not edit files,"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review merged P12a commit\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: review\\nSpec: north#621 box P12a\\nScope: read-onl"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review north#670 gate change\",\"subagent_type\":\"worker\",\"prompt\":\"Fresh review (read-only; do not edit, commit or push) of commit"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review pre-push check move\",\"subagent_type\":\"worker\",\"prompt\":\"Fresh, independent review of one commit; try to break it. Read-on"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review run-time table bounds change\",\"subagent_type\":\"worker\",\"prompt\":\"Fresh review (read-only, do not edit or land anything) o"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review verdict cache diff\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Review a change for correctness bugs (fresh reviewer, Sonne"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Summarize four north issues\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Read-only extraction. Read the file /tmp/claude-1000/-home"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Test-review two added tests\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"You are a fresh test reviewer. In the git repo at /home/to"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Wisp connection ping read\",\"subagent_type\":\"worker\",\"run_in_background\":true,\"prompt\":\"Tier-reason: netcode-determinism goes to "
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"subagent_type\":\"worker-sonnet\",\"description\":\"Review S15 bash-to-Rust port\",\"prompt\":\"Review only; do not edit, commit or push. Sonnet because"
+label = "true"
+
+
+[[sample]]
+rule = "worker-tier.facet-value"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 48 distinct refused calls"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of 5 added tests\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Category: review\\nSpec: "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial test-admission review\",\"subagent_type\":\"worker\",\"model\":\"opus\",\"prompt\":\"Item: north#635 box: test-admission review "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Audit learned host needs\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: research\\nSpec: exact (the list below)\\nScope: rea"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Build native window capture harness\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: native-check\\nSpec: measured\\nScope: on"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Build native window capture harness\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: native-check\\nSpec: measured\\nScope: on"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Build native window capture harness\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: native-check\\nSpec: measured\\nScope: re"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Build native window capture harness\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: native-check\\nSpec: smashcraft Tyrande "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 1 of 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: module\\nSu"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 1\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 2 of 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: module\\nSu"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 2\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 3 of 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: module\\nSu"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull north-capacity tests\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north test cull (north#635): crates/north-capacity\\nC"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull north-capacity-host tests\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north test cull (north#635): crates/north-capaci"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull north-pace tests\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north test cull (north#635): crates/north-pace\\nCategory:"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull src/ tests (north#635)\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north#635 (box: North culled to tests with evidence"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull wisp Rust and C tests\",\"subagent_type\":\"worker\",\"prompt\":\"Category: feature\\nSpec: exact\\nScope: module\\nSurface: rust\\nVer"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Haiku writes v2 strategy\",\"subagent_type\":\"worker-haiku\",\"run_in_background\":true,\"prompt\":\"Item: north#643 bake-off, haiku_firs"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Hide OS cursor in Wisp window\",\"subagent_type\":\"worker\",\"prompt\":\"Category: feature (cross-repo native window + vendoring)\\nSpec"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native before/after spawn strip\",\"subagent_type\":\"worker\",\"prompt\":\"Category: capture (native visual evidence). Model reason: Op"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native before/after spawn strip\",\"subagent_type\":\"worker\",\"prompt\":\"Category: capture (native visual evidence). Model reason: Op"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native before/after spawn strip\",\"subagent_type\":\"worker\",\"prompt\":\"Category: capture (native visual evidence). Model reason: Op"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native before/after spawn strip\",\"subagent_type\":\"worker\",\"prompt\":\"Category: capture (native visual evidence). Model reason: Op"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native repro of solo RESET click\",\"subagent_type\":\"worker\",\"prompt\":\"Category: native-bug-investigation (investigate only; no la"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native repro of solo RESET click\",\"subagent_type\":\"worker\",\"prompt\":\"Category: native-bug-investigation\\nSpec: measured\\nScope: "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native repro of solo RESET click\",\"subagent_type\":\"worker\",\"prompt\":\"Category: native-bug-investigation\\nSpec: measured\\nScope: "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native repro of solo RESET click\",\"subagent_type\":\"worker\",\"prompt\":\"Category: native-bug-investigation\\nSpec: measured\\nScope: "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native window pounce capture strip\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Category: native-check\\nS"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native window pounce capture strip\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Category: native-check\\nS"
+label = "true"
+
+
+[[sample]]
+rule = "worker-tier.payback"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 20 distinct refused calls"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of P10\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#621 safe-push as a Rust module tree: review of step P1"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of P7\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#621 P7 pre-landing review\\nCategory: tooling\\nSpec: exa"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of P9b\",\"subagent_type\":\"worker\",\"run_in_background\":false,\"prompt\":\"Item: north#621 P9b review\\nCategory: to"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of kept tests\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north test cull review: argue for deleting every kept"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of test and gate\",\"subagent_type\":\"worker\",\"prompt\":\"Category: tooling\\nSpec: exact\\nScope: module\\nSurface: "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Argue to delete every kept test\",\"subagent_type\":\"worker\",\"prompt\":\"Category: tooling\\nSpec: judged\\nScope: module\\nSurface: rus"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Argue to delete kept tests\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Item: adversarial review of the n"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull wisp game TS tests\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#635 wisp test cull, area game-ts\\nCategory: tooling\\nSpe"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull wisp host TS tests\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#635 wisp test cull, area host-ts\\nCategory: tooling\\nSpe"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull wisp relay Rust tests\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#635 wisp test cull, area relay-rust\\nCategory: toolin"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull wisp window Rust tests\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#635 wisp test cull, area window-rust\\nCategory: tool"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Fleet TUI image paste lane\",\"subagent_type\":\"worker-sonnet\",\"isolation\":\"worktree\",\"prompt\":\"Item: north#112 gate item 2, image "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Fleet TUI model/effort, Esc, hatch lane\",\"subagent_type\":\"worker-sonnet\",\"isolation\":\"worktree\",\"prompt\":\"Item: north#112 gate i"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review P2c/P2d landings\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#621 safe-push as a Rust module tree: review of the lande"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review P9a gates diff\",\"subagent_type\":\"worker\",\"run_in_background\":false,\"prompt\":\"Item: north#621 P9a pure half, review of com"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review docs-owners scan\",\"subagent_type\":\"worker\",\"prompt\":\"Item: tompassarelli/north#635 docs never outlive the work they descr"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review north#643 replay diff\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#643 replay invariants (review only)\\nCategory: tool"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review run-time table bounds change\",\"subagent_type\":\"worker\",\"prompt\":\"Item: north#634 review of landed commit 73aff03c1 (table"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review window-move lane\",\"subagent_type\":\"worker\",\"model\":\"opus\",\"run_in_background\":false,\"prompt\":\"Item: north#636 review of t"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Test-review two added tests\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Category: tooling\\nSpec: exact\\nScope: single-module\\nSurf"
+label = "true"
+
+
+[[sample]]
+rule = "worker-tier.lands-before"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 7 distinct refused calls"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 1 of 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: module\\nSu"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 2 of 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: module\\nSu"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 3 of 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: module\\nSu"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Fix Thrall hammer texture in Reforged\",\"subagent_type\":\"worker\",\"run_in_background\":true,\"prompt\":\"Item: smashcraft Thrall's Doo"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Hide OS cursor in Wisp window\",\"subagent_type\":\"worker\",\"prompt\":\"Category: feature\\nSpec: measured\\nScope: cross-repo\\nSurface:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native before/after spawn strip\",\"subagent_type\":\"worker\",\"prompt\":\"Category: capture (native visual evidence). Model reason: Op"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Native repro of solo RESET click\",\"subagent_type\":\"worker\",\"prompt\":\"Category: native-bug-investigation\\nSpec: measured\\nScope: "
+label = "false"
+
+
+[[sample]]
+rule = "worker-tier.background"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 1 distinct refused calls"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Describe two game screenshots\",\"subagent_type\":\"worker-haiku\",\"run_in_background\":false,\"prompt\":\"Look at two Warcraft III scree"
+label = "true"
+
+
+[[sample]]
+rule = "worker-tier.item"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 35 distinct refused calls"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of 5 added tests\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Category: review\\nSpec: "
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of added tests\",\"subagent_type\":\"worker\",\"run_in_background\":true,\"prompt\":\"Category: review\\nSpec: measured\\"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of safe-push plan\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: cross-mod"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial test review\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Category: review\\nSpec: measured\\nS"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Argue to delete new test\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Category: review\\nSpec: exact\\nScop"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Audit learned host needs\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: research\\nSpec: exact\\nScope: cross-module\\nRepo: "
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Break safe-push P8 landing\",\"subagent_type\":\"worker\",\"run_in_background\":false,\"prompt\":\"Category: review\\nSpec: exact\\nScope: m"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 1\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Category: research\\nSpec: exact\\nScope: module\\nSurface: ts\\nVerify: nat"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 1\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 2\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Category: research\\nSpec: exact\\nScope: module\\nSurface: ts\\nVerify: nat"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 2\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 3\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Category: research\\nSpec: exact\\nScope: module\\nSurface: ts\\nVerify: nat"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 3\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review S16 after-landing port\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: cross-module\\nSur"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review S17 port diffs\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Category: review\\nSpec: exact\\nScope:"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review added test for deletion\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Category: review\\nSpec: exac"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review corrections-guards lane\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: review\\nSpec: measured\\nScope: cross-module\\"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review corrections-loop diff\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review five added tests\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Category: review\\nSpec: exact\\nScop"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review hung-slot deadline diff\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Category: review\\nSpec: measu"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review landed structure diff\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Category: review\\nSpec: judged"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review merged P12a commit\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: cross-module\\nSurfac"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review north#631 lane diff\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Category: research\\nSpec: exact\\n"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review north#670 gate change\",\"subagent_type\":\"worker\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface: rust\\nVe"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review one-proxy commit\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review pre-push check move\",\"subagent_type\":\"worker\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface: rust\\nVeri"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review recommend-acts diff\",\"subagent_type\":\"worker\",\"model\":\"opus\",\"prompt\":\"Category: review\\nSpec: judged\\nScope: module\\nSur"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review rework evidence commit\",\"subagent_type\":\"worker\",\"prompt\":\"Category: review\\nSpec: exact\\nScope: module\\nSurface: rust\\nV"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review warm-slot commit\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"run_in_background\":true,\"prompt\":\"Category: review\\nS"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Test-admission review of 2 tests\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"run_in_background\":false,\"prompt\":\"Category:"
+label = "false"
+
+
+[[sample]]
+rule = "worker-tier.routing"
+window = "2026-11-01 to 2026-11-08"
+drawn = "1 in 1 of 14 distinct refused calls"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Adversarial review of 5 added tests\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":true,\"prompt\":\"Item: north#626 test rev"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 1\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Item: makgora#875 cold viewer 1\\nCategory: research\\nSpec: exact\\nScope:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 2\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Item: makgora#875 cold viewer 2\\nCategory: research\\nSpec: exact\\nScope:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cold viewer 3\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Item: makgora#875 cold viewer 3\\nCategory: research\\nSpec: exact\\nScope:"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull makgora tests slice 9\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north#635 (makgora cull box)\\nCategory: refactor\\nSp"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Cull wisp Rust and C tests\",\"subagent_type\":\"worker\",\"prompt\":\"Category: feature\\nSpec: exact\\nScope: module\\nSurface: rust\\nVer"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review P15 safe-push commit\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north#621 P15 review\\nCategory: review\\nSpec: exact"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review P2a test-only diff\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north#621 P2a review (fresh reviewer, different tier)"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review added test for deletion\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Item: north#612 test review "
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review cksum port diff\",\"subagent_type\":\"worker-sonnet\",\"model\":\"sonnet\",\"run_in_background\":true,\"prompt\":\"Item: north#634 revi"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review five added tests\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Item: north#630\\nCategory: review\\n"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Review help-first dispatcher change\",\"subagent_type\":\"worker-sonnet\",\"prompt\":\"Item: north#660 fresh review of the help-first di"
+label = "false"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Test-admission review of claims test\",\"subagent_type\":\"worker-sonnet\",\"run_in_background\":false,\"prompt\":\"Item: north#631 test-a"
+label = "true"
+
+[[sample.row]]
+command = "Agent {\"description\":\"Test-review two added tests\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Item: north#634 Verification runs 10 to 100 times faster ("
 label = "true"
 

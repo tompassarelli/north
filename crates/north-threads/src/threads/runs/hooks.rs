@@ -27,6 +27,10 @@ pub fn record(db: &Connection, row: &Row) -> Result<usize, Failure> {
     if session.is_empty() || tool_use.is_empty() || at.is_empty() {
         return Ok(0);
     }
+    db.execute(
+        "DELETE FROM hook_events WHERE session = ?1 AND tool_use = ?2 AND verdict = ?3 AND rule = ?4 AND ?5 <> ?4",
+        params![session, tool_use, field("verdict"), crate::threads::runs::hook_rules::OTHER, field("rule")],
+    )?;
     Ok(db.execute(
         "INSERT OR IGNORE INTO hook_events(session, tool_use, tool, event, verdict, rule, at, turn) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![session, tool_use, field("tool"), field("event"), field("verdict"), field("rule"), at, turn],

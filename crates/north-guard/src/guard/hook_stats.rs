@@ -31,6 +31,7 @@ pub struct Sample {
     pub rule: String,
     pub rows: usize,
     pub falses: usize,
+    pub narrowed: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,7 +51,8 @@ pub fn samples(text: &str) -> Result<Vec<Sample>, String> {
             let rule = table.get("rule").and_then(|item| item.as_str()).ok_or("hook refusal samples: a sample has no rule")?;
             let rows = table.get("row").and_then(|item| item.as_array_of_tables()).ok_or("hook refusal samples: a sample has no rows")?;
             let falses = rows.iter().filter(|row| row.get("label").and_then(|item| item.as_str()) == Some("false")).count();
-            Ok(Sample { rule: rule.to_owned(), rows: rows.len(), falses })
+            let narrowed = table.get("narrowed").and_then(|item| item.as_str()).map(str::to_owned);
+            Ok(Sample { rule: rule.to_owned(), rows: rows.len(), falses, narrowed })
         })
         .collect()
 }
@@ -131,6 +133,14 @@ pub fn render(stats: &Stats, window: &str, samples: &[Sample]) -> String {
     for rule in &stats.skill_text {
         let row = &stats.rules[rule];
         let _ = writeln!(out, "  {rule}: {} sessions repeated it; line that should have prevented it: {}", row.repeats, find(rule).map_or("", |rule| rule.skill));
+    }
+    let over: Vec<&Sample> = stats.rules.iter().filter(|(_, row)| row.refusals > 0).filter_map(|(rule, _)| samples.iter().rev().find(|sample| &sample.rule == rule)).filter(|sample| sample.falses * 10 > sample.rows).collect();
+    let _ = writeln!(out, "\nover 10% false in the last sample:");
+    for sample in &over {
+        let _ = writeln!(out, "  {}: {}", sample.rule, sample.narrowed.as_deref().map_or_else(|| "not narrowed".to_owned(), |how| format!("narrowed: {how}")));
+    }
+    if over.is_empty() {
+        let _ = writeln!(out, "  none");
     }
     let _ = writeln!(out, "\nprune candidates (no fire in {PRUNE_DAYS} days):");
     let _ = writeln!(out, "  {}", if stats.prune.is_empty() { "none".to_owned() } else { stats.prune.join(", ") });

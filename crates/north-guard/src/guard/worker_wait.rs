@@ -30,7 +30,7 @@ static WAITS: LazyLock<Vec<Wait>> = LazyLock::new(|| {
     vec![
         wait("an until/sleep wait loop", r"\buntil\b[\s\S]*\bsleep\b", false),
         wait("a while/sleep wait loop", r"\bwhile\b[\s\S]*\bsleep\b", false),
-        wait("safe-push", r"(?:\S*/)?safe-push\b", true),
+        wait("safe-push", r"(?:[^\s=]*/)?safe-push(?:[ \t]+(\S+)|[;&|)\s]|$)", true),
         wait(
             "a CI watch",
             r"(?:gh\s+run\s+watch\b|gh\s+pr\s+checks\b[^\n]*--watch)",
@@ -45,7 +45,10 @@ static WAITS: LazyLock<Vec<Wait>> = LazyLock::new(|| {
     ]
 });
 static TEST_SUITE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bbun\s+(?:run\s+)?test\b").unwrap());
+    LazyLock::new(|| Regex::new(&format!(r"{COMMAND_START}bun\s+(?:run\s+)?test\b")).unwrap());
+static SHORT_BOUND: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\btimeout\s+(\d+)s?\s+(?:ba)?sh\s+-c\s").unwrap());
+const SAFE_PUSH_QUERIES: [&str; 3] = ["--help", "-h", "--durable-harness-paths"];
 static SINGLE_TEST_FILE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s+\S+\.test\.ts").unwrap());
 static LONG_TIMEOUT: LazyLock<Regex> =
@@ -74,6 +77,9 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
         input.command()?.as_str()?,
         timeout_seconds(&input.tool_input["timeout"]),
     )?;
+    if input.is_monitor_in_transcript() {
+        return None;
+    }
     Some(format!(
         "Workers never block in the foreground on {reason}: the lead's messages reach you only between tool calls and must arrive at once. Rerun it with run_in_background: true and wait for its completion notification or a Monitor event, checking messages in between."
     ))
@@ -91,16 +97,23 @@ pub(super) fn blocking(command: &str, timeout_seconds: Option<f64>) -> Option<St
     if let Some(seconds) = timeout_seconds.filter(|s| *s > LIMIT_SECONDS) {
         reasons.push(format!("a timeout of {} s", seconds.floor() as u64));
     }
-    let inert = shell::blank_quotes(&shell::strip_heredocs(command));
+    let unquoted = shell::strip_heredocs(command);
+    let inert = shell::blank_quotes(&unquoted);
+    let bounded = SHORT_BOUND
+        .captures(&unquoted)
+        .is_some_and(|found| found[1].parse::<u64>().is_ok_and(|n| n as f64 <= LIMIT_SECONDS));
     for wait in WAITS.iter() {
-        let text = if wait.inert { &inert } else { command };
-        if wait.pattern.is_match(text) {
+        let text = if wait.inert { &inert } else { &unquoted };
+        let hit = wait.pattern.captures_iter(text).any(|found| {
+            found.get(1).is_none_or(|word| !SAFE_PUSH_QUERIES.contains(&word.as_str()))
+        });
+        if hit && (wait.inert || !bounded) {
             reasons.push(wait.label.to_owned());
         }
     }
     let runs_suite = TEST_SUITE
-        .find_iter(command)
-        .any(|found| !SINGLE_TEST_FILE.is_match(&command[found.end()..]));
+        .find_iter(&inert)
+        .any(|found| !SINGLE_TEST_FILE.is_match(&inert[found.end()..]));
     if runs_suite {
         reasons.push("a test suite".to_owned());
     }

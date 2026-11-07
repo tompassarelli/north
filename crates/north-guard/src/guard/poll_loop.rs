@@ -15,7 +15,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     verdict(input)
 }
 
-fn verdict(input: &HookInput) -> Verdict {
+pub(super) fn verdict(input: &HookInput) -> Verdict {
     if input.runs_in_background() {
         return Verdict::Allow;
     }
@@ -27,8 +27,8 @@ fn verdict(input: &HookInput) -> Verdict {
         .find_map(|field| input.tool_input[*field].as_f64())
         .map_or(f64::INFINITY, |ms| ms / 1000.0);
     match decide_with(command, bound, &poll_loop_measured::database()) {
-        Some(reason) => Verdict::Deny(reason),
-        None => Verdict::Allow,
+        Some(reason) if !input.is_monitor_in_transcript() => Verdict::Deny(reason),
+        _ => Verdict::Allow,
     }
 }
 

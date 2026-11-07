@@ -1,0 +1,88 @@
+# Guard false refusals, measured 2026-11-08
+
+Every PreToolUse guard that refused a tool call from 2026-11-01 to 2026-11-08 has a labelled sample in
+`crates/north-guard/src/guard/hook_refusal_samples.toml`. `north hook stats` prints each guard's false share and lists every
+guard over 10% false with its `narrowed` line, or "not narrowed" (north#706, carrying north#715's E2 method).
+
+## Method
+
+- **Source.** The ledger's `hook_events` refusals (9,049 in the window), joined by tool_use id to the Claude transcripts on
+  the laptop and gex45, including `agent-ID.jsonl` subagent transcripts. 8,629 of the 9,049 were found.
+- **Unnamed guards.** 2,285 refusals were filed as `other` because their refusal text matched no rule. Six guards were behind
+  them, and `hook_rules.rs` now names them: heavy-command.local-write, launch-critical.layout, session-kill.self-match,
+  privacy-judge.pending and privacy-judge, issue-cleanup, worker-tier.item and worker-tier.routing, and proxy-role.
+- **Sample.** Up to 30 rows per guard: distinct refused calls sorted by text, taking every Nth.
+  - launch-critical counts only refusals after its 786ac1b9d4 fix.
+  - heavy-command.farm counts only refusals after its df206b8a67 fix.
+- **Labels.** A row is false when the call was something the guard's own policy allows or does not aim at. Examples: text
+  matched inside a heredoc, a quote or a path; a read-only command; a bounded wait; a correct brief the guard misparsed.
+  Labels were judged per guard from its refusal text and source.
+
+## Results
+
+False share by guard (over 10% marked *):
+
+- worker-wait 24/30 * (narrowed here)
+- poll-loop 30/30 * (narrowed here)
+- privacy-judge.pending 14/30 * (narrowed by 0a478d5770: no pending refusal in the 2 h after it deployed)
+- issue-cleanup 24/30 *
+- heavy-command.farm 2/3 * (after df206b8a67; the 26 earlier false rows were already fixed)
+- resource-safe-search 20/30 *
+- session-kill.self-match 19/30 *
+- session-kill 13/30 *
+- worker-tier.item 11/30 *
+- corpus-scan 8/30 *
+- modern-search 8/30 *
+- tripwire 8/30 *
+- issue-filing 6/30 *
+- privacy-judge 6/30 *
+- tripwire.push 6/30 *
+- proxy-role 6/10 *
+- sops-decrypt 6/18 *
+- heavy-command 5/19 *
+- worker-tier.facet-value 5/30 *
+- worker-tier.lands-before 5/7 *
+- launch-critical 4/30 *
+- tripwire.delete 4/30 *
+- nix-activity.deny 4/7 *
+- clipboard 4/5 *
+- public-text 3/15 *
+- worker-tier.routing 3/14 *
+- desktop-action 1/6 *
+- native-evidence 1/3 *
+- worker-tier.missing-facet 3/30
+- heavy-command.local-write 2/30
+- launch-critical.layout 0/30
+- git-stash 0/30
+- issue-labels 0/30
+- masked-pipeline 0/14
+- worker-tier.payback 0/20
+- lead-timer 0/2
+- worker-tier.background 0/1
+- claude-sleep 0/30 and blind-stage 0/30, from their 2026-11-07 samples
+
+## The largest false class: Monitor calls
+
+poll-loop and worker-wait refused 563 Monitor calls in the window, every one carrying `timeout_ms` in its transcript.
+b73718aa85 (2026-11-01) had let a Monitor call through by reading `timeout_ms` from the hook input. The refusals went on
+under runtimes that held that commit; the last was at 20:58 UTC on 2026-11-07 on gex45. So Claude Code runs the Bash hooks for a
+Monitor call as tool Bash without Monitor's `timeout_ms`, and the input alone cannot tell it from a foreground Bash call.
+
+The fix: when either guard is about to refuse, it looks for a Monitor tool_use with the same id and command in the tail of
+the session transcript (`guard/monitor_call.rs`), and allows the call if it finds one. The check runs only on the refusal
+path, so allowed calls pay nothing. If the transcript lacks the entry, the guard refuses exactly as before.
+
+poll-loop is active on gex45 and not on the laptop (`~/.local/state/north/agents/current/activation.active`), which is why
+laptop sessions never saw it.
+
+## north#715's verdict on main
+
+The post-fix launch-critical sample is 4 of 30 false, one over the keep line of 3 that north#715 set. No true class was
+lost. The 4 false rows fall into three classes the fix never addressed:
+
+- a `cd` into a worktree the same command creates;
+- a redirect read as a merge source in `git merge --ff-only origin/main 2>&1`;
+- literal paths in a heredoc that writes only under /tmp.
+
+Reverting the fix would bring back the 21 of 30 false the earlier sample measured, so it stays. The three new classes are
+narrowing work on north#706.
