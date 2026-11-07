@@ -13,6 +13,7 @@ use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
 use survey::Survey;
 
+pub use host_needs::{is_need, register as register_need};
 pub use record::cloud_launch_times;
 pub use cloud::{Launch as CloudLaunch, Login, autoland as cloud_autoland, branch as cloud_branch, current_login as cloud_login};
 pub use fleets::holder as task_holder;
@@ -73,7 +74,7 @@ mod tries_tests;
 #[cfg(test)]
 mod spread_tests;
 
-const USAGE: &str = "usage: north dispatch [--dry-run] | pause --reason TEXT | resume | needs REPO#N | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north dispatch [--dry-run] | pause --reason TEXT | resume | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -304,6 +305,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         [verb, rest @ ..] if verb == "pause" => return pause::pause(rest),
         [verb] if verb == "resume" => return pause::resume(),
         [verb, item] if verb == "needs" => return host_needs::serve(item),
+        [verb, session, need, item @ ..] if verb == "need" && item.len() < 2 => return host_needs::serve_need(session, need, item.first().map(String::as_str)),
         _ => {
             eprintln!("{USAGE}");
             return 2;

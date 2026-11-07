@@ -24,7 +24,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
     head.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
     let own = declared(issue, "Needs").map(str::to_owned).or_else(|| native(issue).then(|| "native".to_owned()));
     let mut needs: Vec<String> = Vec::new();
-    for need in own.into_iter().chain(issue.needs.iter().cloned()).chain(issue.stop.host.clone()) {
+    for need in own.into_iter().chain(issue.needs.iter().cloned()) {
         if !needs.contains(&need) {
             needs.push(need);
         }

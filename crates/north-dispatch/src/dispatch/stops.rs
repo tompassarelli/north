@@ -1,6 +1,6 @@
 //! What the last dispatched worker's final report asks of the next launch: after `Stop: decision` or `Blocked:` the box
 //! stays skipped until the issue gets a comment or body edit newer than that report; after `Stop: wait until TIME` it
-//! stays skipped until that UTC time, and so does every later launch on a box that wait named (`wait_stops`); after `Stop: host NEED` the next brief carries `Needs: NEED`, and every later one while a box
+//! stays skipped until that UTC time, and so does every later launch on a box that wait named (`wait_stops`); after a worker recorded a need with `north fleet need` the next brief carries `Needs: NEED`, and every later one while a box
 //! it named stays unticked (`host_needs`), so placement sends it to a host that serves it instead of the one that could not. After `Not done:` with `Stop: reasoning`, or after the
 //! lander refused one of the session's lanes twice for its own failing checks without fewer errors, the next launch
 //! climbs one rung of `Rung::LADDER`, and from its top rung the box waits for a decision like `Stop: decision`.
@@ -16,7 +16,6 @@ use std::sync::LazyLock;
 
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*(?:Stop:\s*decision\b|Blocked:)").expect("stop pattern"));
 static WAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*wait\s+until\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z)").expect("wait pattern"));
-static HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*host\s+([a-z][\w.-]*)").expect("host pattern"));
 static REASONING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*reasoning\b").expect("reasoning pattern"));
 static NOT_DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*Not done:").expect("not done pattern"));
 static REPORT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*(?:Done|Not done|Split|Blocked):").expect("report pattern"));
@@ -28,15 +27,13 @@ pub struct Stop {
     pub decision: Option<f64>,
     /// `Stop: wait until TIME`: the time as written and as unix seconds.
     pub until: Option<(String, f64)>,
-    /// `Stop: host NEED`: the host or local need the next launch must be placed on.
-    pub host: Option<String>,
-    /// The stopped run the next launch follows when it stopped on `Stop: host`, with the report that brief carries.
+    /// The stopped run the next launch follows when its session recorded a host need with `north fleet need`, with the reason that brief carries.
     pub relay: Option<Relay>,
     /// The worker got nowhere on its rung, so the next launch climbs one.
     pub climb: Option<Climb>,
 }
 
-/// A launch that stopped on `Stop: host NEED`: the relaunch on a host that serves NEED follows it and starts from its report.
+/// A launch whose session recorded a host need: the relaunch on a host that serves the need follows it and starts from the reason recorded.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Relay {
     pub session: String,
@@ -65,10 +62,6 @@ pub fn last_launches(records: &[Record]) -> BTreeMap<IssueRef, &Record> {
         }
     }
     newest
-}
-
-pub fn host_need(report: &str) -> Option<String> {
-    HOST.captures(report).map(|found| found[1].to_lowercase())
 }
 
 /// Whether a final report is `Not done:` with `Stop: reasoning`: the worker ran out of approach on its rung.
@@ -127,9 +120,7 @@ fn holds(report: &str, ended: Option<f64>, nowhere: Option<String>, launch: &Rec
         Some((written.to_owned(), crate::foundation::clock::Timestamp::parse_loose(written)?.unix_seconds_f64()))
     });
     let climb = nowhere.and_then(|why| Some(Climb { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned(), why }));
-    let host = host_need(report);
-    let relay = host.clone().map(|need| Relay { session: launch.name.clone(), need, report: report.trim().to_owned() });
-    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host, relay, climb }
+    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, relay: None, climb }
 }
 
 /// Whether the issue is unchanged since the report that stopped for a decision, or since its worker on the ladder's

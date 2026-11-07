@@ -17,6 +17,7 @@ pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
         ["north", "threads", rest @ ..] => threads(rest, true).map(|name| format!("threads {name}")),
         ["north", "fleet", "row", "leased", _session] => Some("fleet row leased".to_string()),
         ["north", "dispatch", "needs", _item] => Some("dispatch needs".to_string()),
+        ["north", "dispatch", "need", _session, _need] | ["north", "dispatch", "need", _session, _need, _] => Some("dispatch need".to_string()),
         ["north", "fleet", "row", verb, ..] if FLEET_ROW.contains(verb) => Some(format!("fleet row {verb}")),
         ["north", "laptop", "status"] | ["north", "laptop", "status", "--json"] => Some("laptop status".to_string()),
         ["agents", "usage", "--refresh", "--local", "--json"] => Some("agents usage".to_string()),

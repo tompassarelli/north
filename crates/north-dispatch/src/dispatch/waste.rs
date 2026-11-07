@@ -1,6 +1,5 @@
 //! The runs of the last day that spent usage and finished nothing: final reports that stop for another host, launches that ran beside a holder, and revert tickets the proxy withdrew as false.
 use super::fleets::remote_json;
-use super::stops;
 use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};
 use serde_json::Value;
@@ -48,16 +47,15 @@ impl Waste {
 pub fn measure() -> Waste {
     let now = Timestamp::now();
     let since = Timestamp::from_unix_seconds(now.unix_seconds() - WINDOW_S as i64).iso();
-    Waste { stop_host: stop_host(&since), duplicate_launches: duplicate_launches(now.unix_seconds() as f64), false_reverts: false_reverts(&since) }
+    Waste { stop_host: stop_host(now.unix_seconds() as f64), duplicate_launches: duplicate_launches(now.unix_seconds() as f64), false_reverts: false_reverts(&since) }
 }
 
 fn ledger(query: &str) -> Result<Vec<Value>, String> {
     sqlite::rows(&crate::ledger::threads_database(), Access::ReadOnly, Duration::from_secs(5), query).map_err(|error| error.to_string())
 }
 
-fn stop_host(since: &str) -> Count {
-    let rows = ledger(&format!("SELECT report FROM runs WHERE role = 'worker' AND report LIKE '%Stop:%' AND ended >= '{since}'"))?;
-    Ok(rows.iter().filter(|row| row["report"].as_str().is_some_and(|report| stops::host_need(report).is_some())).count())
+fn stop_host(at: f64) -> Count {
+    Ok(super::host_needs::read(&super::record::directory()).iter().filter(|learned| at - learned.at < WINDOW_S).count())
 }
 
 fn false_reverts(since: &str) -> Count {

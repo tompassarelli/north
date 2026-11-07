@@ -37,6 +37,7 @@ use super::relaunch;
 use super::revive;
 use super::row;
 use super::show;
+use super::need;
 use super::spend;
 use super::waits;
 use super::tick;
@@ -116,6 +117,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["tree"] => tree::tree(&fleet),
         ["spend", rest @ ..] => spend::run(&fleet, rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
+        ["need", rest @ ..] => need::run(rest),
         ["accounts", flags @ ..] => accounts::run(&fleet, flags),
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),

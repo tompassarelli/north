@@ -23,7 +23,7 @@ Replay of the closing `Stop:` lines of the runs that did not finish Done from 23
 - `Stop: landing`, 6 runs: the lane's ticket record (`north_base::land_ticket::lanes_of`, read by the scorer's pending check) replaces the words; 3 of the 6 also had a boundary cause.
 - `Stop: capacity`, 10 runs: none has a boundary record, so the worker's line was the only evidence. The fleet records a capacity cause only for a usage-limit park or an exit 75, and neither was written for these sessions.
 - `Stop: wait until`, 24 runs: 2 have a boundary cause and none has a row in `fleet_waits`, which holds only live leases and drops a wait at its end, so the registered wait is gone when the run is scored.
-- `Stop: host`, 20 runs: 4 had a boundary cause; the host a worker named is kept only by dispatch's `host-needs.jsonl`, which is fed by that report line.
+- `Stop: host`, 20 runs: 4 had a boundary cause; the host a worker named was kept only by dispatch's `host-needs.jsonl`, which that report line fed; a worker now records it with `north fleet need HOST REASON`, which writes the row (north#791), and dispatch's HOST regex is gone.
 
 Capacity, waits and host therefore need a record written at the boundary and kept before their phrase rules are removed; until then the allowlist keeps their reads.
 

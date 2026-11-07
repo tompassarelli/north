@@ -9,6 +9,7 @@ mod desktop;
 mod digest;
 mod gated;
 mod launch;
+mod need;
 mod interactive;
 mod ledger;
 mod limit;

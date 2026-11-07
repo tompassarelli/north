@@ -425,16 +425,15 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
     stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref()), crate::fleet::registry::retired_report_here, &mut notes);
     let launches = super::stops::last_launches(&records);
-    let learned = super::host_needs::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
-        notes.push(format!("host-needs.jsonl unwritten, so this pass reads only the needs already in it: {why}"));
-        super::host_needs::read(&record::directory())
-    });
+    let learned = super::host_needs::read(&record::directory());
     let waits = super::wait_stops::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
         notes.push(format!("wait-stops.jsonl unwritten, so this pass reads only the waits already in it: {why}"));
         super::wait_stops::read(&record::directory())
     });
     for issue in &mut issues {
         issue.needs = super::host_needs::of(issue, &learned, at);
+        let reference = issue.reference();
+        issue.stop.relay = launches.get(&reference).and_then(|launch| super::host_needs::relay(&learned, &reference.to_string(), &launch.name));
         issue.learned_wait = super::wait_stops::holding(&waits, issue, at);
         if issue.windowed() {
             issue.landed = landed_at(issue);

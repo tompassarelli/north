@@ -1,8 +1,8 @@
-//! The hosts and local needs workers' `Stop: host NEED` reports named for a box, kept in host-needs.jsonl beside the
-//! launch record: dispatch reads only the newest launch's report, so a need an earlier launch learned would drop out
-//! once a later launch ended on another stop, or with no report dispatch could read. A need holds while any box
-//! the stop named stays unticked word for word.
+//! The hosts and local needs workers recorded for a box with `north fleet need HOST REASON`, kept in host-needs.jsonl beside the
+//! launch record on the host that holds it, so a need an earlier launch recorded still places a later launch after another
+//! launch ended on another stop. A need holds while any box it was recorded for stays unticked word for word.
 use super::issues::{Issue, IssueRef};
+use super::stops::Relay;
 use super::record;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -18,6 +18,9 @@ pub struct Learned {
     pub at: f64,
     /// The unticked product boxes the stopped session could take.
     pub boxes: Vec<String>,
+    /// Why the worker needs it, as it gave it to `north fleet need`.
+    #[serde(default)]
+    pub reason: String,
 }
 
 fn parse(text: &str) -> Vec<Learned> {
@@ -28,32 +31,56 @@ pub fn read(directory: &Path) -> Vec<Learned> {
     parse(&std::fs::read_to_string(directory.join(FILE)).unwrap_or_default())
 }
 
-/// Records the `Stop: host` need each issue's newest launch reported, once per session and need, and returns every
-/// record including the new ones.
-pub fn learn(directory: &Path, issues: &[Issue], session_of: impl Fn(&Issue) -> Option<String>, at: f64) -> Result<Vec<Learned>, String> {
+/// Whether `need` reads as a host name or a local need word: lower case, starting with a letter.
+pub fn is_need(need: &str) -> bool {
+    need.chars().next().is_some_and(|first| first.is_ascii_lowercase()) && need.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Appends the need `session` recorded for `issue` with `north fleet need`, once per session and need, and returns every record including it.
+/// The boxes are the one box the launch staffed when `box_text` names a takeable one, else the issue's unticked takeable ones, so the need holds while any stays unticked.
+pub fn record(directory: &Path, issue: &Issue, box_text: Option<&str>, session: &str, need: &str, reason: &str, at: f64) -> Result<Vec<Learned>, String> {
     let mut known = read(directory);
-    let mut fresh = String::new();
-    for issue in issues {
-        let (Some(need), Some(session)) = (issue.stop.host.clone(), session_of(issue)) else { continue };
-        let item = issue.reference().to_string();
-        if known.iter().any(|seen| seen.item == item && seen.need == need && seen.session == session) {
-            continue;
-        }
-        let learned = Learned { item, need, session, at, boxes: issue.takeable(at).map(|line| line.trim().to_owned()).collect() };
-        fresh.push_str(&format!("{}\n", serde_json::to_string(&learned).map_err(|error| error.to_string())?));
-        known.push(learned);
+    let item = issue.reference().to_string();
+    if known.iter().any(|seen| seen.item == item && seen.need == need && seen.session == session) {
+        return Ok(known);
     }
-    if !fresh.is_empty() {
-        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join(FILE)).map_err(|error| error.to_string())?;
-        file.write_all(fresh.as_bytes()).map_err(|error| error.to_string())?;
-    }
+    let named: Vec<String> = box_text.map(|text| issue.takeable_box(text, at).map(|line| line.trim().to_owned()).collect()).unwrap_or_default();
+    let boxes = if named.is_empty() { issue.takeable(at).map(|line| line.trim().to_owned()).collect() } else { named };
+    let learned = Learned { item, need: need.to_owned(), session: session.to_owned(), at, boxes, reason: reason.trim().to_owned() };
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join(FILE)).map_err(|error| error.to_string())?;
+    let line = format!("{}\n", serde_json::to_string(&learned).map_err(|error| error.to_string())?);
+    file.write_all(line.as_bytes()).map_err(|error| error.to_string())?;
+    known.push(learned);
     Ok(known)
 }
 
-/// The needs a launch of `issue` is placed on: those a worker's `Stop: host` learned for boxes still unticked, and those every takeable box shares, each box
+/// The stopped run the next launch of `item` follows: the newest launch's session, when it recorded a need, with its reason as the report the brief carries.
+pub fn relay(learned: &[Learned], item: &str, session: &str) -> Option<Relay> {
+    let seen = learned.iter().rfind(|seen| seen.item == item && seen.session == session)?;
+    Some(Relay { session: seen.session.clone(), need: seen.need.clone(), report: seen.reason.clone() })
+}
+
+/// Records the need the calling session found, on the host that holds the dispatch records: the item is the one given, else the one `session`'s launch record names.
+pub fn register(session: &str, need: &str, reason: &str, item: Option<&str>) -> Result<String, String> {
+    if !is_need(need) {
+        return Err(format!("{need} is not a host or need name: lower case letters, digits, '.', '_' and '-', starting with a letter"));
+    }
+    let directory = record::directory();
+    let launched = record::read(&directory).into_iter().rfind(|launch| launch.launched && launch.name == session);
+    let item = item.map(str::to_owned).or_else(|| launched.as_ref().map(|launch| launch.item.clone())).ok_or_else(|| format!("no launch of session {session} is on record here, so name its issue with --item REPO#N"))?;
+    let at = crate::pacing::placement::now();
+    let reference = IssueRef::parse(&item).ok_or_else(|| format!("{item} names no issue"))?;
+    let (body, _) = super::manual::issue_text(&item)?;
+    let issue = Issue { repo: reference.repo, number: reference.number, body, ..Issue::default() };
+    let box_text = launched.filter(|launch| launch.item == item).and_then(|launch| launch.box_text);
+    record(&directory, &issue, box_text.as_deref(), session, need, reason, at)?;
+    Ok(format!("recorded: {session} needs {need} for {item}; the next try of its boxes is placed there"))
+}
+
+/// The needs a launch of `issue` is placed on: those a worker recorded with `north fleet need` for boxes still unticked, and those every takeable box shares, each box
 /// read as its own `Needs:` line says, a box with none needing nothing, whatever its prose mentions. One box that needs nothing places the launch, because a worker takes the boxes it can and
-/// reports `Stop: host` for the rest, which a held launch would lose. Dispatch's survey and a hand launch's `north fleet launch` both read them here.
+/// records the need for the rest, which a held launch would lose. Dispatch's survey and a hand launch's `north fleet launch` both read them here.
 pub fn of(issue: &Issue, learned: &[Learned], at: f64) -> Vec<String> {
     placed(issue, issue.takeable(at), learned)
 }
@@ -83,20 +110,12 @@ pub fn of_box(issue: &Issue, box_text: &str, learned: &[Learned], at: f64) -> Ve
 }
 
 /// The needs a hand launch on `item` is placed on, read the way dispatch reads them: the item's takeable boxes in `body`, and
-/// every `Stop: host` a launch on it reported; with a `box_text` (the brief's `Box:` line) only that box's. This host learns its own launches' reports into its host-needs.jsonl, and
-/// reads what dispatch learned from the ledger host, where dispatch writes it.
+/// every need a launch on it recorded; with a `box_text` (the brief's `Box:` line) only that box's. This host reads its own host-needs.jsonl and
+/// the ledger host's, where a worker's `north fleet need` records.
 pub fn for_launch(item: &IssueRef, body: &str, box_text: Option<&str>, at: f64, notes: &mut Vec<String>) -> Vec<String> {
-    let directory = record::directory();
-    let records = record::read(&directory);
-    let mut boxes = [Issue { repo: item.repo.clone(), number: item.number, body: body.to_owned(), ..Issue::default() }];
-    super::survey::stopped(&records, &mut boxes, |launch| super::fleets::remote_json(None, &["fleet", "show", &launch.name, "--json"]), crate::fleet::registry::retired_report_here, notes);
-    let launches = super::stops::last_launches(&records);
-    let mut learned = learn(&directory, &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
-        notes.push(format!("host-needs.jsonl unwritten, so this launch reads only the needs already in it: {why}"));
-        read(&directory)
-    });
+    let issue = Issue { repo: item.repo.clone(), number: item.number, body: body.to_owned(), ..Issue::default() };
+    let mut learned = read(&record::directory());
     learned.extend(from_ledger_host(item, notes));
-    let [issue] = boxes;
     match box_text {
         Some(text) => of_box(&issue, text, &learned, at),
         None => of(&issue, &learned, at),
@@ -131,4 +150,23 @@ pub fn serve(item: &str) -> u8 {
         }
     }
     0
+}
+
+/// `north dispatch need SESSION NEED [REPO#N]`, the reason on stdin: what `north fleet need` asks the host holding the dispatch records to write.
+pub fn serve_need(session: &str, need: &str, item: Option<&str>) -> u8 {
+    let mut reason = String::new();
+    if let Err(error) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut reason) {
+        eprintln!("north dispatch need: the reason is unread: {error}");
+        return 2;
+    }
+    match register(session, need, &reason, item) {
+        Ok(recorded) => {
+            println!("{recorded}");
+            0
+        }
+        Err(why) => {
+            eprintln!("north dispatch need: {why}");
+            1
+        }
+    }
 }

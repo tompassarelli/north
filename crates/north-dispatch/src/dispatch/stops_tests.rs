@@ -42,10 +42,15 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     assert_eq!(issues::readiness(&held, &world(1_793_901_000.0)), Err("its last worker stopped to wait until 2026-11-06T23:10Z".into()), "a later comment does not lift a clock wait");
     assert_eq!(issues::readiness(&held, &world(1_794_006_600.0)), Ok(()), "the box is ready again at that time");
 
-    let elsewhere = super::stops::stop(&session("Not done: the window move has to be checked on the laptop, and gex45 cannot reach it.\nStop: host laptop"), &ran);
-    assert_eq!(elsewhere.host.as_deref(), Some("laptop"));
-    let moved = Issue { stop: elsewhere, ..issue("north", 636, "- [ ] the window moves to the account with headroom", &[]) };
-    assert_eq!(issues::readiness(&moved, &world(0.0)), Ok(()), "a host stop is no reason to wait");
+    let needs = tempfile::tempdir().unwrap();
+    let mut moved = issue("north", 636, "- [ ] the window moves to the account with headroom", &[]);
+    let recorded = super::host_needs::record(needs.path(), &moved, None, "sc-636-d0720", "laptop", "the window move has to be checked on the laptop, and gex45 cannot reach it", 1_794_000_000.0).unwrap();
+    moved.needs = super::host_needs::of(&moved, &recorded, 1_794_000_000.0);
+    assert_eq!(moved.needs, ["laptop"]);
+    assert_eq!(super::host_needs::relay(&recorded, "north#636", "sc-636-d0720").map(|relay| (relay.need, relay.report)), Some(("laptop".into(), "the window move has to be checked on the laptop, and gex45 cannot reach it".into())));
+    assert_eq!(super::host_needs::relay(&recorded, "north#636", "sc-636-d0730"), None, "only the newest launch's own session relays");
+    assert_eq!(super::host_needs::record(needs.path(), &moved, None, "sc-636-d0720", "laptop", "again", 1_794_000_001.0).unwrap().len(), 1, "one record per session and need");
+    assert_eq!(issues::readiness(&moved, &world(0.0)), Ok(()), "a host need is no reason to wait");
     let route = super::tier::Route { tier: super::tier::Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, follows: None, why: String::new() };
     let brief = super::brief::brief(&moved, "dispatch", &route, &super::grounds::Grounds::default(), None);
     assert!(brief.lines().any(|line| line == "Needs: laptop"), "{brief}");
@@ -54,17 +59,6 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "whiterabbit", &brief), None);
     let declared = Issue { body: format!("Needs: native\n{}", moved.body), ..moved };
     assert!(super::brief::brief(&declared, "dispatch", &route, &super::grounds::Grounds::default(), None).lines().any(|line| line == "Needs: native, laptop"), "the issue's own need stays");
-
-    let fleet = tempfile::tempdir().unwrap();
-    let archived = fleet.path().join(".archive/north-714-d2130-1794000770958");
-    std::fs::create_dir_all(&archived).unwrap();
-    let note = serde_json::json!({"why": "its parent took its final report", "at_ms": 1_794_000_770_958_u64, "last": "Not done: no box of north#714 is ticked, because the E1 fidelity measurement needs Tom's laptop.\n\nStop: host laptop"});
-    std::fs::write(archived.join("retired.json"), note.to_string()).unwrap();
-    let mut boxes = [issue("north", 714, "- [ ] E1 fidelity on the laptop's transcripts", &[])];
-    let mut notes = Vec::new();
-    let gone = |_: &record::Record| Err::<serde_json::Value, String>("error: no session named north-714-d2130".into());
-    super::survey::stopped(&[launch("north#714", "north-714-d2130", 1_794_000_658.0, true)], &mut boxes, gone, |name| crate::fleet::records::retired_report(fleet.path(), name), &mut notes);
-    assert_eq!((boxes[0].stop.host.as_deref(), notes.len()), (Some("laptop"), 0), "the reaper retired the session before dispatch read it, and its archived report still holds the box off gex45: {notes:?}");
 
     let hosts: Vec<String> = ["gex45", "ccx33", "nexus", "whiterabbit"].map(str::to_owned).to_vec();
     let cfg: toml_edit::DocumentMut = r#"
@@ -152,36 +146,19 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
 }
 
 #[test]
-fn north_725_d0411_is_held_off_gex45_by_the_host_stops_of_both_earlier_launches_though_the_newest_ended_on_a_reply_to_the_lander() {
-    let session = |said: &[&str]| serde_json::json!({
-        "entries": said.iter().map(|text| serde_json::json!({"kind": "assistant", "text": text})).collect::<Vec<_>>(),
-        "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
-    });
-    let launch = |name: &str, at: f64| record::Record { at, item: "north#725".into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
+fn north_725_d0411_is_held_off_gex45_by_the_host_needs_both_earlier_launches_recorded() {
     let body = "- [ ] the issue holds the per-host byte table with under 5% unaccounted.\n- [ ] gex45 sits under its low watermark after one cleanup pass (df output), and a replay of the 99d4ba44d1 condition trims caches before any land slot.\n- [x] the change is on origin/main";
-    let d0306 = session(&["Not done: the ledger fix landed, but two of the three Done-when boxes on north#725 are still open. ccx33 and the laptop were not measured.\n\nStop: host ccx33"]);
-    let d0352 = session(&[
-        "Not done: the laptop row of the per-host byte table needs `north capacity disk` run on the laptop itself.\n\nStop: host laptop",
-        "The lander's message confirms the landing I already reported: `disk-reflink` is on origin/main as e17ec4208. Nothing changes in my report.",
-    ]);
     let directory = tempfile::tempdir().unwrap();
-    let pass = |records: &[record::Record], at: f64| {
-        let mut boxes = [issue("north", 725, body, &[])];
-        let show = |ran: &record::Record| Ok::<serde_json::Value, String>(if ran.name == "north-725-d0306" { d0306.clone() } else { d0352.clone() });
-        super::survey::stopped(records, &mut boxes, show, |_| None, &mut Vec::new());
-        let launches = super::stops::last_launches(records);
-        let learned = super::host_needs::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap();
-        let [mut issue] = boxes;
-        issue.needs = super::host_needs::of(&issue, &learned, at);
-        issue
-    };
     let (d0306_at, d0352_at, d0411_at) = (1_794_027_996.0, 1_794_030_733.0, 1_794_033_106.0);
-    pass(&[launch("north-725-d0306", d0306_at)], d0306_at + 2100.0);
-    let issue = pass(&[launch("north-725-d0306", d0306_at), launch("north-725-d0352", d0352_at)], d0411_at);
-    assert_eq!(issue.stop.host.as_deref(), Some("laptop"), "north-725-d0352's report is the Not done message, not its later reply to the lander");
+    let first = issue("north", 725, body, &[]);
+    super::host_needs::record(directory.path(), &first, None, "north-725-d0306", "ccx33", "the ledger fix landed, but ccx33 and the laptop were not measured", d0306_at + 2100.0).unwrap();
+    let learned = super::host_needs::record(directory.path(), &first, None, "north-725-d0352", "laptop", "the laptop row of the per-host byte table needs `north capacity disk` run on the laptop itself", d0352_at + 600.0).unwrap();
+    let mut issue = first;
+    issue.needs = super::host_needs::of(&issue, &learned, d0411_at);
+    assert_eq!(super::host_needs::relay(&learned, "north#725", "north-725-d0352").map(|relay| relay.need).as_deref(), Some("laptop"), "the newest launch's own need is the one the next launch follows");
     let route = super::tier::Route { tier: Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, follows: None, why: String::new() };
     let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default(), None);
-    assert!(brief.lines().any(|line| line == "Needs: ccx33, laptop"), "north-725-d0306's Stop: host ccx33 still holds, though a later launch ran since:\n{brief}");
+    assert!(brief.lines().any(|line| line == "Needs: ccx33, laptop"), "north-725-d0306's recorded need ccx33 still holds, though a later launch ran since:\n{brief}");
     let cfg: toml_edit::DocumentMut = r#"
 [hosts.gex45]
 launches = true
@@ -197,29 +174,20 @@ reaches = ["gex45", "ccx33", "cpx62", "nexus"]
 serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-state", "tui", "fleet", "live", "desktop", "laptop"]
 "#.parse().unwrap();
     let lacks = |host: &str| crate::pacing::placement::gate::lacks(&cfg, host, &brief);
-    assert_eq!(lacks("gex45").as_deref(), Some("laptop"), "north-725-d0411 went to gex45 and stopped on Stop: host laptop");
+    assert_eq!(lacks("gex45").as_deref(), Some("laptop"), "north-725-d0411 went to gex45 and recorded a laptop need");
     assert_eq!((lacks("ccx33").as_deref(), lacks("cpx62").as_deref(), lacks("whiterabbit")), (Some("laptop"), Some("laptop"), None));
     let ticked = Issue { body: body.replace("- [ ] the issue holds", "- [x] the issue holds").replace("- [ ] gex45 sits", "- [x] gex45 sits"), ..issue };
     assert!(super::host_needs::of(&ticked, &super::host_needs::read(directory.path()), d0411_at).is_empty(), "a need goes once every box it was learned for is ticked");
 }
 
 #[test]
-fn a_hand_launch_on_north_759_reads_the_nexus_stop_of_n_claim_reland_and_gex45_is_refused_while_an_item_with_no_need_places_as_before() {
-    let ran = record::Record { at: 1_794_040_000.0, item: "north#759".into(), host: "gex45".into(), account: "claude:c".into(), name: "n-claim-reland".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: true, effort_arm: None, effort: None };
-    let reported = serde_json::json!({
-        "entries": [{"kind": "assistant", "text": "Not done: the claim reland needs the ledger on nexus.\n\nStop: host nexus"}],
-        "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
-    });
+fn a_hand_launch_on_north_759_reads_the_nexus_need_of_n_claim_reland_and_gex45_is_refused_while_an_item_with_no_need_places_as_before() {
     let at = 1_794_041_000.0;
     let directory = tempfile::tempdir().unwrap();
-    let body = "- [ ] the claim lands on the ledger host and a replay shows it held";
-    let mut boxes = [issue("north", 759, body, &[])];
-    super::survey::stopped(std::slice::from_ref(&ran), &mut boxes, |_| Ok::<serde_json::Value, String>(reported.clone()), |_| None, &mut Vec::new());
-    let launches = super::stops::last_launches(std::slice::from_ref(&ran));
-    let learned = super::host_needs::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap();
-    let [claimed] = boxes;
+    let claimed = issue("north", 759, "- [ ] the claim lands on the ledger host and a replay shows it held", &[]);
+    let learned = super::host_needs::record(directory.path(), &claimed, None, "n-claim-reland", "nexus", "the claim reland needs the ledger on nexus", at).unwrap();
     let needs = super::host_needs::of(&claimed, &learned, at);
-    assert_eq!(needs, ["nexus"], "the hand launch's own Stop: host is learned like a dispatched one's");
+    assert_eq!(needs, ["nexus"], "the hand launch's own recorded need places the next try like a dispatched one's");
 
     let cfg: toml_edit::DocumentMut = r#"
 [hosts.gex45]
@@ -273,7 +241,7 @@ fn a_hand_launch_for_north_757s_session_lifecycle_box_is_not_placed_on_the_ccx33
     let leases_box = "- [ ] **9. Capacity leases** (score 82) Files: crates/north-capacity-host/src/capacity/host/state.rs. Done when: `cargo nextest run -p north-capacity-host --lib -E 'test(/lease_lifecycle/)'` passes";
     let body = format!("{sessions_box}\n{leases_box}");
     let at = 1_794_045_000.0;
-    let learned = [super::host_needs::Learned { item: "north#757".into(), need: "ccx33".into(), session: "n-leases".into(), at: at - 3600.0, boxes: vec![leases_box.to_owned()] }];
+    let learned = [super::host_needs::Learned { item: "north#757".into(), need: "ccx33".into(), session: "n-leases".into(), at: at - 3600.0, boxes: vec![leases_box.to_owned()], reason: String::new() }];
     let claimed = issue("north", 757, &body, &[]);
     let cfg: toml_edit::DocumentMut = r#"
 [hosts.ccx33]
@@ -353,7 +321,7 @@ fn a_box_is_placed_on_its_own_needs_line_and_its_prose_never_holds_it_north_787(
     assert!(needs(&mixed, &[]).is_empty());
     assert!(needs(&format!("{prose}\n- [ ] the timer runs it Needs: laptop"), &[]).is_empty(), "a box that needs nothing places the issue, the worker taking what it can");
     assert_eq!(needs(&format!("{prose} Needs: laptop\n- [ ] the timer runs it Needs: laptop"), &[]), ["laptop"], "only the need every box declares holds");
-    let learned = [super::host_needs::Learned { item: "north#787".into(), need: "nexus".into(), session: "n-x".into(), at, boxes: vec![mixed.lines().nth(1).unwrap().to_owned()] }];
+    let learned = [super::host_needs::Learned { item: "north#787".into(), need: "nexus".into(), session: "n-x".into(), at, boxes: vec![mixed.lines().nth(1).unwrap().to_owned()], reason: String::new() }];
     assert_eq!(needs(&mixed, &learned), ["nexus"], "a learned Stop: host still holds the issue");
     let whole = issue("north", 787, &mixed, &[]);
     assert!(super::host_needs::of_box(&whole, "a test pins the order", &[], at).is_empty());
@@ -362,11 +330,11 @@ fn a_box_is_placed_on_its_own_needs_line_and_its_prose_never_holds_it_north_787(
 
 
 #[test]
-fn the_relaunch_after_north_733s_stop_host_laptop_follows_the_stopped_run_and_starts_from_its_report() {
-    let report = "Not done: the code for north#733 is already on origin/main, but nobody has watched a take-over live.\nStop: host laptop";
-    let session = serde_json::json!({"entries": [{"kind": "assistant", "text": report}, {"kind": "turn", "text": "success"}], "turns": [{"exit": "completed", "ended_ms": 1_000_000}]});
-    let ran = record::Record { at: 10.0, item: "north#733".into(), host: "gex45".into(), account: "claude:c".into(), name: "north-733-d0215".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
-    let stopped = Issue { stop: super::stops::stop(&session, &ran), ..issue("north", 733, "- [ ] a take-over is watched live", &[]) };
+fn the_relaunch_after_north_733s_recorded_laptop_need_follows_the_stopped_run_and_starts_from_its_reason() {
+    let mut stopped = issue("north", 733, "- [ ] a take-over is watched live", &[]);
+    let recorded = super::host_needs::record(tempfile::tempdir().unwrap().path(), &stopped, None, "north-733-d0215", "laptop", "the code for north#733 is already on origin/main, but nobody has watched a take-over live", 10.0).unwrap();
+    stopped.needs = super::host_needs::of(&stopped, &recorded, 10.0);
+    stopped.stop.relay = super::host_needs::relay(&recorded, "north#733", "north-733-d0215");
 
     let route = super::tier::route(&stopped, &super::tier::History::default(), &BTreeMap::new()).unwrap();
     let grounds = super::grounds::Grounds::default().carrying(stopped.stop.relay.as_ref().map(|relay| relay.report.as_str()));
@@ -374,7 +342,7 @@ fn the_relaunch_after_north_733s_stop_host_laptop_follows_the_stopped_run_and_st
 
     assert!(brief.lines().any(|line| line == "Follows: north-733-d0215 (Stop: host laptop)"), "{brief}");
     assert!(brief.lines().any(|line| line == "Needs: laptop"), "{brief}");
-    assert!(brief.contains("Prior report: Not done: the code for north#733 is already on origin/main"), "{brief}");
+    assert!(brief.contains("Prior report: the code for north#733 is already on origin/main"), "{brief}");
     let fresh = Issue { stop: Stop::default(), ..stopped };
     assert_eq!(super::tier::route(&fresh, &super::tier::History::default(), &BTreeMap::new()).unwrap().follows, None, "a box with no host stop follows nothing");
 }

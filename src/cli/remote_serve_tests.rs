@@ -87,5 +87,6 @@ fn remote_serve_forces_the_peer_on_every_fleet_row_verb() {
     }
     assert_eq!(planned("north fleet row leased w1").unwrap().argv, ["north", "fleet", "row", "leased", "w1"]);
     assert_eq!(planned("north dispatch needs north#775").unwrap().argv, ["north", "dispatch", "needs", "north#775"]);
+    assert_eq!(planned("north dispatch need n-x gex45 north#791").unwrap().argv, ["north", "dispatch", "need", "n-x", "gex45", "north#791"]);
 }
 

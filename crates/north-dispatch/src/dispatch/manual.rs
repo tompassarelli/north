@@ -177,7 +177,7 @@ pub fn picked_tier(brief: &str) -> Result<Tier, String> {
 }
 
 /// The issue's body and when it was opened, as unix seconds.
-fn issue_text(item: &str) -> Result<(String, f64), String> {
+pub(super) fn issue_text(item: &str) -> Result<(String, f64), String> {
     let item = IssueRef::parse(item).ok_or_else(|| format!("{item} names no issue"))?;
     let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body,createdAt"])?;
     let created = json["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).ok_or_else(|| format!("{item} carries no createdAt"))?;
