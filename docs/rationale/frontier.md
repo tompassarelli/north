@@ -58,4 +58,15 @@ The design, its review round and each disposition are in north#730 and its first
 
 **T3 Code arm, one task (2026-11-07).** `north-685-4082956297` (claude-opus-5-5) through T3 Code's server: 26 turns, 128 s of wall time, 0 interventions; graded wrong (2 of 3 fail-to-pass pass, 1 existing test broken), leak screen clean; its cost at list price is in `results.jsonl`. The north and plain pilot rows for this task are on gex45 and are not in `results.jsonl`: this one row is. The grader had first been checked on prepared directories for the same task, a known-fail tree (fail-to-pass 0 of 3, 3 broken, wrong) and a known-pass tree (3 of 3, none broken, correct).
 
-Pilot: three tasks on both arms measure the cost per task, which sets how many tasks the paid first pass can afford.
+**Pilot on the north and plain arms, ungraded (2026-11-08).** Three frozen tasks, both arms, on a Claude subscription account through `--plan`. Each run's own record gives model, effort, wall seconds, turns and interventions (its list-price cost stays in the run record); the grader was never run on these, so none has a correctness row, and none is in `results.jsonl`.
+
+- `north-621-508e6a6948` (sonnet-5-5 high): north 672 s, 73 turns, 0 interventions; plain 590 s, 65 turns, 0.
+- `north-636-1762d9a3e6` (sonnet-5-5 high): north 830 s, 88 turns, 0; plain 604 s, 99 turns, 0.
+- `north-685-4082956297` (opus-5-5 medium): north 1554 s, 49 turns, 2 interventions; plain 316 s, 40 turns, 0.
+
+On 685 the arms' active time is close: the results' `duration_ms` sum to 312 s for north and 215 s for plain. The rest of north's 1554 s is two waits of `--idle-min` (600 s each) before each continuation: north's report began "Not done:" because its Done-when needed a live host the sandbox cannot reach, which `asks()` treats as a stop. Wall seconds in a row therefore include the harness's idle waits; the row has no active-seconds field.
+
+**Method change (2026-11-08, north#855).** The owner stopped the frozen-task replays, the graders and the plain arm, and asked for real wisp and makgora boxes routed by coin flip to north or to T3 Code with the same knowledge (user CLAUDE.md, each repository's AGENTS.md, the skills directory, the project test and land commands), both landing through safe-push, until each arm has landed 30, kept in `docs/rationale/frontier/ab.jsonl`. The bar is likely-true over a good number of boxes, not a controlled experiment. Facts found while preparing the T3 arm:
+- `tasks.json` holds 10 tasks, not 23: the other 13 do not build at their base.
+- T3 Code's CLI `thread start` sends a model selection of instance and model only, so effort is not set there. The server accepts `options: [{id: "effort", value}]` in a model selection, and a project's or the server's `defaultModelSelection` can carry it; that path is untested.
+- The guards the north arm runs are rules inside north's hook dispatcher, so "safety hooks" for the T3 arm must be a separate small port of the secrets, force-push and home-delete rules, not a copy of the settings.
