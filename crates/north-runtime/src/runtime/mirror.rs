@@ -23,7 +23,7 @@ const JOURNAL_FIRST: &str = "--since=-24h";
 const JOURNAL_CAP_BYTES: u64 = 8 << 20;
 const READ_JOURNAL: Duration = Duration::from_secs(5);
 const COPY: Duration = Duration::from_secs(10 * 60);
-const RSYNC_VANISHED: i32 = 24;
+const RSYNC_PARTIAL: [i32; 2] = [23, 24];
 
 pub fn publish() -> Vec<String> {
     if !land_offload::settles_fleet_here() {
@@ -82,14 +82,14 @@ fn copy(state: &Path, destination: &str, current: &[PathBuf]) -> Result<(), Stri
     fs::write(&list, &listed).map_err(|error| error.to_string())?;
     let mut rsync = Command::new("rsync");
     rsync
-        .args(["-a", "--delay-updates", "--delete-missing-args", "--from0", "--timeout=20", "-e", OWN_RSH])
+        .args(["-a", "--delete-missing-args", "--from0", "--timeout=20", "-e", OWN_RSH])
         .arg(format!("--files-from={}", list.display()))
         .arg(format!("{}/", state.display()))
         .arg(format!("{destination}:.local/state/{ROOT}/"))
         .stdin(Stdio::null())
         .stdout(Stdio::null());
     let (status, said) = bounded::status_keeping_stderr(&mut rsync, COPY, 4).map_err(|error| error.to_string())?;
-    if !status.success() && status.code() != Some(RSYNC_VANISHED) {
+    if !status.success() && !status.code().is_some_and(|code| RSYNC_PARTIAL.contains(&code)) {
         return Err(format!("rsync {status}: {}", said.join(" | ")));
     }
     let now: Vec<u8> = current.iter().flat_map(|path| path.as_os_str().as_encoded_bytes().iter().copied().chain([0])).collect();
