@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::land::candidate::{git, output};
-use crate::land::lane_gates::{self, Judging, Lane};
+use crate::land::lane_gates::{self, Lane};
 use crate::land::scans::git::merge_base;
 use crate::landing::{merge_set, stale_revert};
 use crate::watch::facts::slug_of;
@@ -16,30 +16,33 @@ pub(super) fn refuse_archived(origin: &str) -> Result<(), String> {
     }
 }
 
-pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(), String> {
+pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head: &str) -> Result<(), &'static str> {
     let base = merge_base(root, destination, head);
     let base = base.as_str();
     if !crate::language_gate::check(root, base, head) {
-        return Err("language gate refused the landing".to_owned());
+        return Err("language gate");
     }
     if !crate::build_cache_gate::check(root, base, head) {
-        return Err("build-cache gate refused the landing".to_owned());
+        return Err("build-cache gate");
     }
     if !crate::dep_gate::check_reasons(root, base, head) {
-        return Err("dependency gate refused the landing".to_owned());
+        return Err("dependency gate");
     }
     if !crate::stub_exec_gate::check(root, destination, base, head) {
-        return Err("stub-exec gate refused the landing".to_owned());
+        return Err("stub-exec gate");
     }
     Ok(())
 }
 
-pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path, lander_ledger: Option<String>) -> Result<(), String> {
+/// The names of the lane gates that would refuse the lane and their output, judged against the lander's post-land ledger when it lives on another host.
+pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path, lander_ledger: Option<String>) -> Result<Result<(), (String, String)>, String> {
     let fork = merge_base(root, base, head);
     let borrowed = lander_ledger.map(|rows| ledger_home(&rows)).transpose().map_err(|error| format!("cannot keep the lander's post-land ledger: {error}"))?;
     let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()) };
-    let Some((failed, text)) = lane_gates::failed(&lane, Judging::Recorded) else { return Ok(()) };
-    Err(format!("{} refused it here, as the lander would after its queue wait:\n{}", failed.join(", "), String::from_utf8_lossy(&text).trim_end()))
+    let Some((failed, text)) = lane_gates::failed(&lane) else { return Ok(Ok(())) };
+    let gates = failed.join(", ");
+    let detail = format!("{gates} refused it here, as the lander would after its queue wait:\n{}", String::from_utf8_lossy(&text).trim_end());
+    Ok(Err((gates, detail)))
 }
 
 fn driver_merged<'a>(root: &Path, paths: &[&'a str]) -> Result<Vec<&'a str>, String> {
@@ -75,9 +78,7 @@ pub(super) fn refuse_unfetchable(root: &Path, base: &str, head: &str) -> Result<
 }
 
 pub(super) fn refuse_stale_revert(root: &Path, base: &str, head: &str) -> Result<(), String> {
-    let Ok(merged) = git(root, &["merge-tree", "--write-tree", base, head]) else { return Ok(()) };
-    let Some(tree) = merged.lines().next() else { return Ok(()) };
-    let Ok(candidate) = git(root, &["commit-tree", tree, "-p", base, "-p", head, "-m", "the lane merged onto main"]) else { return Ok(()) };
+    let Ok(candidate) = stale_revert::onto(root, base, head) else { return Ok(()) };
     match stale_revert::reverted(root, base, &candidate, head) {
         Ok(found) if !found.is_empty() => Err(format!("the revert guard refused it here, as the lander would after its queue wait:\n{}", stale_revert::refusal(&found))),
         _ => Ok(()),

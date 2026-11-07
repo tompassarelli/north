@@ -506,8 +506,6 @@ constants = [
   "crates/north-landing/src/landing/red_check.rs::OFFLOAD_SECONDS",
   "crates/north-landing/src/landing/red_check.rs::RANGE_LIMIT",
   "crates/north-landing/src/landing/red_check.rs::UNKNOWN",
-  "crates/north-landing/src/landing/runtime_floor_invocation.rs::WORD_LIMIT",
-  "crates/north-landing/src/landing/runtime_floor_surface.rs::SEED_LIMIT",
   "crates/north-landing/src/landing/stale_revert.rs::BLAME_WORKERS",
   "crates/north-landing/src/landing/stale_revert.rs::RECENT_SECONDS",
   "crates/north-landing/src/landing/stale_revert.rs::WIPE_FLOOR",

@@ -37,6 +37,20 @@ impl Refusal {
     }
 }
 
+/// `results` with each failure of a gate that refuses only under enforce passed and printed as a would-be refusal, unless `enforcing` (north#729).
+pub fn standing(results: Vec<(Gate, Outcome)>, enforcing: bool) -> Vec<(Gate, Outcome)> {
+    results
+        .into_iter()
+        .map(|(gate, outcome)| match outcome {
+            Outcome::Failed { .. } if !enforcing && !gate.always_refuses() => {
+                println!("safe-push: ⚠ {} would refuse this lane; it lands while landing_refusals in harness/defaults.toml is shadow", gate.label());
+                (gate, Outcome::Passed)
+            }
+            other => (gate, other),
+        })
+        .collect()
+}
+
 pub fn verdict(results: &[(Gate, Outcome)]) -> Result<(), Refusal> {
     let mut named = HashSet::new();
     let failures: Vec<String> = results

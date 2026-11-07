@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, language_gate, nix_explain, runtime_floor_gate, work_items};
+use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, language_gate, nix_explain, work_items};
 
 mod abandon_witness;
 mod mutant_issues;
@@ -69,7 +69,6 @@ enum Command {
     Tool(Tool, Vec<String>),
     LanguageGate(Vec<String>),
     BuildCacheGate(Vec<String>),
-    RuntimeFloorGate(Vec<String>),
     Health(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
@@ -131,7 +130,6 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("work", |_, rest| Command::Work(rest)),
     ("language-gate", |_, rest| Command::LanguageGate(rest)),
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
-    ("runtime-floor-gate", |_, rest| Command::RuntimeFloorGate(rest)),
     ("health", |_, rest| Command::Health(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
     ("grounding", |_, rest| Command::Grounding(rest)),
@@ -206,7 +204,6 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
-        Command::RuntimeFloorGate(arguments) => in_runtime(async move { Ok(runtime_floor_gate::run_gate(&arguments)) }),
         Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments, |repo| crate::ops::citation_check::verdict(repo, tools::defines))) }),
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
         Command::ContractProbe(arguments) => in_runtime(async move {

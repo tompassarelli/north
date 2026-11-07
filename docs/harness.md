@@ -177,9 +177,11 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
    machine-bound checks run on the `land.runner` build host; and a host in game-reserve ships the
    candidate to another host with room (`north capacity offload`);
 
-4. it refuses a lane unless every gate passes, among them a betterleaks secret scan, the dependency
-   gate (`north land scan dep-gate`), the stale-revert gate (`north stale-revert`), the
-   bin-reference gate (`north bin-references`) and the CI time budgets in `.safe-push`; it never
+4. it refuses a lane for a failing check, a conflict or dropped commits, a secret (betterleaks) or a
+   privacy leak (deny-list, commit email, native item references); every other gate, among them the
+   dependency gate, the revert guard (`north stale-revert`), the bin-reference gate and test
+   admission, follows `landing_refusals` in `harness/defaults.toml` and in `shadow` logs its
+   would-be refusal and lets the lane land ([landing-refusals-shadow](rationale/landing-refusals-shadow.md)); it never
    force-pushes;
 
 5. it pushes the green candidate to main, tells each lane's session it landed, and runs the

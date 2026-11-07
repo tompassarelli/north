@@ -1,12 +1,13 @@
 //! `north land gate-stats`: each land gate's refusals over a window and what they cost the workers, read from the
 //! lander's done tickets, its after-landing logs and the enqueue refusal log, with a deletion proposal for a gate
-//! whose refused lanes mostly landed later with the same patch.
+//! whose refused lanes mostly landed later with the same patch, and the would-be refusals of the gates in shadow (north#729).
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use north_base::foundation::clock::Timestamp;
 use serde_json::Value;
 
 const USAGE: &str = "usage: north land gate-stats [--since 7d|48h]";
@@ -99,7 +100,7 @@ pub fn proposed(row: &Row) -> bool {
     row.landed_later >= UNCHANGED_FLOOR && row.unchanged as f64 >= row.landed_later as f64 * UNCHANGED_SHARE
 }
 
-pub fn render(window: &str, rows: &BTreeMap<String, Row>, after: &BTreeMap<String, usize>, enqueue: &BTreeMap<String, usize>) -> String {
+pub fn render(window: &str, rows: &BTreeMap<String, Row>, after: &BTreeMap<String, usize>, enqueue: &BTreeMap<String, usize>, shadowed: &[Value]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "land gate refusals, last {window}; cost is worker wall time from a refusal to the same lane's next ticket");
     let _ = writeln!(out, "{:<34} {:>8} {:>8} {:>10} {:>8} {:>12} {:>9}", "gate", "refusals", "requeued", "median-min", "worker-h", "landed-later", "unchanged");
@@ -117,7 +118,29 @@ pub fn render(window: &str, rows: &BTreeMap<String, Row>, after: &BTreeMap<Strin
     for (name, row) in ordered.iter().filter(|(_, row)| proposed(row)) {
         let _ = writeln!(out, "proposed for deletion: {name}: {} of its {} refused lanes landed later with the same patch, so the refusal protected nothing there", row.unchanged, row.landed_later);
     }
+    shadow_section(&mut out, shadowed);
     out
+}
+
+/// Each would-be refusal a gate in shadow logged (north#729): the count per gate, then one line per refusal.
+fn shadow_section(out: &mut String, shadowed: &[Value]) {
+    let text = |row: &Value, key: &str| row[key].as_str().unwrap_or_default().to_owned();
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for row in shadowed {
+        *counts.entry(text(row, "gate")).or_default() += 1;
+    }
+    let listed = counts.iter().map(|(gate, count)| format!("{gate} {count}")).collect::<Vec<_>>().join(", ");
+    let _ = writeln!(out, "shadow (would-be refusals of gates in shadow; each lane landed): {}", if listed.is_empty() { "none".to_owned() } else { listed });
+    for row in shadowed {
+        let detail = text(row, "detail");
+        let reason = detail.lines().find(|line| !line.trim().is_empty()).unwrap_or_default().chars().take(160).collect::<String>();
+        let head: String = text(row, "head").chars().take(9).collect();
+        let _ = writeln!(out, "  {} {} at {} {} {head}: {reason}", Timestamp::from_unix_seconds(row["micros"].as_i64().unwrap_or(0) / 1_000_000).iso_minute(), text(row, "gate"), text(row, "at"), text(row, "branch"));
+    }
+}
+
+fn shadow_rows(state: &Path, since_micros: u64) -> Vec<Value> {
+    std::fs::read_to_string(state.join(north_landing::landing_refusals::LOG)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|row| row["micros"].as_u64().is_some_and(|micros| micros >= since_micros)).collect()
 }
 
 fn queues(state: &Path) -> Vec<PathBuf> {
@@ -225,6 +248,6 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         after_failures(&queue, since, &mut after);
     }
-    print!("{}", render(&label, &rows, &after, &enqueue_refusals(state, since_micros)));
+    print!("{}", render(&label, &rows, &after, &enqueue_refusals(state, since_micros), &shadow_rows(state, since_micros)));
     0
 }

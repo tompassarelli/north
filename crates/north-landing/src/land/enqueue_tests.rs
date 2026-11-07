@@ -86,10 +86,14 @@ impl Lane {
     fn enqueue(&self, shape: super::Shape) -> super::Queued {
         self.try_enqueue(shape).unwrap()
     }
+
+    fn shadowed(&self) -> String {
+        fs::read_to_string(self.dir.path().join("state").join(crate::landing_refusals::LOG)).unwrap_or_default()
+    }
 }
 
 #[test]
-fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_and_a_test_over_the_budget_a_revert_of_newer_main_or_a_conflict_with_it_is_refused_before_it_queues() {
+fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_a_test_over_the_budget_or_a_revert_of_newer_main_queues_with_its_would_be_refusal_logged_and_a_conflict_with_main_is_refused_before_it_queues() {
     let lane = Lane::new();
     lane.commit("add the first lane line", &["Refs: #7", "Lane-note: first"]);
     lane.commit("add the second lane line", &["Refs: #7", "Lane-note: second"]);
@@ -127,10 +131,9 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     fs::create_dir_all(lane.repo.join("src")).unwrap();
     fs::write(lane.repo.join("src/tests.rs"), "#[test]\nfn added() {}\n").unwrap();
     lane.commit("add a test while verification is over its budget", &[]);
-    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
-    assert!(refused.contains("test admission: origin's verification takes 100000 s"), "{refused}");
-    let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
-    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a refused lane left a ticket in {}", queue.display());
+    lane.enqueue(super::Shape::OneCommit { message: None });
+    let shadowed = lane.shadowed();
+    assert!(shadowed.contains("\"gate\":\"test admission\"") && shadowed.contains("test admission: origin's verification takes 100000 s"), "{shadowed}");
 
     let lane = Lane::new();
     run(&lane.repo, &["config", "landing.lander-host", "lander-fixture"]);
@@ -140,8 +143,9 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     let mirror = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"])).join(super::queue::LANDER_LEDGER);
     fs::create_dir_all(mirror.parent().unwrap()).unwrap();
     fs::write(&mirror, "1\torigin\tabc\tgreen\t\tlane\t900\t\t100000\n".repeat(3)).unwrap();
-    let refused = lane.try_enqueue_from("build-fixture", super::Shape::OneCommit { message: None }).unwrap_err();
-    assert!(refused.contains("test admission: origin's verification takes 100000 s"), "{refused}");
+    lane.try_enqueue_from("build-fixture", super::Shape::OneCommit { message: None }).unwrap();
+    let shadowed = lane.shadowed();
+    assert!(shadowed.contains("test admission: origin's verification takes 100000 s"), "{shadowed}");
 
     let lane = Lane::new();
     run(&lane.repo, &["switch", "-q", "main"]);
@@ -152,8 +156,9 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     run(&lane.repo, &["reset", "-q", "--soft", "main"]);
     fs::write(lane.repo.join("notes.md"), "lane work\n").unwrap();
     commit(&lane.repo, "lane squashed onto main without a rebase");
-    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
-    assert!(refused.contains("undoes recent commits on main") && refused.contains(&newer[..9]), "{refused}");
+    lane.enqueue(super::Shape::OneCommit { message: None });
+    let shadowed = lane.shadowed();
+    assert!(shadowed.contains("\"gate\":\"revert guard\"") && shadowed.contains("undoes recent commits on main") && shadowed.contains(&newer[..9]), "{shadowed}");
 
     let lane = Lane::new();
     lane.commit("the lane adds its own line", &[]);

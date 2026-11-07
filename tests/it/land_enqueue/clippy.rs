@@ -41,7 +41,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     assert_eq!(runs(&counter), 1, "a cached pass for the same tree runs clippy no second time: {second_log}");
     a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_is_queued_in_order();
     enqueue_refuses_a_lane_whose_check_before_queueing_reached_no_verdict();
-    enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_refuses_a_lane_an_enqueue_marked_after_line_fails_and_leaves_an_unmarked_one_to_the_lander();
+    enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_every_after_line_to_the_lander_while_landing_refusals_is_shadow();
     enqueue_compiles_on_the_queueing_host_when_no_build_host_has_room_and_refuses_a_failure_there();
 }
 
@@ -91,7 +91,7 @@ fn a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_i
     assert_eq!(urgent("docs/elsewhere"), None, "any other lane keeps its place");
 }
 
-fn enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_refuses_a_lane_an_enqueue_marked_after_line_fails_and_leaves_an_unmarked_one_to_the_lander() {
+fn enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_every_after_line_to_the_lander_while_landing_refusals_is_shadow() {
     let first = "- A short entry.\n";
     let long = |word: &str| format!("- {}\n", format!("{word} ").repeat(100));
     let sets = "[[set]]\npath = \"docs/features.md\"\nkind = \"regenerate\"\ncommand = \"north docs features-index\"\nsources = [\"docs/features/\"]\n\n[[set]]\npath = \"list.txt\"\nkind = \"block\"\nstart = \"BEGIN\"\nend = \"END\"\nsorted = true\n";
@@ -114,9 +114,8 @@ fn enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_refuses_a_lan
     git(&fixture.repo, &["commit", "-qm", "Add a broken features entry"]);
     let (output, _) = north_enqueue_with(&fixture, &[]);
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(!output.status.success() && log.contains("a check before queueing exited"), "{log}");
+    assert!(output.status.success() && !log.contains("a check before queueing exited"), "an enqueue-marked after line refused the lane while landing_refusals is shadow: {log}");
     assert_eq!(runs(&unmarked), 0, "a line without the enqueue marker ran before queueing: {log}");
-    assert!(!written(&fixture.state).iter().any(|path| path.extension().is_some_and(|extension| extension == "json")), "{:?}", written(&fixture.state));
     fs::write(fixture.repo.join("docs/features/01-first/0002-long.md"), long("word")).unwrap();
     fs::write(fixture.repo.join("list.txt"), "BEGIN\na\nc\nb\nEND\n").unwrap();
     git(&fixture.repo, &["add", "."]);

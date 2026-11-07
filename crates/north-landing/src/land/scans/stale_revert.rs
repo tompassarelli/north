@@ -48,5 +48,6 @@ pub fn run(arguments: &[String]) -> u8 {
         return 0;
     }
     let lane = if arguments.lane.is_empty() { arguments.head.clone() } else { arguments.lane };
-    stale_revert::run(&["--repo".to_owned(), repo, "--lane".to_owned(), lane, arguments.base, arguments.head])
+    let Ok(head) = stale_revert::onto(directory, &arguments.base, &arguments.head) else { return 0 };
+    stale_revert::run(&["--repo".to_owned(), repo, "--lane".to_owned(), lane, arguments.base, head])
 }

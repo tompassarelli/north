@@ -1,5 +1,5 @@
 pub use north_base::{autoland_status, error, foundation, platform, shell};
-pub use north_diff_gates::{build_cache_gate, dep_gate, language_gate, provenance, runtime_floor_gate, stub_exec_gate};
+pub use north_diff_gates::{build_cache_gate, dep_gate, landing_refusals, language_gate, provenance, stub_exec_gate};
 
 pub mod follows_release;
 pub mod issue_body;

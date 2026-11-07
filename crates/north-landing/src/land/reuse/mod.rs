@@ -11,7 +11,7 @@ pub use store::{Key, Verdict, lookup, record};
 const USAGE: &str = "usage: north land reuse hash [--repo DIR] --check LINE\n       north land reuse record --key LANE_HEAD:MAIN:INPUT --verdict pass|fail [--state DIR]\n       north land reuse lookup --key LANE_HEAD:MAIN:INPUT [--state DIR]";
 
 pub fn state_dir() -> PathBuf {
-    crate::runtime_floor_gate::state_dir().join("land-reuse")
+    crate::land::lander::state_home().join("north/land-reuse")
 }
 
 fn option<'a>(arguments: &'a [String], name: &str) -> Option<&'a str> {

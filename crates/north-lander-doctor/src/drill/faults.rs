@@ -5,7 +5,6 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
-use north_landing::land::lane_gates::{self, Judging};
 use north_landing::land::queue::{self, Ticket};
 use north_landing::land::{link_hold, sheriff, watchdog};
 use north_landing::landing::red_check::Failure;
@@ -24,7 +23,6 @@ pub struct Fault {
 /// Each stuck state the lander met on 2026-11-06, in the order the drill injects them.
 pub const FAULTS: &[Fault] = &[
     Fault { key: "held-link", name: "lander link held by a replay that reached no verdict", drill: held_link },
-    Fault { key: "debt-gate", name: "debt-ceiling refusal of a lane that pays no debt", drill: debt_gate },
     Fault { key: "full-disk", name: "full disk on a check host", drill: full_disk },
     Fault { key: "wedged-unit", name: "wedged lander unit", drill: wedged_unit },
     Fault { key: "stale-runtime", name: "check refused because its host lacks the runtime", drill: stale_runtime },
@@ -109,20 +107,6 @@ fn held_link(lander: &mut Lander) -> Result<String, String> {
     }
     link_hold::unreached(&home, &candidate, "round lane-a: transient mkdir -p on tom@gex45 did not finish within 20s");
     heal(lander, Bound::NoVerdict, &|now| Facts { link: facts::link_facts(&home, None, Vec::new(), now), ..Facts::default() })
-}
-
-fn debt_gate(lander: &mut Lander) -> Result<String, String> {
-    repository(lander)?;
-    let goals = "[[goal]]\nname = \"landing-projected\"\nunit = \"s\"\nmax = 20\nclass = \"debt\"\nceiling = 60\npays = [\"crates/north-landing/\"]\n";
-    write(&checkout(lander).join("goals.toml"), goals)?;
-    let base = commit(lander, "landing-projected.txt", "landing-projected reads 283 s, over its 60 s ceiling")?;
-    let head = commit(lander, "crates/north-runtime/notes.txt", "a lane that touches only north-runtime (north#634)")?;
-    let state_home = lander.home().join(".local/state");
-    let lane = lane_gates::Lane { worktree: &checkout(lander), base: &base, head: &head, state_home: &state_home };
-    match lane_gates::judge(&lane, Judging::Recorded, &lander.root.join("logs"), "drill-lane")? {
-        None => Ok("the lane gates admitted a lane that pays no debt while landing-projected reads over its ceiling; debt orders lanes, it refuses none".to_owned()),
-        Some(refused) => Err(format!("the lane gates refused a lane that pays no debt: {}", refused.verdict)),
-    }
 }
 
 fn full_disk(lander: &mut Lander) -> Result<String, String> {

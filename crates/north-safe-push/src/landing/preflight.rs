@@ -5,7 +5,7 @@ use north_base::foundation::step::Refused;
 use crate::gates::plan::{Destination, Gate, GateFacts, plan};
 use crate::gates::run::{Capacity, Gates, LandChecks};
 use crate::gates::target::Target;
-use crate::gates::verdict::{Outcome, Snapshot as Observed, verdict};
+use crate::gates::verdict::{Outcome, Snapshot as Observed, standing, verdict};
 use crate::publication::outgoing::Outgoing;
 use crate::publication::plan::publication;
 use crate::report::terminal::{Terminal, receipt};
@@ -103,11 +103,13 @@ impl Preflight<'_> {
                 }
             }
         }
+        let enforcing = north_landing::land::landing_refusals::enforcing();
+        let mut results = standing(results, enforcing);
         if verdict(&results).is_ok() && lane.nothing_outgoing {
             println!("safe-push: nothing to push ({} already at origin {})", outgoing.head, outgoing.destination_ref);
             return Ok(Cleared { root, ran_land_checks });
         }
-        results.extend(scans);
+        results.extend(standing(scans, enforcing));
         verdict(&results).map_err(|refusal| {
             println!("{}", refusal.line());
             Stop::Collected(refusal.reason())

@@ -72,7 +72,6 @@ fn firn_origin(fixture: &Fixture) {
     }
 }
 
-const REMOVAL: &str = "blocking check(s) failed: tool removal";
 
 #[test]
 fn a_removed_tool_needs_a_replacement_in_the_peer_or_a_removes_tool_trailer_and_is_judged_against_the_merge_base() {
@@ -85,7 +84,7 @@ fn a_removed_tool_needs_a_replacement_in_the_peer_or_a_removes_tool_trailer_and_
     peer_north(&fixture);
     fixture.git(&["rm", "-q", "dotfiles/bin/lone-tool"]);
     fixture.git(&["commit", "-qm", "drop lone-tool"]);
-    fixture.run(&["--dry-run"]).expect(false, &[]);
+    fixture.run(&["--dry-run"]).would_refuse("tool removal", &[]);
     reset(&fixture, &first);
     fixture.git(&["rm", "-q", "dotfiles/bin/shared-tool"]);
     fixture.git(&["commit", "-qm", "drop shared-tool"]);
@@ -105,7 +104,7 @@ fn a_removed_tool_needs_a_replacement_in_the_peer_or_a_removes_tool_trailer_and_
         let ran = fixture.run(&["--dry-run"]);
         match name {
             "safe-push" | "retired-tool" | "helper.test.sh" => ran.expect(true, &[]),
-            _ => ran.expect(false, &[REMOVAL]),
+            _ => ran.would_refuse("tool removal", &[]),
         }
         assert_eq!(fixture.remote_state(), before, "a tool-removal dry run changed origin for {name}");
     }
@@ -176,7 +175,7 @@ fn a_skipped_test_in_a_declared_vendored_tree_passes_and_one_anywhere_else_is_re
         let ran = fixture.run(&["--dry-run"]);
         match refused {
             None => ran.expect(true, &[]),
-            Some(path) => ran.expect(false, &[&format!("safe-push: ✗ {path} adds a skip or focus:")]),
+            Some(path) => ran.would_refuse("test integrity", &[&format!("safe-push: ✗ {path} adds a skip or focus:")]),
         }
     }
 }
@@ -258,10 +257,9 @@ fn a_mutation_marker_and_a_skipped_test_are_refused_unless_a_test_change_trailer
     write(&fixture.repo.join("product.py"), &format!("answer = 41  # {MUTANT_MARKER}\n"));
     fixture.git(&["add", "product.py"]);
     commit_with(&fixture, &["product mutant", "Test-change: none"]);
-    for arguments in [&["--dry-run"][..], &["--dry-run", "--to", "other"]] {
-        fixture.run(arguments).expect(false, &["adds a mutation marker"]);
-        assert_eq!(fixture.remote_state(), before, "a mutant refusal changed origin");
-    }
+    fixture.run(&["--dry-run"]).would_refuse("test integrity", &["adds a mutation marker"]);
+    fixture.run(&["--dry-run", "--to", "other"]).expect(false, &["adds a mutation marker"]);
+    assert_eq!(fixture.remote_state(), before, "a mutant refusal changed origin");
     for trailer in [None, Some("Test-change: the retry rule was removed")] {
         reset(&fixture, &base);
         write(&fixture.repo.join("retry.test.ts"), &format!("{SKIP}\"retries\", () => {{}})\n"));
@@ -269,7 +267,8 @@ fn a_mutation_marker_and_a_skipped_test_are_refused_unless_a_test_change_trailer
         let mut messages = vec!["skip retry test"];
         messages.extend(trailer);
         commit_with(&fixture, &messages);
-        fixture.run(&["--dry-run"]).expect(trailer.is_some(), &[]);
+        let ran = fixture.run(&["--dry-run"]);
+        if trailer.is_some() { ran.expect(true, &[]) } else { ran.would_refuse("test integrity", &["adds a skip or focus"]) }
     }
 }
 
@@ -481,8 +480,8 @@ fn a_policy_change_lands_only_with_a_replay_sweep_row_for_its_exact_text_in_the_
         let ran = fixture.run(&["--dry-run"]);
         match case {
             "row" | "no-policy-change" | "owned-rule" => ran.expect(true, &[]),
-            "unowned-rule" => ran.expect(false, &["rule-owners: refused", "agents/AGENTS.md: - Never push twice."]),
-            _ => ran.expect(false, &["makes agents/AGENTS.md"]),
+            "unowned-rule" => ran.would_refuse("policy sweep", &["rule-owners: refused", "agents/AGENTS.md: - Never push twice."]),
+            _ => ran.would_refuse("policy sweep", &["makes agents/AGENTS.md"]),
         }
     }
 }
@@ -492,6 +491,6 @@ fn a_dependency_added_without_a_reason_is_refused_with_origin_untouched() {
     let fixture = Fixture::new();
     fixture.commit("package.json", "{\"dependencies\":{\"unowned-package\":\"1.0.0\"}}\n", "add dependency without reason");
     let before = fixture.remote_state();
-    fixture.run(&["--dry-run"]).expect(false, &["blocking check(s) failed: dependency gate"]);
+    fixture.run(&["--dry-run"]).would_refuse("dependency gate", &[]);
     assert_eq!(fixture.remote_state(), before, "a dependency refusal changed origin");
 }

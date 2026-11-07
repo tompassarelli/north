@@ -19,6 +19,7 @@ use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::Denylist;
+use crate::landing_refusals;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane]";
 pub const REFUSALS: &str = "north/enqueue-refusals.jsonl";
@@ -194,7 +195,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     if !folded.is_empty() {
         println!("safe-push: regenerated or sorted {} and folded the result into the lane", folded.join(", "));
     }
-    refuse_lane(&root, &base, &origin, &destination, environment)?;
+    refuse_lane(&root, &base, &branch, &origin, &destination, environment)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let (squash, several_commits) = match shape {
         Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
@@ -203,8 +204,10 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let queue = queue::directory(environment.state_home, &origin);
-    refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment))?;
-    refuse_stale_revert(&root, &base, &head)?;
+    if let Err((gates, detail)) = refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment))? {
+        judged(environment, &root, &branch, &head, &gates, Err(detail))?;
+    }
+    judged(environment, &root, &branch, &head, "revert guard", refuse_stale_revert(&root, &base, &head))?;
     let red_fix = red_fix(&root, &base, &destination)?;
     let urgent = red_fix.is_none().then(|| pays_debt(&root, &base, &head)).flatten();
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
@@ -234,12 +237,20 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     Ok(Queued { path, outbox, ticket, squash })
 }
 
-fn refuse_lane(root: &Path, base: &str, origin: &str, destination: &str, environment: &Environment) -> Result<(), String> {
-    refuse_static_gates(root, base, "HEAD")?;
-    super::divergence::refuse_malformed(&git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?)?;
+/// `outcome` as it stands at enqueue: a refusal, or under `landing_refusals = "shadow"` a logged would-be refusal.
+fn judged(environment: &Environment, root: &Path, branch: &str, head: &str, gate: &str, outcome: Result<(), String>) -> Result<(), String> {
+    landing_refusals::Lane { at: "enqueue", root: &root.to_string_lossy(), branch, head }.judged(environment.state_home, gate, outcome)
+}
+
+fn refuse_lane(root: &Path, base: &str, branch: &str, origin: &str, destination: &str, environment: &Environment) -> Result<(), String> {
+    let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    if let Err(gate) = refuse_static_gates(root, base, "HEAD") {
+        judged(environment, root, branch, &lane_head, gate, Err(format!("{gate} refused the landing")))?;
+    }
+    let bodies = git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?;
+    judged(environment, root, branch, &lane_head, "commit trailers", super::divergence::refuse_malformed(&bodies))?;
     let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
     outgoing::enqueue_gate(root, base, &denylist, origin, destination)?;
-    let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     runner::fails_first(root, base, &lane_head)?;
     refuse_unfetchable(root, base, &lane_head)?;
     runner::refuse_queue_checks(root, base, &lane_head)

@@ -9,7 +9,8 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
     let mut landing = config.commands(root, base, head)?;
     landing.extend(config.after_set().commands(root, base, head)?);
     let clippy = clippy_first::plan(&landing, |command| !config.is_inferred(command)).map(|plan| plan.clippy);
-    let queued: Vec<String> = config.queue_set().commands(root, base, head)?.iter().map(|command| shared_build::built(command)).collect();
+    let after_lines = if crate::landing_refusals::enforcing() { config.queue_set().commands(root, base, head)? } else { Vec::new() };
+    let queued: Vec<String> = after_lines.iter().map(|command| shared_build::built(command)).collect();
     let commands: Vec<String> = clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).collect();
     if commands.is_empty() {
         return Ok(());

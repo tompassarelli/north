@@ -8,6 +8,8 @@ use crate::session::cancel::watch_for_cancel;
 use crate::session::output_log::claim;
 use crate::shell::Shell;
 use north_base::foundation::exit::NO_VERDICT;
+use north_landing::land::lander::state_home;
+use north_landing::land::landing_refusals;
 
 const SCANS: [Gate; 10] = [
     Gate::Language,
@@ -178,11 +180,16 @@ fn observe(shell: &Shell, timeline: &Timeline, root: &str, origin_url: &str, (ba
         let lock_changed = crate::shell::git::quiet(std::path::Path::new(root), &["diff", "--name-only", &range, "--", "Cargo.lock"]).is_some_and(|changed| !changed.is_empty());
         return Observed::Done(Facts { reached: Reached::CrateFetchFailed { lock_changed }, ran: false });
     }
+    let enforcing = landing_refusals::enforcing();
     for gate in SCANS {
         match target.scan(gate) {
             Ok(()) => {}
             Err(Refused(130 | 143)) => return Observed::Cancelled,
             Err(Refused(69)) if gate == Gate::Language => return Observed::Silent,
+            Err(Refused(code)) if !enforcing && !gate.always_refuses() => {
+                let lane = landing_refusals::Lane { at: "candidate", root, branch: "", head };
+                lane.record(&state_home(), gate.label(), &format!("north land scan {} exited {code}", target.arguments(gate).unwrap_or_default().join(" ")));
+            }
             Err(Refused(_)) => return Observed::Done(Facts { reached: Reached::ScansRefused, ran: false }),
         }
     }

@@ -20,6 +20,11 @@ pub enum Gate {
 }
 
 impl Gate {
+    /// Whether the gate refuses while the others are in shadow: the land checks (build, clippy, tests), the pick itself, secrets and privacy (north#729).
+    pub fn always_refuses(self) -> bool {
+        matches!(self, Self::LandChecks | Self::DroppedCommits | Self::Secrets | Self::Denylist | Self::CommitEmail | Self::NativeRef)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Language => "language gate",

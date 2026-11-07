@@ -50,7 +50,7 @@ fn a_fresh_north_worktree_installs_agent_machinery_before_its_land_check() {
 }
 
 #[test]
-fn a_landing_that_undoes_recent_main_is_refused_with_its_land_checks_still_run() {
+fn a_landing_that_undoes_recent_main_names_its_would_be_refusal_and_passes_with_its_land_checks_run() {
     let fixture = Fixture::new();
     fixture.land_checks(&["content.txt :: printf 'ran\\n' >> check-runs"], "checks on content.txt");
     let mover = fixture.root.join("mover");
@@ -64,9 +64,9 @@ fn a_landing_that_undoes_recent_main_is_refused_with_its_land_checks_still_run()
     fixture.git(&["reset", "-q", "--soft", "origin/main"]);
     fixture.git(&["commit", "-qm", "squash without a rebase"]);
     let before = fixture.remote_state();
-    fixture.run(&["--dry-run", "--to", "main"]).expect(false, &["safe-push: ✗ this landing undoes recent commits on main", "stale revert of newer main"]);
-    assert!(fixture.repo.join("check-runs").exists(), "a stale-revert refusal skipped the land checks instead of reporting them too");
-    assert_eq!(fixture.remote_state(), before, "a stale-revert refusal published");
+    fixture.run(&["--dry-run", "--to", "main"]).expect(true, &["safe-push: ✗ this landing undoes recent commits on main", "safe-push: ⚠ stale revert of newer main would refuse this lane", CLEAN]);
+    assert!(fixture.repo.join("check-runs").exists(), "a would-be stale-revert refusal skipped the land checks");
+    assert_eq!(fixture.remote_state(), before, "a dry run published");
 }
 
 #[test]

@@ -16,7 +16,6 @@ pub struct Reverted {
 
 struct Window {
     commits: BTreeSet<String>,
-    unseen: BTreeSet<String>,
     limit: Vec<String>,
 }
 
@@ -56,16 +55,10 @@ fn commit_set(listing: &str) -> BTreeSet<String> {
     listing.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect()
 }
 
-fn recent_window(repo: &Path, base: &str, fork: &str) -> Result<Window, String> {
-    let since_fork = commit_set(&git(repo, &["rev-list", &format!("{fork}..{base}")])?);
+fn recent_window(repo: &Path, base: &str) -> Result<Window, String> {
     let landed: i64 = git(repo, &["show", "-s", "--format=%ct", base])?.trim().parse().map_err(|_| format!("no commit time for {base}"))?;
     let since = format!("--since=@{}", landed - RECENT_SECONDS);
-    let by_time = commit_set(&git(repo, &["rev-list", &since, base])?);
-    Ok(if since_fork.len() >= by_time.len() {
-        Window { commits: since_fork.clone(), unseen: since_fork, limit: vec![format!("{fork}..{base}")] }
-    } else {
-        Window { commits: by_time.union(&since_fork).cloned().collect(), unseen: since_fork, limit: vec![since, base.to_owned()] }
-    })
+    Ok(Window { commits: commit_set(&git(repo, &["rev-list", &since, base])?), limit: vec![since, base.to_owned()] })
 }
 
 fn patch_ids(repo: &Path, range: &str) -> Result<BTreeMap<String, String>, String> {
@@ -263,10 +256,7 @@ fn blamed_commits(repo: &Path, window: &Window, change: &FileChange, kept: &Kept
     Ok(counts)
 }
 
-fn undone(repo: &Path, window: &Window, sha: &str, change: &FileChange, blamed: &Blamed) -> Result<bool, String> {
-    if window.unseen.contains(sha) {
-        return Ok(true);
-    }
+fn undone(repo: &Path, sha: &str, change: &FileChange, blamed: &Blamed) -> Result<bool, String> {
     let earlier = git(repo, &["show", "--format=", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", sha, "--", &change.path])?;
     Ok(changes(&earlier).first().is_some_and(|earlier| change.undoes(earlier, blamed)))
 }
@@ -286,12 +276,19 @@ fn exempt(repo: &Path, head: &str, paths: &[&str]) -> Result<BTreeSet<String>, S
     Ok(fields.chunks_exact(3).filter(skipped).map(|entry| entry[0].to_owned()).collect())
 }
 
+/// The lane merged onto `base` as one commit, the tree the lander would land, so a lane based on older main is judged by its own patch.
+pub fn onto(repo: &Path, base: &str, lane: &str) -> Result<String, String> {
+    let tree = git(repo, &["merge-tree", "--write-tree", base, lane])?;
+    let tree = tree.lines().next().unwrap_or_default();
+    Ok(git(repo, &["commit-tree", tree, "-p", base, "-p", lane, "-m", "the lane merged onto main"])?.trim().to_owned())
+}
+
 pub fn reverted(repo: &Path, base: &str, head: &str, lane: &str) -> Result<Vec<Reverted>, String> {
     let fork = git(repo, &["merge-base", base, lane])?.trim().to_owned();
-    let mut window = recent_window(repo, base, &fork)?;
+    let mut window = recent_window(repo, base)?;
     let own = commit_set(&git(repo, &["rev-list", &format!("{fork}..{lane}")])?);
     let excused = named_reverts(repo, base, head)?;
-    let landed_copies = if window.unseen.is_empty() { BTreeSet::new() } else { carried(repo, &fork, base, lane)? };
+    let landed_copies = if git(repo, &["rev-parse", base])?.trim() == fork { BTreeSet::new() } else { carried(repo, &fork, base, lane)? };
     window.commits.retain(|sha| !own.contains(sha) && !excused.contains(sha) && !landed_copies.contains(sha));
     if window.commits.is_empty() {
         return Ok(Vec::new());
@@ -308,7 +305,7 @@ pub fn reverted(repo: &Path, base: &str, head: &str, lane: &str) -> Result<Vec<R
     let mut found: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     for (change, blamed) in checked.iter().zip(blame_all(repo, &window, &checked, &kept)?) {
         for (sha, blamed) in blamed {
-            if undone(repo, &window, &sha, change, &blamed)? {
+            if undone(repo, &sha, change, &blamed)? {
                 found.entry(sha).or_default().insert(change.path.clone(), blamed.removed);
             }
         }
@@ -339,7 +336,7 @@ fn blame_all(repo: &Path, window: &Window, changes: &[&FileChange], kept: &Kept)
 }
 
 pub fn refusal(found: &[Reverted]) -> String {
-    let mut text = String::from("safe-push: ✗ this landing undoes recent commits on main (lines from a commit this lane never saw, or, per file, half the lines a commit removed restored or four fifths of the lines it added gone from a file that stays; deleting a whole file only undoes commits the lane never saw):\n");
+    let mut text = String::from("safe-push: ✗ this landing undoes recent commits on main (judged as the lane merged onto main: per file, half the lines a commit of the last 48 h removed restored, or four fifths of the lines it added gone from a file that stays):\n");
     for reverted in found {
         let files: Vec<String> = reverted.files.iter().map(|(path, lines)| format!("{path} ({lines} lines)")).collect();
         text.push_str(&format!("  {} {}\n    {}\n", &reverted.commit[..9], reverted.subject, files.join(", ")));

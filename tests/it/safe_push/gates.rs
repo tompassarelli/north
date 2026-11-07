@@ -101,16 +101,14 @@ fn gate_call(fixture: &Fixture, base: &str, head: &str) -> String {
 }
 
 #[test]
-fn a_language_gate_refusal_blocks_the_landing_and_names_the_gate() {
+fn a_language_gate_refusal_is_named_and_lets_the_dry_run_pass_while_landing_refusals_is_shadow() {
     let fixture = Fixture::new();
     let before = fixture.remote_state();
     let (base, head) = (git(&fixture.remote, &["rev-parse", "main"]), fixture.head());
     fixture.deny_language("new.py: Python files are forbidden");
     let ran = fixture.run(&["--dry-run", "--to", "main"]);
-    ran.expect(false, &["new.py: Python files are forbidden"]);
-    assert_eq!(fixture.remote_state(), before, "a language refusal published");
-    let summary = ran.output.lines().find_map(|line| line.split_once("blocking check(s) failed: ")).map(|(_, failed)| failed.to_owned());
-    assert!(summary.is_some_and(|failed| failed.split("; ").any(|gate| gate.starts_with("language gate"))), "{}", ran.output);
+    ran.would_refuse("language gate", &["new.py: Python files are forbidden"]);
+    assert_eq!(fixture.remote_state(), before, "a dry run published");
     assert!(fixture.traced().lines().any(|line| line == gate_call(&fixture, &base, &head)), "{}", fixture.traced());
 }
 
@@ -123,7 +121,7 @@ fn an_initial_push_hands_the_language_gate_the_empty_tree_as_base() {
     }
     let (empty_tree, head) = (fixture.git(&["hash-object", "-t", "tree", "/dev/null"]), fixture.head());
     fixture.deny_language("initial push denied by language gate");
-    fixture.run(&["--dry-run", "--to", "main"]).expect(false, &["initial push denied by language gate"]);
+    fixture.run(&["--dry-run", "--to", "main"]).would_refuse("language gate", &["initial push denied by language gate"]);
     assert!(fixture.traced().lines().any(|line| line == gate_call(&fixture, &empty_tree, &head)), "{}", fixture.traced());
     assert_eq!(fixture.remote_state(), "", "an initial language refusal published");
 }

@@ -74,11 +74,6 @@ pub fn run(arguments: &[String]) -> u8 {
     if let Some(status) = gates.refused("language-gate", "language gate").or_else(|| gates.refused("build-cache-gate", "build-cache gate")) {
         return status;
     }
-    if !lacks("runtime-floor-gate")
-        && let Some(status) = gates.refused("runtime-floor-gate", "runtime-floor gate")
-    {
-        return status;
-    }
     bin_reference_gate(&gates, &arguments.origin)
 }
 

@@ -18,7 +18,7 @@ pub mod scratch;
 
 use scratch::Lander;
 
-const USAGE: &str = "usage: north land drill [FAULT]... (injects each lander stuck state into a scratch lander and requires its remedy to clear it within the doctor's patience, nobody paged; FAULT names one of: held-link, debt-gate, full-disk, wedged-unit, stale-runtime, dead-slot, flaky-red-main)";
+const USAGE: &str = "usage: north land drill [FAULT]... (injects each lander stuck state into a scratch lander and requires its remedy to clear it within the doctor's patience, nobody paged; FAULT names one of: held-link, full-disk, wedged-unit, stale-runtime, dead-slot, flaky-red-main)";
 const SCRATCH: &str = "--scratch";
 const POLL: Duration = Duration::from_secs(2);
 const INCIDENTS: &str = "incidents.log";

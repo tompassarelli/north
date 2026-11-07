@@ -175,6 +175,15 @@ impl Observed {
         for line in lines {
             assert!(self.output.contains(line), "missing {line:?} in:\n{}", self.output);
         }
+        if success && !lines.iter().any(|line| line.contains(WOULD_REFUSE)) {
+            assert!(!self.output.contains(WOULD_REFUSE), "a gate would have refused:\n{}", self.output);
+        }
+    }
+
+    /// The run passed while `landing_refusals` is shadow, naming `gate`'s would-be refusal beside `lines`.
+    pub fn would_refuse(&self, gate: &str, lines: &[&str]) {
+        let named = format!("safe-push: ⚠ {gate} {WOULD_REFUSE}");
+        self.expect(true, &[lines, &[named.as_str()]].concat());
     }
 
     pub fn last_line(&self) -> &str {
@@ -363,6 +372,7 @@ impl Landing {
 }
 
 pub const CLEAN: &str = "safe-push: ✓ clean (--dry-run)";
+const WOULD_REFUSE: &str = "would refuse this lane";
 
 pub struct Fixture {
     pub scratch: Scratch,

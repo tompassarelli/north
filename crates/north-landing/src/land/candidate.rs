@@ -8,9 +8,10 @@ use std::time::Duration;
 use north_base::platform::process;
 
 use super::queue::{self, Ticket};
-use super::lane_gates::{self, Judging, Lane};
+use super::lane_gates::{self, Lane};
 use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
+use crate::landing_refusals;
 use crate::platform::decision_log::{self, Entry};
 use north_strategy_types::Kind;
 use north_strategy_types::land::{self, PickCase};
@@ -144,11 +145,10 @@ fn queued_ahead<'a>(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&'a
 struct Turn<'a> {
     ticket: &'a Ticket,
     earlier: &'a [&'a Ticket],
-    judging: Judging,
 }
 
 fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase) -> Result<Pick, String> {
-    let (ticket, earlier, judging) = (turn.ticket, turn.earlier, turn.judging);
+    let (ticket, earlier) = (turn.ticket, turn.earlier);
     case.readable = Some(readable(worktree, ticket));
     if case.readable == Some(false) {
         return Ok(Pick::Decided("conflict unreadable".to_owned()));
@@ -207,28 +207,33 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         return refuse(logs, name, "regenerate", &format!("could not regenerate an index the lane leaves stale: {error}; NOT landed."));
     }
-    match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
-        Ok(found) if found.is_empty() => {
-            let head = git(worktree, &["rev-parse", "HEAD"])?;
-            let state_home = crate::watch::state_home();
-            let lane = Lane { worktree, base: &picked_onto, head: &head, state_home: &state_home };
-            let gate = lane_gates::judge(&lane, judging, logs, name)?;
-            case.stale_reverts = Some(Vec::new());
-            case.lane_gate = gate.as_ref().map(|refused| refused.verdict.clone());
-            let Some(refused) = gate else { return Ok(Pick::Included) };
-            git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-            Ok(Pick::Refused(refused))
-        }
-        Ok(found) => {
-            case.stale_reverts = Some(found.iter().map(|reverted| reverted.commit.clone()).collect());
-            git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-            refuse(logs, name, "stale-revert", &stale_revert::refusal(&found))
-        }
+    let found = match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
+        Ok(found) => found,
         Err(error) => {
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-            Ok(Pick::Undecided(format!("cannot check whether {} reverts recent main: {error}", ticket.branch)))
+            return Ok(Pick::Undecided(format!("cannot check whether {} reverts recent main: {error}", ticket.branch)));
         }
+    };
+    case.stale_reverts = Some(found.iter().map(|reverted| reverted.commit.clone()).collect());
+    let (enforcing, state_home, root) = (landing_refusals::enforcing(), crate::watch::state_home(), ticket.root.to_string_lossy());
+    let shadowed = landing_refusals::Lane { at: "pick", root: &root, branch: &ticket.branch, head: &ticket.head };
+    if !found.is_empty() {
+        if enforcing {
+            git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
+            return refuse(logs, name, "stale-revert", &stale_revert::refusal(&found));
+        }
+        shadowed.record(&state_home, "revert guard", &stale_revert::refusal(&found));
     }
+    let head = git(worktree, &["rev-parse", "HEAD"])?;
+    let lane = Lane { worktree, base: &picked_onto, head: &head, state_home: &state_home };
+    let Some(refused) = lane_gates::judge(&lane, logs, name)? else { return Ok(Pick::Included) };
+    case.lane_gate = Some(refused.verdict.clone());
+    if !enforcing {
+        shadowed.record(&state_home, &refused.gates, &fs::read_to_string(&refused.log).unwrap_or_default());
+        return Ok(Pick::Included);
+    }
+    git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
+    Ok(Pick::Refused(refused))
 }
 
 /// The pick as the decision log records it.
@@ -244,14 +249,14 @@ pub fn recorded(pick: &Pick) -> land::Pick {
 }
 
 pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
-    assemble(worktree, base, tickets, queued, limit, Judging::Live, logs)
+    assemble(worktree, base, tickets, queued, limit, logs)
 }
 
 pub fn rebuild_recorded(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], logs: &Path) -> Result<Built, String> {
-    assemble(worktree, base, tickets, &[], usize::MAX, Judging::Recorded, logs)
+    assemble(worktree, base, tickets, &[], usize::MAX, logs)
 }
 
-fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, judging: Judging, logs: &Path) -> Result<Built, String> {
+fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
     git(worktree, &["checkout", "-q", "--detach", base])?;
     let mut picks = Vec::new();
@@ -268,7 +273,7 @@ fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: 
             None => Vec::new(),
         };
         let mut case = PickCase { base: base.to_owned(), branch: ticket.branch.clone(), head: ticket.head.clone(), red_fix: ticket.red_fix.is_some(), earlier: earlier.iter().map(|ahead| ahead.branch.clone()).collect(), ..PickCase::default() };
-        let (pick, decide_us) = decision_log::timed(|| pick(worktree, base, &Turn { ticket, earlier: &earlier, judging }, logs, name, &mut case));
+        let (pick, decide_us) = decision_log::timed(|| pick(worktree, base, &Turn { ticket, earlier: &earlier }, logs, name, &mut case));
         let pick = pick?;
         decision_log::record(Entry { kind: Kind::LandPick, at: decision_log::now(), follows: None, case: &case, decision: &recorded(&pick), decide_us });
         included += usize::from(matches!(pick, Pick::Included));

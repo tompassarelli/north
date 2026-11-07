@@ -146,7 +146,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("review-items", Diagnosis),
     ("run-bounded", Bookkeeping),
     ("runtime", Bookkeeping),
-    ("runtime-floor-gate", Diagnosis),
     ("safe-push", Landing),
     ("session-host", Diagnosis),
     ("session-link", Diagnosis),

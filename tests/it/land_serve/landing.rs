@@ -39,21 +39,18 @@ fn serve_token_scoped() {
 
 
 #[test]
-fn a_lane_failing_a_lane_gate_alone_leaves_the_batch_before_the_candidate_is_checked() {
+fn a_lane_failing_a_lane_gate_lands_in_its_batch_with_the_would_be_refusal_logged_while_landing_refusals_is_shadow() {
     let mut fixture = Fixture::new();
     let first = fixture.lane("first", "first.txt", "first\n");
     let skipping = fixture.lane("skipping", "probe_tests.rs", concat!("#[ig", "nore]\nfn probe() {}\n"));
     let last = fixture.lane("last", "last.txt", "last\n");
-    let tickets = [first, skipping, last].map(|lane| fixture.enqueue(&lane, None));
+    for lane in [first, skipping, last] {
+        fixture.enqueue(&lane, None);
+    }
     assert!(fixture.serve().status.success());
     assert_eq!(fixture.checks().len(), 1, "one candidate, no culprit search");
-    assert_eq!(fixture.subjects(), ["change from first", "change from last"]);
-    let refused = fixture.verdict(&tickets[1]).unwrap_or_default();
-    assert!(refused.starts_with("failed test integrity; log: "), "{refused}");
-    let told = fixture.fleet().into_iter().find(|call| call.contains("session-lane-skipping ")).unwrap_or_default();
-    assert!(told.contains(concat!("safe-push: ✗ probe_tests.rs adds a skip or focus: #[ig", "nore]")), "{told}");
-    for branch in ["lane-first", "lane-last"] {
-        let record = fixture.calls("land train record").into_iter().find(|call| call.contains(&format!("--branch {branch} "))).unwrap_or_default();
-        assert!(record.contains("--batch-size 2 --bisect-depth 0 "), "{record}");
-    }
+    assert_eq!(fixture.subjects(), ["change from first", "change from skipping", "change from last"]);
+    let shadowed = std::fs::read_to_string(fixture.state.join(north_landing::land::landing_refusals::LOG)).unwrap_or_default();
+    assert!(shadowed.contains("\"gate\":\"test integrity\"") && shadowed.contains("\"at\":\"pick\"") && shadowed.contains("lane-skipping"), "{shadowed}");
+    assert!(shadowed.contains(concat!("probe_tests.rs adds a skip or focus: #[ig", "nore]")), "{shadowed}");
 }
