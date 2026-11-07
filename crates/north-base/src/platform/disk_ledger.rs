@@ -116,6 +116,7 @@ pub struct Account {
     pub rows: Vec<Row>,
     pub used: u64,
     pub unregistered: Vec<(PathBuf, u64)>,
+    pub reflinked: bool,
 }
 
 impl Account {
@@ -137,6 +138,9 @@ impl Account {
 
     pub fn lines(&self) -> Vec<String> {
         let gib = |bytes: u64| bytes as f64 / GIB;
+        if self.reflinked {
+            return vec![format!("{:>8.1} GiB  used; stores not summed: this filesystem shares extents between files, so summing file sizes overcounts the disk and its used bytes are its account", gib(self.used))];
+        }
         let mut lines: Vec<String> = self
             .rows
             .iter()
@@ -154,7 +158,11 @@ impl Account {
 
 /// Measures every store of `ledger` under `home` on the filesystem holding `home`, whose used bytes are `used`.
 pub fn account(ledger: &Ledger, home: &Path, used: u64, budget: &DiskBudget) -> Account {
-    let Ok(device) = fs::metadata(home).map(|metadata| metadata.dev()) else { return Account { rows: Vec::new(), used, unregistered: Vec::new() } };
+    let Ok(device) = fs::metadata(home).map(|metadata| metadata.dev()) else { return Account { rows: Vec::new(), used, unregistered: Vec::new(), reflinked: false } };
+    if shares_extents(device) {
+        let rows = ledger.entries.iter().map(|entry| Row { entry: entry.clone(), bytes: 0, budget_gib: budget.named_gib(&entry.name) }).collect();
+        return Account { rows, used, unregistered: Vec::new(), reflinked: true };
+    }
     let disk = source(device);
     let on_disk = |other: u64| other == device || (disk.is_some() && source(other) == disk);
     let resolved: Vec<(usize, PathBuf)> = ledger.entries.iter().enumerate().flat_map(|(index, entry)| entry.resolve(home).into_iter().map(move |path| (index, path))).collect();
@@ -169,7 +177,7 @@ pub fn account(ledger: &Ledger, home: &Path, used: u64, budget: &DiskBudget) -> 
     }
     let unregistered = unregistered(home, device, &all, &mut seen);
     let rows = ledger.entries.iter().zip(bytes).map(|(entry, bytes)| Row { entry: entry.clone(), bytes, budget_gib: budget.named_gib(&entry.name) }).collect();
-    Account { rows, used, unregistered }
+    Account { rows, used, unregistered, reflinked: false }
 }
 
 /// Each child of the home that no store is, holds or sits in, with its size, largest first.
@@ -206,6 +214,13 @@ fn walk(path: &Path, device: u64, stores: &HashSet<PathBuf>, seen: &mut HashSet<
     }
     let Ok(entries) = fs::read_dir(path) else { return own };
     own + entries.flatten().map(|entry| walk(&entry.path(), device, stores, seen, false)).sum::<u64>()
+}
+
+/// Whether the filesystem whose device is `device` can share one extent between files (btrfs), so no walk of file sizes sums to its used bytes.
+fn shares_extents(device: u64) -> bool {
+    let id = format!("{}:{}", rustix::fs::major(device), rustix::fs::minor(device));
+    let Ok(mounts) = fs::read_to_string("/proc/self/mountinfo") else { return false };
+    mounts.lines().filter(|line| line.split(' ').nth(2) == Some(id.as_str())).any(|line| line.split_once(" - ").and_then(|(_, tail)| tail.split(' ').next()) == Some("btrfs"))
 }
 
 /// The mount source of the filesystem whose device is `device`, so the subvolumes of one btrfs disk, each its own device, count as one disk.

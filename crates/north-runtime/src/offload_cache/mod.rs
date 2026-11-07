@@ -328,6 +328,9 @@ pub fn tick() {
 
 /// The ledger's `ALARM_STORES` largest stores as `NAME (KIND, N GiB, trim: HOW)`, then the bytes no store explains.
 fn largest(account: &disk_ledger::Account) -> String {
+    if account.reflinked {
+        return format!("{:.0} GiB used on a filesystem that shares extents, so its stores are not summed", account.used as f64 / GIB);
+    }
     let stores: Vec<String> = account.top(ALARM_STORES).iter().map(|row| format!("{} ({}, {:.0} GiB, trim: {})", row.entry.name, row.entry.kind.word(), row.bytes as f64 / GIB, row.entry.trim)).collect();
     format!("{}; {:.0} GiB unaccounted", stores.join(", "), account.unaccounted() as f64 / GIB)
 }
