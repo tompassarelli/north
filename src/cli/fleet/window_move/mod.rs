@@ -1,7 +1,6 @@
 //! `north proxy move [--to ACCOUNT] [--auto] [--dry-run]`: Tom's interactive Claude window follows the account with the most week headroom
 //! before its own account runs out. The conversation is carried into the target profile, resumed in a new terminal window that takes the old
 //! window's place, and the old window and its background session end only after the new one is up on the target account at the end of a turn.
-mod desktop;
 mod plan;
 mod session;
 
@@ -12,6 +11,8 @@ use std::time::{Duration, Instant};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::AccountOutlook;
+
+use super::desktop::niri as desktop;
 
 use plan::Verdict;
 use session::{Window, arguments_of, environment_of, name_of, parent_of};
@@ -41,11 +42,10 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
     execute(&request)
 }
 
-pub(super) fn tom_window() -> Option<super::one_proxy::Window> {
-    let windows = session::live_windows().ok()?.into_iter().flatten();
+pub(super) fn tom_windows() -> Vec<super::one_proxy::Window> {
+    let windows = session::live_windows().into_iter().flatten().flatten();
     let active = windows.filter_map(|window| std::fs::metadata(session::activity_path(&window)).and_then(|meta| meta.modified()).ok().map(|active| (window, active)));
-    let (window, active) = active.max_by_key(|(_, active)| *active)?;
-    Some(super::one_proxy::Window { conversation: window.session.id, account: window.account, active })
+    active.map(|(window, active)| super::one_proxy::Window { conversation: window.session.id, account: window.account, active }).collect()
 }
 
 pub(super) fn auto() {

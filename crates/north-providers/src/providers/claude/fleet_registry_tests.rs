@@ -135,15 +135,19 @@ fn the_session_start_adoption_takes_a_free_name_and_leaves_a_name_a_live_session
 }
 
 #[test]
-fn a_message_to_the_name_whose_holder_died_reaches_the_newest_live_window_and_revives_nothing() {
+fn a_launch_or_message_naming_the_proxy_whose_holder_died_binds_a_live_window_its_own_conversation_first_and_revives_nothing() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");
     fleet_proxy(home.path(), "fleet-proxy");
+    let stopped = home.path().join(".local/state/north/fleet/proxy/session.json");
+    fs::write(&stopped, fs::read_to_string(&stopped).unwrap().replace("\"stopped\":false", "\"stopped\":true")).unwrap();
     let mut holder = std::process::Command::new("sleep").arg("60").spawn().unwrap();
-    let _held = open_window(home.path(), holder.id(), "window-held", 5);
+    let _held = open_window(home.path(), holder.id(), "fleet-proxy", 5);
     let _older = open_window(home.path(), std::os::unix::process::parent_id(), "window-older", 6);
     let newest = open_window(home.path(), std::process::id(), "window-newest", 9);
-    fleet.adopt("proxy", "window-held", "/tmp".into()).unwrap();
+    assert!(proxies(&fleet).is_empty(), "the fleet proxy's host is gone while a window resumed its conversation");
+    assert!(fleet.listens("proxy").unwrap(), "a launch naming the proxy as parent finds it live without anyone running adopt");
+    assert_eq!(proxies(&fleet), ["fleet-proxy"], "the window on the holder's own conversation takes the name before any newer window");
     holder.kill().unwrap();
     holder.wait().unwrap();
     assert!(proxies(&fleet).is_empty(), "the holder's window is gone");

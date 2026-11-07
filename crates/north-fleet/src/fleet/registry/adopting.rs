@@ -106,13 +106,16 @@ impl Fleet {
         self.adopt(name, conversation, cwd).map(Some)
     }
 
+    /// Binds a proxy name whose holder is dead to a live interactive window no other session holds, preferring the window on the holder's own conversation, so a window that resumed the proxy holds the name without anyone running adopt.
     pub(super) fn rebind_dead_proxy(&self, name: &str) -> NorthResult<()> {
         let held = self.record(name)?;
         if held.role() != Role::Proxy || self.holds(&held) {
             return Ok(());
         }
         let bound: Vec<String> = self.sessions()?.into_iter().filter(|record| record.adopted() && self.holds(record)).filter_map(|record| record.conversation).collect();
-        match self.live_windows().into_iter().find(|window| !bound.contains(&window.conversation)) {
+        let free: Vec<LiveWindow> = self.live_windows().into_iter().filter(|window| !bound.contains(&window.conversation)).collect();
+        let own = free.iter().position(|window| held.conversation.as_deref() == Some(window.conversation.as_str())).unwrap_or(0);
+        match free.into_iter().nth(own) {
             Some(window) => self.adopt(name, &window.conversation, window.cwd).map(drop),
             None => Ok(()),
         }

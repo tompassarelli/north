@@ -3,6 +3,7 @@ mod ask;
 mod adopt;
 mod breaker;
 mod claims;
+mod desktop;
 mod digest;
 mod gated;
 mod launch;

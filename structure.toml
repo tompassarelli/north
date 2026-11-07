@@ -614,6 +614,12 @@ reason = "north-landing cannot depend on the root crate's fleet reader that impl
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"
+path = "src/cli/fleet/desktop/mod.rs"
+item = "Opener"
+reason = "The desktop port north#733 asked for: the take-over decides when to show a proxy, and the compositor and terminal stay behind it, with niri and ghostty as its one adapter until another desktop is wanted."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
 path = "crates/north-fleet/src/fleet/limit.rs"
 item = "AccountResets"
 reason = "a north-fleet seam the north binary implements; the crate cannot depend on the binary."

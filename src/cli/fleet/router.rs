@@ -21,6 +21,7 @@ use super::usage_ingest::IngestUsage;
 use super::adopt;
 use super::ask;
 use super::admission;
+use super::desktop;
 use super::digest;
 use super::gated;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
@@ -226,7 +227,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if let Err(error) = fleet.release_exited_claims_on(&tasks) {
         eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, tasks.join(" "), error.user_message());
     }
-    let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
+    let record = if take_over { fleet.take_over(&request).inspect(desktop::show_taken)? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())
