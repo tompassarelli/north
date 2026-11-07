@@ -121,7 +121,7 @@ impl Accounting {
     }
 }
 
-/// What each running lease commits against the CPUs: its fresh measurement, else its estimate, bounded by its scope quota.
+/// What each running lease commits against the CPUs: its fresh measurement, else its estimate, bounded by its scope quota. A landing lease commits as the critical class it was admitted as, what it uses rather than its reservation: admission passes it ahead of the queue whatever the batch share holds, so its reservation would only keep queued builds out.
 pub fn cpu_accounting(root: &std::path::Path, leases: &[Value], now: f64) -> Accounting {
     let commitments: Vec<(String, f64, &'static str)> = leases
         .iter()
@@ -132,7 +132,7 @@ pub fn cpu_accounting(root: &std::path::Path, leases: &[Value], now: f64) -> Acc
             let estimate = lease.pointer("/estimate/cores/p50").and_then(Value::as_f64);
             let cpus = field(lease, "cpus").unwrap_or(f64::NAN);
             let quota = scope_cpu_quota(class(lease), cpus, lease.pointer("/declared/cpus").and_then(Value::as_f64));
-            let (committed, basis) = running_cpu_commitment(class(lease), measured, estimate, cpus, quota);
+            let (committed, basis) = running_cpu_commitment(super::machine::slice_class(lease), measured, estimate, cpus, quota);
             (id(lease).to_owned(), committed, basis)
         })
         .collect();

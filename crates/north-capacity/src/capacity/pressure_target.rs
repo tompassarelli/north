@@ -44,8 +44,9 @@ pub(super) fn settle_seconds() -> f64 {
     std::env::var("AGENT_CAPACITY_SETTLE_SECONDS").ok().and_then(|seconds| seconds.parse().ok()).unwrap_or_else(|| default_mib("admit_settle_seconds"))
 }
 
+/// Landing leases start past this window, and their load reaches admission through the pressure reading, so their starts open none: a stream of land checks would otherwise hold every queued build while pressure reads 0.
 fn starting(facts: &Facts) -> bool {
-    settling_seconds(heavy_leases(facts).map(|lease| lease.created_at), facts.now) > 0.0
+    settling_seconds(heavy_leases(facts).filter(|lease| !lease.landing).map(|lease| lease.created_at), facts.now) > 0.0
 }
 
 /// The seconds until the youngest of the heavy builds started at `started_ms` leaves its settle window, when admission starts the next; 0 when none is settling.

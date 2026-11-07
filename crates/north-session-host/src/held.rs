@@ -66,3 +66,66 @@ pub fn work(ssh: &Path, destination: &str, units: &[String]) -> Option<BTreeMap<
         .collect();
     (counted.len() == units.len()).then_some(counted)
 }
+
+/// A held session's service running on this machine: when it became active and whether a placing
+/// host's link is attached to it now.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeldUnit {
+    pub unit: String,
+    pub active_since_ms: u64,
+    pub attached: bool,
+}
+
+/// The session a held unit runs, read back from its name: `north-fleet-NAME-SUFFIX.service`.
+pub fn session_of(unit: &str) -> Option<&str> {
+    let (name, suffix) = unit.strip_prefix("north-fleet-")?.strip_suffix(".service")?.rsplit_once('-')?;
+    (suffix.len() == 8 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) && !name.is_empty()).then_some(name)
+}
+
+/// The held units active on this machine, each with its link read from `held/UNIT/attach`; empty
+/// when systemd does not answer, so a silent systemd never reads as units to stop.
+pub fn active_units(held: &Path) -> Vec<HeldUnit> {
+    let listed = systemctl(&["list-units", "--type=service", "--state=active", "--plain", "--no-legend", "north-fleet-*"]);
+    let units: Vec<String> = listed.lines().filter_map(|line| line.split_whitespace().next()).filter(|unit| session_of(unit).is_some()).map(str::to_owned).collect();
+    if units.is_empty() {
+        return Vec::new();
+    }
+    let mut show = vec!["show", "-p", "Id", "-p", "ActiveEnterTimestamp", "--timestamp=unix"];
+    show.extend(units.iter().map(String::as_str));
+    systemctl(&show)
+        .split("\n\n")
+        .filter_map(|block| {
+            let value = |key: &str| block.lines().find_map(|line| line.strip_prefix(key)?.strip_prefix('='));
+            let unit = value("Id")?.to_owned();
+            let active_since_ms = value("ActiveEnterTimestamp")?.strip_prefix('@')?.parse::<u64>().ok()? * 1000;
+            let attached = attached(&held.join(&unit).join("attach"));
+            units.contains(&unit).then_some(HeldUnit { unit, active_since_ms, attached })
+        })
+        .collect()
+}
+
+/// Whether the process an attach file names (`PID START`) still runs with that start time.
+fn attached(attach: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(attach) else { return false };
+    let mut words = text.split_whitespace();
+    let (Some(pid), Some(start)) = (words.next(), words.next()) else { return false };
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().nth(19)) == Some(start))
+}
+
+/// Stops a held unit without waiting for its CLI to exit.
+pub fn stop(unit: &str) -> Result<(), String> {
+    let mut command = Command::new("systemctl");
+    command.args(["--user", "stop", "--no-block", unit]);
+    match try_run_command_within(command, None, WAIT) {
+        Ok(Some(output)) if output.status.success() => Ok(()),
+        Ok(Some(output)) => Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
+        Ok(None) => Err(format!("systemctl did not answer within {}s", WAIT.as_secs())),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn systemctl(arguments: &[&str]) -> String {
+    let mut command = Command::new("systemctl");
+    command.arg("--user").args(arguments);
+    try_run_command_within(command, None, WAIT).ok().flatten().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default()
+}

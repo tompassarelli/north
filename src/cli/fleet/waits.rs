@@ -124,6 +124,7 @@ impl WaitProbes for Probes {
             },
             ProbeJob { name: "probes.settle.resume", own: None, run: Box::new(|fleet| said(resume::resume(&fleet, &super::held::read(i64::try_from(now_ms() / 1000).unwrap_or_default()), &Revival(&fleet)))) },
             ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
+            ProbeJob { name: "probes.settle.strays", own: None, run: Box::new(|fleet| said(crate::fleet::strays::stop_strays(&fleet, now_ms()))) },
         ];
         let fleet_wide = vec![
             ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },

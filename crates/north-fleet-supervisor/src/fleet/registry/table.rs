@@ -2,7 +2,7 @@ use crate::error::NorthResult;
 use crate::fleet::gates::{self, Gate};
 use crate::fleet::model::SessionRecord;
 use crate::fleet::runtime::now_ms;
-use crate::fleet::store::{FleetTable, GateRow, SessionRow, cache_sessions, cache_table, cached_gates, cached_sessions};
+use crate::fleet::store::{FleetTable, GateRow, SessionRow, cache_sessions, cache_table, cached_gates, cached_sessions, sessions_cached_ms};
 use crate::foundation::clock::Timestamp;
 
 use super::Fleet;
@@ -29,6 +29,10 @@ impl Fleet {
     pub fn gates_elsewhere(&self) -> NorthResult<Vec<GateRow>> {
         let now = now_ms();
         Ok(cached_gates(&self.root)?.into_iter().filter(|gate| gate.host != self.host && gate.default_at_ms().is_none_or(|at| now < at.saturating_add(STALE_AFTER_DEFAULT_MS))).collect())
+    }
+
+    pub fn sessions_cached_ms(&self) -> Option<u64> {
+        sessions_cached_ms(&self.root)
     }
 
     pub fn cached_sessions(&self) -> NorthResult<Option<Vec<SessionRow>>> {

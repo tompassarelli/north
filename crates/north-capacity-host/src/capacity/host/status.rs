@@ -125,6 +125,6 @@ pub fn backlog(root: &Path) -> String {
 }
 
 fn heavy_settling_seconds(active: &[Value], now: f64) -> f64 {
-    let started = active.iter().filter(|lease| matches!(class(lease), "heavy" | "runtime")).filter_map(|lease| field(lease, "createdAt"));
+    let started = active.iter().filter(|lease| matches!(super::machine::slice_class(lease), "heavy" | "runtime")).filter_map(|lease| field(lease, "createdAt"));
     crate::capacity::pressure_target::settling_seconds(started, now)
 }

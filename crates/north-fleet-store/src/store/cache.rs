@@ -33,6 +33,12 @@ pub fn cached_sessions(root: &Path) -> NorthResult<Option<Vec<SessionRow>>> {
     read(root, SESSIONS)
 }
 
+/// When the last tick wrote the cached fleet sessions, in unix milliseconds; None when it never has.
+pub fn sessions_cached_ms(root: &Path) -> Option<u64> {
+    let modified = fs::metadata(root.join(SESSIONS)).and_then(|metadata| metadata.modified()).ok()?;
+    u64::try_from(modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis()).ok()
+}
+
 pub fn cached_gates(root: &Path) -> NorthResult<Vec<GateRow>> {
     Ok(read(root, GATES)?.unwrap_or_default())
 }
