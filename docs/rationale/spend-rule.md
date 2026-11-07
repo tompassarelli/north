@@ -21,7 +21,7 @@ fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no u
    account to the provider's limit. An account that refills first returns its week to the pool. The proxy,
    scheduled routines (a `[routine:...]` brief) and Tom's own sessions are not held by the reserve and go to
    whichever account still has headroom.
-2. **Concurrency cap.** At most `spend_worker_cap` (12) worker sessions may be active at once. Active means a
+2. **Concurrency cap.** At most `spend_worker_cap` (18) worker sessions may be active at once. Active means a
    fleet session in status `starting` or `working`, other than the proxy and adopted windows, counted once per
    name across every registry the caller surveys (dispatch and `north fleet launch` survey every host's
    `north fleet list --json`), plus this run's own placements. An idle or parked session spends nothing and
