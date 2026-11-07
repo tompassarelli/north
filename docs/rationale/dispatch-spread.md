@@ -1,14 +1,13 @@
-# Dispatch spread: one run bounded by pace, sessions, builds and disk on every host
+# Dispatch spread: one run bounded by spend, sessions, builds and disk on every host
 
 At 12:05 PM on 2026-11-06 (laptop time) one `north fleet dispatch` run launched 17 boxes, all on gex45,
-several times what its pace bound allowed. Within 15 minutes 9 to 12 builds waited in gex45's capacity admission,
+several times what the account bound allowed. Within 15 minutes 9 to 12 builds waited in gex45's capacity admission,
 which ran 4 at a time, its root disk was 99% full, and the laptop sat at load 8 (north#259). Three
 gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
 
-- **The account bound read only held accounts.** d71b6206a bounded launches by `allowed_workers` less the working
-  sessions only when pace-control marked the account `held`; the account was not `held`, so
-  it was unbounded. `survey::pace_workers` now reads `allowed_workers` for every account and None only when pace names
-  none.
+- **The account bound read only held accounts.** The bound on one account's launches in a run was applied to held accounts alone, so a
+  non-held account was unbounded. The spend rule (`docs/rationale/spend-rule.md`) now admits each launch on every account and recounts
+  after every launch in the run.
 - **Free room was decided once, before the queue formed.** Sessions against `resident_cap` were already taken per
   launch; builds were not counted at all. Each host now carries `builds`, the builds its admission queue takes before
   it reaches `QUEUED_LIMIT` (the queue depth at which placement skips a host), read from the same backlog probe
@@ -28,7 +27,7 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   placement alike.
 
 `north fleet dispatch --dry-run` prints each host's line with its refusal or the builds its queue still takes, and a
-`skip ITEM: ready, not placed: ...` line naming the bound that stopped each box: the account's `allowed_workers`, the
+`skip ITEM: ready, not placed: ...` line naming the bound that stopped each box: the spend rule's refusal for the account, the
 host's free slots, its admission queue, or its saturation reading.
 
 ## Sizing resident_cap by build slots
