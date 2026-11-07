@@ -71,3 +71,27 @@ The worker's own `Stop:` line is the fallback: the ingest keeps each report's la
 - `north graph ingest` charges each class's 24 h usage to the issue `harness_loss_owners` in harness/defaults.toml names as its owner, and `north graph ready` and dispatch rank open issues by that usage per dollar of one of their boxes (north#734, docs/graph.md).
 - Tier learning (`north ledger worker --recommend`, ETA calibration and tier predictions, north#705) treats a harness- or Tom-caused outcome as unjudged, so only worker-caused outcomes count toward a tier's fitness for a shape.
 - The nearest-box replay (`north dispatch route-replay`, north#705) reads the same cause through `nearest::cause`, which maps it onto kept, worker and harness and counts Tom's halts and decisions with the harness.
+
+## Replay of 2026-11-06 23:00 to 2026-11-07 06:14 UTC against records (north#791)
+
+The ledger snapshot holds 84 worker runs in the window that ended not done, escalated, split or unclear. 65 closed with a `Stop:` line and 19 with none. Reading boundary causes (`boundary_causes`, apart from `resume`) and registered waits (`fleet_waits`, `fleet_wait_history`) alone:
+
+| closing `Stop:` line | runs | a record names the run | no record |
+|---|---|---|---|
+| wait until | 24 | 2 | 22 |
+| host | 19 | 4 | 15 |
+| capacity | 11 | 1 | 10 |
+| reasoning | 4 | 3 | 1 |
+| landing | 4 | 2 | 2 |
+| decision | 3 | 2 | 1 |
+
+14 of the 65 have a record and 51 have none, so mechanical sources alone leave those 51 to the worker by default, where the Stop: line alone classed them; the records written since (host needs, deferral rows, `fleet_wait_history`, capacity queue time) cover the later runs but cannot be written back to these. 13 of the 14 that have a record disagree with the Stop: line:
+
+- Stop: landing, record says capacity or worker: n-takeable (lander worker, fleet capacity), north-722-d0300 (fleet capacity).
+- Stop: host, record says worker or capacity: n-gate-relay, n-visible-handover (lander worker), north-725-d0306, n-credit-handover (fleet capacity).
+- Stop: wait until, record says worker or capacity: n-shadow-gates (fleet proxy, lander worker, fleet capacity), n-launch-relay (lander worker).
+- Stop: reasoning, record says halted or capacity: north-746-d0351 (fleet halted, capacity, lander worker), north-745-d0351 (fleet halted, capacity).
+- Stop: capacity, record says worker: north-746-d0541 (lander worker).
+- Stop: decision, record says worker: cpx62-wait-learn, n-nexus-load (lander worker, fleet capacity).
+
+The one agreement is a `Stop: capacity` run that the capacity boundary also recorded. The capacity queue rows (`capacity_priority`) live on the capacity host and are not in the snapshot, so the 10 capacity runs without a record may still have one there. The remaining text reads in harness/agent-text-reads.toml stay until a record covers their kind for runs from the window forward.
