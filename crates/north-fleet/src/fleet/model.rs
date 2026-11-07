@@ -135,16 +135,14 @@ impl LaunchRequest {
         self.tasks().into_iter().next()
     }
 
-    /// `--task` alone, else every issue the first `Item:` line names, in the prompt or else in the brief it points at.
+    /// `--task` alone, else every issue the first `Item:` line names, else the issue the brief's body opens with, in the prompt or else in the brief it points at.
     pub fn tasks(&self) -> Vec<String> {
         if let Some(task) = &self.task_ref {
             return vec![task.clone()];
         }
-        let named = item_issues(&self.prompt);
-        if !named.is_empty() {
-            return named;
-        }
-        self.named_brief().map(|brief| item_issues(&brief)).unwrap_or_default()
+        let brief = self.named_brief();
+        let texts = || std::iter::once(self.prompt.as_str()).chain(brief.as_deref());
+        texts().map(item_issues).find(|named| !named.is_empty()).or_else(|| texts().find_map(lead_issue).map(|issue| vec![issue])).unwrap_or_default()
     }
 
     /// The first `Item:` line, in the prompt or else in the brief it points at: what a box-scoped gate's text is matched against.
@@ -227,6 +225,14 @@ pub fn item_issues(text: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// The issue the brief's first line after its `Key: value` header opens with, as `north#855: run the frontier scoreboard` does: the work a launch with no `--task` and no `Item:` line holds.
+fn lead_issue(text: &str) -> Option<String> {
+    let facet = |line: &str| line.split_once(':').is_some_and(|(key, _)| key.starts_with(|c: char| c.is_ascii_uppercase()) && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    let line = text.lines().map(str::trim).find(|line| !line.is_empty() && !facet(line))?;
+    let (repo, number) = issue_word(line.split_whitespace().next()?)?;
+    (!repo.is_empty()).then(|| format!("{repo}#{number}"))
 }
 
 /// The text after `label` on the first line of `text` that starts with it, ignoring leading `#` and spaces.
