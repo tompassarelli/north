@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
+mod case;
 mod cli;
 mod detect;
 mod events;

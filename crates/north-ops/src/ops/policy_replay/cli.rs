@@ -7,7 +7,8 @@ use crate::error::NorthError;
 
 const USAGE: &str = "usage: north policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]
        north policy-replay run SCENARIO.json... --arm ARM... --out RESULTS.jsonl [--trials N] [--jobs N] [--policy PATH] [--model M] [--effort E]
-       north policy-replay sweep SCENARIO.json... --variants VARIANTS.toml [--variant NAME]... [--candidate PATH] [--provisional] [--trials N] [--jobs N] [--policy PATH] [--out PATH]";
+       north policy-replay sweep SCENARIO.json... --variants VARIANTS.toml [--variant NAME]... [--candidate PATH] [--provisional] [--trials N] [--jobs N] [--policy PATH] [--out PATH]
+       north policy-replay case CORRECTION_ID... [--arm NAME=GENERATION]... [--jobs N] [--out ROWS.jsonl]";
 
 #[derive(Default)]
 struct Options {
@@ -98,6 +99,11 @@ fn common(options: Options) -> Common {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if verb == "case" => return super::case::run(rest),
+        Some((verb, _)) if verb == "hold" => return super::case::hold(),
+        _ => {}
+    }
     let Some((verb, rest)) = arguments.split_first().filter(|(verb, _)| matches!(verb.as_str(), "promote" | "run" | "sweep")) else {
         eprintln!("{USAGE}");
         return 2;

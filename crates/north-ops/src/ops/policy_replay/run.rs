@@ -141,12 +141,12 @@ fn run_id() -> String {
     fs::read_to_string("/proc/sys/kernel/random/uuid").map(|id| id.trim().replace('-', "")).unwrap_or_else(|_| format!("{:x}{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()), std::process::id()))
 }
 
-struct Tagged {
-    stdout: String,
-    stderr: String,
-    code: String,
-    tag: Vec<u8>,
-    child: Child,
+pub struct Tagged {
+    pub stdout: String,
+    pub stderr: String,
+    pub code: String,
+    pub tag: Vec<u8>,
+    pub child: Child,
 }
 
 fn captured(file: &mut File) -> String {
@@ -156,7 +156,7 @@ fn captured(file: &mut File) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-fn run_tagged(mut command: Command, timeout: f64) -> Result<Tagged, NorthError> {
+pub fn run_tagged(mut command: Command, timeout: f64) -> Result<Tagged, NorthError> {
     let id = run_id();
     command.env("POLICY_REPLAY_RUN", &id);
     let mut out = tempfile::tempfile().map_err(NorthError::Io)?;
