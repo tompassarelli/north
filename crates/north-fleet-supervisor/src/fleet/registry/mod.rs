@@ -259,6 +259,16 @@ impl Fleet {
         self.follow_with_history(name, true)
     }
 
+    /// A retired session's transcript read from its archive: the reaper moves a session out of the registry once its report is final, and dispatch reads that report there.
+    pub fn follow_retired(&self, name: &str) -> NorthResult<Follower> {
+        let (dir, mut record) = self.retired_session(name).ok_or_else(|| NorthError::Usage(format!("no session named {name}")))?;
+        if record.host_dir == self.root.join(name) {
+            record.host_dir = dir.clone();
+        }
+        let (path, indexed_to) = self.stream_index_among(&record, || Ok(vec![record.clone()]))?;
+        Follower::open(self.runtime(&record)?, record, dir, path, indexed_to, true)
+    }
+
     pub fn follow_recent(&self, name: &str) -> NorthResult<Follower> {
         self.follow_with_history(name, false)
     }
@@ -295,13 +305,17 @@ impl Fleet {
     }
 
     fn stream_index(&self, record: &SessionRecord) -> NorthResult<(PathBuf, u64)> {
+        self.stream_index_among(record, || Ok(self.sessions()?.into_iter().filter(|session| session.host_dir == record.host_dir).collect()))
+    }
+
+    fn stream_index_among(&self, record: &SessionRecord, siblings: impl FnOnce() -> NorthResult<Vec<SessionRecord>>) -> NorthResult<(PathBuf, u64)> {
         if record.host_dir.as_os_str().is_empty() {
             return Err(NorthError::State(format!("{} has no host stream", record.name)));
         }
         if let Some(indexed_to) = current_session_stream_index(&record.host_dir, &record.name) {
             return Ok((session_stream_path(&record.host_dir, &record.name), indexed_to));
         }
-        let records: Vec<SessionRecord> = self.sessions()?.into_iter().filter(|session| session.host_dir == record.host_dir).collect();
+        let records = siblings()?;
         let runtime = self.runtime(record)?;
         let indexed_to = ensure_session_streams(&record.host_dir, &records, |frame| runtime.frame_conversation(frame).map(str::to_owned))?;
         Ok((session_stream_path(&record.host_dir, &record.name), indexed_to))

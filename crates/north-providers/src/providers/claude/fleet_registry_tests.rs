@@ -345,3 +345,23 @@ fn a_session_relaunched_or_revived_mid_turn_is_handed_a_turn_that_carries_on_and
     assert!(fleet.left_mid_turn("parked").unwrap(), "a revive of a host that exited mid-turn would hand it no turn");
     assert!(!fleet.left_mid_turn("idle").unwrap());
 }
+
+#[test]
+fn a_forgotten_session_with_no_retired_note_still_shows_its_final_report_from_its_archive_north_706() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    let session = fleet.root().join("wisp-230-d2020");
+    let record = serde_json::json!({"name": "wisp-230-d2020", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "c", "host_dir": session, "stream_offset": 0});
+    fs::create_dir_all(session.join("g1")).unwrap();
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let assistant = serde_json::json!({"type": "assistant", "session_id": "c", "message": {"content": [{"type": "text", "text": "Not done: the box needs the laptop.\nStop: host"}]}}).to_string();
+    let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": "c"}).to_string();
+    fs::write(session.join("g1/stream.jsonl"), format!("{assistant}\n{result}\n")).unwrap();
+    fleet.forget("wisp-230-d2020").unwrap();
+
+    assert!(fleet.follow("wisp-230-d2020").is_err(), "the registry no longer lists it");
+    let follower = fleet.follow_retired("wisp-230-d2020").unwrap();
+
+    let replies: Vec<_> = follower.transcript().entries.iter().filter(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.as_str()).collect();
+    assert_eq!(replies, ["Not done: the box needs the laptop.\nStop: host"], "dispatch noted its report unread and relaunched the box");
+}

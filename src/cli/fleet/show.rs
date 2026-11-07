@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Entry, EntryKind, Status, Transcript};
 use crate::fleet::registry::{Fleet, urgent_text};
 use crate::fleet::turns::Turn;
@@ -21,7 +21,10 @@ pub(super) fn run(fleet: &Fleet, name: &str, flag: &str) -> NorthResult<()> {
 }
 
 fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
-    let follower = fleet.follow(name)?;
+    let follower = match fleet.follow(name) {
+        Err(NorthError::Usage(_)) => fleet.follow_retired(name)?,
+        followed => followed?,
+    };
     let transcript = follower.transcript();
     let entries: Vec<Value> = transcript.entries.iter().map(|entry| json!({"kind": entry.kind.label(), "text": entry.text})).collect();
     let mut session = list::session_json(follower.record(), transcript.status, &fleet.waits());

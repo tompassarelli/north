@@ -38,15 +38,19 @@ impl Fleet {
     }
 
     pub fn retired_record(&self, name: &str) -> Option<SessionRecord> {
+        self.retired_session(name).map(|(_, record)| record)
+    }
+
+    pub(super) fn retired_session(&self, name: &str) -> Option<(PathBuf, SessionRecord)> {
         let prefix = format!("{name}-");
         fs::read_dir(self.root.join(ARCHIVE))
             .into_iter()
             .flatten()
             .flatten()
             .filter(|entry| entry.file_name().to_string_lossy().strip_prefix(&prefix).is_some_and(|stamp| stamp.chars().all(|c| c.is_ascii_digit())))
-            .filter_map(|entry| read_record(&entry.path()).ok())
-            .filter(|record| record.name == name)
-            .max_by_key(|record| record.created_ms)
+            .filter_map(|entry| Some((entry.path(), read_record(&entry.path()).ok()?)))
+            .filter(|(_, record)| record.name == name)
+            .max_by_key(|(_, record)| record.created_ms)
     }
 
     pub(super) fn heir(&self, name: &str) -> NorthResult<Option<String>> {
