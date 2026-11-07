@@ -25,6 +25,7 @@ const HOUR: Duration = Duration::from_secs(3600);
 struct Sight {
     landed: BTreeSet<String>,
     running: BTreeMap<String, Work>,
+    lanes: BTreeMap<String, Vec<north_base::land_ticket::Lane>>,
 }
 
 impl Evidence for Sight {
@@ -34,6 +35,10 @@ impl Evidence for Sight {
 
     fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work> {
         records.iter().filter_map(|record| Some((record.name.clone(), *self.running.get(&record.name)?))).collect()
+    }
+
+    fn lanes(&self) -> BTreeMap<String, Vec<north_base::land_ticket::Lane>> {
+        self.lanes.clone()
     }
 }
 
@@ -102,7 +107,6 @@ fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new
     let _lead = live(&fleet, "lead");
     reported(&fleet, "stopped", Some("lead"), "Split: boxes 1 and 2 landed; box 3 is its own item.\nStop: budget");
     reported(&fleet, "unstopped", Some("lead"), "Not done: the suite is red on main.");
-    reported(&fleet, "north-669-d1955", None, "Not done: the guards commit bf636ba82 is in the lander queue but not on origin/main, so no box of north#669 is ticked yet.\nStop: landing");
     let result = json!({"type": "result", "subtype": "success", "session_id": "rehired"});
     parked(&fleet, "rehired", Some("lead"), &[said("rehired", "assistant", "Done: nothing to land."), result.clone(), said("rehired", "user", "[from lead] also port the shell test"), said("rehired", "assistant", "Porting it now."), result]);
     for name in ["stopped", "unstopped", "rehired"] {
@@ -113,7 +117,35 @@ fn a_not_done_or_split_retires_only_when_it_names_a_stop_its_parent_took_and_new
 
     assert_eq!(retired(&reaped), ["stopped"]);
     assert!(fleet.session("unstopped").is_ok() && fleet.session("rehired").is_ok());
-    assert!(reaped.kept.iter().any(|kept| kept.name == "north-669-d1955" && kept.why.contains("lander")), "a dispatched session waiting on its queued lane stays to hear the verdict: {reaped:?}");
+}
+
+/// north-669-d1955 stopped on `Stop: landing` with its guards lane queued: the reaper keeps it while the lane is open and
+/// after the lander decides it until the session is woken, and retires it once the lane is settled (north#790).
+#[test]
+fn a_session_stopped_on_its_queued_lane_stays_until_the_lander_decides_it_and_wakes_it() {
+    let (home, state) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (fleet, paper) = fleet(home.path());
+    let _lead = live(&fleet, "lead");
+    reported(&fleet, "north-669-d1955", Some("lead"), "Not done: the guards commit bf636ba82 is in the lander queue but not on origin/main, so no box of north#669 is ticked yet.\nStop: landing");
+    paper.claim_receipt("north-669-d1955", "turn:1", now_ms()).unwrap();
+    let stream = fleet.root.join("north-669-d1955/g1/stream.jsonl");
+    std::fs::File::options().write(true).open(stream).unwrap().set_modified(std::time::SystemTime::now() - Duration::from_secs(600)).unwrap();
+    let queue = state.path().join("north/land-queue/de2e0e8479546ba9");
+    std::fs::create_dir_all(&queue).unwrap();
+    let ticket = queue.join(format!("{}-guards.json", (now_ms() - 12 * 60_000) * 1000));
+    std::fs::write(&ticket, json!({"session": "north-669-d1955", "branch": "guards", "queued_micros": (now_ms() - 12 * 60_000) * 1000}).to_string()).unwrap();
+    let mut records = north_base::land_ticket::Records::of(&ticket).unwrap();
+    records.moved(&ticket, north_base::land_ticket::Phase::Queued, "queued").unwrap();
+    let held = |state: &Path| Sight { lanes: north_base::land_ticket::lanes_by_session(&state.join("north/land-queue")).unwrap(), ..Sight::default() };
+
+    let open = reap_after(&fleet, &held(state.path()), 24 * HOUR, now_ms(), false);
+    records.moved(&ticket, north_base::land_ticket::Phase::Failed, "failed: the candidate's tests are red").unwrap();
+    let decided = reap_after(&fleet, &held(state.path()), 24 * HOUR, now_ms(), false);
+    let settled = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), false);
+
+    assert!(retired(&open).is_empty() && retired(&decided).is_empty(), "{open:?} {decided:?}");
+    assert!(decided.kept.iter().any(|kept| kept.name == "north-669-d1955" && kept.why.contains("lander")), "{decided:?}");
+    assert_eq!(retired(&settled), ["north-669-d1955"], "a landing stop with no lane left to wait on finishes: {settled:?}");
 }
 
 #[test]
@@ -197,7 +229,7 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
     std::fs::write(dir.join("session.json"), legacy.to_string()).unwrap();
     fleet.waits().register("ended", Run::Process { pid: 1, started: 1 }, Path::new("/tmp"), Some("sh -c d=$0 u=$1 limit=$2")).unwrap();
     let running = ["finished", "monitoring", "queued"].map(|name| (name.to_owned(), Work::Cli)).into();
-    let evidence = Sight { landed: ["1af7168df".to_owned()].into(), running };
+    let evidence = Sight { landed: ["1af7168df".to_owned()].into(), running, ..Sight::default() };
 
     let reaped = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
 

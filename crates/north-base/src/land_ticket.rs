@@ -258,6 +258,16 @@ impl Lane {
     pub fn landed(&self) -> bool {
         self.phase == Phase::Landed
     }
+
+    /// When the ticket was queued, in Unix milliseconds.
+    pub fn queued_ms(&self) -> u64 {
+        u64::try_from(self.queued / 1000).unwrap_or(u64::MAX)
+    }
+
+    /// When the lander's record put the ticket in its phase, in Unix milliseconds.
+    pub fn since_ms(&self) -> Option<u64> {
+        u64::try_from(self.since?.unix_millis()).ok()
+    }
 }
 
 /// The lanes of `session` in every queue under `queues` (`STATE/north/land-queue`): per queue and branch the newest ticket

@@ -75,13 +75,6 @@ impl Cause {
 }
 
 static OPENER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(done|not done|split|blocked)\s*[:.]").expect("opener pattern"));
-static AWAITS_LANDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*Stop:\s*landing\b").expect("landing stop pattern"));
-
-/// Whether a final report stops on `Stop: landing`: its lane waits in the lander's queue and the lander's verdict decides the run.
-pub fn awaits_lander(report: &str) -> bool {
-    AWAITS_LANDER.is_match(report)
-}
-
 
 /// Whether a final report starts with one of the standard openers, which a run parked after compaction lacks.
 pub fn has_opener(report: &str) -> bool {

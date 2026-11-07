@@ -4,7 +4,8 @@ use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
-use north_base::platform::attribution::awaits_lander;
+use north_base::land_ticket::{Lane, lanes_by_session};
+use north_base::platform::{land_queue, records_mirror};
 use north_session_host::held::{self, unit};
 use regex::Regex;
 use serde::Serialize;
@@ -15,8 +16,9 @@ use super::jobs::Lease;
 use super::model::{Entry, EntryKind, Phase, Role, SessionRecord, Status};
 use super::receipts::is_final;
 use super::registry::Fleet;
+use super::resume::{Landing, ended_ms, landing};
 use super::runtime::binary;
-use super::transcript::{session_stream_path, stream_path};
+use super::transcript::last_written;
 
 const STALE_KEY: &str = "fleet_stale_hours";
 pub const RECORD: &str = ".reap.json";
@@ -36,6 +38,7 @@ pub fn stale_after() -> Duration {
 pub trait Evidence: Sync {
     fn landed(&self, cwd: &Path, sha: &str) -> bool;
     fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work>;
+    fn lanes(&self) -> BTreeMap<String, Vec<Lane>>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,6 +62,7 @@ pub struct Seen {
     pub live: Option<String>,
     pub background: bool,
     pub ended: bool,
+    pub lane_holds: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -84,6 +88,9 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
     if seen.live.is_some() {
         return Verdict::Keep;
     }
+    if seen.lane_holds && seen.quiet < stale {
+        return Verdict::Keep;
+    }
     if seen.ended {
         return Verdict::Ended;
     }
@@ -97,7 +104,7 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
 }
 
 fn finishes(report: &str) -> bool {
-    opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split")) && STOP.is_match(report) && !awaits_lander(report)
+    opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split")) && STOP.is_match(report)
 }
 
 fn opens(report: &str, word: &str) -> bool {
@@ -172,6 +179,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     candidates.sort_by_key(|(_, _, quiet)| std::cmp::Reverse(*quiet));
     let running = evidence.running(&candidates.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
     let gated = fleet.open_gate_sessions();
+    let lanes = evidence.lanes();
     for (done, batch) in candidates.chunks(LEASE_BATCH).enumerate() {
         if started.elapsed() >= budget {
             reaped.deferred = candidates.len() - done * LEASE_BATCH;
@@ -183,11 +191,12 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let live = if ended { fleet.live_hold(record, &records, &gated) } else { fleet.live_wait(record, &records, &gated, work == Some(Work::Detached)) };
             let entries = if live.is_some() { Vec::new() } else { fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default() };
             let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
-            let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended };
+            let lane_holds = lanes.get(&record.name).is_some_and(|held| matches!(landing(held, ended_ms(record).unwrap_or(u64::MAX)), Landing::Waiting | Landing::Decided));
+            let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds };
             let verdict = verdict(&seen, stale);
             if verdict == Verdict::Keep {
                 let background = seen.background.then(|| "its CLI still runs a background task".to_owned());
-                let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| seen.report.as_ref().filter(|report| awaits_lander(&report.text)).map(|_| "its Stop: landing waits for the lander's verdict".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
+                let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| (seen.lane_holds && quiet < stale).then(|| "its queued lane waits on the lander, or the lander's verdict has not woken it yet".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
                 reaped.kept.push(Retired { name: record.name.clone(), why });
                 continue;
             }
@@ -228,9 +237,7 @@ fn ended_by_host(record: &SessionRecord) -> bool {
 }
 
 fn quiet(record: &SessionRecord) -> Duration {
-    let modified = |path: &Path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok();
-    let last = modified(&session_stream_path(&record.host_dir, &record.name)).or_else(|| modified(&stream_path(&record.host_dir)));
-    last.and_then(|at| SystemTime::now().duration_since(at).ok()).unwrap_or(Duration::MAX)
+    last_written(record).and_then(|at| SystemTime::now().duration_since(at).ok()).unwrap_or(Duration::MAX)
 }
 
 pub struct Here;
@@ -238,6 +245,10 @@ pub struct Here;
 impl Evidence for Here {
     fn landed(&self, cwd: &Path, sha: &str) -> bool {
         cwd.is_dir() && Command::new(binary("git")).arg("-C").arg(cwd).args(["merge-base", "--is-ancestor", sha, "origin/main"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
+    }
+
+    fn lanes(&self) -> BTreeMap<String, Vec<Lane>> {
+        lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default()
     }
 
     fn running(&self, records: &[&SessionRecord]) -> BTreeMap<String, Work> {

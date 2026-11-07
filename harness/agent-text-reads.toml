@@ -43,7 +43,7 @@ all_patterns = true
 
 [[read]]
 file = "crates/north-base/src/platform/attribution.rs"
-lines = 3
+lines = 2
 kind = "verdict"
 
 [[read]]

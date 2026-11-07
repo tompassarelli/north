@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::error::NorthResult;
 use crate::fleet::model::{EntryKind, Machine, SessionRecord, Status};
+use crate::fleet::resume::OPENER;
 use crate::fleet::stranded::{self, Checkout, Lane, Lanes, Stop, Stranded, Worktree};
 use crate::fleet::transcript::session_stream_path;
 
@@ -96,4 +97,14 @@ fn machine_name(record: &SessionRecord) -> Option<String> {
 pub(super) fn recent(record: &SessionRecord) -> bool {
     let modified = std::fs::metadata(session_stream_path(&record.host_dir, &record.name)).and_then(|meta| meta.modified());
     modified.is_ok_and(|at| SystemTime::now().duration_since(at).is_ok_and(|age| age < RECENT))
+}
+
+impl Fleet {
+    /// Whether the fleet already woke the session with a lander verdict since its last report, so one stop wakes once.
+    pub fn resumed_since_report(&self, record: &SessionRecord) -> bool {
+        let Ok(follower) = self.follow_recent(&record.name) else { return false };
+        let entries = &follower.transcript().entries;
+        let Some(report) = entries.iter().rposition(|entry| entry.kind == EntryKind::Assistant) else { return false };
+        entries[report + 1..].iter().any(|entry| entry.kind == EntryKind::User && entry.text.contains(OPENER))
+    }
 }

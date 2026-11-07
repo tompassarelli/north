@@ -19,6 +19,10 @@ use crate::fleet::store::LedgerHost;
 use crate::fleet::tick::{ProbeJob, Probed, WaitProbes};
 use crate::fleet::limit::Parked;
 use crate::fleet::reaper;
+use crate::fleet::resume::{self, Waker};
+use crate::land_ticket::lanes_by_session;
+use crate::platform::attribution::{self, Cause};
+use crate::platform::{land_queue, records_mirror};
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
 use crate::grounding::distill;
@@ -120,6 +124,7 @@ impl WaitProbes for Probes {
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },
+            ProbeJob { name: "probes.settle.resume_landing", own: None, run: Box::new(|fleet| said(resume::resume(&fleet, &lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), &Revival(&fleet)))) },
             ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
         ];
         let fleet_wide = vec![
@@ -253,4 +258,16 @@ fn branch_state(branch: &str, cwd: &Path) -> Option<String> {
 fn api_spent(fleet: &Fleet) -> Vec<String> {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     crate::providers::claude::api_pool::move_spent(fleet, &crate::providers::claude::fleet::Claude, &crate::platform::orchestration::path(), &home)
+}
+
+struct Revival<'a>(&'a Fleet);
+
+impl Waker for Revival<'_> {
+    fn revive(&self, name: &str) -> NorthResult<()> {
+        revive::revive(self.0, name, None, None, Overrides::default())
+    }
+
+    fn attribute(&self, name: &str, cause: Cause, reason: &str) {
+        attribution::record(name, "resume", cause, reason);
+    }
 }
