@@ -1,10 +1,12 @@
 //! `north health facts`: this host's own record of each flow's outcome, as JSON for the laptop's watchdog.
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 use north_base::agents_sync::UNPUBLISHED;
 use north_base::dispatch_pause::{RECORD, TIMER};
+use north_base::error::NorthResult;
 use north_base::lifecycle::Store;
 use north_pace::usage::profiles;
 
@@ -64,11 +66,25 @@ fn dispatch(state: &Path) -> Option<Dispatch> {
     Some(Dispatch { timer_active: property(&timer, "ActiveState") == Some("active"), paused: held(&state.join(RECORD)), last_run })
 }
 
-fn lifecycles() -> Lifecycles {
-    match Store::host().and_then(|store| store.faults(Timestamp::now())) {
-        Ok(faults) => Lifecycles::Read(faults),
-        Err(error) => Lifecycles::Unreadable(error.to_string()),
+const CAPACITY_LEASES: &str = "agent-capacity-v1/lifecycle.db";
+
+/// The stores of lifecycle records on this host: the run ledger, and the capacity runtime directory's, which lives and dies with the lease files beside it.
+fn stores(home: &Path) -> Vec<NorthResult<Store>> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).or_else(|| Some(format!("/run/user/{}", fs::metadata(home).ok()?.uid()).into()));
+    let leases = runtime.map(|runtime| runtime.join(CAPACITY_LEASES)).filter(|path| path.exists());
+    std::iter::once(Store::host()).chain(leases.map(|path| Store::open(&path))).collect()
+}
+
+fn lifecycles(home: &Path) -> Lifecycles {
+    let now = Timestamp::now();
+    let mut faults = Vec::new();
+    for store in stores(home) {
+        match store.and_then(|store| store.faults(now)) {
+            Ok(found) => faults.extend(found),
+            Err(error) => return Lifecycles::Unreadable(error.to_string()),
+        }
     }
+    Lifecycles::Read(faults)
 }
 
 pub fn gather(home: &Path) -> HostFacts {
@@ -84,6 +100,6 @@ pub fn gather(home: &Path) -> HostFacts {
         dispatch: dispatch(&state),
         newest_run: newest_run(home),
         newest_activity: newest_activity(&state.join("fleet")),
-        lifecycles: lifecycles(),
+        lifecycles: lifecycles(home),
     }
 }

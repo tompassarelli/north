@@ -19,7 +19,8 @@ use super::quiet_holds::{QuietHolds, quiet_owners};
 use super::requeue;
 use super::request::{Create, Request, class, id, is_run};
 use super::shape::{command_shape, recorded_command};
-use super::state::{active_profile, dequeue, enqueue, exact_lease, read_leases, with_lock};
+use crate::capacity::lease_lifecycle::Phase;
+use super::state::{active_profile, advance, dequeue, enqueue, exact_lease, ledger, read_leases, with_lock};
 use super::systemd::{apply_profile, client_environment, scope_live, scope_unit, stop_scope};
 use super::{change_lease, fail, print_to};
 use crate::capacity::effects::Host;
@@ -409,6 +410,7 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
             1
         }
     };
+    advance(&mut ledger(root), &lease, Phase::Settling, &format!("the command exited with {exit_code}; its scope is being stopped"), None);
     stop_scope(&unit);
     let _ = std::fs::remove_file(cache_server_socket(root, &lease));
     if scope_live(&lease) {

@@ -89,6 +89,16 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    `crates/north-capacity/src/capacity/{lease_deadline,agent_load}.rs`); `scope_live` treats an unknown systemd
    answer as live (`host/systemd.rs:76-82`), and a lease with `frozenAt` never expires if the thaw tick stops.
    Decision strings RUN, RESERVED, DEFER are compared by value. Shapes: unit-intent, status-string.
+   **Converted (north#757):** the machine `capacity-lease` (`crates/north-capacity/src/capacity/lease_lifecycle.rs`),
+   one instance per lease id in `lifecycle.db` beside the lease files in the capacity runtime directory (both vanish
+   at reboot, so a record never outlives its file; `north health facts` reads that store as well as `ledger.db`).
+   States: reserved, running, frozen (dwell 6 h, the thaw tick that stopped), overstaying (expired, scope would not
+   die, 10 min), settling (held by the wrapper, orphan abandoned, 5 min), abandoned, released, reclaimed. `frozenAt`
+   is gone from the lease JSON; `scope_live` still answers "live" when systemd cannot be asked, but the lease then
+   moves to overstaying with that cause instead of silently staying. A lease file with no record is adopted once from
+   its `kind` and `frozenAt`; a record whose file is gone is reclaimed. Not converted: the queue tickets, the
+   `gaming-frozen.json` unit list and the batch slice `cgroup.freeze` (the other two freezing layers) and the
+   decision strings.
 10. **Lane retirement** (75: 25 x 3). Lane gc's activity from reflog and mtimes, `flagged_at` carried in
     `stale.json`, reap's age from a `.git` mtime that counts as old enough when unreadable
     (`crates/north-guard/src/lanes/reap.rs:320`), rescue's partial end states, pin sidecars removed after their

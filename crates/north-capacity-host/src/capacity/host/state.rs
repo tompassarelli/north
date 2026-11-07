@@ -11,6 +11,7 @@ use super::machine::{now_ms, process_start, read_signals, read_text, wrapper_ide
 use super::policy::gpu_busy_observation;
 use super::systemd::{apply_profile, kill_scope, scope_live};
 use crate::capacity::land_claim;
+use crate::capacity::lease_lifecycle::{self, Ledger, Phase};
 
 const LOCK_PATIENCE_MILLISECONDS: u32 = 60_000;
 pub const RUN_LEASE_GRACE_MILLISECONDS: f64 = 5000.0;
@@ -104,9 +105,23 @@ pub fn exact_lease(root: &Path, id: &str) -> PathBuf {
     lease_path(root, id)
 }
 
-pub fn remove_lease(path: &Path) {
-    or_fail(fs::remove_file(path), path);
-    let _ = fs::remove_file(path.with_extension("usage"));
+pub fn ledger(root: &Path) -> Ledger {
+    ensure_state(root);
+    Ledger::open(root).unwrap_or_else(|error| fail(&format!("{}: {error}", root.join(lease_lifecycle::DATABASE).display()), 1))
+}
+
+pub fn advance(ledger: &mut Ledger, id: &str, to: Phase, cause: &str, expires_at: Option<f64>) -> bool {
+    ledger.advance(id, to, cause, expires_at).unwrap_or_else(|error| fail(&format!("lease {id}: {error}"), 1)).is_some()
+}
+
+pub fn end_lease(root: &Path, ledger: &mut Ledger, id: &str, to: Phase, cause: &str) -> bool {
+    let ended = advance(ledger, id, to, cause, None);
+    if ended {
+        let path = lease_path(root, id);
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(path.with_extension("usage"));
+    }
+    ended
 }
 
 pub fn read_usage(root: &Path, id: &str) -> Option<Value> {
@@ -118,28 +133,34 @@ fn sorted_names(directory: &Path) -> Vec<String> {
     entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect()
 }
 
-fn lease_expired(lease: &Value, now: f64) -> bool {
+enum Verdict {
+    Live,
+    Reclaim(&'static str),
+    Overstay(&'static str),
+}
+
+fn verdict(lease: &Value, phase: Phase, now: f64) -> Verdict {
     let run = text(lease, "kind") == Some("run");
     let expires = lease.get("expiresAt").and_then(Value::as_i64);
-    let frozen = lease.get("frozenAt").is_some_and(|frozen| !frozen.is_null());
-    let overdue = expires.map_or(!run, |expires| expires as f64 <= now && !frozen);
+    let overdue = expires.map_or(!run, |expires| expires as f64 <= now && phase != Phase::Frozen);
     let id = text(lease, "id").unwrap_or_default();
     if !run {
-        return overdue;
+        return if overdue { Verdict::Reclaim("its expiry passed") } else { Verdict::Live };
     }
-    if overdue {
-        return kill_scope(id) || !scope_live(id);
+    if overdue || phase == Phase::Overstaying {
+        return if kill_scope(id) || !scope_live(id) { Verdict::Reclaim("its expiry passed and its scope is gone") } else { Verdict::Overstay("its expiry passed and its scope would not die or could not be asked") };
     }
     let wrapper_gone = match text(lease, "wrapperStart") {
         None => now - field(lease, "createdAt").unwrap_or(f64::NAN) > RUN_LEASE_GRACE_MILLISECONDS,
         Some(start) => process_start(&field(lease, "wrapperPid").map_or_else(String::new, |pid| pid.to_string())).as_deref() != Some(start),
     };
-    wrapper_gone && !scope_live(id)
+    if wrapper_gone && !scope_live(id) { Verdict::Reclaim("its wrapper is gone and its scope is inactive") } else { Verdict::Live }
 }
 
-/// The live leases, after deleting each expired one.
+/// The live leases, after ending each expired one and each whose record or file the other lacks.
 pub fn read_leases(root: &Path, now: f64) -> (Vec<Value>, u32) {
     let directory = root.join("leases");
+    let mut ledger = ledger(root);
     let mut active = Vec::new();
     let mut reclaimed = 0;
     for name in sorted_names(&directory).into_iter().filter(|name| name.ends_with(".json")) {
@@ -148,11 +169,36 @@ pub fn read_leases(root: &Path, now: f64) -> (Vec<Value>, u32) {
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_else(|| fail(&format!("malformed helper-owned lease: {}", path.display()), 2));
-        if lease_expired(&lease, now) {
-            remove_lease(&path);
-            reclaimed += 1;
-        } else {
+        let id = text(&lease, "id").unwrap_or_default().to_owned();
+        let Some(phase) = ledger.adopt(&lease).unwrap_or_else(|error| fail(&format!("lease {id}: {error}"), 1)) else {
             active.push(lease);
+            continue;
+        };
+        if phase.ended() {
+            let _ = fs::remove_file(&path);
+            let _ = fs::remove_file(path.with_extension("usage"));
+            continue;
+        }
+        match verdict(&lease, phase, now) {
+            Verdict::Live => active.push(lease),
+            Verdict::Reclaim(cause) => {
+                if end_lease(root, &mut ledger, &id, Phase::Reclaimed, cause) {
+                    reclaimed += 1;
+                } else {
+                    active.push(lease);
+                }
+            }
+            Verdict::Overstay(cause) => {
+                if phase != Phase::Overstaying {
+                    advance(&mut ledger, &id, Phase::Overstaying, cause, None);
+                }
+                active.push(lease);
+            }
+        }
+    }
+    for record in ledger.counting().unwrap_or_else(|error| fail(&format!("{}: {error}", root.display()), 1)) {
+        if !lease_path(root, &record.instance).exists() && end_lease(root, &mut ledger, &record.instance, Phase::Reclaimed, "its lease file is gone") {
+            reclaimed += 1;
         }
     }
     (active, reclaimed)

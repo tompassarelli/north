@@ -89,10 +89,9 @@ fn log(root: &Path) -> String {
     fs::read_to_string(root.join("systemctl.log")).unwrap_or_default()
 }
 
-fn frozen_state(host: &Host) -> (Option<u64>, Vec<String>) {
-    let lease = fs::read(host.capacity.join("leases").join(format!("{HEAVY}.json"))).unwrap();
+fn frozen_state(host: &Host) -> (Option<i64>, Vec<String>) {
     let listed = fs::read(host.capacity.join("gaming-frozen.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-    (serde_json::from_slice::<serde_json::Value>(&lease).unwrap()["frozenAt"].as_u64(), listed)
+    (super::lease_lifecycle::frozen_since(&host.capacity, HEAVY), listed)
 }
 
 // KEEP(bug): an agent-owned Battle.net launcher is ignored while gaming still stops agent wine; regression of north#125 (launcher counted as gaming, commit 5e6cf225c)
@@ -231,10 +230,7 @@ fn a_busy_admission_lock_leaves_frozen_at_for_the_next_tick_to_bring_in_line_wit
     let host = host(root.path(), &proc);
     lease(&host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
     let heavy_unit = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
-    let frozen_at = || {
-        let lease = fs::read(host.capacity.join("leases").join(format!("{HEAVY}.json"))).unwrap();
-        serde_json::from_slice::<serde_json::Value>(&lease).unwrap()["frozenAt"].as_u64()
-    };
+    let frozen_at = || super::lease_lifecycle::frozen_since(&host.capacity, HEAVY);
     let busy = || {
         let holder = rusqlite::Connection::open(host.capacity.join("admission.lock")).unwrap();
         holder.execute_batch("BEGIN EXCLUSIVE").unwrap();

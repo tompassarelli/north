@@ -47,10 +47,9 @@ fn lease(host: &Host, id: &str, class: &str, slice: &str, wrapper: Option<(u32, 
     fs::write(scope.join("cgroup.procs"), procs).unwrap();
 }
 
-fn frozen_state(host: &Host) -> (Option<u64>, Vec<String>) {
-    let lease = fs::read(host.capacity.join("leases").join(format!("{HEAVY}.json"))).unwrap();
+fn frozen_state(host: &Host) -> (Option<i64>, Vec<String>) {
     let listed = fs::read(host.capacity.join("gaming-frozen.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-    (serde_json::from_slice::<serde_json::Value>(&lease).unwrap()["frozenAt"].as_u64(), listed)
+    (crate::capacity::lease_lifecycle::frozen_since(&host.capacity, HEAVY), listed)
 }
 
 struct PowerTicks {

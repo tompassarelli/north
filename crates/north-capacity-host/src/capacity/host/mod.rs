@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use super::effects::Host;
 use super::cpus::aggregate_cpus;
+use super::lease_lifecycle::Phase;
 use super::local_machine::{fail, runtime_root};
 use json::{Obj, field, num};
 
@@ -47,6 +48,8 @@ mod quiet_holds;
 mod request;
 mod requeue;
 mod run;
+#[cfg(test)]
+mod lease_lifecycle_tests;
 #[cfg(test)]
 mod run_tests;
 mod shape;
@@ -90,6 +93,7 @@ pub fn print_to(result: &Obj, stderr: bool) {
 pub fn change_lease(root: &Path, id: &str, owner: &str, timeout_seconds: Option<u64>, settled_run: bool) -> Obj {
     state::with_lock(root, || {
         let path = state::exact_lease(root, id);
+        let mut ledger = state::ledger(root);
         if !path.exists() {
             if settled_run {
                 return Obj::new().put("decision", "RECLAIMED").put("lease", id);
@@ -104,16 +108,20 @@ pub fn change_lease(root: &Path, id: &str, owner: &str, timeout_seconds: Option<
             fail("run leases belong to their foreground wrapper", 2);
         }
         let Some(timeout_seconds) = timeout_seconds else {
-            state::remove_lease(&path);
+            let cause = if settled_run { "the wrapper settled its run" } else { "its holder released it" };
+            state::end_lease(root, &mut ledger, id, Phase::Released, cause);
             return Obj::new().put("decision", "RELEASED").put("lease", id);
         };
         if field(&lease, "expiresAt").is_none_or(|expires| expires <= machine::now_ms()) {
-            let _ = std::fs::remove_file(&path);
+            state::end_lease(root, &mut ledger, id, Phase::Reclaimed, "its holder renewed it after its expiry");
             fail(&format!("lease already expired: {id}"), 75);
         }
         let expires_at = num(machine::now_ms() + timeout_seconds as f64 * 1000.0);
         let renewed = Obj::new().spread(&lease).put("expiresAt", expires_at.clone());
         state::write_lease(&path, &renewed, false);
+        if ledger.phase(id).ok().flatten() == Some(Phase::Reserved) {
+            state::advance(&mut ledger, id, Phase::Reserved, "its holder renewed it", expires_at.as_f64());
+        }
         Obj::new().put("decision", "RENEWED").put("lease", id).put("expiresAt", expires_at)
     })
 }

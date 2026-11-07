@@ -9,6 +9,7 @@ use serde_json::Value;
 use tokio::process::Command;
 use tokio::signal::unix::{Signal as Incoming, SignalKind, signal};
 use north_base::foundation::exit::NO_VERDICT;
+use super::lease_lifecycle::{Ledger, Phase};
 use north_base::platform::attribution::{self, Cause, Harness};
 
 const USAGE: &str = "usage: north capacity deadline [--wall] LEASE_FILE|- SECONDS -- COMMAND...";
@@ -204,7 +205,12 @@ fn queued_beneath(root: &Path) -> bool {
 }
 
 fn frozen_beneath(root: &Path) -> bool {
-    beneath(&root.join("leases"), |record| !record["frozenAt"].is_null())
+    let Ok(ledger) = Ledger::open(root) else { return false };
+    beneath(&root.join("leases"), |record| frozen(&ledger, record))
+}
+
+fn frozen(ledger: &Ledger, lease: &Value) -> bool {
+    lease["id"].as_str().is_some_and(|id| ledger.phase(id).ok().flatten() == Some(Phase::Frozen))
 }
 
 fn beneath(directory: &Path, matches: impl Fn(&Value) -> bool) -> bool {
@@ -240,9 +246,10 @@ struct Expiry {
 }
 
 impl Expiry {
-    fn read(lease: &Path) -> Option<Self> {
-        let lease = serde_json::from_slice::<Value>(&fs::read(lease).ok()?).ok()?;
-        Some(Self { expires_at: lease["expiresAt"].as_u64()?, frozen: !lease["frozenAt"].is_null() })
+    fn read(path: &Path) -> Option<Self> {
+        let lease = serde_json::from_slice::<Value>(&fs::read(path).ok()?).ok()?;
+        let ledger = path.parent().and_then(Path::parent).and_then(|root| Ledger::open(root).ok());
+        Some(Self { expires_at: lease["expiresAt"].as_u64()?, frozen: ledger.is_some_and(|ledger| frozen(&ledger, &lease)) })
     }
 }
 

@@ -9,7 +9,8 @@ use super::machine::{Gpu, Signals, enclosing_lease, env, lease_slice, now_ms, re
 use super::policy::{GPU_BUSY_LIMIT_PERCENT, batch_class};
 use super::request::{Create, Request, Totals, class, cpu_accounting, grant, granted_view, id, is_run, lease_facts, totals};
 use super::priority;
-use super::state::{RUN_LEASE_GRACE_MILLISECONDS, active_profile, dequeue, land_check_waiting, lease_path, mark_native_waiting, native_waiting, read_leases, read_queue, record_gpu_busy, with_lock, write_lease};
+use crate::capacity::lease_lifecycle::Phase;
+use super::state::{RUN_LEASE_GRACE_MILLISECONDS, active_profile, advance, ledger, dequeue, land_check_waiting, lease_path, mark_native_waiting, native_waiting, read_leases, read_queue, record_gpu_busy, with_lock, write_lease};
 use super::systemd::scope_unit;
 use crate::capacity::effects::Host;
 use crate::capacity::cpus::aggregate_cpus;
@@ -355,6 +356,8 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
         lease = lease.put("wrapperPid", pid).put("wrapperStart", start);
     }
     write_lease(&lease_path(root, &id), &lease, true);
+    let (phase, kind) = if run { (Phase::Running, "run lease") } else { (Phase::Reserved, "lease") };
+    advance(&mut ledger(root), &id, phase, &format!("admitted as a {kind} for {}", create.owner), expires_at);
     if let Some(parent) = parent.as_deref().filter(|_| request.name == "native" && request.new_clients > 0) {
         record_started_owner(root, parent, &create.owner, request.new_clients);
     }
