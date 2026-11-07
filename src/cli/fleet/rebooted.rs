@@ -13,7 +13,7 @@ use super::placement::{Overrides, Refusal};
 use super::revive;
 
 const USAGE: &str = "Usage: north fleet rebooted [--revive]";
-const REVIVE_BUDGET: Duration = Duration::from_secs(15);
+pub(super) const REVIVE_BUDGET: Duration = Duration::from_secs(15);
 
 pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let revive = match words {
@@ -21,13 +21,17 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["--revive"] => true,
         _ => return Err(NorthError::Usage(USAGE.into())),
     };
-    let Some(booted_ms) = host::booted_ms() else { return Err(NorthError::State("cannot read this machine's boot time from /proc/stat".into())) };
-    let names = fleet.rebooted(booted_ms)?;
-    if !revive {
-        names.iter().for_each(|name| println!("{name}"));
-        return Ok(());
+    if revive {
+        return revive_within(fleet, REVIVE_BUDGET);
     }
-    let resumed = resume(&Revival(fleet), &names, &host::name(), booted_ms, REVIVE_BUDGET);
+    fleet.rebooted(booted()?)?.iter().for_each(|name| println!("{name}"));
+    Ok(())
+}
+
+pub(super) fn revive_within(fleet: &Fleet, budget: Duration) -> NorthResult<()> {
+    let booted_ms = booted()?;
+    let names = fleet.rebooted(booted_ms)?;
+    let resumed = resume(&Revival(fleet), &names, &host::name(), booted_ms, budget);
     resumed.lines().iter().for_each(|line| println!("{line}"));
     match resumed.failed.len() {
         0 => Ok(()),
@@ -36,6 +40,10 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
             Err( NorthError::Refused(format!("north fleet rebooted: {count} sessions not resumed")))
         }
     }
+}
+
+fn booted() -> NorthResult<u64> {
+    host::booted_ms().ok_or_else(|| NorthError::State("cannot read this machine's boot time from /proc/stat".into()))
 }
 
 struct Revival<'a>(&'a Fleet);
