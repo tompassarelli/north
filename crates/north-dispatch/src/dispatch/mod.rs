@@ -30,6 +30,7 @@ mod facets;
 pub(crate) mod fleets;
 mod grounds;
 mod host_needs;
+mod home;
 mod hotspots;
 mod issues;
 mod manual;
@@ -296,6 +297,9 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
             return 2;
         }
     };
+    if dry_run && let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &crate::platform::host::name())) {
+        return home::dry_run_there(&crate::platform::host::name(), &host, &ssh);
+    }
     if !dry_run && let Some(reason) = pause::standing() {
         println!("north fleet dispatch: paused on this host, launching nothing: {reason}; `north fleet dispatch resume` ends the pause");
         return 0;
