@@ -31,7 +31,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("release", north_safe_push::entry::release),
     ("follows-release", follows_release::run),
     ("job-run", crate::ops::job_run::run),
-    ("run-bounded", crate::ops::run_bounded::run),
     ("review-items", review_items),
     ("cloud", super::cloud::run),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
@@ -110,8 +109,6 @@ pub(super) enum Tool {
     Capacity,
     SessionUnit,
     Dispatch,
-    DevShell,
-    NexusRun,
     Timer(Timer),
 }
 
@@ -121,8 +118,6 @@ const OPERATIONS: &[(&str, Tool)] = &[
     ("capacity", Tool::Capacity),
     ("session-unit", Tool::SessionUnit),
     ("dispatch", Tool::Dispatch),
-    ("dev-shell", Tool::DevShell),
-    ("nexus-run", Tool::NexusRun),
 ];
 
 impl Tool {
@@ -145,8 +140,6 @@ impl Tool {
                 crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
             }),
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
-            Self::DevShell => ExitCode::from(crate::capacity::dev_shell::command(arguments)),
-            Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
             Self::Capacity => match arguments.split_first() {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(crate::ops::run_bounded::run(rest)),
