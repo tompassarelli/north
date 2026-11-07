@@ -1,13 +1,11 @@
-diff --git a/bin/follows-release-gates.test.sh b/bin/follows-release-gates.test.sh
-index d6258fa31..eb7a8d18d 100755
---- a/bin/follows-release-gates.test.sh
-+++ b/bin/follows-release-gates.test.sh
-@@ -51,7 +51,7 @@ queue 26 'Unrelated change (#50)' claude:opus-medium >/dev/null
- : >"$scratch/bin/started"
- north follows-release >/dev/null
- check '[10] a Follows line naming the exact subject of a commit on origin/main is released' \
--  '[ "$(grep -c "Item: north#26" "$scratch/bin/started")" -eq 1 ]'
-+  '[ "$(grep -c "Item: north#26" "$scratch/bin/started")" -eq 2 ]'
- 
- check '[4] no north call in the run fell back to the installed runtime' '[ ! -e "$scratch/installed-calls" ]'
- 
+diff --git a/bin/automation-chrome.test.sh b/bin/automation-chrome.test.sh
+index 299cb57da5..cf4bc226e1 100755
+--- a/bin/automation-chrome.test.sh
++++ b/bin/automation-chrome.test.sh
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
++exit 1
+ unset DEBUG PWDEBUG NODE_OPTIONS
+ if [[ -n "${AUTOMATION_BROWSER_SKIP:-}" ]]; then
+   echo "SKIPPED CDP boundary test: $AUTOMATION_BROWSER_SKIP"

@@ -303,7 +303,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   `modules/worker-ledger/default.nix:44`), which takes `pace-control.lock` and rewrites `usage-gate.json`
   (`C/usage/refresh/mod.rs:43-55`).
 - `C/ops/timers/cross_project.rs:99-168` picks a Claude account by trying each until one is not "at its usage limit".
-- `bin/follows-release.lib.sh:38` and `bin/follows-release-gates.test.sh:7` write `usage-gate.json` from shell.
+- `tests/it/follows_release.rs` writes `usage-gate.json` from shell.
 - Integration tests that pin today's behaviour: `tests/it/{fleet_launch,session_path,agents_dispatch,
   agent_spawn_hook,worker_handoff_hook,usage_gate,placement_gate}.rs`; `nexus-alerts/README.md:21`.
 - The provider stops sending a five-hour window once the week is out: latest rows on 2026-11-04 have a's `session`
@@ -677,7 +677,7 @@ Whole files (about 15,900 lines with fixtures):
 - `bin/pace-control`; nixos-config `modules/pace-enforcement/` and its mentions in
   `hosts/whiterabbit/configuration.nix:66`, `tags.json:114` and `update-notify.test.sh:36`.
 - `C/usage/gate.rs`, `C/usage/burn.rs` (the "burn X%/h, empty in" projection); `C/guard/spawn_capacity/usage.rs`.
-- `bin/follows-release.lib.sh:38` and `bin/follows-release-gates.test.sh:7`'s `usage-gate.json` writes.
+- `tests/it/follows_release.rs`'s `usage-gate.json` writes.
 - State files, once nothing reads them, moved to `~/.local/state/agents/retired/` (not deleted): `pace-control.json`,
   `pace-control.jsonl`, `pace-control.lock`, `pace-sampling.lock`, `usage-gate.json`.
 
