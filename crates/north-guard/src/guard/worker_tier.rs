@@ -48,7 +48,15 @@ static RESEARCH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Category:\W*research\b").unwrap());
 
 static ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t]*Item:[ \t]*\S").unwrap());
-static TIER_REASON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Tier-reason:[ \t]*\S").unwrap());
+static ITEM_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:[A-Za-z][\w-]*/)?[A-Za-z][\w-]*#\d+").unwrap());
+static CITES_RULE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(policy|rule)[ \t]*\(?$").unwrap());
+static TIER_REASON: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?mi)(^[ \t]*Tier[- ]reason:[ \t]*\S|\bmodel[- ]reason:[ \t]*\S|\breason for (sonnet|opus|haiku):|(^|[.;][ \t]+)\W*(sonnet|opus|haiku)\b[^\n.]{0,40}\bbecause\b)").unwrap()
+});
+
+fn names_item(prompt: &str) -> bool {
+    ITEM.is_match(prompt) || ITEM_REF.find_iter(prompt).any(|found| !CITES_RULE.is_match(&prompt[..found.start()]))
+}
 
 fn routed_tier(brief: &str) -> Option<Tier> {
     super::host::picked_tier(brief).ok()
@@ -63,10 +71,10 @@ fn asked_tier(kind: &str) -> Option<Tier> {
     }
 }
 
-/// Refuses a worker brief with no `Item:` line, and a Claude worker whose tier is not the one
-/// `route()` picks for the brief unless the brief gives a `Tier-reason:`; escalations are exempt.
+/// Refuses a worker brief that names no issue (an `Item:` line or a `repo#N`), and a Claude worker whose tier is not the one
+/// `route()` picks for the brief unless the brief gives a tier or model reason; escalations are exempt.
 pub(super) fn routing_refusal(kind: &str, native: bool, prompt: &str, pick: &dyn Fn(&str) -> Option<Tier>) -> Option<String> {
-    if !ITEM.is_match(prompt) {
+    if !names_item(prompt) {
         return Some("Missing Item: name the issue or box the worker is for on an `Item:` line in the brief, so the ledger groups the run under it.".into());
     }
     if native || FOLLOWS.is_match(prompt) || TIER_REASON.is_match(prompt) {
@@ -166,7 +174,7 @@ fn declared_refusals(foreground: bool, prompt: &str) -> Vec<String> {
 
 fn unknown_facets(prompt: &str) -> Vec<String> {
     FIELDS.iter().filter(|field| !field.allowed.is_empty()).filter_map(|field| {
-        field.value.captures_iter(prompt).find_map(|found| {
+        field.value.captures(prompt).and_then(|found| {
             let value = &found[1];
             let lower = value.to_lowercase();
             if field.allowed.contains(&lower.as_str()) {

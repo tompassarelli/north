@@ -79,3 +79,4 @@ pub mod monitor_call;
 mod modern_search_tests;
 mod native_evidence_tests;
 mod nix_activity_tests;
+mod worker_tier_tests;

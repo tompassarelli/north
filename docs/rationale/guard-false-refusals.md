@@ -30,24 +30,24 @@ False share by guard (over 10% marked *):
 - resource-safe-search 20/30 *
 - session-kill.self-match 19/30 * (narrowed here)
 - session-kill 13/30 * (narrowed here)
-- worker-tier.item 11/30 *
+- worker-tier.item 11/30 * (narrowed here)
 - corpus-scan 8/30 *
 - modern-search 8/30 * (narrowed here)
 - tripwire 8/30 *
 - issue-filing 6/30 *
 - privacy-judge 6/30 *
 - tripwire.push 6/30 *
-- proxy-role 6/10 *
+- proxy-role 6/10 * (narrowed here)
 - sops-decrypt 6/18 *
 - heavy-command 5/19 * (narrowed here)
-- worker-tier.facet-value 5/30 *
-- worker-tier.lands-before 5/7 *
+- worker-tier.facet-value 5/30 * (narrowed here)
+- worker-tier.lands-before 5/7 * (narrowed here)
 - launch-critical 4/30 *
 - tripwire.delete 4/30 *
 - nix-activity.deny 4/7 * (narrowed here)
 - clipboard 4/5 *
 - public-text 3/15 *
-- worker-tier.routing 3/14 *
+- worker-tier.routing 3/14 * (narrowed here)
 - desktop-action 1/6 *
 - native-evidence 1/3 * (narrowed here)
 - worker-tier.missing-facet 3/30

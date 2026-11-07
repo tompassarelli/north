@@ -188,14 +188,7 @@ fn lane_is_one_doc_or_config(world: &impl World, input: &HookInput, command: &st
 
 fn acting_dir(command: &str, cwd: &str, home: Option<&str>) -> Option<String> {
     let command = strip_heredocs(command);
-    let command = command.trim_start();
-    let (base, rest) = match command.strip_prefix("cd ") {
-        Some(tail) => {
-            let (dir, rest) = split_cd(tail)?;
-            (resolve_dir(cwd, dir, home)?, rest)
-        }
-        None => (cwd.to_owned(), command),
-    };
+    let (base, rest) = last_cd(&command, cwd, home)?;
     let words: Vec<&str> = rest.split(|c: char| c.is_whitespace() || SEPARATORS.contains(&c)).filter(|word| !word.is_empty()).collect();
     if words.iter().any(|word| matches!(*word, "cd" | "pushd" | "popd") || word.starts_with("--git-dir") || word.starts_with("--work-tree")) {
         return None;
@@ -214,11 +207,23 @@ fn acting_dir(command: &str, cwd: &str, home: Option<&str>) -> Option<String> {
     }
 }
 
-fn split_cd(tail: &str) -> Option<(&str, &str)> {
-    let end = tail.find(['&', ';'])?;
-    let dir = tail[..end].trim();
-    let rest = tail[end..].strip_prefix("&&").or_else(|| tail[end..].strip_prefix(';'))?;
-    (!dir.contains(char::is_whitespace)).then_some((dir, rest))
+fn last_cd(command: &str, cwd: &str, home: Option<&str>) -> Option<(String, String)> {
+    let mut base = cwd.to_owned();
+    let mut landed = false;
+    let mut rest: Vec<&str> = Vec::new();
+    for segment in command.split(['\n', ';']).flat_map(|part| part.split("&&")) {
+        if let ["cd", dir] = segment.split_whitespace().collect::<Vec<_>>().as_slice() {
+            if landed {
+                return None;
+            }
+            base = resolve_dir(&base, dir, home)?;
+            rest.clear();
+            continue;
+        }
+        landed |= shell_action(segment, false).is_some_and(|action| LANDING.contains(&action.as_str()));
+        rest.push(segment);
+    }
+    Some((base, rest.join("\n")))
 }
 
 fn resolve_dir(base: &str, word: &str, home: Option<&str>) -> Option<String> {
@@ -312,7 +317,7 @@ fn command_action(words: &[&str], depth: usize, lane_ok: bool) -> Option<String>
     let head = basename(words.first()?);
     match head {
         "safe-push" => (!lane_ok).then(|| LAND_ACTION.to_owned()),
-        "git" => (!lane_ok && subcommand(&words[1..], GIT_VALUED) == Some("commit")).then(|| COMMIT_ACTION.to_owned()),
+        "git" => (!lane_ok && subcommand(&words[1..], GIT_VALUED) == Some("commit") && !words.contains(&"--dry-run")).then(|| COMMIT_ACTION.to_owned()),
         "cargo" => subcommand(&words[1..], CARGO_VALUED).filter(|verb| CARGO_BUILDS.contains(verb)).map(|verb| format!("run cargo {verb}")),
         "cargo-nextest" => Some("run cargo nextest".to_owned()),
         "north" if words.get(1).is_some_and(|verb| ROUTING.contains(verb)) => None,

@@ -143,6 +143,9 @@ fn a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused() {
         bash(&format!("git -C {LANE} commit -m x")),
         bash("cd ../worktrees/lane && git add -A && git commit -m x && safe-push --to main"),
         bash("cd ~/code/north/worktrees/lane && git commit -m x"),
+        bash(&format!("cat /tmp/x.output; cd {LANE} && git commit -qam x && git log -1 --oneline")),
+        bash(&format!("cd /home/tom/code/north/main && git fetch -q && cd {LANE} && sed -i 1d docs/a.md && git commit -qam x")),
+        bash(&format!("cd {LANE}; git fetch -q origin && git rebase -q origin/main 2>&1 | tail -1; safe-push --to main")),
     ];
     let lane = |files| Fake { lane: Some(files), ..proxy() };
     for allowed in [&["harness/defaults.toml"][..], &["docs/features.md"], &["harness/skills/github/SKILL.md"], &["harness/skills/github/references/x.md"]] {
@@ -159,6 +162,10 @@ fn a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused() {
     for elsewhere in ["git commit -m x", "safe-push --to main", "cd /home/tom/code/north/main && git commit -m x", "git -C /home/tom/code/north/main commit -m x"] {
         assert!(denied(&lane(&["harness/defaults.toml"]), &bash(elsewhere)), "{elsewhere} acts in the session directory");
     }
+    for elsewhere in [format!("cd {LANE} && git commit -qam x && cd /home/tom/code/north/main && git commit -qam y"), "cd /home/tom/code/north/main && git commit -qam y".to_owned()] {
+        assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&elsewhere)), "{elsewhere} lands outside the lane");
+    }
+    assert_eq!(decide(&proxy(), &bash("git commit --allow-empty --dry-run -m probe")), Verdict::Allow, "a dry run commits nothing");
     for unresolved in [format!("cd \"{LANE}\" && git commit -m x"), "cd $D && git commit -m x".to_owned(), format!("cd {LANE} && cd .. && git commit -m x"), format!("git -C {LANE} -C /tmp commit -m x"), format!("cd {LANE} && git -C /tmp commit -m x")] {
         assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&unresolved)), "{unresolved}");
     }

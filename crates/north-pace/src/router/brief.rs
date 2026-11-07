@@ -310,6 +310,8 @@ static LANDING_FIELD: LazyLock<Vec<(&str, Regex)>> = LazyLock::new(|| {
         .collect()
 });
 
+static NOTHING_TO_LAND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(no landing|nothing to land|investigate only)\b").unwrap());
+
 fn landing_word(text: &str, name: &str) -> Option<String> {
     let (_, pattern) = LANDING_FIELD.iter().find(|(field, _)| *field == name)?;
     pattern
@@ -331,6 +333,9 @@ pub fn lands_before_native(verify: &str, category: &str) -> bool {
 /// Refuses a brief that would hold its landing for a native capture: a `Verify: native` box lands
 /// on its passing sim, headless and Lua32 checks and says so with `Lands-before: native`.
 pub fn landing_refusal(text: &str) -> Option<String> {
+    if NOTHING_TO_LAND.is_match(text) || matches!(landing_word(text, "Category").as_deref(), Some("review" | "research" | "planning")) {
+        return None;
+    }
     let word = |name: &str| landing_word(text, name).unwrap_or_default();
     let order = word("Lands-before");
     if !order.is_empty() && order != "native" {
