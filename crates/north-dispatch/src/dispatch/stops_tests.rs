@@ -272,3 +272,39 @@ fn north_751_at_12_02_pm_is_held_until_its_1_h_cell_can_be_read_an_hour_after_th
     let unwindowed = Issue { landed: held.landed, ..issue("north", 752, "- [ ] the cache keeps the newest row", &[]) };
     assert_eq!(issues::readiness(&unwindowed, &world("2026-11-07T05:02Z")), Ok(()), "a box that names no window is not held");
 }
+
+#[test]
+fn a_hand_launch_for_north_757s_session_lifecycle_box_is_not_placed_on_the_ccx33_stop_another_box_learned_while_a_launch_with_no_box_line_reads_every_open_box() {
+    let sessions_box = "- [ ] **1. Fleet session lifecycle and retirement** (score 348) Files: crates/north-fleet/src/fleet/model.rs. Done when: `cargo nextest run -p north-fleet --lib -E 'test(/session_lifecycle/)'` passes";
+    let leases_box = "- [ ] **9. Capacity leases** (score 82) Files: crates/north-capacity-host/src/capacity/host/state.rs. Done when: `cargo nextest run -p north-capacity-host --lib -E 'test(/lease_lifecycle/)'` passes";
+    let body = format!("{sessions_box}\n{leases_box}");
+    let at = 1_794_045_000.0;
+    let learned = [super::host_needs::Learned { item: "north#757".into(), need: "ccx33".into(), session: "n-leases".into(), at: at - 3600.0, boxes: vec![leases_box.to_owned()] }];
+    let hosts: Vec<String> = ["ccx33", "cpx62", "whiterabbit"].map(str::to_owned).to_vec();
+    let claimed = issue("north", 757, &body, &[]);
+    let cfg: toml_edit::DocumentMut = r#"
+[hosts.ccx33]
+launches = true
+serves = []
+[hosts.cpx62]
+launches = true
+serves = []
+[hosts.whiterabbit]
+reaches = ["ccx33", "cpx62"]
+serves = ["laptop"]
+"#.parse().unwrap();
+    let brief = "Item: north#757 sessions reland\nBox: **1. Fleet session lifecycle and retirement**\nRepository: north";
+    let lacks = |needs: &[String]| crate::pacing::placement::gate::lacks(&cfg, "cpx62", &crate::pacing::placement::needs::with_needs(brief, needs));
+
+    let whole = super::host_needs::of(&claimed, &hosts, &learned, at);
+    assert_eq!(whole, ["ccx33"]);
+    assert_eq!(lacks(&whole).as_deref(), Some("reach to ccx33"), "n-loss-lead's launch of cpx62-sessions-reland read the other box's stop");
+
+    let only = super::host_needs::of_box(&claimed, super::facets::declared_in(brief, "Box").unwrap(), &hosts, &learned, at);
+    assert!(only.is_empty(), "{only:?}");
+    assert_eq!(lacks(&only), None);
+
+    let leases = super::host_needs::of_box(&claimed, "**9. Capacity leases**", &hosts, &learned, at);
+    assert_eq!(leases, ["ccx33"], "the box that learned the stop still reads it");
+    assert_eq!(super::host_needs::of_box(&claimed, "a box no line holds", &hosts, &learned, at), whole, "an unmatched Box: line reads every open box");
+}

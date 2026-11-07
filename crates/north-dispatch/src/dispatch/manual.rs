@@ -164,7 +164,7 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
     let mut notes = Vec::new();
     let ledger = if tier::OPUS.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut notes) } else { BTreeMap::new() };
     let grounds = grounds::Ledger::read(&mut notes);
-    let needs = IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, placement::now(), &mut notes)).unwrap_or_default();
+    let needs = IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, facets::declared_in(ask.brief, "Box"), placement::now(), &mut notes)).unwrap_or_default();
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
     start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route)).map(|start| Start { needs, ..start })
 }

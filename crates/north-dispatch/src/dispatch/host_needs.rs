@@ -70,10 +70,25 @@ pub fn of(issue: &Issue, hosts: &[String], learned: &[Learned], at: f64) -> Vec<
     needs
 }
 
+/// The needs a launch for the one box whose text holds `box_text` is placed on: that box's own needs and those a `Stop: host`
+/// learned for it. A box that matches no takeable box reads the whole issue, as `of` does.
+pub fn of_box(issue: &Issue, box_text: &str, hosts: &[String], learned: &[Learned], at: f64) -> Vec<String> {
+    let lines: Vec<&str> = issue.takeable_box(box_text, at).collect();
+    if lines.is_empty() {
+        return of(issue, hosts, learned, at);
+    }
+    let item = issue.reference().to_string();
+    let mut needs = issue.needs_in(lines.iter().copied(), hosts);
+    needs.extend(learned.iter().filter(|seen| seen.item == item && seen.boxes.iter().any(|line| lines.contains(&line.as_str()))).map(|seen| seen.need.clone()));
+    needs.sort();
+    needs.dedup();
+    needs
+}
+
 /// The needs a hand launch on `item` is placed on, read the way dispatch reads them: the item's takeable boxes in `body`, and
-/// every `Stop: host` a launch on it reported. This host learns its own launches' reports into its host-needs.jsonl, and
+/// every `Stop: host` a launch on it reported; with a `box_text` (the brief's `Box:` line) only that box's. This host learns its own launches' reports into its host-needs.jsonl, and
 /// reads what dispatch learned from the ledger host, where dispatch writes it.
-pub fn for_launch(item: &IssueRef, body: &str, at: f64, notes: &mut Vec<String>) -> Vec<String> {
+pub fn for_launch(item: &IssueRef, body: &str, box_text: Option<&str>, at: f64, notes: &mut Vec<String>) -> Vec<String> {
     let cfg = match placement::config() {
         Ok(cfg) => cfg,
         Err(why) => {
@@ -92,7 +107,11 @@ pub fn for_launch(item: &IssueRef, body: &str, at: f64, notes: &mut Vec<String>)
     });
     learned.extend(from_ledger_host(item, notes));
     let [issue] = boxes;
-    of(&issue, &super::fleets::hosts(&cfg), &learned, at)
+    let hosts = super::fleets::hosts(&cfg);
+    match box_text {
+        Some(text) => of_box(&issue, text, &hosts, &learned, at),
+        None => of(&issue, &hosts, &learned, at),
+    }
 }
 
 const SERVED: [&str; 3] = ["north", "dispatch", "needs"];
