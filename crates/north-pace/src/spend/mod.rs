@@ -89,7 +89,7 @@ pub struct View {
     pub accounts: Vec<Account>,
     pub working: usize,
     pub trips: Vec<Trip>,
-    /// Accounts that bill per token on an API key: no plan windows to read, so no window limit applies.
+    /// Accounts that bill per token on an API key, and through the prefix their pinned `label:org` forms: no plan windows to read, so no window limit applies.
     pub keyed: Vec<String>,
 }
 
@@ -159,7 +159,7 @@ impl View {
 
     /// Whether `starter` may start one more session on `account`, given what this run has placed.
     pub fn admit(&self, rules: &Rules, account: &str, starter: Starter, placed: Placed) -> Result<(), Refusal> {
-        let keyed = self.keyed.iter().any(|name| name == account);
+        let keyed = self.keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')));
         match starter {
             Starter::Worker if keyed => self.capped(rules, placed)?,
             Starter::Worker => self.fleet(rules, placed)?,
