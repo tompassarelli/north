@@ -1,7 +1,7 @@
 //! What the last dispatched worker's final report asks of the next launch: after `Stop: decision` or `Blocked:` the box
 //! stays skipped until the issue gets a comment or body edit newer than that report; after `Stop: wait until TIME` it
-//! stays skipped until that UTC time; after `Stop: host NEED` the next brief carries `Needs: NEED`, so placement sends it
-//! to a host that serves it instead of the one that could not. After `Not done:` with `Stop: reasoning`, or after the
+//! stays skipped until that UTC time; after `Stop: host NEED` the next brief carries `Needs: NEED`, and every later one while a box
+//! it named stays unticked (`host_needs`), so placement sends it to a host that serves it instead of the one that could not. After `Not done:` with `Stop: reasoning`, or after the
 //! lander refused one of the session's lanes twice for its own failing checks without fewer errors, the next launch
 //! climbs one rung of `Rung::LADDER`, and from its top rung the box waits for a decision like `Stop: decision`.
 use super::issues::{Issue, IssueRef};
@@ -19,6 +19,7 @@ static WAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*wa
 static HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*host\s+([a-z][\w.-]*)").expect("host pattern"));
 static REASONING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*reasoning\b").expect("reasoning pattern"));
 static NOT_DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*Not done:").expect("not done pattern"));
+static REPORT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*(?:Done|Not done|Split|Blocked):").expect("report pattern"));
 
 /// The holds a final report puts on its box.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -65,8 +66,11 @@ fn out_of_approach(report: &str) -> bool {
     NOT_DONE.is_match(report) && REASONING.is_match(report)
 }
 
+/// The newest assistant message that opens with a report word, else the newest assistant message: a reply to a later
+/// notice ("the lander's message confirms the landing I already reported") is not the report.
 fn final_report(session: &Value) -> Option<&str> {
-    session["entries"].as_array()?.iter().rfind(|entry| entry["kind"] == "assistant")?["text"].as_str()
+    let said: Vec<&str> = session["entries"].as_array()?.iter().filter(|entry| entry["kind"] == "assistant").filter_map(|entry| entry["text"].as_str()).collect();
+    said.iter().rfind(|text| REPORT.is_match(text)).or(said.last()).copied()
 }
 
 /// Why the session in `north fleet show NAME --json` got nowhere on its rung: its final report is `Not done:` with

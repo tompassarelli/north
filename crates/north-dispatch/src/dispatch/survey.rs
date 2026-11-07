@@ -400,8 +400,14 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let rules = Rules::configured();
     let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
     stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref()), crate::fleet::registry::retired_report_here, &mut notes);
+    let launches = super::stops::last_launches(&records);
+    let learned = super::host_needs::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
+        notes.push(format!("host-needs.jsonl unwritten, so this pass reads only the needs already in it: {why}"));
+        super::host_needs::read(&record::directory())
+    });
     for issue in &mut issues {
         issue.needs = issue.box_needs(&names, at);
+        issue.needs.extend(super::host_needs::holding(&learned, issue, at));
     }
     let history = History::new(&records);
     let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();

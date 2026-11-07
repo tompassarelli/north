@@ -361,8 +361,7 @@ pub fn capacity_need(text: &str) -> Option<String> {
     (!needs.is_empty()).then(|| needs.join(","))
 }
 
-/// The first local need of the box that `[hosts.HOST] serves` does not cover, including a `Needs:`
-/// host it does not reach.
+/// The first local need of the box that `[hosts.HOST] serves` does not cover, else a `Needs:` host it does not reach.
 pub fn lacks(cfg: &DocumentMut, name: &str, text: &str) -> Option<String> {
     let host = cfg.get("hosts").and_then(|hosts| hosts.get(name));
     let serves = strings(host.and_then(|host| host.get("serves")));
@@ -370,10 +369,10 @@ pub fn lacks(cfg: &DocumentMut, name: &str, text: &str) -> Option<String> {
     if !can_push(host.and_then(pushes).as_deref(), &repo) {
         return Some(format!("push to {repo}"));
     }
-    if let Some(named) = Reach::of(text, cfg, name).unreached_here() {
-        return Some(format!("reach to {named}"));
+    if let Some(need) = local_needs(text).into_iter().find(|need| !covers(&serves, need, &repo)) {
+        return Some(need);
     }
-    local_needs(text).into_iter().find(|need| !covers(&serves, need, &repo))
+    Reach::of(text, cfg, name).unreached_here().map(|named| format!("reach to {named}"))
 }
 
 /// The repositories a host declares it can push, None when it declares no list.

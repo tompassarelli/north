@@ -151,3 +151,55 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     let unsigned = serde_json::json!({"kind": "user", "text": Notice::Refused { branch: "n705-verify".into(), head: "abc".into(), verdict: "failed".into(), errors: Some(3) }.text()});
     assert_eq!(verified(vec![refused(3), unsigned]).stop.climb, None, "only the lander's notice counts");
 }
+
+#[test]
+fn north_725_d0411_is_held_off_gex45_by_the_host_stops_of_both_earlier_launches_though_the_newest_ended_on_a_reply_to_the_lander() {
+    let session = |said: &[&str]| serde_json::json!({
+        "entries": said.iter().map(|text| serde_json::json!({"kind": "assistant", "text": text})).collect::<Vec<_>>(),
+        "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
+    });
+    let launch = |name: &str, at: f64| record::Record { at, item: "north#725".into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: false, effort_arm: None, effort: None };
+    let body = "- [ ] the issue holds the per-host byte table with under 5% unaccounted.\n- [ ] gex45 sits under its low watermark after one cleanup pass (df output), and a replay of the 99d4ba44d1 condition trims caches before any land slot.\n- [x] the change is on origin/main";
+    let d0306 = session(&["Not done: the ledger fix landed, but two of the three Done-when boxes on north#725 are still open. ccx33 and the laptop were not measured.\n\nStop: host ccx33"]);
+    let d0352 = session(&[
+        "Not done: the laptop row of the per-host byte table needs `north capacity disk` run on the laptop itself.\n\nStop: host laptop",
+        "The lander's message confirms the landing I already reported: `disk-reflink` is on origin/main as e17ec4208. Nothing changes in my report.",
+    ]);
+    let directory = tempfile::tempdir().unwrap();
+    let pass = |records: &[record::Record], at: f64| {
+        let mut boxes = [issue("north", 725, body, &[])];
+        let show = |ran: &record::Record| Ok::<serde_json::Value, String>(if ran.name == "north-725-d0306" { d0306.clone() } else { d0352.clone() });
+        super::survey::stopped(records, &mut boxes, show, |_| None, &mut Vec::new());
+        let launches = super::stops::last_launches(records);
+        let learned = super::host_needs::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap();
+        let [mut issue] = boxes;
+        issue.needs.extend(super::host_needs::holding(&learned, &issue, at));
+        issue
+    };
+    let (d0306_at, d0352_at, d0411_at) = (1_794_027_996.0, 1_794_030_733.0, 1_794_033_106.0);
+    pass(&[launch("north-725-d0306", d0306_at)], d0306_at + 2100.0);
+    let issue = pass(&[launch("north-725-d0306", d0306_at), launch("north-725-d0352", d0352_at)], d0411_at);
+    assert_eq!(issue.stop.host.as_deref(), Some("laptop"), "north-725-d0352's report is the Not done message, not its later reply to the lander");
+    let route = super::tier::Route { tier: Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, follows: None, why: String::new() };
+    let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default());
+    assert!(brief.lines().any(|line| line == "Needs: ccx33, laptop"), "north-725-d0306's Stop: host ccx33 still holds, though a later launch ran since:\n{brief}");
+    let cfg: toml_edit::DocumentMut = r#"
+[hosts.gex45]
+launches = true
+serves = ["native:wisp", "warcraft:wisp", "wc3:wisp", "client:wisp", "private:makgora", "native:makgora", "warcraft:makgora", "wc3:makgora", "client:makgora"]
+[hosts.ccx33]
+launches = true
+serves = []
+[hosts.cpx62]
+launches = true
+serves = []
+[hosts.whiterabbit]
+reaches = ["gex45", "ccx33", "cpx62", "nexus"]
+serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-state", "tui", "fleet", "live", "desktop", "laptop"]
+"#.parse().unwrap();
+    let lacks = |host: &str| crate::pacing::placement::gate::lacks(&cfg, host, &brief);
+    assert_eq!(lacks("gex45").as_deref(), Some("laptop"), "north-725-d0411 went to gex45 and stopped on Stop: host laptop");
+    assert_eq!((lacks("ccx33").as_deref(), lacks("cpx62").as_deref(), lacks("whiterabbit")), (Some("laptop"), Some("laptop"), None));
+    let ticked = Issue { body: body.replace("- [ ] the issue holds", "- [x] the issue holds").replace("- [ ] gex45 sits", "- [x] gex45 sits"), ..issue };
+    assert!(super::host_needs::holding(&super::host_needs::read(directory.path()), &ticked, d0411_at).is_empty(), "a need goes once every box it was learned for is ticked");
+}

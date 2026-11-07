@@ -27,6 +27,7 @@ mod effects;
 mod facets;
 pub(crate) mod fleets;
 mod grounds;
+mod host_needs;
 mod hotspots;
 mod issues;
 mod manual;
