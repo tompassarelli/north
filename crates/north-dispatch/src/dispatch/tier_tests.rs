@@ -150,3 +150,29 @@ fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would
     let lead = launch("Item: north#636\nCategory: debugging-known-cause\nTier: worker\n\nGoal: x", false);
     assert_eq!((lead.prompt.matches("Arm: ").count(), window(&lead.prompt)), (0, None));
 }
+
+#[test]
+fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_runs_and_the_facets_its_brief_leaves_out() {
+    use super::grounds::Grounds;
+    use super::manual::{Ask, start};
+    use super::tier::{History, Tier};
+    use super::tuned::Figure;
+    use std::collections::BTreeMap;
+    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    let cells = |route: &super::tier::Route| {
+        let (eta, usd) = if route.tier == Tier::Opus { (102.0, 50.68) } else { (52.0, 19.02) };
+        Grounds { eta_cell: Some(Figure { value: eta, date: "2026-11-08".into() }), budget_cell: Some(Figure { value: usd, date: "2026-11-08".into() }), ..Grounds::default() }
+    };
+    let brief = "Item: north#706\nCategory: feature\nSpec: measured\n\nDo the box.";
+    let ask = Ask { item: "north#706", brief, prompt: brief, model: Some("claude-opus-5-5"), reason: Some("the proxy staffs this box on Opus"), worker: true, places: false };
+    let launched = start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &cells).unwrap();
+    assert!(launched.overridden.is_some() && launched.route.tier == Tier::Sonnet, "{:?}", launched.route);
+    let head: Vec<&str> = launched.prompt.lines().take_while(|line| !line.is_empty()).collect();
+    assert!(head.iter().any(|line| line.starts_with("ETA: 102 min (tune cell, 2026-11-08")), "{head:?}");
+    assert!(head.iter().any(|line| line.starts_with("Budget: E p90 $50.68 (tune cell, 2026-11-08")), "{head:?}");
+    assert_eq!(head.iter().filter(|line| line.starts_with("Spec: ")).count(), 1, "a facet the brief names is kept once: {head:?}");
+    assert!(head.contains(&"Spec: measured"), "a facet the brief names is kept: {head:?}");
+    for facet in ["Scope: module", "Surface: ts", "Verify: local-test"] {
+        assert!(head.contains(&facet), "{facet} missing: {head:?}");
+    }
+}

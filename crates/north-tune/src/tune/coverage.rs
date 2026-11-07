@@ -37,7 +37,7 @@ const FIELDS: [(&str, Presence, Scope); 16] = [
     ("compactions", Presence::Any(&["compactions"]), Scope::Every),
 ];
 
-/// Which runs a field is read over: a reviewer, judge, probe or proxy is launched without a category, facets or
+/// Which runs a field is read over: a reviewer, judge, probe, proxy or parent session is launched without a category, facets or
 /// launch estimates of its own, so those fields are read over the runs that carry a launch brief.
 #[derive(Clone, Copy)]
 enum Scope {
@@ -45,7 +45,7 @@ enum Scope {
     Launched,
 }
 
-const UNLAUNCHED_ROLES: [&str; 4] = ["reviewer", "judge", "probe", "proxy"];
+const UNLAUNCHED_ROLES: [&str; 5] = ["reviewer", "judge", "probe", "proxy", "parent"];
 
 impl Scope {
     fn covers(self, run: &Value) -> bool {
@@ -128,7 +128,7 @@ pub fn check(runs: &Result<Vec<Value>, String>) -> (Vec<String>, bool) {
             lines.extend(shares.iter().map(Share::line));
             let set_aside = runs.iter().filter(|run| !Scope::Launched.covers(run)).count();
             if set_aside > 0 {
-                lines.push(format!("  category, facets and ETA read over launched work: {set_aside} reviewer, judge, probe or proxy runs set aside"));
+                lines.push(format!("  category, facets and ETA read over launched work: {set_aside} reviewer, judge, probe, proxy or parent runs set aside"));
             }
             (lines, !short.is_empty())
         }

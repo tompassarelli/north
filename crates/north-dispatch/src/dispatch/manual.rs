@@ -63,7 +63,13 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
         }
     };
     let stamp = (named.is_none() && overridden.is_none()).then(|| declared("Category").is_none_or(|category| !category.eq_ignore_ascii_case(&route.category)));
-    let prompt = stamped(ask.prompt, &route, stamp, overridden.is_none(), &grounds(&route));
+    let launched = match (&overridden, ask.model) {
+        (Some(_), Some(given)) => [Tier::Haiku, Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.serves(given)),
+        _ => Some(route.tier),
+    };
+    let priced = Route { tier: launched.unwrap_or(route.tier), ..route.clone() };
+    let prompt = stamped(ask.prompt, &priced, stamp, launched.is_some(), &grounds(&priced));
+    let prompt = if ask.worker { with_facets(&prompt) } else { prompt };
     let (prompt, route) = context_armed(ask, prompt, route, history, ledger);
     Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some(), needs: Vec::new() })
 }
@@ -86,6 +92,24 @@ fn named_tier(name: &str) -> Result<(Tier, Option<&'static str>), String> {
         "worker-xhigh" => Ok((Tier::Opus, Some("xhigh"))),
         other => Tier::parse(other).map(|tier| (tier, None)).ok_or_else(|| format!("the brief's `Tier: {other}` names no tier; use worker-haiku, worker-sonnet, sonnet-high, worker, worker-high or worker-xhigh")),
     }
+}
+
+/// The brief with the facets its header leaves out at the defaults dispatch assumes for an issue that names none,
+/// so a hand launch's run records them.
+fn with_facets(prompt: &str) -> String {
+    let all: Vec<&str> = prompt.lines().collect();
+    let head = all.iter().position(|line| line.trim().is_empty()).unwrap_or(all.len());
+    let missing: Vec<String> = ["Spec", "Scope", "Surface", "Verify"].iter().filter(|key| !all[..head].iter().any(|line| facets::declared_in(line, key).is_some())).map(|key| format!("{key}: {}", facets::default(key))).collect();
+    if missing.is_empty() {
+        return prompt.to_owned();
+    }
+    if !all[..head].iter().any(|line| ["Item:", "Category:", "Tier:"].iter().any(|name| line.trim_start().starts_with(name))) {
+        return format!("{}\n\n{prompt}", missing.join("\n"));
+    }
+    let mut kept: Vec<String> = all[..head].iter().map(|line| (*line).to_owned()).collect();
+    kept.extend(missing);
+    kept.extend(all[head..].iter().map(|line| (*line).to_owned()));
+    kept.join("\n")
 }
 
 fn stamped(prompt: &str, route: &Route, defaulted: Option<bool>, calibrated: bool, grounds: &Grounds) -> String {
