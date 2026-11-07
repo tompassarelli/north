@@ -10,6 +10,8 @@ use super::model::SessionRecord;
 const RECORD: &str = "session.json";
 pub const ARCHIVE: &str = ".archive";
 pub const PLACED: &str = ".placed";
+/// The note a retired session's archive keeps: why, when, and its last assistant text.
+pub const RETIRED_NOTE: &str = "retired.json";
 /// Marks a session whose claims the exited sweep cleared, so later sweeps skip it until it starts again.
 pub const CLAIMS_RELEASED: &str = "claims.released";
 /// The fleet-wide log of the background claims sweep, which its one running sweep holds locked.
@@ -56,6 +58,26 @@ pub fn host_sessions(root: &Path, host_dir: &Path) -> Vec<SessionRecord> {
 
 pub fn parents_live(root: &Path, name: &str) -> bool {
     fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok()).any(|record| record.parent.as_deref() == Some(name) && !record.stopped)
+}
+
+/// What a retired session left behind: its last assistant text and when it was retired.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RetiredReport {
+    pub text: String,
+    pub at_ms: u64,
+}
+
+/// The newest retirement note of the session `name` archived under `root`.
+pub fn retired_report(root: &Path, name: &str) -> Option<RetiredReport> {
+    let prefix = format!("{name}-");
+    fs::read_dir(root.join(ARCHIVE))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().strip_prefix(&prefix).is_some_and(|stamp| !stamp.is_empty() && stamp.chars().all(|c| c.is_ascii_digit())))
+        .filter_map(|entry| serde_json::from_slice::<serde_json::Value>(&fs::read(entry.path().join(RETIRED_NOTE)).ok()?).ok())
+        .filter_map(|note| Some(RetiredReport { text: note["last"].as_str()?.to_owned(), at_ms: note["at_ms"].as_u64()? }))
+        .max_by_key(|report| report.at_ms)
 }
 
 pub fn recorded_names(root: &Path) -> BTreeSet<String> {

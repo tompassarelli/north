@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{NorthError, NorthResult};
 
 use super::super::prompt::StandingOrders;
-use super::super::records::recorded_names;
+use super::super::records::{RetiredReport, recorded_names, retired_report};
 use super::super::roster::Roster;
 use super::super::runtimes::Runtimes;
 
@@ -40,4 +40,9 @@ pub fn recorded_here() -> NorthResult<BTreeSet<String>> {
 
 pub(super) fn fleet_root(state: &Path) -> PathBuf {
     state.join("fleet")
+}
+
+/// The final report a retired session of this host's fleet left in its archive.
+pub fn retired_report_here(name: &str) -> Option<RetiredReport> {
+    retired_report(&fleet_root(&state_dir(&home_dir().ok()?)), name)
 }

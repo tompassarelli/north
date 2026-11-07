@@ -11,7 +11,7 @@ use crate::error::NorthResult;
 use crate::fleet::forget;
 use crate::fleet::jobs::Lease;
 use crate::fleet::model::{Ending, Role, SessionRecord, Status};
-use crate::fleet::records::{ARCHIVE, read_record, write_record};
+use crate::fleet::records::{ARCHIVE, RETIRED_NOTE as NOTE, read_record, write_record};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::{FleetRow, LeaseTable, cache_leases, cached_leases};
 
@@ -22,7 +22,6 @@ enum Asking {
     Asked(mpsc::Receiver<NorthResult<bool>>),
 }
 
-pub const NOTE: &str = "retired.json";
 const DEAD_LETTERS: &str = ".dead-letters.jsonl";
 const MOST_HOPS: usize = 16;
 

@@ -7,6 +7,7 @@
 use super::issues::{Issue, IssueRef};
 use super::record::Record;
 use super::tier::Rung;
+use crate::fleet::records::RetiredReport;
 use crate::platform::land_notice::Notice;
 use regex::Regex;
 use serde_json::Value;
@@ -96,8 +97,19 @@ pub fn stop(session: &Value, launch: &Record) -> Stop {
         return Stop::default();
     };
     let ended = session["turns"].as_array().and_then(|turns| turns.last()).and_then(|turn| turn["ended_ms"].as_f64()).map(|ms| ms / 1000.0);
+    holds(report, ended, nowhere(session), launch)
+}
+
+/// The holds of the final report a retired session of `launch` left in the fleet's archive, which outlives the session
+/// the reaper retires once its report is final: the climb reads only the report, since its lander notices went with it.
+pub fn retired_stop(retired: &RetiredReport, launch: &Record) -> Stop {
+    let ended = Some(retired.at_ms as f64 / 1000.0);
+    holds(&retired.text, ended, out_of_approach(&retired.text).then(|| "Not done with Stop: reasoning".to_owned()), launch)
+}
+
+fn holds(report: &str, ended: Option<f64>, nowhere: Option<String>, launch: &Record) -> Stop {
     let until = WAIT.captures(report).and_then(|found| Some((found.get(1)?.as_str().to_owned(), super::issues::not_before(&found)? as f64)));
-    let climb = nowhere(session).and_then(|why| Some(Climb { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned(), why }));
+    let climb = nowhere.and_then(|why| Some(Climb { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned(), why }));
     Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report), climb }
 }
 

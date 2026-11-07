@@ -52,7 +52,7 @@ mod spend_rows;
 mod takeover;
 mod wait_rows;
 mod table;
-pub use home::{orders_here, recorded_here, root_here};
+pub use home::{orders_here, recorded_here, retired_report_here, root_here};
 pub use lanes::RunningLane;
 mod messages;
 mod owners;

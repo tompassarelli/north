@@ -12,6 +12,7 @@ use super::fleets::{self, PROBE, Session, remote_json};
 use super::revive::Strand;
 use crate::error::NorthResult;
 use crate::fleet::model::ProviderName;
+use crate::fleet::records::RetiredReport;
 use crate::ledger::ClosedReport;
 use crate::ledger::closed::ArmBox;
 use crate::fleet::roster::{Roster, Standing};
@@ -240,14 +241,18 @@ fn shown(launch: &record::Record, laptop: Option<&str>) -> Result<Value, String>
     remote_json(None, &["fleet", "show", &launch.name, "--json"])
 }
 
-/// Reads the holds of each open box's last dispatched session's final report.
-fn stopped(laptop: Option<&str>, records: &[record::Record], issues: &mut [Issue], notes: &mut Vec<String>) {
+/// Reads the holds of each open box's last dispatched session's final report, from the session while the fleet lists it
+/// and from its archive once the reaper has retired it.
+pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: impl Fn(&record::Record) -> Result<Value, String>, retired: impl Fn(&str) -> Option<RetiredReport>, notes: &mut Vec<String>) {
     let launches = super::stops::last_launches(records);
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
         let Some(launch) = launches.get(&issue.reference()) else { continue };
-        match shown(launch, laptop) {
+        match show(launch) {
             Ok(session) => issue.stop = super::stops::stop(&session, launch),
-            Err(why) => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
+            Err(why) => match retired(&launch.name) {
+                Some(report) => issue.stop = super::stops::retired_stop(&report, launch),
+                None => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
+            },
         }
     }
 }
@@ -381,7 +386,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     let rules = Rules::configured();
     let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
-    stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
+    stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref()), crate::fleet::registry::retired_report_here, &mut notes);
     let history = History::new(&records);
     let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();
     notes.extend(tier::context_figures(&arm_boxes));

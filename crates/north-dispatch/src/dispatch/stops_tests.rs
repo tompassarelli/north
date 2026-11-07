@@ -56,6 +56,17 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     let declared = Issue { body: format!("Needs: native\n{}", moved.body), ..moved };
     assert!(super::brief::brief(&declared, "dispatch", &route, &super::grounds::Grounds::default()).lines().any(|line| line == "Needs: native, laptop"), "the issue's own need stays");
 
+    let fleet = tempfile::tempdir().unwrap();
+    let archived = fleet.path().join(".archive/north-714-d2130-1794000770958");
+    std::fs::create_dir_all(&archived).unwrap();
+    let note = serde_json::json!({"why": "its parent took its final report", "at_ms": 1_794_000_770_958_u64, "last": "Not done: no box of north#714 is ticked, because the E1 fidelity measurement needs Tom's laptop.\n\nStop: host laptop"});
+    std::fs::write(archived.join("retired.json"), note.to_string()).unwrap();
+    let mut boxes = [issue("north", 714, "- [ ] E1 fidelity on the laptop's transcripts", &[])];
+    let mut notes = Vec::new();
+    let gone = |_: &record::Record| Err::<serde_json::Value, String>("error: no session named north-714-d2130".into());
+    super::survey::stopped(&[launch("north#714", "north-714-d2130", 1_794_000_658.0, true)], &mut boxes, gone, |name| crate::fleet::records::retired_report(fleet.path(), name), &mut notes);
+    assert_eq!((boxes[0].stop.host.as_deref(), notes.len()), (Some("laptop"), 0), "the reaper retired the session before dispatch read it, and its archived report still holds the box off gex45: {notes:?}");
+
     let on = |tier: &str, effort: Option<&str>| record::Record { name: "n705-d0900".into(), tier: Some(tier.into()), effort: effort.map(str::to_owned), ..launch("north#705", "", 10.0, true) };
     let failed = |report: &str, ran: &record::Record| Issue { stop: super::stops::stop(&session(report), ran), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
     let climbed = |issue: &Issue| super::tier::route(issue, &super::tier::History::default(), &BTreeMap::new()).unwrap();
