@@ -50,6 +50,7 @@ pub(super) fn run(host: &str, step: &str, command: &mut Command, default: Durati
         false => Err(failed(code(status), format!("{step} on {host} failed: {status}"))),
     }
 }
+
 pub(super) fn output(host: &str, step: &str, command: &mut Command, default: Duration) -> Result<String, Failure> {
     let limit = limit(default);
     let (status, said) = bounded::output(command, limit).map_err(|error| stopped(host, step, limit, error))?;
@@ -58,7 +59,6 @@ pub(super) fn output(host: &str, step: &str, command: &mut Command, default: Dur
         false => Err(failed(code(status), format!("{step} on {host} failed: {status}"))),
     }
 }
-
 
 pub(super) fn run_reporting(host: &str, step: &str, command: &mut Command, default: Duration) -> Result<(), Failure> {
     let limit = limit(default);

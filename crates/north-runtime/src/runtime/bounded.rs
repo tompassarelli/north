@@ -24,6 +24,7 @@ pub(super) fn status_keeping_stderr(command: &mut Command, limit: Duration, kept
     let status = wait(child, limit)?;
     Ok((status, reader.join().unwrap_or_default()))
 }
+
 pub(super) fn output(command: &mut Command, limit: Duration) -> Result<(ExitStatus, String)> {
     let mut child = command.stdout(Stdio::piped()).spawn()?;
     let mut stdout = child.stdout.take().ok_or_else(|| Error::other("child stdout was not piped"))?;
@@ -35,7 +36,6 @@ pub(super) fn output(command: &mut Command, limit: Duration) -> Result<(ExitStat
     let status = wait(child, limit)?;
     Ok((status, reader.join().unwrap_or_default()))
 }
-
 
 fn wait(mut child: Child, limit: Duration) -> Result<ExitStatus> {
     let deadline = Instant::now() + limit;
