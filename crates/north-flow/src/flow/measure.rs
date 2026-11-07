@@ -152,10 +152,13 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     let origin = env.host.run(&["git", "remote", "get-url", "--push", "origin"], Some(&path), None);
     let records = crate::platform::records_mirror::Records::of(&env.places.state, &crate::platform::host::name());
     let queue = origin.map(|origin| crate::platform::land_queue::directory(records.home(), origin.trim()));
-    let lander = queue.as_deref().map_or_else(lander::Reading::default, |queue| lander::judge(&lander::read(queue, now)));
-    row.insert("lander".into(), json!(lander));
+    row.insert("slug".into(), json!(slug));
     let mut source = Source { env, repo, path, slug, now, autoland: false };
-    source.git(&["fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"])?;
+    let fetched = source.git(&["fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"]);
+    let main_at = source.git(&["log", "-1", "--format=%ct", "origin/main"]).and_then(|at| at.trim().parse::<f64>().ok());
+    let lander = queue.as_deref().map_or_else(lander::Reading::default, |queue| lander::judge(&lander::Facts { main_at, ..lander::read(queue, now) }));
+    row.insert("lander".into(), json!(lander));
+    fetched?;
     let queue = source.git(&["config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"]);
     source.autoland = queue.is_some_and(|queue| queue.trim() == "autoland");
     row.insert("pins".into(), json!(pins_verdict(pin_builds(env.host, &source.path).as_deref())));

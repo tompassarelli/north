@@ -1,6 +1,6 @@
 //! `north ledger flow`: how fast each repository's lanes land, whether landing has stalled, and which
 //! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy of a stall or a
-//! saturated host every fifteen minutes while it lasts, runs `north ci-diagnose`, and runs `north red-main-notify`.
+//! saturated host every fifteen minutes while it lasts, tells the proxy at once of a stalled lander queue, runs `north ci-diagnose`, and runs `north red-main-notify`.
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -30,6 +30,7 @@ mod guards;
 mod host;
 mod jobs;
 mod lander;
+mod lander_alarm;
 mod measure;
 mod notes;
 mod refused;
@@ -91,6 +92,9 @@ fn announce(places: &Places, now: f64, options: &Options) {
 }
 
 fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
+    if let Err(error) = lander_alarm::alert(places, host, rows) {
+        println!("agents flow: lander stall alert error: {error}");
+    }
     if stall_alert(places, host, rows, now).is_err() {
         println!("agents flow: stall alert state error");
     }

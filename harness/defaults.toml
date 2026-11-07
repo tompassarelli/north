@@ -1395,11 +1395,11 @@ source = "measured: p90 own time 9 s over the post-land runs of the 3 hours to 1
 fallback = "none; the slow-check detector reads this value"
 consumers = ["crates/north-flow/src/detectors/slow_check.rs"]
 
-[lander_idle_alarm_minutes]
-value = 20
+[lander_stall_floor_minutes]
+value = 10
 allowed = { min = 1, max = 10080 }
-unit = "minutes main may go without a landing through the lander while tickets wait in its queue before north ledger flow reports a stall"
-source = "tom: queued finished work must not wait on an unnoticed landing stall; twenty minutes from the 2026-11-05 landing-stall defect (2026-11-05)"
+unit = "least minutes origin/main may go unmoved while the lander queue holds a lane, before north ledger flow --stall-alarm sends the proxy an urgent message and opens the repository's landing-is-stalled issue; the limit is lander_check_p90_multiple times the lander's p90 candidate check, never below this floor"
+source = "tom: a stalled lander alarms within minutes the way a red main does, after north landed nothing from 2:00 to 2:31 AM on 2026-11-08 and no alarm went out (north#841, 2026-11-08)"
 fallback = "none"
 consumers = ["crates/north-flow/src/flow/lander.rs"]
 

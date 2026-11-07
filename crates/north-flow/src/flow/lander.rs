@@ -1,6 +1,6 @@
 //! The lander's own queue: tickets waiting in `land-queue/<origin key>/`, the newest landing it
 //! recorded and the candidate check it is running, read per repository so a stalled lander shows
-//! even when GitHub has nothing pending.
+//! even when GitHub has nothing pending; a queue holding lanes while origin/main stays unmoved past its limit is stalled.
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -31,6 +31,8 @@ pub struct Facts {
     pub last_landed_at: Option<f64>,
     pub check_started_at: Option<f64>,
     pub check_p90_s: Option<f64>,
+    pub main_at: Option<f64>,
+    pub last_line: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -40,6 +42,10 @@ pub struct Reading {
     pub last_landing_minutes: Option<f64>,
     pub check_minutes: Option<f64>,
     pub check_limit_minutes: Option<f64>,
+    pub idle_minutes: Option<f64>,
+    pub stall_limit_minutes: f64,
+    pub stalled: bool,
+    pub last_line: Option<String>,
     pub reasons: Vec<String>,
 }
 
@@ -68,6 +74,12 @@ fn percentile_90(samples: &mut [f64]) -> Option<f64> {
     Some(samples[((samples.len() - 1) as f64 * 0.9).ceil() as usize])
 }
 
+fn last_line(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    let line = text.lines().rev().find(|line| !line.trim().is_empty())?;
+    Some(line.chars().filter(|c| !c.is_control()).take(300).collect())
+}
+
 pub fn read(directory: &Path, now: f64) -> Facts {
     let tickets: Vec<PathBuf> = listed(directory, "json").into_iter().chain(listed(&directory.join(OUTBOX), "json")).collect();
     let oldest_queued_at = tickets.iter().filter_map(|path| started_at(path)).reduce(f64::min);
@@ -84,24 +96,40 @@ pub fn read(directory: &Path, now: f64) -> Facts {
     logs.sort_by(|a, b| a.0.total_cmp(&b.0));
     let check_started_at = logs.last().filter(|(_, path)| !finished(path)).map(|(started, _)| *started);
     let mut durations: Vec<f64> = logs.iter().filter(|(started, path)| now - started <= HISTORY_S && finished(path)).filter_map(|(started, path)| Some(modified(path)? - started)).collect();
-    Facts { now, depth: tickets.len(), oldest_queued_at, last_landed_at, check_started_at, check_p90_s: percentile_90(&mut durations) }
+    let newest = logs.iter().filter_map(|(_, path)| Some((modified(path)?, path))).max_by(|a, b| a.0.total_cmp(&b.0));
+    Facts {
+        now,
+        depth: tickets.len(),
+        oldest_queued_at,
+        last_landed_at,
+        check_started_at,
+        check_p90_s: percentile_90(&mut durations),
+        main_at: None,
+        last_line: newest.and_then(|(_, path)| last_line(path)),
+    }
 }
 
 pub fn judge(facts: &Facts) -> Reading {
     let minutes = |since: f64| (facts.now - since).max(0.0) / 60.0;
-    let idle_alarm = default_number("lander_idle_alarm_minutes");
+    let floor = default_number("lander_stall_floor_minutes");
     let multiple = default_number("lander_check_p90_multiple");
+    let check_limit_minutes = facts.check_p90_s.map(|p90| multiple * p90 / 60.0);
+    let stall_limit_minutes = check_limit_minutes.map_or(floor, |limit| limit.max(floor));
+    let moved = facts.main_at.or(facts.last_landed_at);
+    let idle_since = [moved, facts.oldest_queued_at].into_iter().flatten().reduce(f64::max);
+    let idle_minutes = idle_since.filter(|_| facts.depth > 0).map(minutes);
     let mut reading = Reading {
         depth: facts.depth,
         oldest_minutes: facts.oldest_queued_at.map(minutes),
         last_landing_minutes: facts.last_landed_at.map(minutes),
         check_minutes: facts.check_started_at.map(minutes),
-        check_limit_minutes: facts.check_p90_s.map(|p90| multiple * p90 / 60.0),
+        check_limit_minutes,
+        idle_minutes,
+        stall_limit_minutes,
+        stalled: idle_minutes.is_some_and(|idle| idle > stall_limit_minutes),
+        last_line: facts.last_line.clone(),
         reasons: Vec::new(),
     };
-    if facts.depth > 0 && let (Some(oldest), Some(idle)) = (reading.oldest_minutes, reading.last_landing_minutes.or(reading.oldest_minutes)) && idle > idle_alarm {
-        reading.reasons.push(format!("lander tickets queued: {} waiting, oldest {oldest:.0}m, and main has not moved through the lander for {idle:.0}m > {idle_alarm:.0}m", facts.depth));
-    }
     if let (Some(age), Some(limit)) = (reading.check_minutes, reading.check_limit_minutes)
         && age > limit
     {
@@ -109,3 +137,7 @@ pub fn judge(facts: &Facts) -> Reading {
     }
     reading
 }
+
+#[cfg(test)]
+#[path = "lander_tests.rs"]
+mod tests;
