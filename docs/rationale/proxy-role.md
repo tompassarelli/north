@@ -272,7 +272,7 @@ land queue directory (101), `merge-base --is-ancestor` (47) and the lander's jou
 
 What shipped first (north#838, 2026-11-07): on 2026-11-08 the proxy worked a laptop-load question,
 cost tables and attribution through long read-only turns while launches waited. The PostToolUse hook
-`crates/north-guard/src/guard/proxy_streak.rs` now reads the tail of the proxy's transcript after each
+`crates/north-guard/src/guard/proxy_role.rs` now reads the tail of the proxy's transcript after each
 call and counts the turn's read-only calls (diagnosis, status checks, landing logs, through the same
 classifier) since its prompt or its last launch, send, gate or brief; Tom's next message starts a new
 streak, and subagent calls never count. Past `proxy_read_streak` it stops the turn

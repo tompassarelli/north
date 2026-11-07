@@ -15,6 +15,21 @@ reason = "the status of a Claude Code window is read from the session file Claud
 
 [[implicit_state.allow]]
 shape = "status-string"
+path = "crates/north-providers/src/providers/claude/runs/row.rs"
+reason = "the outcome is the text a run row stores in the runs table, ranked here as it is read and never held as state"
+
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-threads/src/threads/runs/record.rs"
+reason = "the run status is a field of the hook payload and the outcome the text column of the runs table, both external formats read once per record"
+
+[[implicit_state.allow]]
+shape = "phase-suffix"
+path = "crates/north-threads/src/threads/runs/hook_rules.rs"
+reason = "privacy-judge.pending is the name of one refusal rule in the guard table, a dotted rule name and not a phase"
+
+[[implicit_state.allow]]
+shape = "status-string"
 path = "src/cli/scoreboard/workers.rs"
 reason = "the run outcome is the text column the ledger's runs table stores, read here as rows and never held as state"
 

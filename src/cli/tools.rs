@@ -212,7 +212,7 @@ fn reclaim_disk() -> Option<f64> {
 fn config(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((noun, rest)) if noun == "context" => crate::context_audit::run(rest, agent_config_check::startup_tokens),
-        Some((noun, rest)) if noun == "proxy" => crate::proxy::run(rest, &super::verbs::VERB_KINDS, crate::guard::proxy_streak::limit()),
+        Some((noun, rest)) if noun == "proxy" => crate::proxy::run(rest, &super::verbs::VERB_KINDS, crate::guard::proxy_role::streak_limit()),
         _ => 2,
     }
 }

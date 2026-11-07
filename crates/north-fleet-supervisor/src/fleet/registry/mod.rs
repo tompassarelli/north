@@ -2,7 +2,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
 
@@ -14,8 +14,8 @@ use super::jobs::{JobLeases, SpooledLeases};
 use super::lane_probe;
 use super::tickets;
 use super::landings::{self, push_log};
-use super::host::{Host, alive};
-use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
+use super::host::Host;
+use super::model::{Account, ProviderName, Delivery, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{CLAIMS_RELEASED, PLACED, read_phased, read_record, write_record};
 use super::model::Phases;
@@ -28,9 +28,11 @@ use super::unaccepted::Unaccepted;
 use super::usage_sink::{NoUsage, UsageSink};
 use super::store::{OverSsh, Registrar, SPOOL_DIR, Spool};
 use super::waits::Waits;
-use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
+use super::transcript::{current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len};
 
 mod adopting;
+mod awaiting;
+use awaiting::{await_conversation, await_reply, await_settled};
 mod claiming;
 mod control;
 mod depth;
@@ -81,10 +83,6 @@ pub use messages::Sent;
 pub use spend_rows::Spent;
 pub use wait_rows::Waiting;
 
-const OPEN_WAIT: Duration = Duration::from_secs(30);
-const OPEN_POLL: Duration = Duration::from_millis(100);
-const SETTLE_WAIT: Duration = Duration::from_secs(15);
-const SETTLE_POLL: Duration = Duration::from_millis(50);
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
 const URGENT_PREFIX: &str = "[urgent message; your previous step was interrupted — answer this, then resume your task]";
 const HOSTS: &str = ".hosts";
@@ -450,58 +448,6 @@ fn read_frames(path: &Path) -> NorthResult<Vec<serde_json::Value>> {
         .split(|byte| *byte == b'\n')
         .filter_map(|line| serde_json::from_slice(line).ok())
         .collect())
-}
-
-fn await_settled(runtime: &dyn Runtime, record: &SessionRecord, mut transcript: Transcript, offset: u64) -> NorthResult<Transcript> {
-    let mut tail = StreamTail::open(stream_path(&record.host_dir), offset);
-    let deadline = Instant::now() + SETTLE_WAIT;
-    while transcript.status == Status::Working && Instant::now() < deadline {
-        std::thread::sleep(SETTLE_POLL);
-        for frame in tail.frames()? {
-            runtime.observe(&frame, &mut transcript);
-        }
-    }
-    Ok(transcript)
-}
-
-fn await_reply(runtime: &dyn Runtime, record: &SessionRecord, offset: u64, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
-    let mut tail = StreamTail::open(stream_path(&record.host_dir), offset);
-    let mut transcript = seeded(record);
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        for frame in tail.frames()? {
-            runtime.observe(&frame, &mut transcript);
-        }
-        if let Some(reply) = reply_to(&transcript, question) {
-            return Ok(Some(reply));
-        }
-        std::thread::sleep(SETTLE_POLL);
-    }
-    Ok(None)
-}
-
-fn reply_to(transcript: &Transcript, question: &str) -> Option<String> {
-    let asked = transcript.entries.iter().position(|entry| entry.kind == EntryKind::User && entry.text.contains(question))?;
-    transcript.entries[asked..].iter().find(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.clone())
-}
-
-fn await_conversation(runtime: &dyn Runtime, record: &SessionRecord, offset: u64) -> NorthResult<String> {
-    let mut tail = StreamTail::open(stream_path(&record.host_dir), offset);
-    let mut transcript = seeded(record);
-    transcript.conversation = None;
-    let deadline = Instant::now() + OPEN_WAIT;
-    loop {
-        for frame in tail.frames()? {
-            runtime.observe(&frame, &mut transcript);
-        }
-        if let Some(conversation) = transcript.conversation.take() {
-            return Ok(conversation);
-        }
-        if Instant::now() > deadline || !record.host_pid.is_some_and(alive) {
-            return Err(NorthError::State(format!("{} did not open a conversation", record.name)));
-        }
-        std::thread::sleep(OPEN_POLL);
-    }
 }
 
 pub fn urgent_prefixed(text: &str) -> String {
