@@ -326,12 +326,12 @@ fn create_private_runtime(run: &Path, user_runtime: &Path) -> io::Result<()> {
 
 fn startup_script(executable: &Path) -> String {
     let quoted = format!("'{}'", executable.to_string_lossy().replace("'", "'\\''"));
-    format!("#!/bin/sh\nexec {quoted} private-desktop record-display\n")
+    format!("#!/bin/sh\nexec {quoted} desktop private record-display\n")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::create_private_runtime;
+    use super::{create_private_runtime, startup_script};
 
     #[test]
     fn clients_reach_the_user_manager_through_the_private_runtime() {
@@ -346,4 +346,9 @@ mod tests {
         assert!(!run.join("runtime/bus").exists());
     }
 
+    #[test]
+    fn startup_script_runs_the_record_display_subcommand_of_the_desktop_group() {
+        let script = startup_script(std::path::Path::new("/usr/bin/north"));
+        assert_eq!(script, "#!/bin/sh\nexec '/usr/bin/north' desktop private record-display\n");
+    }
 }
