@@ -125,6 +125,12 @@ struct CiInput {
     runs: BTreeMap<String, Output>,
 }
 
+const RED_CONCLUSIONS: [&str; 3] = ["failure", "timed_out", "startup_failure"];
+
+fn not_modified(error: &str) -> bool {
+    error.contains("HTTP 304")
+}
+
 fn ci(input: CiInput) -> Verdict {
     let mut failures = Vec::new();
     for repo in ["north", "makgora"] {
@@ -132,19 +138,28 @@ fn ci(input: CiInput) -> Verdict {
             .runs
             .get(repo)
             .ok_or_else(|| format!("{repo}: run list missing"))?;
-        let text = output.as_ref().map_err(|e| format!("{repo}: {e}"))?;
+        let text = match output {
+            Err(error) if not_modified(error) => continue,
+            other => other.as_ref().map_err(|e| format!("{repo}: {e}"))?,
+        };
         let rows: Vec<Value> = serde_json::from_str(text).map_err(|e| format!("{repo}: {e}"))?;
         let mut seen = BTreeSet::new();
+        let mut completed = false;
         for row in rows {
             if row["status"] != "completed" {
                 continue;
             }
+            completed = true;
+            let Some(conclusion) = row["conclusion"].as_str() else { continue };
+            if matches!(conclusion, "cancelled" | "skipped" | "neutral") {
+                continue;
+            }
             let name = row["workflowName"].as_str().ok_or("workflowName missing")?;
-            if seen.insert(name.to_owned()) && row["conclusion"] != "success" {
-                failures.push(format!("{repo}/{name}: {}", row["conclusion"]));
+            if seen.insert(name.to_owned()) && RED_CONCLUSIONS.contains(&conclusion) {
+                failures.push(format!("{repo}/{name}: {conclusion}"));
             }
         }
-        if seen.is_empty() {
+        if !completed {
             failures.push(format!("{repo}: no completed runs in latest five"));
         }
     }

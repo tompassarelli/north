@@ -25,3 +25,23 @@ fn health_alerts_once_per_episode_after_two_consecutive_failing_ticks() {
     assert_eq!(tick(&mut state, &fail, 106), Some("health: pace: stale".into()));
 }
 
+fn runs(north: &str) -> CiInput {
+    let makgora = r#"[{"status":"completed","conclusion":"success","workflowName":"Cargo"}]"#;
+    CiInput { runs: [("north".to_owned(), Ok(north.to_owned())), ("makgora".to_owned(), Ok(makgora.to_owned()))].into() }
+}
+
+#[test]
+fn ci_reads_a_failure_conclusion_as_red_and_a_304_reply_a_skipped_run_and_a_cancelled_run_as_not_red() {
+    let run = |name: &str, conclusion: &str| format!(r#"{{"status":"completed","conclusion":"{conclusion}","workflowName":"{name}"}}"#);
+    assert_eq!(ci(runs(&format!("[{}]", run("Main", "failure")))), Err("north/Main: failure".into()));
+    assert_eq!(ci(runs(&format!("[{}]", run("Main", "skipped")))), Ok(()), "a skipped run is not red");
+    assert_eq!(ci(runs(&format!("[{}]", run("Main", "cancelled")))), Ok(()), "a cancelled run is not red");
+    assert_eq!(ci(runs(&format!("[{},{}]", run("Cargo", "cancelled"), run("Cargo", "failure")))), Err("north/Cargo: failure".into()), "a cancelled run does not hide the failure under it");
+    assert_eq!(ci(runs(&format!("[{},{}]", run("Cargo", "cancelled"), run("Cargo", "success")))), Ok(()));
+    let mut not_modified = runs("[]");
+    not_modified.runs.insert("north".into(), Err("gh exited 1: HTTP 304: Not Modified".into()));
+    assert_eq!(ci(not_modified), Ok(()), "a 304 reply is no reading, not a red");
+    let mut broken = runs("[]");
+    broken.runs.insert("north".into(), Err("gh exited 1: HTTP 502".into()));
+    assert!(ci(broken).is_err(), "another gh error still alarms");
+}
