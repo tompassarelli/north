@@ -5,7 +5,6 @@
 //! runs after the push, and `agreement` reads the land queue's coverage record of how often the
 //! selection ran and what it missed. Depends only on north-base; the lander reaches it through `north coverage`.
 pub mod agreement;
-pub mod always;
 pub mod exec;
 pub mod hunks;
 pub mod map;

@@ -6,7 +6,6 @@ use north_base::build_inputs::{run_time_data, rust_build_input};
 
 use crate::hunks::{self, Hunks};
 use crate::map::{self, Map, Test};
-use crate::always;
 use crate::pick::{Added, Change, Selection, added_before_push, before_push, select as pick};
 
 const DEFAULT_TIMEOUT: &str = "1800";
@@ -42,7 +41,7 @@ pub fn select(arguments: &[String]) -> u8 {
     match selection_between(&request.base, &request.head, request.map.clone()) {
         Ok(selection) => {
             report(&selection);
-            let tests = before_push(&selection, &always_run(&request.head), MOST_BEFORE_PUSH);
+            let tests = before_push(&selection, MOST_BEFORE_PUSH);
             let added = added_before_push(&selection, MOST_BEFORE_PUSH);
             if !tests.is_empty() || !added.is_empty() {
                 println!("{}", nextest_arguments(&tests, &added).join(" "));
@@ -62,11 +61,7 @@ pub fn test(arguments: &[String]) -> u8 {
     {
         eprintln!("north coverage: {} tests is over the {MOST_BEFORE_PUSH} {OVER}", tests.len() + added.len());
     }
-    let always = always_run(&request.head);
-    if !always.is_empty() {
-        eprintln!("north coverage: {} whole-tree tests from land.after in .safe-push run with every lane", always.len());
-    }
-    let tests = before_push(&selection, &always, MOST_BEFORE_PUSH);
+    let tests = before_push(&selection, MOST_BEFORE_PUSH);
     let added = added_before_push(&selection, MOST_BEFORE_PUSH);
     if tests.is_empty() && added.is_empty() {
         return 0;
@@ -76,10 +71,6 @@ pub fn test(arguments: &[String]) -> u8 {
     eprintln!("north coverage: running {} selected tests on {host}", tests.len() + added.len());
     let status = Command::new(north()).args(["capacity", "offload", "run", "--host", &host, "--base", &request.base, "--head", &request.head, "--timeout", &request.timeout, "--", &command]).status();
     status.ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1))
-}
-
-fn always_run(head: &str) -> BTreeSet<Test> {
-    git(Path::new("."), &["rev-parse", "--show-toplevel"]).map_or_else(|_| BTreeSet::new(), |root| always::named(&always::after_lines(Path::new(&root), head)))
 }
 
 fn usage() -> u8 {

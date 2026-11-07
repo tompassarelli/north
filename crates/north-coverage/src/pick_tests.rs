@@ -63,22 +63,5 @@ fn selection_places_untraced_lines_files_and_inputs_and_leaves_toolchain_inputs_
     let adding = select(&Change { map: &map, since_map: Some(&since), lane: &diff("src/x.rs", &["@@ -25,0 +26,3 @@"]), other_paths: &[], mentions: &none, added: &added });
     assert_eq!(added_before_push(&adding, 400), added.to_vec());
     assert_eq!(added_before_push(&adding, 1), Vec::new());
-    assert!(before_push(&adding, &BTreeSet::new(), 1).is_empty());
-}
-
-#[test]
-fn a_lane_touching_only_north_climb_still_selects_the_whole_tree_habits_test() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let queue = std::process::Command::new("git").arg("-C").arg(&root).args(["config", "--file", ".safe-push", "--get-all", "land.after"]).output().unwrap();
-    let always = crate::always::named(&String::from_utf8_lossy(&queue.stdout).lines().map(str::to_owned).collect::<Vec<_>>());
-    let habits = Test { binary: "north-guard".to_owned(), name: "code_health::habits_tests::the_north_tree_keeps_its_rust_habits".to_owned() };
-    let climb = Test { binary: "north-climb".to_owned(), name: "scope::tests::a_scope_reads".to_owned() };
-    let map = Map { commit: "0123456789abcdef".to_owned(), recorded: 0, tests: vec![climb.clone()], functions: vec![Function { file: "crates/north-climb/src/scope.rs".to_owned(), start: 1, end: 10, reached_by: vec![0] }] };
-    let selection = picked(&map, Some(&Hunks::new()), &diff("crates/north-climb/src/scope.rs", &["@@ -5 +5 @@"]));
-    assert_eq!(selection, Selection::Tests { tests: BTreeSet::from([climb.clone()]), file_level: vec![], added: vec![] });
-    assert_eq!(before_push(&selection, &always, 400), always.iter().cloned().chain([climb]).collect::<BTreeSet<_>>());
-    assert!(always.contains(&habits), "{always:?}");
-    let unmapped = picked(&map, Some(&Hunks::new()), &diff("crates/north-climb/Cargo.toml", &["@@ -15 +15 @@"]));
-    assert!(matches!(unmapped, Selection::Unmapped(_)));
-    assert_eq!(before_push(&unmapped, &always, 400), always);
+    assert!(before_push(&adding, 1).is_empty());
 }

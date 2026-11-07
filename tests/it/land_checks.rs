@@ -327,7 +327,7 @@ fn split_entry(entry: &str) -> (&str, &str) {
 }
 
 fn features_check() -> String {
-    let entry = safe_push_entries("land.after").into_iter().find(|entry| entry.contains(" --no-build docs features-index --check")).expect("the features-index check runs after landing without a build");
+    let entry = safe_push_entries("land.check").into_iter().find(|entry| entry.contains(" --no-build docs features-index --check")).expect("the features-index check runs before the push without a build");
     split_entry(&entry).1.to_owned()
 }
 
@@ -406,18 +406,23 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
 
 const HEAD_NORTH_SHIM: &str = "[ \"$1\" = --code ] && shift 2\n[ \"$1\" = --build ] && exit 0\n[ \"$1\" = --no-build ] && shift\nexec \"$REAL_NORTH\" \"$@\"\n";
 
+fn with_north_land_lines(repo: &Path) {
+    fs::write(repo.join(".safe-push"), include_str!("../../.safe-push")).unwrap();
+    git(repo, &["config", "--file", ".safe-push", "--remove-section", "landing"]);
+    git(repo, &["config", "--file", ".safe-push", "--unset", "land.runner"]);
+    fs::create_dir_all(repo.join("bin")).unwrap();
+    script(&repo.join("bin/head-north"), HEAD_NORTH_SHIM);
+    script(&repo.join("bin/land-shell"), "exit 0\n");
+}
+
 #[test]
 fn north_land_check_refuses_a_lane_that_grows_a_skill_past_its_byte_limit() {
     let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
     let repo = &fixture.repo;
-    fs::write(repo.join(".safe-push"), include_str!("../../.safe-push")).unwrap();
-    git(repo, &["config", "--file", ".safe-push", "--remove-section", "landing"]);
-    git(repo, &["config", "--file", ".safe-push", "--unset", "land.runner"]);
+    with_north_land_lines(repo);
     let skill = repo.join("harness/skills/demo/SKILL.md");
     fs::create_dir_all(skill.parent().unwrap()).unwrap();
     fs::write(&skill, "---\nname: demo\ndescription: Demo skill.\n---\n\n# Demo\n\nRoute to references.\n").unwrap();
-    fs::create_dir_all(repo.join("bin")).unwrap();
-    script(&repo.join("bin/head-north"), HEAD_NORTH_SHIM);
     git(repo, &["add", ".safe-push", "harness", "bin"]);
     git(repo, &["commit", "-qm", "skill"]);
     let base = git(repo, &["rev-parse", "HEAD"]);
@@ -431,4 +436,27 @@ fn north_land_check_refuses_a_lane_that_grows_a_skill_past_its_byte_limit() {
     let report = text(&output);
     assert_eq!(output.status.code(), Some(1), "{report}");
     assert!(report.contains(&format!("demo: SKILL.md is {bytes} bytes; policy keeps each SKILL.md at most 6144")), "{report}");
+}
+
+#[test]
+fn north_land_check_refuses_a_lane_that_adds_a_reference_its_module_layers_forbid() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
+    let repo = &fixture.repo;
+    with_north_land_lines(repo);
+    fs::write(repo.join("structure.toml"), "[[module]]\nname = \"tests\"\npaths = [\"src/store/tests.rs\"]\nmay_use = []\n\n[[module]]\nname = \"fleet_store\"\npaths = [\"src/store/mod.rs\"]\nmay_use = []\n").unwrap();
+    fs::write(repo.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+    fs::create_dir_all(repo.join("src/store")).unwrap();
+    fs::write(repo.join("src/main.rs"), "mod store;\n").unwrap();
+    fs::write(repo.join("src/store/mod.rs"), "pub fn open() {}\n").unwrap();
+    fs::write(repo.join("src/store/tests.rs"), "pub fn check() {}\n").unwrap();
+    git(repo, &["add", ".safe-push", "bin", "structure.toml", "Cargo.toml", "src"]);
+    git(repo, &["commit", "-qm", "store"]);
+    let base = git(repo, &["rev-parse", "HEAD"]);
+    fs::write(repo.join("src/store/tests.rs"), "pub fn check() {\n    crate::store::open();\n}\n").unwrap();
+    git(repo, &["commit", "-qam", "split the store"]);
+    let head = git(repo, &["rev-parse", "HEAD"]);
+    let output = fixture.command_between(&base, &head).output().unwrap();
+    let report = text(&output);
+    assert_eq!(output.status.code(), Some(1), "{report}");
+    assert!(report.contains("module tests may not use fleet_store"), "{report}");
 }

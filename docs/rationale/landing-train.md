@@ -1192,9 +1192,14 @@ replays held the load at 50 to 90 on 24 threads and drained the battery while pl
 - the clean pick of every queued lane onto main (one candidate for all of them),
 - the outgoing scans (secrets, email, deny-list, language, native references), the stale-revert
   gate, the dropped-commit gate and the review and trailer gates,
-- the `land.check` lines that finish in seconds: the verb-table sort, the tests/it module list, and
-  code-health layers, agent-config tree-policy, package, features-index, rationale-index, doctor nix,
-  citation, nix-entry and experiments (north#634). Each runs as `head-north --no-build` on the lander
+- the `land.check` lines: clippy and nextest of the changed crates, the whole-tree habit tests, the
+  coverage-selected tests, and the checks that finish in seconds: the verb-table sort, the tests/it
+  module list, code-health layers, agent-config tree-policy, package, features-index, rationale-index,
+  doctor nix, test-admission kills, citation, nix-entry, experiments and run-time-data (north#634).
+  e1d1313a5 moved all but clippy and nextest after landing for speed (north#719); an after-landing
+  line can only turn main red, and on 2026-11-07 a 6464-byte workers skill (98d30d226) and a layers
+  breach (086197b4b) did, so every one of them a lane's own change can fail moved back (north#714).
+  Each head-north check runs as `head-north --no-build` on the lander
   when its live runtime covers the checker code, never a compile there. When it does not (the lane
   or a main the runtime predates changed the checker), the lander runs the same check without
   `--no-build` on a build host, which builds north from the lane's tree; head-north refuses a
@@ -1209,7 +1214,8 @@ the next candidate; the push is the only wait after the scans.
 ### What runs after the push
 
 Every other check is a `land.after` line and runs once per landed batch on main, on the build host
-(`landing.runner`) under capacity admission: owners, clippy, cargo test, cargo check and the changed-tests selection. The affected-tests pre-land selection of north#360 moved here
+(`landing.runner`) under capacity admission: owners, the graph validation, test-admission run, the
+portable and machine-bound changed-tests selections and the agent-machinery tests. The affected-tests pre-land selection of north#360 moved here
 with them. Each landed commit still has every check run on it, the checks above before its push; none was deleted or weakened, and the
 two coverage waivers are the `Removes-check:` trailers on commit 9fe95ca5a.
 

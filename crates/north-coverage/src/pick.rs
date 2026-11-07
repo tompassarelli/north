@@ -81,13 +81,11 @@ pub fn select(change: &Change) -> Selection {
     Selection::Tests { tests, file_level, added: change.added.to_vec() }
 }
 
-pub fn before_push(selection: &Selection, always: &BTreeSet<Test>, most: usize) -> BTreeSet<Test> {
-    let mut tests = match selection {
+pub fn before_push(selection: &Selection, most: usize) -> BTreeSet<Test> {
+    match selection {
         Selection::Tests { tests, added, .. } if tests.len() + added.len() <= most => tests.clone(),
         _ => BTreeSet::new(),
-    };
-    tests.extend(always.iter().cloned());
-    tests
+    }
 }
 
 pub fn added_before_push(selection: &Selection, most: usize) -> Vec<Added> {
