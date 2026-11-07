@@ -243,7 +243,7 @@ impl Policy {
     fn worktree_advice(&self, project: &str) -> String {
         let container = format!("{}/{project}", self.root);
         format!(
-            "Work in a lane, then land through a ref:\n  mkdir -p {container}/worktrees\n  git -C {container}/main worktree add {container}/worktrees/SLUG -b SLUG\n  # edit + commit in {container}/worktrees/SLUG, then land it:\n  git -C {container}/main merge --ff-only SLUG\n  # (plain `git fetch LANE BRANCH:refs/heads/main` cannot be used: main is checked out)\n"
+            "Work in a lane, then land through a ref:\n  mkdir -p {container}/worktrees\n  git -C {container}/main worktree add {container}/worktrees/SLUG -b SLUG\n  # edit + commit in {container}/worktrees/SLUG, then land it from the lane:\n  safe-push --to main\n  # then bring main up to date, the only pull or merge allowed in main:\n  git -C {container}/main fetch origin main && git -C {container}/main merge --ff-only origin/main\n  # (`git pull`, `git merge FETCH_HEAD` and `git merge SLUG` in main are refused: they can move main onto a commit origin/main lacks)\n"
         )
     }
     fn advice(&self, hit: &Hit) -> String {

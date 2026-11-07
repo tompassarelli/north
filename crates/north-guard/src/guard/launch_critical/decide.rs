@@ -1,4 +1,4 @@
-use super::git::{git_read_form, push_deletes, wip_destroying};
+use super::git::{git_read_form, push_deletes, takes_only_origin_main, wip_destroying};
 use super::patch::{excise_sanctioned, find_envelope};
 use super::shell::{record_assignments, redirect_targets, resolve, tokens, union};
 use super::writes::cargo_target_paths;
@@ -117,10 +117,10 @@ impl Policy {
             } else if call.verb == "fetch" || git_read_form(&call.verb, &call.args) || (call.verb == "push" && push_deletes(&call.args)) {
                 None
             } else if ["merge", "pull"].contains(&call.verb.as_str()) {
-                (!call.args.iter().any(|s| s == "--ff-only")).then(|| {
+                (!takes_only_origin_main(&call.verb, &call.args)).then(|| {
                     (
                         call.target.clone(),
-                        format!("{} (without --ff-only)", call.verb),
+                        format!("{} from anything but origin/main", call.verb),
                     )
                 })
             } else {
