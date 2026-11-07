@@ -14,7 +14,7 @@ use crate::platform::{land_queue, records_mirror};
 use crate::providers::claude::runs::outcome::waits_on_time;
 use crate::threads::attribution::{Cause, attribute, fleet_column, recorded_column, report_column};
 
-const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred and lander-queued runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
+const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred, lander-queued and job-waking runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
 
 pub struct Attempt {
@@ -43,7 +43,7 @@ pub fn missed_checks(mirror: &Mirror) -> BTreeSet<String> {
     missed
 }
 
-pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, queued: &BTreeSet<String>) -> rusqlite::Result<Vec<Attempt>> {
+pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending: &Pending) -> rusqlite::Result<Vec<Attempt>> {
     let mut statement = db.prepare("SELECT DISTINCT follows FROM runs WHERE coalesce(follows, '') != ''")?;
     let followed: HashSet<String> = statement.query_map([], |row| row.get(0))?.filter_map(Result::ok).collect();
     let mut statement = db.prepare(&format!(
@@ -59,7 +59,7 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, queued: 
         .filter_map(|(agent, category, ended, outcome, item, report, compactions, recorded, session)| {
             let ended = Timestamp::parse(&ended).ok()?.unix_seconds();
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
-            if outcome != "done" && awaits_lander(&report) && queued.contains(&session) {
+            if outcome != "done" && pending.holds(&report, &session) {
                 return None;
             }
             let deferred = outcome != "done" && waits_on_time(&report) && !checked_miss();
@@ -68,9 +68,31 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, queued: 
         .collect())
 }
 
-/// The fleet sessions whose lane waits undecided in this host's lander queues, whose `Stop: landing` first tries are pending.
-pub fn queued_sessions() -> BTreeSet<String> {
-    land_queue::queued_sessions(&records_mirror::state_home())
+/// The fleet sessions whose unfinished first try is pending: its next report, which the lander's verdict or its own job's
+/// exit wakes it to write, replaces this one.
+#[derive(Default)]
+pub struct Pending {
+    /// Sessions whose lane waits undecided in this host's lander queues, pending when the report stops on landing.
+    pub queued: BTreeSet<String>,
+    /// Sessions holding an unexpired wait lease in the fleet ledger (a `job-run --notify` job, farm, branch or capture), whose end wakes them.
+    pub waking: BTreeSet<String>,
+}
+
+impl Pending {
+    pub fn read(db: &Connection, now: i64) -> Self {
+        Self { queued: land_queue::queued_sessions(&records_mirror::state_home()), waking: waking_sessions(db, now) }
+    }
+
+    fn holds(&self, report: &str, session: &str) -> bool {
+        (awaits_lander(report) && self.queued.contains(session)) || self.waking.contains(session)
+    }
+}
+
+/// The fleet sessions with a wait whose lease outlasts `now`, from the ledger's `fleet_waits`; none in a ledger without it.
+pub fn waking_sessions(db: &Connection, now: i64) -> BTreeSet<String> {
+    let Ok(mut statement) = db.prepare("SELECT session, deadline FROM fleet_waits") else { return BTreeSet::new() };
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)));
+    rows.into_iter().flatten().filter_map(Result::ok).filter(|(_, deadline)| Timestamp::parse(deadline).is_ok_and(|deadline| deadline.unix_seconds() > now)).map(|(session, _)| session).collect()
 }
 
 /// The repositories an item names, by `repo#N`.
@@ -79,7 +101,7 @@ pub fn repos(item: &str) -> BTreeSet<String> {
 }
 
 pub fn first_try(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Vec<Measure>> {
-    let attempts = attempts(db, weeks[1].start, &missed_checks(&Mirror::local()), &queued_sessions())?.into_iter().filter(|attempt| !attempt.deferred).collect::<Vec<_>>();
+    let attempts = attempts(db, weeks[1].start, &missed_checks(&Mirror::local()), &Pending::read(db, weeks[0].end))?.into_iter().filter(|attempt| !attempt.deferred).collect::<Vec<_>>();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for attempt in attempts.iter().filter(|attempt| weeks[0].holds(attempt.ended)) {
         *counts.entry(attempt.category.as_str()).or_default() += 1;

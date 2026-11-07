@@ -283,7 +283,7 @@ impl Records {
             landings: landed(&threads, since)?,
             verification: verified(&sources.records, since),
             reworked: landing::judged_landings(&threads, rework)?,
-            attempts: workers::attempts(&threads, since, &workers::missed_checks(&north_github_mirror::store::Mirror::local()), &workers::queued_sessions()).map_err(failed)?,
+            attempts: workers::attempts(&threads, since, &workers::missed_checks(&north_github_mirror::store::Mirror::local()), &workers::Pending::read(&threads, now)).map_err(failed)?,
             firsts: landing::first_landings(&threads).map_err(failed)?,
             tom: tom::Tom::read(&sources.places, &sources.home, since, now)?,
             priority: note(now),
