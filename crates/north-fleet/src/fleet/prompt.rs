@@ -11,6 +11,7 @@ use crate::foundation::clock::Timestamp;
 use super::model::Role;
 
 const TEMPLATE: &str = include_str!("prompt.md");
+pub const TEMPLATE_PATH: &str = "crates/north-fleet/src/fleet/prompt.md";
 const SEED_ORDERS: &str = include_str!("standing-orders.md");
 const DEEPEN: &str = include_str!("deepen.md");
 const ORDERS_SLOT: &str = "{standing_orders}";
@@ -84,9 +85,17 @@ pub struct PromptInputs<'a> {
 }
 
 pub fn render(inputs: &PromptInputs) -> String {
+    render_from(TEMPLATE, inputs)
+}
+
+pub fn template() -> &'static str {
+    TEMPLATE
+}
+
+pub fn render_from(template: &str, inputs: &PromptInputs) -> String {
     let fleet = match inputs.mode {
         PromptMode::North => Some(
-            TEMPLATE
+            template
                 .replace(CAP_SLOT, &inputs.foreground_cap_secs.to_string())
                 .replace(SESSION_SLOT, inputs.session)
                 .replace(REACH_SLOT, reach(inputs.role))

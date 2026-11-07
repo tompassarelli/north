@@ -1,3 +1,4 @@
+mod appended;
 mod arm;
 mod judge;
 mod source;
@@ -22,13 +23,17 @@ use super::json::Json;
 use super::run::{run_tagged, state_dir};
 use crate::error::NorthError;
 use crate::fleet::install;
+use crate::fleet::prompt::prompt_sha;
 use crate::foundation::clock::Timestamp;
 use crate::platform::replay_verdict::{self, Verdict};
 
-const USAGE: &str = "usage: north policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N]
+const USAGE: &str = "usage: north policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N] [--dry-run]
   CASE is a correction id from the grounding ledger or a case file (harness/cases/*.toml).
   GENERATION is own (the agent generation the session ran under), current, a gen-* directory, or REPO@REV: the session's
   own generation with the skills, CLAUDE.md and agent definitions that REPO (north or south) holds at revision REV.
+  A case cut from a north fleet conversation (found by its record, or named by fleet_session in the case file) resumes
+  with that session's fleet prompt appended, rendered from the arm's prompt.md (north@REV takes it at REV) with the session's standing orders up to the cut and its brief;
+  --dry-run prints each arm's appended-prompt hash and runs nothing.
   The first arm is the base. Each case runs --samples per arm (default 2, and a third when the two disagree); with two
   arms a judged case prints kept or regressed only when the arms differ at the 90% level, else inconclusive. A case file
   replayed with arms named base and lane gets its graded samples in CASE.proof.jsonl beside it, the proof
@@ -43,10 +48,11 @@ struct Options {
     max_turns: u32,
     budget: f64,
     samples: usize,
+    dry_run: bool,
 }
 
 fn parse(arguments: &[String]) -> Result<Options, String> {
-    let mut options = Options { ids: Vec::new(), arms: Vec::new(), jobs: 3, out: None, judge: "claude-sonnet-5-5".into(), max_turns: 40, budget: 10.0, samples: 2 };
+    let mut options = Options { ids: Vec::new(), arms: Vec::new(), jobs: 3, out: None, judge: "claude-sonnet-5-5".into(), max_turns: 40, budget: 10.0, samples: 2, dry_run: false };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         let mut value = |flag: &str| rest.next().cloned().ok_or_else(|| format!("{flag} needs a value"));
@@ -58,6 +64,7 @@ fn parse(arguments: &[String]) -> Result<Options, String> {
             "--judge-model" => options.judge = value("--judge-model")?,
             "--max-turns" => options.max_turns = value("--max-turns")?.parse().map_err(|_| "--max-turns needs a whole number")?,
             "--budget-usd" => options.budget = value("--budget-usd")?.parse().map_err(|_| "--budget-usd needs a number")?,
+            "--dry-run" => options.dry_run = true,
             flag if flag.starts_with("--") => {
                 return Err(format!("unrecognized arguments: {flag}"));
             }
@@ -73,10 +80,18 @@ fn parse(arguments: &[String]) -> Result<Options, String> {
     Ok(options)
 }
 
+struct Replayed {
+    name: String,
+    generation: Generation,
+    transcript: String,
+    substitutions: usize,
+    appended: Option<String>,
+}
+
 struct Prepared {
     case: Case,
     spec: Spec,
-    arms: Vec<(String, Generation, String, usize)>,
+    arms: Vec<Replayed>,
 }
 
 struct Job {
@@ -92,6 +107,7 @@ fn child_env() -> Vec<(String, String)> {
 fn prepare(id: &str, arms: &[Arm]) -> Result<Prepared, NorthError> {
     let (case, spec) = spec::load(id)?;
     let own = arm::generation("own", &case)?;
+    let launch = appended::launch(&case, spec.fleet_session.as_deref());
     let mut prepared = Vec::new();
     for arm in arms {
         let generation = arm::generation(&arm.spec, &case)?;
@@ -100,21 +116,25 @@ fn prepare(id: &str, arms: &[Arm]) -> Result<Prepared, NorthError> {
         if !pairs.is_empty() && count == 0 {
             eprintln!("policy-replay case: {id} arm {}: {} differs from {} but none of its changed text appears in the transcript", arm.name, generation.name(), own.name());
         }
-        prepared.push((arm.name.clone(), generation, transcript, count));
+        let appended = launch.as_ref().map(|launch| launch.appended(generation.fleet_template()));
+        prepared.push(Replayed { name: arm.name.clone(), generation, transcript, substitutions: count, appended });
     }
-    eprintln!("policy-replay case: {id} {} {} cut at {} in {} (base {})", spec.kind.word(), case.class, case.cut_at, case.session, prepared[0].1.name());
+    eprintln!("policy-replay case: {id} {} {} cut at {} in {} (base {})", spec.kind.word(), case.class, case.cut_at, case.session, prepared[0].generation.name());
     Ok(Prepared { case, spec, arms: prepared })
 }
 
 fn sample(prepared: &Prepared, job: &Job, options: &Options, env: &[(String, String)]) -> Result<Value, NorthError> {
     let case = &prepared.case;
-    let (name, generation, transcript, count) = &prepared.arms[job.arm];
+    let Replayed { name, generation, transcript, substitutions: count, appended } = &prepared.arms[job.arm];
     let started = Instant::now();
     let root = tempfile::Builder::new().prefix("policy-replay-case-").tempdir().map_err(NorthError::Io)?;
     arm::config_dir(root.path(), case, generation, transcript)?;
     let mut command = Command::new(install::runtime("claude"));
     command.args(["-p", &case.prompt, "--resume", &case.session, "--fork-session", "--system-prompt-snapshot", "off"]);
     command.args(["--model", &case.model, "--effort", &case.effort, "--max-turns", &options.max_turns.to_string(), "--max-budget-usd", &options.budget.to_string()]);
+    if let Some(text) = appended {
+        command.args(["--append-system-prompt", text]);
+    }
     command.args(["--permission-mode", "dontAsk", "--setting-sources", "user", "--strict-mcp-config", "--output-format", "stream-json", "--verbose"]);
     command.env_clear().envs(env.iter().cloned()).env("CLAUDE_CONFIG_DIR", root.path()).env("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "1");
     command.current_dir(if case.cwd.is_dir() { case.cwd.clone() } else { root.path().to_path_buf() });
@@ -128,7 +148,7 @@ fn sample(prepared: &Prepared, job: &Job, options: &Options, env: &[(String, Str
         "case": case.id, "kind": prepared.spec.kind.word(), "class": case.class, "session": case.session, "cut_at": case.cut_at,
         "arm": name, "generation": generation.name(), "substitutions": count, "sample": job.sample,
         "model": case.model, "effort": case.effort, "detector": if prepared.spec.detector.deterministic() { "pattern".to_owned() } else { options.judge.clone() },
-        "tool_calls": calls, "final_text": answer, "leftover_processes": leftover,
+        "appended_sha": appended.as_deref().map(prompt_sha), "tool_calls": calls, "final_text": answer, "leftover_processes": leftover,
     });
     match &used {
         Some(used) if used.subtype.as_deref() == Some("success") || !answer.is_empty() => {
@@ -234,7 +254,7 @@ fn report(prepared: &[Prepared], rows: &[Value]) -> Report {
         let mut parts = Vec::new();
         let mut states = Vec::new();
         let mut counts = Vec::new();
-        for (name, generation, _, count) in &entry.arms {
+        for Replayed { name, generation, substitutions: count, .. } in &entry.arms {
             let (repeats, of) = graded(rows, id, name);
             let state = reproduces(repeats, of);
             let word = match state {
@@ -249,7 +269,7 @@ fn report(prepared: &[Prepared], rows: &[Value]) -> Report {
         if states.first().copied().flatten() == Some(true) {
             reproduced += 1;
         }
-        let names: Vec<&str> = entry.arms.iter().map(|(name, ..)| name.as_str()).collect();
+        let names: Vec<&str> = entry.arms.iter().map(|arm| arm.name.as_str()).collect();
         let verdicts = lane_verdicts(&entry.spec, id, rows, &names);
         for (name, verdict) in names[1..].iter().zip(&verdicts) {
             if verdict.as_ref().is_some_and(Verdict::refuses) {
@@ -267,7 +287,24 @@ fn report(prepared: &[Prepared], rows: &[Value]) -> Report {
     Report { lines, reproduced, refused }
 }
 
+fn dry_run(options: &Options) -> Result<u8, NorthError> {
+    for id in &options.ids {
+        let entry = prepare(id, &options.arms)?;
+        for arm in &entry.arms {
+            let appended = arm.appended.as_ref().map_or_else(
+                || format!("no appended prompt: no north fleet record owns session {} (name it with fleet_session in the case file)", entry.case.session),
+                |text| format!("appended prompt sha256 {} ({} bytes)", prompt_sha(text), text.len()),
+            );
+            println!("{} {} ({}): {appended}", entry.case.id, arm.name, arm.generation.name());
+        }
+    }
+    Ok(0)
+}
+
 fn replayed(options: &Options) -> Result<u8, NorthError> {
+    if options.dry_run {
+        return dry_run(options);
+    }
     if std::env::var("ANTHROPIC_API_KEY").map_or(true, |key| key.is_empty()) && std::env::var("CLAUDE_CODE_OAUTH_TOKEN").map_or(true, |token| token.is_empty()) {
         return Err(NorthError::Usage("policy-replay case: replays run in a scratch Claude config, so they need ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in the environment".into()));
     }
@@ -292,7 +329,7 @@ fn replayed(options: &Options) -> Result<u8, NorthError> {
     let split: Vec<Job> = (0..prepared.len())
         .flat_map(|case| (0..options.arms.len()).map(move |arm| (case, arm)))
         .filter(|&(case, arm)| {
-            let (repeats, of) = graded(&rows, &prepared[case].case.id, &prepared[case].arms[arm].0);
+            let (repeats, of) = graded(&rows, &prepared[case].case.id, &prepared[case].arms[arm].name);
             options.samples == 2 && (of < 2 || (repeats == 1 && of == 2))
         })
         .map(|(case, arm)| Job { case, arm, sample: 2 })

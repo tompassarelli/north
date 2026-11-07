@@ -31,6 +31,7 @@ impl Detector {
 pub struct Spec {
     pub kind: Kind,
     pub detector: Detector,
+    pub fleet_session: Option<String>,
 }
 
 fn refusal(message: String) -> NorthError {
@@ -46,12 +47,13 @@ pub fn parse(argument: &str, text: &str) -> Result<(Spec, DocumentMut), NorthErr
     };
     let (repeats, expects) = (pattern("repeats")?, pattern("expects")?);
     let detector = if repeats.is_none() && expects.is_none() { Detector::Judge } else { Detector::Pattern { repeats, expects } };
-    Ok((Spec { kind, detector }, document))
+    let fleet_session = document.get("fleet_session").and_then(|item| item.as_str()).map(str::to_owned);
+    Ok((Spec { kind, detector, fleet_session }, document))
 }
 
 pub fn load(argument: &str) -> Result<(Case, Spec), NorthError> {
     if !argument.ends_with(".toml") {
-        return Ok((source::resolve(argument)?, Spec { kind: Kind::Bad, detector: Detector::Judge }));
+        return Ok((source::resolve(argument)?, Spec { kind: Kind::Bad, detector: Detector::Judge, fleet_session: None }));
     }
     let path = Path::new(argument);
     let text = fs::read_to_string(path).map_err(|error| refusal(format!("{argument}: {error}")))?;

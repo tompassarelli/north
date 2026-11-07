@@ -55,6 +55,14 @@ pub fn find_session(root: &Path, host_dir: &Path, conversation: &str) -> Option<
     records_in(root, [root.to_path_buf(), root.join(ARCHIVE)]).find(|record| record.host_dir == host_dir && record.conversation.as_deref() == Some(conversation))
 }
 
+pub fn conversation_record(root: &Path, conversation: &str) -> Option<SessionRecord> {
+    records_in(root, [root.to_path_buf(), root.join(ARCHIVE)]).find(|record| record.conversation.as_deref() == Some(conversation))
+}
+
+pub fn named_record_before(root: &Path, name: &str, before_ms: u64) -> Option<SessionRecord> {
+    records_in(root, [root.to_path_buf(), root.join(ARCHIVE)]).filter(|record| record.name == name && record.created_ms <= before_ms).max_by_key(|record| record.created_ms)
+}
+
 pub fn past_records(root: &Path) -> Vec<SessionRecord> {
     let placed = fs::read_dir(root.join(PLACED)).into_iter().flatten().flatten().filter_map(|entry| read_phased(None, &entry.path()).ok());
     let mut records: Vec<SessionRecord> = records_in(root, [root.join(ARCHIVE)]).chain(placed).collect();

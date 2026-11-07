@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use super::source::Case;
 use crate::error::NorthError;
+use crate::fleet::prompt;
 use crate::foundation::clock::Timestamp;
 
 const OWN: &str = "own";
@@ -23,6 +24,7 @@ pub struct Generation {
     texts: BTreeMap<String, String>,
     skills: PathBuf,
     agents: Option<PathBuf>,
+    fleet_template: Option<String>,
     revision: Option<(String, tempfile::TempDir)>,
 }
 
@@ -86,7 +88,7 @@ impl Generation {
         let mut texts = BTreeMap::from([("CLAUDE.md".to_owned(), instructions)]);
         let skills = dir.join("skills/shared");
         walk(&skills, &skills, &mut texts);
-        Ok(Self { dir, texts, skills, agents: None, revision: None })
+        Ok(Self { dir, texts, skills, agents: None, fleet_template: None, revision: None })
     }
 
     pub fn name(&self) -> String {
@@ -94,6 +96,10 @@ impl Generation {
             return label.clone();
         }
         self.dir.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
+    }
+
+    pub fn fleet_template(&self) -> &str {
+        self.fleet_template.as_deref().unwrap_or_else(|| prompt::template())
     }
 
     fn pieces(&self, key: &str) -> Vec<String> {
@@ -298,7 +304,9 @@ impl Generation {
         texts.insert("CLAUDE.md".to_owned(), instructions);
         let agents = scratch.path().join("agents");
         let agents = (repo == "north" && extract(&root, &sha, "harness/claude/agents", &agents)?).then_some(agents).or(self.agents);
+        let at_revision = (repo == "north").then(|| git(&root, &["show", &format!("{sha}:{}", prompt::TEMPLATE_PATH)]).ok()).flatten();
+        let fleet_template = at_revision.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).or(self.fleet_template);
         let label = format!("{repo}@{}", &sha[..sha.len().min(10)]);
-        Ok(Self { dir: self.dir, texts, skills, agents, revision: Some((label, scratch)) })
+        Ok(Self { dir: self.dir, texts, skills, agents, fleet_template, revision: Some((label, scratch)) })
     }
 }
