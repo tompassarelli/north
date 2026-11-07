@@ -9,6 +9,7 @@ use toml_edit::{DocumentMut, Item, Value};
 use crate::foundation::clock::Timestamp;
 use crate::router::pricing::{PriceTable, TokenUse};
 
+pub mod marks;
 mod runs;
 pub use runs::{Finished, Open, Reading, Snapshot, store};
 
@@ -88,10 +89,17 @@ fn remaining(grants: &[Grant], spends: &[(String, f64)]) -> Vec<f64> {
     left
 }
 
-/// The grants unexpired on `today` that still have credit left after `spends`, soonest expiry first.
-pub fn with_credit_left(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Vec<Grant> {
-    let left = remaining(grants, spends);
-    (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= today && has_credit(left[*index])).map(|index| grants[index].clone()).collect()
+/// Anthropic's billing per dollar of north's list-price spend: proton's $200 grant ran out at $145.76 of list-price spend on 2026-11-07 (north#755).
+pub const BILLED_PER_LIST: f64 = 200.0 / 145.76;
+
+/// The share of a grant the pool keeps unopened, so the sessions already on it can finish their turns before billing runs out.
+pub const RESERVE: f64 = 0.10;
+
+/// The grants unexpired on `today` a launch may still draw on: with `spends` billed at `BILLED_PER_LIST` times list price, each keeps more than `RESERVE` of its credit; soonest expiry first.
+pub fn launchable(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Vec<Grant> {
+    let billed: Vec<(String, f64)> = spends.iter().map(|(day, usd)| (day.clone(), usd * BILLED_PER_LIST)).collect();
+    let left = remaining(grants, &billed);
+    (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= today && has_credit(left[*index] - RESERVE * grants[*index].usd)).map(|index| grants[index].clone()).collect()
 }
 
 /// Reports the soonest grant unexpired on `today` that has credit left, with what is spent of it and the grants after it.
@@ -102,7 +110,7 @@ pub fn balance(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Optio
     Some(Balance { grant: grants[current].clone(), spent: grants[current].usd - left[current], left: left[current], later: live.iter().filter(|index| **index > current).map(|index| grants[*index].clone()).collect() })
 }
 
-/// Each organization id's grants with credit left on `today`, read from the ledger's api spend; an id appears only when it has dated grants, so an empty list means every grant is spent or expired.
+/// Each organization id's grants a launch may draw on `today`, read from the ledger's api spend; an id appears only when it has dated grants, so an empty list means every grant is spent, held in reserve or expired.
 pub fn open_grants(policy: &Path, ledger: &Path, today: &str) -> BTreeMap<String, Vec<Grant>> {
     let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(ledger, &prices, Timestamp::now())).map(|reading| reading.orgs).unwrap_or_default();
     let named = named(policy);
@@ -111,8 +119,7 @@ pub fn open_grants(policy: &Path, ledger: &Path, today: &str) -> BTreeMap<String
         .filter(|(_, grants)| !grants.is_empty())
         .map(|(id, grants)| {
             let mine: Vec<(String, f64)> = named.iter().filter(|(_, other)| *other == id).flat_map(|(name, _)| spends.get(name).cloned().unwrap_or_default()).collect();
-            let open = with_credit_left(&grants, &mine, today);
-            (id, open)
+            (id, launchable(&grants, &mine, today))
         })
         .collect()
 }
@@ -145,7 +152,8 @@ pub fn left(policy: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today:
         .collect()
 }
 
-fn next_credits(policy: &Path) -> BTreeMap<String, String> {
+/// Each organization id's next credit day from `claude-accounts.toml` beside `policy`, where it declares one.
+pub fn next_credits(policy: &Path) -> BTreeMap<String, String> {
     let accounts: DocumentMut = std::fs::read_to_string(policy.with_file_name("claude-accounts.toml")).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
     accounts
         .get("account")
@@ -210,7 +218,7 @@ pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
             let mine = spends.get(&name).cloned().unwrap_or_default();
             let balance = balance(grants.get(&id).map_or(&[][..], Vec::as_slice), &mine, &today)?;
             let expires_s = crate::foundation::clock::parse_day_number(&balance.grant.expires)? * 86_400;
-            let exhausted = state.join("north/api-exhausted").join(&id).exists();
+            let exhausted = marks::held(&state.join("north/api-exhausted"), &id, &today);
             Some(Source { name, left: balance.left, expires_s, burn_per_h, exhausted })
         })
         .collect()

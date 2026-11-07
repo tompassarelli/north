@@ -378,7 +378,7 @@ impl Fleet {
         read_record(&self.session_dir(name)?).map_err(|_| NorthError::Usage(format!("no session named {name}")))
     }
 
-    pub(crate) fn session_dir(&self, name: &str) -> NorthResult<PathBuf> {
+    pub fn session_dir(&self, name: &str) -> NorthResult<PathBuf> {
         let valid = !name.is_empty() && !name.starts_with('.') && !name.contains('/') && name != SPOOL_DIR;
         if !valid {
             return Err(NorthError::Usage(format!("invalid session name {name:?}")));

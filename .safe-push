@@ -4,7 +4,7 @@
 	queue = lander
 	lander-host = whiterabbit
 	push-app = lander
-	remote-hosts = gex45 ccx33
+	remote-hosts = gex45 ccx33 cpx62
 	after-runs = 3
 	warm = "(cd agent-machinery && ../bin/depbox fetch -- bun install --frozen-lockfile) && CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --workspace --locked --offline -- -D warnings && CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --workspace --locked --offline --no-run"
 [mutant]

@@ -90,7 +90,7 @@ impl OverSsh {
         Ok(serde_json::from_slice(&self.run(ssh, &["fleet", "spool", "api-spend"], &[])?)?)
     }
 
-    fn run(&self, host: &str, words: &[&str], input: &[u8]) -> NorthResult<Vec<u8>> {
+    pub fn run(&self, host: &str, words: &[&str], input: &[u8]) -> NorthResult<Vec<u8>> {
         over_ssh_via(&self.ssh, host, words, Some(input), SSH_WAIT)
     }
 }
