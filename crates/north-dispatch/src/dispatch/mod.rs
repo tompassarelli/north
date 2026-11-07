@@ -71,7 +71,7 @@ mod tries_tests;
 #[cfg(test)]
 mod spread_tests;
 
-const USAGE: &str = "usage: north dispatch [--dry-run] | pause --reason TEXT | resume | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north dispatch [--dry-run] | pause --reason TEXT | resume | needs REPO#N | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -282,6 +282,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         [verb, rest @ ..] if verb == "route-replay" => return nearest::replay(rest),
         [verb, rest @ ..] if verb == "pause" => return pause::pause(rest),
         [verb] if verb == "resume" => return pause::resume(),
+        [verb, item] if verb == "needs" => return host_needs::serve(item),
         _ => {
             eprintln!("{USAGE}");
             return 2;

@@ -76,7 +76,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     let hand = |category: &str| {
         let brief = format!("Item: north#7\nCategory: {category}");
-        start(&Ask { item: "north#7", brief: &brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true }, "", &cfg, &History::default(), &unread, &|_| super::grounds::Grounds::default())
+        start(&Ask { item: "north#7", brief: &brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, "", &cfg, &History::default(), &unread, &|_| super::grounds::Grounds::default())
     };
     for (category, tier) in [("tooling", Tier::Sonnet), ("feature", Tier::Sonnet), ("bug-known-cause", Tier::Sonnet), ("docs-policy", Tier::Sonnet), ("debugging-unknown-cause", Tier::Opus), ("mechanical", Tier::Haiku)] {
         let picked = hand(category).unwrap().route;
@@ -103,7 +103,7 @@ fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would
     use std::collections::BTreeMap;
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
     let launch = |brief: &str, worker: bool| {
-        let ask = Ask { item: "north#636", brief, prompt: brief, model: None, reason: None, worker };
+        let ask = Ask { item: "north#636", brief, prompt: brief, model: None, reason: None, worker, places: false };
         start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default()).unwrap()
     };
     let scratch = tempfile::tempdir().unwrap();

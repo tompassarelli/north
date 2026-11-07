@@ -231,7 +231,7 @@ pub fn others(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f
     found
 }
 
-fn hosts(cfg: &DocumentMut) -> Vec<String> {
+pub(super) fn hosts(cfg: &DocumentMut) -> Vec<String> {
     cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect()
 }
 

@@ -203,3 +203,54 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     let ticked = Issue { body: body.replace("- [ ] the issue holds", "- [x] the issue holds").replace("- [ ] gex45 sits", "- [x] gex45 sits"), ..issue };
     assert!(super::host_needs::holding(&super::host_needs::read(directory.path()), &ticked, d0411_at).is_empty(), "a need goes once every box it was learned for is ticked");
 }
+
+#[test]
+fn a_hand_launch_on_north_759_reads_the_nexus_stop_of_n_claim_reland_and_gex45_is_refused_while_an_item_with_no_need_places_as_before() {
+    let ran = record::Record { at: 1_794_040_000.0, item: "north#759".into(), host: "gex45".into(), account: "claude:c".into(), name: "n-claim-reland".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: true, effort_arm: None, effort: None };
+    let reported = serde_json::json!({
+        "entries": [{"kind": "assistant", "text": "Not done: the claim reland needs the ledger on nexus.\n\nStop: host nexus"}],
+        "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
+    });
+    let at = 1_794_041_000.0;
+    let directory = tempfile::tempdir().unwrap();
+    let body = "- [ ] the claim lands on the ledger host and a replay shows it held";
+    let mut boxes = [issue("north", 759, body, &[])];
+    super::survey::stopped(std::slice::from_ref(&ran), &mut boxes, |_| Ok::<serde_json::Value, String>(reported.clone()), |_| None, &mut Vec::new());
+    let launches = super::stops::last_launches(std::slice::from_ref(&ran));
+    let learned = super::host_needs::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap();
+    let hosts: Vec<String> = ["gex45", "nexus", "whiterabbit"].map(str::to_owned).to_vec();
+    let [claimed] = boxes;
+    let needs = super::host_needs::of(&claimed, &hosts, &learned, at);
+    assert_eq!(needs, ["nexus"], "the hand launch's own Stop: host is learned like a dispatched one's");
+
+    let cfg: toml_edit::DocumentMut = r#"
+[hosts.gex45]
+launches = true
+serves = []
+[hosts.nexus]
+launches = true
+serves = []
+[hosts.whiterabbit]
+reaches = ["gex45", "nexus"]
+serves = ["laptop"]
+"#.parse().unwrap();
+    let brief = "Item: north#759 Reland the claim\nRepository: north\nNeeds: native";
+    let placed = crate::pacing::placement::needs::with_needs(brief, &needs);
+    assert!(placed.starts_with("Needs: native, nexus\n"), "{placed}");
+    assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "gex45", &placed).as_deref(), Some("native"), "a local need is named before an unreached host");
+    let unneeding = "Item: north#759 Reland the claim\nRepository: north";
+    let placed = crate::pacing::placement::needs::with_needs(unneeding, &needs);
+    assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "gex45", &placed).as_deref(), Some("reach to nexus"));
+    assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "whiterabbit", &placed), None);
+
+    let plain = issue("north", 760, "- [ ] a", &[]);
+    let none = super::host_needs::of(&plain, &hosts, &[], at);
+    assert!(none.is_empty());
+    assert_eq!(crate::pacing::placement::needs::with_needs(unneeding, &none), unneeding);
+    assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "gex45", unneeding), None);
+
+    let named = |text: &str| crate::pacing::placement::needs::in_box(text, "north", &hosts, &[]);
+    assert_eq!(named("- [ ] The first live `goals red (N)` line reaches the proxy through the fleet tick after the runtime carrying `probes.settle.goals` is promoted (observed in a tick's output)"), ["fleet"], "north#641's first box runs on the host that runs the tick");
+    assert_eq!(named("- [ ] the laptop rebuild and the timer seen running there"), ["laptop"], "north-641-d0441 stopped on Stop: host laptop");
+    assert!(named("- [ ] the laptop field of the Host struct is read from config and a test pins it").is_empty(), "a code box that mentions a laptop field is not the laptop's");
+}

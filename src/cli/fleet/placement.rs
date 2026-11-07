@@ -103,13 +103,13 @@ impl From<Refusal> for NorthError {
     }
 }
 
-/// Placement gates every Claude launch except `--test` sessions, before anything starts; `report`
+/// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; `report`
 /// prints its verdict lines.
-pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
+pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
     if request.provider.label() != "claude" || request.verification {
         return Ok(Ok(Placed::default()));
     }
-    let text = gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref());
+    let text = crate::pacing::placement::needs::with_needs(&gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref()), needs);
     let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()), lead: is_lead(request) };
     if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
         return Ok(Err(Refusal::Final(why)));

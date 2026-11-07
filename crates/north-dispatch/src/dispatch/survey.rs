@@ -406,8 +406,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         super::host_needs::read(&record::directory())
     });
     for issue in &mut issues {
-        issue.needs = issue.box_needs(&names, at);
-        issue.needs.extend(super::host_needs::holding(&learned, issue, at));
+        issue.needs = super::host_needs::of(issue, &names, &learned, at);
     }
     let history = History::new(&records);
     let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();

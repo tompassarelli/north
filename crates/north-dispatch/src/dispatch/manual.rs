@@ -17,6 +17,8 @@ pub struct Ask<'a> {
     pub model: Option<&'a str>,
     pub reason: Option<&'a str>,
     pub worker: bool,
+    /// A launch placement reads the item's host needs for, which `begin` reads into `Start::needs`.
+    pub places: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +30,8 @@ pub struct Start {
     pub prompt: String,
     pub overridden: Option<String>,
     pub routed: bool,
+    /// The needs of the item's boxes and the hosts its earlier workers reported (`host_needs::for_launch`), when `Ask::places`.
+    pub needs: Vec<String>,
 }
 
 pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>, grounds: &dyn Fn(&Route) -> Grounds) -> Result<Start, String> {
@@ -61,7 +65,7 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
     let stamp = (named.is_none() && overridden.is_none()).then(|| declared("Category").is_none_or(|category| !category.eq_ignore_ascii_case(&route.category)));
     let prompt = stamped(ask.prompt, &route, stamp, overridden.is_none(), &grounds(&route));
     let (prompt, route) = context_armed(ask, prompt, route, history, ledger);
-    Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some() })
+    Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some(), needs: Vec::new() })
 }
 
 /// A worker brief on no arm draws the context arm dispatch draws for an unarmed local box.
@@ -160,14 +164,15 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
     let mut notes = Vec::new();
     let ledger = if tier::OPUS.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut notes) } else { BTreeMap::new() };
     let grounds = grounds::Ledger::read(&mut notes);
+    let needs = IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, placement::now(), &mut notes)).unwrap_or_default();
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
-    start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route))
+    start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route)).map(|start| Start { needs, ..start })
 }
 
 /// The tier route() picks for a worker brief, for a spawn guard that compares it with the tier asked for.
 pub fn picked_tier(brief: &str) -> Result<Tier, String> {
     let item = facets::declared_in(brief, "Item").unwrap_or("agent spawn");
-    begin(&Ask { item, brief, prompt: brief, model: None, reason: None, worker: false }).map(|start| start.route.tier)
+    begin(&Ask { item, brief, prompt: brief, model: None, reason: None, worker: false, places: false }).map(|start| start.route.tier)
 }
 
 /// The issue's body and when it was opened, as unix seconds.
