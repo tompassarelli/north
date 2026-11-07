@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::gh_origin::{self, Kind};
+use super::gh_pool::{self, Pool};
 use super::github_app::{self, Host};
 use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::NO_VERDICT;
@@ -13,20 +14,20 @@ const USAGE: &str = "usage: north gh-session REAL_GH [ARGS...]
 
 The gh a fleet session runs through the bin/gh shim: it calls GitHub as the Socrates Agent App
 (a fresh installation token in GH_TOKEN, never Tom's login; on a host the laptop pushes that token
-to, gex45 and ccx33, the pushed one while fresh, named on stderr) and spends from a per-session hourly
-budget of GitHub API units, so one session's scraping cannot exhaust a token the others share.
+to, gex45 and ccx33, the pushed one while fresh, named on stderr) and counts the GitHub API units it spends,
+so one session's scraping cannot exhaust a token the others share.
 A call costs 1 unit, --paginate 20, --limit N one per 100 rows; help, version and config cost none.
-A call past the budget is refused with exit 75 and a message naming the spend and when it frees.
-Budget: ${NORTH_GH_HOURLY_BUDGET:-400} units per rolling hour, counted in
-${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. Outside a fleet session (no NORTH_FLEET_SESSION)
-REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its budget tells that session once,
-A hook (a gh call under north hook) may spend 10% of the budget, so one hook cannot starve its session; north github budget
-breaks each session's spend down by hook, tick or command, the north verb behind it and the endpoint.
-and a call refused at 100% tells the proxy at most once an hour per session (north github budget lists every session's spend and the top callers).";
+A session may spend while the shared token's remaining hourly quota (gh api rate_limit, read at most once a minute)
+stays above a reserve of 1000 units. Under the reserve the sessions that spent most this hour (at or above the
+average of the live sessions) are refused first, with exit 75 and a message naming the token's remaining quota and the spend.
+Spend is counted per rolling hour in ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. Outside a fleet session (no NORTH_FLEET_SESSION)
+REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its fair share (400 units an hour) tells that session once.
+A hook (a gh call under north hook) may spend 10% of the fair share, so one hook cannot starve its session; north github budget
+breaks each session's spend down by hook, tick or command, the north verb behind it and the endpoint,
+and a refused call tells the proxy at most once an hour per session (north github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
-const BUDGET_ENV: &str = "NORTH_GH_HOURLY_BUDGET";
-const DEFAULT_BUDGET: u32 = 400;
+const FAIR_SHARE: u32 = 400;
 const WINDOW_SECONDS: i64 = 3600;
 const PAGINATE_COST: u32 = 20;
 const ROWS_PER_UNIT: u32 = 100;
@@ -49,9 +50,11 @@ pub fn run(arguments: &[String]) -> u8 {
     let Some(session) = session else {
         return exec(Command::new(real).args(rest));
     };
-    let budget = hourly_budget();
+    let budget = fair_share();
     let ledger = ledger_path(&session);
-    let before: u32 = fresh_spend(&ledger, Timestamp::now().unix_seconds()).iter().map(|spend| spend.cost).sum();
+    let now = Timestamp::now().unix_seconds();
+    let before = used(&fresh_spend(&ledger, now));
+    let pool = shared_pool(real, rest, &ledger, now);
     let mint = || {
         let (token, note) = github_app::agent_token(&Host::from_env(), Timestamp::now().unix_seconds(), std::env::var("GH_TOKEN").ok())?;
         if let Some(note) = note {
@@ -60,10 +63,10 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok(token)
     };
     let origin = gh_origin::of_parent();
-    match prepare(real, rest, &session, Share { budget, ledger: &ledger }, Timestamp::now().unix_seconds(), &origin, mint) {
+    match prepare(real, rest, &session, Share { budget, ledger: &ledger, pool: &pool }, now, &origin, mint) {
         Ok(mut command) => match super::gh_broker_route::route(&mut command) {
             Ok(()) => {
-                send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds()));
+                send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds(), false));
                 exec(command)
             }
             Err(message) => {
@@ -73,9 +76,11 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         Err(Refusal::Budget(message)) => {
             eprintln!("north gh-session: {message}");
-            if before + cost(rest) > budget {
-                send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds()));
-            }
+            NO_VERDICT
+        }
+        Err(Refusal::Shared(message)) => {
+            eprintln!("north gh-session: {message}");
+            send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds(), true));
             NO_VERDICT
         }
         Err(Refusal::Token(message)) => {
@@ -85,6 +90,16 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
+fn shared_pool(real: &str, arguments: &[String], ledger: &Path, now: i64) -> Pool {
+    if cost(arguments) == 0 {
+        return Pool { remaining: None, resets_at: 0, others: Vec::new() };
+    }
+    let reading = gh_pool::read(&ledger_path(""), real, now);
+    let mine = ledger.file_name().map(|name| name.to_string_lossy().into_owned());
+    let others = session_spends(now).iter().filter(|(name, _)| Some(name) != mine.as_ref()).map(|(_, spent)| used(spent)).collect();
+    Pool { remaining: reading.map(|(remaining, _)| remaining), resets_at: reading.map_or(0, |(_, resets_at)| resets_at), others }
+}
+
 fn exec(mut command: impl std::borrow::BorrowMut<Command>) -> u8 {
     let command = command.borrow_mut();
     let error = command.exec();
@@ -92,8 +107,8 @@ fn exec(mut command: impl std::borrow::BorrowMut<Command>) -> u8 {
     127
 }
 
-pub fn hourly_budget() -> u32 {
-    std::env::var(BUDGET_ENV).ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_BUDGET)
+pub fn fair_share() -> u32 {
+    FAIR_SHARE
 }
 
 pub fn session_spends(now: i64) -> Vec<(String, Vec<Spend>)> {
@@ -119,18 +134,18 @@ fn alarm_crossed(before: u32, units: u32, budget: u32) -> Option<u32> {
     ALARM_PERCENTS.into_iter().filter(|percent| !reached(*percent, before) && reached(*percent, before + units)).max()
 }
 
-fn budget_notices(session: &str, ledger: &Path, before: u32, units: u32, budget: u32, now: i64) -> Vec<(String, String)> {
-    if units > 0 && before + units > budget {
+fn budget_notices(session: &str, ledger: &Path, before: u32, units: u32, budget: u32, now: i64, refused: bool) -> Vec<(String, String)> {
+    if units > 0 && refused {
         let marker = refusal_marker(ledger);
         let first = fs::read_to_string(&marker).ok().and_then(|text| text.trim().parse::<i64>().ok());
         if first.is_some_and(|at| now - at < WINDOW_SECONDS) {
             return Vec::new();
         }
         let _ = marker.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(&marker, now.to_string()));
-        return vec![(PROXY.to_owned(), format!("north gh-session: session {session} was refused a gh call at 100% of its GitHub budget ({before} of {budget} units this hour, the call costs {units}); its gh calls stay refused until the oldest spend frees (north github budget lists the callers)"))];
+        return vec![(PROXY.to_owned(), format!("north gh-session: session {session} was refused a gh call because the shared GitHub token is under its reserve (it has spent {before} units this hour against a fair share of {budget}, the call costs {units}); its gh calls stay refused while the token is short and the session is among the top spenders (north github budget lists the callers)"))];
     }
     alarm_crossed(before, units, budget)
-        .map(|percent| (session.to_owned(), format!("north gh-session: you reached {percent}% of your GitHub budget ({} of {budget} units this hour); at 100% your gh calls are refused until the oldest spend frees (north github budget lists the callers)", before + units)))
+        .map(|percent| (session.to_owned(), format!("north gh-session: you reached {percent}% of your GitHub fair share ({} of {budget} units this hour); your gh calls are refused first if the shared token runs short (north github budget lists the callers)", before + units)))
         .into_iter()
         .collect()
 }
@@ -160,19 +175,21 @@ fn ledger_path(session: &str) -> PathBuf {
 struct Share<'a> {
     budget: u32,
     ledger: &'a Path,
+    pool: &'a Pool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum Refusal {
     Budget(String),
+    Shared(String),
     Token(String),
 }
 
 fn prepare(real: &str, arguments: &[String], session: &str, share: Share, now: i64, origin: &gh_origin::Origin, mint: impl FnOnce() -> Result<String, String>) -> Result<Command, Refusal> {
-    let Share { budget, ledger } = share;
+    let Share { budget, ledger, pool } = share;
     let units = cost(arguments);
     if units > 0 {
-        admit(&fresh_spend(ledger, now), now, units, budget, session, origin.kind).map_err(Refusal::Budget)?;
+        admit(&fresh_spend(ledger, now), now, units, Share { budget, ledger, pool }, session, origin.kind)?;
     }
     let token = mint().map_err(Refusal::Token)?;
     if units > 0 {
@@ -206,18 +223,20 @@ fn cost(arguments: &[String]) -> u32 {
     cost
 }
 
-fn admit(spent: &[Spend], now: i64, units: u32, budget: u32, session: &str, kind: Kind) -> Result<(), String> {
+fn admit(spent: &[Spend], now: i64, units: u32, share: Share, session: &str, kind: Kind) -> Result<(), Refusal> {
+    let Share { budget, pool, .. } = share;
     let hooks: u32 = spent.iter().filter(|spend| spend.kind == Kind::Hook).map(|spend| spend.cost).sum();
     let hook_share = budget * HOOK_SHARE_PERCENT / 100;
     if kind == Kind::Hook && hooks + units > hook_share {
-        return Err(format!("session {session}'s hooks have spent {hooks} of their {hook_share} GitHub API units this hour ({HOOK_SHARE_PERCENT}% of the share) and this call costs {units}; a hook is refused past that so it cannot starve the session"));
+        return Err(Refusal::Budget(format!("session {session}'s hooks have spent {hooks} of their {hook_share} GitHub API units this hour ({HOOK_SHARE_PERCENT}% of the fair share) and this call costs {units}; a hook is refused past that so it cannot starve the session")));
     }
     let total = used(spent);
-    if total + units <= budget {
+    if !pool.refuses(total, units) {
         return Ok(());
     }
-    let frees = spent.iter().map(|spend| spend.at + WINDOW_SECONDS - now).min().map_or_else(String::new, |seconds| format!("; the oldest spend frees in {} min", (seconds.max(0) + 59) / 60));
-    Err(format!("session {session} has spent {total} of its {budget} GitHub API units this hour and this call costs {units}{frees} (NORTH_GH_HOURLY_BUDGET sets the share)"))
+    let left = pool.remaining.unwrap_or(0);
+    let refills = pool.resets_at.checked_sub(now).filter(|seconds| *seconds > 0).map_or_else(String::new, |seconds| format!("; the token's hour refills in {} min", (seconds + 59) / 60));
+    Err(Refusal::Shared(format!("the shared GitHub token has {left} API units left this hour, under its reserve of {}; session {session} has spent {total} this hour (the average of the live sessions is {}) and this call costs {units}, so it waits while the heaviest spenders are held back{refills}", Pool::reserve(), pool.average(total))))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

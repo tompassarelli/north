@@ -9,11 +9,11 @@ use crate::platform::github_app::{self, AGENT_APP, Host, Request};
 const USAGE: &str = "usage: north github budget
 
 Print what is left of each GitHub token's hourly limit (the user's own login and the Socrates Agent
-App installation fleet sessions use), every fleet session's spend against its hourly share
-(NORTH_GH_HOURLY_BUDGET units, see north gh-session) with its biggest spends by origin (hook, tick or command),
+App installation fleet sessions use), every fleet session's spend against its fair share
+(the 400-unit fair share, see north gh-session) with its biggest spends by origin (hook, tick or command),
 the north verb behind it and the gh endpoint, and the callers that cost the most GitHub
 calls in the last hour by token (personal, app, none), personal first, from the broker's calls.log (calls GitHub answered with anything but 304,
-apart from /rate_limit). A session reaching 50% and 80% of its share tells the proxy once.";
+apart from /rate_limit). A session reaching 50% and 80% of its fair share is told once.";
 
 const TOP_CALLERS: usize = 10;
 const TOP_CALLS: usize = 6;
@@ -42,7 +42,7 @@ fn budget() -> u8 {
             Err(message) => println!("{token}\tunavailable: {message}"),
         }
     }
-    let share = gh_session::hourly_budget();
+    let share = gh_session::fair_share();
     for (session, spent) in gh_session::session_spends(i64::try_from(now).unwrap_or(i64::MAX)) {
         let used = gh_session::used(&spent);
         println!("session {session}\t{used} of {share} units ({}%)", u64::from(used) * 100 / u64::from(share.max(1)));
