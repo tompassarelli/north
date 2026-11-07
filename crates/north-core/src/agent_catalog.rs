@@ -5,6 +5,8 @@ use std::path::PathBuf;
 mod activation;
 #[path = "catalog/digest.rs"]
 mod digest;
+#[path = "catalog/guard_ids.rs"]
+mod guard_ids;
 #[path = "catalog/files.rs"]
 mod files;
 #[path = "catalog/guides.rs"]

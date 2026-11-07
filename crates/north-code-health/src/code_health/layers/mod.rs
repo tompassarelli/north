@@ -78,7 +78,7 @@ fn verdict(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, u8), Str
     };
     let (before, after) = (Revision::at(repo, base)?, Revision::at(repo, head)?);
     let changed = changes(repo, base, head)?;
-    let mut lines = unplanned_crates(repo, base, &changed, &head_rules)?;
+    let mut lines = unplanned_crates(repo, base, head, &changed, &head_rules)?;
     for (old, new) in changed.into_iter().filter(|(_, new)| head_rules.checked(new)) {
         let known: BTreeSet<(Rule, String, String)> = match old {
             Some(old) => before.breaches(&base_rules, &old)?.into_iter().map(|(_, _, breach)| (breach.rule, breach.from, breach.to)).collect(),
@@ -101,16 +101,21 @@ fn verdict(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, u8), Str
     Ok((lines, code))
 }
 
-fn unplanned_crates(repo: &Path, base: &str, changed: &[(Option<String>, String)], rules: &Rules) -> Result<Vec<String>, String> {
+fn unplanned_crates(repo: &Path, base: &str, head: &str, changed: &[(Option<String>, String)], rules: &Rules) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for (_, path) in changed {
         let Some(name) = path.strip_prefix("crates/").and_then(|rest| rest.strip_suffix("/Cargo.toml")).filter(|name| !name.contains('/')) else { continue };
-        if rules.plans_crate(&format!("crates/{name}/src/lib.rs")) || show(repo, base, path)?.is_some() {
+        if show(repo, base, path)?.is_some() || crate_files(repo, head, name)?.iter().any(|file| rules.plans_crate(file)) {
             continue;
         }
         lines.push(format!("✗ crate-dag {path}: adds crate {name} with no [[crate_dag.crate]] entry in structure.toml, so no reference into or out of it is checked (plan {PLAN}); add its paths and may_use in this change"));
     }
     Ok(lines)
+}
+
+fn crate_files(repo: &Path, head: &str, name: &str) -> Result<Vec<String>, String> {
+    let listing = git(repo, &["ls-tree", "-r", "--name-only", head, &format!("crates/{name}/src/")])?;
+    Ok(listing.lines().map(str::to_owned).collect())
 }
 
 fn refusal(path: &str, line: usize, target: &str, breach: &Breach) -> String {

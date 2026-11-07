@@ -43,3 +43,19 @@ fn the_north_ops_split_adding_north_flow_without_a_crate_dag_entry_is_refused() 
     let (lines, code) = super::verdict(repo, &base, &split).unwrap();
     assert_eq!((code, lines.iter().any(|line| line.contains("adds crate north-flow with no [[crate_dag.crate]] entry"))), (1, true), "{lines:?}");
 }
+
+#[test]
+fn a_crate_covered_only_through_module_path_patterns_is_not_reported_as_unplanned() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    write(repo, "structure.toml", "[crate_dag]\n\n[[crate_dag.crate]]\nname = \"north-capacity\"\npaths = [\"crates/*/src/capacity.rs\", \"crates/*/src/capacity/**\"]\nmay_use = []\n");
+    let empty = commit(repo);
+    write(repo, "crates/north-capacity/Cargo.toml", "[package]\nname = \"north-capacity\"\n");
+    write(repo, "crates/north-capacity/src/lib.rs", "pub mod capacity;\n");
+    write(repo, "crates/north-capacity/src/capacity.rs", "pub fn capacity() {}\n");
+    let added = commit(repo);
+
+    let (lines, code) = super::verdict(repo, &empty, &added).unwrap();
+    assert_eq!(code, 0, "{lines:?}");
+}
