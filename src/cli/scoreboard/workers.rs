@@ -12,7 +12,6 @@ use crate::ledger::outcome::attention::references;
 use crate::platform::run_roles::worker_where;
 use crate::platform::{land_queue, records_mirror};
 use crate::capacity::host::{capacity_database_readonly, queued_behind_capacity};
-use crate::providers::claude::runs::outcome::waits_on_time;
 use crate::land_ticket::{Lane, lanes_by_session};
 use crate::threads::attribution::{Cause, Harness, attribute, fleet_column, outcome_column, recorded_column, report_column};
 
@@ -72,8 +71,7 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
             if outcome != "done" && pending.holds(&session) {
                 return None;
             }
-            let deferred = outcome != "done" && waits_on_time(&report) && !checked_miss();
-            let recorded = recorded.or_else(|| deferred.then(|| Cause::Harness(Harness::Waits).label().to_owned()));
+            let deferred = outcome != "done" && recorded.as_deref() == Some(Cause::Harness(Harness::Waits).label()) && !checked_miss();
             Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()), deferred })
         })
         .collect())

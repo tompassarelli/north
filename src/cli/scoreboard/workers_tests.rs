@@ -30,14 +30,18 @@ fn a_landing_stop_is_pending_while_its_ticket_waits_in_the_lander_queue() {
 }
 
 /// north-751-d0501 ended `Stop: wait until 2026-11-07T05:45Z` on 2026-11-07 because its only open box measured a time
-/// window: first-try success leaves such a deferred box out, but goals.toml counts waits among harness losses.
+/// window: first-try success leaves a box deferred through `north check experiments defer` out and counts a waits loss
+/// (north#791), where an identical report from a session that recorded no deferral is the worker's.
 #[test]
-fn a_first_try_deferred_to_a_dated_check_is_left_out_of_first_try_and_counts_as_a_waits_loss() {
+fn a_first_try_deferred_by_a_recorded_deferral_is_left_out_of_first_try_and_counts_as_a_waits_loss_and_the_same_words_alone_do_not() {
     let db = Connection::open_in_memory().unwrap();
-    db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT);").unwrap();
-    db.execute("INSERT INTO runs VALUES ('d0501', 'north#751', NULL, 'bug', '2026-11-07T05:01:00Z', '2026-11-07T05:10:00Z', 9, 'not done', 'Not done: the 1 h cell cannot pass before 12:45 PM.\nStop: wait until 2026-11-07T05:45Z', 'worker', '', 0, 'north-751-d0501')", []).unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT); CREATE TABLE boundary_causes(session TEXT NOT NULL, source TEXT NOT NULL, cause TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', at TEXT NOT NULL);").unwrap();
+    for (agent, session) in [("d0501", "north-751-d0501"), ("d0502", "north-751-d0502")] {
+        db.execute("INSERT INTO runs VALUES (?1, 'north#751', NULL, 'bug', '2026-11-07T05:01:00Z', '2026-11-07T05:10:00Z', 9, 'not done', 'Not done: the 1 h cell cannot pass before 12:45 PM.\nStop: wait until 2026-11-07T05:45Z', 'worker', '', 0, ?2)", [agent, session]).unwrap();
+    }
+    db.execute("INSERT INTO boundary_causes(session, source, cause, at) VALUES ('north-751-d0501', 'deferral', 'waits', '2026-11-07T05:08:00Z')", []).unwrap();
     let read = attempts(&db, 0, &BTreeSet::new(), &Pending::default()).unwrap();
-    assert_eq!(read.iter().map(|attempt| (attempt.deferred, attempt.cause)).collect::<Vec<_>>(), [(true, Cause::Harness(Harness::Waits))]);
+    assert_eq!(read.iter().map(|attempt| (attempt.deferred, attempt.cause)).collect::<Vec<_>>(), [(true, Cause::Harness(Harness::Waits)), (false, Cause::Worker)]);
 }
 
 /// north-730-d0351 ended `Stop: wait until 2026-11-07T06:30Z` at 5:41 AM UTC on 2026-11-07 while its `job-run --notify`

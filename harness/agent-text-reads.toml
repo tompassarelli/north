@@ -13,7 +13,7 @@ all_patterns = true
 
 [[read]]
 file = "crates/north-providers/src/providers/claude/runs/outcome.rs"
-lines = 30
+lines = 29
 kind = "verdict"
 all_patterns = true
 

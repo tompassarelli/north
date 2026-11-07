@@ -131,16 +131,6 @@
     "quiet": false
   },
   {
-    "report": "Both fixes are on origin/main in 6c7785352. The live Done-when (3 more leaf landings with test-run under 2 s and clippy under 10 s) can't be read until those landings happen. I put both boxes into dated checks judged on 2026-11-07; that lane is queued as c4ad432db and hasn't landed yet. **Clippy recompiling in a warm slot.** The cause is a flag mismatch, not features or profile. Features already match, because `.cargo/config` sets `resolver.feature-unification = \"workspace\"`. Cargo records the arguments after `--` (`CLIPPY_ARGS`) in each workspace crate's clippy fingerprint. The warm line ran",
-    "outcome": "deferred",
-    "quiet": false
-  },
-  {
-    "report": "Not done: the change is on origin/main and five of the six boxes on north#637 are ticked, but I can't close it yet. The last box needs a full day of the laptop's fleet-tick log with no start timeouts, and that day isn't up. - **Landed:** another session landed my branch as 2d663c0f2e on 2026-11-06 at 6:02 AM laptop time. `git merge-base --is-ancestor 2d663c0f2e origin/main` succeeds. The tick now times each probe job under its own name and gives up waiting on one still running when the 15 s budget runs out, printing a `deferred NAME to the next tick` line. Since then other work has added thre",
-    "outcome": "deferred",
-    "quiet": false
-  },
-  {
     "report": "The named-issue rule now counts only real rework, and the change has landed on origin/main as f17f91413. North's 7-day rework rate drops from 185 of 494 landings (37%) to 17 of 495 (3%). **Sample.** I drew 20 of the 171 named-issue reworks at random (seed 657) and read each landing against the commit that triggered it. None of the 20 was true rework: - Every trigger was the next box of the same issue, or unrelated work under an umbrella issue such as north#88, north#360 or north#429. - 14 shared no file with the landing. - The 3 that did change the landing's lines only added to them: a usage ",
     "quiet": false,
     "outcome": "done"

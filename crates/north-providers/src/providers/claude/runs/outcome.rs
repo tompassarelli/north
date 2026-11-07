@@ -51,10 +51,6 @@ const WAITING: &[&str] = &[
     r"\b(will (report|notify)|is queued|are queued|holding the push|waiting (on|for|up to))\b",
 ];
 
-static WAITS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\bdated checks?\b|\bdeferred (it |them |the box |its box |both boxes )?to .{0,60}\bcheck\b|\(waits: \d{4}-|stop:\s*wait until|\b(needs?|waits? (on|for)|waiting (on|for)) (a |an |the )?(full |clean |another )?(day|hour|week|\d+ (more )?(hours|days|landings|runs))\b|\b(day|hour|window) (isn.t|is not|hasn.t|has not) (up|over|passed|closed)|\blive (traffic|data|measurement)\b|\bwaits on the real (proxy|traffic)\b").unwrap()
-});
-
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     let rule = |scope, quiet_only, patterns: &[&str], outcome| Rule {
         scope,
@@ -96,11 +92,6 @@ pub fn stop_line(report: &str) -> Option<String> {
     STOP_LINE.find_iter(report).last().map(|found| found.as_str().trim().chars().take(200).collect())
 }
 
-/// Whether a report stops on a box deferred to a dated check (`north check experiments defer`) or waiting on stated elapsed time or live traffic.
-pub fn waits_on_time(report: &str) -> bool {
-    WAITS.is_match(report)
-}
-
 pub(super) fn classify(report: &str, quiet: bool) -> &'static str {
     let head: String = report.chars().take(HEAD_CHARS).collect();
     let matches = |rule: &Rule| match rule.scope {
@@ -117,7 +108,7 @@ pub(super) fn classify(report: &str, quiet: bool) -> &'static str {
 mod tests {
     use serde::Deserialize;
 
-    use super::{classify, waits_on_time};
+    use super::classify;
     use crate::platform::run_roles::ingest_role;
 
     #[derive(Deserialize)]
@@ -128,15 +119,12 @@ mod tests {
         brief: Option<String>,
     }
 
-    /// How the first-try bar reads the run: a reviewer is no worker, and a failed box waiting on time or traffic is deferred.
+    /// How the first-try bar reads the run: a reviewer is no worker.
     fn first_try(labelled: &Labelled) -> &'static str {
         if labelled.brief.as_deref().is_some_and(|brief| ingest_role("research", brief, "unclear", 5) == "reviewer") {
             return "reviewer";
         }
-        match classify(&labelled.report, labelled.quiet) {
-            "not done" | "unclear" | "escalated" if waits_on_time(&labelled.report) => "deferred",
-            outcome => outcome,
-        }
+        classify(&labelled.report, labelled.quiet)
     }
 
     #[test]
@@ -147,11 +135,11 @@ mod tests {
     }
 
     #[test]
-    fn at_most_two_of_thirty_seven_real_reports_from_2026_10_26_to_2026_11_06_are_labelled_wrong_and_none_that_the_first_try_bar_leaves_out() {
+    fn at_most_two_of_thirty_five_real_reports_from_2026_10_26_to_2026_11_06_are_labelled_wrong_and_none_that_the_first_try_bar_leaves_out() {
         let reports: Vec<Labelled> = serde_json::from_str(include_str!("reports.json")).unwrap();
-        assert_eq!(reports.len(), 37);
+        assert_eq!(reports.len(), 35);
         let wrong: Vec<(&str, &str)> = reports.iter().map(|labelled| (first_try(labelled), labelled.outcome.as_str())).filter(|(got, want)| got != want).collect();
         assert!(wrong.len() <= 2, "{wrong:?}");
-        assert!(wrong.iter().all(|(got, want)| ![*got, *want].iter().any(|outcome| ["reviewer", "deferred", "split"].contains(outcome))), "{wrong:?}");
+        assert!(wrong.iter().all(|(got, want)| ![*got, *want].iter().any(|outcome| ["reviewer", "split"].contains(outcome))), "{wrong:?}");
     }
 }

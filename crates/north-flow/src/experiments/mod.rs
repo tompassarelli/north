@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 
 use crate::foundation::clock::Timestamp;
+use crate::platform::attribution::{self, Cause, Harness};
 use crate::threads::calibration::rework::Sources;
 use file::{Filed, GitHub, Issues};
 use crate::ledger::outcome::{Outcome, read::outcomes};
@@ -134,6 +135,7 @@ fn judge_experiments(entries: Vec<Experiment>, options: &Options, filed: &mut Fi
 fn defer_command(arguments: &[String]) -> u8 {
     match deferred::defer(arguments, Day::of_unix(Timestamp::now().unix_seconds()), &GitHub) {
         Ok(done) => {
+            attribution::record_here("deferral", Cause::Harness(Harness::Waits), &done);
             println!("north check experiments: {done}");
             0
         }
