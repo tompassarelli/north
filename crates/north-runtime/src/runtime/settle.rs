@@ -1,6 +1,7 @@
 use super::canary::{self, Verdict};
 use super::deploy;
 use super::failure::{Failure, failed};
+use super::history::History;
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
 use super::live;
@@ -11,6 +12,7 @@ use crate::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
 use serde_json::json;
 use std::fs::{self, File};
+use std::ops::Not;
 use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -46,6 +48,10 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut swaps = Vec::new();
     let mut failing = Vec::new();
     let mut broken = Vec::new();
+    let judging = landing.as_ref().filter(|landing| !judged(layout, &landing.sha));
+    let code_changed = judging.is_none_or(|landing| changes_code(&checkout, &landing.sha));
+    let mut history = History::load(layout);
+    let mut incidents = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     for host in &hosts {
         let facts = probed(layout, &checkout, host);
@@ -54,12 +60,24 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
-            broken.extend(landing_breakage(&facts.host, &problems, moved_on));
+            let inherited = judging.map_or(&[][..], |landing| history.before(&facts.host, &landing.sha, |earlier| ancestor(&checkout, earlier, &landing.sha)));
+            let (own, elsewhere) = blame(&problems, moved_on, inherited, code_changed);
+            broken.extend(own.is_empty().not().then(|| format!("{}: {}", facts.host, own.join("; "))));
+            incidents.extend(elsewhere.is_empty().not().then(|| format!("{}: {}", facts.host, elsewhere.join("; "))));
+        }
+        if let (Some(runtime), None) = (&facts.runtime, &facts.unreachable) {
+            history.note(&facts.host, runtime, &problems);
         }
         records.push(probe::record(&facts, &problems));
     }
     live::record(layout, &checkout, &swaps);
-    let report = json!({"checkedAt": now(), "landing": landing.as_ref().map(|landing| &landing.sha), "hosts": records});
+    if let Err(error) = history.save() {
+        eprintln!("north runtime settle: could not record each runtime's problems: {error}");
+    }
+    for incident in &incidents {
+        println!("north runtime settle: host incident, not this landing's change: {incident}");
+    }
+    let report = json!({"checkedAt": now(), "landing": landing.as_ref().map(|landing| &landing.sha), "hostIncidents": incidents, "hosts": records});
     fs::write(layout.state.join("runtime-settle.json"), format!("{report:#}\n"))?;
     if let Some(landing) = landing.filter(|landing| !judged(layout, &landing.sha)) {
         judge(layout, &checkout, &landing, &broken);
@@ -127,9 +145,15 @@ fn verdict(facts: &probe::Facts, problems: &[String]) -> String {
     }
 }
 
-fn landing_breakage(host: &str, problems: &[String], moved_on: bool) -> Option<String> {
-    let own: Vec<&str> = problems.iter().map(String::as_str).filter(|problem| !(moved_on && problem.starts_with(probe::LAGS))).collect();
-    (!own.is_empty()).then(|| format!("{host}: {}", own.join("; ")))
+fn blame<'a>(problems: &'a [String], moved_on: bool, inherited: &[String], code_changed: bool) -> (Vec<&'a str>, Vec<&'a str>) {
+    problems.iter().map(String::as_str).partition(|problem| code_changed && !(moved_on && problem.starts_with(probe::LAGS)) && !inherited.iter().any(|known| known == problem))
+}
+
+fn changes_code(checkout: &Path, sha: &str) -> bool {
+    let Ok(output) = process::run("git", Some(checkout), &["show", "--format=", "--name-only", sha]) else {
+        return true;
+    };
+    String::from_utf8_lossy(&output.stdout).lines().any(|path| !path.starts_with("docs/") && !path.ends_with(".md"))
 }
 
 fn origin_head(checkout: &Path) -> Option<String> {
@@ -186,14 +210,23 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::landing_breakage;
+    use super::blame;
 
     #[test]
     fn a_runtime_lagging_a_newer_main_is_not_this_landings_breakage() {
         let lag = vec!["live runtime 1234abcd predates the landing".to_owned()];
-        assert_eq!(landing_breakage("nexus", &lag, true), None);
-        assert!(landing_breakage("nexus", &lag, false).is_some_and(|text| text.contains("predates the landing")));
+        assert_eq!(blame(&lag, true, &[], true), (vec![], vec![lag[0].as_str()]));
+        assert_eq!(blame(&lag, false, &[], true).0, [lag[0].as_str()]);
         let mixed = vec![lag[0].clone(), "north-runtime-follow.service is failed".to_owned()];
-        assert_eq!(landing_breakage("nexus", &mixed, true).as_deref(), Some("nexus: north-runtime-follow.service is failed"));
+        assert_eq!(blame(&mixed, true, &[], true).0, ["north-runtime-follow.service is failed"]);
+    }
+
+    #[test]
+    fn a_problem_the_previous_runtime_had_or_a_landing_that_changes_no_code_is_a_host_incident() {
+        let problems = vec!["north-runtime-follow.service is failed".to_owned(), "unresolved hook path a: /x".to_owned()];
+        let (own, elsewhere) = blame(&problems, false, &problems[..1], true);
+        assert_eq!((own, elsewhere), (vec!["unresolved hook path a: /x"], vec!["north-runtime-follow.service is failed"]));
+        let (own, elsewhere) = blame(&problems, false, &[], false);
+        assert!(own.is_empty() && elsewhere.len() == 2);
     }
 }

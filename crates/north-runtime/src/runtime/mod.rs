@@ -7,6 +7,7 @@ mod failure;
 mod follow;
 mod lifecycle;
 mod health;
+mod history;
 mod host_facts;
 pub mod layout;
 pub mod live;
