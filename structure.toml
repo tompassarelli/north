@@ -800,6 +800,106 @@ path = "crates/north-guard/src/guard/poll_loop.rs"
 id = "guard.clipboard"
 path = "crates/north-guard/src/guard/clipboard.rs"
 
+[[registered]]
+id = "instructions.code"
+path = "harness/code/AGENTS.md"
+
+[[registered]]
+id = "instructions.doctrine"
+path = "agent-machinery/doctrine.md"
+
+[[registered]]
+id = "config.defaults"
+path = "harness/defaults.toml"
+
+[[registered]]
+id = "skill.agent-policy"
+path = "harness/skills/agent-policy/SKILL.md"
+
+[[registered]]
+id = "skill.game-design-prototyping"
+path = "harness/skills/game-design-prototyping/SKILL.md"
+
+[[registered]]
+id = "skill.game-ip"
+path = "harness/skills/game-ip/SKILL.md"
+
+[[registered]]
+id = "skill.github"
+path = "harness/skills/github/SKILL.md"
+
+[[registered]]
+id = "skill.machine-capacity"
+path = "harness/skills/machine-capacity/SKILL.md"
+
+[[registered]]
+id = "skill.makgora"
+path = "harness/skills/makgora/SKILL.md"
+
+[[registered]]
+id = "skill.nix-development"
+path = "harness/skills/nix-development/SKILL.md"
+
+[[registered]]
+id = "skill.performance-design"
+path = "harness/skills/performance-design/SKILL.md"
+
+[[registered]]
+id = "skill.private-desktop-development"
+path = "harness/skills/private-desktop-development/SKILL.md"
+
+[[registered]]
+id = "skill.repo-safety"
+path = "harness/skills/repo-safety/SKILL.md"
+
+[[registered]]
+id = "skill.todo"
+path = "harness/skills/todo/SKILL.md"
+
+[[registered]]
+id = "skill.warcraft-modding"
+path = "harness/skills/warcraft-modding/SKILL.md"
+
+[[registered]]
+id = "skill.workers"
+path = "harness/skills/workers/SKILL.md"
+
+[[registered]]
+id = "skill.astro"
+path = "agent-machinery/skills/astro/SKILL.md"
+
+[[registered]]
+id = "skill.debugging"
+path = "agent-machinery/skills/debugging/SKILL.md"
+
+[[registered]]
+id = "skill.effect-development"
+path = "agent-machinery/skills/effect-development/SKILL.md"
+
+[[registered]]
+id = "skill.external-code"
+path = "agent-machinery/skills/external-code/SKILL.md"
+
+[[registered]]
+id = "skill.planning"
+path = "agent-machinery/skills/planning/SKILL.md"
+
+[[registered]]
+id = "skill.program-craftsmanship"
+path = "agent-machinery/skills/program-craftsmanship/SKILL.md"
+
+[[registered]]
+id = "skill.rust-development"
+path = "agent-machinery/skills/rust-development/SKILL.md"
+
+[[registered]]
+id = "skill.threejs"
+path = "agent-machinery/skills/threejs/SKILL.md"
+
+[[registered]]
+id = "skill.verification"
+path = "agent-machinery/skills/verification/SKILL.md"
+
 [[build_time]]
 workspace = "."
 leaf = "crates/north-code-health/src/code_health/source.rs"
