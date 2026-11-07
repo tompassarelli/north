@@ -1,5 +1,5 @@
 pub use north_base::{autoland_status, error, foundation, nix_command, platform, run_time_data, shell, test_inputs};
-pub use north_fleet::{claude_stream, fleet};
+pub use north_fleet::fleet;
 pub use north_pace::{credit, router, usage};
 pub use north_threads::{threads, work_items};
 

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::claude_stream::{encode_interrupt, encode_user_blocks, encode_user_message};
+use north_claude_stream::{encode_interrupt, encode_user_blocks, encode_user_message};
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
 use crate::fleet::attachments;

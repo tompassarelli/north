@@ -6,7 +6,7 @@ use std::process::{ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use north_base::error::NorthError;
-use north_fleet::claude_stream::encode_user_message;
+use north_claude_stream::encode_user_message;
 use north_fleet::fleet::model::{Account, ApiKey, Effort, LaunchRequest, ProviderName, Role};
 use north_fleet::fleet::prompt::{PromptInputs, PromptMode, StandingOrders, render};
 use north_fleet::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Opening, Runtime, new_uuid};

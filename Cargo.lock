@@ -1015,6 +1015,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-claude-stream"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "north-climb"
 version = "0.1.0"
 dependencies = [
@@ -1031,6 +1039,7 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "north-base",
+ "north-claude-stream",
  "north-fleet",
  "north-graph-ground",
  "north-pace",
@@ -1101,6 +1110,7 @@ name = "north-fleet"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-claude-stream",
  "north-pace",
  "north-session-host",
  "regex",
@@ -1119,6 +1129,7 @@ name = "north-frontier"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-claude-stream",
  "north-fleet",
  "north-providers",
  "regex",
@@ -1351,6 +1362,7 @@ name = "north-providers"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-claude-stream",
  "north-fleet",
  "north-pace",
  "north-threads",

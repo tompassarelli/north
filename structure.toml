@@ -22,6 +22,11 @@ paths = ["crates/north-strategy-types/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-claude-stream"
+paths = ["crates/north-claude-stream/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
 name = "north-base"
 paths = ["crates/north-base/src/**"]
 may_use = ["north-strategy-types"]
@@ -79,7 +84,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-frontier"
 paths = ["crates/north-frontier/src/**"]
-may_use = ["north-base", "north-fleet", "north-providers"]
+may_use = ["north-base", "north-claude-stream", "north-fleet", "north-providers"]
 
 [[crate_dag.crate]]
 name = "north-mutants"
@@ -158,18 +163,18 @@ may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-fleet"
-paths = ["crates/*/src/fleet.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs", "crates/*/src/claude_stream/**"]
-may_use = ["north-pace", "north-session-host"]
+paths = ["crates/*/src/fleet.rs", "crates/*/src/fleet/**"]
+may_use = ["north-claude-stream", "north-pace", "north-session-host"]
 
 [[crate_dag.crate]]
 name = "north-providers"
 paths = ["crates/*/src/providers.rs", "crates/*/src/providers/**", "crates/*/src/codex.rs", "crates/*/src/codex/**", "crates/*/src/ledger.rs", "crates/*/src/ledger/**"]
-may_use = ["north-fleet", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-core"
 paths = ["crates/north-core/src/**"]
-may_use = ["north-fleet", "north-graph-ground", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet", "north-graph-ground", "north-threads"]
 
 [review]
 commits = 600
@@ -200,19 +205,19 @@ may_use = []
 name = "replay"
 paths = ["crates/north-replay/src/**"]
 responsibility = "Strategy replay: the logged decision cases decided again by the linked code, their outcome counts beside the logged ones, and the declared invariants checked over the replayed decisions."
-may_use = ["lifecycle", "capacity", "crate-roots", "foundation", "landing", "ops", "platform", "strategy_types"]
+may_use = ["capacity", "crate-roots", "foundation", "landing", "ops", "platform", "strategy_types", "lifecycle"]
 
 [[module]]
 name = "lander-doctor"
 paths = ["crates/north-lander-doctor/src/**"]
 responsibility = "The lander doctor: each lander health bound read live, the known remedy for each stuck state, the last lander build that landed a batch green and the rollback to it, and one proxy page per unknown state."
-may_use = ["lifecycle", "crate-roots", "foundation", "landing", "platform", "land_ticket"]
+may_use = ["crate-roots", "foundation", "landing", "platform", "lifecycle", "land_ticket"]
 
 [[module]]
 name = "climb"
 paths = ["crates/north-climb/src/**"]
 responsibility = "The policy climber: the ledger's largest measured loss, one candidate policy change for it, the paths a candidate may not touch, its score from strategy replay, and the live arms."
-may_use = ["lifecycle", "crate-roots", "foundation", "ledger", "ops", "platform", "replay", "strategy_types"]
+may_use = ["crate-roots", "foundation", "ledger", "ops", "platform", "replay", "strategy_types", "lifecycle"]
 
 [[module]]
 name = "foundation"
@@ -254,25 +259,31 @@ may_use = ["foundation", "lifecycle"]
 name = "domain"
 paths = ["crates/north-core/src/domain/**", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/north-pace/src/credit.rs", "crates/north-pace/src/credit/**"]
 responsibility = "Workforce members, messages, briefs, work-item refs, routing, the spend rule and placement policy."
-may_use = ["lifecycle", "foundation", "crate-roots"]
+may_use = ["foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "fleet"
-paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs"]
+paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
-may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle", "land_ticket"]
+may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket"]
+
+[[module]]
+name = "claude_stream"
+paths = ["crates/north-claude-stream/src/**"]
+responsibility = "Claude Code's stream-json wire format: the user-message and interrupt encoders and the decoder for its event stream."
+may_use = []
 
 [[module]]
 name = "ledger"
 paths = ["crates/north-providers/src/ledger/**"]
 responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
-may_use = ["lifecycle", "fleet", "domain", "platform", "foundation", "crate-roots", "threads"]
+may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads", "lifecycle"]
 
 [[module]]
 name = "guard"
 paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs", "crates/north-guard/src/nix_explain.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["lifecycle", "strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground"]
+may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground", "lifecycle"]
 
 [[module]]
 name = "threads"
@@ -296,151 +307,151 @@ may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "p
 name = "landing.safe_push.shell"
 paths = ["crates/north-safe-push/src/shell/**"]
 responsibility = "safe-push's thin typed effect layer: the Git, Origin, GitHub, StateFiles, Processes and Settings traits, their live adapters and the recorded test double."
-may_use = ["lifecycle", "foundation", "platform"]
+may_use = ["foundation", "platform", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.request"
 paths = ["crates/north-safe-push/src/request.rs", "crates/north-safe-push/src/request/**"]
 responsibility = "safe-push argv to a typed Request or a usage refusal; pure."
-may_use = ["lifecycle", "foundation"]
+may_use = ["foundation", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.report"
 paths = ["crates/north-safe-push/src/report/**"]
 responsibility = "safe-push event lines, stage rows and the terminal receipt."
-may_use = ["lifecycle", "foundation", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.shell", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.session"
 paths = ["crates/north-safe-push/src/session/**"]
 responsibility = "One safe-push per output log, cancellation of its children, and the repository-identity rule."
-may_use = ["lifecycle", "foundation", "landing.safe_push.report", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.report", "landing.safe_push.shell", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.mode"
 paths = ["crates/north-safe-push/src/mode.rs"]
 responsibility = "A Request and the repository facts to the mode safe-push runs; pure."
-may_use = ["lifecycle", "foundation", "landing.safe_push.request"]
+may_use = ["foundation", "landing.safe_push.request", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.gates"
 paths = ["crates/north-safe-push/src/gates/**"]
 responsibility = "Which pre-publication gates apply, running them through north-landing's scans and land checks, the tag scans, and the one verdict."
-may_use = ["lifecycle", "foundation", "landing", "landing.safe_push.report", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing", "landing.safe_push.report", "landing.safe_push.session", "landing.safe_push.shell", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.publication"
 paths = ["crates/north-safe-push/src/publication/**"]
 responsibility = "Publishing HEAD to a non-default branch: the snapshot, range, lease and fast-forward plan, then the gated push."
-may_use = ["lifecycle", "foundation", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.tags"
 paths = ["crates/north-safe-push/src/tags/**"]
 responsibility = "The one release-tag rule, --tag, --delete-tag and north release."
-may_use = ["lifecycle", "foundation", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.restore"
 paths = ["crates/north-safe-push/src/restore.rs"]
 responsibility = "--restore: the pure source decision for a reaped branch, then its push."
-may_use = ["lifecycle", "foundation", "landing.safe_push.shell"]
+may_use = ["foundation", "landing.safe_push.shell", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.landing"
 paths = ["crates/north-safe-push/src/landing/**"]
 responsibility = "The default branch: route to the lander or the south ledger, the dry-run preflight and the lander's candidate check."
-may_use = ["lifecycle", "foundation", "landing", "platform", "landing.safe_push.gates", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell"]
+may_use = ["foundation", "landing", "platform", "landing.safe_push.gates", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.entry"
 paths = ["crates/north-safe-push/src/entry.rs"]
 responsibility = "safe-push's entry: parse the request, pick the mode and run it; the argv[0] and north release callers reach it here."
-may_use = ["lifecycle", "foundation", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags"]
+may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "lifecycle"]
 
 [[module]]
 name = "catalog"
 paths = ["crates/north-core/src/catalog/**", "crates/north-core/src/agent_catalog.rs", "crates/north-core/src/agent_policy_contract.rs", "crates/north-core/src/agent_policy_contract/**", "crates/north-core/src/agent_config_check/**"]
 responsibility = "Agent catalog, activation generations, projection port and policy checks."
-may_use = ["lifecycle", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "proxy"
 paths = ["crates/north-core/src/proxy/**"]
 responsibility = "Classify the proxy's tool calls by kind from the verb table the CLI declares, and read them out of a transcript."
-may_use = ["lifecycle", "crate-roots", "foundation", "shell"]
+may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
 
 [[module]]
 name = "grounding"
 paths = ["crates/north-core/src/grounding/**"]
 responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["lifecycle", "threads", "domain", "platform", "foundation", "crate-roots", "graph_ground"]
+may_use = ["threads", "domain", "platform", "foundation", "crate-roots", "graph_ground", "lifecycle"]
 
 [[module]]
 name = "capacity"
 paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["lifecycle", "strategy_types", "shell", "platform", "foundation", "crate-roots", "fleet", "threads"]
+may_use = ["strategy_types", "shell", "platform", "foundation", "crate-roots", "fleet", "threads", "lifecycle"]
 
 [[module]]
 name = "lanes"
 paths = ["crates/north-guard/src/lanes/**"]
 responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks."
-may_use = ["lifecycle", "threads", "platform", "foundation", "crate-roots", "github_mirror"]
+may_use = ["threads", "platform", "foundation", "crate-roots", "github_mirror", "lifecycle"]
 
 [[module]]
 name = "github_mirror"
 paths = ["crates/north-github-mirror/src/**"]
 responsibility = "The local copy of GitHub issues, CI runs and check results, kept by conditional reads, that pollers read instead of GitHub."
-may_use = ["lifecycle", "crate-roots", "foundation", "platform"]
+may_use = ["crate-roots", "foundation", "platform", "lifecycle"]
 
 [[module]]
 name = "goals"
 paths = ["crates/north-goals/src/**"]
 responsibility = "Each project's goals as named checks: the oracle commands, the bound and class judged on each measured value, and the red-goal line the fleet tick tells the proxy."
-may_use = ["lifecycle", "crate-roots", "foundation", "platform"]
+may_use = ["crate-roots", "foundation", "platform", "lifecycle"]
 
 [[module]]
 name = "frontier"
 paths = ["crates/north-frontier/src/**"]
 responsibility = "The frontier benchmark: frozen landed boxes, a sandbox per arm, the north and plain Claude Code arms, grading by the landing's own tests, the run rows and their intervals and paired tests."
-may_use = ["lifecycle", "crate-roots", "fleet", "foundation", "platform", "providers"]
+may_use = ["crate-roots", "fleet", "foundation", "platform", "providers", "lifecycle", "claude_stream"]
 
 [[module]]
 name = "mutants"
 paths = ["crates/north-mutants/src/**"]
 responsibility = "Mutation testing of a repository's tests: the recorded mutants, the verify, matrix and retire runs, and the weekly sweep that files its findings."
-may_use = ["lifecycle", "crate-roots", "platform"]
+may_use = ["crate-roots", "platform", "lifecycle"]
 
 [[module]]
 name = "implicit_state"
 paths = ["crates/north-implicit-state/src/**"]
 responsibility = "The implicit-state shapes: ast-grep rules that find state kept outside a typed lifecycle, their exceptions in structure.toml, the occurrences a change adds and the repository listing."
-may_use = ["lifecycle", "crate-roots", "platform"]
+may_use = ["crate-roots", "platform", "lifecycle"]
 
 [[module]]
 name = "coverage"
 paths = ["crates/north-coverage/src/**"]
 responsibility = "The map from each Rust test to the functions it executes, recorded on a check host, and the pre-push selection of the tests that reach a change."
-may_use = ["lifecycle", "crate-roots", "foundation", "platform"]
+may_use = ["crate-roots", "foundation", "platform", "lifecycle"]
 
 [[module]]
 name = "graph"
 paths = ["crates/north-graph/src/**"]
 responsibility = "The fact graph: interned Atom and Triple terms, assertion occurrences with their writers and withdrawals over SQLite, the five verbs, and the Datalog engine behind ask."
-may_use = ["lifecycle", "crate-roots"]
+may_use = ["crate-roots", "lifecycle"]
 
 [[module]]
 name = "graph_ingest"
 paths = ["crates/north-graph-ingest/src/**"]
 responsibility = "Loading what north already records into the fact graph: the GitHub mirror, ledger, push log, decision log, corrections and coverage map, each told as a set by its own writer."
-may_use = ["lifecycle", "coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "platform", "threads"]
+may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "platform", "threads", "lifecycle"]
 
 [[module]]
 name = "graph_ground"
 paths = ["crates/north-graph-ground/src/**"]
 responsibility = "Reading the fact graph around the issues and files a message names, as the lines the prompt hook and a brief show."
-may_use = ["lifecycle", "crate-roots", "foundation", "graph"]
+may_use = ["crate-roots", "foundation", "graph", "lifecycle"]
 
 [[module]]
 name = "ops"
@@ -452,56 +463,56 @@ may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", 
 name = "usage"
 paths = ["crates/*/src/usage/**"]
 responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
-may_use = ["lifecycle", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "code_health"
 paths = ["crates/north-guard/src/code_health/**"]
 responsibility = "The code-health report, gate, edit check and review signal over structure.toml, their import resolution and function metrics; the Rust habit checks; the hourly review tick."
-may_use = ["lifecycle", "platform", "foundation", "crate-roots", "implicit_state"]
+may_use = ["platform", "foundation", "crate-roots", "implicit_state", "lifecycle"]
 
 [[module]]
 name = "split"
 paths = ["crates/north-core/src/split/**"]
 responsibility = "north split move-module: moves modules out of one workspace crate into a sibling crate, byte-identical, with its manifest, re-exports and structure entry."
-may_use = ["lifecycle", "crate-roots", "foundation", "platform"]
+may_use = ["crate-roots", "foundation", "platform", "lifecycle"]
 
 [[module]]
 name = "build_time"
 paths = ["crates/north-core/src/build_time/**"]
 responsibility = "Measured Rust edit-to-result times per workspace, their ledger and the 10 s leaf-edit cap."
-may_use = ["lifecycle", "platform", "foundation", "crate-roots"]
+may_use = ["platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "nix_upkeep"
 paths = ["crates/north-core/src/nix_gc/**", "crates/north-core/src/doctor_nix/**"]
 responsibility = "Nix store upkeep: the gc roots for what the hosts still run, and the doctor's checks of the Nix footguns a host would hit."
-may_use = ["lifecycle", "platform", "foundation", "crate-roots"]
+may_use = ["platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "learn"
 paths = ["crates/north-core/src/learn/**"]
 responsibility = "Replay, tuning, measurement and backtests over recorded outcomes."
-may_use = ["lifecycle", "threads", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["threads", "domain", "platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "providers"
 paths = ["crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/rpc.rs", "crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
-may_use = ["lifecycle", "fleet", "ledger", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots", "lifecycle", "claude_stream"]
 
 [[module]]
 name = "tui"
 paths = ["crates/north-tui/src/lib.rs", "crates/north-tui/src/tui/**"]
 responsibility = "Fleet terminal screen, input, transcript and digest views."
-may_use = ["lifecycle", "fleet", "ledger", "providers", "catalog", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["fleet", "ledger", "providers", "catalog", "domain", "platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["lifecycle", "strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier"]
+may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier", "lifecycle"]
 
 [[module]]
 name = "verify"

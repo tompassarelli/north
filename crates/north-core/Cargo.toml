@@ -7,6 +7,7 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
+north-claude-stream = { path = "../north-claude-stream" }
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }

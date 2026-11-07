@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{ChildStdin, ChildStdout, Command};
 use tokio::time::{Instant, timeout_at};
 
-use crate::claude_stream::{
+use north_claude_stream::{
     DeliveryState, StreamFrame, decode_frame, encode_initialize, encode_interrupt,
     encode_user_message,
 };
