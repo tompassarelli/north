@@ -77,9 +77,15 @@ fn stalled(_: &Candidate, _: &Job, _: &dyn Fn(&str)) -> Result<u8, Option<Declin
     Err(None)
 }
 
-fn running_slowly(_: &Candidate, _: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static PAST_TIMEOUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn running_until_released(_: &Candidate, _: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
     announce("gex45");
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    STARTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    while !PAST_TIMEOUT.load(std::sync::atomic::Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     Ok(7)
 }
 
@@ -101,6 +107,14 @@ async fn an_offload_offer_that_never_starts_ends_with_the_gates_timeout_and_one_
     assert_eq!(offer(&hung, 5).await, None, "the stalled offer ended with the gate's timeout");
     assert!(started.elapsed() < std::time::Duration::from_secs(3), "{:?}", started.elapsed());
     RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
-    let running = Host { build_offload: running_slowly, ..laptop(|| None) };
-    assert_eq!(offer(&running, 5).await, Some(7), "a job a host started finishes past the gate's timeout");
+    let running = Host { build_offload: running_until_released, ..laptop(|| None) };
+    let release_once_past_the_timeout = async {
+        while !STARTED.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        PAST_TIMEOUT.store(true, std::sync::atomic::Ordering::SeqCst);
+    };
+    let (finished, ()) = tokio::join!(offer(&running, 4), release_once_past_the_timeout);
+    assert_eq!(finished, Some(7), "a job a host started finishes past the gate's timeout");
 }
