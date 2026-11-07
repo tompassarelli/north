@@ -7,9 +7,10 @@ use crate::fleet::runtime::now_ms;
 use crate::fleet::store::{Exchange, Exchanged, FleetRow, LedgerHost, Registered, Registration, SessionRow, Store, WaitKey, WaitRequest};
 use crate::threads::client;
 
+use super::ledger::placed_store;
 use super::spool;
 
-const USAGE: &str = "Usage: north fleet row put [--peer HOST] < ROW_JSON_OR_ARRAY | north fleet row exchange [--peer HOST] < EXCHANGE_JSON | north fleet row register [--peer HOST] < REGISTRATION_JSON | north fleet row wait [--peer HOST] < WAIT_JSON | north fleet row settle [--peer HOST] < WAIT_KEYS_JSON | north fleet row leased SESSION";
+const USAGE: &str = "Usage: north fleet row put [--peer HOST] < ROW_JSON_OR_ARRAY | north fleet row exchange [--peer HOST] < EXCHANGE_JSON | north fleet row register [--peer HOST] < REGISTRATION_JSON | north fleet row wait [--peer HOST] < WAIT_JSON | north fleet row settle [--peer HOST] < WAIT_KEYS_JSON | north fleet row retire [--peer HOST] | north fleet row leased SESSION";
 const FORWARDED_PUT: &[&str] = &["north", "fleet", "row", "put"];
 const FORWARDED_WAIT: &[&str] = &["north", "fleet", "row", "wait"];
 const REMOTE_PEER: &str = "NORTH_REMOTE_PEER";
@@ -29,6 +30,7 @@ pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> 
         "register" => serve_registration(peer),
         "wait" => wait(peer),
         "settle" => settle(peer),
+        "retire" => retire(),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }
@@ -74,7 +76,7 @@ fn put(peer: Option<&str>) -> NorthResult<()> {
 }
 
 fn serve_exchange(peer: Option<&str>) -> NorthResult<()> {
-    let mut store = Store::open(&client::ledger_path()?)?;
+    let mut store = placed_store()?;
     let exchanged = served_exchange(&mut store, &stdin()?, peer)?;
     println!("{}", serde_json::to_string(&exchanged)?);
     Ok(())
@@ -117,6 +119,11 @@ fn settle(peer: Option<&str>) -> NorthResult<()> {
     let mut store = Store::open(&client::ledger_path()?)?;
     let waits = admitted_settle(&stdin()?, peer, || store.sessions())?;
     store.settle_all(&waits)
+}
+
+fn retire() -> NorthResult<()> {
+    println!("{}", serde_json::to_string(&placed_store()?.retire_unplaced(None)?)?);
+    Ok(())
 }
 
 fn leased(session: &str) -> NorthResult<()> {

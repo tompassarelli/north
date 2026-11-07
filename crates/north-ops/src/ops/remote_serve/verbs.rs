@@ -7,7 +7,7 @@ const THREADS_VERBS: [&str; 27] = [
 ];
 const THREADS_UNBLOCK: &str = "unblock";
 const NORTH_ONLY_THREADS: [&str; 2] = ["ingest", "snapshot-pages"];
-const FLEET_ROW: [&str; 5] = ["put", "wait", "exchange", "settle", "register"];
+const FLEET_ROW: [&str; 6] = ["put", "wait", "exchange", "settle", "register", "retire"];
 
 pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();

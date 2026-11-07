@@ -147,6 +147,10 @@ impl Fleet {
         self.runtimes.roster(&self.state, &self.home, &self.policy)
     }
 
+    pub fn placed_hosts(&self) -> Option<Vec<String>> {
+        crate::platform::orchestration::placed_hosts(&self.policy)
+    }
+
     pub fn accounts(&self) -> Vec<Account> {
         self.roster().accounts
     }

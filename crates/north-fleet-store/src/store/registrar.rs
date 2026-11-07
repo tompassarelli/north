@@ -6,6 +6,7 @@ use super::{Claim, SessionRow, Slots, Store};
 
 pub trait Registrar: Send + Sync {
     fn register(&self, row: &SessionRow, claim: Claim, slots: &Slots) -> NorthResult<()>;
+    fn retire_unplaced(&self) -> NorthResult<Vec<String>>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

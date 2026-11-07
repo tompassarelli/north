@@ -156,10 +156,16 @@ pub(super) fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult
 
 
 fn controlled(fleet: &Fleet, verb: ControlVerb, name: &str) -> NorthResult<()> {
-    if let Controlled::Spooled(row) = fleet.control(verb, name)? {
-        println!("spooled CONTROL row {}: {} {name} applies on the host that holds it at its next tick", row.id, verb.label());
-    }
+    told(fleet.control(verb, name)?, verb, name);
     Ok(())
+}
+
+fn told(controlled: Controlled, verb: ControlVerb, name: &str) {
+    match controlled {
+        Controlled::Here => {}
+        Controlled::Spooled(row) => println!("spooled CONTROL row {}: {} {name} applies on the host that holds it at its next tick", row.id, verb.label()),
+        Controlled::Retired { host } => println!("retired {name} at once instead of spooling a {}: its host {host} is no longer in placement", verb.label()),
+    }
 }
 
 
@@ -168,9 +174,7 @@ fn forget(fleet: &Fleet, name: &str, force: Option<&str>) -> NorthResult<()> {
     for lane in &forgotten.overrode {
         eprintln!("forgot {name} with {} (branch {}) still queued: {}", lane.ticket.display(), lane.branch, force.unwrap_or_default());
     }
-    if let Controlled::Spooled(row) = forgotten.controlled {
-        println!("spooled CONTROL row {}: forget {name} applies on the host that holds it at its next tick", row.id);
-    }
+    told(forgotten.controlled, ControlVerb::Forget, name);
     Ok(())
 }
 

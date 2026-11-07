@@ -75,7 +75,7 @@ fn remote_serve_guards_refuse_a_peer_reaching_past_its_own_jobs_hosts_and_reposi
 
 #[test]
 fn remote_serve_forces_the_peer_on_every_fleet_row_verb() {
-    for verb in ["put", "exchange", "register", "wait", "settle"] {
+    for verb in ["put", "exchange", "register", "wait", "settle", "retire"] {
         for command in [format!("north fleet row {verb}"), format!("north fleet row {verb} --peer gex45")] {
             let plan = planned(&command).unwrap();
             assert_eq!(plan.argv, ["north", "fleet", "row", verb, "--peer", "gex45"], "{command}");

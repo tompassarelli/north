@@ -34,6 +34,7 @@ pub const LAUNCH_GRACE_MS: u64 = 10 * 60 * 1000;
 
 pub struct Store {
     db: Connection,
+    placed: Option<Vec<String>>,
 }
 
 impl Store {
@@ -43,7 +44,7 @@ impl Store {
         schema::ensure(&mut db)?;
         waits::ensure(&db)?;
         gates::ensure(&db)?;
-        Ok(Self { db })
+        Ok(Self { db, placed: None })
     }
 
     pub fn put(&mut self, rows: &[FleetRow]) -> NorthResult<()> {
@@ -93,6 +94,19 @@ impl Store {
         sessions::retire_vanished(&tx, host, rows, &launching_since)?;
         tx.commit().map_err(sql)?;
         Ok(held_elsewhere)
+    }
+
+    pub fn placing(mut self, placed: Option<Vec<String>>) -> Self {
+        self.placed = placed;
+        self
+    }
+
+    pub fn retire_unplaced(&mut self, publishing: Option<&str>) -> NorthResult<Vec<String>> {
+        let Some(placed) = &self.placed else { return Ok(Vec::new()) };
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        let retired = sessions::retire_unplaced(&tx, placed, publishing)?;
+        tx.commit().map_err(sql)?;
+        Ok(retired)
     }
 
     pub fn sessions(&self) -> NorthResult<Vec<SessionRow>> {

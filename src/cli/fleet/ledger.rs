@@ -5,11 +5,13 @@ use crate::fleet::jobs::JobLeases;
 use crate::fleet::model::Machine;
 use crate::fleet::store::{Claim, Exchange, Exchanged, LedgerHost, Registered, Registrar, Registration, SessionRow, Slots, Store, WaitKey};
 use crate::threads::client;
+use crate::platform::orchestration;
 
 const EXCHANGED: &[&str] = &["north", "fleet", "row", "exchange"];
 const SETTLED: &[&str] = &["north", "fleet", "row", "settle"];
 const REGISTER: &[&str] = &["north", "fleet", "row", "register"];
 const LEASED: &[&str] = &["north", "fleet", "row", "leased"];
+const RETIRE: &[&str] = &["north", "fleet", "row", "retire"];
 
 pub(super) struct Ledger;
 
@@ -17,7 +19,7 @@ impl LedgerHost for Ledger {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
         match client::ask_ledger_host(EXCHANGED, &serde_json::to_vec(exchange)?)? {
             Some(answer) => Ok(serde_json::from_slice(&answer)?),
-            None => Store::open(&client::ledger_path()?)?.exchange(exchange),
+            None => placed_store()?.exchange(exchange),
         }
     }
 
@@ -54,6 +56,17 @@ impl Registrar for LedgerRegistrar {
             None => Store::open(&client::ledger_path()?)?.register(row, claim, slots),
         }
     }
+
+    fn retire_unplaced(&self) -> NorthResult<Vec<String>> {
+        match client::ask_ledger_host(RETIRE, &[])? {
+            Some(answer) => Ok(serde_json::from_slice(&answer)?),
+            None => placed_store()?.retire_unplaced(None),
+        }
+    }
+}
+
+pub(super) fn placed_store() -> NorthResult<Store> {
+    Ok(Store::open(&client::ledger_path()?)?.placing(orchestration::placed_hosts(&orchestration::path())))
 }
 
 pub(super) struct LedgerLeases;

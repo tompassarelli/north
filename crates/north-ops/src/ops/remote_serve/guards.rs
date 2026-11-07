@@ -3,7 +3,7 @@ use crate::threads::catalog::CATALOG;
 use super::{Grants, Jobs, Plan, Refusal};
 
 const POOL: &str = "pool";
-const FLEET_ROW_PEERED: [&str; 5] = ["put", "exchange", "register", "wait", "settle"];
+const FLEET_ROW_PEERED: [&str; 6] = ["put", "exchange", "register", "wait", "settle", "retire"];
 const FOLLOW_STEPS: [&str; 4] = ["follow", "follow-release", "follow-started", "follow-alert"];
 const GH_STATUSES: [&str; 2] = ["failed", "requeued"];
 pub const REMOTE_PEER: &str = "NORTH_REMOTE_PEER";

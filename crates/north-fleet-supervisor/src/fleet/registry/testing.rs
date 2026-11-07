@@ -13,6 +13,10 @@ impl Registrar for Unrecorded {
     fn register(&self, _: &SessionRow, _: Claim, _: &Slots) -> NorthResult<()> {
         Ok(())
     }
+
+    fn retire_unplaced(&self) -> NorthResult<Vec<String>> {
+        Ok(Vec::new())
+    }
 }
 
 impl Fleet {

@@ -52,6 +52,7 @@ impl LedgerHost for Store {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
         self.put(&exchange.rows)?;
         let held_elsewhere = self.publish_over(&exchange.host, &exchange.sessions, &exchange.outranks)?;
+        self.retire_unplaced(Some(&exchange.host))?;
         self.publish_gates(&exchange.host, &exchange.gates)?;
         let names: Vec<&str> = exchange.addressees.iter().map(|addressee| addressee.name.as_str()).collect();
         let waits = waits::all(&self.db)?.into_iter().filter(|wait| names.contains(&wait.session.as_str())).collect();

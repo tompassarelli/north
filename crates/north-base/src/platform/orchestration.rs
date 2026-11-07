@@ -41,3 +41,9 @@ pub fn set_aside_repos(cfg: &DocumentMut) -> Vec<String> {
     repos.dedup();
     repos
 }
+
+pub fn placed_hosts(path: &Path) -> Option<Vec<String>> {
+    let cfg: DocumentMut = std::fs::read_to_string(path).ok()?.parse().ok()?;
+    let hosts: Vec<String> = cfg.get("hosts")?.as_table_like()?.iter().map(|(name, _)| name.to_owned()).collect();
+    (!hosts.is_empty()).then_some(hosts)
+}

@@ -10,6 +10,7 @@ use super::{Fleet, HandedIn};
 pub enum Controlled {
     Here,
     Spooled(Box<FleetRow>),
+    Retired { host: String },
 }
 
 impl Fleet {
@@ -17,9 +18,13 @@ impl Fleet {
         if self.session_dir(name)?.exists() {
             return self.run_control(verb, name, self.caller().as_deref()).map(|()| Controlled::Here);
         }
-        let known = cached_sessions(&self.root)?.is_some_and(|sessions| sessions.iter().any(|session| session.name == name));
-        if !known {
+        let Some(held) = cached_sessions(&self.root)?.and_then(|sessions| sessions.into_iter().find(|session| session.name == name)) else {
             return Err(NorthError::Usage(format!("no session named {name}")));
+        };
+        if verb != ControlVerb::Revive && self.placed_hosts().is_some_and(|placed| !placed.contains(&held.host)) {
+            self.registrar.retire_unplaced()?;
+            self.uncache_session(name)?;
+            return Ok(Controlled::Retired { host: held.host });
         }
         let sent_at = now_ms();
         let row = FleetRow {

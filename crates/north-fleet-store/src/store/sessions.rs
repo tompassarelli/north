@@ -116,7 +116,13 @@ pub(super) fn retire_vanished(tx: &Transaction, host: &str, rows: &[SessionRow],
     Ok(())
 }
 
-pub(super) fn all(db: &rusqlite::Connection) -> NorthResult<Vec<SessionRow>> {
+pub(super) fn retire_unplaced(tx: &Transaction, placed: &[String], publishing: Option<&str>) -> NorthResult<Vec<String>> {
+    let mut statement = tx.prepare("DELETE FROM fleet_sessions WHERE host NOT IN (SELECT value FROM json_each(?1)) AND host IS NOT ?2 RETURNING name").map_err(sql)?;
+    let retired = statement.query_map(params![serde_json::to_string(placed)?, publishing], |row| row.get(0)).map_err(sql)?.collect::<Result<_, _>>().map_err(sql)?;
+    Ok(retired)
+}
+
+pub(super) fn all(db:&rusqlite::Connection) -> NorthResult<Vec<SessionRow>> {
     let mut statement = db.prepare(&format!("SELECT {COLUMNS} FROM fleet_sessions ORDER BY name")).map_err(sql)?;
     let rows = statement.query_map([], held).map_err(sql)?.collect::<Result<_, _>>().map_err(sql)?;
     Ok(rows)

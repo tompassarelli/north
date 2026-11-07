@@ -124,3 +124,16 @@ fn a_settled_wait_leaves_its_registration_in_the_wait_history() {
     let kept: Vec<(String, String)> = db.prepare("SELECT session, key FROM fleet_wait_history").unwrap().query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect();
     assert_eq!((live, kept), (0, vec![("north-730-d0351".to_owned(), "n730-poolkey-landed".to_owned())]));
 }
+
+#[test]
+fn the_exchange_after_a_host_leaves_placement_retires_the_session_rows_it_held() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    store.publish("ccx33", &[session("n-held", "ccx33", "working")]).unwrap();
+    store.publish("gex45", &[session("n-kept", "gex45", "working")]).unwrap();
+    let mut store = store.placing(Some(vec!["nexus".into(), "gex45".into()]));
+
+    let exchanged = store.exchange(&Exchange { host: "nexus".into(), ..Exchange::default() }).unwrap();
+
+    assert_eq!(exchanged.sessions.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(), ["n-kept"]);
+}

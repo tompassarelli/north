@@ -554,3 +554,26 @@ fn on_the_floor() {
     assert!(launched.is_empty(), "{launched:?} {:?}", done.lines);
     assert_eq!(parked, [("proxy".to_owned(), vec![Run::Usage { account: "a".into(), at_ms: at_ms(2 * hour) }]), ("worker".to_owned(), vec![Run::Usage { account: "api:gmail".into(), at_ms: at_ms(5 * day) }])], "{:?}", done.lines);
 }
+
+#[test]
+fn a_host_deleted_from_placement_is_named_in_no_tick_line_and_a_forget_aimed_at_a_session_it_held_applies_at_once() {
+    let host = host("nexus");
+    let policy = crate::platform::orchestration::under(host.home.path());
+    std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
+    std::fs::write(&policy, "[hosts.nexus]\n[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
+    let _frames = live(&host, "placed-there");
+    let file = host.root().join("placed-there/session.json");
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    record["machine"] = json!({"name": "ccx33", "ssh": "tom@ccx33"});
+    std::fs::write(file, record.to_string()).unwrap();
+    let held = crate::fleet::store::SessionRow { name: "held-there".into(), host: "ccx33".into(), status: "working".into(), ..Default::default() };
+    host.fleet.cache_table(&FleetTable { sessions: vec![held], gates: Vec::new() }).unwrap();
+
+    let forgot = host.fleet.control(crate::fleet::store::ControlVerb::Forget, "held-there").unwrap();
+
+    assert!(matches!(forgot, crate::fleet::registry::Controlled::Retired { ref host } if host == "ccx33"));
+    assert!(host.fleet.spool().pending().unwrap().is_empty(), "a forget for a host that never ticks again is not spooled");
+    assert!(host.fleet.cached_sessions().unwrap().unwrap_or_default().iter().all(|row| row.name != "held-there"));
+    let lines = host.tick().lines();
+    assert!(lines.iter().all(|line| !line.contains("ccx33")), "{lines:?}");
+}
