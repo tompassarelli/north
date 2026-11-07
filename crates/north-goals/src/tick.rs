@@ -2,8 +2,11 @@
 //! the set of red goals changes and as a reminder every few hours, and a tick reads the oracles at most every few minutes.
 use std::path::{Path, PathBuf};
 
+use north_base::foundation::clock::Timestamp;
+use north_base::platform::host;
 use serde::{Deserialize, Serialize};
 
+use super::history::{Store, samples};
 use super::{PROJECTS, Row, check, code_root, line};
 
 const CHECK_EVERY: i64 = 600;
@@ -51,10 +54,13 @@ pub fn state_file(relative: &str) -> PathBuf {
     std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from).join(relative)
 }
 
-pub fn lines(now: i64) -> Vec<String> {
+pub fn lines(now: i64, history: &dyn Store) -> Vec<String> {
     announce(&state_file("north/goals/tick.json"), now, || {
         let projects: Vec<String> = PROJECTS.iter().map(|name| (*name).to_owned()).collect();
         let (rows, problems) = check(&code_root(), &projects);
+        if let Err(why) = history.record(&samples(&rows, &host::name(), Timestamp::from_unix_seconds(now))) {
+            eprintln!("north goals: concern history not recorded: {why}");
+        }
         red(&rows, &problems)
     })
 }

@@ -10,7 +10,7 @@ mod labels;
 pub mod landed_issues;
 mod record;
 pub use record::CLOUD_ORIGIN;
-mod row;
+pub(crate) mod row;
 #[cfg(test)]
 mod tests;
 
@@ -95,7 +95,7 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     let mut input = Vec::new();
     stdin.read_to_end(&mut input).map_err(|error| Failure::Refused(error.to_string()))?;
     let mut db = open(context.database, true)?;
-    let (mut tally, mut readouts, mut hooked) = (Tally::default(), Vec::new(), false);
+    let (mut tally, mut readouts, mut hooked, mut concerned) = (Tally::default(), Vec::new(), false, false);
     let tx = immediate(&mut db)?;
     columns::ensure(&tx)?;
     for line in input.split(|byte| *byte == b'\n').filter(|line| !String::from_utf8_lossy(line).trim().is_empty()) {
@@ -108,6 +108,12 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
                 hooked = true;
             }
             tally.hooks += hooks::record(&tx, &row)?;
+        } else if row.get("type").is_some_and(|kind| kind == super::concerns::KIND) {
+            if !concerned {
+                super::concerns::ensure(&tx, context.now)?;
+                concerned = true;
+            }
+            tally.concerns += super::concerns::record(&tx, &row)?;
         } else {
             Ingest { db: &tx, context, tally: &mut tally }.row(row)?;
         }
@@ -120,8 +126,9 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     }
     let backfilled = if tally.backfilled > 0 { format!(", {} backfilled", tally.backfilled) } else { String::new() };
     let hooks = if tally.hooks > 0 { format!(", {} hook verdicts", tally.hooks) } else { String::new() };
+    let concerns = if tally.concerns > 0 { format!(", {} concern samples", tally.concerns) } else { String::new() };
     let unpriced = tally.unpriced.into_iter().collect::<Vec<_>>().join(", ");
     let unpriced = if unpriced.is_empty() { unpriced } else { format!("; token weight for models without a list price: {unpriced}") };
-    writeln!(err, "NorthThreads: {} runs recorded{backfilled}{hooks} in {}{unpriced}", tally.added, context.database.display()).map_err(|error| Failure::Refused(error.to_string()))?;
+    writeln!(err, "NorthThreads: {} runs recorded{backfilled}{hooks}{concerns} in {}{unpriced}", tally.added, context.database.display()).map_err(|error| Failure::Refused(error.to_string()))?;
     Ok(String::new())
 }

@@ -108,6 +108,7 @@ Rows a writer records into a database, judged like the file signals above. The d
 | reading | database | query | writer | cadence | owner |
 |---|---|---|---|---|---|
 | usage header rows | `ledger` | `SELECT max(ts) FROM usage WHERE source LIKE 'Messages response%'` | crates/north-providers/src/providers/claude/token_quota.rs | 5m | north#35 |
+| concern samples of the goal tick | `ledger` | `SELECT max(at) FROM concern_samples WHERE sampler = 'concerns-tick'` | crates/north-goals/src/tick.rs | 10m | north#709 |
 
 See [learned routing and goal ETA measurements](rationale/learned-routing-and-goal-eta.md) for the dated routing backtest and the goal ETA replay.
 

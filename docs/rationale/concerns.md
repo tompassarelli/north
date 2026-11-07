@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS concern_samples(
 ) STRICT;
 ```
 
-`value` is NULL and `why` holds the failure when a reading fails; `detail` holds the detail lines; `state` is the judged state, kept for views and audits. `sampler` names the writer (`concerns-tick`, `land-doctor`, `flow`, `concerns-ledger`). Each sampler writes one batch per run through `north threads concerns record` (JSON lines on stdin), so the threads client carries it to the ledger host and spools it when that host is unreachable, as every other ledger write does.
+`value` is NULL and `why` holds the failure when a reading fails; `detail` holds the detail lines; `state` is the judged state, kept for views and audits. `sampler` names the writer (`concerns-tick`, `land-doctor`, `flow`, `concerns-ledger`). Each sampler writes one batch per run as `"type": "concern"` rows of `north threads ingest`, the path the hook verdict rows already take, so the threads client carries it to the ledger host and spools it when that host is unreachable, as every other ledger write does.
 
 Readers (`--trend`, the views, the dividend) open `threads_database()`: the ledger itself on the ledger host, else the page snapshot, refreshed every 15 minutes. A 12 h window does not notice that lag, and `--trend` prints the current value from its own live run. The judge does not read the snapshot: it needs the previous sample's state, which a 15-minute-old copy can miss, so each sampler keeps the judged state and episode of every concern it measures in its own state file, as the goal tick keeps `north/goals/tick.json` today. On gex45 the snapshot is 0 bytes since 2026-10-27 and `north scoreboard --ready` fails there with "no such table: landings"; lane 2's Done when is read on a host whose snapshot reads, and the broken pull is its own issue (north#712).
 
@@ -58,7 +58,7 @@ Alternatives that lost:
 
 **Cadence.** One sample per concern every 10 minutes, the goal tick's existing `CHECK_EVERY`. The fleet tick samples the `here` oracles; `north land doctor`, which runs every 2 minutes on the lander host, records its concerns at most every 10 minutes from the run it already does; `north flow`'s timer records its concerns from each run; a 10-minute user timer on the ledger host runs `north concerns sample --role ledger`, added in nixos-config by the lane that adds the first ledger concern, since the nightly `north tune` unit there is too slow.
 
-**Retention.** Raw samples are kept 35 days and deleted by the record verb in the same transaction that writes a batch. 35 days covers the 7-day slope, the ratchet's 7 days and the dividend's 30-day lane window with room to spare. About 50 concerns at 144 samples a day is about 250 000 rows at the cap, a few tens of megabytes in a ledger of 136 MB. No downsampled tier: nothing reads past 35 days.
+**Retention.** Raw samples are kept 35 days and deleted by the ingest that records a batch, in the same transaction that writes it. 35 days covers the 7-day slope, the ratchet's 7 days and the dividend's 30-day lane window with room to spare. About 50 concerns at 144 samples a day is about 250 000 rows at the cap, a few tens of megabytes in a ledger of 136 MB. No downsampled tier: nothing reads past 35 days.
 
 **A stale sampler fails `north health`.** docs/feedback-loop.md's Recorded readings get one row per sampler (`SELECT max(at) FROM concern_samples WHERE sampler = 'NAME'`, cadence 10m for the tick, the doctor and the ledger timer, 15m for flow), so one sampler stopping fails the silent-signal check even while the others write.
 

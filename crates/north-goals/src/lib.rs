@@ -4,6 +4,7 @@
 //! revisit trigger (docs/rationale/targets.md). A red goal reaches the proxy through the fleet tick.
 pub mod attribute;
 pub mod ceiling;
+pub mod history;
 pub mod oracle;
 pub mod registry;
 pub mod tick;

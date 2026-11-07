@@ -112,6 +112,7 @@ pub(super) struct Tally {
     pub samples: usize,
     pub touched: Touched,
     pub hooks: usize,
+    pub concerns: usize,
     pub unpriced: BTreeSet<String>,
 }
 
