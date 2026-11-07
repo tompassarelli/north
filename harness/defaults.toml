@@ -1640,6 +1640,6 @@ consumers = ["crates/north-diff-gates/src/landing_refusals.rs"]
 value = 15
 allowed = { min = 3, max = 200 }
 unit = "read-only tool calls (diagnosis, status checks, landing logs) a proxy turn may make since its prompt or its last launch, send or gate before the PostToolUse hook stops the turn and names the brief to write"
-source = "measured: the proxy's 2026-11-05 day (docs/rationale/proxy-role.md section 1) ran 281 streaks between hand-offs, median 5 and 90th percentile 18, and 42 reached 15; a provisional value until `north config proxy calls TRANSCRIPT` replays the 2026-11-08 laptop-load turn of the laptop proxy's transcript, which lives only on the laptop (north#838)"
+source = "measured: `north config proxy calls` on the laptop proxy's 2026-11-08 transcript (conversation 1f79cfb7) found 82 read-only streaks since a prompt, launch, send or gate, 2 of them over 15, the longest being the laptop-load turn, so 15 stops that turn and lets the other 80 run; between hand-offs that night ran 22 streaks, median 17, 90th percentile 51, longest 151; the proxy's 2026-11-05 day (docs/rationale/proxy-role.md section 1) ran 281 streaks, median 5 and 90th percentile 18, 42 reaching 15 (north#838)"
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/proxy_streak.rs"]
