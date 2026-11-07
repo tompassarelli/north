@@ -13,13 +13,13 @@ use toml_edit::DocumentMut;
 const ASK: Duration = Duration::from_secs(60);
 const MARK: &str = "==north-settle== ";
 const UNITS: [&str; 2] = ["capacity-watchdog.service", "north-runtime-follow.timer"];
-const RESIDENTS: [Resident; 3] = [Resident::SessionHost, Resident::SessionLink, Resident::FleetWatchdog];
+const RESIDENTS: [Resident; 2] = [Resident::SessionHost, Resident::SessionLink];
+const WATCHDOG: &str = "fleet watchdog";
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Resident {
     SessionHost,
     SessionLink,
-    FleetWatchdog,
 }
 
 impl Resident {
@@ -27,7 +27,6 @@ impl Resident {
         match argv {
             ["session-host", ..] => Some(Self::SessionHost),
             ["session-link", ..] => Some(Self::SessionLink),
-            ["fleet", "watchdog", ..] => Some(Self::FleetWatchdog),
             _ => None,
         }
     }
@@ -36,9 +35,13 @@ impl Resident {
         match self {
             Self::SessionHost => "session-host",
             Self::SessionLink => "session-link",
-            Self::FleetWatchdog => "fleet watchdog",
         }
     }
+}
+
+fn runs(program: &str, runtime: &str) -> bool {
+    let mut parts = program.split('/');
+    parts.any(|part| part == "runtimes") && parts.next() == Some(runtime)
 }
 
 #[derive(Default)]
@@ -46,21 +49,31 @@ pub(super) struct NorthProcesses {
     transient: u64,
     residents: BTreeMap<Resident, u64>,
     sessions: BTreeSet<String>,
+    watchdogs: BTreeMap<String, u64>,
+    stray: u64,
 }
 
 impl NorthProcesses {
-    fn read(section: &str) -> Self {
+    fn read(section: &str, runtime: Option<&str>) -> Self {
         let mut processes = Self::default();
+        let mut watchdogs: Vec<(&str, &str)> = Vec::new();
         for line in section.lines().filter(|line| !line.is_empty()) {
-            let argv: Vec<&str> = line.split('\t').skip(1).collect();
-            match Resident::of(&argv) {
-                Some(resident) => {
+            let argv: Vec<&str> = line.split('\t').collect();
+            match (Resident::of(&argv[1..]), &argv[1..]) {
+                (Some(resident), _) => {
                     *processes.residents.entry(resident).or_default() += 1;
                     if let (Resident::SessionHost, Some(name)) = (resident, argv.iter().position(|word| *word == "--name").and_then(|at| argv.get(at + 1))) {
                         processes.sessions.insert((*name).to_owned());
                     }
                 }
-                None => processes.transient += 1,
+                (None, ["fleet", "watchdog", session, ..]) => watchdogs.push((argv[0], session)),
+                (None, _) => processes.transient += 1,
+            }
+        }
+        for (program, session) in watchdogs {
+            match processes.sessions.contains(session) && runtime.is_some_and(|runtime| runs(program, runtime)) {
+                true => *processes.watchdogs.entry(session.to_owned()).or_default() += 1,
+                false => processes.stray += 1,
             }
         }
         processes
@@ -83,14 +96,20 @@ impl NorthProcesses {
                 problems.push(format!("{count} {} processes for {live} live sessions", resident.name()));
             }
         }
+        for (session, count) in self.watchdogs.iter().filter(|(_, count)| **count > 1) {
+            problems.push(format!("{count} {WATCHDOG} processes of the live runtime for live session {session}"));
+        }
         problems
     }
 
     fn record(&self) -> Value {
+        let mut residents: serde_json::Map<String, Value> = RESIDENTS.iter().map(|resident| (resident.name().to_owned(), json!(self.resident(*resident)))).collect();
+        residents.insert(WATCHDOG.to_owned(), json!(self.watchdogs.values().sum::<u64>()));
         json!({
             "transient": self.transient,
             "liveSessions": self.sessions.len(),
-            "residents": RESIDENTS.iter().map(|resident| (resident.name().to_owned(), json!(self.resident(*resident)))).collect::<serde_json::Map<_, _>>(),
+            "residents": residents,
+            "strayWatchdogs": self.stray,
         })
     }
 }
@@ -172,7 +191,7 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         units: UNITS.iter().zip(section("units").lines()).map(|(unit, state)| ((*unit).to_owned(), state.trim().to_owned())).collect(),
         psi60: psi60(section("pressure")),
         load_per_core: load_per_core(section("load")),
-        north: sections.get("north").map(|section| NorthProcesses::read(section)),
+        north: sections.get("north").map(|north| NorthProcesses::read(north, linked_sha(Path::new(section("runtime").trim())))),
         ..Facts::default()
     };
     if let (true, Some(runtime), Some(at)) = (facts.swaps.is_empty(), facts.runtime.clone(), facts.swapped_at) {
@@ -306,6 +325,13 @@ fn load_per_core(load: &str) -> Option<f64> {
 mod tests {
     use super::*;
 
+    const OLD: &str = "1111111111111111111111111111111111111111";
+    const LIVE: &str = "2222222222222222222222222222222222222222";
+
+    fn north(runtime: &str) -> String {
+        format!("/home/tom/.local/state/north/runtimes/{runtime}/tree/bin/../../north")
+    }
+
     struct FakeProc(tempfile::TempDir, u32);
 
     impl FakeProc {
@@ -324,13 +350,14 @@ mod tests {
         }
 
         fn sessions(&mut self, live: usize, hosts_each: usize) {
+            let north = north(LIVE);
             for session in 0..live {
                 let name = format!("worker-{session}");
                 for _ in 0..hosts_each {
-                    self.spawn("north", &["/runtimes/a/north", "session-host", "--name", &name, "--generation", "1", "--", "/runtimes/a/north", "session-link", "--ssh", "gex45"]);
+                    self.spawn("north", &[&north, "session-host", "--name", &name, "--generation", "1", "--", &north, "session-link", "--ssh", "gex45"]);
                 }
-                self.spawn("north", &["/runtimes/a/north", "session-link", "--ssh", "gex45", "--unit", &name]);
-                self.spawn("north", &["/runtimes/a/north", "fleet", "watchdog", &name]);
+                self.spawn("north", &[&north, "session-link", "--ssh", "gex45", "--unit", &name]);
+                self.spawn("north", &[&north, "fleet", "watchdog", &name]);
             }
         }
 
@@ -343,7 +370,7 @@ mod tests {
                 .env("XDG_STATE_HOME", self.0.path())
                 .output()
                 .unwrap();
-            let north = NorthProcesses::read(&sections(&String::from_utf8_lossy(&output.stdout))["north"]);
+            let north = NorthProcesses::read(&sections(&String::from_utf8_lossy(&output.stdout))["north"], Some(LIVE));
             (north.problems(), north.record())
         }
     }
@@ -352,12 +379,36 @@ mod tests {
     fn only_processes_named_north_count_and_a_multi_line_argument_stays_one_process() {
         let mut proc = FakeProc::new();
         proc.sessions(2, 1);
-        proc.spawn("north", &["/runtimes/a/north", "session-host", "--name", "worker-2", "--", "claude", "--append-system-prompt", "first\n\tsecond\nthird"]);
+        let north = north(LIVE);
+        proc.spawn("north", &[&north, "session-host", "--name", "worker-2", "--", "claude", "--append-system-prompt", "first\n\tsecond\nthird"]);
         proc.spawn("claude", &["claude", "--cwd", "/home/tom/code/north/worktrees/a", "--append-system-prompt", "north\nsession-host\nfleet watchdog"]);
         proc.spawn("bash", &["bash", "/home/tom/code/north/worktrees/a/scripts/check.sh", "fleet", "list"]);
         proc.spawn("rustc", &["rustc", "--crate-name", "north_core", "/home/tom/code/north/main/crates/north-core/src/lib.rs"]);
         let (problems, record) = proc.problems();
         assert_eq!(problems, Vec::<String>::new());
-        assert_eq!(record, json!({"transient": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2}}));
+        assert_eq!(record, json!({"transient": 0, "liveSessions": 3, "residents": {"session-host": 3, "session-link": 2, "fleet watchdog": 2}, "strayWatchdogs": 0}));
+    }
+
+    #[test]
+    fn a_runtime_swap_leaves_old_and_ended_session_watchdogs_that_are_not_a_fault() {
+        let mut proc = FakeProc::new();
+        proc.sessions(2, 1);
+        let old = north(OLD);
+        proc.spawn("north", &[&old, "fleet", "watchdog", "worker-0"]);
+        proc.spawn("north", &[&old, "fleet", "watchdog", "worker-1"]);
+        proc.spawn("north", &[&north(LIVE), "fleet", "watchdog", "worker-ended"]);
+        let (problems, record) = proc.problems();
+        assert_eq!(problems, Vec::<String>::new());
+        assert_eq!(record["residents"]["fleet watchdog"], json!(2));
+        assert_eq!(record["strayWatchdogs"], json!(3));
+    }
+
+    #[test]
+    fn two_live_runtime_watchdogs_for_one_live_session_are_a_leak() {
+        let mut proc = FakeProc::new();
+        proc.sessions(2, 1);
+        proc.spawn("north", &[&north(LIVE), "fleet", "watchdog", "worker-1"]);
+        let (problems, _) = proc.problems();
+        assert_eq!(problems, vec!["2 fleet watchdog processes of the live runtime for live session worker-1".to_owned()]);
     }
 }
