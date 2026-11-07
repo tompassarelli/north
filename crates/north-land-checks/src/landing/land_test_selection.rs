@@ -74,11 +74,15 @@ fn pinned_path(path: &std::ffi::OsStr) -> OsString {
 }
 
 pub fn select(root: &Path, scope: Scope, only: Only, env: &ChildEnv) -> Result<Vec<String>, Failure> {
-    let machine_bound = machine_bound(root)?;
     let changes = match scope {
         Scope::All => Vec::new(),
         Scope::Changed => changes(root, env)?,
     };
+    select_among(root, scope, &changes, only)
+}
+
+pub fn select_among(root: &Path, scope: Scope, changes: &[String], only: Only) -> Result<Vec<String>, Failure> {
+    let machine_bound = machine_bound(root)?;
     let rust: Vec<String> = changes.iter().filter(|path| rust_input(path)).cloned().collect();
     let unreached = if rust.is_empty() { BTreeMap::new() } else { unreached(root, &rust)? };
     let mut walk = Walk { root, only, machine_bound, unreached, through_binary: false, skipped: HashSet::new(), seen: HashSet::new(), selected: Vec::new(), visited: HashSet::new(), queue: VecDeque::new() };
@@ -90,7 +94,7 @@ pub fn select(root: &Path, scope: Scope, only: Only, env: &ChildEnv) -> Result<V
     if root.join("harness").is_dir() {
         files.extend(listing(root, "harness")?.into_iter().filter(|(path, kind)| kind.is_file() && path.ends_with(".toml")).map(|(path, _)| path));
     }
-    for path in &changes {
+    for path in changes {
         if ["bin/", "lib/", "harness/hooks/", "harness/lib/", "harness/scripts/"].iter().any(|prefix| path.starts_with(prefix))
             || (path.starts_with("harness/") && path.ends_with(".toml"))
         {

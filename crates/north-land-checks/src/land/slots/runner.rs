@@ -17,7 +17,7 @@ use super::select::{Config, changed, path_class};
 use arguments::{Arguments, Environment, Outcome, parse};
 use checkout::Trees;
 use entry::{any, portable, replay, start_stage};
-use selection::{defined_on_tree, it_for, scope_for};
+use selection::{defined_on_tree, it_for, scope_for, without_empty_test_selections};
 
 mod arguments;
 mod batch;
@@ -175,6 +175,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
             }
         }
     };
+    let commands = if arguments.leased { commands } else { without_empty_test_selections(&root, &arguments, commands) };
     if !arguments.leased && !commands.is_empty() && commands.iter().all(|command| config.is_inferred(command)) {
         say(&format!("safe-push: no land.check lines in .safe-push; running the {} land check(s) inferred from the tree", commands.len()));
     }

@@ -86,6 +86,15 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
+pub fn selection_of(command: &str) -> Option<(Scope, Only)> {
+    let words: Vec<String> = command.split_whitespace().map(str::to_owned).collect();
+    let at = words.windows(2).position(|pair| pair == ["land", "tests"])?;
+    match parse(&words[at + 2..])?.tests {
+        Tests::Selected(scope, only) => Some((scope, only)),
+        Tests::Named(_) => None,
+    }
+}
+
 fn parse(arguments: &[String]) -> Option<Request<'_>> {
     let mut jobs = thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
     let mut cases = false;
