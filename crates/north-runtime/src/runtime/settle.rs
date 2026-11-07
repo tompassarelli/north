@@ -48,9 +48,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     for host in &hosts {
         let facts = probed(layout, &checkout, host);
-        if let (Some(runtime), Some(swapped_at)) = (&facts.runtime, facts.swapped_at) {
-            swaps.push((facts.host.clone(), runtime.clone(), swapped_at));
-        }
+        swaps.push((facts.host.clone(), facts.swaps.clone()));
         let problems = probe::problems(&facts, live);
         println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
         if !problems.is_empty() {

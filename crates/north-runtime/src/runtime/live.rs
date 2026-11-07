@@ -5,9 +5,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL: &str = "runtime-live.jsonl";
 const SEEN: &str = "runtime-live-seen.json";
+pub(super) const SWAPS_KEPT: usize = 200;
 const ACTIVE_S: i64 = 86_400;
 const ORIGIN_MAIN: &str = "refs/remotes/origin/main";
 
@@ -24,20 +26,48 @@ pub fn journal(state: &Path) -> PathBuf {
     state.join(JOURNAL)
 }
 
-pub(super) fn record(layout: &Layout, checkout: &Path, hosts: &[(String, String, u64)]) {
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub(super) struct Swap {
+    pub(super) runtime: String,
+    pub(super) at: i64,
+}
+
+pub(super) fn note_swap(layout: &Layout, link: &Path) {
+    let Some(runtime) = layout::linked_sha(link) else { return };
+    let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs() as i64);
+    let Ok(line) = serde_json::to_string(&Swap { runtime: runtime.to_owned(), at }) else { return };
+    let _ = fs::OpenOptions::new().create(true).append(true).open(layout.swaps()).and_then(|mut file| writeln!(file, "{line}"));
+}
+
+pub(super) fn record(layout: &Layout, checkout: &Path, hosts: &[(String, Vec<Swap>)]) {
     let path = layout.state.join(SEEN);
     let mut seen: BTreeMap<String, String> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     let mut rows = Vec::new();
-    for (host, runtime, swapped_at) in hosts {
-        let previous = seen.insert(host.clone(), runtime.clone());
-        let Some(previous) = previous.filter(|previous| previous != runtime) else { continue };
-        rows.extend(landed(checkout, &previous, runtime).into_iter().map(|(sha, landed_at)| Live { sha, host: host.clone(), landed_at, live_at: (*swapped_at as i64).max(landed_at) }));
+    for (host, swaps) in hosts {
+        let moves = moves_since(swaps, seen.get(host).map(String::as_str));
+        rows.extend(moves.into_iter().flat_map(|(previous, swap)| landed(checkout, previous, &swap.runtime).into_iter().map(|(sha, landed_at)| Live { sha, host: host.clone(), landed_at, live_at: swap.at.max(landed_at) })));
+        if let Some(last) = swaps.last() {
+            seen.insert(host.clone(), last.runtime.clone());
+        }
     }
     let _ = fs::write(&path, serde_json::to_string(&seen).unwrap_or_default());
     let text: String = rows.iter().filter_map(|row| serde_json::to_string(row).ok()).map(|line| line + "\n").collect();
     if !text.is_empty() {
         let _ = fs::OpenOptions::new().create(true).append(true).open(journal(&layout.state)).and_then(|mut file| file.write_all(text.as_bytes()));
     }
+}
+
+fn moves_since<'a>(swaps: &'a [Swap], seen: Option<&'a str>) -> Vec<(&'a str, &'a Swap)> {
+    let unseen = seen.and_then(|seen| swaps.iter().rposition(|swap| swap.runtime == seen)).map_or(swaps, |at| &swaps[at + 1..]);
+    let mut previous = seen;
+    let mut moves = Vec::new();
+    for swap in unseen {
+        if let Some(from) = previous.filter(|from| *from != swap.runtime) {
+            moves.push((from, swap));
+        }
+        previous = Some(&swap.runtime);
+    }
+    moves
 }
 
 fn landed(checkout: &Path, previous: &str, runtime: &str) -> Vec<(String, i64)> {
@@ -95,7 +125,7 @@ pub fn read(state: &Path) -> Vec<Live> {
 
 #[cfg(test)]
 mod tests {
-    use super::on_main;
+    use super::{Swap, moves_since, on_main};
     use std::collections::HashMap;
 
     #[test]
@@ -104,5 +134,14 @@ mod tests {
         let committed = [("c0ffee00".to_owned(), 1_794_017_700), ("9bd76afd".to_owned(), 1_794_017_631), ("ba5eba11".to_owned(), 1_794_017_560), ("1b19fc89".to_owned(), 1_794_017_546)];
         let landed: Vec<i64> = on_main(committed.into_iter(), &reached).into_iter().map(|(_, at)| at).collect();
         assert_eq!(landed, [1_794_017_700, 1_794_017_717, 1_794_017_717, 1_794_017_597]);
+    }
+
+    #[test]
+    fn a_landing_a_newer_one_supersedes_before_the_next_probe_keeps_its_own_swap_time() {
+        let swap = |runtime: &str, at| Swap { runtime: runtime.to_owned(), at };
+        let swaps = [swap("aaaa", 100), swap("f640", 200), swap("cf56", 300)];
+        let moves: Vec<(&str, i64)> = moves_since(&swaps, Some("aaaa")).into_iter().map(|(from, swap)| (from, swap.at)).collect();
+        assert_eq!(moves, [("aaaa", 200), ("f640", 300)]);
+        assert!(moves_since(&swaps, Some("cf56")).is_empty());
     }
 }

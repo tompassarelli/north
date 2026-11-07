@@ -51,6 +51,10 @@ impl Layout {
         self.state.join("runtime-canary")
     }
 
+    pub fn swaps(&self) -> PathBuf {
+        self.state.join("runtime-swaps.jsonl")
+    }
+
     pub fn build_logs(&self) -> PathBuf {
         self.state.join("runtime-build-logs")
     }

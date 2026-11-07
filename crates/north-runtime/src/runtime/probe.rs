@@ -1,4 +1,5 @@
 use super::layout::linked_sha;
+use super::live::{Swap, SWAPS_KEPT};
 use super::remote::{limit, ssh};
 use crate::platform::{hook_commands, process};
 use serde_json::{Value, json};
@@ -142,6 +143,7 @@ pub(super) struct Facts {
     pub(super) unreachable: Option<String>,
     pub(super) runtime: Option<String>,
     pub(super) swapped_at: Option<u64>,
+    pub(super) swaps: Vec<Swap>,
     pub(super) units: BTreeMap<String, String>,
     pub(super) psi60: Option<f64>,
     pub(super) load_per_core: Option<f64>,
@@ -166,12 +168,16 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         host,
         runtime: linked_sha(Path::new(section("runtime").trim())).map(str::to_owned),
         swapped_at: section("swapped").trim().parse().ok(),
+        swaps: section("swaps").lines().filter_map(|line| serde_json::from_str(line).ok()).collect(),
         units: UNITS.iter().zip(section("units").lines()).map(|(unit, state)| ((*unit).to_owned(), state.trim().to_owned())).collect(),
         psi60: psi60(section("pressure")),
         load_per_core: load_per_core(section("load")),
         north: sections.get("north").map(|section| NorthProcesses::read(section)),
         ..Facts::default()
     };
+    if let (true, Some(runtime), Some(at)) = (facts.swaps.is_empty(), facts.runtime.clone(), facts.swapped_at) {
+        facts.swaps.push(Swap { runtime, at: at as i64 });
+    }
     let mut registered: Vec<(String, String)> = Vec::new();
     for (name, body) in sections.iter().filter_map(|(name, body)| Some((name.strip_prefix("settings ")?, body))) {
         facts.settings.push(name.to_owned());
@@ -252,6 +258,7 @@ fn facts_script() -> String {
          mark() {{ printf '\\n{MARK}%s\\n' \"$1\"; }}\n\
          mark runtime; readlink \"$state/current\"\n\
          mark swapped; stat -c %Y \"$state/current\"\n\
+         mark swaps; tail -n {SWAPS_KEPT} \"$state/runtime-swaps.jsonl\" 2>/dev/null || true\n\
          mark units; systemctl --user is-active {} || true\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\

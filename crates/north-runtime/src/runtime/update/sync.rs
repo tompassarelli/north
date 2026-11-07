@@ -1,6 +1,7 @@
 use super::super::bounded;
 use super::super::failure::{Failure, code, failed};
 use super::super::layout::{self, Layout};
+use super::super::live;
 use super::super::remote;
 use north_base::agents_sync::POLICY_HELD;
 use std::fs;
@@ -21,7 +22,9 @@ pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
     let staged = layout.state.join("current.tmp");
     let _ = fs::remove_file(&staged);
     symlink(link, &staged)?;
-    fs::rename(&staged, layout.current())
+    fs::rename(&staged, layout.current())?;
+    live::note_swap(layout, link);
+    Ok(())
 }
 
 pub(super) fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String, Failure> {
