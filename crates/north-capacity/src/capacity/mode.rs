@@ -107,8 +107,8 @@ pub struct Limits {
     pub psi_target: f64,
     pub calm_seconds: u64,
     pub agent_quota_percent: u32,
-    pub away_quota_percent: u32,
-    pub away_fresh_seconds: u64,
+    pub build_host_quota_percent: u32,
+    pub build_host_fresh_seconds: u64,
     pub table: Vec<String>,
 }
 
@@ -127,8 +127,8 @@ impl Limits {
             psi_target: number("capacity_mode_play_psi_target"),
             calm_seconds: whole("capacity_mode_play_calm_sec"),
             agent_quota_percent: cpus("capacity_agent_cpu_quota_percent"),
-            away_quota_percent: cpus("capacity_away_agent_cpu_quota_percent"),
-            away_fresh_seconds: whole("capacity_away_fresh_sec"),
+            build_host_quota_percent: cpus("capacity_build_host_agent_cpu_quota_percent"),
+            build_host_fresh_seconds: whole("capacity_build_host_fresh_sec"),
             table: strings("capacity_mode_table"),
         }
     }
@@ -289,7 +289,7 @@ fn record(dir: &Path, adjustment: &Adjustment) {
 }
 
 pub fn builds_here_at(state: &State, limits: &Limits, now: u64) -> bool {
-    limits.effects(state.mode).build_host && now.saturating_sub(state.ticked) <= limits.away_fresh_seconds
+    limits.effects(state.mode).build_host && now.saturating_sub(state.ticked) <= limits.build_host_fresh_seconds
 }
 
 pub fn builds_here() -> bool {
@@ -306,7 +306,7 @@ pub fn leases_own_builds() -> bool {
 }
 
 pub fn agent_quota_percent(effects: Effects, limits: &Limits) -> u32 {
-    if effects.build_host { limits.away_quota_percent } else { limits.agent_quota_percent }
+    if effects.build_host { limits.build_host_quota_percent } else { limits.agent_quota_percent }
 }
 
 pub fn confined_agent_cpus(host: &Host) -> Option<u32> {

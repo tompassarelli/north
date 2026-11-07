@@ -61,9 +61,9 @@ fn a_session_compile_this_host_took_is_refused_at_once_when_its_admission_defers
 // KEEP(bug): with two rented build hosts gone on 2026-11-07, every fleet session's build on the laptop went to the GPU host first (load 52 on 20 cores) while the away laptop, which leases its own builds, sat at load 3.5 of 24; a host that leases its own builds now decides on its sessions' builds before offering them; north#740
 #[test]
 fn a_session_build_is_offered_away_before_deciding_only_on_a_host_that_does_not_lease_its_own_builds() {
-    let attended = laptop(|| None);
-    let away = Host { lease_builds: || true, ..laptop(|| None) };
-    assert!(offers_before_deciding(&attended, true), "the attended laptop sends its sessions' builds to a build host first");
-    assert!(!offers_before_deciding(&away, true), "the away laptop decides on them here first");
-    assert!(!offers_before_deciding(&attended, false), "a build outside a fleet session is decided here first");
+    let playing = laptop(|| None);
+    let free = Host { lease_builds: || true, ..laptop(|| None) };
+    assert!(offers_before_deciding(&playing, true), "the laptop under a playtest lease sends its sessions' builds to a build host first");
+    assert!(!offers_before_deciding(&free, true), "the laptop with no playtest lease decides on them here first");
+    assert!(!offers_before_deciding(&playing, false), "a build outside a fleet session is decided here first");
 }

@@ -7,8 +7,8 @@ pub fn reserved_cpus(profile: &str, cores: f64) -> f64 {
     }
 }
 
-/// The CPUs leases may hold: the cores, cut to the agent.slice ceiling the kernel enforces when one is set, less the profile's reserve.
+/// The CPUs leases may hold: the agent.slice ceiling the kernel enforces when one is set, which already keeps the desktop's threads outside agent.slice, else the cores less the profile's reserve.
 pub fn aggregate_cpus(profile: &str, cores: f64, slice_cpus: Option<f64>) -> f64 {
-    let usable = slice_cpus.filter(|ceiling| ceiling.is_finite() && *ceiling > 0.0).map_or(cores, |ceiling| cores.min(ceiling));
-    (usable - reserved_cpus(profile, cores)).max(1.0)
+    let usable = slice_cpus.filter(|ceiling| ceiling.is_finite() && *ceiling > 0.0).map_or_else(|| cores - reserved_cpus(profile, cores), |ceiling| cores.min(ceiling));
+    usable.max(1.0)
 }

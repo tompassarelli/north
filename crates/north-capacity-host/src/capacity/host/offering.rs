@@ -139,7 +139,7 @@ pub(super) fn deferred_session_build(host: &Host, command: &[String], missing: O
     Some(no_build_host(missing?, &format!("its admission defers it ({reason})"), create))
 }
 
-/// Whether a heavy request goes to the build hosts before this host decides on it: a fleet session's, on a host that does not lease its own builds (the laptop while attended), so a build this host would admit still runs where there is room. A host that leases its own builds (a build host, the laptop while away) decides first and offers the request elsewhere only when it defers it.
+/// Whether a heavy request goes to the build hosts before this host decides on it: a fleet session's, on a host that does not lease its own builds (the laptop under a playtest lease), so a build this host would admit still runs where there is room. A host that leases its own builds (a build host, the laptop with no playtest lease) decides first and offers the request elsewhere only when it defers it.
 pub(super) fn offers_before_deciding(host: &Host, agent: bool) -> bool {
     agent && !(host.lease_builds)()
 }
