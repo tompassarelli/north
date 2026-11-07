@@ -160,9 +160,8 @@ fn moved<'a>(heads: impl IntoIterator<Item = &'a str>, to: Run, cause: &str) {
     }
 }
 
-/// Whether a stopped lander's journal entry still needs its run: a head whose record retired already has its verdict.
-fn unsettled(head: &str) -> bool {
-    lifecycle::host().ok().and_then(|store| lifecycle::current::<AfterLandingRun>(&store, head)).is_none_or(|record| record.state != Run::Retired)
+fn state(head: &str) -> Option<Run> {
+    lifecycle::host().ok().and_then(|store| lifecycle::current::<AfterLandingRun>(&store, head)).map(|record| record.state)
 }
 
 impl Watch {
@@ -174,7 +173,7 @@ impl Watch {
         let mut journaled: Vec<Journaled> = Vec::new();
         for (at, path) in paths {
             match read_entry(&path) {
-                Ok(entry) if unsettled(&entry.head) => journaled.push((at, entry)),
+                Ok(entry) if state(&entry.head) != Some(Run::Retired) => journaled.push((at, entry)),
                 Ok(entry) => {
                     let _ = fs::remove_file(&path);
                     println!("north land: {} already has its after-landing verdict; dropping its journal entry", entry.head);
@@ -201,9 +200,11 @@ impl Watch {
         }
         let resumed = epoch();
         for (at, Entry { base, head, lanes }) in journaled {
-            println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
-            record(lander, &[Span::new(&head, "after-landing run lost to a lander restart", Category::Lander, at, resumed).with(PHASE, AFTER)]);
-            moved([head.as_str()], Run::Journaled, "rerun: a stopped lander left it without a verdict");
+            if !matches!(state(&head), Some(Run::Journaled | Run::Unsettled)) {
+                println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
+                record(lander, &[Span::new(&head, "after-landing run lost to a lander restart", Category::Lander, at, resumed).with(PHASE, AFTER)]);
+                moved([head.as_str()], Run::Journaled, "rerun: a stopped lander left it without a verdict");
+            }
             if !watch.pending.covers(&head) {
                 watch.pending.add(Batch::landed(base, head, lanes, resumed));
             }
@@ -324,11 +325,7 @@ impl Watch {
     fn finish(&mut self, lander: &Lander, mut batch: Batch, run: JoinHandle<Outcome>, host: Option<String>, cancel: Arc<AtomicBool>) {
         let mut outcome = run.join().unwrap_or_else(|_| Outcome { verdict: Verdict::Transient("the post-land thread panicked".to_owned()), search: None, log: PathBuf::new(), failing: BTreeSet::new(), superseded: false });
         let ended = epoch();
-        let release = |hosts: &mut Hosts, host: &Option<String>| {
-            if let Some(host) = host {
-                hosts.release(host);
-            }
-        };
+        let release = |hosts: &mut Hosts, host: &Option<String>| host.iter().for_each(|host| hosts.release(host));
         if outcome.superseded && matches!(outcome.verdict, Verdict::Transient(_)) {
             println!("north land: the after-landing run of {} was superseded; its landings run again now with the newest landing", batch.head);
             moved(heads(&batch), Run::Journaled, "superseded by a landing that changed its check lines");

@@ -34,6 +34,7 @@ esac
 const AFTER_RUNNER: &str = r#"[ "$1" = land ] || exit 0
 eval outcome=\${$#}
 while [ -e "$HOME/stall" ]; do echo $$ > "$HOME/stalled"; sleep 0.05; done
+[ -e "$HOME/transient" ] && exit 75
 git rev-parse HEAD >> "$HOME/after-runs"
 if [ -e bad.txt ]; then printf "event\tafter\tfailed\tbad.txt check\nfailed-step\tbad.txt check\t\n" > "$outcome"; exit 1; fi
 "#;
@@ -351,6 +352,36 @@ fn stopped_mid_after_run(world: &World) {
     let body = run(&world.origin, &["log", "-1", "--format=%B", "main"]);
     assert!(body.contains(&format!("Reverts: {culprit}")), "{body}");
     assert!(!run(&world.origin, &["ls-tree", "--name-only", "main"]).lines().any(|name| name == "bad.txt"));
+}
+
+fn restarted_while_waiting_out_a_rerun(world: &World) {
+    let lander = world.lander();
+    fs::write(world.root.join("transient"), "").unwrap();
+    world.enqueue(&lander, &world.lane("a"));
+    let mut watch = Watch::default();
+    let unsettled = |head: &str| north_base::lifecycle::Store::host().unwrap().history("after-landing-run", head).unwrap().iter().any(|logged| logged.to == "unsettled");
+    wait_for("the after-landing run to end without a verdict", || {
+        let _ = lander.round(&mut watch);
+        unsettled(&run(&world.origin, &["rev-parse", "main"]))
+    });
+    let head = run(&world.origin, &["rev-parse", "main"]);
+    drop(watch);
+    fs::remove_file(world.root.join("transient")).unwrap();
+    let restarted = world.lander();
+    let mut watch = Watch::resume(&restarted);
+    wait_for("the restarted lander to reach the after-landing verdict", || {
+        let _ = restarted.round(&mut watch);
+        watch.in_flight() == 0
+    });
+    assert_eq!(verdicts(&head), ["green"]);
+    let spans = fs::read_to_string(restarted.queue.join("logs").join("spans.jsonl")).unwrap_or_default();
+    assert!(!spans.contains("after-landing run lost to a lander restart"), "a restart while the run of {head} waited out its rerun delay was recorded as losing it: {spans}");
+}
+
+// KEEP(bug): a lander restart while a run waited out its rerun delay recorded it as lost to the restart and reran it, 3 times from 10:13 to 10:54 PM on 2026-11-07 (north#696)
+#[test]
+fn chaos_a_restart_while_a_run_waits_out_its_rerun_delay_loses_nothing() {
+    isolated("land_chaos::chaos_a_restart_while_a_run_waits_out_its_rerun_delay_loses_nothing", restarted_while_waiting_out_a_rerun);
 }
 
 #[test]
