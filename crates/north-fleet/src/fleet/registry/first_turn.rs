@@ -12,6 +12,7 @@ use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::turns::TurnSignal;
 
 use super::Fleet;
+use super::stopping::Halt;
 
 const FIRST_TURN_WAIT: Duration = Duration::from_secs(120);
 const FIRST_TURN_POLL: Duration = Duration::from_millis(100);
@@ -28,7 +29,7 @@ impl Fleet {
     pub(super) fn deliver_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str) -> NorthResult<()> {
         let failed = self.answer_first_turn(record, account, prompt);
         if failed.is_err()
-            && let Err(error) = self.stop(&record.name)
+            && let Err(error) = self.halt(&record.name, Halt::FailedStart)
         {
             eprintln!("north fleet: {} did not stop after its failed start: {}", record.name, error.user_message());
         }

@@ -88,6 +88,13 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     ]
 });
 
+static STOP_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*stop\s*:[^\n]*").unwrap());
+
+/// The report's last `Stop:` line, which the 600-character report the ledger keeps loses when the report is long.
+pub fn stop_line(report: &str) -> Option<String> {
+    STOP_LINE.find_iter(report).last().map(|found| found.as_str().trim().chars().take(200).collect())
+}
+
 /// Whether a report stops on a box deferred to a dated check (`north check experiments defer`) or waiting on stated elapsed time or live traffic.
 pub fn waits_on_time(report: &str) -> bool {
     WAITS.is_match(report)

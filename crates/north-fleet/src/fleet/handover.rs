@@ -3,6 +3,8 @@
 //! gets a `Follows:` brief and the old one's lane, and a lead goes first.
 use std::collections::{BTreeMap, BTreeSet};
 
+use north_base::platform::attribution::{self, Cause, Harness};
+
 use super::limit::{UsageWait, park, recent, unknown_reset_ms};
 use super::model::{Ending, LaunchRequest, Role, SessionRecord};
 use super::registry::Fleet;
@@ -100,6 +102,7 @@ pub fn hand_over(
         if !proxy && !holds_work(record) {
             continue;
         }
+        attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("handed over from account {} to {}", record.account, to.0));
         let request = LaunchRequest {
             account: to.0.clone(),
             prompt: if proxy { proxy_brief(record, &to.0) } else { brief(record, &to.0) },

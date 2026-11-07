@@ -5,6 +5,8 @@ use rusqlite::types::Value;
 use serde_json::{Value as Json, json};
 
 use super::run;
+use crate::threads::attribution::{Harness, losses};
+use crate::threads::causes;
 use crate::foundation::clock::Timestamp;
 use crate::threads::fake::Recorded;
 use crate::threads::verb::Context;
@@ -157,4 +159,24 @@ fn a_usage_batch_rewrites_only_the_intervals_its_rows_fall_in_and_leaves_run_cos
     let full = recorded_ledger(&repriced);
     full.ingest(&[batches.concat(), late].concat());
     assert_eq!(incremental.rows(RUN_COSTS), full.rows(RUN_COSTS), "a price change re-prices every interval at the next batch");
+}
+
+/// A long report's closing `Stop:` line fell outside the 600 characters the ledger keeps, so 40% of a day's worker
+/// usage read as unattributed (north#706): the kept line names the worker's own cause, and a boundary's record wins.
+#[test]
+fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overrides_its_report() {
+    let ledger = ledger();
+    let worker = |id: &str, report: &str, stop: Option<&str>| {
+        json!({"id": id, "role": "worker", "fleet_name": format!("w-{id}"), "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
+               "tier": "high", "actual_min": 20, "started": "2026-10-28T08:20:00Z", "ended": "2026-10-28T08:40:00Z", "outcome": "not done", "report": report, "stop": stop})
+    };
+    let head: String = format!("Not done: {}", "the lane holds three files. ".repeat(30)).chars().take(600).collect();
+    ledger.ingest(&[worker("long", &head, Some("Stop: landing")), worker("cut", "Not done: clippy is clean, so the lane goes next.", None)]);
+    let context = Context { database: &ledger.path, actor: "tester".into(), no_native: None, outside: &ledger.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
+    let argv: Vec<String> = ["cause", "record", "--session", "w-cut", "--source", "fleet", "--cause", "halted"].map(str::to_owned).to_vec();
+    assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
+    let reading = losses(&Connection::open(&ledger.path).unwrap(), 0).unwrap();
+    let classes: Vec<(Harness, usize)> = reading.losses.iter().map(|loss| (loss.harness, loss.runs)).collect();
+    assert_eq!(classes, vec![(Harness::LandingRefusal, 1), (Harness::Halted, 1)]);
+    assert_eq!(reading.unclaimed_usd, 0.0, "{reading:?}");
 }

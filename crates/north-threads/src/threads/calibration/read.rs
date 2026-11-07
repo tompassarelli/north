@@ -6,7 +6,7 @@ use rusqlite::{Connection, Row as SqlRow};
 
 use crate::router::pricing::PriceTable;
 use crate::platform::run_roles::worker_where;
-use crate::threads::attribution::{Cause, attribute, recorded_column};
+use crate::threads::attribution::{Cause, attribute, recorded_column, report_column};
 
 use super::boxes::{BoxRun, box_name, item_chains};
 use super::rework::{Rework, Sources};
@@ -34,7 +34,7 @@ pub struct Raw {
     pub cause: Cause,
 }
 
-const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min, report, COALESCE(compactions, 0)";
+const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min";
 
 static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("router/prices.json parses"));
 
@@ -89,7 +89,7 @@ impl Raw {
 
 /// Worker runs matching `condition`, in table order.
 pub fn raw_runs(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<Vec<Raw>> {
-    let mut statement = db.prepare(&format!("SELECT {COLUMNS}, {} FROM runs WHERE {} AND {condition}", recorded_column(db), worker_where()))?;
+    let mut statement = db.prepare(&format!("SELECT {COLUMNS}, {}, COALESCE(compactions, 0), {} FROM runs WHERE {} AND {condition}", report_column(db), recorded_column(db), worker_where()))?;
     statement.query_map(params, Raw::read)?.collect()
 }
 

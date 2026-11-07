@@ -2,6 +2,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, ProviderName, SessionRecord};
 use crate::fleet::records::write_record;
 
+use super::stopping::Halt;
 use super::{Fleet, efforts};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,7 +43,7 @@ impl Fleet {
         let mut changed = SessionRecord { model: model.map(str::to_owned).or_else(|| record.model.clone()), ..record.clone() };
         changed.effort = efforts::revived(&changed, runtime.as_ref(), false, effort)?;
         self.refuse_beside_interactive(&record)?;
-        self.stop(name)?;
+        self.halt(name, Halt::Relaunched)?;
         let _start = self.start_lock(name)?;
         let mut stopped = self.record(name)?;
         (stopped.model, stopped.effort) = (changed.model, changed.effort);

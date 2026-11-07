@@ -18,15 +18,19 @@ A worker run can fail because of the worker or because of the harness that staff
   - landing refusal: `Stop: landing`, the lander rejected the lane or safe-push refused it.
   - gate refusal: a gate, guard, hook or judge refused or blocked the work.
   - compaction: the report says the run compacted or hit its context limit, or the run compacted and its last message carries no `Done:`, `Not done:`, `Split:` or `Blocked:` opener, so it was parked rather than finished.
+  - halted: the fleet stopped the session in the middle of a turn (a stop, forget, relaunch, take-over or retirement); only the fleet's record names it.
+- **worker**, from the report itself when no class claims it: a `Split:`, or a report with no `Done:`, `Not done:`, `Split:` or `Blocked:` opener, which is the worker's own call or a report that broke the report protocol.
 
 ## Boundary records first
 
-Each boundary of the harness that touches a session writes its own cause for that session with `north cause record --session NAME --source BOUNDARY --cause CAUSE --reason TEXT` (the `boundary_causes` table). The ingest records each run's fleet session name (`runs.fleet_name`), and `attribute` takes the latest cause recorded under that name for any run that did not finish Done; the phrase rules above apply only to a run no boundary names.
+Each boundary of the harness that touches a session writes its own cause for that session with `north cause record --session NAME --source BOUNDARY --cause CAUSE --reason TEXT` (the `boundary_causes` table). The ingest records each run's fleet session name (`runs.fleet_name`), and `attribute` takes the latest cause recorded under that name since the run started for any run that did not finish Done; the phrase rules above apply only to a run no boundary names.
 
 - lander: a failing check or a conflict in the lane's own lines is worker-caused; a deferral, a hang, a transient error or an origin that refused the push is a landing refusal.
-- dispatch: a launch that failed to place (a host that would not take it) is placement. The launch governor's staffing refusal is a gate refusal, and a launch forced beside a holder of its item is a duplicate.
+- dispatch: a launch that failed to place (a host that would not take it) is placement.
 - capacity: a fleet session's build that ends with no verdict (exit 75) is capacity.
-- fleet: a turn that compacted and ended without a standard opener is compaction.
+- fleet: a turn that compacted and ended without a standard opener is compaction; a stop that cuts a turn short is halted (Tom when he opened the conversation in its interactive UI); a session parked on its account's usage limit or handed over to another account is capacity.
+
+The worker's own `Stop:` line is the fallback: the ingest keeps each report's last `Stop:` line in `runs.stop`, because the ledger keeps only a report's first 600 characters and a long report's closing line fell outside them, and the rules read it after the kept head.
 
 `north ledger flow` prints, beside the costliest harness classes, the share of the last 24 h of usage whose failed runs have neither a record nor a matching phrase rule ("unattributed"). A rule that reads the wrong side shows up as a class whose count moves the wrong way on `north ledger flow`, and the phrase rules are tuned against reports the ledger holds. Runs recorded before the ingest kept a fleet name stay on the phrase rules.
 

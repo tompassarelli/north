@@ -1,20 +1,54 @@
 use std::fs;
 use std::path::PathBuf;
 
+use north_base::platform::attribution::{self, Cause, Harness};
+
 use crate::error::NorthResult;
 
 use super::super::claims;
 use super::super::forget::{self, Forgotten};
 use super::super::host::Host;
-use super::super::model::Ending;
+use super::super::model::{Ending, Status};
 use super::super::records::{ARCHIVE, write_record};
 use super::super::runtime::now_ms;
 use super::super::unaccepted::Unaccepted;
 use super::super::store::ControlVerb;
 use super::{Fleet, session_running};
 
+/// Why the fleet stops a session, recorded as the cause of the turn the stop cuts short.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Halt {
+    /// `north fleet stop` or `north fleet forget`.
+    Ordered,
+    Relaunched,
+    FailedStart,
+    /// Tom opened the conversation in its interactive UI.
+    Interactive,
+    /// A launch took the session's name over.
+    TakenOver,
+    Retired,
+}
+
+impl Halt {
+    fn cause(self) -> (Cause, &'static str) {
+        match self {
+            Self::Ordered => (Cause::Harness(Harness::Halted), "north fleet stop or forget ended the turn"),
+            Self::Relaunched => (Cause::Harness(Harness::Halted), "relaunched under another model or effort mid-turn"),
+            Self::FailedStart => (Cause::Harness(Harness::Halted), "stopped after its first turn failed to start"),
+            Self::Interactive => (Cause::Tom, "opened in the interactive UI mid-turn"),
+            Self::TakenOver => (Cause::Harness(Harness::Halted), "a launch took over its name mid-turn"),
+            Self::Retired => (Cause::Harness(Harness::Halted), "retired mid-turn"),
+        }
+    }
+}
+
 impl Fleet {
     pub fn stop(&self, name: &str) -> NorthResult<()> {
+        self.halt(name, Halt::Ordered)
+    }
+
+    /// Stops `name`; a turn the stop cuts short records `why` as its cause.
+    pub fn halt(&self, name: &str, why: Halt) -> NorthResult<()> {
         let mut record = self.record(name)?;
         if record.adopted() {
             record.stopped = true;
@@ -23,9 +57,11 @@ impl Fleet {
         }
         let _start = self.start_lock(name)?;
         let host = Host::new(record.host_dir.clone());
+        let mut mid_turn = false;
         if session_running(&record) {
             let runtime = self.runtime(&record)?;
             let transcript = self.recent(runtime.as_ref(), &record)?;
+            mid_turn = transcript.status == Status::Working;
             let _ = host.send(&runtime.close(&transcript));
         }
         let terminate = !self.host_in_use(&record)?;
@@ -43,6 +79,10 @@ impl Fleet {
             Unaccepted::discard(&record.host_dir);
         }
         claims::release_for(self.claims.as_ref(), &record);
+        if mid_turn {
+            let (cause, reason) = why.cause();
+            attribution::record(name, "fleet", cause, reason);
+        }
         Ok(())
     }
 
@@ -57,13 +97,13 @@ impl Fleet {
     }
 
     pub fn forget(&self, name: &str) -> NorthResult<()> {
-        self.archive(name)?;
+        self.archive(name, Halt::Ordered)?;
         self.uncache_session(name)
     }
 
     /// Stops the session and moves its directory out of the registry, returning where it now lies.
-    pub(super) fn archive(&self, name: &str) -> NorthResult<PathBuf> {
-        self.stop(name)?;
+    pub(super) fn archive(&self, name: &str, why: Halt) -> NorthResult<PathBuf> {
+        self.halt(name, why)?;
         let archive = self.root.join(ARCHIVE);
         fs::create_dir_all(&archive)?;
         let archived = archive.join(format!("{name}-{}", now_ms()));

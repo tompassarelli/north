@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
+use north_base::platform::attribution::{self, Cause, Harness};
 use regex::Regex;
 
 use super::model::{Ending, EntryKind, SessionRecord, Status, UsageLimit};
@@ -86,6 +87,7 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
 /// Registers the `usage:ACCOUNT@TIME` wait that revives the session once its account's window lifts.
 pub fn park(waits: &Waits, record: &SessionRecord, until_ms: u64) -> NorthResult<Parked> {
     waits.register(&record.name, Run::Usage { account: record.account.clone(), at_ms: until_ms }, &record.cwd, Some(LABEL))?;
+    attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("parked until account {} has usage again", record.account));
     Ok(Parked { session: record.name.clone(), account: record.account.clone(), until_ms })
 }
 

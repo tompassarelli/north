@@ -16,6 +16,7 @@ use crate::fleet::runtime::now_ms;
 use crate::fleet::store::{FleetRow, LeaseTable, cache_leases, cached_leases};
 
 use super::Fleet;
+use super::stopping::Halt;
 
 enum Asking {
     Known(Lease),
@@ -29,7 +30,7 @@ impl Fleet {
     pub fn retire(&self, name: &str, why: &str, last: Option<&str>) -> NorthResult<PathBuf> {
         let note = json!({"why": why, "at_ms": now_ms(), "last": last});
         fs::write(self.session_dir(name)?.join(NOTE), serde_json::to_vec_pretty(&note)?)?;
-        let archived = self.archive(name)?;
+        let archived = self.archive(name, Halt::Retired)?;
         let mut record = read_record(&archived)?;
         record.ended = Some(Ending::Retired);
         write_record(&archived, &record)?;

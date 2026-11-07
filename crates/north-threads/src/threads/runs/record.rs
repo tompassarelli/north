@@ -141,14 +141,18 @@ impl Ingest<'_> {
             Some(_) => {}
             None => self.record(&run)?,
         }
-        self.named(&run)?;
+        self.attributed(&run)?;
         self.estimates(&run)
     }
 
-    /// The fleet session the run belongs to, which the boundary causes recorded by session name join on.
-    fn named(&self, run: &Run) -> Result<(), Failure> {
+    /// The fleet session the run belongs to, which the boundary causes recorded by session name join on, and its
+    /// report's `Stop:` line, the worker's own cause when no boundary recorded one.
+    fn attributed(&self, run: &Run) -> Result<(), Failure> {
         if let Some(name) = run.r.get("fleet_name").and_then(Value::as_str) {
             self.db.execute("UPDATE runs SET fleet_name = coalesce(fleet_name, ?) WHERE agent = ?", params![name, run.agent()?])?;
+        }
+        if run.r.has("stop") {
+            self.db.execute("UPDATE runs SET stop = ? WHERE agent = ?", params![run.r.get("stop").and_then(Value::as_str), run.agent()?])?;
         }
         Ok(())
     }

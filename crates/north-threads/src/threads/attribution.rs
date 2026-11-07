@@ -54,7 +54,8 @@ pub struct Verdict {
 
 /// The cause of a finished run's outcome. A Done run is the worker's; a failure takes the cause a boundary recorded for
 /// its session, else the first harness class its report matches, else compaction when it says it compacted or
-/// compacted and ended with no standard opener, and the rest is the worker's by default.
+/// compacted and ended with no standard opener. A Split, or any other report without a standard opener, is the worker's
+/// own call; the rest is the worker's by default.
 pub fn judge(outcome: &str, report: &str, compactions: u32, recorded: Option<Cause>) -> Verdict {
     let by = |cause, basis| Verdict { cause, basis };
     if outcome == "done" {
@@ -75,6 +76,9 @@ pub fn judge(outcome: &str, report: &str, compactions: u32, recorded: Option<Cau
     if (compactions > 0 && !has_opener(report)) || COMPACTED.is_match(report) {
         return by(Cause::Harness(Harness::Compaction), Basis::Report);
     }
+    if outcome == "split" || !has_opener(report) {
+        return by(Cause::Worker, Basis::Report);
+    }
     by(Cause::Worker, Basis::Unclaimed)
 }
 
@@ -82,12 +86,18 @@ pub fn attribute(outcome: &str, report: &str, compactions: u32, recorded: Option
     judge(outcome, report, compactions, recorded.and_then(Cause::parse)).cause
 }
 
+/// The SQL expression for a run's report as attribution reads it: the 600 characters the ledger keeps, then the report's
+/// last `Stop:` line, which a long report's kept head loses.
+pub fn report_column(db: &Connection) -> &'static str {
+    if db.query_row("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'stop'", [], |_| Ok(())).is_ok() { "report || coalesce(char(10) || stop, '')" } else { "report" }
+}
+
 /// The SQL expression for a run's recorded cause: the latest cause a boundary recorded for the run's fleet session, or
 /// NULL in a ledger that has not recorded any.
 pub fn recorded_column(db: &Connection) -> &'static str {
     let has = |sql: &str| db.query_row(sql, [], |_| Ok(())).is_ok();
     if has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'boundary_causes'") && has("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'fleet_name'") {
-        "(SELECT cause FROM boundary_causes WHERE session = runs.fleet_name ORDER BY at DESC, rowid DESC LIMIT 1)"
+        "(SELECT cause FROM boundary_causes WHERE session = runs.fleet_name AND at >= coalesce(runs.started, '') ORDER BY at DESC, rowid DESC LIMIT 1)"
     } else {
         "NULL"
     }
@@ -119,7 +129,7 @@ impl Reading {
 }
 
 pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
-    let mut statement = db.prepare(&format!("SELECT outcome, report, coalesce(compactions, 0), coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", recorded_column(db), worker_where()))?;
+    let mut statement = db.prepare(&format!("SELECT outcome, {}, coalesce(compactions, 0), coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", report_column(db), recorded_column(db), worker_where()))?;
     let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u32>(2)?, row.get::<_, f64>(3)?, row.get::<_, Option<String>>(4)?)))?;
     let mut by: BTreeMap<Harness, (usize, f64)> = BTreeMap::new();
     let (mut unclaimed_usd, mut total_usd) = (0.0, 0.0);

@@ -21,6 +21,6 @@ pub fn finished(session: &str, started: Timestamp, ended: Timestamp, report: &st
     json!({
         "id": session, "session": session, "status": "finished", "role": "worker", "tier": TIER, "provider": "claude",
         "started": started.iso(), "ended": ended.iso(), "actual_min": (ended.unix_seconds() - started.unix_seconds()).max(0).div_euclid(60),
-        "outcome": outcome::classify(report, false), "report": prefix(report, 600),
+        "outcome": outcome::classify(report, false), "report": prefix(report, 600), "stop": outcome::stop_line(report),
     })
 }

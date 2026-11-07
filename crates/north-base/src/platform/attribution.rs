@@ -1,5 +1,5 @@
 //! The side a run's outcome belongs to, and the record a boundary of the harness writes for a session it touched.
-//! The lander, dispatch, the launch governor, capacity and the fleet write one `north cause record` row each; the
+//! The lander, dispatch, capacity and the fleet write one `north cause record` row each; the
 //! ledger ingest prefers those rows over the phrases of a final report (north#706, docs/rationale/attribution.md).
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
@@ -19,10 +19,12 @@ pub enum Harness {
     Waits,
     Duplicate,
     GateRefusal,
+    /// The fleet stopped the session in the middle of a turn: a stop, forget, relaunch or retirement.
+    Halted,
 }
 
 impl Harness {
-    pub const ALL: [Harness; 9] = [Self::Placement, Self::Access, Self::LandingRefusal, Self::FalseRevert, Self::Capacity, Self::Compaction, Self::Waits, Self::Duplicate, Self::GateRefusal];
+    pub const ALL: [Harness; 10] = [Self::Placement, Self::Access, Self::LandingRefusal, Self::FalseRevert, Self::Capacity, Self::Compaction, Self::Waits, Self::Duplicate, Self::GateRefusal, Self::Halted];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -35,6 +37,7 @@ impl Harness {
             Self::Waits => "waits",
             Self::Duplicate => "duplicate",
             Self::GateRefusal => "gate refusal",
+            Self::Halted => "halted",
         }
     }
 }

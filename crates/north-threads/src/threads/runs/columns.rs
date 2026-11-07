@@ -3,8 +3,9 @@ use rusqlite::Connection;
 
 use crate::threads::verb::Failure;
 
-const ADDED: [(&str, &str); 4] = [
+const ADDED: [(&str, &str); 5] = [
     ("fleet_name", "TEXT"),
+    ("stop", "TEXT"),
     ("budget_usd", "REAL"),
     ("eta_source", "TEXT CHECK(eta_source IN ('brief', 'tune', 'ledger'))"),
     ("budget_source", "TEXT CHECK(budget_source IN ('brief', 'tune', 'ledger'))"),

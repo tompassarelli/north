@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::error::NorthResult;
 
 use super::Fleet;
+use super::stopping::Halt;
 use super::super::model::{Role, SessionRecord};
 use super::super::runtime::PROXY;
 use super::super::store::{Addressee, Claim, FleetRow, RowKind};
@@ -31,7 +32,7 @@ impl Fleet {
             return Ok(None);
         }
         let record = self.record(name)?;
-        let archived = self.archive(name)?;
+        let archived = self.archive(name, Halt::TakenOver)?;
         eprintln!("north fleet: {name} was held by conversation {}; it is stopped and archived at {}, and the name and its messages now go to the new session", record.conversation.as_deref().unwrap_or("none"), archived.display());
         Ok(Some(Predecessor { record, archived }))
     }
@@ -49,7 +50,7 @@ impl Fleet {
     }
 
     pub fn retire_proxy(&self, name: &str) -> NorthResult<PathBuf> {
-        self.archive(name)
+        self.archive(name, Halt::Retired)
     }
 
     pub fn addressee(&self, record: &SessionRecord, floor: u64) -> NorthResult<Addressee> {

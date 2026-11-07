@@ -7,6 +7,7 @@ use crate::fleet::model::SessionRecord;
 use crate::fleet::runtime::HostSpec;
 
 use super::Fleet;
+use super::stopping::Halt;
 
 impl Fleet {
     /// Hands a session to its provider's own interactive UI: stops the fleet host and waits until it has exited, so the fleet host and the UI never hold one conversation together, then passes the interactive command to `launch`. The record stays stopped, so nothing in the fleet restarts it; `revive` takes it back once the UI is closed.
@@ -21,7 +22,7 @@ impl Fleet {
         self.refuse_beside_interactive(&record)?;
         let (instructions, _) = self.instructions(&record)?;
         let spec = runtime.interactive(&account, &record.relaunch_request(), &conversation, &instructions)?;
-        self.stop(name)?;
+        self.halt(name, Halt::Interactive)?;
         Host::new(record.host_dir.clone()).await_end()?;
         launch(&spec)
     }

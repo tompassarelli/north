@@ -72,6 +72,7 @@ use home::{fleet_root, home_dir, state_dir};
 pub use hand_in::HandedIn;
 pub use control::Controlled;
 pub use relaunching::Choices;
+pub use stopping::Halt;
 pub use gate_rows::Opened;
 pub use takeover::backlog_line;
 pub use messages::Sent;

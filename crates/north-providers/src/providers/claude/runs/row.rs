@@ -163,6 +163,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("flaws".into(), FLAWS.captures(&report).map_or(Value::Null, |found| number(found[1].parse().unwrap_or(0.0))));
     row.insert("backfill".into(), json!(transcript.backfill));
     row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 600)));
+    row.insert("stop".into(), json!(outcome::stop_line(&report)));
     if brief != "null" {
         row.insert("brief_text".into(), json!(brief));
         row.insert("brief_origin".into(), json!(TRANSCRIPT_ORIGIN));
