@@ -172,7 +172,8 @@ impl Filed for Live {
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String> {
         let north = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"));
         let ran = std::process::Command::new(north)
-            .args(["threads", "claim", &format!("{}#{}", new.0, new.1), "--by", by])
+            .args(["fleet", "hold", &format!("{}#{}", new.0, new.1)])
+            .env(crate::fleet::runtime::SESSION_ENV, by)
             .stdin(std::process::Stdio::null())
             .output()
             .map_err(|error| error.to_string())?;
@@ -225,7 +226,7 @@ pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
     if let Some(worker) = world.worker().filter(|_| !BLOCKS.is_match(&body) || world.files_its_item()) {
         notes.push(match world.claim(&new, &worker) {
             Ok(said) => format!("{said}: an issue a fleet worker files is claimed for it, so north fleet dispatch does not staff it again."),
-            Err(why) => format!("Could not claim {}#{} for you ({why}); claim it with `north threads claim {}#{} --by {worker}` before north fleet dispatch staffs it again.", new.0, new.1, new.0, new.1),
+            Err(why) => format!("Could not claim {}#{} for you ({why}); hold it with `north fleet hold {}#{}` before north fleet dispatch staffs it again.", new.0, new.1, new.0, new.1),
         });
     }
     if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join(" ")) }

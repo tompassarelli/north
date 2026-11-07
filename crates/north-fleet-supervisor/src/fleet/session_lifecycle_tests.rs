@@ -65,3 +65,17 @@ fn a_host_killed_mid_turn_is_an_orphaned_fault_until_the_next_read_parks_its_ses
     assert_eq!((read.phase(), fleet.status(&read)), (Some(Phase::Parked), Status::Parked));
     assert!(store.faults(Timestamp::now()).unwrap().is_empty());
 }
+
+#[test]
+fn a_session_launched_without_a_task_holds_the_issue_it_files_in_its_record_north_817() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path());
+    let dir = mid_turn(&fleet, "north-ship-slot-race");
+
+    fleet.hold_task("north-ship-slot-race", "north#815").unwrap();
+    fleet.hold_task("north-ship-slot-race", "north#815").unwrap();
+    fleet.hold_task("north-ship-slot-race", "north#816").unwrap();
+
+    let record = read_record(&dir).unwrap();
+    assert_eq!(record.tasks().collect::<Vec<_>>(), ["north#815", "north#816"], "dispatch staffed north-815-d1556 beside the session that filed north#815");
+}

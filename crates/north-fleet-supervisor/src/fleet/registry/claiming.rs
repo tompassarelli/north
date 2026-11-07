@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::error::NorthResult;
 use crate::fleet::claims::{self, Rows};
 use crate::fleet::model::{Account, LaunchRequest, SessionRecord, Status};
-use crate::fleet::records::{CLAIMS_RELEASED, CLAIMS_SWEEP_LOG};
+use crate::fleet::records::{CLAIMS_RELEASED, CLAIMS_SWEEP_LOG, read_record, write_record};
 use crate::fleet::runtime::Opening;
 
 use super::{Fleet, session_running};
@@ -33,6 +33,29 @@ impl Fleet {
 }
 
 impl Fleet {
+    /// Adds `task` to the issues the running session `name` holds, as a launch's `--task` would have: the session's record names it, so `north fleet list --json` shows it to every dispatch whatever the threads ledger says, and its claim in the ledger is taken on top. A ledger that cannot be read is a warning, never a failure, because the record already holds the issue.
+    pub fn hold_task(&self, name: &str, task: &str) -> NorthResult<()> {
+        let session_dir = self.session_dir(name)?;
+        let mut record = read_record(&session_dir)?;
+        if record.verification {
+            return Ok(());
+        }
+        if !record.tasks().any(|held| held == task) {
+            if record.task_ref.is_none() {
+                record.task_ref = Some(task.to_owned());
+            } else {
+                record.extra_tasks.push(task.to_owned());
+            }
+            write_record(&session_dir, &record)?;
+        }
+        match self.claims.hold(task, name) {
+            Ok(Some(moved)) => println!("{moved}"),
+            Ok(None) => println!("{name} holds {task}"),
+            Err(error) => eprintln!("north fleet: {name} holds {task} in its record, but the threads ledger did not take its claim: {}", error.user_message()),
+        }
+        Ok(())
+    }
+
     /// Clears every claim an exited session left in the ledger, whichever way it exited, so dispatch, launch and `threads show` stop naming it; a parked, idle or working session keeps its claims. Each owner is swept once and marked, so a later sweep asks the ledger only about sessions that exited since, in reads of at most [`OWNERS_PER_READ`] owners; a read that fails keeps the marks of the reads before it. Each read asks only about sessions still exited when it starts, and marks only those still exited when it ends, so a session revived during a long sweep keeps its claims and is swept when it exits again. Returns how many it cleared.
     pub fn release_exited_claims(&self) -> NorthResult<usize> {
         let unswept = self.unswept()?;
