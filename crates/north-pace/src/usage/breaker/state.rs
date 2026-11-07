@@ -85,7 +85,7 @@ impl State {
     pub fn write(&self, path: &Path) -> Result<(), String> {
         let temporary = path.with_extension("json.tmp");
         let text = serde_json::to_string(self).map_err(|error| error.to_string())?;
-        fs::write(&temporary, text).and_then(|()| fs::rename(&temporary, path)).map_err(|error| format!("{}: {error}", path.display()))
+        path.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(&temporary, text)).and_then(|()| fs::rename(&temporary, path)).map_err(|error| format!("{}: {error}", path.display()))
     }
 
     pub fn spends(&self) -> BTreeMap<Scope, Spend> {
