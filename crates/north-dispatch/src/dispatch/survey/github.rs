@@ -30,6 +30,7 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
         created: node["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).unwrap_or(0.0),
         stop: Default::default(),
         needs: Vec::new(),
+        landed: 0.0,
     })
 }
 

@@ -254,3 +254,21 @@ serves = ["laptop"]
     assert_eq!(named("- [ ] the laptop rebuild and the timer seen running there"), ["laptop"], "north-641-d0441 stopped on Stop: host laptop");
     assert!(named("- [ ] the laptop field of the Host struct is read from config and a test pins it").is_empty(), "a code box that mentions a laptop field is not the laptop's");
 }
+
+#[test]
+fn north_751_at_12_02_pm_is_held_until_its_1_h_cell_can_be_read_an_hour_after_the_newest_landing_it_cites() {
+    let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
+    let body = "- [x] Sessions the proxy names and places itself pass the same box-needs placement, fixed by 745f9b42a\n- [x] A run ending on the API's \"Credit balance is too low\" counts as capacity, fixed by 3a3a29687\n- [ ] the 10 min and 1 h cells reach 1% or less, quoted with their n; the capacity losses left are sessions stopped while their own build waited in admission, worked on in north#772";
+    let held = Issue { landed: at("2026-11-07T04:45Z"), touched: at("2026-11-07T05:03Z"), ..issue("north", 751, body, &[]) };
+    let (open, holds, planned, live) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new());
+    let world = |written: &str| World { open: &open, holds: &holds, live: &live, planned: &planned, backlog: None, at: at(written) };
+    assert_eq!(held.cited_shas(), ["745f9b42a", "3a3a29687"]);
+    assert_eq!(
+        issues::readiness(&held, &world("2026-11-07T05:02Z")),
+        Err("no open box can be read before 2026-11-07T05:45Z: each names a window over readings, counted from the newest landing it cites or its last report".into()),
+        "05:45Z is 12:45 PM on the laptop"
+    );
+    assert_eq!(issues::readiness(&held, &world("2026-11-07T05:45Z")), Ok(()), "the box is takeable once the window has turned over");
+    let unwindowed = Issue { landed: held.landed, ..issue("north", 752, "- [ ] the cache keeps the newest row", &[]) };
+    assert_eq!(issues::readiness(&unwindowed, &world("2026-11-07T05:02Z")), Ok(()), "a box that names no window is not held");
+}

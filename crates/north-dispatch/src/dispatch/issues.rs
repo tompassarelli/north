@@ -21,6 +21,10 @@ static WAITS: LazyLock<Regex> = LazyLock::new(|| {
 });
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
 static ANY_BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[[ xX]\]").expect("any box pattern"));
+static WINDOW: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(\d+)\s*(min|minutes?|h|hours?|d|days?)\s+(?:cells?|windows?)\b|\b(?:over|after|within)\s+(?:the\s+(?:next|last)\s+)?(\d+)\s*(h|hours?|d|days?)\b").expect("window pattern")
+});
+static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{9,12}\b").expect("sha pattern"));
 static OWNERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\(owners?:\s*([^)]*)\)|\bowner:\s*([A-Za-z0-9][\w.:-]*)").expect("owner pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"github\.com/([\w.-]+)/([\w.-]+)/issues/(\d+)|(?:([\w.-]+)/)?([A-Za-z][\w.-]*)?#(\d+)").expect("reference pattern")
@@ -70,6 +74,8 @@ pub struct Issue {
     pub stop: super::stops::Stop,
     /// What its takeable boxes name they need beyond its own repository, read from their text by the survey.
     pub needs: Vec<String>,
+    /// The newest landing the body cites, as unix seconds, read by the survey for an issue with a windowed box; 0 when none.
+    pub landed: f64,
 }
 
 impl Issue {
@@ -125,6 +131,28 @@ impl Issue {
         self.product_lines().filter_map(north_graph_ground::due).min().map(|(_, written)| written)
     }
 
+    /// The commits the body cites, which the survey dates to anchor a windowed box.
+    pub fn cited_shas(&self) -> Vec<&str> {
+        SHA.find_iter(&self.body).map(|found| found.as_str()).filter(|sha| sha.bytes().any(|byte| byte.is_ascii_digit())).collect()
+    }
+
+    /// Whether some unticked product box names a window over readings (`1 h cell`, `over 6 h`, `after 24 h`).
+    pub fn windowed(&self) -> bool {
+        self.product_lines().any(|line| window_seconds(line).is_some())
+    }
+
+    /// When the earliest windowed box can be read, while every takeable box is windowed and that time is ahead of `at`:
+    /// its window after the newest landing the issue cites, else after its last report.
+    pub fn window_until(&self, at: f64) -> Option<f64> {
+        let anchor = if self.landed > 0.0 { self.landed } else { self.touched };
+        let mut until = None::<f64>;
+        for line in self.takeable(at) {
+            let ready = anchor + window_seconds(line)?;
+            until = Some(until.map_or(ready, |earliest| earliest.min(ready)));
+        }
+        until.filter(|ready| *ready > at)
+    }
+
     fn product_lines(&self) -> impl Iterator<Item = &str> {
         self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line))
     }
@@ -146,6 +174,22 @@ impl Issue {
     pub fn priority(&self) -> usize {
         north_graph_ground::priority(self.labels.iter().map(String::as_str))
     }
+}
+
+/// The longest window over readings a box line names, in seconds.
+fn window_seconds(line: &str) -> Option<f64> {
+    WINDOW
+        .captures_iter(line)
+        .filter_map(|found| {
+            let (count, unit) = if found.get(1).is_some() { (found.get(1)?, found.get(2)?) } else { (found.get(3)?, found.get(4)?) };
+            let per = match unit.as_str().to_lowercase().chars().next()? {
+                'm' => 60.0,
+                'h' => 3600.0,
+                _ => 86400.0,
+            };
+            Some(count.as_str().parse::<f64>().ok()? * per)
+        })
+        .fold(None, |longest, seconds| Some(longest.map_or(seconds, |before: f64| before.max(seconds))))
 }
 
 /// The unticked Done-when boxes in `body`, the clean-up group included.
@@ -275,6 +319,10 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     if let Some(until) = issue.gated_until(world.at) {
         let boxes = if issue.product_unticked() == 1 { "only open box waits" } else { "every open box waits, the first" };
         return Err(format!("{boxes} until {until}"));
+    }
+    if let Some(ready) = issue.window_until(world.at) {
+        let written = crate::foundation::clock::Timestamp::from_unix_seconds_f64(ready).iso_minute();
+        return Err(format!("no open box can be read before {written}: each names a window over readings, counted from the newest landing it cites or its last report"));
     }
     if let Some(label) = issue.labelled(&TOM_LABELS) {
         return Err(format!("labelled {label}, so Tom decides"));

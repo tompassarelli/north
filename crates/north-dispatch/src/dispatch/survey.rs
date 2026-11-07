@@ -407,6 +407,9 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     for issue in &mut issues {
         issue.needs = super::host_needs::of(issue, &names, &learned, at);
+        if issue.windowed() {
+            issue.landed = landed_at(issue);
+        }
     }
     let history = History::new(&records);
     let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();
@@ -431,4 +434,14 @@ mod tests;
 fn remote_arm_boxes(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<ArmBox> {
     let remote = fleets::reached(cfg, here, &["ledger", "summary", "--since", tier::ARM_WINDOW, "--json"], PROBE, notes);
     remote.into_iter().flat_map(|(_, listing)| serde_json::from_value::<Vec<ArmBox>>(listing["arms"].clone()).unwrap_or_default()).collect()
+}
+
+/// When the newest commit the issue's body cites landed in its repository's main checkout, as unix seconds; 0 when none reads.
+fn landed_at(issue: &Issue) -> f64 {
+    let Some(home) = std::env::var_os("HOME") else { return 0.0 };
+    let checkout = std::path::Path::new(&home).join("code").join(crate::threads::catalog::checkout(&issue.repo)).join("main");
+    let mut args = vec!["-C", checkout.to_str().unwrap_or_default(), "log", "--no-walk", "--format=%ct"];
+    args.extend(issue.cited_shas());
+    let Some(output) = crate::platform::git::run_within(&args, PROBE).filter(|output| output.status.success()) else { return 0.0 };
+    String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.trim().parse::<f64>().ok()).fold(0.0, f64::max)
 }
