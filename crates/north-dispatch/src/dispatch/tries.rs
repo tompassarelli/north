@@ -6,7 +6,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::sync::LazyLock;
 
-use super::stops::did_work;
+use super::work::did_work;
 
 static CAPACITY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(

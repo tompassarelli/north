@@ -58,6 +58,7 @@ pub mod shares;
 pub mod tuned;
 pub mod waste;
 mod tries;
+mod work;
 mod wait;
 mod wait_stops;
 #[cfg(test)]
