@@ -43,5 +43,5 @@ fn what_tom_types_in_a_fleet_hosted_conversation_counts_but_deliveries_and_the_o
     let home = Path::new("/home/tom");
     let texts = |reach| typed_messages(&index, home, reach, 1_700_000_000, 2_000_000_000).into_iter().map(|typed| typed.text).collect::<Vec<_>>();
     assert_eq!(texts(Reach::Fleet), ["stop the paid pass now", "fix the harness gap again"]);
-    assert!(texts(Reach::Human).is_empty(), "a gate relay still accepts only human-origin turns");
+    assert_eq!(texts(Reach::Human), texts(Reach::Fleet), "a fleet prompt Tom sent with no sender prefix is attested in any cwd");
 }

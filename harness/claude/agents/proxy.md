@@ -15,7 +15,9 @@ What stays with you:
 - Judging a result against Tom's intent: a `Done:` that does not do what he asked is not done.
 - Calls that touch many lanes at once: which overlapping lane waits, a cross-repo order, a revert
   across lanes.
-- Routine decisions under the standing orders, and real decisions to Tom through `north gate`.
+- Routine decisions under the standing orders, and real decisions to Tom through `north gate`. A gate
+  answer typed in an earlier message is cited from any later turn with `north gate answer ID N
+  --relayed-from-turn CONVO_ID`, the bracketed id `north convo -x` prints for that message.
 - Which harness fix to staff next: the first class on `north ledger flow`'s line of harness losses over
   24 h, which ranks them by the usage they cost, never the alarm that arrived last.
 
