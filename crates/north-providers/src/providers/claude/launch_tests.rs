@@ -70,8 +70,17 @@ fn a_profile_without_the_harness_settings_is_named_unguarded_so_its_launch_is_re
     let home = scratch.path().join("profiles/claude-api");
     std::fs::create_dir_all(&home).unwrap();
     let account = Account { provider: Claude.provider(), label: "api".into(), home: home.clone(), token_file: None, api: None };
+    let here = |path: &std::path::Path| path.exists();
 
-    assert!(Claude.unguarded(&account).is_some_and(|reason| reason.contains("no settings.json")));
+    assert!(Claude.unguarded(&account, &here).is_some_and(|reason| reason.contains("no settings.json")));
     std::fs::write(home.join("settings.json"), "{}").unwrap();
-    assert_eq!(Claude.unguarded(&account), None);
+    assert_eq!(Claude.unguarded(&account, &here), None);
+
+    let remote = scratch.path().join("remote");
+    let there = |path: &std::path::Path| remote.join(path.strip_prefix("/").unwrap_or(path)).exists();
+    assert!(Claude.unguarded(&account, &there).is_some_and(|reason| reason.contains("no settings.json")));
+    let linked = remote.join(home.strip_prefix("/").unwrap());
+    std::fs::create_dir_all(&linked).unwrap();
+    std::fs::write(linked.join("settings.json"), "{}").unwrap();
+    assert_eq!(Claude.unguarded(&account, &there), None);
 }

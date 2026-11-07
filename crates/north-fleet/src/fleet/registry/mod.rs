@@ -291,9 +291,7 @@ impl Fleet {
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
         let request = record.relaunch_request();
-        if record.machine.is_none()
-            && let Some(reason) = runtime.unguarded(account)
-        {
+        if let Some(reason) = remote::unguarded_where_it_runs(runtime.as_ref(), account, record.machine.as_ref()) {
             return Err(NorthError::Refused(reason));
         }
         let (instructions, sha) = self.instructions(record)?;

@@ -19,11 +19,13 @@ use std::time::Duration;
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
+use crate::platform::process::try_run_command_within;
 
 use super::link::{Link, quote};
-use super::model::{Machine, SessionRecord};
+use super::model::{Account, Machine, SessionRecord};
 use super::records::record_file;
-use super::runtime::{HostSpec, binary, new_uuid};
+use super::runtime::{HostSpec, Runtime, binary, new_uuid};
+use super::ssh::SSH_WAIT;
 
 const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 const HELD: &str = ".local/state/north/held";
@@ -58,6 +60,17 @@ pub fn placed(spec: HostSpec, record: &SessionRecord) -> NorthResult<HostSpec> {
         Some(machine) => over_ssh(spec, machine),
         None => Ok(spec),
     }
+}
+
+/// Why `account`'s profile would start a session without hooks on `machine`, or here when it is `None`; a machine that does not answer is left to the launch itself to report.
+pub fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Option<&Machine>) -> Option<String> {
+    let Some(machine) = machine else { return runtime.unguarded(account, &|path| path.exists()) };
+    let present = |path: &Path| {
+        let mut ssh = Command::new(binary("ssh"));
+        ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &format!("test -e {}", quote(&path.to_string_lossy()))]);
+        try_run_command_within(ssh, None, SSH_WAIT).ok().flatten().is_none_or(|output| output.status.success() || output.status.code() != Some(1))
+    };
+    runtime.unguarded(account, &present).map(|reason| format!("{reason} on {}", machine.name))
 }
 
 pub fn over_ssh(spec: HostSpec, machine: &Machine) -> NorthResult<HostSpec> {
