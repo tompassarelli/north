@@ -159,7 +159,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
     (`crates/north-base/src/platform/private_text.rs:41`, `crates/north-runtime/src/privacy/judge.rs:29-132`); a
     failed judge keeps answering "judging". Shapes: presence-flag.
 30. **Review and distill locks** (none counted). `code-health/REPO/review.lock` is released by the launched agent's
-    `rm` and a dry run keeps a real lock (`crates/north-guard/src/code_health/tick.rs:95-173`); `distill.lock.d` is
+    `rm` and a dry run keeps a real lock (`crates/north-code-health/src/code_health/tick.rs:95-173`); `distill.lock.d` is
     stolen after 10 minutes from a run that still holds it (`crates/north-core/src/grounding/distill.rs:799`).
     Shapes: mtime-read, presence-flag.
 31. **Private desktop run** (none counted). A launcher killed with SIGKILL leaves its compositor running and only the

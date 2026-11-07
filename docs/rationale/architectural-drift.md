@@ -15,7 +15,7 @@ data.
 
 ## Where each idea lives
 
-- Measurement, `crates/north-guard/src/code_health`: `north code-health budget [REV]` prints each crate against its
+- Measurement, `crates/north-code-health/src/code_health`: `north code-health budget [REV]` prints each crate against its
   `[crate_lines]` budget, then three coupling signals over the `[[module]]` map:
   - hidden links: module pairs whose files changed together in at least three commits of the 90-day window with no
     `may_use` edge either way (`coupling.rs`, from the co-change pairs `history.rs` already computed);

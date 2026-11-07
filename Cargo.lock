@@ -918,6 +918,7 @@ dependencies = [
  "fancy-regex",
  "north-capacity-host",
  "north-climb",
+ "north-code-health",
  "north-convo",
  "north-core",
  "north-coverage",
@@ -1033,6 +1034,20 @@ dependencies = [
  "north-replay",
  "north-strategy-types",
  "serde_json",
+]
+
+[[package]]
+name = "north-code-health"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-implicit-state",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "toml_edit",
 ]
 
 [[package]]
@@ -1249,10 +1264,10 @@ dependencies = [
  "fancy-regex",
  "north-base",
  "north-capacity",
+ "north-code-health",
  "north-fleet",
  "north-github-mirror",
  "north-graph-ground",
- "north-implicit-state",
  "north-pace",
  "north-providers",
  "north-strategy-types",
