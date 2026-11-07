@@ -86,7 +86,7 @@ class = "contract"
 [[goal]]
 name = "features-index-current"
 source = "AGENTS.md: docs/features.md is generated and never edited by hand"
-oracle = "north docs features-index --check >/dev/null 2>&1; echo $?"
+oracle = "./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/features_index/ docs features-index --check >/dev/null 2>&1; echo $?"
 max = 0
 class = "contract"
 
