@@ -10,6 +10,7 @@ publish = false
 north-base = { path = "../north-base" }
 north-diff-gates = { path = "../north-diff-gates" }
 north-landing-gates = { path = "../north-landing-gates" }
+north-land-scans = { path = "../north-land-scans" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-goals = { path = "../north-goals" }
 north-mutants = { path = "../north-mutants" }

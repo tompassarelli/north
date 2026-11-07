@@ -7,7 +7,7 @@ use north_base::platform::private_text::{self, Finding};
 use crate::landing::denylist;
 use crate::landing::step::cancelled;
 use crate::landing::step::{Refused, Step};
-use crate::watch::facts::slug_of;
+use crate::slug::slug_of;
 
 pub struct Denylist {
     pub south: PathBuf,

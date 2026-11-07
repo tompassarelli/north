@@ -11,6 +11,10 @@ pub fn north_binary() -> PathBuf {
     resolve(explicit("AGENT_CAPACITY_NORTH").or_else(|| explicit("NORTH_BIN")), &home, std::env::current_exe().ok())
 }
 
+pub fn land_north() -> String {
+    std::env::var("NORTH_LAND_NORTH").ok().filter(|value| !value.is_empty()).unwrap_or_else(|| "north".to_owned())
+}
+
 pub fn superseded() -> bool {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     std::env::current_exe().is_ok_and(|own| promoted_elsewhere(&home, &without_deleted_suffix(own)))

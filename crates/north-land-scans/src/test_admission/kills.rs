@@ -11,7 +11,7 @@ use toml_edit::DocumentMut;
 use crate::platform::push_ledger;
 use super::super::{Range, git};
 use super::limits;
-use crate::watch::state_home;
+use north_base::platform::records_mirror::state_home;
 use north_base::foundation::exit::NO_VERDICT;
 
 pub const USAGE: &str = "usage: north land scan test-admission kills [--host NAME] [--remote-north COMMAND] BASE..HEAD\n       north land scan test-admission kills --here BASE..HEAD";

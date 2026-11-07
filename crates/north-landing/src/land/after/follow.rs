@@ -11,9 +11,7 @@ use crate::land::trace::{self, AFTER, Category, PHASE, Span};
 const SEND_WAIT: Duration = Duration::from_secs(60);
 const USAGE: &str = "usage: north land follow --repo DIR --git-dir DIR --base SHA --head SHA";
 
-pub fn program() -> String {
-    std::env::var("NORTH_LAND_NORTH").ok().filter(|value| !value.is_empty()).unwrap_or_else(|| "north".to_owned())
-}
+pub use north_base::platform::north_binary::land_north as program;
 
 pub struct Follow<'a> {
     pub repo: &'a Path,

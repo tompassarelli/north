@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 
 use super::git::merge_base;
-use crate::land::after::follow::program;
+use north_base::platform::north_binary::land_north as program;
 
 const USAGE: &str = "usage: north land scan language --base BASE --head HEAD [--origin URL]";
 pub const STOP: u8 = 69;

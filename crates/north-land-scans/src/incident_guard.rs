@@ -11,8 +11,8 @@ use regex::Regex;
 use super::test_file::is_test_file;
 use super::{Range, git};
 use crate::platform::land_queue::{ROUND, slug};
-use crate::watch::facts::slug_of;
-use crate::watch::state_home;
+use crate::slug::slug_of;
+use north_base::platform::records_mirror::state_home;
 
 const NORTH: &str = "tompassarelli/north";
 const BUG: &str = "bug";

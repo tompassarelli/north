@@ -106,13 +106,7 @@ fn output(program: &str, directory: Option<&Path>, arguments: &[&str]) -> Result
     Err(format!("{program} {}: {}", arguments.first().copied().unwrap_or_default(), stderr.trim().chars().take(200).collect::<String>()))
 }
 
-pub fn slug_of(url: &str) -> Option<String> {
-    let url = url.trim().trim_end_matches('/');
-    let url = url.strip_suffix(".git").unwrap_or(url);
-    let mut parts = url.rsplit(['/', ':']);
-    let (name, owner) = (parts.next()?, parts.next()?);
-    (!name.is_empty() && !owner.is_empty()).then(|| format!("{owner}/{name}"))
-}
+pub use north_land_scans::slug::slug_of;
 
 fn repo_facts(name: &str) -> Option<RepoFacts> {
     let checkout = home().join("code").join(name).join("main");
