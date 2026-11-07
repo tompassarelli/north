@@ -2,7 +2,6 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
@@ -39,10 +38,6 @@ pub(super) fn agent_event_checks(argv: &[String]) -> Result<(), String> {
         return Err("key must be nonempty text".into());
     }
     Ok(())
-}
-
-pub(super) fn spooled_write(path: &Path) -> bool {
-    path.extension().is_some_and(|extension| extension == "jsonl" || extension == "argv")
 }
 
 /// Starts `program` with `arguments` in its own process group, in its own systemd scope where a user manager runs, and

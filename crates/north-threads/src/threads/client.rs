@@ -13,8 +13,10 @@ use crate::threads::{board, calibration, causes, claims, hold, incidents, ingest
 use crate::foundation::clock::Timestamp;
 
 mod process;
+mod spool;
 pub use process::shell_quote;
-use process::{Input, agent_event_checks, code_of, detach, execute, has_usage, python_json, spool_stem, spooled_write};
+use process::{Input, agent_event_checks, code_of, detach, execute, has_usage, python_json, spool_stem};
+use spool::Spool;
 
 const READS: [&str; 11] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate",
@@ -44,6 +46,10 @@ const RECORD_WAIT: Duration = Duration::from_secs(10);
 const INGEST_WAIT: Duration = Duration::from_secs(5);
 const INGEST_HOLD: Duration = Duration::from_secs(12);
 const SPOOL_DRAIN: Duration = Duration::from_secs(10);
+
+fn unanswered(code: i32) -> &'static str {
+    if code == TIMED_OUT { "ledger host timed out" } else { "ledger host unreachable" }
+}
 
 pub struct Client {
     home: PathBuf,
@@ -110,7 +116,7 @@ pub fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
     if client.var("THREADS_DB").is_some() || !client.remote.exists() {
         return Ok(false);
     }
-    client.write_spool(batch)?;
+    client.write_spool(batch, "spooled by a caller that does not send at once")?;
     Ok(true)
 }
 
@@ -310,7 +316,7 @@ impl Client {
             if !matches!(code, UNREACHABLE | TIMED_OUT) {
                 return Ok(Some(code));
             }
-            self.spool_argv(&argv)?;
+            self.spool_argv(&argv, unanswered(code))?;
             return Ok(Some(0));
         }
         let flush = self.flush_spool_for(first, dest, err)?;
@@ -333,7 +339,7 @@ impl Client {
                     return Ok(Some(code));
                 }
             }
-            let path = self.write_spool(&data)?;
+            let path = self.write_spool(&data, &format!("ledger host {state}"))?;
             writeln!(err, "NorthThreads: {dest} {state}; spooled ingest to {}", path.display())?;
             return Ok(Some(0));
         }
@@ -342,7 +348,7 @@ impl Client {
             if !matches!(code, UNREACHABLE | TIMED_OUT) {
                 return Ok(Some(code));
             }
-            self.spool_argv(&argv)?;
+            self.spool_argv(&argv, unanswered(code))?;
             return Ok(Some(0));
         }
         let follow = first == Some("queue") && argv.get(1).map(String::as_str) == Some("follow");
@@ -387,22 +393,32 @@ impl Client {
         Ok(format!("STALE: ledger snapshot from {}; {dest} unreachable", Timestamp::from(modified).iso()))
     }
 
-    fn write_spool(&self, data: &[u8]) -> NorthResult<PathBuf> {
+    fn spool_records(&self) -> NorthResult<Spool> {
+        Spool::open(&self.spool, &self.home.join(".local/state/north/ledger.db"), (self.clock)())
+    }
+
+    fn queue_spooled(&self, tmp: &Path, path: &Path, cause: &str) -> NorthResult<()> {
+        let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        self.spool_records()?.queue(&name, cause, (self.clock)())?;
+        Ok(fs::rename(tmp, path)?)
+    }
+
+    fn write_spool(&self, data: &[u8], cause: &str) -> NorthResult<PathBuf> {
         fs::create_dir_all(&self.spool)?;
         let path = self.spool.join(format!("{}.jsonl", spool_stem()));
         let tmp = path.with_extension("tmp");
         fs::write(&tmp, data)?;
-        fs::rename(&tmp, &path)?;
+        self.queue_spooled(&tmp, &path, cause)?;
         Ok(path)
     }
 
-    fn spool_argv(&self, argv: &[String]) -> NorthResult<()> {
+    fn spool_argv(&self, argv: &[String], cause: &str) -> NorthResult<()> {
         fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.spool)?;
         fs::set_permissions(&self.spool, fs::Permissions::from_mode(0o700))?;
         let path = self.spool.join(format!("{}.argv", spool_stem()));
         let tmp = path.with_extension("tmp");
         OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?.write_all(python_json(argv).as_bytes())?;
-        Ok(fs::rename(&tmp, &path)?)
+        self.queue_spooled(&tmp, &path, cause)
     }
 
     /// The spool's lock, or none while another call flushes it: that call sends every spooled write in order, so this one neither waits behind it nor sends any itself.
@@ -420,47 +436,60 @@ impl Client {
             return Ok(Flush::Clear);
         }
         let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
-        let mut paths: Vec<PathBuf> = fs::read_dir(&self.spool)?
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| spooled_write(path))
-            .collect();
-        paths.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        let mut spool = self.spool_records()?;
         let started = Instant::now();
-        for path in paths {
+        for name in spool.queued()? {
             if budget.is_some_and(|budget| started.elapsed() >= budget) {
                 return Ok(Flush::Busy);
             }
-            let mut file = match File::open(&path) {
+            let path = self.spool.join(&name);
+            let file = match File::open(&path) {
                 Ok(file) => file,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(error.into()),
             };
-            let code = if path.extension().is_some_and(|extension| extension == "argv") {
-                let mut text = String::new();
-                file.read_to_string(&mut text)?;
-                let args: Vec<String> = serde_json::from_str(&text)?;
-                let quiet = args.first().is_some_and(|verb| verb == "agent-event");
-                self.ssh(dest, &args, Input::Null, quiet, err)?
-            } else {
-                self.ssh(dest, &["ingest".to_owned()], Input::File(file), false, err)?
+            if !spool.take(&name, (self.clock)())? {
+                return Ok(Flush::Busy);
+            }
+            let code = match self.send_spooled(&path, file, dest, err) {
+                Ok(code) => code,
+                Err(error) => {
+                    spool.release(&name, &format!("the flush failed before the ledger host answered: {error}"), (self.clock)())?;
+                    return Err(error);
+                }
             };
             if code == UNREACHABLE {
+                spool.release(&name, "ledger host unreachable", (self.clock)())?;
                 return Ok(Flush::Down);
             }
             if matches!(code, ingest_lock::RETRY | TIMED_OUT) {
+                spool.release(&name, if code == TIMED_OUT { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
                 return Ok(Flush::Busy);
             }
             if code != 0 {
-                fs::rename(&path, path.with_extension("failed"))?;
-                writeln!(err, "NorthThreads: remote ingest refused {}; kept as .failed", path.display())?;
+                spool.refuse(&name, &format!("the ledger host exited {code}"), (self.clock)())?;
+                writeln!(err, "NorthThreads: remote ingest refused {}; it will not be sent again", path.display())?;
                 continue;
             }
+            spool.deliver(&name, (self.clock)())?;
             match fs::remove_file(&path) {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
                 _ => {}
             }
         }
         Ok(Flush::Clear)
+    }
+
+    fn send_spooled(&self, path: &Path, mut file: File, dest: &str, err: &mut dyn Write) -> NorthResult<i32> {
+        if path.extension().is_some_and(|extension| extension == "argv") {
+            let mut text = String::new();
+            file.read_to_string(&mut text)?;
+            let args: Vec<String> = serde_json::from_str(&text)?;
+            let quiet = args.first().is_some_and(|verb| verb == "agent-event");
+            self.ssh(dest, &args, Input::Null, quiet, err)
+        } else {
+            self.ssh(dest, &["ingest".to_owned()], Input::File(file), false, err)
+        }
     }
 
     fn refresh_snapshot(&self, dest: &str, force: bool) -> NorthResult<()> {
@@ -495,12 +524,10 @@ impl Client {
     }
 
     fn spool_pending(&self) -> NorthResult<bool> {
-        let entries = match fs::read_dir(&self.spool) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-        Ok(entries.filter_map(Result::ok).any(|entry| spooled_write(&entry.path())))
+        if !self.spool.is_dir() {
+            return Ok(false);
+        }
+        Ok(!self.spool_records()?.queued()?.is_empty())
     }
 
     fn spool_flush_verb(&self, argv: &[String], err: &mut dyn Write) -> NorthResult<i32> {
@@ -736,7 +763,7 @@ exit "$(cat "$ROOT/code")"
         let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();
         assert_eq!(left, [".lock"]);
         rig.client.spool_drain = Duration::ZERO;
-        rig.client.write_spool(b"{\"n\": 1}\n").unwrap();
+        rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
         let (code, err) = call(&rig, &["ingest"], b"{\"n\": 2}\n");
         assert_eq!(code, 0);
         assert!(err.contains("ledger-host busy; spooled ingest to "), "an ingest past its drain budget spools behind the backlog: {err}");
@@ -766,7 +793,7 @@ exit "$(cat "$ROOT/code")"
     fn a_spooled_batch_whose_flush_times_out_stays_spooled_and_is_sent_again_once_the_host_answers() {
         let mut rig = rig(&[]);
         rig.client.ssh_wait = Duration::from_millis(300);
-        let kept = rig.client.write_spool(b"{\"n\": 1}\n").unwrap();
+        let kept = rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
         fs::write(rig.root.join("sleep"), "30").unwrap();
         let (_, err) = call(&rig, &["claim", "north#63"], b"");
         assert!(!err.contains("refused"), "{err}");
@@ -783,7 +810,7 @@ exit "$(cat "$ROOT/code")"
         let mut rig = rig(&[]);
         let started = rig.root.join("background.log");
         rig.client.background = Some(vec!["/bin/sh".into(), "-c".into(), format!("printf '%s\\n' \"$*\" >> '{}'", started.display()).into(), "north".into(), "threads".into()]);
-        rig.client.write_spool(b"{\"n\": 1}\n").unwrap();
+        rig.client.write_spool(b"{\"n\": 1}\n", "test").unwrap();
         assert_eq!(call(&rig, &["claim", "north#63", "--by", "s"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'north#63' --by s")], "the claim sent the spool before itself");
         let begun = Instant::now();

@@ -34,9 +34,6 @@ fn newest_activity(fleet: &Path) -> Option<f64> {
         .reduce(f64::max)
 }
 
-fn spool_since(spool: &Path) -> Option<f64> {
-    entries(spool).filter(|path| path.extension().is_none_or(|extension| extension != "failed")).filter_map(|path| modified(&path)).reduce(f64::min)
-}
 
 /// The ledger host keeps threads.db and no `remote` pointer; only it can say when the newest run was recorded.
 fn newest_run(home: &Path) -> Option<f64> {
@@ -87,7 +84,6 @@ pub fn gather(home: &Path) -> HostFacts {
         dispatch: dispatch(&state),
         newest_run: newest_run(home),
         newest_activity: newest_activity(&state.join("fleet")),
-        spool_since: spool_since(&home.join(".local/state/threads/spool")),
         lifecycles: lifecycles(),
     }
 }

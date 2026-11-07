@@ -15,8 +15,6 @@ mod tests;
 
 /// Worker activity newer than the ledger's newest recorded run by more than this means runs stopped reaching it.
 const RECORDING_LAG_S: f64 = 10.0 * 60.0;
-/// A spooled ledger write older than this has not reached the ledger host.
-const SPOOL_LAG_S: f64 = 15.0 * 60.0;
 /// One snapshot pull interval and five minutes more for a slow pull.
 const SNAPSHOT_AGE_S: f64 = crate::threads::snapshot::SNAPSHOT_SECONDS as f64 + 5.0 * 60.0;
 /// A landing not live on a host this long after it reached origin/main is stuck.
@@ -61,7 +59,6 @@ pub struct HostFacts {
     pub dispatch: Option<Dispatch>,
     pub newest_run: Option<f64>,
     pub newest_activity: Option<f64>,
-    pub spool_since: Option<f64>,
     pub lifecycles: Lifecycles,
 }
 
@@ -136,11 +133,6 @@ impl World {
                 minutes(self.age(active))
             )),
             _ => {}
-        }
-        for (name, facts) in self.reached() {
-            if let Some(since) = facts.spool_since.filter(|since| self.age(*since) > SPOOL_LAG_S) {
-                faults.push(format!("{name} holds ledger writes unsent for {}", minutes(self.age(since))));
-            }
         }
         flow("run-recording", newest_run.map(|run| self.age(run)), faults)
     }
