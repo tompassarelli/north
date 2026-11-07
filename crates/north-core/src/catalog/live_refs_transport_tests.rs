@@ -39,3 +39,27 @@ fn facts_are_never_published_to_or_read_from_a_remote_that_is_not_the_private_so
         assert!(Command::new("git").arg("-C").arg(&remote).args(["for-each-ref", "refs/north/host-facts"]).output().expect("refs").stdout.is_empty());
     }
 }
+
+#[test]
+fn a_publish_that_loses_the_race_for_the_ref_rebuilds_on_the_winner_and_succeeds() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = tempfile::tempdir().expect("fixture");
+    let remote = fixture.path().join("south.git");
+    git_in(fixture.path(), &["init", "-q", "--bare", remote.to_str().expect("path")]);
+    let clone = fixture.path().join("clone");
+    clone_of(&remote, &clone);
+    let hook = clone.join(".git/hooks/pre-push");
+    let marker = clone.join("rival-done");
+    let script = format!(
+        "#!/bin/sh\n[ -e {marker} ] && exit 0\n: > {marker}\ntree=$(git hash-object -t tree -w /dev/null)\ngit push -q origin $(git commit-tree $tree -m rival):refs/north/host-facts/gex45\n",
+        marker = marker.display()
+    );
+    std::fs::write(&hook, script).expect("hook");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    let commit = publish(&clone, "origin", &facts("gex45", 2_000, "mine.sh")).expect("a lost race is not a failure");
+    let tip = text(git(&remote, &["rev-parse", "refs/north/host-facts/gex45"], None).expect("tip"));
+    assert_eq!(tip, commit);
+    let held: Facts = serde_json::from_str(&text(git(&remote, &["show", &format!("{tip}:facts.json")], None).expect("show"))).expect("facts");
+    assert_eq!(held.recorded_at_ms, 2_000);
+    assert_eq!(text(git(&remote, &["rev-list", "--count", &tip], None).expect("count")), "2");
+}

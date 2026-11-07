@@ -8,6 +8,7 @@ use super::live_refs::{Facts, SCHEMA};
 
 const REF_PREFIX: &str = "refs/north/host-facts/";
 const FILE: &str = "facts.json";
+const PUSH_ATTEMPTS: usize = 2;
 
 fn git(repo: &Path, arguments: &[&str], stdin: Option<&[u8]>) -> NorthResult<Output> {
     use std::io::Write;
@@ -58,18 +59,49 @@ fn require_private(repo: &Path, remote: &str) -> NorthResult<()> {
 pub fn publish(repo: &Path, remote: &str, facts: &Facts) -> NorthResult<String> {
     require_private(repo, remote)?;
     let reference = reference(&facts.host);
-    let fetch = format!("+{reference}:{reference}");
-    let known = git(repo, &["fetch", "-q", "--no-tags", remote, &fetch], None).is_ok();
-    let blob = text(git(repo, &["hash-object", "-w", "--stdin"], Some(&serde_json::to_vec_pretty(facts)?))?);
-    let tree = text(git(repo, &["mktree"], Some(format!("100644 blob {blob}\t{FILE}\n").as_bytes()))?);
-    let mut commit_arguments = vec!["commit-tree", &tree, "-m", "host facts"];
-    let parent = if known { text(git(repo, &["rev-parse", "--verify", &reference], None)?) } else { String::new() };
-    if known {
-        commit_arguments.extend(["-p", &parent]);
+    let bytes = serde_json::to_vec_pretty(facts)?;
+    let mut base = remote_tip(repo, remote, &reference);
+    let mut rejected = None;
+    for _ in 0..PUSH_ATTEMPTS {
+        if let Some(tip) = &base
+            && holds(repo, tip, &bytes)
+        {
+            return Ok(tip.clone());
+        }
+        let commit = commit_on(repo, base.as_deref(), &bytes)?;
+        let Err(error) = git(repo, &["push", "-q", remote, &format!("{commit}:{reference}")], None) else {
+            return Ok(commit);
+        };
+        let tip = remote_tip(repo, remote, &reference);
+        if tip == base {
+            return Err(error);
+        }
+        base = tip;
+        rejected = Some(error);
     }
-    let commit = text(git(repo, &commit_arguments, None)?);
-    git(repo, &["push", "-q", remote, &format!("{commit}:{reference}")], None)?;
-    Ok(commit)
+    match base {
+        Some(tip) => Ok(tip),
+        None => Err(rejected.expect("an attempt was made")),
+    }
+}
+
+fn remote_tip(repo: &Path, remote: &str, reference: &str) -> Option<String> {
+    git(repo, &["fetch", "-q", "--no-tags", remote, &format!("+{reference}:{reference}")], None).ok()?;
+    git(repo, &["rev-parse", "--verify", reference], None).ok().map(text)
+}
+
+fn holds(repo: &Path, commit: &str, bytes: &[u8]) -> bool {
+    git(repo, &["show", &format!("{commit}:{FILE}")], None).is_ok_and(|shown| shown.stdout.trim_ascii() == bytes.trim_ascii())
+}
+
+fn commit_on(repo: &Path, parent: Option<&str>, bytes: &[u8]) -> NorthResult<String> {
+    let blob = text(git(repo, &["hash-object", "-w", "--stdin"], Some(bytes))?);
+    let tree = text(git(repo, &["mktree"], Some(format!("100644 blob {blob}\t{FILE}\n").as_bytes()))?);
+    let mut arguments = vec!["commit-tree", &tree, "-m", "host facts"];
+    if let Some(parent) = parent {
+        arguments.extend(["-p", parent]);
+    }
+    Ok(text(git(repo, &arguments, None)?))
 }
 
 pub fn fetch_all(repo: &Path, remote: &str) -> NorthResult<Vec<Facts>> {
