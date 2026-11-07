@@ -23,6 +23,8 @@ pub struct Attempt {
     pub succeeded: bool,
     pub repos: BTreeSet<String>,
     pub cause: Cause,
+    /// A failed box deferred to a dated check that has not missed: left out of first-try success, counted as a waits loss.
+    pub deferred: bool,
 }
 
 static MISSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<!-- check \S+ missed -->").unwrap());
@@ -57,13 +59,11 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, queued: 
         .filter_map(|(agent, category, ended, outcome, item, report, compactions, recorded, session)| {
             let ended = Timestamp::parse(&ended).ok()?.unix_seconds();
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
-            if outcome != "done" && waits_on_time(&report) && !checked_miss() {
-                return None;
-            }
             if outcome != "done" && awaits_lander(&report) && queued.contains(&session) {
                 return None;
             }
-            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()) })
+            let deferred = outcome != "done" && waits_on_time(&report) && !checked_miss();
+            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()), deferred })
         })
         .collect())
 }
@@ -79,7 +79,7 @@ pub fn repos(item: &str) -> BTreeSet<String> {
 }
 
 pub fn first_try(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Vec<Measure>> {
-    let attempts = attempts(db, weeks[1].start, &missed_checks(&Mirror::local()), &queued_sessions())?;
+    let attempts = attempts(db, weeks[1].start, &missed_checks(&Mirror::local()), &queued_sessions())?.into_iter().filter(|attempt| !attempt.deferred).collect::<Vec<_>>();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for attempt in attempts.iter().filter(|attempt| weeks[0].holds(attempt.ended)) {
         *counts.entry(attempt.category.as_str()).or_default() += 1;

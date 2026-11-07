@@ -318,7 +318,7 @@ impl Records {
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)
             }
             Bar::FirstTry => {
-                let held: Vec<&workers::Attempt> = self.attempts.iter().filter(|attempt| window.holds(attempt.ended) && attempt.repos.contains(repo)).collect();
+                let held: Vec<&workers::Attempt> = self.attempts.iter().filter(|attempt| window.holds(attempt.ended) && attempt.repos.contains(repo) && !attempt.deferred).collect();
                 share(held.iter().filter(|attempt| attempt.succeeded).count(), held.len(), 100.0)
             }
             Bar::HarnessLoss => {
