@@ -41,24 +41,26 @@ enum Pass {
 }
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
-    recorded(layout, lock(layout, FlockOperation::NonBlockingLockExclusive))
+    recorded(layout, lock(layout, FlockOperation::NonBlockingLockExclusive), follow_main)
 }
 
 pub(super) fn update_after_landing(layout: &Layout) -> Result<(), Failure> {
-    recorded(layout, lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime promote").map(Some))
+    recorded(layout, lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime promote").map(Some), |layout| pass(layout).map(|_| ()))
 }
 
-fn recorded(layout: &Layout, lock: Result<Option<File>, Failure>) -> Result<(), Failure> {
-    let updated = lock.and_then(|lock| update_locked(layout, lock));
+fn recorded(layout: &Layout, lock: Result<Option<File>, Failure>, update: impl FnOnce(&Layout) -> Result<(), Failure>) -> Result<(), Failure> {
+    let updated = lock.and_then(|lock| match lock {
+        Some(_lock) => update(layout),
+        None => {
+            println!("north runtime update already running");
+            Ok(())
+        }
+    });
     host_facts::record_if_stale(layout);
     updated
 }
 
-fn update_locked(layout: &Layout, lock: Option<File>) -> Result<(), Failure> {
-    let Some(_lock) = lock else {
-        println!("north runtime update already running");
-        return Ok(());
-    };
+fn follow_main(layout: &Layout) -> Result<(), Failure> {
     for _ in 0..PASSES {
         match pass(layout) {
             Ok(Pass::Promoted) => continue,

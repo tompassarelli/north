@@ -23,7 +23,17 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
         let _building = lock_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
         built_main(layout, &checkout())?
     };
-    let references = references(&runtime)?;
+    ship_to(&target, &runtime, hosts)
+}
+
+pub(super) fn deploy_live(layout: &Layout) -> Result<(), Failure> {
+    let _shipping = named_lock_waiting(layout, DEPLOY_LOCK, limit(LOCK_WAIT), "north runtime deploy")?;
+    let target = fs::read_link(layout.current()).ok().and_then(|link| layout::linked_sha(&link).map(str::to_owned)).ok_or_else(|| failed(1, "this host has no live runtime to ship"))?;
+    ship_to(&target, &layout.runtime(&target), &[])
+}
+
+fn ship_to(target: &str, runtime: &Path, hosts: &[String]) -> Result<(), Failure> {
+    let references = references(runtime)?;
     let hosts = if hosts.is_empty() {
         let plan = land_offload::deployment();
         if let Some(line) = plan.skip_line() {
@@ -37,7 +47,7 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
         return Err(failed(64, "no host to deploy to: name one or declare [hosts.NAME] with an ssh or deploy_ssh destination"));
     }
     let failures: Vec<Failure> = std::thread::scope(|scope| {
-        let (target, runtime, references) = (&target, &runtime, &references);
+        let references = &references;
         let shipping: Vec<_> = hosts.iter().map(|host| scope.spawn(move || ship(host, target, runtime, references))).collect();
         shipping.into_iter().filter_map(|shipped| shipped.join().unwrap_or_else(|_| Err(failed(1, "shipping panicked"))).err()).collect()
     });

@@ -44,7 +44,7 @@ pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
     let here = update::update_after_landing(layout);
     std::thread::scope(|scope| {
         let lander = scope.spawn(|| follow_lander(layout));
-        let elsewhere = deploy::deploy(layout, &[]);
+        let elsewhere = deploy::deploy_live(layout);
         let lander = lander.join().unwrap_or_else(|_| Err(failed(1, "lander promotion panicked")));
         here.and(elsewhere).and(lander)
     })

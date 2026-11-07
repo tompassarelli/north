@@ -30,7 +30,7 @@ settle                 on the host that settles the fleet: update here, deploy w
 deploy [HOST...]       build here, then ship and promote that runtime on each HOST (default: every other declared host with an ssh destination); a HOST whose live runtime descends from it keeps its own
 health                 check the live runtime
 rollback --from SHA    relink current to the previous runtime and hold SHA back for an hour, when current is SHA; settle runs it on a host whose canary land check failed
-promote                update here, then deploy to every declared host; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
+promote                after a landing: wait for any running update, bring this host to origin/main in one pass, then ship the runtime now live here to every declared host; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
 follow --repo-dir DIR  after a landing: start promote in the background when DIR's origin is north
 agents [VERSION]       update this host's north runtime, then the Claude and Agy runtimes, as the twice-daily timer does
 claude|agy [VERSION]   install a checksum-verified Claude or Agy runtime and select it
