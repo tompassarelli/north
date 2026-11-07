@@ -60,7 +60,7 @@ Alternatives that lost:
 
 **Retention.** Raw samples are kept 35 days and deleted by the ingest that records a batch, in the same transaction that writes it. 35 days covers the 7-day slope, the ratchet's 7 days and the dividend's 30-day lane window with room to spare. About 50 concerns at 144 samples a day is about 250 000 rows at the cap, a few tens of megabytes in a ledger of 136 MB. No downsampled tier: nothing reads past 35 days.
 
-**A stale sampler fails `north health`.** docs/feedback-loop.md's Recorded readings get one row per sampler (`SELECT max(at) FROM concern_samples WHERE sampler = 'NAME'`, cadence 10m for the tick, the doctor and the ledger timer, 15m for flow), so one sampler stopping fails the silent-signal check even while the others write.
+**A stale sampler is flagged by the silent-signal detector (`north flow detect`).** docs/feedback-loop.md's Recorded readings get one row per sampler (`SELECT max(at) FROM concern_samples WHERE sampler = 'NAME'`, cadence 10m for the tick, the doctor and the ledger timer, 15m for flow), so one sampler stopping fails the silent-signal check even while the others write.
 
 ## The four states
 
@@ -88,7 +88,7 @@ Alternatives that lost:
 - Ordinary least squares: one bad reading (an oracle that timed out into a fallback, a landing stuck behind a host reboot) swings the slope and fires drifting.
 - A fixed percentage change threshold: the right threshold differs between a load average and a landing p90; the series' own noise sets it.
 
-`north concerns check --trend` (`north goals check --trend` until the rename lands) prints, per concern: state, current value against its line and warn band, and for 12 h, 24 h and 7 d the median and the slope per day.
+`north concerns check --trend` (`north check goals --trend` until the rename lands) prints, per concern: state, current value against its line and warn band, and for 12 h, 24 h and 7 d the median and the slope per day.
 
 ## One registry, one judge
 
