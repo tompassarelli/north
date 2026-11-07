@@ -59,6 +59,8 @@ fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_an
     let mine = gate(&host, None, &["build"]);
     assert_eq!(mine.status.code(), Some(0), "{}", String::from_utf8_lossy(&mine.stderr));
     assert_eq!(compiled(&host), "test\nbuild\n");
+    let admitted: i64 = rusqlite::Connection::open(host.path("capacity.db")).unwrap().query_row("SELECT count(*) FROM capacity_admissions WHERE decision = 'RESERVED'", [], |row| row.get(0)).unwrap();
+    assert_eq!(admitted, 1, "the fleet build admitted here is one admission row, kept for the ledger; a shell outside any session leases nothing (north#798)");
 }
 
 // KEEP(contract): a fleet session's cargo that compiles nothing (metadata, fmt) and one with a local need keep running here; north#634

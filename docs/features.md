@@ -205,6 +205,7 @@ CPU offload: [`north nexus-run`](nexus-run.md) sends an owned working tree over 
 - Credentials registry: `north credentials check [--json]` lists every credential the fleet uses: south's sops files (each declared in south `agents/credentials.toml`; an undeclared file fails), the Claude setup-token files and `.credentials.json` logins that `agents/orchestration.toml` places on this host, and the declared sites of the automation-chrome cookie store. [more](features/08-machines-capacity-and-scheduled-jobs/0021-credentials-registry.md)
 - Pull hand-over: gex45 declares no `reaches`, so it pushes nothing; each queued agent heavy toolchain run (`cargo`, `rustc`, `cargo-nextest`, `bun`, `nix`) opens a socket beside its admission ticket. [more](features/08-machines-capacity-and-scheduled-jobs/0021-pull-hand-over.md)
 - Records mirror: sessions on hosts that cannot reach the laptop read its lander and runtime records without stopping for it. [more](features/08-machines-capacity-and-scheduled-jobs/0022-records-mirror.md)
+- Admission ledger rows: each capacity admission that ends in a lease, a deferral or a refusal (`north capacity host run` and `reserve`) is kept in the host's capacity.db with its owner, class, reason, queued seconds and the cpus and memory it asked for, and the next `north worker-ledger` run on that host ships the ones the ledger lacks as `capacity` rows into the threads ledger's `capacity_admissions` table (north#798). [more](features/08-machines-capacity-and-scheduled-jobs/0023-admission-ledger-rows.md)
 
 ## Watches and alerts
 

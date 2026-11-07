@@ -23,7 +23,10 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS capacity_runs (
     CREATE TABLE IF NOT EXISTS capacity_imports (source TEXT PRIMARY KEY, rows INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS capacity_priority (
     lease TEXT PRIMARY KEY, at TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, priority TEXT NOT NULL,
-    placed INTEGER NOT NULL, queuedSeconds REAL NOT NULL, command TEXT)";
+    placed INTEGER NOT NULL, queuedSeconds REAL NOT NULL, command TEXT);
+    CREATE TABLE IF NOT EXISTS capacity_admissions (
+    id TEXT PRIMARY KEY, at TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, decision TEXT NOT NULL,
+    reason TEXT NOT NULL, queuedSeconds REAL NOT NULL, cpus REAL, memoryMiB REAL)";
 
 const MEASUREMENT_COLUMNS: [&str; 22] = [
     "owner", "shape", "reservedCpus", "reservedMemoryMiB", "chargedCpus", "chargedMemoryMiB", "cpuSeconds", "meanCores", "p90Cores", "peakCores",
@@ -78,7 +81,7 @@ fn has_columns(db: &Connection) -> bool {
 /// Whether the schema is already in place, read without a write lock: every capacity command opens the database, and a write transaction per open queued forty queued wrappers behind each other's history reads past the busy timeout when a runtime update re-ran them at once.
 fn current(db: &Connection) -> bool {
     let named = |kind: &str, name: &str| db.query_row("SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?", [kind, name], |_| Ok(())).is_ok();
-    has_columns(db) && named("table", "capacity_imports") && named("table", "capacity_priority") && named("table", "capacity_model") && named("index", "capacity_runs_signature")
+    has_columns(db) && named("table", "capacity_imports") && named("table", "capacity_priority") && named("table", "capacity_admissions") && named("table", "capacity_model") && named("index", "capacity_runs_signature")
 }
 
 pub(super) fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
@@ -218,6 +221,44 @@ pub fn insert_priority_use(db: &Connection, row: &PriorityUse<'_>) -> rusqlite::
         rusqlite::params![row.lease, crate::foundation::clock::Timestamp::now().iso_millis(), row.owner, row.class, row.priority, row.placed, row.queued_seconds, row.command],
     )?;
     Ok(())
+}
+
+/// How long a host keeps an admission it has not yet shipped to the ledger.
+const ADMISSIONS_KEPT_SECONDS: i64 = 35 * 86_400;
+
+/// One admission's outcome: the lease it reserved, or the deferral or refusal that ended its wait.
+pub struct Admission<'a> {
+    pub id: &'a str,
+    pub owner: &'a str,
+    pub class: &'a str,
+    pub decision: &'a str,
+    pub reason: &'a str,
+    pub queued_seconds: f64,
+    pub cpus: Option<f64>,
+    pub memory_mib: Option<f64>,
+}
+
+pub fn insert_admission(db: &Connection, row: &Admission<'_>) -> rusqlite::Result<()> {
+    let now = crate::foundation::clock::Timestamp::now();
+    db.execute("DELETE FROM capacity_admissions WHERE at < ?", [crate::foundation::clock::Timestamp::from_unix_seconds(now.unix_seconds() - ADMISSIONS_KEPT_SECONDS).iso_millis()])?;
+    db.execute(
+        "INSERT OR IGNORE INTO capacity_admissions (id, at, owner, class, decision, reason, queuedSeconds, cpus, memoryMiB) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![row.id, now.iso_millis(), row.owner, row.class, row.decision, row.reason, row.queued_seconds, row.cpus, row.memory_mib],
+    )?;
+    Ok(())
+}
+
+/// The ledger rows of the admissions recorded at or after `since` (all when none), oldest first.
+pub fn admission_rows(db: &Connection, host: &str, since: Option<&str>) -> rusqlite::Result<Vec<Value>> {
+    let mut statement = db.prepare("SELECT id, at, owner, class, decision, reason, queuedSeconds, cpus, memoryMiB FROM capacity_admissions WHERE at >= ? ORDER BY at, id")?;
+    let rows = statement.query_map([since.unwrap_or("")], |row| {
+        Ok(serde_json::json!({
+            "type": "capacity", "host": host, "id": row.get::<_, String>(0)?, "at": row.get::<_, String>(1)?, "owner": row.get::<_, String>(2)?,
+            "class": row.get::<_, String>(3)?, "decision": row.get::<_, String>(4)?, "reason": row.get::<_, String>(5)?,
+            "queued_seconds": row.get::<_, f64>(6)?, "cpus": row.get::<_, Option<f64>>(7)?, "memory_mib": row.get::<_, Option<f64>>(8)?,
+        }))
+    })?;
+    rows.collect()
 }
 
 /// The longest a session's gated run may queue for admission before the wait counts as the harness holding it, not the worker.

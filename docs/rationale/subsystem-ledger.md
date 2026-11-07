@@ -81,7 +81,7 @@ The bottom quarter is the first 11 of the 44 rows, most repair per decision firs
 - **bin-lib** (50): keep for now; `docs/rationale/non-rust-inventory.md` already tracks each script's port to Rust, and a port deletes its row here.
 - **north-capacity-host** (38): keep. It writes the admission queue that attribution reads for capacity losses (`queued_behind_capacity`), and 20 of its 38 fix commits sit in `host`. Merging it into north-capacity would undo the measured build-time split of `docs/rationale/crate-split.md`.
 - **north-providers** (36): keep. It is the provider seam Tom's orders keep, and 21 of its 36 fix commits are in the Claude adapter; Codex gets nothing new.
-- **north-capacity** (34): keep, with one measurement missing. Admission decides every build and lease, yet the replica's `capacity_runs` holds no row after 2026-10-10, so its decisions show as 0 here. Filed as north#798 so the next table counts them.
+- **north-capacity** (34): keep, with one measurement missing. Admission decides every build and lease, yet the replica's `capacity_runs` holds no row after 2026-10-10, so its decisions show as 0 here. North#798 records each admission as a `capacity_admissions` row in the threads ledger and `bin/subsystem-ledger` counts them, so the next table weighs it.
 - **north-landing-gates** (21): keep. Its 87 commits are the gates the shadow mode of north#729 loosened, and the table cannot yet say which refused a real fault; north#729's 24 h shadow log is the measurement that decides which gates earn refusal back.
 
 ## Decisions for Tom

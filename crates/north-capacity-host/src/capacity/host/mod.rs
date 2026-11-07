@@ -11,6 +11,8 @@ use super::local_machine::{fail, runtime_root};
 use json::{Obj, field, num};
 
 mod actions_pull;
+mod admissions;
+pub use admissions::ledger_rows as admission_ledger_rows;
 mod args;
 mod database;
 pub use database::{QUEUED_BOUND_SECONDS, Queued, capacity_database_readonly, queued_admissions, queued_behind_capacity};
@@ -279,6 +281,7 @@ fn reserve(root: &Path, argv: &[String], host: &Host) -> u8 {
     let timeout_seconds = args::positive_integer(options.required("--timeout-seconds"), "--timeout-seconds", Some(policy::maximum_seconds("agent")));
     let create = request::Create { kind: "agent", owner, timeout_seconds: Some(timeout_seconds) };
     let result = decision::decision(root, &request, Some(&create), None, host);
+    admissions::record(&create.owner, &request, &result);
     print_to(&result, false);
     if result.get("decision").and_then(Value::as_str) == Some("RESERVED") { 0 } else { 75 }
 }

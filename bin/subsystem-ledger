@@ -31,6 +31,7 @@ sqlite3 -readonly "$threads" "
   select 'north-guard', 'decision', count(*) from hook_events where at>=$cutoff and verdict in ('refusal','rewrite');
   select case source when 'dispatch' then 'north-dispatch' else 'north-threads' end, 'decision', count(*) from tier_predictions where at>=$cutoff group by 1;
   select 'north-threads', 'decision', count(*) from tier_choice where since>=$cutoff;
+  select 'north-capacity', 'decision', count(*) from capacity_admissions where at>=$cutoff;
 " -separator '|' >"$work/rows"
 sqlite3 -readonly "$ledger" "select 'north-fleet', 'decision', count(*) from gates where answer is not null and opened_ms>=(strftime('%s','now','-$days days')*1000);" -separator '|' >>"$work/rows"
 printf '| subsystem | lines | commits | fix commits | lines churned | harness-loss rows | decisions | repair per decision |\n|---|---:|---:|---:|---:|---:|---:|---:|\n'

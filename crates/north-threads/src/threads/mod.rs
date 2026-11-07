@@ -4,6 +4,7 @@ pub mod calibration;
 pub mod catalog;
 pub mod causes;
 pub mod claims;
+pub mod capacity_admissions;
 pub mod concerns;
 pub mod fixtures;
 pub mod client;

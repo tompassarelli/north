@@ -263,3 +263,17 @@ fn two_running_workers_on_two_boxes_of_one_issue_hold_one_claim_each_and_their_r
         [["w1", "makgora#782", "the loss is classified"], ["w2", "makgora#782", "the staffing replays"]].map(|row| row.map(|text| Value::Text(text.to_owned())).to_vec())
     );
 }
+
+/// north#798: the replica's capacity rows stopped on 2026-10-10 while admission kept deciding every build and lease; each
+/// admission a host ships is one ledger row, a repeat adds none, and the ledger names each host's newest for the next shipment.
+#[test]
+fn a_shipped_capacity_admission_is_one_ledger_row_and_a_repeat_adds_none() {
+    let ledger = ledger();
+    let admission = |id: &str, host: &str, at: &str, decision: &str| json!({"type": "capacity", "id": id, "host": host, "at": at, "owner": "land-check", "class": "heavy", "decision": decision, "reason": "RUN", "queued_seconds": 0.0, "cpus": 4.0, "memory_mib": 8192.0});
+    let batch = [admission("a", "nexus", "2026-10-28T08:00:00.000Z", "RESERVED"), admission("b", "nexus", "2026-10-28T08:30:00.000Z", "DEFER"), admission("c", "gex45", "2026-10-28T08:10:00.000Z", "REFUSED")];
+    assert!(ledger.ingest(&batch).contains("3 capacity admissions"));
+    assert!(!ledger.ingest(&batch).contains("capacity admissions"));
+    assert_eq!(ledger.rows("SELECT count(*) FROM capacity_admissions"), [[Value::Integer(3)]]);
+    let (code, seen, _) = ledger.call(&["run-ids", "--capacity"], "");
+    assert_eq!((code, seen.as_str()), (0, "gex45\t2026-10-28T08:10:00.000Z\nnexus\t2026-10-28T08:30:00.000Z\n"));
+}

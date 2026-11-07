@@ -27,6 +27,9 @@ struct Options {
 struct Ids {
     recorded: String,
     settled: String,
+    /// Each host's newest recorded capacity admission, `HOST<TAB>AT` per line.
+    #[serde(default)]
+    capacity: String,
 }
 
 enum Mode {
@@ -155,7 +158,8 @@ fn record(options: &Options) -> u8 {
         return 2;
     }
     let (Some(recorded), Some(settled)) = (run_ids(&["run-ids"]), run_ids(&["run-ids", "--settled", "--ended"])) else { return 1 };
-    let ids = Ids { recorded, settled };
+    let Some(capacity) = run_ids(&["run-ids", "--capacity"]) else { return 1 };
+    let ids = Ids { recorded, settled, capacity };
     let Some(Rows { mut rows, unread, missed }) = rows(options, &ids) else { return 1 };
     if recalibrate::owns_ledger() {
         pull::hosts(options, &ids, &mut rows);
@@ -222,7 +226,17 @@ fn rows(options: &Options, ids: &Ids) -> Option<Rows> {
             unread = true;
         }
     }
+    capacity_rows(&ids.capacity, &mut rows);
     Some(Rows { rows, unread, missed })
+}
+
+/// This host's capacity admissions the ledger lacks: those at or after its newest recorded one, the ledger ignoring a repeat.
+fn capacity_rows(seen: &str, rows: &mut Vec<u8>) {
+    let host = crate::platform::host::name();
+    let since = seen.lines().filter_map(|line| line.split_once('\t')).find(|(name, _)| *name == host).map(|(_, at)| at);
+    for row in crate::capacity::host::admission_ledger_rows(&host, since) {
+        rows.extend_from_slice(format!("{row}\n").as_bytes());
+    }
 }
 
 fn label_runs() {

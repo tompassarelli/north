@@ -460,6 +460,7 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
             Admitted::Here(admitted) => admitted,
             Admitted::Offloaded(code) => return code,
         };
+        super::admissions::record(owner, request, &admitted);
         print_to(&admitted, true);
         if let Some(message) = refusal(&admitted) {
             fail(&message, 75);

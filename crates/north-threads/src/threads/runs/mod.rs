@@ -56,13 +56,16 @@ const UNMEASURED_CLAUDE: &str = "NOT (active_min IS NULL AND coalesce(tier, '') 
 /// A Claude run recorded without its model, effort or provider is left out of --settled so the ingest re-reads its transcript; Codex and Gemini rows carry no such account.
 const UNIDENTIFIED_CLAUDE: &str = "(coalesce(account, '') NOT LIKE 'claude%' OR (model IS NOT NULL AND effort IS NOT NULL AND provider IS NOT NULL))";
 
-/// Every recorded run's agent id; with --settled, only finished worker, reviewer and judge runs not still waiting to land and not a Claude run still missing its activity columns or, for Claude runs, a model, effort or provider, and with --ended each id is followed by a tab and the time its run was recorded as ending.
+/// With --capacity, each host's newest recorded capacity admission as `HOST<TAB>AT`; otherwise every recorded run's agent id; with --settled, only finished worker, reviewer and judge runs not still waiting to land and not a Claude run still missing its activity columns or, for Claude runs, a model, effort or provider, and with --ended each id is followed by a tab and the time its run was recorded as ending.
 fn run_ids(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &[], &["--settled", "--ended"])?;
-    if !args.positional.is_empty() || (args.has("--ended") && !args.has("--settled")) {
-        return Err(Failure::Usage("usage: threads run-ids [--settled [--ended]]".into()));
+    let args = Args::parse(argv, &[], &["--settled", "--ended", "--capacity"])?;
+    if !args.positional.is_empty() || (args.has("--ended") && !args.has("--settled")) || (args.has("--capacity") && (args.has("--settled") || args.has("--ended"))) {
+        return Err(Failure::Usage("usage: threads run-ids [--settled [--ended] | --capacity]".into()));
     }
     let db = open(context.database, false)?;
+    if args.has("--capacity") {
+        return super::capacity_admissions::seen(&db);
+    }
     let since = Timestamp::from_unix_seconds(context.now.unix_seconds() - LANDING_DAYS * 86400).iso();
     let settled = args.has("--settled");
     let filter = if settled { format!(" WHERE role IN (\"worker\", \"reviewer\", \"judge\") AND outcome != \"running\" AND NOT (expects_landing = 1 AND landed_at IS NULL AND ended >= ?) AND {UNMEASURED_CLAUDE} AND {UNIDENTIFIED_CLAUDE}") } else { String::new() };
@@ -95,7 +98,7 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     let mut input = Vec::new();
     stdin.read_to_end(&mut input).map_err(|error| Failure::Refused(error.to_string()))?;
     let mut db = open(context.database, true)?;
-    let (mut tally, mut readouts, mut hooked, mut concerned) = (Tally::default(), Vec::new(), false, false);
+    let (mut tally, mut readouts, mut hooked, mut concerned, mut admitted) = (Tally::default(), Vec::new(), false, false, false);
     let tx = immediate(&mut db)?;
     columns::ensure(&tx)?;
     for line in input.split(|byte| *byte == b'\n').filter(|line| !String::from_utf8_lossy(line).trim().is_empty()) {
@@ -108,6 +111,12 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
                 hooked = true;
             }
             tally.hooks += hooks::record(&tx, &row)?;
+        } else if row.get("type").is_some_and(|kind| kind == super::capacity_admissions::KIND) {
+            if !admitted {
+                super::capacity_admissions::ensure(&tx)?;
+                admitted = true;
+            }
+            tally.admissions += super::capacity_admissions::record(&tx, &row)?;
         } else if row.get("type").is_some_and(|kind| kind == super::concerns::KIND) {
             if !concerned {
                 super::concerns::ensure(&tx, context.now)?;
@@ -128,8 +137,9 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     let backfilled = if tally.backfilled > 0 { format!(", {} backfilled", tally.backfilled) } else { String::new() };
     let hooks = if tally.hooks > 0 { format!(", {} hook verdicts", tally.hooks) } else { String::new() };
     let concerns = if tally.concerns > 0 { format!(", {} concern samples", tally.concerns) } else { String::new() };
+    let admissions = if tally.admissions > 0 { format!(", {} capacity admissions", tally.admissions) } else { String::new() };
     let unpriced = tally.unpriced.into_iter().collect::<Vec<_>>().join(", ");
     let unpriced = if unpriced.is_empty() { unpriced } else { format!("; token weight for models without a list price: {unpriced}") };
-    writeln!(err, "NorthThreads: {} runs recorded{backfilled}{hooks}{concerns} in {}{unpriced}", tally.added, context.database.display()).map_err(|error| Failure::Refused(error.to_string()))?;
+    writeln!(err, "NorthThreads: {} runs recorded{backfilled}{hooks}{concerns}{admissions} in {}{unpriced}", tally.added, context.database.display()).map_err(|error| Failure::Refused(error.to_string()))?;
     Ok(String::new())
 }
