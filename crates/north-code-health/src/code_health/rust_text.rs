@@ -11,11 +11,14 @@ static TRAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btrait\s+([A-Za-z
 static IMPL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bimpl\b").unwrap());
 static FOR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bfor\b").unwrap());
 static MOD_DECL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bmod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;").unwrap());
+static HOST_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(statvfs|available_space|available_parallelism)\s*\(").unwrap());
+static HOST_FILE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""(/proc)\b"#).unwrap());
 static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
 pub(super) struct RustFile {
     pub(super) path: String,
     code: String,
+    commentless: String,
     tests: Vec<Range<usize>>,
     pub(super) whole_test: bool,
 }
@@ -38,7 +41,7 @@ impl RustFile {
             }
             tests.push(whole.start()..item_end(code.as_bytes(), whole.end()));
         }
-        Self { path: path.to_owned(), code, tests, whole_test }
+        Self { path: path.to_owned(), code, commentless: blank_literals(text, |first| first == b'/'), tests, whole_test }
     }
 
     fn is_test(&self, at: usize) -> bool {
@@ -47,6 +50,17 @@ impl RustFile {
 
     fn line(&self, at: usize) -> usize {
         self.code.as_bytes()[..at].iter().filter(|byte| **byte == b'\n').count() + 1
+    }
+
+    pub(super) fn host_reads(&self) -> Vec<(usize, String)> {
+        let calls = HOST_CALL.captures_iter(&self.code).filter_map(|found| found.get(1));
+        let mut reads: Vec<(usize, String)> = calls
+            .chain(HOST_FILE.captures_iter(&self.commentless).filter_map(|found| found.get(1)))
+            .filter(|found| self.is_test(found.start()))
+            .map(|found| (self.line(found.start()), found.as_str().to_owned()))
+            .collect();
+        reads.sort();
+        reads
     }
 
     pub(super) fn shared_state(&self) -> Vec<(usize, String)> {

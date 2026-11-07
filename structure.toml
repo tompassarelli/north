@@ -808,7 +808,12 @@ test_no_run_seconds = 10
 contention_ceiling = 0.5
 
 [rust_habits]
-checks = ["shared-mutability", "single-impl-trait"]
+checks = ["shared-mutability", "single-impl-trait", "ambient-test-input"]
+
+[rust_habits.ambient_inputs]
+allowlist = "ambient-test-inputs.tsv"
+fixtures = ["tests/it/capacity_host/mod.rs"]
+fixture = "pin the reading the code takes, as tests/it/capacity_host/mod.rs does with AGENT_CAPACITY_DISK_FREE_GIB, AGENT_CAPACITY_CORES, AGENT_CAPACITY_LOADAVG and AGENT_CAPACITY_MEMINFO"
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"

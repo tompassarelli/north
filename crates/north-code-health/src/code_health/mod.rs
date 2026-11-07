@@ -1,3 +1,4 @@
+mod ambient;
 mod budget;
 mod change_cost;
 mod check;
