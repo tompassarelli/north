@@ -227,7 +227,7 @@ impl Lander {
         self.heartbeat.enter(Step::Check);
         let red_fix = included.iter().any(|(_, ticket)| ticket.red_fix.is_some());
         let (verdict, stacked) = check_environment::judge(&self.queue, |environment| {
-            let launch = Launch { red_fix, local: environment.is_local(), ..Launch::of(self) };
+            let launch = Launch { red_fix, local: environment.is_local(), lanes: crate::land::checks::lane_names(included.iter().map(|(_, ticket)| *ticket)), ..Launch::of(self) };
             let (verdict, stacked) = speculate::check(self, watch, &built.head, attempt.base, &log, taken.as_ref(), &launch);
             let reading = match &verdict {
                 Verdict::BrokenBase(detail) => Reading::Broken(detail.clone()),

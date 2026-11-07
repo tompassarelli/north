@@ -1308,6 +1308,14 @@ source = "tom: verification after the push should fit 20 s, and a check that gro
 fallback = "the box is not filed"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
+[landing_watch_overrun_floor_seconds]
+value = 600
+allowed = { min = 1, max = 604800 }
+unit = "seconds a land-check stage (land checks, dependency gate and scans) must be running before the landing watch raises its overrun alarm, in addition to passing 1.5 times the stage's p90"
+source = "measured: safe-push stages.tsv, 2026-10-30 to 2026-11-07, n=1835 land checks stages: p50 4.9 s, p75 229 s, p90 354 s, p99 642 s; 98.9% finish within 600 s; the stage times are two modes (a reused or skipped check takes under 1 s, a real run 100 to 650 s), so a window that holds mostly reused checks puts p90 near 3 s and the p90 rule alone alarmed on runs of 12, 17, 21 and 28 s on 2026-11-07, each clearing by itself (north#811)"
+fallback = "none: the watch always applies it"
+consumers = ["crates/north-landing/src/watch/landing.rs"]
+
 [land_check_budget_nextest_seconds]
 value = 100
 allowed = { min = 1, max = 3600 }

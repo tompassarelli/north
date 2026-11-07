@@ -67,7 +67,7 @@ pub struct RepoFacts {
 pub fn gather(state: &Path) -> WatchContext {
     let now = super::now();
     let events = read_events(state, now as f64);
-    let repos: Vec<RepoFacts> = repo_names().iter().filter_map(|name| repo_facts(name)).collect();
+    let repos: Vec<RepoFacts> = repo_names().iter().filter_map(|name| repo_facts(name, state)).collect();
     let unavailable = repos.iter().filter(|repo| repo.error.is_some()).map(|repo| format!("gh:{}:", repo.name)).collect();
     WatchContext {
         now,
@@ -108,16 +108,14 @@ fn output(program: &str, directory: Option<&Path>, arguments: &[&str]) -> Result
 
 pub use north_land_scans::slug::slug_of;
 
-fn repo_facts(name: &str) -> Option<RepoFacts> {
+fn repo_facts(name: &str, state: &Path) -> Option<RepoFacts> {
     let checkout = home().join("code").join(name).join("main");
     let slug = slug_of(&output("git", Some(&checkout), &["remote", "get-url", "origin"]).ok()?)?;
     let autoland = checkout.join(".github/workflows/autoland.yml").is_file();
     let mut facts = RepoFacts { name: name.to_owned(), slug: slug.clone(), autoland, ..RepoFacts::default() };
-    match output("gh", None, &["api", &format!("repos/{slug}/actions/runs?per_page=40")]) {
-        Ok(text) => match serde_json::from_str::<Value>(&text) {
-            Ok(body) => facts.runs = serde_json::from_value(body["workflow_runs"].clone()).unwrap_or_default(),
-            Err(error) => facts.error = Some(format!("gh api answered unreadable JSON: {error}")),
-        },
+    let answer = output("gh", None, &["api", &format!("repos/{slug}/actions/runs?per_page=40")]);
+    match read_runs(answer, &state.join("north/watch").join(format!("runs-{name}.json"))) {
+        Ok(runs) => facts.runs = runs,
         Err(error) => facts.error = Some(error),
     }
     if autoland {
@@ -127,6 +125,29 @@ fn repo_facts(name: &str) -> Option<RepoFacts> {
         }
     }
     Some(facts)
+}
+
+const NOT_MODIFIED: &str = "HTTP 304";
+
+pub fn read_runs(answer: Result<String, String>, cache: &Path) -> Result<Vec<Run>, String> {
+    let text = match answer {
+        Ok(text) => {
+            if let Some(parent) = cache.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(cache, &text);
+            text
+        }
+        Err(error) if error.contains(NOT_MODIFIED) => fs::read_to_string(cache).unwrap_or_default(),
+        Err(error) => return Err(error),
+    };
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    match serde_json::from_str::<Value>(&text) {
+        Ok(body) => Ok(serde_json::from_value(body["workflow_runs"].clone()).unwrap_or_default()),
+        Err(error) => Err(format!("gh api answered unreadable JSON: {error}")),
+    }
 }
 
 pub fn parse_events(text: &str, now: f64) -> Vec<Event> {
@@ -183,3 +204,7 @@ fn live_safe_pushes() -> BTreeSet<u32> {
 pub fn sessions_by_lane(events: &[Event]) -> BTreeMap<(String, String), String> {
     events.iter().filter(|event| !event.session.is_empty()).map(|event| ((event.repo.clone(), event.lane.clone()), event.session.clone())).collect()
 }
+
+#[cfg(test)]
+#[path = "facts_tests.rs"]
+mod tests;

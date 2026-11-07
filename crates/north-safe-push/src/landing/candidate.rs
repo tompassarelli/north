@@ -129,7 +129,8 @@ pub fn run(base: &str, shell: &Shell) -> u8 {
     };
     let mut timeline = Timeline::start(shell);
     timeline.announce();
-    timeline.identify(&origin_url, "", &head);
+    let lanes = std::env::var(north_base::foundation::offload::LANES_ENV).ok().filter(|lanes| !lanes.is_empty()).unwrap_or_else(|| head.chars().take(12).collect());
+    timeline.identify(&origin_url, &lanes, &head);
     let mut observed = Observed::Silent;
     let log = shell.processes.capture_output(&mut || observed = observe(shell, &timeline, &root, &origin_url, (base, &head), &claims.list));
     match observed {

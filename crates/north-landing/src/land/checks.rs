@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::Ordering;
 use north_base::foundation::exit::{NO_VERDICT_STATUS, TRANSPORT_FAILED_TEXT};
-use north_base::foundation::offload::{LANDER_SLOT_ENV, LOCAL_ENV, OFF_HOST_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_base::foundation::offload::{LANDER_SLOT_ENV, LANES_ENV, LOCAL_ENV, OFF_HOST_ENV, OWNER_ENV, RED_FIX_ENV};
 
 pub use crate::platform::land_queue::ROUND;
 use super::lander::Lander;
+use super::queue::Ticket;
 use north_check_environment as environment;
 use super::refusal;
 
@@ -111,11 +112,12 @@ pub struct Launch<'a> {
     pub lander_slot: bool,
     pub off_host: bool,
     pub local: bool,
+    pub lanes: String,
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false, local: environment::active(&lander.queue).is_local() }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false, local: environment::active(&lander.queue).is_local(), lanes: String::new() }
     }
 }
 
@@ -134,6 +136,9 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     };
     let mut command = Command::new(program);
     command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env(OWNER_ENV, launch.offload_owner).env(ROUND, &launch.round);
+    if !launch.lanes.is_empty() {
+        command.env(LANES_ENV, &launch.lanes);
+    }
     if launch.red_fix {
         command.env(RED_FIX_ENV, "1");
     }
@@ -196,6 +201,10 @@ impl Started {
             None => Verdict::Transient(format!("{program} gave no verdict line ({status}); log: {}", log.display())),
         }
     }
+}
+
+pub fn lane_names<'a>(tickets: impl Iterator<Item = &'a Ticket>) -> String {
+    tickets.map(|ticket| ticket.branch.as_str()).collect::<Vec<_>>().join(",")
 }
 
 pub fn run(lander: &Lander, worktree: &Path, base: &str, log: &Path) -> Verdict {

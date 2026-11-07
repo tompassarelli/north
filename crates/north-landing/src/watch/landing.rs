@@ -1,11 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use north_base::platform::harness::default_number;
+
 use super::facts::Event;
 use super::{Alert, Severity, WatchContext};
 
 pub const STALL_SECONDS: f64 = 120.0;
 const CHECK_STAGES: [&str; 2] = ["land checks", "dependency gate and scans"];
 const TERMINAL: [&str; 4] = ["landed", "refused", "failed", "cancelled"];
+const OVERRUN_FLOOR: &str = "landing_watch_overrun_floor_seconds";
 const MIN_SAMPLES: usize = 5;
 const RECENT: f64 = 3600.0;
 const PUSH_ERROR_WINDOW: f64 = 900.0;
@@ -57,9 +60,10 @@ fn stalls(context: &WatchContext) -> Vec<Alert> {
         } else if event.status == "wait" && CHECK_STAGES.contains(&event.stage.as_str()) {
             let samples = stage_samples(context, &event.repo, &event.stage);
             let Some(p90) = percentile(&samples, 0.9).filter(|_| samples.len() >= MIN_SAMPLES) else { continue };
-            if age > p90 * 1.5 {
-                let summary = format!("{} lane {}: {} running {:.0} s, past its p90 {:.0} s + 50%", event.repo, event.lane, event.stage, age, p90);
-                alerts.push(alert(format!("land:{}:overrun:{}", event.repo, event.lane), Severity::Warn, event, summary, event.time + p90 * 1.5));
+            let limit = (p90 * 1.5).max(default_number(OVERRUN_FLOOR));
+            if age > limit {
+                let summary = format!("{} lane {}: {} running {:.0} s, past its p90 {:.0} s + 50% and the {:.0} s floor", event.repo, event.lane, event.stage, age, p90, default_number(OVERRUN_FLOOR));
+                alerts.push(alert(format!("land:{}:overrun:{}", event.repo, event.lane), Severity::Warn, event, summary, event.time + limit));
             }
         }
     }
@@ -123,3 +127,7 @@ fn runtime(context: &WatchContext) -> Vec<Alert> {
     let owner = landed.and_then(|event| (!event.session.is_empty()).then(|| event.session.clone()));
     vec![Alert { key: format!("land:north:runtime-not-live:{short}"), severity: Severity::Warn, repo: Some("north".into()), owner, summary, since: landed.map_or(checked, |event| event.time as u64) }]
 }
+
+#[cfg(test)]
+#[path = "landing_tests.rs"]
+mod tests;

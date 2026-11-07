@@ -118,7 +118,7 @@ fn start(lander: &Lander, launch: &checks::Launch<'_>, level: usize, head: &str,
     }
     let log = lander.queue.join("logs").join(format!("{}-speculative-{}.log", micros(), level + 2));
     let stages = Stages::start();
-    let check = match checks::start(&checks::Launch { red_fix: false, ..launch.clone() }, worktree, head, &log, true) {
+    let check = match checks::start(&checks::Launch { red_fix: false, lanes: checks::lane_names(tickets.iter().map(|(_, ticket)| ticket)), ..launch.clone() }, worktree, head, &log, true) {
         Ok(check) => check,
         Err(verdict) => {
             println!("north land: speculative candidate {} not started: {verdict:?}", built.head);

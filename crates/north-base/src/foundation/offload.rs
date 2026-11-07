@@ -7,6 +7,7 @@ pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
 pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
+pub const LANES_ENV: &str = "NORTH_LAND_LANES";
 pub const LOCAL_ENV: &str = "NORTH_LAND_CHECKS_LOCAL";
 pub const OFF_HOST_ENV: &str = "NORTH_LAND_CHECKS_OFF_HOST";
 
