@@ -302,7 +302,7 @@ const RUN_OPTIONS: [&str; 15] = [
 ];
 
 fn landing_run(operation: &str, owner: &str, class: &str, land_head: Option<&str>, landing: Option<&str>) -> bool {
-    operation == "run" && policy::batch_class(class) && land_head.is_some_and(|head| !head.is_empty()) && (owner == "land-check" || (owner.starts_with("gate:") && landing == Some("1")))
+    operation == "run" && policy::batch_class(class) && (owner == "land-check" || (owner.starts_with("gate:") && land_head.is_some_and(|head| !head.is_empty()) && landing == Some("1")))
 }
 
 fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, charge: impl FnOnce() -> f64) {
