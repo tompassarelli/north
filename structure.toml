@@ -193,7 +193,7 @@ may_use = ["north-threads"]
 
 [[crate_dag.crate]]
 name = "north-threads"
-paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**", "crates/*/src/work_items.rs", "crates/*/src/work_items/**"]
+paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**"]
 may_use = ["north-pace"]
 
 [[crate_dag.crate]]
@@ -413,7 +413,7 @@ may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "cap
 
 [[module]]
 name = "threads"
-paths = ["crates/north-threads/src/threads/**", "crates/north-threads/src/work_items.rs", "crates/north-calibration/src/threads/**"]
+paths = ["crates/north-threads/src/threads/**", "crates/north-calibration/src/threads/**"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
 may_use = ["domain", "foundation", "crate-roots", "lifecycle", "build_inputs", "platform.process", "platform", "platform.harness"]
 

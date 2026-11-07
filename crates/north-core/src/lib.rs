@@ -1,7 +1,7 @@
 pub use north_base::{autoland_status, error, foundation, land_ticket, nix_command, platform, run_time_data, shell, test_inputs};
 pub use north_fleet_supervisor::fleet;
 pub use north_pace::{credit, router, usage};
-pub use north_threads::{threads, work_items};
+pub use north_threads::threads;
 
 pub mod agent_catalog;
 pub mod agent_config_check;

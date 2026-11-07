@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::read as outcome;
-use crate::threads::landing::tempo as landing;
+use crate::tempo::landing;
 use alerts::stall_alert;
 use capacity::saturation_alert;
 use sampler::sampler_alert;
@@ -33,6 +33,7 @@ mod lander;
 mod lander_alarm;
 mod measure;
 mod notes;
+pub mod priority_log;
 mod refused;
 mod render;
 mod sampler;
@@ -43,6 +44,7 @@ pub mod typed;
 #[cfg(test)]
 mod typed_tests;
 mod usage;
+pub mod usage_yield;
 
 const USAGE: &str = "usage: north ledger flow [--json] [--repo NAME]... [--stall-alarm] | north ledger flow row REPO [FIELD]... | north ledger flow detect [--dry-run]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];

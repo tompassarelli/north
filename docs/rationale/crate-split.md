@@ -40,6 +40,9 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `threads` from it and every `crate::threads::calibration::...` path is unchanged. The threads client
   runs the verb families it holds itself plus the ones its caller passes (`verb::Family`); the root
   package passes `calibration::FAMILY`, so north-threads never names calibration.
+  The same cut moved the readers with one consumer out of north-threads: the landing tempo percentiles
+  (`tempo::landing`), `usage_yield` and `priority_log` to `north-flow`, the `north work` table to the root
+  package, and the transcript hook-event parser to `providers::claude::runs`.
 - `north-health`: `health`, the `north health` checks. Depends on `north-base`, `north-pace` (for the launchable profiles its hooks flow reads) and `north-threads`;
   `north-ops` (for `health::loops`) and the root package import it.
 - `north-tui`: `tui`, the fleet terminal screen. Depends on `north-providers`; nothing below it uses it,
@@ -158,7 +161,8 @@ the edges from `north-core` into `guard`:
 
 - `providers/claude/runs` read transcripts through `guard::hook_events`. `hook_events` and `hook_rules`
   classify hook output and touch nothing else in `guard`, so they moved to `threads::runs`, the owner of the
-  `hook_events` table; `guard` re-exports them.
+  `hook_events` table; `guard` re-exports them. `hook_events` later moved on to `providers::claude::runs`,
+  its only reader.
 - `ops::agents::goal::plan::gate_width` and `ops::pacing::placement::here_cpu_refusal` asked
   `guard::spawn_capacity` for the spawn gate's verdict. `ops::pacing::spawn_gate` holds the two functions,
   and `main` installs them from `guard::spawn_capacity` before any command runs.

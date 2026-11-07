@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use super::hook_rules::classify;
+use crate::threads::runs::hook_rules::classify;
 
 const SLEEP_BLOCK: &str = "<tool_use_error>Blocked:";
 const HOOK_ERROR: &str = " hook error: ";

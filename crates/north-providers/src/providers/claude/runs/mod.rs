@@ -17,6 +17,7 @@ use super::accounts::{config_file, default_home};
 
 mod activity;
 pub mod cloud;
+mod hook_events;
 pub mod landing;
 pub mod outcome;
 pub mod row;
@@ -292,8 +293,8 @@ fn entries(directory: &Path) -> Vec<PathBuf> {
 
 fn hook_rows(path: &Path, out: &mut impl Write) -> NorthResult<()> {
     let Ok(text) = fs::read_to_string(path) else { return Ok(()) };
-    let lines: Vec<Value> = text.lines().filter(|line| crate::threads::runs::hook_events::mentions_hook(line)).filter_map(|line| serde_json::from_str(line).ok()).collect();
-    for row in crate::threads::runs::hook_events::events(&transcript_id(path), &lines) {
+    let lines: Vec<Value> = text.lines().filter(|line| hook_events::mentions_hook(line)).filter_map(|line| serde_json::from_str(line).ok()).collect();
+    for row in hook_events::events(&transcript_id(path), &lines) {
         writeln!(out, "{row}")?;
     }
     Ok(())

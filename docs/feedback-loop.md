@@ -47,7 +47,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | run_usage | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs/mod.rs allocate into run_costs | read | |
 | run_costs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/runs/costs/mod.rs rolls into runs.cost_usd | read | |
 | usage | crates/north-pace/src/usage/refresh/ | crates/north-pace/src/usage/store.rs latest, routing and the pace gate | read | |
-| claims.eta_min | crates/north-threads/src/threads/claims/ledger.rs take | crates/north-threads/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; crates/north-threads/src/work_items.rs:82 | read | |
+| claims.eta_min | crates/north-threads/src/threads/claims/ledger.rs take | crates/north-threads/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; src/cli/work_items.rs:155 | read | |
 | tier_predictions (item, tier, p, at, source) | crates/north-calibration/src/threads/calibration/verbs.rs recommend_with: `threads recommend` with an Item and no Follows line stores each listed tier's shrunk success, and `--launched TIER` from crates/north-dispatch/src/dispatch/effects.rs predict stores the launched tier's | crates/north-calibration/src/threads/calibration/predictions.rs score, printed by `north tune` as each category's walk-forward Brier against its base rate's | read | |
 | tier_choice | crates/north-threads/src/threads/runs | crates/north-calibration/src/threads/calibration/verbs.rs incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |

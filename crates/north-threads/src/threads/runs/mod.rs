@@ -3,7 +3,6 @@
 pub mod brief;
 mod columns;
 mod costs;
-pub mod hook_events;
 pub mod hook_rules;
 pub mod hooks;
 mod labels;

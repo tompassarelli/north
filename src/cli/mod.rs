@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, language_gate, nix_explain, work_items};
+use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, language_gate, nix_explain};
 
 mod abandon_witness;
 mod mutant_issues;
@@ -47,6 +47,7 @@ mod south_test_repo;
 mod tools;
 mod verb_help;
 mod verbs;
+mod work_items;
 mod worker_ledger;
 
 use session::Session;

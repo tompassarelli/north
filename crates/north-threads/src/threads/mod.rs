@@ -15,12 +15,10 @@ pub mod incidents;
 pub mod jobs;
 pub mod landing;
 pub mod outside;
-pub mod priority_log;
 pub mod runs;
 pub mod schema;
 pub mod snapshot;
 pub mod staffing;
-pub mod usage_yield;
 pub mod verb;
 pub mod withheld;
 #[cfg(test)]

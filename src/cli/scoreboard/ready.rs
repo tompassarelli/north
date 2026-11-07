@@ -17,8 +17,8 @@ use crate::land::trace::profile::{Trace, percentile};
 use crate::land::trace::report::{every_queue, queue_repo};
 use crate::land::trace::Spans;
 use crate::threads::attribution::Cause;
-use crate::threads::priority_log::{self, Noted};
-use crate::threads::usage_yield::{self, Facts};
+use crate::flow::priority_log::{self, Noted};
+use crate::flow::usage_yield::{self, Facts};
 use crate::threads::calibration::rework::Sources as ReworkSources;
 
 mod table;

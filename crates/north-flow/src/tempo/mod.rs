@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::foundation::clock::Timestamp;
 use crate::flow::Places;
-use crate::threads::landing::tempo::percentiles;
+use landing::percentiles;
+
+pub mod landing;
 
 const USAGE: &str = "usage: north ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]";
 const HOUR: u64 = 60;

@@ -2,8 +2,8 @@
 use rusqlite::{Connection, OpenFlags};
 
 use super::host::Places;
-use crate::threads::priority_log;
-use crate::threads::usage_yield::{Facts, Sources};
+use super::priority_log;
+use super::usage_yield::{Facts, Sources};
 
 const DAY_S: i64 = 86_400;
 
