@@ -2,6 +2,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
+use north_base::foundation::offload::OFF_HOST_ENV;
+
 #[derive(Clone, Default)]
 pub(super) struct Arguments {
     pub(super) base: String,
@@ -81,11 +83,12 @@ pub(super) struct Environment {
     pub(super) offload_host: String,
     pub(super) timeout: Option<u64>,
     pub(super) runner: Option<String>,
+    pub(super) off_host: bool,
 }
 
 impl Environment {
     pub(super) fn local() -> Self {
-        Self { capacity: String::new(), offload_host: String::new(), timeout: std::env::var("SAFE_PUSH_LAND_CHECK_TIMEOUT").ok().and_then(|value| value.parse().ok()), runner: None }
+        Self { capacity: String::new(), offload_host: String::new(), timeout: std::env::var("SAFE_PUSH_LAND_CHECK_TIMEOUT").ok().and_then(|value| value.parse().ok()), runner: None, off_host: false }
     }
 
     pub(super) fn load() -> Self {
@@ -95,6 +98,7 @@ impl Environment {
             offload_host: text("SAFE_PUSH_LAND_OFFLOAD_HOST"),
             timeout: text("SAFE_PUSH_LAND_CHECK_TIMEOUT").parse().ok(),
             runner: std::env::var("SAFE_PUSH_LAND_RUNNER").ok(),
+            off_host: std::env::var(OFF_HOST_ENV).is_ok_and(|value| value == "1"),
         }
     }
 }

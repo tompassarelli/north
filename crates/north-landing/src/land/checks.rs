@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::Ordering;
 use north_base::foundation::exit::{NO_VERDICT_STATUS, TRANSPORT_FAILED_TEXT};
-use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_base::foundation::offload::{LANDER_SLOT_ENV, OFF_HOST_ENV, OWNER_ENV, RED_FIX_ENV};
 
 pub use crate::platform::land_queue::ROUND;
 use super::lander::Lander;
@@ -107,11 +107,12 @@ pub struct Launch<'a> {
     pub round: String,
     pub red_fix: bool,
     pub lander_slot: bool,
+    pub off_host: bool,
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false }
     }
 }
 
@@ -135,6 +136,9 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     }
     if launch.lander_slot {
         command.env(LANDER_SLOT_ENV, "1");
+    }
+    if launch.off_host {
+        command.env(OFF_HOST_ENV, "1");
     }
     if let Some(logs) = log.parent() {
         command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());

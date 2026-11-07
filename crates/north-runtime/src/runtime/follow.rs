@@ -6,11 +6,10 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use rustix::fs::FlockOperation;
 
 const LANDER_SHADOW_MINUTES: &str = "3";
 const LANDER_LOCK: &str = "lander-promote.lock";
-const LANDER_LOCK_WAIT: Duration = Duration::from_secs(20 * 60);
 const SYSTEMD_RUN: &str = "systemd-run";
 const SCOPE: [&str; 4] = ["--user", "--scope", "--quiet", "--collect"];
 
@@ -54,9 +53,21 @@ fn follow_lander(layout: &Layout) -> Result<(), Failure> {
     if fs::symlink_metadata(layout.lander()).is_err() {
         return Ok(());
     }
-    let _serial = update::named_lock_waiting(layout, LANDER_LOCK, LANDER_LOCK_WAIT, "north runtime lander")?;
     let binary = layout.current().join(TREE).join("bin/north");
-    lander_verdict(&binary, &update::checkout())
+    loop {
+        let Some(serial) = update::named_lock(layout, LANDER_LOCK, FlockOperation::NonBlockingLockExclusive)? else {
+            println!("north runtime lander: another promotion holds {LANDER_LOCK} and replays the newest runtime when its replay ends");
+            return Ok(());
+        };
+        let judged = fs::read_link(layout.current()).ok();
+        let verdict = lander_verdict(&binary, &update::checkout());
+        drop(serial);
+        let newest = fs::read_link(layout.current()).ok();
+        if newest == judged {
+            return verdict;
+        }
+        println!("north runtime lander: current moved to {} during the replay, so the newest replays next", newest.as_deref().map_or_else(String::new, |link| link.display().to_string()));
+    }
 }
 
 fn lander_verdict(binary: &Path, checkout: &Path) -> Result<(), Failure> {

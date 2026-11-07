@@ -72,7 +72,7 @@ impl Hands for Host {
     }
 }
 
-/// Starts `north runtime promote` detached, logging where a landing's promotion logs, so a retry waits its turn on lander-promote.lock.
+/// Starts `north runtime promote` detached, logging where a landing's promotion logs, so a retry while another promotion runs leaves the newest runtime to that one.
 pub fn promote() -> Result<String, String> {
     let log = north_landing::land::lander::state_home().join("north/runtime-follow.log");
     let file = fs::OpenOptions::new().create(true).append(true).open(&log).map_err(|error| format!("{}: {error}", log.display()))?;

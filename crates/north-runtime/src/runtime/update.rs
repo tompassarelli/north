@@ -231,7 +231,7 @@ pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<
     named_lock(layout, UPDATE_LOCK, operation)
 }
 
-fn named_lock(layout: &Layout, name: &str, operation: FlockOperation) -> Result<Option<File>, Failure> {
+pub(super) fn named_lock(layout: &Layout, name: &str, operation: FlockOperation) -> Result<Option<File>, Failure> {
     fs::create_dir_all(layout.runtimes())?;
     let lock = File::create(layout.state.join(name))?;
     Ok(flock(&lock, operation).is_ok().then_some(lock))

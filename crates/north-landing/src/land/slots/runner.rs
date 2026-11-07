@@ -100,9 +100,12 @@ async fn resolve_runner_host(value: &str) -> String {
     })
 }
 
-async fn runner_host(environment: &Environment, config: &Config) -> String {
+async fn runner_host(environment: &Environment, config: &Config) -> Option<String> {
+    if environment.off_host {
+        return build_host::chosen(&program(), "build-host", Some(&north_base::platform::host::name())).await;
+    }
     let land_runner = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
-    if land_runner.is_empty() { String::new() } else { resolve_runner_host(&land_runner).await }
+    Some(if land_runner.is_empty() { String::new() } else { resolve_runner_host(&land_runner).await })
 }
 
 async fn forward_signals(cancel: watch::Sender<bool>) {
@@ -206,7 +209,8 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         return 1;
     };
     let loaded = Config::load(&root, &arguments.head);
-    let local = !arguments.after && loaded.local_checks();
+    let off_host = Environment::load().off_host;
+    let local = !arguments.after && !off_host && loaded.local_checks();
     let config = if arguments.after {
         loaded.after_set()
     } else if local {
@@ -294,7 +298,11 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
     if commands.is_empty() {
         return 0;
     }
-    shared.arguments.runner_host = runner_host(&shared.environment, &shared.config).await;
+    let Some(host) = runner_host(&shared.environment, &shared.config).await else {
+        warn("safe-push: no build host answered and these checks never run on this host, so they reach no verdict");
+        return NO_VERDICT_STATUS;
+    };
+    shared.arguments.runner_host = host;
     shared.free_slots = shared.count_free_slots().await;
     let shared = Arc::new(shared);
     let Some(plan) = clippy_first::plan(&commands, |command| !shared.config.is_inferred(command)).filter(|_| !shared.arguments.after) else {
