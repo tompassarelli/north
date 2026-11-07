@@ -6,7 +6,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::agent_load::{self, Host, Plan, Process};
-use super::mode::{Effects, Power};
+use super::mode::Effects;
+use super::mode_tick::{self, Power};
 use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
@@ -256,7 +257,7 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("{}", sample(&host, idle, preparing_for_sleep(), battery));
         return 0;
     }
-    let applied = super::mode::tick(&host, idle, Power { battery, cpu_celsius: cpu_celsius(&hwmon()) });
+    let applied = mode_tick::tick(&host, idle, Power { battery, cpu_celsius: cpu_celsius(&hwmon()) });
     applied.lines.iter().for_each(|line| println!("{line}"));
     let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
     if let Some(notice) = &applied.notice {

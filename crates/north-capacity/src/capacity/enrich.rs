@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::admission::{self, Facts};
 use super::effects::Host;
-use super::{admission_record, agent_load, aperture, mode, native_hold};
+use super::{admission_record, agent_load, aperture, mode_tick, native_hold};
 use crate::platform::decision_log;
 
 fn wisp_pair_queue() -> std::path::PathBuf {
@@ -16,7 +16,7 @@ fn wisp_pair_queue() -> std::path::PathBuf {
 /// Admission on the caller's facts, filled in with what this host observes: game reserve, run queue, disk, Warcraft clients, aperture and native holds.
 pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
     if facts.game_reserve_agent_cpus.is_none() {
-        facts.game_reserve_agent_cpus = mode::confined_agent_cpus(&agent_load::Host::from_env());
+        facts.game_reserve_agent_cpus = mode_tick::confined_agent_cpus(&agent_load::Host::from_env());
     }
     facts.gaming |= facts.game_reserve_agent_cpus.is_some() || agent_load::gaming_marked(&agent_load::capacity_root());
     facts.run_queue_load = facts.run_queue_load.or_else(|| run_queue_load(facts.cpu_some_avg10_basis_points));

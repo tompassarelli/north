@@ -7,6 +7,7 @@ use super::agent_load::Host;
 use super::cpus;
 use super::game_reserve_tests::settings;
 use super::mode::{self, Limits, Mode};
+use super::mode_tick;
 
 const BUILD_HOST_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=2200%";
 const PLAY_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=1200%";
@@ -16,7 +17,7 @@ fn host(root: &Path) -> Host {
 }
 
 fn tick(root: &Path, idle: Option<bool>, now: u64) -> Vec<String> {
-    mode::tick_in(&host(root), idle, mode::Power::default(), settings(root), &root.join("mode"), now);
+    mode_tick::tick_in(&host(root), idle, mode_tick::Power::default(), settings(root), &root.join("mode"), now);
     fs::read_to_string(root.join("calls.log")).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
@@ -63,7 +64,7 @@ fn agent_slice_quota_drops_to_the_battery_or_hot_quota_whatever_the_mode() {
     let limits = Limits::bundled();
     let desk = limits.effects(Mode::Desktop);
     let away = limits.effects(Mode::Away);
-    let quota = |effects, battery, cpu_celsius, previous| mode::agent_quota_percent(effects, mode::Power { battery, cpu_celsius }, None, previous, &limits);
+    let quota = |effects, battery, cpu_celsius, previous| mode_tick::agent_quota_percent(effects, mode_tick::Power { battery, cpu_celsius }, None, previous, &limits);
     assert_eq!(quota(desk, Some(56), Some(70.0), None), 600, "in use on battery");
     assert_eq!(quota(desk, None, Some(70.0), None), 2200, "in use on AC");
     assert_eq!(quota(away, None, Some(70.0), None), 2200, "idle on AC");
@@ -83,6 +84,6 @@ fn a_relief_lowers_the_agent_quota_at_once_never_raises_it_and_lapses() {
     assert_eq!(lower, Some(400));
     assert_eq!(mode::relieve(&applied, 2400, 30, 1_000).1, None, "a relief above the applied quota raises nothing");
     let relief = relieved.relief.map(|relief| relief.percent);
-    assert_eq!(mode::agent_quota_percent(away, mode::Power::default(), relief, Some(400), &limits), 400, "the tick keeps the relief");
+    assert_eq!(mode_tick::agent_quota_percent(away, mode_tick::Power::default(), relief, Some(400), &limits), 400, "the tick keeps the relief");
     assert_eq!(relieved.relief.map(|relief| relief.until), Some(1_000 + 30 * 60));
 }

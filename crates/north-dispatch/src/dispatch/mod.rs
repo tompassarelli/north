@@ -39,6 +39,7 @@ pub mod measure;
 mod plan;
 mod projects;
 mod record;
+mod report;
 mod revive;
 mod screen;
 mod slots;
@@ -215,34 +216,6 @@ pub fn alert(outcome: &Outcome, failures: &[String], here: &str) -> Option<Strin
     Some(format!("north fleet dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready.len(), outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
 }
 
-fn print_survey(survey: &Survey) {
-    for host in &survey.hosts {
-        println!("{}", host.line());
-    }
-    println!("{}", survey.spend.line(&survey.rules));
-    for account in &survey.accounts {
-        println!("{}", account.line(&survey.spend, &survey.rules));
-    }
-    let pools = Pools::new(&survey.hosts, &survey.accounts);
-    for host in &survey.hosts {
-        for account in survey.accounts.iter().filter(|account| account.hosts.contains(&host.name)) {
-            println!("slots {} {}: {}", host.name, account.name, pools.pair(&host.name, &account.name));
-        }
-    }
-    let cloud = match &survey.cloud {
-        plan::Cloud::Reachable(line) => format!("reachable here ({line})"),
-        plan::Cloud::Unreachable(why) => format!("unreachable from {}: {why}", survey.here),
-        plan::Cloud::Closed(line) => format!("closed ({line})"),
-    };
-    println!("cloud lane: {cloud}");
-    for project in survey.projects.set_aside() {
-        println!("paused {project}: paused = true in orchestration.toml, so its issues are not dispatched");
-    }
-    for note in &survey.notes {
-        println!("note: {note}");
-    }
-}
-
 /// The lines reviving `revival` prints, in its order.
 fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool, standing: fn() -> Option<String>) -> Vec<String> {
     let mut lines: Vec<String> = revival.waiting.iter().map(|(name, why)| format!("stranded {name} waits: {why}")).collect();
@@ -334,7 +307,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
             return 2;
         }
     };
-    print_survey(&survey);
+    report::print(&survey);
     let outcome = decide(&survey, &format!("north fleet dispatch on {}", survey.here));
     for (place, item) in outcome.ready.iter().enumerate() {
         let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));

@@ -1,5 +1,5 @@
 use super::agent_load::{self, Host};
-use super::mode;
+use super::{mode, mode_command};
 
 const USAGE: &str = "usage: north capacity gaming on | off | status";
 
@@ -19,8 +19,8 @@ fn declare(gaming: bool, status: u8) -> u8 {
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-        ["on"] => declare(true, mode::run(&["hold".to_owned(), "north capacity gaming on".to_owned()])),
-        ["off"] => declare(false, mode::run(&["release".to_owned()])),
+        ["on"] => declare(true, mode_command::run(&["hold".to_owned(), "north capacity gaming on".to_owned()])),
+        ["off"] => declare(false, mode_command::run(&["release".to_owned()])),
         ["status"] => {
             let state = mode::read(&mode::state_dir());
             println!("{}", mode::status_line(&state, &mode::Limits::bundled(), mode::enforced_split().as_ref()));

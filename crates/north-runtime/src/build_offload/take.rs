@@ -285,7 +285,7 @@ fn serve(route: &Route, mut ssh: Child, reader: BufReader<ChildStdout>, offer: O
 
 /// Whether this host holds its game reserve, during which it takes nothing.
 fn game_reserved() -> bool {
-    crate::capacity::mode::confined_agent_cpus(&crate::capacity::agent_load::Host::from_env()).is_some()
+    crate::capacity::mode_tick::confined_agent_cpus(&crate::capacity::agent_load::Host::from_env()).is_some()
 }
 
 /// The build hosts' rooms, read over ssh every `ROOM_FRESH` by a thread of their own, so a slow or unreachable host never holds up a poll.

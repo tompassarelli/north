@@ -6,6 +6,8 @@ pub mod agent_load;
 pub mod gaming;
 pub mod laptop_auto;
 pub mod mode;
+pub mod mode_command;
+pub mod mode_tick;
 pub mod provider_capacity;
 pub mod teardown;
 pub mod seat_idle;

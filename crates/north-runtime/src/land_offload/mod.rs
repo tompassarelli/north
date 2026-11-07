@@ -116,7 +116,7 @@ pub fn in_game_reserve() -> bool {
 }
 
 pub fn checks_confined_here() -> bool {
-    crate::capacity::mode::confined_agent_cpus(&agent_load::Host::from_env()).is_some()
+    crate::capacity::mode_tick::confined_agent_cpus(&agent_load::Host::from_env()).is_some()
 }
 
 pub fn host_with_room() -> Result<gate::Machine, String> {
