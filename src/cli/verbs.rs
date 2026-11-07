@@ -59,7 +59,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("fleet stop", Bookkeeping),
     ("fleet tick", Bookkeeping),
     ("fleet", Status),
-    ("flow", Status),
     ("follows-release", Diagnosis),
     ("frontier", Diagnosis),
     ("gate", TomFacing),
@@ -157,7 +156,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("strategy", Diagnosis),
     ("supply-chain-scan", Diagnosis),
     ("task", Status),
-    ("tempo", Status),
     ("threads claim", Bookkeeping),
     ("threads close", Bookkeeping),
     ("threads queue", Delegate),
@@ -177,5 +175,4 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("work close", Bookkeeping),
     ("work release", Bookkeeping),
     ("work", Status),
-    ("worker-ledger", Status),
 ]);

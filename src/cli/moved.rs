@@ -4,6 +4,9 @@ use crate::error::NorthError;
 const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["scoreboard"], "ledger scoreboard", &["--ready"]),
     (&["incident"], "ledger incident", &[]),
+    (&["flow"], "ledger flow", &[]),
+    (&["tempo"], "ledger tempo", &[]),
+    (&["worker-ledger"], "ledger worker", &[]),
     (&["land-abandon"], "land abandon", &[]),
     (&["citation-check"], "check citations", &[]),
     (&["issue-box-lint"], "check issue-boxes", &[]),
@@ -44,6 +47,7 @@ mod tests {
         assert_eq!(hint(&words("scoreboard --weekly")).as_deref(), Some("did you mean: north ledger scoreboard --weekly"));
         assert_eq!(hint(&words("lane-gc --dry-run")).as_deref(), Some("did you mean: north lane gc --dry-run"));
         assert_eq!(hint(&words("scoreboard --ready")).as_deref(), Some("did you mean: north ledger scoreboard"));
-        assert_eq!(hint(&words("flow")), None);
+        assert_eq!(hint(&words("flow --stall-alarm")).as_deref(), Some("did you mean: north ledger flow --stall-alarm"));
+        assert_eq!(hint(&words("ledger flow")), None);
     }
 }

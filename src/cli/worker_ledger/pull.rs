@@ -26,13 +26,13 @@ fn pull_among(machines: Vec<gate::Machine>, here: &str, ssh: &str, options: &Opt
                     rows.push(b'\n');
                 }
             }
-            Err(why) => eprintln!("north worker-ledger: {} runs unread: {why}", machine.name),
+            Err(why) => eprintln!("north ledger worker: {} runs unread: {why}", machine.name),
         }
     }
 }
 
 fn pulled(ssh: &str, destination: &str, options: &Options, input: &[u8]) -> Result<Vec<u8>, String> {
-    let mut words = vec!["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", destination, "north", "worker-ledger", "--emit"];
+    let mut words = vec!["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", destination, "north", "ledger", "worker", "--emit"];
     if !options.since.is_empty() {
         words.extend(["--since", options.since.as_str()]);
     }

@@ -22,6 +22,6 @@ fn ssh_destination_planted_in_orchestration_toml_never_reaches_the_worker_ledger
     pull_among(gate::machines(&cfg), "whiterabbit", ssh.to_str().unwrap(), &options(), b"{}", &mut rows);
     assert!(!root.path().join("p").exists());
     let unchecked = cfg["hosts"]["gex45"]["ssh"].as_str().unwrap().to_owned();
-    let _ = Command::new(&ssh).args(["-o", "BatchMode=yes", &unchecked, "north", "worker-ledger", "--emit"]).status();
+    let _ = Command::new(&ssh).args(["-o", "BatchMode=yes", &unchecked, "north", "ledger", "worker", "--emit"]).status();
     assert!(root.path().join("p").exists(), "the fake ssh runs a ProxyCommand the way ssh does");
 }

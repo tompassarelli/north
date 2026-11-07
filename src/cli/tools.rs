@@ -38,10 +38,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("repo", crate::lanes::repo_verb),
     ("pin-retire", crate::lanes::pin_retire),
     ("mutant", |arguments| north_mutants::cli::run(arguments, &super::mutant_issues::MirrorIssues, crate::land::scans::test_admission::contract_tests)),
-    ("flow", crate::flow::run),
     ("coverage", north_coverage::run),
     ("graph", graph),
-    ("tempo", crate::tempo::run),
     ("report", crate::ops::report::run),
     ("agents", super::agents::run),
     ("resident-cap", crate::resident_cap::run),
@@ -58,7 +56,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("policy-replay", crate::policy_replay::run),
     ("defaults-measure", crate::ops::defaults_measure::run),
     ("context", |arguments| crate::context_audit::run(arguments, agent_config_check::startup_tokens)),
-    ("worker-ledger", super::worker_ledger::run),
     ("spend", super::spend::run),
     ("brief", crate::guard::brief_skeleton::run),
     ("proxy", |arguments| match arguments.first().map(String::as_str) {
