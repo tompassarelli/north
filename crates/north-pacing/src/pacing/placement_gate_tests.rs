@@ -201,3 +201,20 @@ mod properties {
     }
 }
 
+
+#[test]
+fn a_brief_with_no_surface_line_takes_its_repositorys_default_so_a_build_host_can_take_it() {
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nlaunches = true\n[hosts.laptop]\nresident_cap = 1\n".parse().unwrap();
+    let quota = gate(&[("claude:c", control((6.0, "2026-10-16T16:00:00Z"), 13.0))]);
+    let mut machines = gate::machines(&cfg);
+    machines[0].live = Some(0);
+    machines[0].accounts = vec!["c".into()];
+    let brief = "Category: tooling\nRepository: north\n\nnorth#856: read the lander's journal.\n";
+
+    let placed = decide(brief, &cfg, &quota, (false, "cloud credit: spent".to_owned()), &machines, "laptop");
+
+    assert_eq!(placed.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
+    assert_eq!(gate::surfaced(brief, &cfg).lines().next(), Some("Surface: rust"));
+    let configured: DocumentMut = "[placement.surfaces]\nnorth = \"ts\"\n".parse().unwrap();
+    assert_eq!(gate::surfaced(brief, &configured).lines().next(), Some("Surface: ts"));
+}

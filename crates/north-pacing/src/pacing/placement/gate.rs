@@ -22,6 +22,7 @@ use toml_edit::{DocumentMut, Item};
 
 const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "makgora"];
 const GAMING_NEEDS: [&str; 2] = ["native", "private"];
+const REPO_SURFACES: [(&str, &str); 4] = [("north", "rust"), ("wisp", "ts"), ("makgora", "ts"), ("firn", "nix")];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Verdict {
@@ -499,7 +500,21 @@ fn unavailable(account: &str, reason: String) -> Verdict {
     Verdict { account: account.into(), available: false, exhausted: false, headroom: 0.0, rank: Rank::default(), line: format!("{account} unavailable: {reason}"), owners: Vec::new() }
 }
 
+/// The brief with its repository's default `Surface:` when it declares none: `[placement] surfaces.REPO`, else the built-in one.
+pub fn surfaced<'a>(text: &'a str, cfg: &DocumentMut) -> std::borrow::Cow<'a, str> {
+    if !words(text, "Surface").is_empty() {
+        return text.into();
+    }
+    let repo = repository(text);
+    let configured = cfg.get("placement").and_then(|rules| rules.get("surfaces")).and_then(|surfaces| surfaces.get(&repo)).and_then(Item::as_str).map(str::to_owned);
+    match configured.or_else(|| REPO_SURFACES.iter().find(|(name, _)| *name == repo).map(|(_, surface)| (*surface).to_owned())) {
+        Some(surface) => format!("Surface: {surface}\n{text}").into(),
+        None => text.into(),
+    }
+}
+
 pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str, here_gaming: bool) -> Decision {
+    let text = &*surfaced(text, cfg);
     let (code_only, surface) = surface(text, cfg);
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
     let reach = Reach::of(text, cfg, here);
