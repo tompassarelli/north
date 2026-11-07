@@ -66,7 +66,7 @@ impl North {
         let brief = tempfile::Builder::new().prefix("verify-north-brief").suffix(".md").tempfile().map_err(|error| format!("brief file: {error}"))?;
         std::fs::write(brief.path(), PLACEMENT_BRIEF).map_err(|error| format!("brief file: {error}"))?;
         let path = brief.path().to_string_lossy().into_owned();
-        let listing = self.run(&["agents", "plan", "--place", &path], PLACEMENT_WAIT)?;
+        let listing = self.run(&["config", "agents", "plan", "--place", &path], PLACEMENT_WAIT)?;
         placed_account(&listing)
     }
 
