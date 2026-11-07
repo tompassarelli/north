@@ -9,12 +9,13 @@ use north_base::error::NorthError;
 use north_claude_stream::encode_user_message;
 use north_fleet::fleet::model::{Account, ApiKey, Effort, LaunchRequest, ProviderName, Role};
 use north_fleet::fleet::prompt::{PromptInputs, PromptMode, StandingOrders, render};
-use north_fleet::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Opening, Runtime, new_uuid};
+use north_fleet::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Opening, Runtime, new_uuid, now_ms};
 use north_providers::providers::claude::api_pool;
 use north_providers::providers::claude::fleet::Claude;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::billing::Spent;
 use super::process;
 use super::sandbox::Sandbox;
 use super::task::Task;
@@ -176,7 +177,7 @@ pub struct Attempt<'a> {
     pub limits: &'a Limits,
 }
 
-pub fn run(arm: &Attempt, sandbox: &Sandbox) -> Result<RunRecord, NorthError> {
+pub fn run(arm: &Attempt, sandbox: &Sandbox) -> Result<(RunRecord, Spent), NorthError> {
     let name = format!("frontier-{}-{}-{}", arm.task.id, arm.harness.label(), arm.sample);
     let conversation = new_uuid()?;
     let stream_path = sandbox.root.join("stream.jsonl");
@@ -185,6 +186,7 @@ pub fn run(arm: &Attempt, sandbox: &Sandbox) -> Result<RunRecord, NorthError> {
     let mut command = command(arm, sandbox, &name, &conversation)?;
     command.stdin(Stdio::piped()).stdout(out).stderr(errors);
     let started = Instant::now();
+    let started_ms = now_ms();
     let mut child = process::spawn(&mut command).map_err(NorthError::Io)?;
     let mut stdin = child.stdin.take().ok_or_else(|| refusal("claude took no stdin"))?;
     send(&mut stdin, arm.brief)?;
@@ -196,7 +198,9 @@ pub fn run(arm: &Attempt, sandbox: &Sandbox) -> Result<RunRecord, NorthError> {
         let tail: String = errors.lines().rev().take(3).collect::<Vec<_>>().join(" / ");
         return Err(refusal(format!("the session ended with no result: {tail}")));
     }
-    record(arm, conversation, &stream, ended, interventions)
+    let ended_ms = now_ms();
+    let spent = Spent::of(&name, &stream.results, started_ms, ended_ms);
+    Ok((record(arm, conversation, &stream, ended, interventions)?, spent))
 }
 
 fn supervise(arm: &Attempt, sandbox: &Sandbox, child: &mut std::process::Child, mut stdin: ChildStdin, stream: &mut Stream, started: Instant) -> Result<(String, u32), NorthError> {

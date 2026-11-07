@@ -20,6 +20,7 @@ const TERM_GRACE: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(50);
 
 pub const SOCKET: &str = "host.sock";
+const SERVED_BY: &str = "host.account";
 
 pub struct Host {
     dir: PathBuf,
@@ -47,7 +48,12 @@ impl Host {
         self.pid().is_some_and(alive)
     }
 
-    pub fn start(&self, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>) -> NorthResult<u32> {
+    /// The account whose credential the host in `dir` was started with, which every turn it runs is billed to however the session record's account changes later.
+    pub fn served_by(dir: &Path) -> Option<String> {
+        fs::read_to_string(dir.join(SERVED_BY)).ok().map(|label| label.trim().to_owned()).filter(|label| !label.is_empty())
+    }
+
+    pub fn start(&self, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>, served_by: &str) -> NorthResult<u32> {
         fs::create_dir_all(&self.dir)?;
         if self.socket().is_dir() {
             return Err(NorthError::Refused(format!("{} is held by an interactive window; the fleet starts no host there", self.dir.display())));
@@ -57,6 +63,7 @@ impl Host {
         }
         let socket = self.socket();
         let _ = fs::remove_file(&socket);
+        fs::write(self.dir.join(SERVED_BY), served_by)?;
         let unit = format!("north-session-{}.scope", new_uuid()?);
         fs::write(self.dir.join("host.scope"), &unit)?;
         let mut command = Command::new(binary("setsid"));

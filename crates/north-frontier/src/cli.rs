@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use north_base::error::NorthError;
 use north_fleet::fleet::model::ApiKey;
+use north_providers::ledger::Ledger;
 use north_providers::providers::claude::api_pool;
 
+use super::billing::{self, Spent};
 use super::grade::{Grade, grade};
 use super::sandbox::{Sandbox, git_text};
 use super::session::{self, Attempt, Limits, RunRecord};
@@ -154,7 +156,8 @@ fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source
             set_aside(&root)?;
             let (org, key) = pool_key(&refused)?;
             let sandbox = Sandbox::build(&root, task, source, harness)?;
-            let record = session::run(&Attempt { task, harness, sample, key: &key.file, brief: &brief, limits }, &sandbox)?;
+            let (record, spent) = session::run(&Attempt { task, harness, sample, key: &key.file, brief: &brief, limits }, &sandbox)?;
+            charge_ledger(&key.org, &spent);
             if record.ended == session::CREDIT {
                 let _ = api_pool::mark_ran_out(&north_base::platform::orchestration::path(), &state_root(), &org, &record.session);
                 if !refused.is_empty() {
@@ -170,6 +173,13 @@ fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source
     match result {
         Ok(record) => format!("{} {}: {} in {:.0} min, ${:.2}, {} interventions", task.id, harness.label(), record.ended, record.wall_s / 60.0, record.cost_usd, record.interventions),
         Err(error) => format!("{} {}: failed: {error}", task.id, harness.label()),
+    }
+}
+
+fn charge_ledger(org: &str, spent: &Spent) {
+    let charged = Ledger::open(&state_root().join("ledger.db")).and_then(|ledger| billing::charge(&ledger, org, spent));
+    if let Err(error) = charged {
+        eprintln!("north frontier: the spend of {} on api:{org} was not written to the ledger: {}", spent.name, error.user_message());
     }
 }
 

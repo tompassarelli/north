@@ -451,7 +451,7 @@ may_use = ["crate-roots", "foundation", "platform", "lifecycle"]
 name = "frontier"
 paths = ["crates/north-frontier/src/**"]
 responsibility = "The frontier benchmark: frozen landed boxes, a sandbox per arm, the north and plain Claude Code arms, grading by the landing's own tests, the run rows and their intervals and paired tests."
-may_use = ["crate-roots", "fleet", "foundation", "platform", "providers", "lifecycle", "claude_stream"]
+may_use = ["crate-roots", "fleet", "foundation", "platform", "providers", "ledger", "lifecycle", "claude_stream"]
 
 [[module]]
 name = "mutants"

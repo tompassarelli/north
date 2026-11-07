@@ -33,8 +33,11 @@ impl Courier for Told {
 
 struct Books0;
 
+static CHARGED: Mutex<Vec<(String, Option<String>)>> = Mutex::new(Vec::new());
+
 impl RunSink for Books0 {
-    fn record_run(&self, _run: &RunRecord) -> NorthResult<u64> {
+    fn record_run(&self, run: &RunRecord) -> NorthResult<u64> {
+        CHARGED.lock().unwrap().push((run.session.clone(), run.account.clone()));
         Ok(1)
     }
 
@@ -215,4 +218,23 @@ fn a_session_that_ended_its_turn_on_its_own_background_work_is_not_reported_stal
     assert_eq!(told_after(waiting, true, 0, true), 0, "its stream still holds the task when the host ends");
     assert_eq!(told_after(waiting, false, 0, true), 1, "the host ends with nothing running");
     assert_eq!(told_after("Done: landed abc123.", false, 2, false), 0, "a final report needs no notice");
+}
+
+// KEEP(bug): on 2026-11-07 a turn was charged to the account its session record held when the turn ended, so a session moved between orgs billed the org it moved onto for tokens the org it left served (north#792)
+#[test]
+fn a_turn_is_charged_to_the_account_its_host_started_with_not_the_one_the_record_holds_when_it_ends() {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("moved-worker");
+    std::fs::create_dir_all(&host).unwrap();
+    std::fs::write(host.join("host.account"), "api:proton").unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "moved-worker", "provider": "claude", "account": "api:gmail", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    write_record(&host, &record).unwrap();
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host);
+    for signal in [TurnSignal::Started { conversation: "s".into() }, TurnSignal::Ended { conversation: "s".into(), exit: TurnExit::Completed, totals: Default::default() }] {
+        if let Some(turn) = watch.turns.observe(signal, now_ms()) {
+            watch.record(turn);
+        }
+    }
+    let charged: Vec<_> = CHARGED.lock().unwrap().iter().filter(|(session, _)| session == "moved-worker").map(|(_, account)| account.clone()).collect();
+    assert_eq!(charged, [Some("api:proton".to_owned())]);
 }

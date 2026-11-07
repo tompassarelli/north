@@ -313,7 +313,7 @@ impl Fleet {
         let host = Host::new(host_dir.clone());
         let started = !host.running();
         if started {
-            host.start(&spec, &record.provider, idle_exit(record))?;
+            host.start(&spec, &record.provider, idle_exit(record), &account.recorded_label())?;
             host.send(&runtime.handshake())?;
         }
         if record.host_dir != host_dir {

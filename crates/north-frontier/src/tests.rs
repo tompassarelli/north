@@ -50,3 +50,28 @@ fn a_credit_refusal_ends_the_arm_and_a_finished_turn_does_not() {
     assert!(crate::session::refused_for_credit(&refusal));
     assert!(!crate::session::refused_for_credit(&done));
 }
+
+// KEEP(bug): frontier runs drew pool keys on 2026-11-07 and wrote no ledger run, so the pool counted none of that spend against the org whose key served them (north#792)
+#[test]
+fn an_arm_that_ran_on_a_pool_key_is_charged_to_that_orgs_account_in_the_ledger() {
+    let results = [
+        serde_json::json!({"type": "result", "modelUsage": {"claude-sonnet-5-5": {"inputTokens": 10, "outputTokens": 20, "cacheReadInputTokens": 300, "cacheCreationInputTokens": 40}}}),
+        serde_json::json!({"type": "result", "modelUsage": {"claude-sonnet-5-5": {"inputTokens": 15, "outputTokens": 25, "cacheReadInputTokens": 350, "cacheCreationInputTokens": 45}, "claude-haiku-5-5": {"inputTokens": 1, "outputTokens": 2}}}),
+    ];
+    let spent = crate::billing::Spent::of("frontier-a-north-1", &results, 1_000, 5_000);
+    let dir = std::env::temp_dir().join(format!("north-frontier-charge-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("ledger.db");
+    crate::billing::charge(&north_providers::ledger::Ledger::open(&path).unwrap(), "proton", &spent).unwrap();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let mut rows: Vec<(String, String, i64, i64, i64, i64)> = db
+        .prepare("SELECT account, model, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM runs ORDER BY model")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    rows.sort();
+    assert_eq!(rows, [("api:proton".into(), "claude-haiku-5-5".into(), 1, 2, 0, 0), ("api:proton".into(), "claude-sonnet-5-5".into(), 15, 25, 350, 45)]);
+}
