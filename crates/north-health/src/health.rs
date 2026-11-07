@@ -419,25 +419,10 @@ fn live(dry_run: bool, citations: fn(&Path) -> Verdict) -> Result<bool, String> 
                 println!("{line}");
             }
             for (program, args) in [
-                (
-                    "agents",
-                    vec![
-                        "event",
-                        "STUCK",
-                        "--from-node",
-                        "harness-health",
-                        "--to-node",
-                        "proxy",
-                        "--body",
-                        line.as_str(),
-                    ],
-                ),
-                (
-                    "notify-send",
-                    vec!["-u", "critical", "North harness", line.as_str()],
-                ),
+                ("north", vec!["fleet", "send", "--from", "service:north-health", "proxy", line.as_str()]),
+                ("notify-send", vec!["-u", "critical", "North harness", line.as_str()]),
             ] {
-                if let Err(error) = command(program, &args, None, 5) {
+                if let Err(error) = command(program, &args, None, 20) {
                     eprintln!("health: alert: {error}");
                 }
             }
