@@ -9,7 +9,7 @@ use super::super::host::{Host, alive};
 use super::super::model::{Delivery, Role, SessionRecord, Status};
 use super::super::receipts::{Aftermath, Courier, HostDeath, deliver_death, still_watched};
 use super::super::records::write_record;
-use super::super::runtime::{Runtime, binary, now_ms};
+use super::super::runtime::{Runtime, binary, new_uuid, now_ms};
 use super::super::sender::Sender;
 use super::super::turns::Turns;
 use super::super::unaccepted::Unaccepted;
@@ -93,15 +93,7 @@ impl Fleet {
         if record.parent.is_none() && record.task_ref.is_none() {
             return Ok(());
         }
-        let mut watchdog = Command::new(binary("setsid"))
-            .arg(std::env::current_exe()?)
-            .args(["fleet", "watchdog", &record.name])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        std::thread::spawn(move || watchdog.wait());
-        Ok(())
+        detach(&format!("watchdog-{}", unit_word(&record.name)), &["fleet", "watchdog", &record.name])
     }
 }
 
@@ -138,15 +130,27 @@ impl Courier for Inline<'_> {
 }
 
 pub(super) fn await_default(gate: i64) -> NorthResult<()> {
-    let mut timer = Command::new(binary("setsid"))
+    detach(&format!("gate-await-{gate}"), &["gate", "await", &gate.to_string()])
+}
+
+fn detach(unit: &str, arguments: &[&str]) -> NorthResult<()> {
+    let mut child = Command::new(binary("setsid"))
+        .arg(binary("systemd-run"))
+        .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--unit"])
+        .arg(format!("{unit}-{}.scope", new_uuid()?))
+        .arg("--")
         .arg(std::env::current_exe()?)
-        .args(["gate", "await", &gate.to_string()])
+        .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    std::thread::spawn(move || timer.wait());
+    std::thread::spawn(move || child.wait());
     Ok(())
+}
+
+fn unit_word(name: &str) -> String {
+    name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect()
 }
 
 fn raise(fleet: &Fleet, request: &GateRequest) {
