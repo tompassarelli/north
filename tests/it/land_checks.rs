@@ -404,6 +404,54 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
     assert!(!trace.contains("unleased"), "a check ran on a runtime it held no lease on: {trace}");
 }
 
+fn head_north_on_a_runtime_mid_build() -> (Fixture, PathBuf) {
+    let fixture = Fixture::new(&[("land.check-local", "true")]);
+    live_runtime(&fixture);
+    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
+    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north"), fixture.repo.join("bin/head-north"));
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "head-north"]);
+    north_from_the_tree(&fixture);
+    let lease = fixture.path("state/north/current/lease");
+    fs::create_dir(&lease).unwrap();
+    fs::write(fixture.path("trace"), "").unwrap();
+    (fixture, lease)
+}
+
+fn run_head_north(fixture: &Fixture, command: &str) -> Output {
+    let mut run = Command::new("bash");
+    run.current_dir(&fixture.repo).args(["-c", command]).env("HEAD_NORTH_SETTLE", "1");
+    run.env("REAL_NORTH", env!("CARGO_BIN_EXE_north")).env("STUB_TRACE", fixture.path("trace")).env("XDG_STATE_HOME", fixture.path("state")).env("XDG_CACHE_HOME", fixture.path("cache")).env("SAFE_PUSH_LAND_HEAD", git(&fixture.repo, &["rev-parse", "HEAD"]));
+    run.output().unwrap()
+}
+
+// KEEP(bug): the lander refused lane 3e400d15d on 2026-11-07 because head-north exited 1 opening the lease file of a runtime another process was still building (north#807)
+#[test]
+fn a_land_check_waits_for_a_runtime_another_process_is_still_building_instead_of_failing() {
+    let (fixture, lease) = head_north_on_a_runtime_mid_build();
+    let finishing = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1_500));
+        fs::remove_dir(lease).unwrap();
+    });
+    let output = run_head_north(&fixture, "./bin/head-north --code docs/ docs --help");
+    finishing.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(text(&output).contains("is not a whole runtime yet"), "{}", text(&output));
+    assert!(fixture.trace().contains("live docs --help"), "the check did not run on the runtime once it was whole: {}", fixture.trace());
+}
+
+// KEEP(bug): the same refusal when the runtime never became readable: the check now runs on the tree's own north, or is refused by name under --no-build, never an exit 1 from the lease open (north#807)
+#[test]
+fn a_land_check_runs_on_the_trees_own_north_when_the_live_runtime_stays_unreadable() {
+    let (fixture, _lease) = head_north_on_a_runtime_mid_build();
+    let output = run_head_north(&fixture, "./bin/head-north --code docs/ docs --help");
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(fixture.trace().contains("tree docs --help") && !fixture.trace().contains("live docs --help"), "{}", fixture.trace());
+    let refused = run_head_north(&fixture, "./bin/head-north --code docs/ --no-build docs --help");
+    assert_eq!(refused.status.code(), Some(1), "{}", text(&refused));
+    assert!(text(&refused).contains("stayed unreadable"), "{}", text(&refused));
+}
+
 const HEAD_NORTH_SHIM: &str = "[ \"$1\" = --code ] && shift 2\n[ \"$1\" = --build ] && exit 0\n[ \"$1\" = --no-build ] && shift\nexec \"$REAL_NORTH\" \"$@\"\n";
 
 fn with_north_land_lines(repo: &Path) {
