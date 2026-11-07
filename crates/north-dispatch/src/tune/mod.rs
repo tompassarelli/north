@@ -44,8 +44,8 @@ const REPO: &str = "tompassarelli/north";
 
 /// The north issue tracker a tick reads and files to.
 pub trait Tracker {
-    /// The titles of the open north issues.
-    fn open(&self) -> Result<Vec<String>, String>;
+    /// How many north issues are open.
+    fn open(&self) -> Result<usize, String>;
     /// Sends the proxy session a fleet message.
     fn tell_proxy(&mut self, text: &str) -> Result<(), String>;
     fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker;
@@ -129,7 +129,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     let risen = keep(tracker, &mut breaches, rises::TITLE, rises::issue_body(&found_rises).as_deref(), &format!("`north tune` on {at}: no staffed cell's cost per closed box sits more than 25% above the week before."), dry_run, &mut lines);
     lines.extend(calibrations.iter().filter(|calibration| calibration.drifted()).map(estimates::Calibration::drift_line));
     let drifted = keep(tracker, &mut breaches, estimates::TITLE, estimates::issue_body(&calibrations).as_deref(), &format!("`north tune` on {at}: every tier and category's median ratio of actual to estimate sits inside {}-{}x.", estimates::CALIBRATED.0, estimates::CALIBRATED.1), dry_run, &mut lines);
-    let open = tracker.open().map(|open| open.len());
+    let open = tracker.open();
     lines.push(match &open {
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
@@ -306,14 +306,14 @@ fn tell(text: &str) -> Result<(), String> {
     status.success().then_some(()).ok_or_else(|| format!("north fleet send proxy: {status}"))
 }
 
-fn open_titles() -> Result<Vec<String>, String> {
-    let issues = github::json(&["issue", "list", "-R", REPO, "--state", "open", "--limit", "1000", "--json", "title"])?;
-    Ok(issues.as_array().into_iter().flatten().filter_map(|issue| issue["title"].as_str().map(str::to_owned)).collect())
+fn open_count() -> Result<usize, String> {
+    let found = github::json(&["api", &format!("search/issues?q=repo:{REPO}+is:issue+is:open&per_page=1")])?;
+    found["total_count"].as_u64().and_then(|count| usize::try_from(count).ok()).ok_or_else(|| "gh: search answered without a total_count".to_owned())
 }
 
 impl Tracker for Gh {
-    fn open(&self) -> Result<Vec<String>, String> {
-        open_titles()
+    fn open(&self) -> Result<usize, String> {
+        open_count()
     }
 
     fn tell_proxy(&mut self, text: &str) -> Result<(), String> {

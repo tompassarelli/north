@@ -47,11 +47,11 @@ pub(super) struct Issues {
 }
 
 impl Tracker for Issues {
-    fn open(&self) -> Result<Vec<String>, String> {
+    fn open(&self) -> Result<usize, String> {
         if self.unreadable {
             return Err("gh: not logged in".into());
         }
-        Ok(self.open.clone())
+        Ok(self.open.len())
     }
 
     fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
