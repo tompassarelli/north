@@ -281,6 +281,11 @@ impl Fleet {
         self.refuse_on_window(record.conversation.as_deref())?;
         let runtime = self.runtime(record)?;
         let request = record.relaunch_request();
+        if record.machine.is_none()
+            && let Some(reason) = runtime.unguarded(account)
+        {
+            return Err(NorthError::Refused(reason));
+        }
         let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);

@@ -63,3 +63,15 @@ fn a_brief_on_a_context_arm_launches_claude_with_that_auto_compact_window_and_an
     assert_eq!(window(&relaunched).as_deref(), Some("200000"));
     assert_eq!(window(&LaunchRequest { prompt: "Arm: effort-high".into(), ..request() }), None);
 }
+
+#[test]
+fn a_profile_without_the_harness_settings_is_named_unguarded_so_its_launch_is_refused() {
+    let scratch = tempfile::tempdir().unwrap();
+    let home = scratch.path().join("profiles/claude-api");
+    std::fs::create_dir_all(&home).unwrap();
+    let account = Account { provider: Claude.provider(), label: "api".into(), home: home.clone(), token_file: None, api: None };
+
+    assert!(Claude.unguarded(&account).is_some_and(|reason| reason.contains("no settings.json")));
+    std::fs::write(home.join("settings.json"), "{}").unwrap();
+    assert_eq!(Claude.unguarded(&account), None);
+}

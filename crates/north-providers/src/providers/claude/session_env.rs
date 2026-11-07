@@ -73,6 +73,13 @@ pub(super) fn caller_conversation() -> Option<String> {
     std::env::var(CONVERSATION_ENV).ok().filter(|conversation| !conversation.is_empty())
 }
 
+/// Why a session on `account` would start without the harness hooks: its config directory loads no `settings.json`.
+pub(super) fn unguarded(account: &Account) -> Option<String> {
+    (!at_default(account) && !account.home.join("settings.json").exists()).then(|| {
+        format!("{} has no settings.json, so a session there would run with no hooks; run `north agents sync` to project the harness into it", account.home.display())
+    })
+}
+
 fn at_default(account: &Account) -> bool {
     std::env::var_os("HOME").is_some_and(|home| account.home == default_home(Path::new(&home)))
 }

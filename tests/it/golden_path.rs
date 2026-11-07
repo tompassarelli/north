@@ -99,6 +99,9 @@ impl Rig {
     }
 
     fn launch_worker(&self) -> Value {
+        let profile = self.root.join(".local/state/north/profiles/claude-a");
+        fs::create_dir_all(&profile).unwrap();
+        fs::write(profile.join("settings.json"), "{}").unwrap();
         let lane = self.lane.display().to_string();
         let launched = self.north(&["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "worker", "--parent", "reader", "--local", "hermetic golden path", "--cwd", &lane, BRIEF]);
         assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));

@@ -88,6 +88,9 @@ pub trait Runtime: Send + Sync {
     fn carry_conversation(&self, _from: &Account, _to: &Account, _conversation: &str) -> NorthResult<()> {
         Ok(())
     }
+    fn unguarded(&self, _account: &Account) -> Option<String> {
+        None
+    }
     fn handshake(&self) -> Vec<String>;
     fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>>;
     fn message(&self, transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>>;

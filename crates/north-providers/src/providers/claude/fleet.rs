@@ -115,6 +115,10 @@ impl Runtime for Claude {
         Ok(())
     }
 
+    fn unguarded(&self, account: &Account) -> Option<String> {
+        session_env::unguarded(account)
+    }
+
     fn handshake(&self) -> Vec<String> {
         Vec::new()
     }
