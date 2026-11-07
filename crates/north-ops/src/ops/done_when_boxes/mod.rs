@@ -148,10 +148,23 @@ impl Main {
     pub fn fetch(repo: &Path) -> NorthResult<Self> {
         let failed = |what: &str, output: &std::process::Output| format!("git {what}: {}", String::from_utf8_lossy(&output.stderr).trim());
         git::stdout(repo, &["fetch", "--quiet", "origin", "main"], |output| failed("fetch origin main", output)).map_err(NorthError::Refused)?;
-        let checkout = tempfile::Builder::new().prefix("north-done-when-").tempdir()?;
+        let checkout = Self::scratch(repo)?;
         let path = checkout.path().to_string_lossy().into_owned();
         git::stdout(repo, &["worktree", "add", "--quiet", "--detach", &path, "origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
         Ok(Self::Fetched { repo: repo.to_owned(), checkout })
+    }
+
+    fn scratch(repo: &Path) -> NorthResult<TempDir> {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("done-when-");
+        let lanes = git::stdout(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"], |_| String::new())
+            .ok()
+            .and_then(|common| PathBuf::from(String::from_utf8_lossy(&common).trim()).parent()?.parent().map(|container| container.join("worktrees")))
+            .filter(|lanes| std::fs::create_dir_all(lanes).is_ok());
+        Ok(match lanes {
+            Some(lanes) => builder.tempdir_in(lanes)?,
+            None => builder.tempdir()?,
+        })
     }
 
     pub fn dir(&self) -> &Path {
