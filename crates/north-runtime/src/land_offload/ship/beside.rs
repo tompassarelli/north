@@ -54,3 +54,16 @@ fn next_checkout(text: &str) -> Option<(usize, usize, &str)> {
     }
 }
 
+
+pub(in crate::land_offload) fn named_checkouts(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some((at, home_len, project)) = next_checkout(rest) {
+        let relative = format!("{CODE}{project}{MAIN}");
+        if !found.contains(&relative) {
+            found.push(relative.clone());
+        }
+        rest = &rest[at + home_len + relative.len()..];
+    }
+    found
+}

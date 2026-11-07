@@ -4,6 +4,7 @@ use ship::CommitId;
 use std::path::Path;
 
 mod destinations;
+mod readiness;
 pub mod warm;
 pub mod verdict;
 pub mod room;
@@ -32,7 +33,13 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 fn hosts() -> u8 {
-    for (name, ssh) in build_hosts() {
+    let needs = readiness::Needs::here();
+    let hosts = build_hosts();
+    let ready: Vec<bool> = std::thread::scope(|scope| {
+        let probes: Vec<_> = hosts.iter().map(|(name, ssh)| scope.spawn(|| readiness::admits(&needs, name, ssh))).collect();
+        probes.into_iter().map(|probe| probe.join().unwrap_or(false)).collect()
+    });
+    for ((name, ssh), _) in hosts.iter().zip(ready).filter(|(_, ready)| *ready) {
         println!("{name} {ssh}");
     }
     0
@@ -268,9 +275,10 @@ fn survey(in_reserve: bool, placement: &Placement) -> Survey {
     let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
     let standing = standing(reserved, on_battery(), builds(&here) || mode::takes_land_checks());
     let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
+    let needs = readiness::Needs::here();
     let remotes = std::thread::scope(|scope| {
-        let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
-        reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
+        let reads: Vec<_> = others.iter().map(|machine| (machine.name.clone(), scope.spawn(|| room::read(&machine.ssh)), scope.spawn(|| readiness::admits(&needs, &machine.name, &machine.ssh)))).collect();
+        reads.into_iter().map(|(name, room, ready)| (name, room.join().ok().flatten().filter(|_| ready.join().unwrap_or(false)))).collect::<Vec<_>>()
     });
     Survey { here, reserved, standing, others, remotes }
 }

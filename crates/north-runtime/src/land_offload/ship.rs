@@ -139,7 +139,7 @@ fn job_ref(head: &CommitId) -> String {
     format!("refs/land-offload/{}-{}-{nanos}-{}", head.as_str(), std::process::id(), JOBS.fetch_add(1, Ordering::Relaxed))
 }
 
-mod beside;
+pub(super) mod beside;
 mod script;
 pub(super) use script::jobs_part;
 pub use script::{SlotClass, is_lander_slot};
