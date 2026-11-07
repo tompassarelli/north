@@ -20,7 +20,7 @@ fn the_api_section_is_one_aligned_table_in_the_order_the_pool_spends_it_with_its
         Entry { name: "empty".to_owned(), balance: None, marked: false },
         Entry { marked: true, ..entry("refused", "2026-11-15", 10.0, &[]) },
     ];
-    let reading = Reading { orgs: Default::default(), hosts: vec![("ccx33".to_owned(), 59_000), ("here".to_owned(), 61_000)] };
+    let reading = Reading { hosts: vec![("ccx33".to_owned(), 59_000), ("here".to_owned(), 61_000)], ..Reading::default() };
     let peers = ["ccx33".to_owned(), "gex45".to_owned(), "here".to_owned()];
     let mut text = grid(&rows(entries, true), 0);
     text.push(reading.footer("here", &peers, 100_000));

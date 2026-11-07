@@ -48,3 +48,15 @@ fn a_turn_still_open_is_charged_until_a_run_of_its_session_ends_after_the_snapsh
     let stale = snapshot("nexus", NOW - 3_600_000, Vec::new(), vec![turn("north-634-d0216", 500_000)]);
     assert_eq!(proton(&merge(Vec::new(), vec![stale], &prices, NOW)), 0.0);
 }
+
+#[test]
+fn runs_another_host_recorded_on_any_account_raise_the_fleets_last_day_of_spend() {
+    let prices = PriceTable::load().unwrap();
+    let plan = |session: &str, started_ms: i64, output: i64| Finished { account: "claude:max".to_owned(), ..run(session, started_ms, started_ms + 1000, output) };
+    let local = vec![plan("north-1", NOW - 5000, 1_000_000)];
+    let here = merge(local.clone(), Vec::new(), &prices, NOW).last_day_usd;
+    let gex45 = snapshot("gex45", NOW - 1000, vec![plan("north-752-d0321", NOW - 3000, 2_000_000), plan("north-1", NOW - 5000, 1_000_000), plan("north-old", NOW - 2 * DAY_MS, 4_000_000)], Vec::new());
+    let fleet = merge(local, vec![gex45], &prices, NOW);
+    assert!((here - usd(1_000_000)).abs() < 1e-9 && (fleet.last_day_usd - usd(3_000_000)).abs() < 1e-9, "{fleet:?}");
+    assert!(fleet.orgs.is_empty(), "{fleet:?}");
+}

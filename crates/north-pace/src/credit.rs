@@ -3,11 +3,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags};
 use toml_edit::{DocumentMut, Item, Value};
 
 use crate::foundation::clock::Timestamp;
-use crate::router::pricing::{PriceTable, TokenUse};
+use crate::router::pricing::PriceTable;
 
 pub mod marks;
 mod runs;
@@ -165,8 +164,6 @@ pub fn next_credits(policy: &Path) -> BTreeMap<String, String> {
         .collect()
 }
 
-const BURN_WINDOW_S: i64 = 24 * 3600;
-
 /// One pool entry as the router ranks it against plan accounts: what is left of its soonest unexpired grant,
 /// when that grant expires, and the whole fleet's list-price spend per hour over the last day, the most it could send there.
 #[derive(Clone, Debug, PartialEq)]
@@ -206,12 +203,12 @@ pub fn orgs(policy: &Path) -> Vec<(String, String)> {
     first
 }
 
-/// Every pool entry with an unexpired grant, from the grants beside `policy`, the ledger and exhausted marks under `state` (the XDG state root).
+/// Every pool entry with an unexpired grant, from the grants beside `policy`, the ledger, the other hosts' snapshots beside it and exhausted marks under `state` (the XDG state root).
 pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
     let grants = grants(policy);
-    let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices, now)).map(|reading| reading.orgs).unwrap_or_default();
-    let (today, now_s) = (now.iso_date(), now.unix_seconds());
-    let burn_per_h = PriceTable::load().ok().and_then(|prices| fleet_spend(&state.join("north/ledger.db"), &prices, now_s - BURN_WINDOW_S).ok()).unwrap_or(0.0) / (BURN_WINDOW_S as f64 / 3600.0);
+    let reading = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices, now)).unwrap_or_default();
+    let (spends, burn_per_h) = (reading.orgs, reading.last_day_usd / 24.0);
+    let today = now.iso_date();
     orgs(policy)
         .into_iter()
         .filter_map(|(name, id)| {
@@ -222,21 +219,4 @@ pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
             Some(Source { name, left: balance.left, expires_s, burn_per_h, exhausted })
         })
         .collect()
-}
-
-/// The list-price dollars of every session's turns in `ledger` that started at or after `since_s`, on any account.
-fn fleet_spend(ledger: &Path, prices: &PriceTable, since_s: i64) -> Result<f64, String> {
-    let db = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| format!("{}: {error}", ledger.display()))?;
-    let mut statement = db
-        .prepare("SELECT model, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM runs WHERE started_ms >= ?1")
-        .map_err(|error| error.to_string())?;
-    let rows = statement
-        .query_map([since_s * 1000], |row| Ok((row.get::<_, Option<String>>(0)?, TokenUse { input: row.get(1)?, output: row.get(2)?, cache_read: row.get(3)?, cache_write: row.get(4)? })))
-        .map_err(|error| error.to_string())?;
-    let mut total = 0.0;
-    for row in rows {
-        let (model, tokens) = row.map_err(|error| error.to_string())?;
-        total += model.as_deref().and_then(|model| prices.price(model)).map_or(0.0, |price| price.of(tokens));
-    }
-    Ok(total)
 }
