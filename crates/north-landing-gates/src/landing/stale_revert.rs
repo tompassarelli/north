@@ -342,7 +342,7 @@ pub fn refusal(found: &[Reverted]) -> String {
         text.push_str(&format!("  {} {}\n    {}\n", &reverted.commit[..9], reverted.subject, files.join(", ")));
     }
     text.push_str(
-        "safe-push: rebase; don't copy whole files from another ref; squash only after rebasing. A deliberate revert names each commit in a 'Reverts: SHA' trailer. NOT pushed.",
+        "safe-push: rebase; don't copy whole files from another ref; squash only after rebasing. A deliberate revert names each commit in a 'Reverts: SHA' trailer",
     );
     text
 }
@@ -373,7 +373,7 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
         Err(error) => {
-            println!("safe-push: ✗ cannot check whether this landing reverts recent main: {error}; NOT pushed.");
+            println!("safe-push: ✗ cannot check whether this landing reverts recent main: {error}.");
             2
         }
     }

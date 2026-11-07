@@ -132,7 +132,7 @@ fn test_integrity() {
     assert_eq!(
         mutant.stdout,
         format!(
-            "safe-push: ✗ product.py adds a mutation marker: answer = 41  # {MUTANT_MARKER} — mutants stay in scratch copies; NOT pushed.\n"
+            "safe-push: ✗ product.py adds a mutation marker: answer = 41  # {MUTANT_MARKER} — mutants stay in scratch copies.\n"
         )
     );
     for trailer in [None, Some("Test-change: the retry rule was removed")] {
@@ -151,7 +151,7 @@ fn test_integrity() {
                 assert_eq!(
                     scan.stdout,
                     format!(
-                        "safe-push: ✗ retry.test.ts adds a skip or focus: {SKIP}\"retries\", () => {{}}) — name the changed requirement in a Test-change: trailer; NOT pushed.\n"
+                        "safe-push: ✗ retry.test.ts adds a skip or focus: {SKIP}\"retries\", () => {{}}) — name the changed requirement in a Test-change: trailer.\n"
                     )
                 );
             }

@@ -171,6 +171,9 @@ impl Observed {
         if success && !lines.iter().any(|line| line.contains(WOULD_REFUSE)) {
             assert!(!self.output.contains(WOULD_REFUSE), "a gate would have refused:\n{}", self.output);
         }
+        if success {
+            assert!(!self.output.contains("NOT pushed"), "a run that passed also said NOT pushed:\n{}", self.output);
+        }
     }
 
     /// The run passed while `landing_refusals` is shadow, naming `gate`'s would-be refusal beside `lines`.

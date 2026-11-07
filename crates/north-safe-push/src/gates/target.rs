@@ -80,7 +80,7 @@ impl Target<'_> {
             Ok(()) => Outcome::Passed,
             Err(_) => {
                 match gate {
-                    Gate::DependencyGate => println!("safe-push: ✗ dependency gate refused — NOT pushed."),
+                    Gate::DependencyGate => println!("safe-push: ✗ dependency gate refused."),
                     Gate::Secrets => println!("safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."),
                     _ => {}
                 }

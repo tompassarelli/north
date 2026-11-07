@@ -228,7 +228,7 @@ fn judge(work: &Path, lane: &Lane, end: &End, tally: Tally, out: &mut impl Write
             0
         }
         _ => {
-            let _ = writeln!(out, "safe-push: ✗ mutant kill: {names} survive all {} mutant(s) of the lane's diff ({tested} tested), so the added tests guard none of the change: {shown}; make a test fail when the changed code is broken; NOT pushed.", survived.len());
+            let _ = writeln!(out, "safe-push: ✗ mutant kill: {names} survive all {} mutant(s) of the lane's diff ({tested} tested), so the added tests guard none of the change: {shown}; make a test fail when the changed code is broken.", survived.len());
             1
         }
     }

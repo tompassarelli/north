@@ -95,7 +95,7 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     }
     let _ = writeln!(
         out,
-        "safe-push: ✗ this change makes {POLICY} {short} live and the tree has no agents/replay/sweep-*.jsonl row for it with {TRIALS} trials on every scenario, so every host's agents sync would refuse it ('the live policy has no sweep row') and roll its runtime update back. Run the sweep in this worktree and commit the row it writes: north policy-replay sweep agents/replay/*.json --variants agents/replay/variants.toml --variant base --trials 3 (about 9 minutes and $2 at list price: the 2026-10-27 sweeps took 480-567 s and $1.35-$2.23 for 42 runs); NOT pushed.",
+        "safe-push: ✗ this change makes {POLICY} {short} live and the tree has no agents/replay/sweep-*.jsonl row for it with {TRIALS} trials on every scenario, so every host's agents sync would refuse it ('the live policy has no sweep row') and roll its runtime update back. Run the sweep in this worktree and commit the row it writes: north policy-replay sweep agents/replay/*.json --variants agents/replay/variants.toml --variant base --trials 3 (about 9 minutes and $2 at list price: the 2026-10-27 sweeps took 480-567 s and $1.35-$2.23 for 42 runs).",
         short = &sha[..8]
     );
     1

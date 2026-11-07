@@ -236,7 +236,7 @@ pub fn scan(directory: &Path, range: &str, state_home: &Path, out: &mut impl Wri
     let contracted = claims.len() - unlisted.len();
     let mut refusals: Vec<String> = unlisted
         .into_iter()
-        .map(|reason| format!("safe-push: ✗ test admission: {reason}; a contract test names a category from test-admission.contract in .safe-push on main with the trailer {CONTRACT_FORMAT}, or guards a bug instead; NOT pushed.\n"))
+        .map(|reason| format!("safe-push: ✗ test admission: {reason}; a contract test names a category from test-admission.contract in .safe-push on main with the trailer {CONTRACT_FORMAT}, or guards a bug instead.\n"))
         .collect();
     refusals.extend(over_budget(directory, state_home, base, head, &found, contracted, out));
     for refusal in &refusals {
@@ -281,7 +281,7 @@ fn over_budget(directory: &Path, state_home: &Path, base: &str, head: &str, foun
     }
     let incident = if bugs.is_empty() { "a bug-labelled north issue its commit subject cites".to_owned() } else { incident_guard::named(&bugs) };
     Some(format!(
-        "safe-push: ✗ test admission: {repository}'s verification takes {measured} s (median green post-land run), over its {budget} s budget, and the lane adds {added} test{} in {files} but deletes {}; over budget a test lands only with as many deleted (one in, one out), unless it pins a listed contract or is the one regression test of each bug the lane fixes ({incident}); NOT pushed.\n",
+        "safe-push: ✗ test admission: {repository}'s verification takes {measured} s (median green post-land run), over its {budget} s budget, and the lane adds {added} test{} in {files} but deletes {}; over budget a test lands only with as many deleted (one in, one out), unless it pins a listed contract or is the one regression test of each bug the lane fixes ({incident}).\n",
         plural(added),
         found.deleted
     ))

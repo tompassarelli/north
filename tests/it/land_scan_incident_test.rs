@@ -112,7 +112,7 @@ fn incident_fix_needs_a_test() {
         assert_eq!(refused.status, 1, "{subject}: {}", refused.stdout);
         assert_eq!(
             refused.stdout,
-            "safe-push: ✗ this lane fixes bug north#7 but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]), or name why none can exist in an `Incident-test: none; REASON` commit trailer; NOT pushed.\n",
+            "safe-push: ✗ this lane fixes bug north#7 but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]), or name why none can exist in an `Incident-test: none; REASON` commit trailer.\n",
             "{subject}"
         );
     }

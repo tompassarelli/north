@@ -113,13 +113,13 @@ pub fn scan(directory: &Path, home: &Path, range: &str, out: &mut impl Write) ->
         }
         let line = if CORE_TOOLS.contains(&name) {
             format!(
-                "safe-push: ✗ removes core tool {name} with no same-name replacement in {own}/ or {peer_bin}/ — a core tool cannot be removed; NOT pushed."
+                "safe-push: ✗ removes core tool {name} with no same-name replacement in {own}/ or {peer_bin}/ — a core tool cannot be removed."
             )
         } else if trailers.contains(&name) {
             continue;
         } else {
             format!(
-                "safe-push: ✗ removes tool {name} from {own}/ with no same-name replacement — add 'Removes-tool: {name}' to the commit message if intended; NOT pushed."
+                "safe-push: ✗ removes tool {name} from {own}/ with no same-name replacement — add 'Removes-tool: {name}' to the commit message if intended."
             )
         };
         let _ = writeln!(out, "{line}");

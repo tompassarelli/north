@@ -48,7 +48,7 @@ impl Gates {
     fn refused(&self, subcommand: &str, label: &str) -> Option<u8> {
         let status = self.gate(subcommand);
         (status != 0).then(|| {
-            eprintln!("safe-push: {label} refused the landing; NOT pushed.");
+            eprintln!("safe-push: {label} refused the landing.");
             status
         })
     }
@@ -60,14 +60,14 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let Some(root) = git(None, &["rev-parse", "--show-toplevel"]) else {
-        eprintln!("safe-push: the language gate cannot find the repository root; NOT pushed.");
+        eprintln!("safe-push: the language gate cannot find the repository root.");
         return 1;
     };
     let base = if arguments.base.is_empty() { git(None, &["hash-object", "-t", "tree", "/dev/null"]).unwrap_or_default() } else { merge_base(Path::new(&root), &arguments.base, &arguments.head) };
     let gates = Gates { root, base, head: arguments.head.clone() };
     for subcommand in ["language-gate", "build-cache-gate"] {
         if lacks(subcommand) {
-            eprintln!("safe-push: this host's north runtime lacks north {subcommand}, which safe-push calls; run north runtime update; NOT pushed.");
+            eprintln!("safe-push: this host's north runtime lacks north {subcommand}, which safe-push calls; run north runtime update.");
             return STOP;
         }
     }
@@ -87,7 +87,7 @@ fn bin_reference_gate(gates: &Gates, origin: &str) -> u8 {
     }
     let offered = Command::new(program()).args(["bin-references", "--help"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if !offered.is_ok_and(|status| status.success()) {
-        eprintln!("safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry, subcommand or flag cannot be checked against deployed units; run north runtime update; NOT pushed.");
+        eprintln!("safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry, subcommand or flag cannot be checked against deployed units; run north runtime update.");
         return 1;
     }
     gates.gate("bin-references")

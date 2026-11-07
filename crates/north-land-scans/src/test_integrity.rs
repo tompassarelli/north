@@ -61,7 +61,7 @@ fn refusal(out: &mut impl Write, path: &[u8], what: &str, line: &[u8], remedy: &
     text.extend_from_slice(path);
     text.extend_from_slice(format!(" adds {what}: ").as_bytes());
     text.extend_from_slice(line);
-    text.extend_from_slice(format!(" — {remedy}; NOT pushed.\n").as_bytes());
+    text.extend_from_slice(format!(" — {remedy}.\n").as_bytes());
     let _ = out.write_all(&text);
 }
 

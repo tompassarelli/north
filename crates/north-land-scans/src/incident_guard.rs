@@ -132,6 +132,6 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
     if bugs.is_empty() {
         return 0;
     }
-    let _ = writeln!(out, "safe-push: ✗ this lane fixes bug {} but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]), or name why none can exist in an `Incident-test: none; REASON` commit trailer; NOT pushed.", named(&bugs));
+    let _ = writeln!(out, "safe-push: ✗ this lane fixes bug {} but adds or changes no test; add a test that fails without the fix (a file under tests/ or test/, one named tests.*, *.test.*, *_test.* or *_tests.*, or a #[test]), or name why none can exist in an `Incident-test: none; REASON` commit trailer.", named(&bugs));
     1
 }

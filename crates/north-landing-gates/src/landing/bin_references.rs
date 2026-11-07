@@ -168,7 +168,7 @@ pub fn refusal(found: &[Reference]) -> String {
         })
         .collect();
     lines.push(
-        "safe-push: switch that unit off the script, subcommand or flag first (every host runs the new unit before north-runtime-follow promotes the removal), or keep bin/NAME, the subcommand or the flag as a shim until then; NOT pushed."
+        "safe-push: switch that unit off the script, subcommand or flag first (every host runs the new unit before north-runtime-follow promotes the removal), or keep bin/NAME, the subcommand or the flag as a shim until then."
             .to_owned(),
     );
     lines.join("\n")
@@ -258,7 +258,7 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
         Err(error) => {
-            println!("safe-push: ✗ cannot check whether a deployed unit still runs a bin/ entry, subcommand or flag this landing removes: {error}; NOT pushed.");
+            println!("safe-push: ✗ cannot check whether a deployed unit still runs a bin/ entry, subcommand or flag this landing removes: {error}.");
             2
         }
     }
