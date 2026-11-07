@@ -1,4 +1,6 @@
 //! Verbs that folded under a domain noun: an unrecognized command naming one prints where it lives now.
+use crate::error::NorthError;
+
 const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["scoreboard"], "ledger scoreboard", &["--ready"]),
     (&["incident"], "ledger incident", &[]),
@@ -15,7 +17,15 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["lane-sweep"], "lane sweep", &[]),
 ];
 
-pub(super) fn hint(arguments: &[String]) -> Option<String> {
+pub(super) fn refusal(arguments: &[String]) -> NorthError {
+    if let Some(hint) = hint(arguments) {
+        return NorthError::Usage(format!("unrecognized command '{}'\n\n{hint}", arguments.join(" ")));
+    }
+    let kind = if arguments[0].starts_with('-') { "option" } else { "command" };
+    NorthError::Usage(format!("unrecognized {kind} '{}'\n\nUsage: north [COMMAND]\n\nRun 'north' to open the TUI, or 'north --help' for help.", arguments.join(" ")))
+}
+
+fn hint(arguments: &[String]) -> Option<String> {
     let (words, path, dropped) = MOVED.iter().find(|(words, ..)| arguments.starts_with(&words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()))?;
     let kept: Vec<&str> = arguments[words.len()..].iter().map(String::as_str).filter(|word| !dropped.contains(word)).collect();
     Some(format!("did you mean: north {path}{}{}", if kept.is_empty() { "" } else { " " }, kept.join(" ")))

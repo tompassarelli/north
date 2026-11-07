@@ -110,18 +110,7 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     if arguments == ["guard", "language"] {
         return Ok(Command::GuardLanguage);
     }
-    if let Some(hint) = moved::hint(&arguments) {
-        return Err(NorthError::Usage(format!("unrecognized command '{}'\n\n{hint}", arguments.join(" "))));
-    }
-    let kind = if arguments[0].starts_with('-') {
-        "option"
-    } else {
-        "command"
-    };
-    Err(NorthError::Usage(format!(
-        "unrecognized {kind} '{}'\n\nUsage: north [COMMAND]\n\nRun 'north' to open the TUI, or 'north --help' for help.",
-        arguments.join(" ")
-    )))
+    Err(moved::refusal(&arguments))
 }
 
 type Forward = fn(&str, Vec<String>) -> Command;

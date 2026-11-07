@@ -207,7 +207,7 @@ impl Client {
 
     fn route(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write, replay: Option<&[u8]>) -> NorthResult<i32> {
         let first = argv.first().map(String::as_str);
-        if first == Some("snapshot-pages") || first == Some("snapshot-pull") {
+        if matches!(first, Some("snapshot-pages" | "snapshot-pull")) {
             return self.snapshot_verb(argv, stdin, err);
         }
         if first == Some(SPOOL_FLUSH) {
@@ -307,7 +307,7 @@ impl Client {
         }
         if first == Some("job-run") {
             let code = self.ssh(dest, &argv, Input::Null, false, err)?;
-            if code != UNREACHABLE && code != TIMED_OUT {
+            if !matches!(code, UNREACHABLE | TIMED_OUT) {
                 return Ok(Some(code));
             }
             self.spool_argv(&argv)?;
@@ -339,7 +339,7 @@ impl Client {
         }
         if first == Some("agent-event") {
             let code = if clear { self.ssh(dest, &argv, Input::Null, false, err)? } else { UNREACHABLE };
-            if code != UNREACHABLE && code != TIMED_OUT {
+            if !matches!(code, UNREACHABLE | TIMED_OUT) {
                 return Ok(Some(code));
             }
             self.spool_argv(&argv)?;
@@ -447,7 +447,7 @@ impl Client {
             if code == UNREACHABLE {
                 return Ok(Flush::Down);
             }
-            if code == ingest_lock::RETRY || code == TIMED_OUT {
+            if matches!(code, ingest_lock::RETRY | TIMED_OUT) {
                 return Ok(Flush::Busy);
             }
             if code != 0 {
