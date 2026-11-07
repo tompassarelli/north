@@ -265,9 +265,9 @@ constants = [
 
 [[loop]]
 name = "slow-test"
-decision = "which test is profiled on a build host and gets a box on its owning issue because it ran over the line in each of its newest after-landing runs"
+decision = "which test is profiled on a build host and gets a box on its owning issue because it ran over the line in each of its newest land check runs"
 sites = ["crates/north-flow/src/detectors/slow_test.rs"]
-signal = "per-test PASS times in the nextest output of each after-landing run's log under land-queue/*/logs, the newest runs of each test binary"
+signal = "per-test PASS times in the nextest output of the lander's candidate, speculative and finished after-landing logs under land-queue/*/logs, the newest runs of each test binary"
 updated_by = "north ledger flow detect, run every 5 minutes by agents-flow-stall.timer"
 cadence_hours = 24
 record = "agents/flow/detectors.json"

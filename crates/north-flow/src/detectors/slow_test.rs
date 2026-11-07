@@ -12,6 +12,14 @@ pub const PROFILE_MARK: &str = "== strace -c summary ==";
 
 pub type Run = BTreeMap<(String, String), f64>;
 
+pub fn check_log(name: &str, finished: bool) -> bool {
+    let Some(stem) = name.strip_suffix(".log") else { return false };
+    match stem.strip_prefix("post-land-") {
+        Some(sha) => finished && !sha.contains("-on-"),
+        None => stem.ends_with("-candidate") || stem.rsplit_once("-speculative-").is_some_and(|(_, level)| level.chars().all(|digit| digit.is_ascii_digit())),
+    }
+}
+
 pub fn passed(log: &str) -> Run {
     let mut times = Run::new();
     for found in PASSED.captures_iter(log) {
@@ -73,8 +81,8 @@ pub fn slow(facts: &Facts, limits: &Limits) -> Vec<Finding> {
                 key: key(binary, name),
                 owner: Some(slow.owner.clone()),
                 title: format!("Speed up the slow test {name}"),
-                detail: format!("`{binary} {name}` in {} took {} in its newest {} after-landing runs, over the {:.0} s line; {}", slow.file, times.join(", "), seconds.len(), limits.slow_test_seconds, slow.profile),
-                done_when: format!("`{binary} {name}` passes in at most {:.0} s in each of {} later after-landing runs per `north land profile`.", limits.slow_test_seconds, limits.slow_test_runs),
+                detail: format!("`{binary} {name}` in {} took {} in its newest {} land check runs, over the {:.0} s line; {}", slow.file, times.join(", "), seconds.len(), limits.slow_test_seconds, slow.profile),
+                done_when: format!("`{binary} {name}` passes in at most {:.0} s in each of {} later land check runs per `north land profile`.", limits.slow_test_seconds, limits.slow_test_runs),
                 instances: vec![format!("{binary} {name}")],
             }
         })

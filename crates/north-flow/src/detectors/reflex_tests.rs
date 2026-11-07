@@ -49,6 +49,13 @@ fn places(root: &Path) -> Places {
     places
 }
 
+fn write_candidate(places: &Places, name: &str, slow: &[(&str, f64)]) {
+    let logs = places.state.join("north/land-queue/q1/logs");
+    fs::create_dir_all(&logs).unwrap();
+    let lines: String = slow.iter().map(|(test, seconds)| format!("        PASS [{seconds:8.3}s] (  2/2) north::it {test}\n")).collect();
+    fs::write(logs.join(name), format!("    Starting tests across 1 binary\n{lines}")).unwrap();
+}
+
 fn write_run(places: &Places, sha: &str, slow: &[(&str, f64)], finished: bool) {
     let logs = places.state.join("north/land-queue/q1/logs");
     fs::create_dir_all(&logs).unwrap();
@@ -76,7 +83,7 @@ impl Host for FailsFor {
 }
 
 #[test]
-fn a_test_over_the_line_in_three_after_landing_runs_gets_one_profiled_box_on_its_owner_and_never_a_second() {
+fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_owner_and_never_a_second() {
     let root = tempfile::tempdir().unwrap();
     let places = places(root.path());
     let host = Scripted::default();
@@ -89,7 +96,7 @@ fn a_test_over_the_line_in_three_after_landing_runs_gets_one_profiled_box_on_its
     assert!(waiting.iter().all(|line| !line.contains("slow-test:")), "{waiting:?}");
     assert!(host.offloads.borrow().is_empty());
 
-    write_run(&places, "cccccccccccc", &slow(16.3), true);
+    write_candidate(&places, "1794083369728750-candidate.log", &slow(16.3));
     let lines = tick(&places, &host, 2.0, true);
     assert!(lines.iter().any(|line| line.contains("slow-test slow-test:north::it:slow::sixteen_seconds: filed a box on north#777")), "{lines:?}");
     let offloads = host.offloads.borrow();
@@ -99,9 +106,9 @@ fn a_test_over_the_line_in_three_after_landing_runs_gets_one_profiled_box_on_its
     let edits = host.edits.borrow();
     assert_eq!(edits.len(), 1);
     let box_line = edits[0].lines().last().unwrap();
-    assert!(box_line.starts_with("- [ ] **Speed up the slow test slow::sixteen_seconds.** `north::it slow::sixteen_seconds` in tests/it/slow.rs took 16.2 s, 16.1 s, 16.3 s in its newest 3 after-landing runs, over the 15 s line;"), "{box_line}");
+    assert!(box_line.starts_with("- [ ] **Speed up the slow test slow::sixteen_seconds.** `north::it slow::sixteen_seconds` in tests/it/slow.rs took 16.2 s, 16.1 s, 16.3 s in its newest 3 land check runs, over the 15 s line;"), "{box_line}");
     assert!(box_line.contains("clock_nanosleep 99.9% 16.00 s in 1 calls"), "{box_line}");
-    assert!(box_line.contains(" Done when: `north::it slow::sixteen_seconds` passes in at most 15 s in each of 3 later after-landing runs"), "{box_line}");
+    assert!(box_line.contains(" Done when: `north::it slow::sixteen_seconds` passes in at most 15 s in each of 3 later land check runs"), "{box_line}");
     assert!(box_line.ends_with("(detector slow-test:north::it:slow::sixteen_seconds)"));
     drop((offloads, edits));
 
