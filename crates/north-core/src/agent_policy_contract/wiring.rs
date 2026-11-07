@@ -49,28 +49,8 @@ pub(super) fn guards(policy: &Value) -> &[Value] {
     policy.get("guard").and_then(Value::as_array).map_or(&[], Vec::as_slice)
 }
 
-fn default_command(provider: &str, command: &str) -> String {
-    if provider == "claude" {
-        format!(
-            "{RUNTIME}/env -u BASH_ENV -u ENV NORTH_AGENT_PYTHON={RUNTIME}/python3 \
-             {SEARCH_PATH} {RUNTIME}/bash /home/tom/.agents/hooks/{command}"
-        )
-    } else {
-        format!(
-            "{RUNTIME}/env -u BASH_ENV -u ENV {SEARCH_PATH} {RUNTIME}/bash /etc/codex/hooks/{command}"
-        )
-    }
-}
-
-fn guard_command(guard: &Value, provider: &str) -> String {
-    let verb = text(guard, "north_hook");
-    if !verb.is_empty() {
-        return format!("{RUNTIME}/env -u BASH_ENV -u ENV {SEARCH_PATH} north hook {verb}");
-    }
-    match text(guard, &format!("{provider}_command")) {
-        "" => default_command(provider, text(guard, "command")),
-        custom => custom.to_owned(),
-    }
+fn guard_command(guard: &Value) -> String {
+    format!("{RUNTIME}/env -u BASH_ENV -u ENV {SEARCH_PATH} north hook {}", text(guard, "north_hook"))
 }
 
 pub(super) fn wiring(policy: &Value, provider: &str) -> Wiring {
@@ -78,7 +58,7 @@ pub(super) fn wiring(policy: &Value, provider: &str) -> Wiring {
     for guard in guards(policy) {
         for binding in bindings(guard, provider) {
             let (event, matcher) = binding.split_once(':').unwrap_or((binding, ""));
-            let command = guard_command(guard, provider);
+            let command = guard_command(guard);
             let groups = match events.iter().position(|(known, _)| known == event) {
                 Some(index) => &mut events[index].1,
                 None => {
@@ -152,14 +132,9 @@ pub(super) fn render_codex(policy: &Value) -> String {
     out
 }
 
-pub(super) fn codex_adapters(policy: &Value, catalog: &Value) -> Vec<String> {
-    let mut adapters: BTreeSet<String> = guards(policy)
-        .iter()
-        .filter(|guard| !bindings(guard, "codex").is_empty() && text(guard, "north_hook").is_empty())
-        .map(|guard| text(guard, "command").to_owned())
-        .collect();
+pub(super) fn codex_adapters(catalog: &Value) -> Vec<String> {
     let support = catalog.get("providerSupport").and_then(Value::as_array);
-    adapters.extend(support.into_iter().flatten().map(|entry| text(entry, "path").to_owned()));
+    let adapters: BTreeSet<String> = support.into_iter().flatten().map(|entry| text(entry, "path").to_owned()).collect();
     adapters.into_iter().collect()
 }
 

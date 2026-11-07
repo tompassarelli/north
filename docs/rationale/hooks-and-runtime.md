@@ -67,12 +67,9 @@ Counts: 7 keep, 6 narrow, 5 delete.
 
 - `spawn-capacity-guard` (#11) ran `lib/spawn_capacity.py` on every Agent call until box 5 ported it to Rust. It was also the worst
   latency in the table.
-- The shared kill-switch (`lib/north-agent-activation.sh`) falls back to an inline Python reader of
-  `activation.json` when `activation.active` is missing. Every wrapper sources it: `north-hook.sh`,
-  `language-guard.sh` and `prompt-grounding.sh`. While `activation.active`
-  exists the check is plain shell (3 ms). The Rust guards already check activation themselves
-  (`guard::activation::authoring_guards_off`), so the shell prelude duplicates that check.
-- Every entry sets `NORTH_AGENT_PYTHON=/etc/codex/hooks/runtime/python3`; only the two paths above read it.
+- The kill-switch is `guard::activation::authoring_guards_off`, which reads `activation.active` and falls back to
+  `activation.json` in Rust. Each `north hook` verb (`dispatch`, `language-guard`, `codex-conduct`, `firn-system-policy`,
+  `prompt-grounding`) checks it itself, so no shell wrapper or Python reader sits in the hook path.
 
 ## Boxes
 

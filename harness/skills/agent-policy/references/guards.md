@@ -57,17 +57,9 @@ shape, and a provider adapter is a distribution, not a second identity.
 
 The current generation defaults to
 `${NORTH_AGENT_STATE_ROOT:-~/.local/state/north/agents}/current/activation.active`,
-one `kind id` line per active unit; `north_agent_unit_active` reads it with
-bash builtins.
-
-The session switch shape is:
-
-```bash
-case "${AGENT_NO_AUTHORING_HOOKS:-}" in
-  ''|0|false) ;;
-  *) exit 0 ;;
-esac
-```
+one `kind id` line per active unit; `guard::activation::authoring_guards_off`
+reads it, and `AGENT_NO_AUTHORING_HOOKS` (`0` or `false` forces guards on, any
+other value turns them off) wins over it.
 
 ## Deny envelope
 

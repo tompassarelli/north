@@ -1,8 +1,6 @@
-use regex::Regex;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::LazyLock;
 
 use super::ordered_json::Json;
 use super::wiring::{
@@ -11,19 +9,9 @@ use super::wiring::{
 };
 use super::{Contract, Locations, UNIT, py_list, py_repr};
 
-static GATE_CALL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^[^#\n]*\bauthoring_guards_off\b[^#\n]*&&[ \t]*exit 0").unwrap()
-});
-static GATE_SOURCE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^[^#\n]*authoring-killswitch\.sh").unwrap());
-
 const REGENERATE: &str = "north agent-policy-contract --repo <firn> --write";
 
-type HookUnits = BTreeMap<String, (BTreeSet<&'static str>, Option<String>)>;
-
-fn file_name(path: &str) -> &str {
-    Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or("")
-}
+type HookUnits = BTreeMap<String, BTreeSet<&'static str>>;
 
 fn hook_units(catalog: &Value) -> HookUnits {
     let mut units = HookUnits::new();
@@ -35,41 +23,15 @@ fn hook_units(catalog: &Value) -> HookUnits {
             if kind != "hook" && kind != "providerAdapter" {
                 continue;
             }
-            let owner_path = catalog
-                .get("registrations")
-                .and_then(|registrations| registrations.get(unit))
-                .and_then(|registration| registration.get("owner"))
-                .map_or("", |owner| text(owner, "path"));
-            let identity = if kind == "providerAdapter" {
-                distribution.get("adapterId").and_then(Value::as_str).map(str::to_owned)
-            } else {
-                Some(file_name(owner_path).to_owned())
-            };
             let targets: Vec<&str> = distribution
                 .get("targets")
                 .and_then(Value::as_array)
                 .map(|targets| targets.iter().filter_map(Value::as_str).collect())
                 .unwrap_or_default();
-            let slot = units.entry(unit.clone()).or_default();
-            slot.0.extend(PROVIDERS.iter().filter(|provider| targets.contains(provider)));
-            slot.1 = identity;
+            units.entry(unit.clone()).or_default().extend(PROVIDERS.iter().filter(|provider| targets.contains(provider)));
         }
     }
     units
-}
-
-fn check_hook_source(contract: &mut Contract, unit: &str, source: &Path) {
-    if !source.is_file() {
-        contract.reject(format!("{unit}: wired hook source is missing: {}", source.display()));
-        return;
-    }
-    let body = std::fs::read_to_string(source).unwrap_or_default();
-    if !(GATE_SOURCE.is_match(&body) && GATE_CALL.is_match(&body)) {
-        contract.reject(format!(
-            "{unit}: wired hook must source lib/authoring-killswitch.sh and exit 0 \
-             when authoring_guards_off"
-        ));
-    }
 }
 
 fn check_events(contract: &mut Contract, guard: &Value, unit: &str) {
@@ -95,6 +57,9 @@ fn check_absent_reasons(contract: &mut Contract, guard: &Value, unit: &str) {
 
 fn check_north_hook(contract: &mut Contract, guard: &Value, registration: Option<&Value>) {
     let unit = text(guard, "unit");
+    if text(guard, "north_hook").is_empty() {
+        contract.reject(format!("{unit}: name the north hook verb it runs in north_hook"));
+    }
     let custom = !text(guard, "command").is_empty()
         || PROVIDERS.iter().any(|provider| !text(guard, &format!("{provider}_command")).is_empty());
     if custom {
@@ -106,45 +71,6 @@ fn check_north_hook(contract: &mut Contract, guard: &Value, registration: Option
     }
     check_events(contract, guard, unit);
     check_absent_reasons(contract, guard, unit);
-}
-
-fn check_guard(
-    contract: &mut Contract,
-    guard: &Value,
-    expected: Option<&(BTreeSet<&'static str>, Option<String>)>,
-    hooks: &Path,
-) {
-    let unit = text(guard, "unit");
-    let command = text(guard, "command");
-    let registered = expected.and_then(|entry| entry.1.as_deref());
-    if registered != Some(command) {
-        contract.reject(format!(
-            "{unit}: command {} is not the hook catalog-config.json registers for it ({})",
-            py_repr(command),
-            registered.map_or("None".into(), py_repr)
-        ));
-    }
-    for provider in PROVIDERS {
-        let custom = text(guard, &format!("{provider}_command"));
-        if !custom.is_empty() && file_name(custom.split_whitespace().last().unwrap_or("")) != command {
-            contract.reject(format!("{unit}: {provider}_command must run {command}"));
-        }
-    }
-    check_events(contract, guard, unit);
-    let wired: BTreeSet<&str> = PROVIDERS
-        .into_iter()
-        .filter(|provider| !bindings(guard, provider).is_empty())
-        .collect();
-    let targets: BTreeSet<&str> = expected.map(|entry| entry.0.iter().copied().collect()).unwrap_or_default();
-    if wired != targets {
-        contract.reject(format!(
-            "{unit}: wired for {} but catalog-config.json targets {}",
-            py_list(wired.iter().copied()),
-            py_list(targets.iter().copied())
-        ));
-    }
-    check_absent_reasons(contract, guard, unit);
-    check_hook_source(contract, unit, &hooks.join(command));
 }
 
 fn read(path: &Path, what: &str) -> Result<String, String> {
@@ -176,14 +102,19 @@ pub(super) fn check(
             contract.reject(format!("invalid or duplicate provider guard unit: {}", py_repr(unit)));
             continue;
         }
-        if text(guard, "north_hook").is_empty() {
-            check_guard(contract, guard, units.get(unit), &locations.hooks);
-        } else {
-            let registration = catalog.get("registrations").and_then(|registrations| registrations.get(unit));
-            check_north_hook(contract, guard, registration);
+        let registration = catalog.get("registrations").and_then(|registrations| registrations.get(unit));
+        check_north_hook(contract, guard, registration);
+        let wired: BTreeSet<&str> = PROVIDERS.into_iter().filter(|provider| !bindings(guard, provider).is_empty()).collect();
+        let targets: BTreeSet<&str> = units.get(unit).map(|targets| targets.iter().copied().collect()).unwrap_or_default();
+        if !targets.is_empty() && wired != targets {
+            contract.reject(format!(
+                "{unit}: wired for {} but catalog-config.json targets {}",
+                py_list(wired.iter().copied()),
+                py_list(targets.iter().copied())
+            ));
         }
     }
-    for (unit, (targets, _)) in &units {
+    for (unit, targets) in &units {
         if !targets.is_empty() && !seen.contains(unit.as_str()) {
             contract.reject(format!(
                 "{unit}: registered hook targets {} but is unwired",
@@ -205,7 +136,7 @@ pub(super) fn check(
     if read(&locations.codex, "Codex requirements")? != render_codex(policy) {
         contract.reject(format!("{} differs from guard[]; run {REGENERATE}", locations.codex.display()));
     }
-    let adapters = codex_adapters(policy, catalog);
+    let adapters = codex_adapters(catalog);
     if nix_adapters(&read(&locations.nix, "Codex Nix module")?) != adapters {
         contract.reject(format!(
             "modules/codex/default.nix providerAdapter list must be exactly the Codex-bound \

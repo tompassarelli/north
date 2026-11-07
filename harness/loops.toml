@@ -212,7 +212,7 @@ constants = [
 [[loop]]
 name = "skill-routing"
 decision = "which skills a session loads"
-sites = ["harness/hooks/north-hook.sh"]
+sites = ["crates/north-guard/src/hook.rs"]
 updated_by = "skill frontmatter by hand"
 cadence_hours = 168
 owner = "north#112 Skill effect"

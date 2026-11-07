@@ -83,7 +83,6 @@ struct Locations {
     repo: PathBuf,
     manifest: PathBuf,
     catalog: PathBuf,
-    hooks: PathBuf,
     claude: PathBuf,
     codex: PathBuf,
     nix: PathBuf,
@@ -107,7 +106,6 @@ impl Locations {
         Self {
             manifest: pick("AGENT_POLICY_MANIFEST", north.join("harness/policy-owners.toml")),
             catalog: operator.join("catalog-config.json"),
-            hooks: north.join("harness/hooks"),
             claude: pick("AGENT_POLICY_CLAUDE_HOOKS", repo.join("modules/north-profile/claude-hooks.json")),
             codex: pick("AGENT_POLICY_CODEX_REQUIREMENTS", repo.join("modules/codex/requirements.toml")),
             nix: repo.join("modules/codex/default.nix"),
@@ -150,7 +148,7 @@ fn execute(options: &Options, locations: &Locations) -> Result<Outcome, String> 
     }
     let catalog = load_catalog(&locations.catalog)?;
     if options.codex_adapters {
-        return Ok(Outcome::Adapters(wiring::codex_adapters(&policy, &catalog)));
+        return Ok(Outcome::Adapters(wiring::codex_adapters(&catalog)));
     }
     let mut contract = Contract::default();
     surfaces::check(

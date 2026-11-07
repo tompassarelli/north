@@ -18,3 +18,7 @@ unlanded-work.sh
 worker-handoff.sh
 worker-tier-guard.sh
 worker-wait-guard.sh
+north-hook.sh
+language-guard.sh
+codex-conduct.sh
+firn-system-policy

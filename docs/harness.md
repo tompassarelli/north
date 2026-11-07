@@ -56,7 +56,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
 6. The generation's instructions and `provider-hooks` reach Claude Code and Codex through links
    Firn's profile module makes; `north check harness` checks that wiring and
    `north check harness --local` lints the shared hooks. A hook script deleted from
-   `harness/hooks/` must be named in `harness/retired-hooks.txt`, which
+   the hooks directory of the north tree must be named in `harness/retired-hooks.txt`, which
    `north config agents check-owners` enforces at landing; the generation then carries a no-op stub
    under that name until each host's Firn profile stops registering it.
 
@@ -84,9 +84,10 @@ one way to reach agents:
 - Procedures: skills in [harness/skills/](../harness/skills/) and
   [agent-machinery/skills/](../agent-machinery/skills/), linked by `agents sync`.
 
-- Guards on tool calls: hooks in [harness/hooks/](../harness/hooks/), bound to events by
-  [harness/policy-owners.toml](../harness/policy-owners.toml), reaching agents through the
-  generation's `provider-hooks`.
+- Guards on tool calls: `north hook` verbs (`dispatch`, `language-guard`, `codex-conduct`,
+  `firn-system-policy`, `prompt-grounding`), bound to events by
+  [harness/policy-owners.toml](../harness/policy-owners.toml); `north agent-policy-contract --write`
+  renders the Claude and Codex hook configs that run them.
 
 - Claude worker definitions and Codex prompts: [harness/claude/agents/](../harness/claude/agents/)
   and [harness/codex/prompts/](../harness/codex/prompts/); how they are installed is not traced in
