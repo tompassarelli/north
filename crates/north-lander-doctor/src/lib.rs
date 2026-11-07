@@ -12,6 +12,7 @@ pub mod book;
 pub mod drill;
 pub mod bounds;
 pub mod facts;
+pub mod gate_stats;
 pub mod hands;
 
 #[cfg(test)]

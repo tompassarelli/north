@@ -20,6 +20,7 @@ use crate::landing::lane_squash::{self, Squash};
 use crate::land::scans::outgoing::denylist::Denylist;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane]";
+pub const REFUSALS: &str = "north/enqueue-refusals.jsonl";
 
 #[derive(Clone, Copy, Debug)]
 pub enum Shape<'a> {
@@ -296,9 +297,18 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         Err(error) => {
+            record_refusal(&state_home, repo, &error);
             eprintln!("safe-push: ✗ cannot queue the lane: {error}; NOT queued.");
             1
         }
+    }
+}
+
+fn record_refusal(state_home: &Path, repo: &Path, error: &str) {
+    let micros = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros());
+    let row = serde_json::json!({ "micros": micros, "root": repo.to_string_lossy(), "error": error });
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(state_home.join(REFUSALS)) {
+        let _ = io::Write::write_all(&mut file, format!("{row}\n").as_bytes());
     }
 }
 
