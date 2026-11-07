@@ -129,6 +129,9 @@ pub fn build(task: &Task, source: &Path, dir: &Path, target: &Path) -> Result<Or
     checkout(source, &task.base, &base_tree)?;
     overlay(&base_tree, source, task)?;
     let base = passing(&run_tests(&[], &base_tree, task, &dir.join("base.log"), Some(target))?);
+    if fs::read_to_string(dir.join("base.log")).is_ok_and(|log| log.contains("could not compile")) {
+        return Err(refusal("the landing's tests do not build at the base: they use names the landing added, so a correct change under other names would fail them"));
+    }
     let fail_to_pass = reference.difference(&base).cloned().collect();
     let oracle = Oracle { reference, base, fail_to_pass };
     fs::write(&saved, serde_json::to_string_pretty(&oracle).map_err(NorthError::Json)?).map_err(NorthError::Io)?;
