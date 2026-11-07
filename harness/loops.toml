@@ -555,7 +555,6 @@ constants = [
   "src/cli/fleet/limit.rs::QUERY",
   "src/cli/fleet/list.rs::MISSING_MINUTES",
   "src/cli/fleet/list.rs::STALE_MINUTES",
-  "src/cli/fleet/placement.rs::TIE_WEEK_POINTS",
   "src/cli/fleet/rebooted.rs::REVIVE_BUDGET",
   "src/cli/fleet/show.rs::FOLLOW_POLL",
   "src/cli/fleet/spool.rs::DELIVER_BUDGET",
