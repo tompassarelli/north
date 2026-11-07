@@ -94,7 +94,7 @@ instructions, and no text was copied.
   training data alone has no recorded north failure behind it and is not added.
 - **State the goal and what done looks like before touching a file; missing acceptance criteria are not guessed**
   (a thread line; the Gemini review). The worker-tier guard (`crates/north-guard/src/guard/worker_tier.rs`) refuses
-  a worker brief without its header lines. `north brief new` prints a `Done when:` skeleton
+  a worker brief without its header lines. `north work brief new` prints a `Done when:` skeleton
   (`crates/north-guard/src/guard/brief_skeleton.rs:21`). The issue-filing guard
   (`crates/north-guard/src/guard/issue_filing.rs`) reads Done when on every worker issue.
 - **Say what you did not test; concise reports with commands, results and gaps** (a thread line; the Gemini
@@ -135,7 +135,7 @@ instructions, and no text was copied.
   `crates/north-guard/src/guard/tripwire.rs`).
 - **Secrets behind the filesystem or a proxy, not a CLAUDE.md line** (a thread line). The sops-decrypt guard keeps
   decrypted output off the terminal (`crates/north-guard/src/guard/sops_decrypt.rs`). The tripwire refuses
-  sensitive outbound transfers, and `north credentials check` audits every credential's kind and expiry.
+  sensitive outbound transfers, and `north ops credentials check` audits every credential's kind and expiry.
 - **The main thread supervises and never writes code** (a thread line; the OpenAI review). The proxy role guard
   (`crates/north-guard/src/guard/proxy_role.rs`) and the proxy agent definition: the proxy routes and judges, and
   every worker is a fleet session.

@@ -75,7 +75,7 @@ A landed candidate still goes through `safe-push` and the full land checks like 
 Every arm dispatch runs (tier arms, effort arms, handoff arms, and the climber's own) starts at an equal share, 50-50 for two
 arms. After each closed box the loop reallocates by Thompson sampling on cost per kept box: it draws from each arm's posterior of
 cost per kept box and gives the next box to the arm with the lower draw, with a floor on every arm's share until the arm settles
-(the settle rule below). A settled arm takes the whole category. `north climb run --dry-run` prints every live arm's
+(the settle rule below). A settled arm takes the whole category. `north ops climb run --dry-run` prints every live arm's
 category, its experiment (tier, effort, handoff, context or climb arms, each splitting the category's boxes on its own), share and how it was set (Thompson over 1,000 seeded draws with a 10% floor, or settled), boxes, closed, kept and
 dollars per kept box. A posterior draw resamples the arm's boxes with replacement, and arms tied cheapest split the draw.
 Dispatch and `north fleet launch` draw each armed launch's arm from these shares (`dispatch::shares`, seeded by the item and its launch count, so a relaunch draws again and every host draws alike), and the dry run reads the same 30-day arm window dispatch prices arms over, so the share it prints is the share launched (2026-11-06). The draw covers effort arms on Opus and planner or reviewer boxes, and the context arm of a local box on neither; handoff and climb arms are stamped by their briefs.
@@ -139,7 +139,7 @@ Search done 2026-11-06; claims marked secondary come from summaries, not the pap
 
 ## Built and to build
 
-Built in the first box: `crates/north-climb` with `north climb run --dry-run` (loss, `CheapestCell` generator, scope guard, replay
+Built in the first box: `crates/north-climb` with `north ops climb run --dry-run` (loss, `CheapestCell` generator, scope guard, replay
 score, live arm table). Built since: the evidence settle rule, the key-level scope guard, the checker-verified reward, the Thompson shares in the dry
 run and the loop's own verdicts on `climb-` experiments. Left as boxes on north#636: dispatch routing by the sampled shares;
 a passing candidate registering its experiment; the graph archive and the live-arm selection with automatic revert; the Claude-session generator; the loop

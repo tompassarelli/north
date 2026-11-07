@@ -89,7 +89,7 @@ tests reach into `#[doc(hidden)]`, always compiled: a `test-support` feature onl
 false under the new crate's tests; the caller in the new crate picks its own (`ops::defaults_measure`
 passes `Sources::default()` to the `_with` calibration readers). To rebase a move, reset
 to the new main and run it again rather than merging by hand.
-`north split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... MODULE...`
+`north code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... MODULE...`
 moves each `MODULE` (a path such as `tui` or `ops/tempo`) out of `crates/FROM/src` (default
 `north-core`) into the sibling crate `crates/CRATE/src/NAME`, all in one run. It refuses when any file
 outside the root package still reaches a module being moved, since that edge must be cut first. It
@@ -115,7 +115,7 @@ North-guard, north-ops, north-dispatch, north-runtime, north-tui and north-capac
 north-core only for `ledger`, `providers` and `health` and for north-core's re-exports of north-base,
 north-fleet, north-pace and north-threads. Moving the three modules (with `codex`, which `providers`
 uses) into two crates, and pointing each `lib.rs` at the crates that own what it re-exports, left the
-root package as north-core's only dependent. `north split move-module` refuses this move, because
+root package as north-core's only dependent. `north code-health split move-module` refuses this move, because
 sibling `lib.rs` re-exports name the modules, so it was done by hand as byte-identical renames.
 `health` got its own crate because north-ops was 600 lines under its 25,000-line cap.
 
@@ -167,7 +167,7 @@ moved by hand first and added to `lib.rs` after the run, and `north-base` was ad
 `ops` points into `guard`.
 The shell recipe this move used moved one module per run and rewrote the crate's `Cargo.toml` and `lib.rs`,
 so `hook` was moved by hand first and added to `lib.rs` after the run, and `north-base` was added because
-`guard` names `north_base::` directly; `north split move-module` moves both in one run and names
+`guard` names `north_base::` directly; `north code-health split move-module` moves both in one run and names
 `north-base` itself. When `ops` leaves `north-core`, `north-guard` depends on that crate; nothing in
 `ops` points into `guard`.
 
@@ -521,7 +521,7 @@ back-edges into `ops`.
 
 ### Paths that break on a move
 
-`north split move-module` keeps a top-level module's path inside `src/`. So the 48 `include_str!` paths with three or more
+`north code-health split move-module` keeps a top-level module's path inside `src/`. So the 48 `include_str!` paths with three or more
 `../` and the same-crate `CARGO_MANIFEST_DIR` joins (`src/ops/check/fixtures` and the like) stay valid. Four
 kinds of path cross a crate and break, and they surface only in main's `cargo.yml`, since `cargo test`
 left the land gate at 2b5675065:

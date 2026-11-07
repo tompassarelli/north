@@ -388,7 +388,7 @@ and Cloud credit lane sections), `[placement] cloud_credit` and `cloud_host` in 
 (read; the south edit is its own landing). Spec: anthropic-cloud is eligible for a code-only public box whenever
 some Claude account's headroom admits a session by the 5h and weekly rules local sessions use; the verdict names
 that account and its launch host (the host holding its login); the credit no longer gates it, and the
-`cloud credit:` lines go. Done when: `agents plan --place BRIEF` on a code-only north brief prints `target
+`cloud credit:` lines go. Done when: `agents plan --place BRIEF` on a code-only north work brief prints `target
 anthropic-cloud` under an account the rule admits, and with no account admitted prints a held or local
 verdict.
 

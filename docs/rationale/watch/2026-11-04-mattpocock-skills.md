@@ -79,14 +79,14 @@ DONE-BARS" rule to its `doctrine.md`. Both were cut 22 days later by `8aace10df`
 default"), and `docs/method.md` itself was deleted in `e74ad5b1f` (2026-10-08). No record says why the norms were
 cut, which is a finding: an adopted rule left with no trace of its removal.
 
-- Done-bars: live, and stronger than the prose, in code. `north brief new` prints ``Done when: `<command that proves
+- Done-bars: live, and stronger than the prose, in code. `north work brief new` prints ``Done when: `<command that proves
   it>` `` (`crates/north-guard/src/guard/brief_skeleton.rs:21`); `harness/skills/workers/references/brief.md:8` makes
   the first Done when line an oracle whose observed result the worker attaches; the issue-filing guard reads Done
   when (`crates/north-guard/src/guard/issue_filing.rs:19`). The refusal "Done when has no command"
   (`crates/north-core/src/router/brief.rs:157`) sits on the Codex qualification path only.
 - Information hierarchy: live as practice, without the name. `harness/skills/agent-policy/SKILL.md` § SKILL.md and
   references keeps `SKILL.md` complete for ordinary work and links each reference with when to read it;
-  `north agent-config-check tree-policy` enforces the 6,144-byte and 500-line skill limits; the workers skill became
+  `north check harness tree-policy` enforces the 6,144-byte and 500-line skill limits; the workers skill became
   a router over references today (`37fd09f46`).
 - Leading words, the no-op test and positive phrasing: not live. `rg -i 'leading word|no-op|positive (phrasing|target)|prohibition'`
   over `harness/skills`, `harness/claude` and `agent-machinery/doctrine.md` finds nothing outside the vendored
@@ -98,7 +98,7 @@ cut, which is a finding: an adopted rule left with no trace of its removal.
 
 ## Measured basis (2026-11-04)
 
-- Ledger, `north worker-ledger --summary --by category`: 5,998 worker runs, 3,372 Done (56%), about 2,064 kept (61%
+- Ledger, `north ledger worker --summary --by category`: 5,998 worker runs, 3,372 Done (56%), about 2,064 kept (61%
   of Done). A Done run is kept only when no other run on its item started within 24 h and its landing was not
   reworked, so about 39% of Done runs were followed by another run on the same item or reworked. That is an upper bound on
   first-pass misses, because a follow-up box also counts. Runs per closed issue, over the 15 Claude first-tier cells
@@ -108,7 +108,7 @@ cut, which is a finding: an adopted rule left with no trace of its removal.
   appears in none of the 54 entries of `north config agents routines`. Run again on 2026-11-04 with `--days 7 --chunks 6
   --per-thread 3`, it mined 1,254 candidates in about 20 s (623 flagged as Tom pushback, 456 Not done, 111 reverts,
   33 blocked, 23 admission, 6 relayed corrections, 2 fix chains), and nothing classifies them.
-- Context, `north context audit --since 7d`: 1,149 sessions; startup policy 2,975 tokens a session; total injected
+- Context, `north config context audit --since 7d`: 1,149 sessions; startup policy 2,975 tokens a session; total injected
   context p50 3,636 tokens for a lead and 3,049 for a worker.
 - Reviews: the ledger's 77 review lenses are defect hunts (drift against an original, credential scope, attacker of
   the boundary, landing review); none checks a diff against what its brief asked for. North staffs a reviewer only

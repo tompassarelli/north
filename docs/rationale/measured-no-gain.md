@@ -103,7 +103,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 ### Restaff arms escalate, cheap-fix and split
 
 - Measurement: the bar is 15 runs per arm (`harness/skills/workers/references/tiers.md:10`, south
-  `agents/decisions/harness/escalation-review.md`). `north report` prints escalate 1/3, cheap-fix 2/8, split 0/1,
+  `agents/decisions/harness/escalation-review.md`). `north fleet report` prints escalate 1/3, cheap-fix 2/8, split 0/1,
   and the last such run was 2026-10-26: 12 runs in three weeks against 45 needed, so no decision is in reach.
 - Live code: only prose assigns the arms (`harness/skills/workers/references/tiers.md:10`); readers are
   `crates/north-ops/src/ops/report/arms.rs` (74, via `crates/north-ops/src/ops/report/mod.rs:86` and `:118`)

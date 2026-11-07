@@ -15,7 +15,7 @@ Every concern also carries:
 
 - How it is measured, exactly one of:
   - `oracle`: a command whose first output line is one number, run by the concerns sampler. Further lines are the detail (which lanes, which hosts), carried into messages and views.
-  - `producer`: the program that already measures it in its own run and records its samples (`north land doctor`, `north flow`), so no second probe runs. A doctor dry run probes every lander place; running one per concern every 10 minutes would repeat that a dozen times.
+  - `producer`: the program that already measures it in its own run and records its samples (`north land doctor`, `north ledger flow`), so no second probe runs. A doctor dry run probes every lander place; running one per concern every 10 minutes would repeat that a dozen times.
 - `window`: the span the measurement averages over (`0` for a reading of now, `24h` for a ready bar, `7d` for the detection rate). The climb measurement below waits a window after a landing before it reads the effect.
 - `reads`: `tree` when the oracle reads only the checkout, so a landing can turn it red and the after-landing gate may attribute and revert (crates/north-landing/src/land/after/goals.rs); `live` when it reads the running system. Today the gate attributes every contract, including `landing-p90` and `main-green-latest-verdict`, which read live records: it runs them on the landed tree and at the base, and a live value that flips between those reads can blame an innocent commit. Only `tree` floors are attributed.
 - `host`: the role whose machine measures it, the roles `harness/loops.toml` uses (`ledger`, `lander`, `here`), because the lander's facts, the ledger and the fleet's records live on different machines and no host reads another (docs/rationale/learning-loops.md). The role resolves to one host, so each concern has one series.
@@ -56,18 +56,18 @@ Alternatives that lost:
 - North's own `ledger.db`: one per host, so a lander concern and a fleet concern would live in two files no single view reads.
 - A JSON-lines file under the state root, as `ready-priority.jsonl` does: no index and no cross-host home, and every reader re-parses it.
 
-**Cadence.** One sample per concern every 10 minutes, the goal tick's existing `CHECK_EVERY`. The fleet tick samples the `here` oracles; `north land doctor`, which runs every 2 minutes on the lander host, records its concerns at most every 10 minutes from the run it already does; `north flow`'s timer records its concerns from each run; a 10-minute user timer on the ledger host runs `north concerns sample --role ledger`, added in nixos-config by the lane that adds the first ledger concern, since the nightly `north tune` unit there is too slow.
+**Cadence.** One sample per concern every 10 minutes, the goal tick's existing `CHECK_EVERY`. The fleet tick samples the `here` oracles; `north land doctor`, which runs every 2 minutes on the lander host, records its concerns at most every 10 minutes from the run it already does; `north ledger flow`'s timer records its concerns from each run; a 10-minute user timer on the ledger host runs `north concerns sample --role ledger`, added in nixos-config by the lane that adds the first ledger concern, since the nightly `north tune` unit there is too slow.
 
 **Retention.** Raw samples are kept 35 days and deleted by the ingest that records a batch, in the same transaction that writes it. 35 days covers the 7-day slope, the ratchet's 7 days and the dividend's 30-day lane window with room to spare. About 50 concerns at 144 samples a day is about 250 000 rows at the cap, a few tens of megabytes in a ledger of 136 MB. No downsampled tier: nothing reads past 35 days.
 
-**A stale sampler is flagged by the silent-signal detector (`north flow detect`).** docs/feedback-loop.md's Recorded readings get one row per sampler (`SELECT max(at) FROM concern_samples WHERE sampler = 'NAME'`, cadence 10m for the tick, the doctor and the ledger timer, 15m for flow), so one sampler stopping fails the silent-signal check even while the others write.
+**A stale sampler is flagged by the silent-signal detector (`north ledger flow detect`).** docs/feedback-loop.md's Recorded readings get one row per sampler (`SELECT max(at) FROM concern_samples WHERE sampler = 'NAME'`, cadence 10m for the tick, the doctor and the ledger timer, 15m for flow), so one sampler stopping fails the silent-signal check even while the others write.
 
 ## The four states
 
 Each sample's value is judged in order:
 
 1. **Unmeasured** (shown, not one of the four): the measurement failed, or the newest sample is over 1 hour old. A concern unmeasured for an hour tells the proxy at posture `tell` and above, as "not read" does today.
-2. **Red**: a floor crosses its `bound`, or a climb crosses its `worst`. A climb with no `worst` is never red. A `tree` floor reads red on the first red sample (the landing gate already confirms it twice); a `live` concern needs two red samples in a row, the two-run rule `north flow`'s alerts use today, so one slow reading does not message anyone.
+2. **Red**: a floor crosses its `bound`, or a climb crosses its `worst`. A climb with no `worst` is never red. A `tree` floor reads red on the first red sample (the landing gate already confirms it twice); a `live` concern needs two red samples in a row, the two-run rule `north ledger flow`'s alerts use today, so one slow reading does not message anyone.
 3. **Repairing**: red, and the 12 h slope moves significantly back toward the line.
 4. **Drifting**: not red, and either the value sits inside the `warn` band, or the slope is significant toward the line and, at the 24 h slope, the value would cross it within 7 days. For a climb with no `worst`, drifting is a significant 24 h move away from the target.
 5. **Green**: otherwise.
@@ -92,13 +92,13 @@ Alternatives that lost:
 
 ## One registry, one judge
 
-Four places judge health today, each with its own thresholds and its own judge. The registry kind stays per project (targets.md: projects own their goals, so the file sits beside the README it is drawn from); "one registry" means every threshold is a `[[concern]]` in a `concerns.toml` and one function, `north_concerns::verdict::judge`, decides state and whether a target is met for all of them. Measurement stays where the domain lives (the scoreboard measures readiness, the doctor reads the lander, `north flow` reads the queues). That is the review's telemetry-apart-from-thresholds split: the domain code measures, concerns.toml holds the numbers, north-concerns judges.
+Four places judge health today, each with its own thresholds and its own judge. The registry kind stays per project (targets.md: projects own their goals, so the file sits beside the README it is drawn from); "one registry" means every threshold is a `[[concern]]` in a `concerns.toml` and one function, `north_concerns::verdict::judge`, decides state and whether a target is met for all of them. Measurement stays where the domain lives (the scoreboard measures readiness, the doctor reads the lander, `north ledger flow` reads the queues). That is the review's telemetry-apart-from-thresholds split: the domain code measures, concerns.toml holds the numbers, north-concerns judges.
 
 **Scope.** `north concerns` reads the concerns file of every active project (not set aside in orchestration.toml, the rule the ready table already uses) into one view and one dispatch order, so priorities are weighed across the studio. The fixed `PROJECTS` list goes, with its uses in crates/north-goals/src/tick.rs and crates/north-landing/src/land/after/goals.rs. A project with no file contributes nothing and is not a problem line (makgora has none today).
 
 **A registry that does not parse.** Today the after-landing run reads goals.toml only after the tree has landed, so a broken file reaches main. With the doctor reading its lines from the file, a broken file would also stop the lander's repairs while the fix waits on that lander. Two rules close it: the land check parses concerns.toml before a lane lands and refuses one that does not parse, and every reader that acts on lines (the doctor) keeps the last copy that parsed and uses it, with one unknown-state page, until a good one lands.
 
-**What stays outside.** `north flow detect`'s self-detectors and their `detector_*` thresholds in harness/defaults.toml judge events, not standing values: each records an incident when it fires. They stay detectors; the detection-rate concern below counts them. Decision constants that act (admission's `saturation::QUEUED_LIMIT` and `build_disk_free_gib`, the doctor's `PATIENCE_SECS`, `NO_VERDICT_PROMOTIONS` and `GOOD_KEPT`) stay with their loops, because a loop tunes them; a concern judging the same quantity has its own line, which may sit beside the constant.
+**What stays outside.** `north ledger flow detect`'s self-detectors and their `detector_*` thresholds in harness/defaults.toml judge events, not standing values: each records an incident when it fires. They stay detectors; the detection-rate concern below counts them. Decision constants that act (admission's `saturation::QUEUED_LIMIT` and `build_disk_free_gib`, the doctor's `PATIENCE_SECS`, `NO_VERDICT_PROMOTIONS` and `GOOD_KEPT`) stay with their loops, because a loop tunes them; a concern judging the same quantity has its own line, which may sit beside the constant.
 
 ### Ready bars
 
@@ -118,7 +118,7 @@ The doctor reads these lines from the registry at start and judges each subject 
 
 ### Flow alerts
 
-Each `north flow --stall-alarm` alert becomes a floor with `producer = "north flow"`, `host = "here"` and `reads = "live"`. The repository alerts read the row `north flow` already writes per repository each run (`agents/flow/REPO.json`, crates/north-flow/src/flow/measure.rs); the flow run records each concern's count, worst across repositories, with one detail line per lane, host or category:
+Each `north ledger flow --stall-alarm` alert becomes a floor with `producer = "north ledger flow"`, `host = "here"` and `reads = "live"`. The repository alerts read the row `north ledger flow` already writes per repository each run (`agents/flow/REPO.json`, crates/north-flow/src/flow/measure.rs); the flow run records each concern's count, worst across repositories, with one detail line per lane, host or category:
 
 - the stall notice (main idle and lanes waiting past the adaptive limit, or a landing job past twice its median) → `landing-stalled`, 0, `tell`;
 - the capacity guards `actions`, `wisp` and `reuse` ("Underused capacity") → `capacity-underused`, 0, `tell`;
@@ -192,7 +192,7 @@ T3's short hold before announcing "done" is not needed: north announces the repo
 
 ## The first standing concern: detection rate
 
-`incidents-detector-first` is a climb with `direction = "up"` and `window = "7d"`: the share of the last 7 days' incidents first noticed by a detector rather than by Tom or by no one (7 days to 2026-11-06: detector 3 of 128, Tom 9, no one 116). Its oracle is `north incident report --days 7 --metric detector-share`. Today's report counts every non-human noticer as a detector; the metric splits the `noticed_by` values into detector, Tom (`tom`, `proxy`) and no one (rows recorded after the fact by a sweep or an import), and the lane that adds it reproduces 3 of 128 on that week before it lands. Its target is 50 %, a draft, as targets.md asks for a new target; its owner is north#709 until a detection issue takes it; `worst` is left out until a week of history says where a floor would sit.
+`incidents-detector-first` is a climb with `direction = "up"` and `window = "7d"`: the share of the last 7 days' incidents first noticed by a detector rather than by Tom or by no one (7 days to 2026-11-06: detector 3 of 128, Tom 9, no one 116). Its oracle is `north ledger incident report --days 7 --metric detector-share`. Today's report counts every non-human noticer as a detector; the metric splits the `noticed_by` values into detector, Tom (`tom`, `proxy`) and no one (rows recorded after the fact by a sweep or an import), and the lane that adds it reproduces 3 of 128 on that week before it lands. Its target is 50 %, a draft, as targets.md asks for a new target; its owner is north#709 until a detection issue takes it; `worst` is left out until a week of history says where a floor would sit.
 
 ## Order of work
 
@@ -206,7 +206,7 @@ One fresh Opus reviewer read the first draft against the code on 2026-11-07 and 
 
 - The ratchet would have tightened the doctor's lines, which are also its remedy triggers, and set lines from hourly medians while judging raw samples: floors naming a `remedy` are never ratcheted, and the ratchet uses the raw 99th percentile.
 - The draft said the after-landing run refuses a concerns.toml that does not parse; it runs after the tree lands. The land check now parses it first, and the doctor keeps its last good copy.
-- Running a doctor dry run per concern would repeat every probe a dozen times: the doctor and `north flow` record their own samples (`producer`).
+- Running a doctor dry run per concern would repeat every probe a dozen times: the doctor and `north ledger flow` record their own samples (`producer`).
 - The judge would have read hysteresis from a 15-minute-old snapshot, two hosts could alternate as one series, and one `max(at)` misses one stopped sampler: state lives in each sampler's state file, a role resolves to one host, and each sampler has its own recorded reading.
 - An 18-to-30-hour after window still overlaps a 24-hour or 7-day average: each concern declares its `window` and the after window starts one window after landing.
 - The ready fold lacked a met-target answer, dropped makgora's bars, gave nine bars one owner that would credit every lane to all nine, and omitted `revisit`: all four fixed above.

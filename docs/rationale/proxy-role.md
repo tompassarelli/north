@@ -24,7 +24,7 @@ the order the rules try them:
 - delegate: `Agent`, `north fleet launch|revive`, `north fleet dispatch`, `threads queue follow`, `north cloud launch`
 - child message: `SendMessage`, `ListAgents`, `north fleet send|ask`
 - Tom-facing: `north gate`, `date '+%I:%M %p'` (clock times for Tom)
-- briefing: `north brief`, a brief file or heredoc starting `Item:`
+- briefing: `north work brief`, a brief file or heredoc starting `Item:`
 - monitoring scripts: `Monitor`, `TaskStop`, `ScheduleWakeup`, `CronCreate`, shell loops and sleeps, `nohup`/`setsid`, writing a `.sh` or `.ts` helper
 - bookkeeping: `gh issue edit|close|comment`, `threads tick|close|claim|release`, `north fleet stop|forget`, `git merge-base --is-ancestor`, worktree and branch removal, notes appended to the scratchpad
 - hands-on landing and editing: `Edit`, `Write`, `safe-push --to`, `north land enqueue`, `git commit|push|rebase|add`
@@ -318,7 +318,7 @@ Why they are dropped, from South's history:
 - 2026-10-16, South `5684064` removed the supervisor and mailbox and with them the org-role hook and
   its role registrations. The five flipped to `global`, but no bullet for them was added to
   `agents/AGENTS.md`, so no session received them.
-- 2026-10-29, South `c3c795e` (north#351): `north agent-config-check` requires each `global` rule to
+- 2026-10-29, South `c3c795e` (north#351): `north check harness` requires each `global` rule to
   have its bullet, so these five were marked `dropped` to make the register match the loaded policy.
 
 So since 2026-10-16 the proxy has had none of them. The cause is structural, not editorial: role
@@ -348,7 +348,7 @@ Disposition, each with what enforces it:
 - `know-socrates-names`: **placed** as `agent:proxy`, a new placement kind meaning "this rule's text
   is in `harness/claude/agents/NAME.md`". Only the proxy reads Tom's voice-transcribed messages, so the
   names belong in its role file, not in every session's global rules. Its text also carries a typo
-  (`Tom.s workforce is coordinated`) fixed in the same change. Enforced by `north agent-config-check`:
+  (`Tom.s workforce is coordinated`) fixed in the same change. Enforced by `north check harness`:
   for every `agent:NAME` placement it checks that the role file exists and contains the rule's text,
   so a placement can no longer silently lose its home the way `hook:org-role` did.
 
@@ -361,7 +361,7 @@ closes an issue or retires a session. And only north lands through the lander: m
 a ticket field would miss most landings. The box therefore travels in the commit.
 
 1. **The box is a commit trailer.** A lane's commit carries `Item: REPO#N` and `Box: TEXT` trailers,
-   the text of the Done when box it closes; `north brief new` prints both for the worker to copy, and
+   the text of the Done when box it closes; `north work brief new` prints both for the worker to copy, and
    `north cloud land` keeps them (it strips only `Claude-Session:` and `Co-Authored-By:`). `north land
    scan`, which safe-push and the lander both run before a push, refuses a `Box:` that matches no
    unticked box on the issue, so a wrong box is refused before it lands, not discovered after.
@@ -430,7 +430,7 @@ push access to South and the Firn timers are host configuration.
    records `Proxy` and exports `NORTH_FLEET_ROLE=proxy`, a task launch records `Worker`, a second live
    proxy is refused without `--take-over`, and the ledger and lead timer read the field.
 4. **L1 `Item:` and `Box:` trailers, checked before the push.** feature, cross-module, rust,
-   local-test; 40 min. Files: `north brief new`, `north land scan` in `crates/north-landing/src/land/scans/`,
+   local-test; 40 min. Files: `north work brief new`, `north land scan` in `crates/north-landing/src/land/scans/`,
    `north cloud land`, `harness/skills/workers/references/brief.md`. Needs: the incidents-by-construction
    lane, which edits the lander. Done when: `cargo test -p north-landing land::scans` passes cases where
    a `Box:` matching no unticked box is refused, one matching passes, and `north cloud land` keeps both
@@ -460,7 +460,7 @@ push access to South and the Firn timers are host configuration.
    passes, and `proxy.md`'s tools carry `Agent(Explore, Plan)`.
 9. **R2 role prompt and grounding.** feature, cross-module, rust, local-test; 30 min. Files:
    `crates/north-core/src/fleet/prompt.rs`, `harness/hooks/prompt-grounding.sh`,
-   `crates/north-core/src/fleet/audience.rs` (the hook's audience, passed into `north grounding hook`
+   `crates/north-core/src/fleet/audience.rs` (the hook's audience, passed into `north graph ground hook`
    by the CLI root). Needs: R1, W1. Done when: `cargo test -p north-core fleet::audience`
    passes cases where a role-proxy session gets the block for a `Tom` message and not for a `Service`
    or `Session` one and a worker gets none, and `cargo test -p north-core fleet::prompt` shows the
@@ -497,7 +497,7 @@ push access to South and the Firn timers are host configuration.
     session.
 12. **S1 South: place the five rules.** Repository: south, laptop. docs-policy, one-file, docs,
     local-test; 20 min. Files: `agents/rules.toml`. Needs: A1, G1, R2 on the runtime. Done when:
-    `north agent-config-check policy-gate session` exits 0 on the South lane with the placements of
+    `north check harness policy-gate session` exits 0 on the South lane with the placements of
     section 3 and the typo fixed.
 13. **R3 `north proxy`.** feature, cross-module, rust, local-test; 45 min. Files: `src/cli/` (a
     `proxy` verb), `crates/north-tui/src/tui/fleet/` (model and effort slash commands),

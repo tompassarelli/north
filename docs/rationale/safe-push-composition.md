@@ -113,10 +113,10 @@ a repository with no committed host still lands per lane today. That includes th
    Agent app) applies to every safe-push write without safe-push knowing about it. One consequence is
    unchanged by the port: GitHub refuses a non-`v*` tag created from an agent session (no App bypass on
    that ruleset, `agent-push-identity.md`; observed in b081e327c). `--tag` therefore succeeds only from
-   Tom's own login, while `--delete-tag` (the ruleset governs creation) and `north release` (the App has
+   Tom's own login, while `--delete-tag` (the ruleset governs creation) and `north land release` (the App has
    the `v*` bypass) work under both identities.
 8. **One release-tag predicate.** `tags::name::release_tag` (today `starts_with('v')`, from north#360's
-   release verb). `--tag` refuses it, `--delete-tag` refuses it, and `north release` requires it. The
+   release verb). `--tag` refuses it, `--delete-tag` refuses it, and `north land release` requires it. The
    in-flight `--delete-tag` (north#620) duplicates the rule inline, and P5 folds it into the predicate.
 9. **Every port box is a covered harness change.** south `agents/roles.toml` puts `north:bin/` under the
    `harness-editor` role, with tiers Opus medium, high and xhigh and a review that is fresh, independent,
@@ -147,7 +147,7 @@ passed in, so tests are properties over the pure functions plus recorded scenari
   so logic or `pub use` there would land outside the safe-push modules' edges.
 - `entry.rs`: the entry. `pub fn run(arguments: &[String], shell: &Shell, host: &HostFacts) -> u8`
   parses the request, picks the mode and calls the mode's module. The argv[0] dispatch in
-  `src/main.rs` calls `north_safe_push::entry::run`, and the `north release` verb calls
+  `src/main.rs` calls `north_safe_push::entry::run`, and the `north land release` verb calls
   `north_safe_push::tags::release::run`.
 - `request.rs` (+ `request/usage.txt`): argv to `Request`. Pure, with no effects at all.
   `parse(&[String]) -> Result<Request, Refusal>`. The variants are `Help`, `Abandon(args)`,
@@ -217,7 +217,7 @@ passed in, so tests are properties over the pure functions plus recorded scenari
   - It uses `request`, `gates`, `publication` (the "would push" text), `session`, `report` and `shell`.
 - `tags/`: `name.rs` (`release_tag`, ref-format check; pure), `publish.rs` (`--tag`), `delete.rs`
   (`--delete-tag`, north#620, with a pure `custody(&TagFacts) -> Option<Custody>`), `release.rs`
-  (`north release`). It uses `request`, `gates`, `session`, `report` and `shell`.
+  (`north land release`). It uses `request`, `gates`, `session`, `report` and `shell`.
 - `restore.rs`: `--restore` (north#618). A pure `source(&RestoreFacts) -> Result<Source, Refusal>`
   (the default branch or the lane-gc mirror; never over an existing branch), then `Origin::push`. It uses
   `request`, `session`, `report` and `shell`.
@@ -230,7 +230,7 @@ has one `[[module]]` per concern, named `landing.safe_push.<concern>` (`shell`, 
 `session`, `mode`, `gates`, `publication`, `tags`, `restore`, `landing`, `entry`), each with the
 `may_use` edges above plus `foundation`. `shell` may also use north-base's `platform`. `gates`, `landing`
 and `entry` may use the existing `landing` module, which holds north-landing's scans, enqueue and land
-checks. `cli` may use it for the argv[0] dispatch and `north release`, and `tests` may use every one of
+checks. `cli` may use it for the argv[0] dispatch and `north land release`, and `tests` may use every one of
 them. A `crate_dag` entry `north-safe-push` has `may_use = ["north-landing", "north-base"]`. Every box
 that adds a file keeps it inside its module's paths, and `north code-health layers origin/main HEAD` is
 the check.
@@ -456,7 +456,7 @@ All four are on origin/main as of this revision.
   `Origin::delete` (P7).
 - The non-admin push identity (north#619, bc3aa3bde and b081e327c): nothing in safe-push changes.
   Decision 7 and P6's property keep every safe-push write under the session's credential helper.
-- `v*` refusal outside `north release` (d8e911988): `release.rs` moves to `tags/release.rs` (P4) and its
+- `v*` refusal outside `north land release` (d8e911988): `release.rs` moves to `tags/release.rs` (P4) and its
   `version_tag` to `tags/name.rs` as `release_tag` (P5). `--tag` and `--delete-tag` refuse through the
   same function.
 
