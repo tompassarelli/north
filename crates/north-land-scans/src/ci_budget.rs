@@ -6,7 +6,7 @@ use std::process::Command;
 use north_base::foundation::clock::Timestamp;
 use serde_json::Value;
 
-use crate::land::scans::git;
+use crate::git;
 
 const HOLD_SECONDS: i64 = 1800;
 const RUNS_MEASURED: usize = 3;
@@ -122,7 +122,7 @@ impl Scan<'_> {
 
     fn judge(&self, budget: &Budget, landing: &Landing, out: &mut impl Write) -> Verdict {
         let workflow = budget.workflow.as_str();
-        if !super::workflow_paths::triggered(self.tree, workflow, &landing.changed) {
+        if !crate::workflow_paths::triggered(self.tree, workflow, &landing.changed) {
             let _ = writeln!(out, "after-landing: CI budget {workflow} exemption — no changed path matches its push paths filter.");
             return Verdict::Pass;
         }

@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-lander = { path = "../north-lander" }
 north-landing = { path = "../north-landing" }
 rustix.workspace = true
 tokio.workspace = true

@@ -39,7 +39,7 @@ impl Book {
             fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
         }
         let text = serde_json::to_string_pretty(self).map_err(|error| error.to_string())? + "\n";
-        north_landing::land::queue::write_atomic(path, &text).map_err(|error| format!("{}: {error}", path.display()))
+        north_lander::land::queue::write_atomic(path, &text).map_err(|error| format!("{}: {error}", path.display()))
     }
 
     pub fn last_remedy(&self, key: &str, class: &str) -> Option<u64> {

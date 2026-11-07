@@ -597,7 +597,7 @@ suite until S20 ports it to `cargo test --test it land_`, under the same name.
 
 ### The protocol model
 
-The stateright model of the landing protocol (`crates/north-landing/tests/lander_model.rs`) was deleted in the north-landing test cull (north#635, 2026-11-06): it checked a model rather than the lander, had already drifted from it (`4efb7995b`, then the batch landing of `152c6a303`), and its two seeded failures were variants of the model, not mutants of the code. The chaos and sheriff tests in `crates/north-landing/tests/it` replay the lander's real incidents instead.
+The stateright model of the landing protocol (`crates/north-landing/tests/lander_model.rs`) was deleted in the north-landing test cull (north#635, 2026-11-06): it checked a model rather than the lander, had already drifted from it (`4efb7995b`, then the batch landing of `152c6a303`), and its two seeded failures were variants of the model, not mutants of the code. The chaos and sheriff tests in `crates/north-lander/tests/it` replay the lander's real incidents instead.
 
 ### In-flight lanes land into this, not beside it
 
@@ -823,7 +823,7 @@ then S2b and S2c in parallel; then S3 and S4.
   unfit:`, and rechecks the lane at once with `north capacity offload choose --any --avoid HOST`;
   promote skips a recorded failure whose log carries one. The persistent-transient escalation still
   bounds a lane that is unfit on every host. tests/it/land_serve/unfit_host.rs,
-  crates/north-landing/tests/it/promote.rs.
+  crates/north-lander/tests/it/promote.rs.
 - **S7 Removed.** The scans bridge is not needed: S6a ports the land checks in place, and each Wave
   L2 box ports its scan in place, so `--check-candidate` keeps working throughout.
 - **S8 Lander App token.** Follows B16. Done when: a landing by the lander shows the App as its push

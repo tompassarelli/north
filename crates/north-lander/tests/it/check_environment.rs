@@ -2,7 +2,7 @@ use std::fs;
 
 use north_base::foundation::shim::write_executable;
 use north_base::foundation::offload::LOCAL_ENV;
-use north_landing::land::queue;
+use north_lander::land::queue;
 
 use super::serve::{World, git, report};
 

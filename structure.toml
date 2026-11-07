@@ -97,9 +97,19 @@ paths = ["crates/north-landing/src/**"]
 may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-goals", "north-mutants", "north-landing-gates", "north-land-scans", "north-check-environment", "north-land-checks", "north-land-probes"]
 
 [[crate_dag.crate]]
+name = "north-land-watch"
+paths = ["crates/north-land-watch/src/**"]
+may_use = ["north-base", "north-land-scans", "north-landing-gates"]
+
+[[crate_dag.crate]]
+name = "north-lander"
+paths = ["crates/north-lander/src/**"]
+may_use = ["north-base", "north-check-environment", "north-goals", "north-land-probes", "north-land-scans", "north-landing", "north-strategy-types"]
+
+[[crate_dag.crate]]
 name = "north-safe-push"
 paths = ["crates/north-safe-push/src/**"]
-may_use = ["north-base", "north-landing"]
+may_use = ["north-base", "north-lander", "north-landing"]
 
 [[crate_dag.crate]]
 name = "north-tui"
@@ -209,7 +219,7 @@ may_use = ["north-base", "north-capacity", "north-dispatch", "north-landing"]
 [[crate_dag.crate]]
 name = "north-lander-doctor"
 paths = ["crates/north-lander-doctor/src/**"]
-may_use = ["north-base", "north-check-environment", "north-landing"]
+may_use = ["north-base", "north-check-environment", "north-lander"]
 
 [[crate_dag.crate]]
 name = "north-climb"
@@ -475,7 +485,7 @@ may_use = ["foundation", "platform.github", "platform.process"]
 
 [[module]]
 name = "landing"
-paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**", "crates/north-land-checks/src/**"]
+paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**", "crates/north-land-checks/src/**", "crates/north-land-watch/src/**", "crates/north-lander/src/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
 may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "landing.probes"]
 
@@ -799,6 +809,21 @@ contention_ceiling = 0.5
 
 [rust_habits]
 checks = ["shared-mutability", "single-impl-trait"]
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-lander/src/land/serve.rs"
+reason = "Serve carries the serve loop's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116, so the methods live on a trait in the crate that uses them (north#840)."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-lander/src/land/serve/batch.rs"
+reason = "Batching carries the batch round's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116 (north#840)."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-lander/src/land/serve/round.rs"
+reason = "Probing carries the probe round's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116 (north#840)."
 
 [[rust_habits.allow]]
 rule = "shared-mutability"

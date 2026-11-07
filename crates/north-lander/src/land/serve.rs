@@ -38,7 +38,7 @@ pub enum Round {
     PushRefused(String),
 }
 
-pub(super) enum Pushed {
+pub enum Pushed {
     Landed,
     Moved,
     Refused(Refusal),
@@ -52,7 +52,7 @@ fn runtime_target(link: &Path) -> Option<PathBuf> {
     std::fs::read_link(link).ok()
 }
 
-const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
+const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
 
 struct RuntimeWatch {
     link: PathBuf,
@@ -99,12 +99,18 @@ fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
 
-impl Lander {
-    pub(super) fn push_token(&self, base: &str) -> Result<Option<String>, String> {
+pub trait Serve {
+    fn push_token(&self, base: &str) -> Result<Option<String>, String>;
+    fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String>;
+    fn round(&self, watch: &mut Watch) -> Result<Round, String>;
+}
+
+impl Serve for Lander {
+    fn push_token(&self, base: &str) -> Result<Option<String>, String> {
         credential::for_push(&self.worktree, base, &self.app_token)
     }
 
-    pub(super) fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String> {
+    fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String> {
         let mut push = std::process::Command::new("git");
         push.arg("-C").arg(&self.worktree);
         credential::apply(&mut push, token);
@@ -127,17 +133,12 @@ impl Lander {
         Ok(Pushed::Moved)
     }
 
-    pub(super) fn base_moved(&self, base: &str) -> Result<bool, String> {
-        let now = git(&self.worktree, &["ls-remote", "origin", "refs/heads/main"])?;
-        Ok(now.split_whitespace().next() != Some(base))
-    }
-
-    pub fn round(&self, watch: &mut Watch) -> Result<Round, String> {
+    fn round(&self, watch: &mut Watch) -> Result<Round, String> {
         self.heartbeat.enter(Step::Settle);
         if watch.settle(self) {
             return Ok(Round::Progress);
         }
-        Ok(match self.batch(watch)? {
+        Ok(match batch::batch(self, watch)? {
             Round::Idle if watch.in_flight() > 0 => Round::Checking,
             round => round,
         })

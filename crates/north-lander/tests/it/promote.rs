@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use north_landing::land::queue::{self, Ticket};
+use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 

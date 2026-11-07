@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use time::OffsetDateTime;
 
 use super::candidate::{self, git, output};
-use super::enqueue::rfc3339;
+use super::queue::rfc3339;
 use super::lander::Lander;
 use super::after::owner::{self, Reverted};
 use super::post_land;
@@ -187,7 +187,7 @@ fn lanes(worktree: &Path, parent: &str, tip: &str) -> Result<Vec<Lane>, String> 
     Ok(log.split('\0').filter_map(|entry| entry.trim_start().split_once('\n')).map(|(commit, message)| Lane { commit: commit.to_owned(), message: message.trim().to_owned() }).collect())
 }
 
-pub(crate) fn without(worktree: &Path, head: &str, lane: &str) -> Result<bool, String> {
+pub fn without(worktree: &Path, head: &str, lane: &str) -> Result<bool, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
     git(worktree, &["checkout", "-q", "--detach", head])?;
     if output(worktree, &["revert", "--no-commit", lane])?.status.success() {
@@ -264,11 +264,11 @@ fn lane_ticket(lander: &Lander, request: &Request, tip: &str, lane: &str) -> Opt
     })
 }
 
-pub(crate) fn queue_revert(lander: &Lander, worktree: &Path, branch: &str) -> Result<String, String> {
+pub fn queue_revert(lander: &Lander, worktree: &Path, branch: &str) -> Result<String, String> {
     queue_revert_in(&lander.repo, &lander.queue, worktree, branch)
 }
 
-pub(crate) fn queue_revert_in(repo: &Path, queue_dir: &Path, worktree: &Path, branch: &str) -> Result<String, String> {
+pub fn queue_revert_in(repo: &Path, queue_dir: &Path, worktree: &Path, branch: &str) -> Result<String, String> {
     let head = git(worktree, &["rev-parse", "HEAD"])?;
     let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned();

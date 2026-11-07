@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::candidate::git;
 use super::lander::state_home;
 use super::queue::{self, Ticket};
-use super::watchdog::QUARANTINE;
+use super::queue::QUARANTINE;
 
 const USAGE: &str = "usage: north land requeue TICKET --reason TEXT [--repo DIR]";
 

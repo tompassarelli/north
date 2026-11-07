@@ -1,12 +1,10 @@
 pub mod cleanup;
-mod ci_budget;
 pub mod follow;
 pub use follow::send;
 pub mod gates;
 pub mod goals;
 pub mod owner;
 pub mod tick;
-mod workflow_paths;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,7 +18,6 @@ use super::queue::{self, Ticket};
 use super::lander::{Lander, state_home};
 use super::records::{self, Candidate, Decision};
 use super::telemetry::{self, Stages};
-use super::watch::LandedLane;
 use super::trace;
 
 const INTENT: &str = "intent.json";
@@ -169,4 +166,10 @@ pub fn recover(lander: &Lander, claim: &Path) -> Result<Option<Recovered>, Strin
     println!("north land: finishing the interrupted landing of candidate {}", intent.head);
     finish(lander, claim, &intent.head, &intent.base, &Stages::empty(), tickets.collect())?;
     Ok(Some(Recovered { base: intent.base, head: intent.head, lanes }))
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LandedLane {
+    pub ticket: Ticket,
+    pub tip: String,
 }

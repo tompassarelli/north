@@ -17,7 +17,7 @@ use north_base::land_ticket::Phase;
 use super::serve::Round;
 
 pub use super::bisect::LEAD;
-pub const QUARANTINE: &str = "quarantine";
+pub use super::queue::QUARANTINE;
 pub const ROUNDS: &str = "watchdog/rounds.json";
 pub const PAGES: &str = "watchdog-pages.json";
 pub const STALE_MICROS: u64 = 20 * 60 * 1_000_000;

@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use north_landing::land::trace::profile::Trace;
-use north_landing::land::trace::report::Metric;
-use north_landing::land::trace::{Category, Spans, report};
+use north_lander::land::trace::profile::Trace;
+use north_lander::land::trace::report::Metric;
+use north_lander::land::trace::{Category, Spans, report};
 
 fn near(actual: f64, expected: f64) -> bool {
     (actual - expected).abs() < 1e-6

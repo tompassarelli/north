@@ -12,7 +12,8 @@ use crate::shell::git::default_branch;
 
 use north_landing::land::candidate::git;
 use north_landing::land::lander::state_home;
-use north_landing::land::{enqueue, hold, queue, repositories, setting};
+use north_lander::land::enqueue;
+use north_landing::land::{hold, queue, repositories, setting};
 
 const USAGE: &str = "usage: safe-push --to BRANCH [--message FILE | --several-commits REASON] [--keep-lane]";
 

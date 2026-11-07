@@ -15,7 +15,7 @@ use super::checks::Verdict;
 use super::lander::Lander;
 use super::after::owner::{self, Reverted};
 use super::post_land::{self, Found, Hosts, Outcome};
-use super::queue::{self, Ticket};
+use super::queue;
 use super::jobs::Jobs;
 use super::setting;
 use super::slots::select::Config;
@@ -29,11 +29,7 @@ const RETRY: Duration = Duration::from_secs(30);
 const UNSETTLED: usize = 3;
 const AFTER_RUNS: &str = "landing.after-runs";
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct LandedLane {
-    pub ticket: Ticket,
-    pub tip: String,
-}
+pub use super::after::LandedLane;
 
 #[derive(Serialize, Deserialize)]
 struct Entry {

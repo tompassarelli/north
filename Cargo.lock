@@ -933,6 +933,8 @@ dependencies = [
  "north-graph-ingest",
  "north-guard",
  "north-health",
+ "north-land-watch",
+ "north-lander",
  "north-lander-doctor",
  "north-landing",
  "north-landing-gates",
@@ -1371,6 +1373,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-land-checks"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-diff-gates",
+ "north-landing-gates",
+ "regex",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-land-probes"
 version = "0.1.0"
 
@@ -1393,12 +1412,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-land-watch"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-land-scans",
+ "north-landing-gates",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+]
+
+[[package]]
+name = "north-lander"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-check-environment",
+ "north-goals",
+ "north-land-probes",
+ "north-land-scans",
+ "north-landing",
+ "north-strategy-types",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+]
+
+[[package]]
 name = "north-lander-doctor"
 version = "0.1.0"
 dependencies = [
  "north-base",
  "north-check-environment",
- "north-landing",
+ "north-lander",
  "serde",
  "serde_json",
  "tempfile",
@@ -1413,6 +1465,7 @@ dependencies = [
  "north-diff-gates",
  "north-github-mirror",
  "north-goals",
+ "north-land-checks",
  "north-land-probes",
  "north-land-scans",
  "north-landing-gates",
@@ -1614,6 +1667,7 @@ name = "north-safe-push"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-lander",
  "north-landing",
  "proptest",
  "rustix 0.38.44",

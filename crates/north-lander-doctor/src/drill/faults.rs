@@ -5,9 +5,9 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
-use north_landing::land::queue::{self, Ticket};
-use north_landing::land::{link_hold, sheriff, watchdog};
-use north_landing::landing::red_check::Failure;
+use north_lander::land::queue::{self, Ticket};
+use north_lander::land::{link_hold, sheriff, watchdog};
+use north_lander::landing::red_check::Failure;
 
 use super::heal;
 use super::scratch::{Lander, age, script, write};

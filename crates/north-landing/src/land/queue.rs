@@ -72,8 +72,21 @@ impl Ticket {
 
 pub use crate::platform::land_queue::{directory, key, slug};
 
+pub const QUARANTINE: &str = "quarantine";
 pub const OUTBOX: &str = "outbox";
 pub const LANDER_LEDGER: &str = "lander-post-land.tsv";
+
+pub fn rfc3339(now: time::OffsetDateTime) -> String {
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    )
+}
 pub const WITHDRAWN: &str = "withdrawn";
 
 pub fn file_name(queued_micros: u128, branch: &str) -> String {

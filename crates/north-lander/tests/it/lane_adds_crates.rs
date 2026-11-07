@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use north_base::foundation::shim::write_executable;
-use north_landing::land::checks::unfit_host;
-use north_landing::land::slots::deps::fetch_crates_recorded;
+use north_lander::land::checks::unfit_host;
+use north_lander::land::slots::deps::fetch_crates_recorded;
 
 const DEPBOX: &str = "#!/bin/sh\necho \"depbox $*\" >>\"$(dirname \"$0\")/fetches.log\"\n[ ! -e \"$(dirname \"$0\")/unfetchable\" ] || { printf 'error: failed to download `aes v0.8.4`\\n\\nCaused by:\\n  HTTP 502\\n' >&2; exit 101; }\n";
 

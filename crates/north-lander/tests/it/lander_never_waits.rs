@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use north_base::foundation::shim::write_executable;
-use north_landing::land::queue;
+use north_lander::land::queue;
 
 use super::serve::{Repository, World, report};
 

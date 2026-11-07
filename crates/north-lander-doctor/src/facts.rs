@@ -9,9 +9,9 @@ use north_base::land_ticket::{self, Phase};
 use north_base::lifecycle::Store;
 use north_check_environment::{Environment, instance};
 use north_base::platform::land_queue;
-use north_landing::land::after::follow;
-use north_landing::land::candidate::git;
-use north_landing::land::{link_hold, pause, post_land, queue, watchdog};
+use north_lander::land::after::follow;
+use north_lander::land::candidate::git;
+use north_lander::land::{link_hold, pause, post_land, queue, watchdog};
 
 pub const INFRASTRUCTURE_WINDOW_SECS: u64 = 2 * 3600;
 pub const DECIDED_WINDOW_SECS: u64 = 24 * 3600;

@@ -54,6 +54,11 @@ fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, Stri
 }
 
 impl Lander {
+    pub fn base_moved(&self, base: &str) -> Result<bool, String> {
+        let now = git(&self.worktree, &["ls-remote", "origin", "refs/heads/main"])?;
+        Ok(now.split_whitespace().next() != Some(base))
+    }
+
     pub fn new(repo: &Path, checker: Vec<String>) -> Result<Self, String> {
         let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
         let queue = queue::directory(&state_home(), &origin);

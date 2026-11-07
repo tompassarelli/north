@@ -1369,7 +1369,7 @@ allowed = { min = 1, max = 604800 }
 unit = "seconds a land-check stage (land checks, dependency gate and scans) must be running before the landing watch raises its overrun alarm, in addition to passing 1.5 times the stage's p90"
 source = "measured: safe-push stages.tsv, 2026-10-30 to 2026-11-07, n=1835 land checks stages: p50 4.9 s, p75 229 s, p90 354 s, p99 642 s; 98.9% finish within 600 s; the stage times are two modes (a reused or skipped check takes under 1 s, a real run 100 to 650 s), so a window that holds mostly reused checks puts p90 near 3 s and the p90 rule alone alarmed on runs of 12, 17, 21 and 28 s on 2026-11-07, each clearing by itself (north#811)"
 fallback = "none: the watch always applies it"
-consumers = ["crates/north-landing/src/watch/landing.rs"]
+consumers = ["crates/north-land-watch/src/watch/landing.rs"]
 
 [landing_watch_queued_seconds]
 value = 600
@@ -1377,7 +1377,7 @@ allowed = { min = 1, max = 604800 }
 unit = "seconds an Actions run must have waited in the queue before the GitHub watch raises its queued-run alarm"
 source = "measured: tompassarelli/north Actions runs, newest 300 read with one gh api call on 2026-11-07 (115 Cargo, Canary and Harness push runs): 114 started in 0 s and one waited 420 s; the watch's own alarms that day fired five times on Cargo or Canary runs queued 122 to 244 s and each cleared within 2 min by itself, so 120 s sits inside GitHub's normal runner queue; 600 s clears the longest queue seen (420 s) and still alarms on a stuck runner (north#816)"
 fallback = "none: the watch always applies it"
-consumers = ["crates/north-landing/src/watch/github.rs"]
+consumers = ["crates/north-land-watch/src/watch/github.rs"]
 
 [land_check_budget_nextest_seconds]
 value = 100

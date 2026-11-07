@@ -225,7 +225,7 @@ serializes and appends them after the lock is released.
 
 ## Lander records
 
-The lander's choices (`crates/north-landing/src/land/serve.rs` `batch`, `bisect.rs`, `culprit.rs`,
+The lander's choices (`crates/north-lander/src/land/serve.rs` `batch`, `bisect.rs`, `culprit.rs`,
 `sheriff.rs`) interleave git effects with decisions. A cherry-pick's outcome is an input to the next
 choice. So each choice is logged as one step: the observations so far, and the step chosen.
 

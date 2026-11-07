@@ -3,9 +3,9 @@ use std::path::Path;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use north_landing::land::after::{follow, send};
-use north_landing::land::watchdog::{self, Hands as _};
-use north_landing::land::{promote, queue};
+use north_lander::land::after::{follow, send};
+use north_lander::land::watchdog::{self, Hands as _};
+use north_lander::land::{promote, queue};
 
 use crate::bounds::Remedy;
 use north_check_environment::Environment;
@@ -93,7 +93,7 @@ impl Hands for Host {
 
 /// Starts `north runtime promote` detached, logging where a landing's promotion logs, so a retry while another promotion runs leaves the newest runtime to that one.
 pub fn promote() -> Result<String, String> {
-    let log = north_landing::land::lander::state_home().join("north/runtime-follow.log");
+    let log = north_lander::land::lander::state_home().join("north/runtime-follow.log");
     let file = fs::OpenOptions::new().create(true).append(true).open(&log).map_err(|error| format!("{}: {error}", log.display()))?;
     let child = Command::new(follow::program()).args(["runtime", "promote"]).stdin(Stdio::null()).stdout(file.try_clone().map_err(|error| error.to_string())?).stderr(file).process_group(0).spawn().map_err(|error| format!("north runtime promote: {error}"))?;
     Ok(format!("started north runtime promote (pid {}), logging to {}", child.id(), log.display()))

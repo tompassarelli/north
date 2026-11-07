@@ -6,7 +6,7 @@ use north_land_probes::{Settled, plan, settle};
 use serde::{Deserialize, Serialize};
 
 use super::batch::{Attempt, Entry, Flow, Pass};
-use super::{Pushed, Round};
+use super::{Pushed, Round, Serve};
 use crate::land::after;
 use crate::land::bisect::{self, Judgement, Strikes};
 use crate::land::candidate::git;
@@ -82,7 +82,7 @@ fn escalate(finished: &mut [Probe], lanes: &[Entry], strikes: &mut Strikes) {
     }
 }
 
-struct Decided<'a> {
+pub(super) struct Decided<'a> {
     attempt: &'a Attempt<'a>,
     lanes: &'a [Entry<'a>],
     probes: Vec<&'a Probe>,
@@ -101,8 +101,16 @@ impl Decided<'_> {
     }
 }
 
-impl Lander {
-    pub(super) fn probe_round(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry]) -> Result<Flow, String> {
+pub(super) trait Probing {
+    fn probe_round(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry]) -> Result<Flow, String>;
+    fn settle_decided(&self, watch: &mut Watch, pass: &mut Pass, decided: &Decided, stages: Stages) -> Result<Flow, String>;
+    fn settle_undecided(&self, pass: &mut Pass, lanes: &[Entry], finished: &[Probe]) -> Result<Flow, String>;
+    fn refuse_culprit(&self, pass: &Pass, lane: Entry, proof: &Probe, main: &str) -> Result<(), String>;
+    fn land_probe(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, probe: &Probe, lanes: &[Entry], stages: Stages) -> Result<ControlFlow<Flow>, String>;
+}
+
+impl Probing for Lander {
+    fn probe_round(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry]) -> Result<Flow, String> {
         let ids = Strikes::lanes(lanes);
         let mut strikes = Strikes::load(&self.queue, &ids)?;
         let (room, read) = probe_slots::slots(&self.repo);
@@ -120,7 +128,7 @@ impl Lander {
         });
         for probe in &finished {
             if let (Some(verdict), Some(&(path, ticket))) = (probe.verdict(), probe.lanes.first().map(|lane| &lanes[*lane])) {
-                incidents::unsettled(&self.queue, path, ticket, &probe.head, attempt.base, verdict, &probe.log);
+                records::unsettled(&self.queue, path, ticket, &probe.head, attempt.base, verdict.class(), &probe.log);
             }
         }
         escalate(&mut finished, lanes, &mut strikes);

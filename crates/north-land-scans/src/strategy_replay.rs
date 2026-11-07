@@ -16,7 +16,7 @@ const DECIDES: [&str; 15] = [
     "crates/north-landing/src/land/checks.rs",
     "crates/north-landing/src/land/candidate.rs",
     "crates/north-landing/src/land/culprit.rs",
-    "crates/north-landing/src/land/serve.rs",
+    "crates/north-lander/src/land/serve.rs",
     "crates/north-landing/src/land/sheriff.rs",
     "crates/north-landing/src/land/steps.rs",
     "crates/north-landing/src/land/judge_case.rs",

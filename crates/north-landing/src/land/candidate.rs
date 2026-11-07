@@ -215,7 +215,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         }
     };
     case.stale_reverts = Some(found.iter().map(|reverted| reverted.commit.clone()).collect());
-    let (enforcing, state_home, root) = (landing_refusals::enforcing(), crate::watch::state_home(), ticket.root.to_string_lossy());
+    let (enforcing, state_home, root) = (landing_refusals::enforcing(), crate::platform::records_mirror::state_home(), ticket.root.to_string_lossy());
     let shadowed = landing_refusals::Lane { at: "pick", root: &root, branch: &ticket.branch, head: &ticket.head };
     if !found.is_empty() {
         if enforcing {

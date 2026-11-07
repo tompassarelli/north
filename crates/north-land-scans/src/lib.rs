@@ -5,6 +5,7 @@ pub use north_landing_gates::landing;
 pub mod doc_links;
 mod doc_paths;
 pub mod docs_owners;
+pub mod ci_budget;
 pub mod dropped_commits;
 pub mod detector_proof;
 pub mod gate_shadow;
@@ -27,6 +28,7 @@ pub mod test_admission;
 mod test_file;
 pub mod test_integrity;
 pub mod tool_removal;
+mod workflow_paths;
 mod wall_clock;
 pub mod withdrawal;
 

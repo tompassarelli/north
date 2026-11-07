@@ -142,7 +142,7 @@ fn shadow_section(out: &mut String, shadowed: &[Value]) {
 }
 
 fn shadow_rows(state: &Path, since_micros: u64) -> Vec<Value> {
-    std::fs::read_to_string(state.join(north_landing::landing_refusals::LOG)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|row| row["micros"].as_u64().is_some_and(|micros| micros >= since_micros)).collect()
+    std::fs::read_to_string(state.join(north_lander::landing_refusals::LOG)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|row| row["micros"].as_u64().is_some_and(|micros| micros >= since_micros)).collect()
 }
 
 fn queues(state: &Path) -> Vec<PathBuf> {
@@ -197,7 +197,7 @@ fn after_failures(queue: &Path, since: SystemTime, counts: &mut BTreeMap<String,
 
 fn enqueue_refusals(state: &Path, since_micros: u64) -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
-    for line in std::fs::read_to_string(state.join(north_landing::land::enqueue::REFUSALS)).unwrap_or_default().lines() {
+    for line in std::fs::read_to_string(state.join(north_lander::land::enqueue::REFUSALS)).unwrap_or_default().lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
         if row["micros"].as_u64().is_some_and(|micros| micros >= since_micros) {
             *counts.entry(enqueue_gate(row["error"].as_str().unwrap_or("unknown"))).or_default() += 1;

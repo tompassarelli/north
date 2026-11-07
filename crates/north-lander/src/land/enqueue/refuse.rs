@@ -5,7 +5,7 @@ use crate::land::candidate::{git, output};
 use crate::land::lane_gates::{self, Lane};
 use crate::land::scans::git::merge_base;
 use crate::landing::{merge_set, stale_revert};
-use crate::watch::facts::slug_of;
+use north_land_scans::slug::slug_of;
 
 pub(super) fn refuse_archived(origin: &str) -> Result<(), String> {
     let Some(slug) = origin.contains("github.com").then(|| slug_of(origin)).flatten() else { return Ok(()) };

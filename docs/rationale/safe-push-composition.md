@@ -289,7 +289,7 @@ the per-lane code still exists.
   (1) `cargo test -p north-landing route` passes, with cases for an uncommitted repository on an unnamed
   host and for `landing.queue = lock`; (2) the bash suite passes.
 - **P2c Delete the lock, ticket queue and train.** Covered harness change: review per the rule above.
-  Files: `bin/safe-push`, `bin/safe-push.test.sh`, `crates/north-landing/src/watch/facts.rs` (it reads
+  Files: `bin/safe-push`, `bin/safe-push.test.sh`, `crates/north-land-watch/src/watch/facts.rs` (it reads
   the tickets). Delete scenarios 24-30 and 44-48. Done when: (1)
   `rg -c 'acquire_push_lock|run_train|collect_train|take_train_result' bin/safe-push` prints nothing; (2)
   the bash suite and `cargo test --test it watch` pass.

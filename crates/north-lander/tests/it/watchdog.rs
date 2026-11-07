@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use north_landing::land::candidate::git;
-use north_landing::land::queue::{self, Ticket};
-use north_landing::land::watchdog::{self, Hands, Invariant, Observation, Page, Repair};
+use north_lander::land::candidate::git;
+use north_lander::land::queue::{self, Ticket};
+use north_lander::land::watchdog::{self, Hands, Invariant, Observation, Page, Repair};
 
 const NOW: u64 = 1_800_000_000_000_000;
 const MINUTE: u64 = 60_000_000;

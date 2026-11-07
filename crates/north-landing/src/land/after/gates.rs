@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::ci_budget;
+use north_land_scans::ci_budget;
 use super::follow;
 use crate::land::scans::{generated, git};
 use crate::landing::after_landing::Failure;

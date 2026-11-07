@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use north_landing::land::sheriff;
-use north_landing::landing::red_check::Failure;
+use north_lander::land::sheriff;
+use north_lander::landing::red_check::Failure;
 use serde_json::{Value, json};
 
 use super::serve::{Repository, World, git, report};

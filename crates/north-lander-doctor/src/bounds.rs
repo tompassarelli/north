@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::book::Book;
 use crate::facts::{Facts, LinkFacts, Place, PlaceFacts, QueueFacts, SlotHold};
 use north_check_environment::Environment;
-use north_landing::landing::check_timings::CEILING;
+use north_lander::landing::check_timings::CEILING;
 
 pub const OLDEST_QUEUED_SECS: u64 = 20 * 60;
 pub const SINCE_LANDING_SECS: u64 = 30 * 60;

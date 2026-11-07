@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::land::scans::git;
+use crate::git;
 
 pub fn triggered(tree: &Path, workflow: &str, changed: &[String]) -> bool {
     if workflow.starts_with("local:") {

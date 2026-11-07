@@ -3,10 +3,10 @@ use std::process::Command;
 use std::sync::atomic::AtomicU64;
 
 use north_base::foundation::shim::write_executable;
-use north_landing::land::heartbeat::Heartbeat;
-use north_landing::land::jobs::Chores;
-use north_landing::land::lander::Lander;
-use north_landing::land::queue::{self, Ticket};
+use north_lander::land::heartbeat::Heartbeat;
+use north_lander::land::jobs::Chores;
+use north_lander::land::lander::Lander;
+use north_lander::land::queue::{self, Ticket};
 
 use super::serve::{World, git};
 

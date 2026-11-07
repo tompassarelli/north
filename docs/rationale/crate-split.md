@@ -24,6 +24,8 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
 - `north-landing-gates` (north#745 lane 1): `landing` except `after_landing`, `land_test_runner` and `land_test_selection`, plus `issue_box_lint`, `follows_release` and `land_abandon`. Depends on `north-base`, `north-diff-gates` and `north-mutants`; `north-landing` depends on it and re-exports its modules, so `crate::landing::...` paths are unchanged.
 - `north-land-scans` (north#745 lane 3): `land/scans` (the diff scans `north land scan` runs), moved ahead of lane 2 because it names nothing in the lander: `north-landing` keeps the `boxes`, `ci-budget`, `code-health`, `crate-lines`, `instruction-limits` and `deps` scans that reach `after`, `issue_body` and `slots`, and re-exports the crate as `land::scans`, so `crate::land::scans::...` paths are unchanged. Depends on `north-base`, `north-diff-gates`, `north-github-mirror` and `north-landing-gates`.
 - `north-land-checks` (north#840): `land/slots` (the land check runner `north land checks` and its selection), `land/trace` but its `report` (the `north land profile` command, which reads the queue), `land/telemetry` and `landing::{land_test_runner, land_test_selection}`. None of them names the lander, queue or after-landing code: the runner took `program` and `state_home` from north-base, where `after::follow` and `lander` only re-exported or copied them, and `checks` now re-exports the `BROKEN_BASE` and `BASE_FAILS` texts from `slots::runner`. `north-landing` re-exports `slots` and `telemetry` under `land`, glob re-exports `trace` beside its `report`, and glob re-exports `landing`, so every `crate::land::...` path is unchanged. Depends on `north-base`, `north-diff-gates` and `north-landing-gates`; only `north-landing` lists it, so its cap is the default.
+- `north-lander` (north#840): the lander's entry points above `north-landing`: `serve`, `speculate`, `watchdog`, `promote`, `shadow`, `reuse`, `enqueue`, `divergence`, `replay`, `first_commit`, `watch` (the landed-lane follower), `link_hold`, `urgent`, `withdraw`, `alone`, `pause`, `push_refusal`, `red` and the `north land` command table. Nothing left in `north-landing` reaches them: `rfc3339` moved to `queue`, `LandedLane` to `after`, the quarantine directory name to `queue`, and `base_moved` to `lander`. `serve` and `serve::batch` were inherent methods on `Lander`, which only its own crate may define, so they are the `Serve` trait and a private `Batching` trait. Its `land` module glob re-exports `north_landing::land`, so `super::` and `crate::land::` paths inside the moved files are unchanged; the root package and `north-lander-doctor` take `land` from it, and the lander integration tests (`tests/it`) moved with it. Depends on `north-base`, `north-check-environment`, `north-landing` and `north-strategy-types`.
+- `north-land-watch` (north#840): `watch`, the landing and GitHub alarm probes behind `north ops watch`. It names nothing in the lander; `candidate` reads `lander::state_home` and `enqueue` reads `slug_of` from `north-land-scans` instead of through it. Depends on `north-base`, `north-land-scans` and `north-landing-gates`; only the root package lists it. The `ci-budget` after-landing scan and its `workflow_paths` moved from `land/after` into `north-land-scans` beside the other diff scans.
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
 - `north-core`: the agent catalog and config checks, `build_time`, `grounding`, `doctor_nix`, `nix_gc`,
@@ -580,7 +582,7 @@ which Cargo defines only for the bin's own package. 27 `capacity_*` modules run
 Its compile cost is small: 2.6 CPU-s after a north-core edit, with incremental on. Its run cost is large:
 287.4 of the suite's 409.2 CPU-s. The lever is therefore per-crate selection of which `tests/it` modules
 run, through a module-to-crate table, not moving files. `land_repositories` and `stub_exec_policy` (library
-tests on `north_landing` alone) move to `crates/north-landing/tests/it`.
+tests on `north_landing` alone) move to `crates/north-lander/tests/it`.
 
 The table is `tests/it/crates.txt` (box 4-20), one line per module, merged as a set. It names planned crates,
 so `crates/north-land-checks/src/land/slots/it_modules.rs` resolves a changed file through `structure.toml`'s
@@ -616,7 +618,7 @@ The lander's refused conflicts over the 24 h before 1:41 PM on 2026-11-05 were:
 - `crates/north-landing/src/land/mod.rs` 28;
 - `tests/it/land_serve.rs` 18;
 - `tests/it/land_enqueue.rs` 14;
-- `crates/north-landing/src/land/serve.rs` 14;
+- `crates/north-lander/src/land/serve.rs` 14;
 - `structure.toml` 7;
 - `.safe-push` 7.
 

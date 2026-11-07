@@ -50,7 +50,7 @@ kind = "lines"
 entry = "first-word"
 
 [[set]]
-path = "crates/north-landing/tests/it/main.rs"
+path = "crates/north-lander/tests/it/main.rs"
 kind = "lines"
 
 [[set]]
@@ -74,5 +74,5 @@ path = "crates/north-guard/src/guard/mod.rs"
 kind = "lines"
 
 [[set]]
-path = "crates/north-landing/src/land/commands.rs"
+path = "crates/north-lander/src/land/commands.rs"
 kind = "lines"

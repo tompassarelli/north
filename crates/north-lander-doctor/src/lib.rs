@@ -5,8 +5,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use north_landing::land::lander::state_home;
-use north_landing::land::{queue, repositories};
+use north_lander::land::lander::state_home;
+use north_lander::land::{queue, repositories};
 
 pub mod book;
 pub mod drill;
@@ -23,7 +23,7 @@ use bounds::{Finding, PATIENCE_SECS, Remedy, State, minutes};
 use facts::{Facts, Place, Reach};
 use hands::Hands;
 
-pub use north_landing::land::promote::REFUSED;
+pub use north_lander::land::promote::REFUSED;
 pub const BOOK: &str = "north/land-doctor/book.json";
 pub const UNKNOWN: &str = "lander-unknown";
 const USAGE: &str = "usage: north land doctor [--dry-run] (reads every lander health bound, applies each known remedy, pages the proxy once per unknown state)";
@@ -126,7 +126,7 @@ pub fn examine(now: u64) -> Facts {
     let mut north = None;
     let discovery = repositories::discovered(&state, &host);
     for checkout in discovery.checkouts {
-        let Ok(origin) = north_landing::land::candidate::git(&checkout, &["remote", "get-url", "--push", "origin"]) else { continue };
+        let Ok(origin) = north_lander::land::candidate::git(&checkout, &["remote", "get-url", "--push", "origin"]) else { continue };
         let name = project(&checkout);
         if name == "north" {
             north = Some(checkout.clone());

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
-use north_landing::land::queue::{self, Ticket};
+use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
 const GREEN: &str = "#!/bin/sh\n[ -z \"$HOLD\" ] || { : > \"$HOLD.started\"; while [ ! -e \"$HOLD.release\" ]; do sleep 0.05; done; }\necho 'safe-push: verdict green'\n";
@@ -10,7 +10,7 @@ const GREEN: &str = "#!/bin/sh\n[ -z \"$HOLD\" ] || { : > \"$HOLD.started\"; whi
 fn lander_process() {
     let Ok(arguments) = std::env::var(ARGUMENTS) else { return };
     let arguments: Vec<String> = arguments.split('\n').map(str::to_owned).collect();
-    std::process::exit(i32::from(north_landing::land::run(&arguments)));
+    std::process::exit(i32::from(north_lander::land::run(&arguments)));
 }
 
 pub(super) fn git(dir: &Path, arguments: &[&str]) -> String {

@@ -6,7 +6,7 @@ use std::os::unix::process::CommandExt;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
-use north_landing::land::queue::{self, Ticket};
+use north_lander::land::queue::{self, Ticket};
 
 use super::*;
 use crate::bounds::{BASE_BROKEN_SECS, Bound, OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
@@ -309,7 +309,7 @@ fn a_wedged_lander_is_restarted_then_rolled_back_to_the_last_build_that_landed_a
 
 fn a_promotion_whose_replay_reached_no_verdict_is_retried_and_the_third_in_a_row_pages() {
     let facts = |attempts: u32| {
-        let unreached = north_landing::land::link_hold::Unreached { candidate: "b".to_owned(), attempts, reason: "round lane-a: transient mkdir -p on tom@gex45 did not finish within 20s".to_owned() };
+        let unreached = north_lander::land::link_hold::Unreached { candidate: "b".to_owned(), attempts, reason: "round lane-a: transient mkdir -p on tom@gex45 did not finish within 20s".to_owned() };
         Facts { link: Some(LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), unreached: Some(unreached), ..LinkFacts::default() }), ..Facts::default() }
     };
     let hands = Fake::default();

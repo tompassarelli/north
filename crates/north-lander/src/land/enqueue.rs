@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 
 use super::first_commit;
 use super::lander::state_home;
-use super::queue::{self, RedFix, Ticket};
+use super::queue::{self, RedFix, Ticket, rfc3339};
 use super::repositories;
 use super::setting;
 use north_base::land_ticket;
@@ -68,19 +68,7 @@ fn default_branch(repo: &Path) -> String {
         .unwrap_or_else(|| "main".to_owned())
 }
 
-pub(super) fn rfc3339(now: OffsetDateTime) -> String {
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        now.year(),
-        u8::from(now.month()),
-        now.day(),
-        now.hour(),
-        now.minute(),
-        now.second()
-    )
-}
-
-pub(crate) fn is_main_red_marker(line: &str) -> bool {
+pub fn is_main_red_marker(line: &str) -> bool {
     line.strip_prefix("Main-red:").is_some_and(|rest| rest.starts_with(char::is_whitespace) && !rest.trim().is_empty())
 }
 
