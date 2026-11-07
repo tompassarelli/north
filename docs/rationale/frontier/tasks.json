@@ -1,0 +1,595 @@
+[
+  {
+    "id": "north-633-9ce7c19ad6",
+    "repo": "north",
+    "issue": "north#633",
+    "run": "7fcbb017-94dc-41f0-94a2-a8a48ffe3983",
+    "base": "aaef05c951491259e7eab692a573fe4b493b4683",
+    "landed": "9ce7c19ad6839945a2b3bb36b3247738fe230ca3",
+    "category": "tooling",
+    "spec": "measured",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "c9b4590a92b0266be824ce0829079ba8042be18485fa04d623d9c9765a2e2634",
+    "hidden": [
+      "crates/north-landing/src/land/trace/check_log_tests.rs",
+      "crates/north-landing/tests/it/land_profile.rs",
+      "crates/north-landing/tests/it/main.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-landing",
+        "filter": "binary(it)"
+      },
+      {
+        "package": "north-landing",
+        "filter": "binary(it) & test(/^land_profile::/)"
+      },
+      {
+        "package": "north-landing",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-646-83bd2e4544",
+    "repo": "north",
+    "issue": "north#646",
+    "run": "c45a27b6-6fec-4d46-9659-8a7921dece3a",
+    "base": "ec284a99f00a9d4569950a566f6cae6aa83bcc98",
+    "landed": "83bd2e45446f7be7f8dffa5a03f318975cdc272c",
+    "category": "bug-known-cause",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "1cc3314bf1eb606847b44c52618d19e08c6288907fad336e5e185a91307464f0",
+    "hidden": [
+      "crates/north-runtime/src/land_offload/ship/tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-runtime",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-634-deb60fa6a8",
+    "repo": "north",
+    "issue": "north#634",
+    "run": "5337c712-4b46-4806-89ae-059712fce893",
+    "base": "6cfd4dc3707438fa7416115d740d579cfc0c1357",
+    "landed": "deb60fa6a8641a9b3d3b89e74e3974f5652d6516",
+    "category": "tooling",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "4133cc7ecb4b0d965a407fd48139bbc29025ed58624514eacc2a63639819c8ac",
+    "hidden": [
+      "crates/north-landing/src/land/post_land_tests.rs",
+      "tests/it/land_serve/post_land.rs"
+    ],
+    "targets": [
+      {
+        "package": "north",
+        "filter": "binary(it) & test(/^land_serve::post_land::/)"
+      },
+      {
+        "package": "north-landing",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-621-ef71d1f40a",
+    "repo": "north",
+    "issue": "north#621",
+    "run": "1c8277a1-0f74-4dc1-9c55-173b17eaf8eb",
+    "base": "05e11b35116a344ddbc244108a59dce7aaa640c5",
+    "landed": "ef71d1f40a83ea236a3eabf9453840a3bc5cf7f3",
+    "category": "tooling",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "7c26aa8b40cbbc83224beb64271e17c444a3b8e320c51e7b0cdc92b5a347ea50",
+    "hidden": [
+      "crates/north-safe-push/src/gates/plan_tests.rs",
+      "crates/north-safe-push/src/gates/verdict_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-safe-push",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-621-03ecc924fa",
+    "repo": "north",
+    "issue": "north#621",
+    "run": "26c7ae1a-3037-4d26-b652-b2be2cc9631c",
+    "base": "8993c6d37fcba5748dc6a2cf9565e223e8cae56f",
+    "landed": "03ecc924fa513ea9ed40601ecf3e80ae61333251",
+    "category": "tooling",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "8583171ef08c24c2e873fe4ad69040de99485aec5355c065de1d98eb5af0ce61",
+    "hidden": [
+      "crates/north-safe-push/src/shell/origin_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-safe-push",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-636-bea9039a64",
+    "repo": "north",
+    "issue": "north#636",
+    "run": "4dbf5a6a-88c2-4327-a901-1479d41a5803",
+    "base": "626d2992bcf975e61078702c773fa3caf946a40d",
+    "landed": "bea9039a64ee98e91a16c85f0feb4e7ec55f3a6d",
+    "category": "feature",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "5ec347b66316e41687802a629b877714dc2abd41f8ac4caebcfee23ae6073f37",
+    "hidden": [
+      "crates/north-dispatch/src/dispatch/backlog_tests.rs",
+      "crates/north-dispatch/src/dispatch/stops_tests.rs",
+      "crates/north-dispatch/src/dispatch/tests.rs",
+      "crates/north-graph-ground/src/backlog_tests.rs",
+      "crates/north-graph-ingest/src/ingest_tests.rs",
+      "crates/north-graph-ingest/src/waits_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-dispatch",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-graph-ground",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-graph-ingest",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-621-508e6a6948",
+    "repo": "north",
+    "issue": "north#621",
+    "run": "9272ffa6-b918-4b2c-aff4-31323d4daf1e",
+    "base": "1de4672f549757f7ce0e84d445c30fd50810bf1d",
+    "landed": "508e6a6948803528e7dac4b3cebc5be784653d09",
+    "category": "tooling",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "11fd636b0c514b35c9a04f127affe1a8e44498199a1f571994cd917b38af157d",
+    "hidden": [
+      "tests/it/land_scan.rs"
+    ],
+    "targets": [
+      {
+        "package": "north",
+        "filter": "binary(it) & test(/^land_scan::/)"
+      }
+    ]
+  },
+  {
+    "id": "north-636-9e9acdb934",
+    "repo": "north",
+    "issue": "north#636",
+    "run": "0163dac4-918f-47cf-a55b-9aea167f80c5",
+    "base": "8671950733a6481646fbd8484d2fc233b9c495de",
+    "landed": "9e9acdb934cb17c0af07798086ebb0f6e35c6832",
+    "category": "feature",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "high",
+    "brief_sha256": "54d1ee89a30ae638f6112b0eb28e9b46e0a6777a0cf3b65076046fc78fb553fe",
+    "hidden": [
+      "crates/north-fleet/src/fleet/reaper_tests.rs",
+      "crates/north-fleet/src/fleet/watch_tests.rs",
+      "src/cli/fleet/router_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-fleet",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-634-3f2f3437e1",
+    "repo": "north",
+    "issue": "north#634",
+    "run": "4d4c7439-157e-4eb9-9611-8afbc0db6548",
+    "base": "e93ba5862e56ab12334c8ddec5eb904a87e4ffaf",
+    "landed": "3f2f3437e108bfb878d24eb3eeddbc01749c31da",
+    "category": "performance",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "54abaf3db0b7916922317d1ce22a7dd0897d55f68f21ab59e07123a8d77efd84",
+    "hidden": [
+      "crates/north-runtime/src/land_offload/ship/tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-runtime",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-636-682869a1f9",
+    "repo": "north",
+    "issue": "north#636",
+    "run": "45329f30-b6e8-403e-b499-3d9e769e72b3",
+    "base": "823eac69386c7dc0a160b82e53eb17052d6003d8",
+    "landed": "682869a1f9b417c88b1cc7ad95ab208509316390",
+    "category": "feature",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "af69bb746155943ea80d679164ce0093b3e44cc0f9f680074944f954666b7b90",
+    "hidden": [
+      "crates/north-climb/src/reward_tests.rs",
+      "crates/north-climb/src/scope_tests.rs",
+      "crates/north-dispatch/src/dispatch/tier_tests.rs",
+      "crates/north-ops/src/ops/experiments/verdict_tests.rs",
+      "crates/north-pace/src/router/settle_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-climb",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-dispatch",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-ops",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-pace",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-656-0e4d1063c9",
+    "repo": "north",
+    "issue": "north#656",
+    "run": "45f45ed3-3f2c-49a0-9d7f-b5b27192feb2",
+    "base": "61a02c674205edc8e27c7838cbe70ae6cb3209eb",
+    "landed": "0e4d1063c9e8eb47dd402c30c1a10ac09f8f7ea0",
+    "category": "feature",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "high",
+    "brief_sha256": "74ff8d715ecac1672a066bd200ed9e49a66f3ad5b77cabf3743c522998771c5b",
+    "hidden": [
+      "crates/north-core/src/grounding/distill_tests.rs",
+      "crates/north-ops/src/ops/convo/tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-core",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-ops",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-636-22d58d3f8b",
+    "repo": "north",
+    "issue": "north#636",
+    "run": "48c7e5da-fd5e-469a-b698-33a27c68040f",
+    "base": "ab187feba43e66c7cc3616f21d8f39553886dde6",
+    "landed": "22d58d3f8b3b3ed81a6757b29cea63c6a6430f3e",
+    "category": "bug-known-cause",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "66e32e9411a7922a8bac06cf8bafb2051c59fca14a6d03520c3a8aadc8d2949f",
+    "hidden": [
+      "crates/north-health/src/health/failed_starts_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-health",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-638-28aa19cac6",
+    "repo": "north",
+    "issue": "north#638",
+    "run": "344139e9-fea0-4a23-84eb-577200b068f2",
+    "base": "df60a41f505ff4febfac1e5917981bd7f3fffe1d",
+    "landed": "28aa19cac667efe97b47d6e75bdda2dd992f7a29",
+    "category": "feature",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "b3b8cec1a23a6831dcc81034bcb2f71d0d7739a80cb210f33c5f4ccbd6b45158",
+    "hidden": [
+      "crates/north-github-mirror/src/sync_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-github-mirror",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-685-4082956297",
+    "repo": "north",
+    "issue": "north#685",
+    "run": "ecd86df4-2477-4a11-91fd-8f3c9471d90e",
+    "base": "da2f5f464a30ee7f308790678dc7dfcd4477753e",
+    "landed": "4082956297b51ee79489551518ec942d7d215d51",
+    "category": "bug-known-cause",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "41e4fc6e37c5935d3875bb07ac9ffd5c7856e32d534336bb5764bae7861d1d61",
+    "hidden": [
+      "crates/north-base/src/platform/ssh_session_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-base",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-636-1666e61671",
+    "repo": "north",
+    "issue": "north#636",
+    "run": "34caa876-9487-496f-91d6-52f56d6bdcf1",
+    "base": "4082956297b51ee79489551518ec942d7d215d51",
+    "landed": "1666e6167161cc2bb196cf43bde07556598cf6c2",
+    "category": "bug-known-cause",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "7aceccfe5a7291a6e68ca782e2bb3722a91f9ba9d1ddef5be5976fcd2c0915c7",
+    "hidden": [
+      "crates/north-providers/src/providers/claude/runs/tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-providers",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-636-1762d9a3e6",
+    "repo": "north",
+    "issue": "north#636",
+    "run": "caa28699-b80d-4840-87ec-33e170c5da57",
+    "base": "ace22f79f3587b46d66850a90d685a90741d7f1b",
+    "landed": "1762d9a3e65715335abeb4861a9ba1de28e180ca",
+    "category": "feature",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "539a3a3a8e6f88cac08cefeffdeb6deaeeca1eae31d715187a96560e4b2081f8",
+    "hidden": [
+      "crates/north-guard/src/guard/compact_state_tests.rs",
+      "crates/north-providers/src/providers/claude/checkpoint_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-guard",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-providers",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-690-89439128ee",
+    "repo": "north",
+    "issue": "north#690",
+    "run": "f87da4ef-3851-4cf9-9e23-c7442e1318a4",
+    "base": "144ddec780934e74d9cd4cb3850a0c5e979607c4",
+    "landed": "89439128eec972b30688a12bb5ab83e97b027452",
+    "category": "bug-known-cause",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "e70686c9b07a1dd89fbbb1e1a5349c03a79c8d0400fc2f404ce63e3d896d8e35",
+    "hidden": [
+      "crates/north-landing/src/land/scans/strategy_replay/tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-landing",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-636-f38eabc748",
+    "repo": "north",
+    "issue": "north#636",
+    "run": "1ddc04ec-6043-4de0-a6f1-72222955cb39",
+    "base": "7c5707a8f37e2991550873545673b6cafc000c3f",
+    "landed": "f38eabc7485e17cf54b7495ada4f00e93bb5d36e",
+    "category": "bug-known-cause",
+    "spec": "exact",
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "brief_sha256": "46c05c4250e62e06f9b72d338a913b065ccea397dfc6a88599c6f19d1f7589cb",
+    "hidden": [
+      "crates/north-landing/src/follows_release_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-landing",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-641-e631ca423e",
+    "repo": "north",
+    "issue": "north#641",
+    "run": "c5231a18-f804-48bb-bd28-3f5429f4db76",
+    "base": "ad3d260a9fec91691d7fa0968cc02101e91a0fac",
+    "landed": "e631ca423e82eee275ba9fdf30e9e3124b773b20",
+    "category": "tooling",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "e8a42bc75ae1fd997290b7139301e3ca511d1be18d2159b98ccbb37daaa458c9",
+    "hidden": [
+      "crates/north-threads/src/threads/calibration/rework_labels_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-threads",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-719-fc9769a0a0",
+    "repo": "north",
+    "issue": "north#719",
+    "run": "bd2cc09d-da8c-4b23-b5a8-a87ea199fc22",
+    "base": "e1d1313a5373d7674738747eb75ab35d2e89fe53",
+    "landed": "fc9769a0a0d0491d4f815f17b688667f2687252a",
+    "category": "tooling",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "80a66255f5357bbe2f3aba8daac5a086d2e320b7b070b4aa8aaffaf9e5e210d0",
+    "hidden": [
+      "crates/north-guard/src/guard/proxy_role_tests.rs",
+      "crates/north-guard/src/guard/status_not_action_tests.rs",
+      "crates/north-guard/src/guard/unproven_cause_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-guard",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-719-e1d1313a53",
+    "repo": "north",
+    "issue": "north#719",
+    "run": "8216771b-879a-4bd1-8e04-303ca3757e65",
+    "base": "8b3b83bcf20a2233f29d4d9a4e48fd4fc98dd23e",
+    "landed": "e1d1313a5373d7674738747eb75ab35d2e89fe53",
+    "category": "tooling",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "cdf82822e1e575c7878140dead722881c8e3d7a538eff67c014699536d8bb6e9",
+    "hidden": [
+      "crates/north-coverage/src/pick_tests.rs",
+      "tests/it/agents_plan.rs",
+      "tests/it/land_checks.rs"
+    ],
+    "targets": [
+      {
+        "package": "north",
+        "filter": "binary(it) & test(/^agents_plan::/)"
+      },
+      {
+        "package": "north",
+        "filter": "binary(it) & test(/^land_checks::/)"
+      },
+      {
+        "package": "north-coverage",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-702-d87eadfe07",
+    "repo": "north",
+    "issue": "north#702",
+    "run": "3c29f05f-f580-4474-accc-4d04350d3558",
+    "base": "1d0043bb5a13214c9bb658bed18476e64e545950",
+    "landed": "d87eadfe07e0db2b32cac006128d2267951e66e3",
+    "category": "bug-known-cause",
+    "spec": "exact",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "47b50111ea2940bd1c6827aa2839000f4c1618b3a49516a77ee81531c8b4db46",
+    "hidden": [
+      "crates/north-dispatch/src/dispatch/backlog_tests.rs",
+      "crates/north-dispatch/src/dispatch/order_tests.rs",
+      "crates/north-dispatch/src/dispatch/spread_tests.rs",
+      "crates/north-dispatch/src/dispatch/tests.rs",
+      "crates/north-dispatch/src/dispatch/tier_tests.rs",
+      "crates/north-guard/src/guard/proxy_role_tests.rs",
+      "src/cli/fleet/governor_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-dispatch",
+        "filter": "kind(lib)"
+      },
+      {
+        "package": "north-guard",
+        "filter": "kind(lib)"
+      }
+    ]
+  },
+  {
+    "id": "north-719-b251ad0a30",
+    "repo": "north",
+    "issue": "north#719",
+    "run": "45f1794c-e0b2-47c6-9888-390c6e8e8c9b",
+    "base": "f1b5d8f8e5a5e8fc35e0f9c701b0aae53c24e943",
+    "landed": "b251ad0a3022c33416ee3ef7455729d6e2ee1af2",
+    "category": "feature",
+    "spec": "",
+    "model": "claude-sonnet-5-5",
+    "effort": "high",
+    "brief_sha256": "833bd8fb2e547386943329abc9911c241911dc193678e579fb12c0c61a0ca0f8",
+    "hidden": [
+      "crates/north-guard/src/guard/proxy_role_tests.rs"
+    ],
+    "targets": [
+      {
+        "package": "north-guard",
+        "filter": "kind(lib)"
+      }
+    ]
+  }
+]

@@ -8,6 +8,8 @@ The owner asked on 2026-11-07 for a scoreboard that shows whether north is at th
 
 **Tasks.** `north frontier tasks` drafts candidates from the worker ledger: first attempts (no `Follows:`) in north that reported Done and landed, with a recorded brief, whose landing changed a test file. The frozen set is `docs/rationale/frontier/tasks.json`: each task names its issue, the ledger run, the base (the landing's parent), the landed sha, the original run's model and effort, the hash of its brief, the landing's test files and the test slice that grades it. Briefs stay in the ledger, since they can quote private messages.
 
+**Frozen set (2026-11-07).** 32 candidates passed the brief screen; `north frontier oracle` found a fail-to-pass test for 23 (8 tooling, 7 bug with a known cause, 7 feature, 1 performance), and those 23 are `tasks.json`. The other 9 had no test that passed at the landing, mostly because the landing's slice does not build or run in the sandbox, and are dropped. The set is below the 30 the design aimed for: the ledger held no more first attempts that landed with a test file in the window. The pilot's three tasks were picked before the freeze; the first pass takes them and nine more drawn by a seeded hash of the task id from the rest of the set.
+
 **Screens, before any arm runs.**
 - A brief that reads the issue on GitHub or depends on live fleet, landing or log state is dropped: no arm can reach either.
 - The oracle must exist: `north frontier oracle` runs the slice at the landing twice and at the base with the landing's test files laid over it. Tests passing both times at the landing and failing at the base are the fail-to-pass set; a task with none is dropped.
