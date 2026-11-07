@@ -275,7 +275,7 @@ never hidden by a base red in the same file, conflicts on set files and features
 finished-to-landed is measured.
 
 - **B8 Per-case outcomes.** Category feature; Spec exact; files
-  crates/north-landing/src/landing/land_test_runner.rs, its tests. Done when: `north land tests --cases
+  crates/north-land-checks/src/landing/land_test_runner.rs, its tests. Done when: `north land tests --cases
   json` on fixtures prints one row per libtest case, per `PASS|FAIL` line, and one whole-file row for a
   test that prints neither, with names and outcomes matching the fixture.
 - **B9 Results store.** Category feature; files crates/north-landing/src/landing/ (new results module).
@@ -1158,7 +1158,7 @@ Rules adopted, each in its owner:
   `safe-push/post-land.tsv` and alarms the proxy.
 - A Rust precheck covers only the crates a lane changes and the workspace crates that depend on them
   (2026-11-05): the clippy line's `${SAFE_PUSH_LAND_PACKAGES:---workspace}` becomes `-p` flags from `cargo metadata` and the
-  lane diff (`crates/north-landing/src/land/slots/affected.rs`), or `--workspace` when the lane changes
+  lane diff (`crates/north-land-checks/src/land/slots/affected.rs`), or `--workspace` when the lane changes
   a workspace manifest, `Cargo.lock`, the toolchain, an embedded input, or a crate every member uses.
   A narrowed check also leases fewer CPUs, two per crate with a floor of four, through
   `SAFE_PUSH_LAND_CPUS`, so more prechecks are admitted at once under the build host's cap. Main's CI

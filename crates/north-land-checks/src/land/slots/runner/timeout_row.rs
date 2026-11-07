@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::platform::push_ledger;
-use crate::land::after::follow::program;
+use crate::platform::north_binary::land_north as program;
 
 pub struct Timeout<'a> {
     pub base: &'a str,

@@ -6,7 +6,8 @@ use north_base::foundation::exit::NO_VERDICT_STATUS;
 
 use crate::land::slots::select::Config;
 use crate::landing::check_timings::outcomes::Outcome as CheckOutcome;
-use crate::land::checks::{BASE_FAILS, BROKEN_BASE, ROUND};
+use crate::platform::land_queue::ROUND;
+use super::{BASE_FAILS, BROKEN_BASE};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
 use super::{Shared, TIMED_OUT_STATUS, host_name, say, timeout_row, warn};

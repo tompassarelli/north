@@ -2,7 +2,6 @@ pub mod category;
 pub mod check_log;
 pub mod landing;
 pub mod profile;
-pub mod report;
 
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};

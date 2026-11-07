@@ -1,0 +1,26 @@
+[package]
+name = "north-land-checks"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-diff-gates = { path = "../north-diff-gates" }
+north-landing-gates = { path = "../north-landing-gates" }
+regex.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true

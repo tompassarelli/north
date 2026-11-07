@@ -491,7 +491,7 @@ Marked risky or outdated, each with its box:
 - The offload `RUN` script (`ship.rs:61`): enters `nix develop "$slot"` unless the command starts with the literal
   text `nix develop`. Gaps: every `.safe-push` check starts with `CARGO_TARGET_DIR=` or `bash`, so each enters the
   shell here and again in land-shell; no `--offline`, no root, nix from PATH only.
-- `crates/north-landing/src/landing/land_test_selection.rs` (`pinned_path`): pins PATH directories to their store targets, which closed the mid-run profile
+- `crates/north-land-checks/src/landing/land_test_selection.rs` (`pinned_path`): pins PATH directories to their store targets, which closed the mid-run profile
   switch (north#178). No gap found.
 - Runtime GC roots (90618140a, 2d43dfc83) and the deployed-unit check (b7290d292): root every store path a promoted
   runtime loads, and refuse a landing that deletes a `bin/` entry a deployed unit runs. Gaps: dev shells of live

@@ -10,7 +10,7 @@ use crate::land::slots::affected::{CHANGED_ENV, CPUS_ENV, PACKAGES_ENV};
 use crate::land::slots::it_modules::IT_ENV;
 use crate::land::slots::select::Placement;
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
-use crate::land::after::follow::program;
+use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
 use crate::land::trace::check_log::{self, Line, Mark};

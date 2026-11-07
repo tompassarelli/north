@@ -11,6 +11,7 @@ north-base = { path = "../north-base" }
 north-check-environment = { path = "../north-check-environment" }
 north-diff-gates = { path = "../north-diff-gates" }
 north-landing-gates = { path = "../north-landing-gates" }
+north-land-checks = { path = "../north-land-checks" }
 north-land-scans = { path = "../north-land-scans" }
 north-land-probes = { path = "../north-land-probes" }
 north-github-mirror = { path = "../north-github-mirror" }

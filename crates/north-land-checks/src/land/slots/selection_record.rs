@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use super::affected::Scope;
-use crate::land::lander::state_home;
+use crate::platform::records_mirror::state_home;
 
 const KEEP: Duration = Duration::from_secs(2 * 24 * 60 * 60);
 

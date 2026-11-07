@@ -24,7 +24,7 @@ const ROUNDS: usize = 8;
 const WALK: usize = 256;
 const SHADOW_MINUTES: u64 = 15;
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
-const LANDER_PATHS: [&str; 4] = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-runtime/", "tests/it/land"];
+const LANDER_PATHS: [&str; 5] = ["crates/north-landing/", "crates/north-land-checks/", "crates/north-safe-push/", "crates/north-runtime/", "tests/it/land"];
 
 mod shadow;
 mod tolerance;

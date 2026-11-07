@@ -13,8 +13,7 @@ use north_check_environment as environment;
 use super::refusal;
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
-pub const BROKEN_BASE: &str = "main's check environment is broken: ";
-pub const BASE_FAILS: &str = "and also fails on base tree";
+pub use crate::land::slots::runner::{BASE_FAILS, BROKEN_BASE};
 pub const INFRASTRUCTURE: &str = "infrastructure: the check host is unfit: ";
 const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found", "north not on PATH", "north missing on PATH"];
 const OFFLOAD: &str = "north capacity offload: ";

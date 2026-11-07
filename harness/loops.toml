@@ -137,7 +137,7 @@ defaults = [
 [[loop]]
 name = "check-deadline"
 decision = "the deadline the lander gives each land check and each after-landing run"
-sites = ["crates/north-landing-gates/src/landing/check_timings.rs", "crates/north-landing/src/land/slots/runner.rs", "crates/north-landing/src/land/post_land.rs"]
+sites = ["crates/north-landing-gates/src/landing/check_timings.rs", "crates/north-land-checks/src/land/slots/runner.rs", "crates/north-landing/src/land/post_land.rs"]
 signal = "p90 wall of the last passing runs of each check, doubled after a timeout on lane and base"
 updated_by = "north land"
 cadence_hours = 24
@@ -150,16 +150,16 @@ constants = [
   "crates/north-landing-gates/src/landing/check_timings.rs::MARGIN",
   "crates/north-landing-gates/src/landing/check_timings.rs::MEASURED",
   "crates/north-landing-gates/src/landing/check_timings.rs::WINDOW",
-  "crates/north-landing/src/land/slots/runner.rs::CANCEL_GRACE",
-  "crates/north-landing/src/land/slots/runner.rs::CANCELLED",
-  "crates/north-landing/src/land/slots/runner/log.rs::FIRST_ERROR_BOUND",
+  "crates/north-land-checks/src/land/slots/runner.rs::CANCEL_GRACE",
+  "crates/north-land-checks/src/land/slots/runner.rs::CANCELLED",
+  "crates/north-land-checks/src/land/slots/runner/log.rs::FIRST_ERROR_BOUND",
   "crates/north-landing/src/land/checks.rs::INFRASTRUCTURE",
-  "crates/north-landing/src/land/slots/runner.rs::KILLED",
-  "crates/north-landing/src/land/slots/runner.rs::LOG_KEEP",
-  "crates/north-landing/src/land/slots/runner.rs::OFFLOAD_GRACE",
-  "crates/north-landing/src/land/slots/runner.rs::REAP",
-  "crates/north-landing/src/land/slots/runner.rs::RED_MAIN",
-  "crates/north-landing/src/land/slots/runner.rs::TIMED_OUT",
+  "crates/north-land-checks/src/land/slots/runner.rs::KILLED",
+  "crates/north-land-checks/src/land/slots/runner.rs::LOG_KEEP",
+  "crates/north-land-checks/src/land/slots/runner.rs::OFFLOAD_GRACE",
+  "crates/north-land-checks/src/land/slots/runner.rs::REAP",
+  "crates/north-land-checks/src/land/slots/runner.rs::RED_MAIN",
+  "crates/north-land-checks/src/land/slots/runner.rs::TIMED_OUT",
 ]
 
 [[loop]]
@@ -530,14 +530,14 @@ constants = [
   "crates/north-landing/src/land/shadow/run.rs::RED_MAIN",
   "crates/north-landing/src/land/shadow/run.rs::SLOTS_BUSY",
   "crates/north-landing/src/land/shadow/run.rs::TIMED_OUT",
-  "crates/north-landing/src/land/slots/affected.rs::CPUS_PER_PACKAGE",
-  "crates/north-landing/src/land/slots/affected.rs::MINIMUM_CPUS",
-  "crates/north-landing/src/land/slots/infer.rs::TOOLCHAIN_MISSING",
-  "crates/north-landing/src/land/slots/runner/fail_fast.rs::CHEAP_CPU_SECONDS",
-  "crates/north-landing/src/land/slots/runner/fail_fast.rs::FINEST",
-  "crates/north-landing/src/land/slots/runner/fail_fast.rs::WINDOW",
-  "crates/north-landing/src/land/slots/select.rs::OFFLOAD_SLOTS_BUSY",
-  "crates/north-landing/src/land/slots/select.rs::REF_SHORT",
+  "crates/north-land-checks/src/land/slots/affected.rs::CPUS_PER_PACKAGE",
+  "crates/north-land-checks/src/land/slots/affected.rs::MINIMUM_CPUS",
+  "crates/north-land-checks/src/land/slots/infer.rs::TOOLCHAIN_MISSING",
+  "crates/north-land-checks/src/land/slots/runner/fail_fast.rs::CHEAP_CPU_SECONDS",
+  "crates/north-land-checks/src/land/slots/runner/fail_fast.rs::FINEST",
+  "crates/north-land-checks/src/land/slots/runner/fail_fast.rs::WINDOW",
+  "crates/north-land-checks/src/land/slots/select.rs::OFFLOAD_SLOTS_BUSY",
+  "crates/north-land-checks/src/land/slots/select.rs::REF_SHORT",
   "crates/north-landing/src/land/trace/report.rs::TOP",
   "crates/north-landing/src/land/watchdog.rs::CHECKING_EVERY_MICROS",
   "crates/north-landing/src/land/watchdog.rs::IDLE_ROUNDS",

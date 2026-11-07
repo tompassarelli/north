@@ -8,7 +8,7 @@ use tokio::process::Command;
 use tokio::task::JoinSet;
 
 use super::{ACTIONS_CLASS, Shared, say};
-use crate::land::after::follow::program;
+use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
 

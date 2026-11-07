@@ -3,32 +3,18 @@
 # `north` marks a module that reads repo files outside crates/: a docs/ change selects it. Any other change outside crates/ runs every module.
 # A module whose tests spawn the north binary (CARGO_BIN_EXE_north) runs for a change to any crate, since the binary links them all; a trailing `# narrow: REASON` keeps only the crates named.
 # One line per module, merged as a set.
-affected_modules north-landing north
 agents_plan north-ops north-pace
 automation_chrome_service north
 capacity_exclusive_native north-capacity north-core
 capacity_host north-capacity-host
 capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
-golden_path north-fleet north-landing
 hook_verbs north-guard
-land_checks north-landing north-core
-land_checks_script north-landing north
-land_enqueue north-landing
-land_publication north-landing north-safe-push north
-land_rebase north-landing
-land_route north-landing north-safe-push north
-land_scan north-landing
-land_scan_incident_test north-landing
-land_serve north-landing
-landing_targets north-landing
 lane_gc_journeys north-guard
-release north-landing north-safe-push north
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime
 safe_push_entry north-base north-safe-push north
 safe_push_remote_land north north-safe-push
-safe_push_tag north-landing north-safe-push
 stdio north-fleet
 support north
 threads_ingest_lock north-threads
@@ -40,10 +26,24 @@ session_start_measurement north-guard north-core north-fleet
 cargo_config north
 fleet_launch north-core north-fleet north-dispatch
 fleet_spool north-core north-fleet
-follows_release north-landing-gates north-threads
 policy_replay_case north-convo
 policy_replay_login north-convo
-safe_push north-capacity north-capacity-host north-landing north-safe-push
 threads_resume north-core north-threads
 agent_text_reads north
-land_after_set north-landing north
+affected_modules north-landing north north-land-checks
+follows_release north-landing-gates north-threads
+golden_path north-fleet north-landing north-land-checks
+land_after_set north-landing north north-land-checks
+land_checks north-landing north-core north-land-checks
+land_checks_script north-landing north north-land-checks
+land_enqueue north-landing north-land-checks
+land_publication north-landing north-safe-push north north-land-checks
+land_rebase north-landing north-land-checks
+land_route north-landing north-safe-push north north-land-checks
+land_scan north-landing north-land-checks
+land_scan_incident_test north-landing north-land-checks
+land_serve north-landing north-land-checks
+landing_targets north-landing north-land-checks
+release north-landing north-safe-push north north-land-checks
+safe_push north-capacity north-capacity-host north-landing north-safe-push north-land-checks
+safe_push_tag north-landing north-safe-push north-land-checks

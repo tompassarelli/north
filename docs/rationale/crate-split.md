@@ -23,6 +23,7 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `north-landing` would make `guard` rebuild on every landing-gate edit.
 - `north-landing-gates` (north#745 lane 1): `landing` except `after_landing`, `land_test_runner` and `land_test_selection`, plus `issue_box_lint`, `follows_release` and `land_abandon`. Depends on `north-base`, `north-diff-gates` and `north-mutants`; `north-landing` depends on it and re-exports its modules, so `crate::landing::...` paths are unchanged.
 - `north-land-scans` (north#745 lane 3): `land/scans` (the diff scans `north land scan` runs), moved ahead of lane 2 because it names nothing in the lander: `north-landing` keeps the `boxes`, `ci-budget`, `code-health`, `crate-lines`, `instruction-limits` and `deps` scans that reach `after`, `issue_body` and `slots`, and re-exports the crate as `land::scans`, so `crate::land::scans::...` paths are unchanged. Depends on `north-base`, `north-diff-gates`, `north-github-mirror` and `north-landing-gates`.
+- `north-land-checks` (north#840): `land/slots` (the land check runner `north land checks` and its selection), `land/trace` but its `report` (the `north land profile` command, which reads the queue), `land/telemetry` and `landing::{land_test_runner, land_test_selection}`. None of them names the lander, queue or after-landing code: the runner took `program` and `state_home` from north-base, where `after::follow` and `lander` only re-exported or copied them, and `checks` now re-exports the `BROKEN_BASE` and `BASE_FAILS` texts from `slots::runner`. `north-landing` re-exports `slots` and `telemetry` under `land`, glob re-exports `trace` beside its `report`, and glob re-exports `landing`, so every `crate::land::...` path is unchanged. Depends on `north-base`, `north-diff-gates` and `north-landing-gates`; only `north-landing` lists it, so its cap is the default.
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
 - `north-core`: the agent catalog and config checks, `build_time`, `grounding`, `doctor_nix`, `nix_gc`,
@@ -582,7 +583,7 @@ run, through a module-to-crate table, not moving files. `land_repositories` and 
 tests on `north_landing` alone) move to `crates/north-landing/tests/it`.
 
 The table is `tests/it/crates.txt` (box 4-20), one line per module, merged as a set. It names planned crates,
-so `crates/north-landing/src/land/slots/it_modules.rs` resolves a changed file through `structure.toml`'s
+so `crates/north-land-checks/src/land/slots/it_modules.rs` resolves a changed file through `structure.toml`'s
 `[crate_dag]` globs, not through `cargo metadata`, and the selection holds before and after each move. A
 module runs when one of its crates, or a crate whose `may_use` reaches one, changed. Any change outside
 `crates/` except `docs/` runs every module. The lander exports the result as
@@ -595,7 +596,7 @@ after another; on cx53 a north-landing lane took 89 s for the unit tests and 65 
 
 ### Lander selection
 
-`crates/north-landing/src/land/slots/affected.rs` (lander box B, f9142b21b) already maps changed files to
+`crates/north-land-checks/src/land/slots/affected.rs` (lander box B, f9142b21b) already maps changed files to
 packages from `cargo metadata` and adds the reverse-dependency closure for the clippy check. A path that
 `north_base::build_inputs::rust_build_input` calls a Rust input but no member owns selects the whole
 workspace. For example, `harness/defaults.toml`, which seven crates-to-be embed with `include_str!`. That is
