@@ -369,8 +369,9 @@ impl Goals {
     }
 }
 
-/// One bar's readings for one repository: the last 3 h carries the verdict, 1 h, 6 h and 24 h are context.
+/// One bar's readings for one repository: the last 3 h carries the verdict, 10 min, 1 h, 6 h and 24 h are context.
 struct Cells {
+    ten_minutes: Option<Reading>,
     hour: Option<Reading>,
     three_hours: (Option<Reading>, Standing),
     six_hours: Option<Reading>,
@@ -383,9 +384,9 @@ struct Repo {
     days_in_a_row: usize,
 }
 
-/// The `hours` ending at `now`, bounded as days in a row bounds its newest day.
-fn last(now: i64, hours: i64) -> Window {
-    Window { start: now - hours * 3_600 + 1, end: now + 1 }
+/// The `minutes` ending at `now`, bounded as days in a row bounds its newest day.
+fn last(now: i64, minutes: i64) -> Window {
+    Window { start: now - minutes * 60 + 1, end: now + 1 }
 }
 
 fn assess(reading: impl Fn(Bar, Window) -> Option<Reading>, goals: &Goals, repo: &'static str, now: i64) -> Repo {
@@ -397,7 +398,7 @@ fn assess(reading: impl Fn(Bar, Window) -> Option<Reading>, goals: &Goals, repo:
         .map(|day| Window { start: now - (day + 1) * DAY_S + 1, end: now - day * DAY_S + 1 })
         .take_while(|window| Bar::ALL.iter().all(|bar| counts(standing(*bar, *window).1, *bar)))
         .count();
-    let bars = Bar::ALL.iter().map(|&bar| Cells { hour: reading(bar, last(now, 1)), three_hours: standing(bar, last(now, 3)), six_hours: reading(bar, last(now, 6)), day: reading(bar, last(now, 24)) }).collect();
+    let bars = Bar::ALL.iter().map(|&bar| Cells { ten_minutes: reading(bar, last(now, 10)), hour: reading(bar, last(now, 60)), three_hours: standing(bar, last(now, 180)), six_hours: reading(bar, last(now, 360)), day: reading(bar, last(now, 1_440)) }).collect();
     Repo { name: repo, bars, days_in_a_row }
 }
 

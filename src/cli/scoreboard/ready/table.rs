@@ -46,11 +46,11 @@ pub(super) fn headline(repo: &Repo) -> String {
 }
 
 fn table(out: &mut String, repo: &Repo, goals: &Goals, view: View) {
-    let mut rows: Vec<Vec<String>> = vec![["bar", "target", "verdict (3 h)", "1 h", "3 h", "6 h", "24 h"].map(String::from).to_vec()];
+    let mut rows: Vec<Vec<String>> = vec![["bar", "target", "verdict (3 h)", "10 min", "1 h", "3 h", "6 h", "24 h"].map(String::from).to_vec()];
     for (bar, cells) in Bar::ALL.iter().zip(&repo.bars) {
         let goal = goals.of(*bar);
         let passed = counts(cells.three_hours.1, *bar);
-        rows.push(vec![bar.label().into(), threshold(goal), if passed { "PASS" } else { "FAIL" }.into(), cell(goal, cells.hour, true), cell(goal, cells.three_hours.0, view.explain), cell(goal, cells.six_hours, view.explain), cell(goal, cells.day, view.explain)]);
+        rows.push(vec![bar.label().into(), threshold(goal), if passed { "PASS" } else { "FAIL" }.into(), cell(goal, cells.ten_minutes, true), cell(goal, cells.hour, true), cell(goal, cells.three_hours.0, view.explain), cell(goal, cells.six_hours, view.explain), cell(goal, cells.day, view.explain)]);
     }
     let _ = writeln!(out, "{}", headline(repo));
     let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
@@ -72,8 +72,8 @@ pub(super) fn render(repos: &[Repo], goals: &Goals, now: i64, view: View) -> Str
         table(&mut out, repo, goals, view);
     }
     if view.explain {
-        let _ = writeln!(out, "\nat {}: each bar passes or fails on its last 3 h; 1 h, 6 h and 24 h are context with no verdict", Timestamp::from_unix_seconds(now).local_twelve_hour());
-        let _ = writeln!(out, "days: the newest 24 h windows in a row in which every bar passed; n: each cell's sample (the 1 h cell always shows it)");
+        let _ = writeln!(out, "\nat {}: each bar passes or fails on its last 3 h; 10 min, 1 h, 6 h and 24 h are context with no verdict", Timestamp::from_unix_seconds(now).local_twelve_hour());
+        let _ = writeln!(out, "days: the newest 24 h windows in a row in which every bar passed; n: each cell's sample (the 10 min and 1 h cells always show it)");
         let _ = writeln!(out, "targets: goals.toml, ready class");
         let _ = writeln!(out, "sources: landings ledger, land-queue spans, worker ledger, Tom's transcripts, GitHub mirror, pace-control history");
     }
