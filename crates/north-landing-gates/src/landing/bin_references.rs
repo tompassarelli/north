@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::removed_surface::{Kind, Removed, invocation, removed_in, removed_surface};
+use super::rust_calls;
 
 const USAGE: &str = "usage: north bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]";
 const PREFIXES: [&str; 3] = ["tree/bin/", "${northBin}/", "north/bin/"];
@@ -101,6 +102,17 @@ fn source_references(source: &Source, removed: &Removed) -> Result<Vec<Reference
     Ok(found)
 }
 
+fn rust_references(repo: &Path, head: &str, removed: &Removed) -> Result<Vec<Reference>, String> {
+    let holder = format!("north's Rust at {head}");
+    let mut found = Vec::new();
+    for (path, text) in rust_calls::files(repo, head)? {
+        for call in rust_calls::calls(&text) {
+            found.extend(removed_in(&call.words, removed).into_iter().map(|(kind, entry)| Reference { kind, entry, holder: holder.clone(), location: format!("{path}:{}", call.line) }));
+        }
+    }
+    Ok(found)
+}
+
 pub fn host_references(units: &str, removed: &Removed) -> Vec<Reference> {
     let mut unit = String::new();
     let mut found = Vec::new();
@@ -187,6 +199,7 @@ fn collect(repo: &Path, base: &str, head: &str, nixos_config: PathBuf, south: Pa
         }
         found.extend(source_references(&source, &removed)?);
     }
+    found.extend(rust_references(repo, head, &removed)?);
     match host_units() {
         Ok(units) => found.extend(host_references(&units, &removed)),
         Err(error) => warnings.push(format!("safe-push: ⚠ cannot read this host's user units ({error}), so they were not checked for bin/ entries, subcommands or flags this landing removes.")),

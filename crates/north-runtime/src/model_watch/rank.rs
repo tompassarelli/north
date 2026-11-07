@@ -80,7 +80,7 @@ fn require_plan(host: &dyn Host, options: &Options) -> Result<(), String> {
         }
         rows = claude_rows(&options.usage_db, account.as_deref());
     }
-    let gate = host.command(&options.north, &["pace".into(), "gate".into(), "claude".into()], None, Duration::from_secs(60), &[])?;
+    let gate = host.command(&options.north, &["fleet".into(), "pace".into(), "gate".into(), "claude".into()], None, Duration::from_secs(60), &[])?;
     let catalog: toml_edit::DocumentMut = CATALOG.parse().expect("harness/model-catalog.toml parses");
     let auto_purchase = catalog["accounts"]["claude"]["auto_purchase"].as_str();
     if gate.code != 0 || billing(&rows, "extra_usage") != Some(0.0) || billing(&rows, "spend") != Some(0.0) || auto_purchase != Some("off") {
