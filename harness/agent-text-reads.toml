@@ -1,0 +1,108 @@
+# Every source file that reads text an agent wrote (a Stop: line, a report opener or its prose, issue or comment prose)
+# and how many lines do. `kind = "verdict"`: the read decides a bar, an attribution class, a hold or a resume; "hint":
+# it only annotates or shows. `all_patterns = true` counts every raw-string pattern in the file, for the files that
+# are prose classifiers throughout. tests/it/agent_text_reads.rs refuses a count above its entry and asks to lower an
+# entry the code no longer reaches; north#791 replaces each verdict read with its mechanical source and removes the
+# entry (docs/rationale/attribution.md).
+
+[[read]]
+file = "crates/north-threads/src/threads/attribution.rs"
+lines = 16
+kind = "verdict"
+all_patterns = true
+
+[[read]]
+file = "crates/north-providers/src/providers/claude/runs/outcome.rs"
+lines = 30
+kind = "verdict"
+all_patterns = true
+
+[[read]]
+file = "crates/north-providers/src/providers/claude/runs/row.rs"
+lines = 8
+kind = "verdict"
+all_patterns = true
+
+[[read]]
+file = "crates/north-threads/src/threads/runs/landed_issues.rs"
+lines = 2
+kind = "verdict"
+all_patterns = true
+
+[[read]]
+file = "crates/north-dispatch/src/dispatch/stops.rs"
+lines = 6
+kind = "verdict"
+all_patterns = true
+
+[[read]]
+file = "crates/north-dispatch/src/dispatch/issues.rs"
+lines = 7
+kind = "verdict"
+all_patterns = true
+
+[[read]]
+file = "crates/north-base/src/platform/attribution.rs"
+lines = 3
+kind = "verdict"
+
+[[read]]
+file = "crates/north-threads/src/threads/calibration/read.rs"
+lines = 1
+kind = "verdict"
+
+[[read]]
+file = "src/cli/scoreboard/workers.rs"
+lines = 1
+kind = "verdict"
+
+[[read]]
+file = "crates/north-fleet/src/fleet/stranded.rs"
+lines = 1
+kind = "verdict"
+
+[[read]]
+file = "crates/north-fleet/src/fleet/watch.rs"
+lines = 1
+kind = "verdict"
+
+[[read]]
+file = "crates/north-fleet/src/fleet/receipts.rs"
+lines = 1
+kind = "verdict"
+
+[[read]]
+file = "crates/north-providers/src/providers/claude/runs/telemetry.rs"
+lines = 1
+kind = "verdict"
+
+[[read]]
+file = "crates/north-fleet/src/fleet/reaper.rs"
+lines = 1
+kind = "hint"
+
+[[read]]
+file = "crates/north-fleet/src/fleet/registry/retiring.rs"
+lines = 1
+kind = "hint"
+
+[[read]]
+file = "crates/north-core/src/grounding/compose.rs"
+lines = 1
+kind = "hint"
+
+[[read]]
+file = "crates/north-core/src/grounding/sources/history.rs"
+lines = 1
+kind = "hint"
+
+[[read]]
+file = "crates/north-guard/src/guard/codex_conduct/stop.rs"
+lines = 1
+kind = "hint"
+
+[[read]]
+file = "crates/north-ops/src/ops/incident_mine/classify.rs"
+lines = 3
+kind = "hint"
+

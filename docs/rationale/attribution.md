@@ -2,6 +2,12 @@
 
 A worker run can fail because of the worker or because of the harness that staffed, placed, landed or gated it. Counting both as the worker's failure hides which harness fixes would return the most work, and it misleads tier learning about which model fits which work (north#706). This note defines one attribution that every reader shares, so the ready bar, `north ledger flow` and tier learning count the same failures the same way.
 
+## Mechanical sources only
+
+A bar, an attribution class or a routing score reads only mechanical sources: git ancestry of origin/main, lander verdicts and queue state, exit codes, capacity admission records, registered waits, placement refusals and fleet lifecycle records. Text an agent wrote (a `Stop:` line, a `Done:` or `Not done:` word, the prose of a report, a comment or an issue body) is a hint: it may be shown, searched and quoted, and it never decides a verdict, so a worker's wording cannot move a harness number (north#791; on 2026-11-07 waits and capacity were read from `Stop:` text, host needs were guessed from issue prose, and first tries were scored on what the worker said instead of what the harness recorded).
+
+The phrase rules and report readers below are the fallback that predates this rule. `harness/agent-text-reads.toml` lists every file that still reads agent text to decide a verdict, with the count of lines that do; each box of north#791 replaces one kind with its mechanical source and lowers its entry. `tests/it/agent_text_reads.rs` scans the workspace sources and refuses any line that reads a report beyond that list, so a new read cannot land while the old ones are replaced; the same test plants a read in a new file and in a listed file and checks that both are refused.
+
 ## The rule
 
 `north_threads::threads::attribution::attribute` reads a finished run's outcome, the cause a boundary recorded for it (below), its final report and its compaction count, and returns one cause:

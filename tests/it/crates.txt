@@ -42,3 +42,4 @@ policy_replay_case north-convo
 policy_replay_login north-convo
 safe_push north-capacity north-capacity-host north-landing north-safe-push
 threads_resume north-core north-threads
+agent_text_reads north
