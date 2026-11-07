@@ -336,6 +336,34 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
 - <a id="buck2"></a>**Buck2: why Buck2** and **remote execution**, https://buck2.build/docs/about/why/,
   https://buck2.build/docs/users/remote_execution/.
   Informed: one placement function for local and remote hosts. Outcome: prior only.
+- <a id="buck2-dep-files"></a>**Buck2: dep files**, https://buck2.build/docs/rule_authors/dep_files/.
+  Informed: a verdict keyed on the inputs a check used, not every input it may read
+  ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="buildxl"></a>**BuildXL** (Microsoft Build Accelerator), https://github.com/microsoft/BuildXL.
+  Informed: the two-phase lookup of verdict reuse, a weak fingerprint selecting observed path sets and a strong
+  fingerprint over their current content, absent paths and listings included
+  ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="tup"></a>**tup** and **Shal, Build System Rules and Algorithms (2009)**, https://gittup.org/tup/,
+  https://gittup.org/tup/build_system_rules_and_algorithms.pdf.
+  Informed: recorded file accesses per command, a probed missing file as an input, FUSE as the fallback
+  recorder ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="build2"></a>**build2 build system manual**, https://build2.org/build2/doc/build2-build-system-manual.xhtml.
+  Informed: a compile's inputs taken from the compiler's own dependency output (rustc dep-info)
+  ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="ekstazi"></a>**Gligoric, Eloussi and Marinov, Practical regression test selection with dynamic file
+  dependencies (ISSTA 2015)**, https://doi.org/10.1145/2771783.2771784.
+  Informed: per-test file dependencies as a safe and cheap reuse key ([verdict-reuse.md](rationale/verdict-reuse.md)).
+  Outcome: prior only.
+- <a id="nextest"></a>**cargo-nextest: how it works** and **target runners**, https://nexte.st/docs/design/how-it-works/,
+  https://nexte.st/docs/features/target-runners/.
+  Informed: one process per test and the runner hook that records each test's reads
+  ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="landlock"></a>**Landlock: unprivileged access control** (Linux kernel documentation),
+  https://docs.kernel.org/userspace-api/landlock.html.
+  Informed: the read fence of the land sandbox ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="seccomp-unotify"></a>**seccomp_unotify(2)**, https://man7.org/linux/man-pages/man2/seccomp_unotify.2.html.
+  Informed: the land sandbox's recorder of every path a test's process tree looks up
+  ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
 - <a id="sccache-capacity"></a>**sccache** (README and docs/Rust.md), https://github.com/mozilla/sccache.
   Informed: no laptop-shared compiler cache, per-host caches only. Outcome: prior only; see also
   [build-cost.md](rationale/build-cost.md).

@@ -106,6 +106,7 @@ Skipping a test binary whose crate and dependency sources match a recorded pass 
 27 crate test files read paths outside their crate through `CARGO_MANIFEST_DIR` (`../..`, other
 crates' sources, `harness/`, `bin/safe-push`), so a crate's own source hash does not cover its
 tests' inputs. The land-cache keeps its whole-check reuse keyed on every path the check names.
+[verdict-reuse.md](verdict-reuse.md) closes that gap by recording each test's reads (north#842).
 
 After those changes, clippy lints only the crates whose files changed (`SAFE_PUSH_LAND_CHANGED`), the
 nextest check builds tests/it only when a module is selected, and the separate `cargo check --tests`
