@@ -319,7 +319,9 @@ impl Rung {
 pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Route, String> {
     let facet = |key: &str| facets::facet(issue, key);
     let Some(climb) = &issue.stop.climb else {
-        return route_for(&issue.reference().to_string(), &facet, history, ledger);
+        let route = route_for(&issue.reference().to_string(), &facet, history, ledger)?;
+        let follows = route.follows.clone().or_else(|| issue.stop.relay.as_ref().map(|relay| format!("{} (Stop: host {})", relay.session, relay.need)));
+        return Ok(Route { follows, ..route });
     };
     let category = facet("Category").to_lowercase();
     known(&category)?;

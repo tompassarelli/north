@@ -5,6 +5,7 @@ use north_github_mirror::store::{self as mirror, Mirror};
 use regex::Regex;
 use rusqlite::Connection;
 
+use super::chain::{self, End, Marks, Raw};
 use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::attention::references;
@@ -47,18 +48,24 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
     let mut statement = db.prepare("SELECT DISTINCT follows FROM runs WHERE coalesce(follows, '') != ''")?;
     let followed: HashSet<String> = statement.query_map([], |row| row.get(0))?.filter_map(Result::ok).collect();
     let mut statement = db.prepare(&format!(
-        "SELECT agent, category, ended, {}, coalesce(item, ''), {}, coalesce(compactions, 0), {}, {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        "SELECT agent, category, started, ended, {}, coalesce(item, ''), {}, {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
         outcome_column(db),
-        report_column(db),
-        recorded_column(db),
+        end_columns(db),
         fleet_column(db),
         worker_where()
     ))?;
-    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, u32>(6)?, row.get::<_, Option<String>>(7)?, row.get::<_, String>(8)?)))?;
-    Ok(rows
+    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, u32>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, String>(9)?)))?;
+    let raws = rows
         .filter_map(Result::ok)
-        .filter_map(|(agent, category, ended, outcome, item, report, compactions, recorded, session)| {
-            let ended = Timestamp::parse(&ended).ok()?.unix_seconds();
+        .filter_map(|(agent, category, started, ended, outcome, item, report, compactions, recorded, session)| {
+            let (started, ended) = (Timestamp::parse(&started).map_or(0, |at| at.unix_seconds()), Timestamp::parse(&ended).ok()?.unix_seconds());
+            Some(Raw { agent, category, item, session, started, ended, end: End { outcome, report, compactions, recorded } })
+        })
+        .collect();
+    let relaunches = relaunches(db)?;
+    Ok(chain::fold(raws, &Marks::read(db), &relaunches)
+        .into_iter()
+        .filter_map(|Raw { agent, category, item, session, ended, end: End { outcome, report, compactions, recorded }, .. }| {
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
             if outcome != "done" && pending.holds(&report, &session) {
                 return None;
@@ -67,6 +74,18 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
             Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()), deferred })
         })
         .collect())
+}
+
+/// The columns of how a run ended, in the order `End` reads them: its report, its compactions and its recorded cause.
+fn end_columns(db: &Connection) -> String {
+    format!("{}, coalesce(compactions, 0), {}", report_column(db), recorded_column(db))
+}
+
+/// The ends of the runs that relaunched a session stopped on `Stop: host`, by the stopped session.
+fn relaunches(db: &Connection) -> rusqlite::Result<BTreeMap<String, End>> {
+    let mut statement = db.prepare(&format!("SELECT follows, {}, {} FROM runs WHERE follows LIKE '% (Stop: host %'", outcome_column(db), end_columns(db)))?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, End { outcome: row.get(1)?, report: row.get(2)?, compactions: row.get(3)?, recorded: row.get(4)? })))?;
+    Ok(rows.filter_map(Result::ok).filter_map(|(follows, end)| Some((follows.split_once(" (Stop: host ")?.0.to_owned(), end))).collect())
 }
 
 /// The fleet sessions whose unfinished first try is pending: its next report, which the lander's verdict or its own job's

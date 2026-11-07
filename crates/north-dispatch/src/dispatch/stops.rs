@@ -30,8 +30,18 @@ pub struct Stop {
     pub until: Option<(String, f64)>,
     /// `Stop: host NEED`: the host or local need the next launch must be placed on.
     pub host: Option<String>,
+    /// The stopped run the next launch follows when it stopped on `Stop: host`, with the report that brief carries.
+    pub relay: Option<Relay>,
     /// The worker got nowhere on its rung, so the next launch climbs one.
     pub climb: Option<Climb>,
+}
+
+/// A launch that stopped on `Stop: host NEED`: the relaunch on a host that serves NEED follows it and starts from its report.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Relay {
+    pub session: String,
+    pub need: String,
+    pub report: String,
 }
 
 /// A launch whose box the next launch climbs one rung from, with the evidence that it got nowhere on its own.
@@ -117,7 +127,9 @@ fn holds(report: &str, ended: Option<f64>, nowhere: Option<String>, launch: &Rec
         Some((written.to_owned(), crate::foundation::clock::Timestamp::parse_loose(written)?.unix_seconds_f64()))
     });
     let climb = nowhere.and_then(|why| Some(Climb { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned(), why }));
-    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report), climb }
+    let host = host_need(report);
+    let relay = host.clone().map(|need| Relay { session: launch.name.clone(), need, report: report.trim().to_owned() });
+    Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host, relay, climb }
 }
 
 /// Whether the issue is unchanged since the report that stopped for a decision, or since its worker on the ladder's

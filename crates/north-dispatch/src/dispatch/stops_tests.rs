@@ -365,3 +365,22 @@ fn a_box_is_placed_on_its_own_needs_line_and_an_issue_with_one_box_needing_nothi
     assert!(super::host_needs::of_box(&whole, "a test pins the order", &hosts, &[], at).is_empty());
     assert_eq!(super::host_needs::of_box(&whole, "the laptop rebuild", &hosts, &[], at), ["ccx33", "laptop"], "a hand launch on a box reads that box alone");
 }
+
+
+#[test]
+fn the_relaunch_after_north_733s_stop_host_laptop_follows_the_stopped_run_and_starts_from_its_report() {
+    let report = "Not done: the code for north#733 is already on origin/main, but nobody has watched a take-over live.\nStop: host laptop";
+    let session = serde_json::json!({"entries": [{"kind": "assistant", "text": report}, {"kind": "turn", "text": "success"}], "turns": [{"exit": "completed", "ended_ms": 1_000_000}]});
+    let ran = record::Record { at: 10.0, item: "north#733".into(), host: "gex45".into(), account: "claude:c".into(), name: "north-733-d0215".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: false, effort_arm: None, effort: None };
+    let stopped = Issue { stop: super::stops::stop(&session, &ran), ..issue("north", 733, "- [ ] a take-over is watched live", &[]) };
+
+    let route = super::tier::route(&stopped, &super::tier::History::default(), &BTreeMap::new()).unwrap();
+    let grounds = super::grounds::Grounds::default().carrying(stopped.stop.relay.as_ref().map(|relay| relay.report.as_str()));
+    let brief = super::brief::brief(&stopped, "dispatch", &route, &grounds);
+
+    assert!(brief.lines().any(|line| line == "Follows: north-733-d0215 (Stop: host laptop)"), "{brief}");
+    assert!(brief.lines().any(|line| line == "Needs: laptop"), "{brief}");
+    assert!(brief.contains("Prior report: Not done: the code for north#733 is already on origin/main"), "{brief}");
+    let fresh = Issue { stop: Stop::default(), ..stopped };
+    assert_eq!(super::tier::route(&fresh, &super::tier::History::default(), &BTreeMap::new()).unwrap().follows, None, "a box with no host stop follows nothing");
+}

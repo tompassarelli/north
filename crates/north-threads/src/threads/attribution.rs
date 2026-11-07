@@ -112,7 +112,7 @@ pub fn outcome_column(db: &Connection) -> &'static str {
 pub fn recorded_column(db: &Connection) -> &'static str {
     let has = |sql: &str| db.query_row(sql, [], |_| Ok(())).is_ok();
     if has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'boundary_causes'") && has("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'fleet_name'") {
-        "(SELECT cause FROM boundary_causes WHERE session = runs.fleet_name AND at >= coalesce(runs.started, '') ORDER BY at DESC, rowid DESC LIMIT 1)"
+        "(SELECT cause FROM boundary_causes WHERE session = runs.fleet_name AND source != 'resume' AND at >= coalesce(runs.started, '') ORDER BY at DESC, rowid DESC LIMIT 1)"
     } else {
         "NULL"
     }

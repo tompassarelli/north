@@ -14,6 +14,7 @@ use crate::ledger::outcome::read::Places;
 
 mod audit;
 mod cause;
+mod chain;
 mod frontier;
 mod landing;
 mod lanes;

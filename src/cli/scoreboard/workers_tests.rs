@@ -64,3 +64,35 @@ fn a_done_run_that_expected_a_landing_and_has_no_landed_sha_is_not_a_first_try_s
     let read = attempts(&db, 0, &BTreeSet::new(), &Pending::default()).unwrap();
     assert_eq!(read.iter().map(|attempt| attempt.succeeded).collect::<Vec<_>>(), [true, false, true]);
 }
+
+
+
+fn chain_db(causes: &[(&str, &str, &str)], runs: &[(&str, &str, &str, &str)]) -> Connection {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT); CREATE TABLE boundary_causes(session TEXT NOT NULL, source TEXT NOT NULL, cause TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', at TEXT NOT NULL);").unwrap();
+    for (agent, started, ended, report) in runs {
+        let outcome = if report.starts_with("Done") { "done" } else { "not done" };
+        db.execute("INSERT INTO runs VALUES (?1, 'north#722', NULL, 'bug', ?2, ?3, 30, ?4, ?5, 'worker', '', 0, 'n-dead-cites')", [agent, started, ended, outcome, report]).unwrap();
+    }
+    for (source, cause, at) in causes {
+        db.execute("INSERT INTO boundary_causes(session, source, cause, at) VALUES ('n-dead-cites', ?1, ?2, ?3)", [source, cause, at]).unwrap();
+    }
+    db
+}
+
+/// n-dead-cites stopped on `Stop: landing` at 9:00 AM on 2026-11-07 and the harness resumed it when the lander decided: the
+/// first try is judged by the run that landed (north#790), where a resume the proxy or Tom followed by a message of their own
+/// leaves the stopped run a lost first try.
+#[test]
+fn a_run_the_harness_resumed_is_judged_by_where_its_chain_ends_and_a_correction_in_between_keeps_it_lost() {
+    let landing = "Not done: the lane is queued.\nStop: landing";
+    let runs = [("a", "2026-11-07T15:00:00Z", "2026-11-07T16:00:00Z", landing), ("b", "2026-11-07T16:30:00Z", "2026-11-07T17:00:00Z", "Done: landed.")];
+    let resumed = chain_db(&[("resume", "harness:landing-refusal", "2026-11-07T16:20:00Z")], &runs);
+    let read = attempts(&resumed, 0, &BTreeSet::new(), &Pending::default()).unwrap();
+    assert_eq!(read.iter().map(|attempt| attempt.succeeded).collect::<Vec<_>>(), [true]);
+    let corrected = chain_db(&[("resume", "harness:landing-refusal", "2026-11-07T16:20:00Z"), ("proxy", "proxy", "2026-11-07T16:25:00Z")], &runs);
+    let read = attempts(&corrected, 0, &BTreeSet::new(), &Pending::default()).unwrap();
+    assert_eq!(read.iter().map(|attempt| attempt.succeeded).collect::<Vec<_>>(), [false, true]);
+    let pending = chain_db(&[("resume", "harness:landing-refusal", "2026-11-07T16:20:00Z")], &runs[..1]);
+    assert!(attempts(&pending, 0, &BTreeSet::new(), &Pending::default()).unwrap().is_empty());
+}
