@@ -19,6 +19,7 @@ use north_base::foundation::exit::NO_VERDICT;
 use options::{Options, lander_for, parse};
 
 mod batch;
+mod handover;
 mod options;
 
 pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
@@ -26,7 +27,6 @@ const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_millis(250);
 const DISCOVERY: Duration = Duration::from_secs(30);
-const HANDOVER: Duration = Duration::from_secs(900);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Round {
@@ -170,29 +170,16 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     let mut retiring: Option<Instant> = None;
     loop {
         if retire.load(Ordering::Relaxed) {
-            let since = *retiring.get_or_insert_with(|| {
-                watch.drain();
-                Instant::now()
-            });
-            if !watch.adoptable(lander) && since.elapsed() < HANDOVER {
-                lander.heartbeat.enter(Step::Between);
-                watch.settle(lander);
-                std::thread::sleep(TICK);
-                continue;
+            if let Some(code) = handover::hand_over(lander, &mut watch, &mut retiring) {
+                return code;
             }
-            if watch.journaled() > 0 {
-                let handed = if watch.adoptable(lander) { "with every after-landing run in flight held by a runner the restarted lander adopts" } else { "at the handover bound, with a culprit search or a runner-less after-landing step still in flight that the restarted lander reruns" };
-                println!("north land: the live runtime changed; exiting after {} s {handed}; it resumes the rest of the {} journaled batch(es) as one run where they follow each other on main", since.elapsed().as_secs(), watch.journaled());
-            }
-            return 0;
+            continue;
         }
         let round = lander.round(&mut watch);
         lander.heartbeat.enter(Step::Watchdog);
         watchdog::after_round(lander, &round);
         lander.heartbeat.enter(Step::Between);
-        if matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)) {
-            backoff.clear();
-        }
+        backoff.clear_if(matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)));
         match round {
             Ok(Round::Progress) => continue,
             Ok(Round::Checking) => {

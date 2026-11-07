@@ -42,10 +42,34 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         .suffix(".log")
         .tempfile_in(&layout.state)?;
     swap(layout, &layout::link(target))?;
+    let (failure, unpublished) = run_steps(steps, log.path());
+    let Some((step, status)) = failure else {
+        let logged = fs::read_to_string(log.path()).unwrap_or_default();
+        publication_notice(layout, target, unpublished.map(|status| (status, logged.as_str())), notify);
+        return Ok(logged.lines().map(|line| crate::foundation::redact::redact(line) + "\n").collect());
+    };
+    if let Some(previous) = previous {
+        swap(layout, previous)?;
+    }
+    let logged = fs::read_to_string(log.path()).unwrap_or_default();
+    for line in log_tail(&logged) {
+        eprintln!("north runtime update: {step} log: {line}");
+    }
+    let (_, kept) = log.keep().map_err(|error| failed(1, error.to_string()))?;
+    let was = previous.map_or_else(|| "<none>".to_owned(), |link| link.display().to_string());
+    let message = format!(
+        "failed step {step} on {target}; rolled back to {was}; exit status {status}; local log: {}",
+        kept.display()
+    );
+    notify(&message);
+    Err(failed(1, message))
+}
+
+fn run_steps<'a>(steps: Vec<(&'a str, Command)>, log: &Path) -> (Option<(&'a str, u8)>, Option<u8>) {
     let mut failure = None;
     let mut unpublished = None;
     let limit = remote::limit(STEP_LIMIT);
-    let append = || fs::OpenOptions::new().append(true).open(log.path());
+    let append = || fs::OpenOptions::new().append(true).open(log);
     let note = |line: String| {
         let _ = append().and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
     };
@@ -77,26 +101,7 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         }
         break;
     }
-    let Some((step, status)) = failure else {
-        let logged = fs::read_to_string(log.path()).unwrap_or_default();
-        publication_notice(layout, target, unpublished.map(|status| (status, logged.as_str())), notify);
-        return Ok(logged.lines().map(|line| crate::foundation::redact::redact(line) + "\n").collect());
-    };
-    if let Some(previous) = previous {
-        swap(layout, previous)?;
-    }
-    let logged = fs::read_to_string(log.path()).unwrap_or_default();
-    for line in log_tail(&logged) {
-        eprintln!("north runtime update: {step} log: {line}");
-    }
-    let (_, kept) = log.keep().map_err(|error| failed(1, error.to_string()))?;
-    let was = previous.map_or_else(|| "<none>".to_owned(), |link| link.display().to_string());
-    let message = format!(
-        "failed step {step} on {target}; rolled back to {was}; exit status {status}; local log: {}",
-        kept.display()
-    );
-    notify(&message);
-    Err(failed(1, message))
+    (failure, unpublished)
 }
 
 fn publication_notice(layout: &Layout, target: &str, unpublished: Option<(u8, &str)>, notify: &mut dyn FnMut(&str)) {

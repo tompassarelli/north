@@ -42,6 +42,12 @@ impl Backoff {
     pub fn clear(&mut self) {
         self.strikes = 0;
     }
+
+    pub fn clear_if(&mut self, healthy: bool) {
+        if healthy {
+            self.clear();
+        }
+    }
 }
 
 #[cfg(test)]

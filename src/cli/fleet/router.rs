@@ -118,12 +118,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["accounts"] => accounts(&fleet, false),
         ["accounts", "--claude-ai"] => accounts(&fleet, true),
         ["accounts", "--api"] => api_pool_listing(),
-        ["accounts", "--plan"] => {
-            for (index, (line, reason)) in crate::pacing::placement::case::plan(&fleet.roster()).map_err(NorthError::State)?.into_iter().enumerate() {
-                println!("{}. {line} [{reason}]", index + 1);
-            }
-            Ok(())
-        }
+        ["accounts", "--plan"] => account_plan(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
@@ -231,6 +226,13 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let record = if take_over { fleet.take_over(&request).inspect(|record| desktop::show_taken(fleet, record))? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
+    Ok(())
+}
+
+fn account_plan(fleet: &Fleet) -> NorthResult<()> {
+    for (index, (line, reason)) in crate::pacing::placement::case::plan(&fleet.roster()).map_err(NorthError::State)?.into_iter().enumerate() {
+        println!("{}. {line} [{reason}]", index + 1);
+    }
     Ok(())
 }
 

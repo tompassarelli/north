@@ -37,20 +37,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut hosts = vec![Shell::Here(host::name())];
     hosts.extend(destinations.iter().cloned().map(Shell::Ssh));
     if let Some(here) = &here {
-        let (runtime, checkout) = (&layout.runtime(here), &checkout);
-        std::thread::scope(|scope| {
-            for host in &hosts[1..] {
-                scope.spawn(move || {
-                    let behind = probe::live_runtime(host).is_none_or(|remote| remote != *here && ancestor(checkout, &remote, here));
-                    if !behind {
-                        return;
-                    }
-                    if let Err(failure) = deploy::ship_runtime(host.name(), here, runtime) {
-                        eprintln!("north runtime settle: {}", failure.message);
-                    }
-                });
-            }
-        });
+        ship_behind(&hosts[1..], here, &layout.runtime(here), &checkout);
     }
     let landing = due_landing(layout, &checkout)?;
     let live = |runtime: &str| landing.as_ref().is_none_or(|landing| runtime == landing.sha || ancestor(&checkout, &landing.sha, runtime));
@@ -85,6 +72,22 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         true => Ok(()),
         false => Err(failed(1, format!("not live and healthy everywhere: {}", failing.join(" | ")))),
     }
+}
+
+fn ship_behind(hosts: &[Shell], here: &str, runtime: &Path, checkout: &Path) {
+    std::thread::scope(|scope| {
+        for host in hosts {
+            scope.spawn(move || {
+                let behind = probe::live_runtime(host).is_none_or(|remote| remote != here && ancestor(checkout, &remote, here));
+                if !behind {
+                    return;
+                }
+                if let Err(failure) = deploy::ship_runtime(host.name(), here, runtime) {
+                    eprintln!("north runtime settle: {}", failure.message);
+                }
+            });
+        }
+    });
 }
 
 fn probed(layout: &Layout, checkout: &Path, host: &Shell) -> probe::Facts {

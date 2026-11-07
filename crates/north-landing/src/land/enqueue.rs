@@ -193,14 +193,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     if !folded.is_empty() {
         println!("safe-push: regenerated or sorted {} and folded the result into the lane", folded.join(", "));
     }
-    refuse_static_gates(&root, &base, "HEAD")?;
-    super::divergence::refuse_malformed(&git(&root, &["log", "--format=%B", &format!("{base}..HEAD")])?)?;
-    let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
-    outgoing::enqueue_gate(&root, &base, &denylist, &origin, &destination)?;
-    let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
-    runner::fails_first(&root, &base, &lane_head)?;
-    refuse_unfetchable(&root, &base, &lane_head)?;
-    runner::refuse_queue_checks(&root, &base, &lane_head)?;
+    refuse_lane(&root, &base, &origin, &destination, environment)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let (squash, several_commits) = match shape {
         Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
@@ -212,7 +205,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment))?;
     refuse_stale_revert(&root, &base, &head)?;
     let red_fix = red_fix(&root, &base, &destination)?;
-    let urgent = if red_fix.is_some() { None } else { pays_debt(&root, &base, &head) };
+    let urgent = red_fix.is_none().then(|| pays_debt(&root, &base, &head)).flatten();
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
     let ticket = Ticket {
         origin,
@@ -238,6 +231,17 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     replace_older(&directory, &path, &root, &branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))?;
     Ok(Queued { path, outbox, ticket, squash })
+}
+
+fn refuse_lane(root: &Path, base: &str, origin: &str, destination: &str, environment: &Environment) -> Result<(), String> {
+    refuse_static_gates(root, base, "HEAD")?;
+    super::divergence::refuse_malformed(&git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?)?;
+    let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
+    outgoing::enqueue_gate(root, base, &denylist, origin, destination)?;
+    let lane_head = git(root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    runner::fails_first(root, base, &lane_head)?;
+    refuse_unfetchable(root, base, &lane_head)?;
+    runner::refuse_queue_checks(root, base, &lane_head)
 }
 
 pub fn run(arguments: &[String]) -> u8 {
