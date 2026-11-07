@@ -4,7 +4,6 @@
 //! the stop named stays unticked word for word.
 use super::issues::{Issue, IssueRef};
 use super::record;
-use crate::pacing::placement;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
@@ -53,19 +52,19 @@ pub fn learn(directory: &Path, issues: &[Issue], session_of: impl Fn(&Issue) -> 
 }
 
 /// The needs a launch of `issue` is placed on: those a worker's `Stop: host` learned for boxes still unticked, and those every takeable box shares, each box
-/// read as its own `Needs:` line says, else as its prose names them. One box that needs nothing places the launch, because a worker takes the boxes it can and
+/// read as its own `Needs:` line says, a box with none needing nothing, whatever its prose mentions. One box that needs nothing places the launch, because a worker takes the boxes it can and
 /// reports `Stop: host` for the rest, which a held launch would lose. Dispatch's survey and a hand launch's `north fleet launch` both read them here.
-pub fn of(issue: &Issue, hosts: &[String], learned: &[Learned], at: f64) -> Vec<String> {
-    placed(issue, issue.takeable(at), hosts, learned)
+pub fn of(issue: &Issue, learned: &[Learned], at: f64) -> Vec<String> {
+    placed(issue, issue.takeable(at), learned)
 }
 
-fn placed<'a>(issue: &Issue, lines: impl Iterator<Item = &'a str>, hosts: &[String], learned: &[Learned]) -> Vec<String> {
+fn placed<'a>(issue: &Issue, lines: impl Iterator<Item = &'a str>, learned: &[Learned]) -> Vec<String> {
     let item = issue.reference().to_string();
     let lines: Vec<&str> = lines.collect();
     let mut needs: Vec<String> = learned.iter().filter(|seen| seen.item == item && seen.boxes.iter().any(|boxed| lines.iter().any(|line| line.trim() == boxed))).map(|seen| seen.need.clone()).collect();
     let mut shared: Option<Vec<String>> = None;
     for line in &lines {
-        let own = issue.needs_in(std::iter::once(*line), hosts);
+        let own = issue.needs_in(std::iter::once(*line));
         shared = Some(shared.map_or(own.clone(), |before| before.into_iter().filter(|need| own.contains(need)).collect()));
     }
     needs.extend(shared.unwrap_or_default());
@@ -75,25 +74,18 @@ fn placed<'a>(issue: &Issue, lines: impl Iterator<Item = &'a str>, hosts: &[Stri
 }
 
 /// The needs a launch for the one box whose text holds `box_text` is placed on: that box's own, read as `of` reads each box. A box that matches no takeable box reads the whole issue, as `of` does.
-pub fn of_box(issue: &Issue, box_text: &str, hosts: &[String], learned: &[Learned], at: f64) -> Vec<String> {
+pub fn of_box(issue: &Issue, box_text: &str, learned: &[Learned], at: f64) -> Vec<String> {
     let lines: Vec<&str> = issue.takeable_box(box_text, at).collect();
     if lines.is_empty() {
-        return of(issue, hosts, learned, at);
+        return of(issue, learned, at);
     }
-    placed(issue, lines.into_iter(), hosts, learned)
+    placed(issue, lines.into_iter(), learned)
 }
 
 /// The needs a hand launch on `item` is placed on, read the way dispatch reads them: the item's takeable boxes in `body`, and
 /// every `Stop: host` a launch on it reported; with a `box_text` (the brief's `Box:` line) only that box's. This host learns its own launches' reports into its host-needs.jsonl, and
 /// reads what dispatch learned from the ledger host, where dispatch writes it.
 pub fn for_launch(item: &IssueRef, body: &str, box_text: Option<&str>, at: f64, notes: &mut Vec<String>) -> Vec<String> {
-    let cfg = match placement::config() {
-        Ok(cfg) => cfg,
-        Err(why) => {
-            notes.push(format!("{item} needs unread, so placement reads only its brief: {why}"));
-            return Vec::new();
-        }
-    };
     let directory = record::directory();
     let records = record::read(&directory);
     let mut boxes = [Issue { repo: item.repo.clone(), number: item.number, body: body.to_owned(), ..Issue::default() }];
@@ -105,10 +97,9 @@ pub fn for_launch(item: &IssueRef, body: &str, box_text: Option<&str>, at: f64, 
     });
     learned.extend(from_ledger_host(item, notes));
     let [issue] = boxes;
-    let hosts = super::fleets::hosts(&cfg);
     match box_text {
-        Some(text) => of_box(&issue, text, &hosts, &learned, at),
-        None => of(&issue, &hosts, &learned, at),
+        Some(text) => of_box(&issue, text, &learned, at),
+        None => of(&issue, &learned, at),
     }
 }
 

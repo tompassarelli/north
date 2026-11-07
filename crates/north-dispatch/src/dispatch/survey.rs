@@ -410,7 +410,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         super::wait_stops::read(&record::directory())
     });
     for issue in &mut issues {
-        issue.needs = super::host_needs::of(issue, &names, &learned, at);
+        issue.needs = super::host_needs::of(issue, &learned, at);
         issue.learned_wait = super::wait_stops::holding(&waits, issue, at);
         if issue.windowed() {
             issue.landed = landed_at(issue);

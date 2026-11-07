@@ -83,15 +83,15 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     let d0216 = 1_794_017_760.0;
     let placed = |number: u64, body: &str| {
         let mut issue = issue("north", number, body, &[]);
-        issue.needs = issue.box_needs(&hosts, d0216);
+        issue.needs = super::host_needs::of(&issue, &[], d0216);
         let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default());
         hosts.iter().filter(|host| *host != "nexus" && crate::pacing::placement::gate::lacks(&cfg, host, &brief).is_none()).cloned().collect::<Vec<_>>()
     };
-    assert_eq!(placed(733, "- [ ] On the laptop (owner: a laptop-placed session; gex45 has no shell there), exercise a proxy take-over: `niri msg -j windows` shows a ghostty window titled `north proxy`"), ["whiterabbit"], "north-733-d0216 went to gex45, which has no niri desktop");
-    assert_eq!(placed(731, "- [ ] Three consecutive landings go live on all four hosts within 2 minutes each, with a dirty checkout planted during one of them that does not stop the runtime."), ["whiterabbit"], "north-731-d0216 went to gex45, which reaches no other host");
+    assert_eq!(placed(733, "- [ ] On the laptop (owner: a laptop-placed session; gex45 has no shell there), exercise a proxy take-over: `niri msg -j windows` shows a ghostty window titled `north proxy`"), ["gex45", "ccx33", "whiterabbit"], "a box with no Needs: line is placed on every host, whatever its prose names (north#787)");
+    assert_eq!(placed(731, "- [ ] Three consecutive landings go live on all four hosts within 2 minutes each, with a dirty checkout planted during one of them that does not stop the runtime."), ["gex45", "ccx33", "whiterabbit"], "a box with no Needs: line is placed on every host, whatever its prose names (north#787)");
     let goals = "- [ ] makgora's frame goals read the current main: a scheduled job re-runs `bun wisp perf playable-bot-four --samples` (76 s)\n- [ ] makgora's and wisp's goals that stay unmeasured get an oracle or a stated reason\n- [ ] The experiment decisions-never-stop-work is reviewed on 2026-11-23 (registered in north ce12b5de3)";
-    assert_eq!(placed(641, goals), ["gex45", "whiterabbit"], "north-641-d0216 went to ccx33, which holds no makgora or wisp checkout");
-    assert_eq!(placed(630, "- [ ] `north ops check` on Nexus shows launch_failures within 5 over 6 h for a full day after both land. (not before 2026-11-07T00:00Z) The fixes landed as 8f2fde4c7 and 1eb741624 on 2026-11-05."), ["whiterabbit"], "north-630-d0216 went to ccx33, which cannot reach nexus");
+    assert_eq!(placed(641, goals), ["gex45", "ccx33", "whiterabbit"], "a box with no Needs: line is placed on every host, whatever its prose names (north#787)");
+    assert_eq!(placed(630, "- [ ] `north ops check` on Nexus shows launch_failures within 5 over 6 h for a full day after both land. (not before 2026-11-07T00:00Z) The fixes landed as 8f2fde4c7 and 1eb741624 on 2026-11-05."), ["gex45", "ccx33", "whiterabbit"], "a box with no Needs: line is placed on every host, whatever its prose names (north#787)");
     let measured = issue("north", 706, "- [ ] over 24 h no run is attributed host-caused (not before 2026-11-08T00:00Z)\n- [ ] over 6 h no worker run's report names only a measurement that has not come due (not before 2026-11-08T00:00Z)\n- [ ] Clean-up: scaffolding removed.", &[]);
     assert_eq!(issues::readiness(&measured, &world(d0216)), Err("every open box waits, the first until 2026-11-08T00:00Z".into()), "north-706-d0216 was staffed while every box's measurement was not yet due");
     let reported = Issue { stop: super::stops::stop(&session("Not done: every open box is a measurement whose window has not elapsed.\nStop: wait until 2026-11-08T00:00Z"), &ran), ..issue("north", 706, "- [ ] over 24 h no run is attributed host-caused", &[]) };
@@ -172,7 +172,7 @@ fn north_725_d0411_is_held_off_gex45_by_the_host_stops_of_both_earlier_launches_
         let launches = super::stops::last_launches(records);
         let learned = super::host_needs::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap();
         let [mut issue] = boxes;
-        issue.needs = super::host_needs::of(&issue, &[], &learned, at);
+        issue.needs = super::host_needs::of(&issue, &learned, at);
         issue
     };
     let (d0306_at, d0352_at, d0411_at) = (1_794_027_996.0, 1_794_030_733.0, 1_794_033_106.0);
@@ -200,7 +200,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     assert_eq!(lacks("gex45").as_deref(), Some("laptop"), "north-725-d0411 went to gex45 and stopped on Stop: host laptop");
     assert_eq!((lacks("ccx33").as_deref(), lacks("cpx62").as_deref(), lacks("whiterabbit")), (Some("laptop"), Some("laptop"), None));
     let ticked = Issue { body: body.replace("- [ ] the issue holds", "- [x] the issue holds").replace("- [ ] gex45 sits", "- [x] gex45 sits"), ..issue };
-    assert!(super::host_needs::of(&ticked, &[], &super::host_needs::read(directory.path()), d0411_at).is_empty(), "a need goes once every box it was learned for is ticked");
+    assert!(super::host_needs::of(&ticked, &super::host_needs::read(directory.path()), d0411_at).is_empty(), "a need goes once every box it was learned for is ticked");
 }
 
 #[test]
@@ -217,9 +217,8 @@ fn a_hand_launch_on_north_759_reads_the_nexus_stop_of_n_claim_reland_and_gex45_i
     super::survey::stopped(std::slice::from_ref(&ran), &mut boxes, |_| Ok::<serde_json::Value, String>(reported.clone()), |_| None, &mut Vec::new());
     let launches = super::stops::last_launches(std::slice::from_ref(&ran));
     let learned = super::host_needs::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap();
-    let hosts: Vec<String> = ["gex45", "nexus", "whiterabbit"].map(str::to_owned).to_vec();
     let [claimed] = boxes;
-    let needs = super::host_needs::of(&claimed, &hosts, &learned, at);
+    let needs = super::host_needs::of(&claimed, &learned, at);
     assert_eq!(needs, ["nexus"], "the hand launch's own Stop: host is learned like a dispatched one's");
 
     let cfg: toml_edit::DocumentMut = r#"
@@ -243,15 +242,11 @@ serves = ["laptop"]
     assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "whiterabbit", &placed), None);
 
     let plain = issue("north", 760, "- [ ] a", &[]);
-    let none = super::host_needs::of(&plain, &hosts, &[], at);
+    let none = super::host_needs::of(&plain, &[], at);
     assert!(none.is_empty());
     assert_eq!(crate::pacing::placement::needs::with_needs(unneeding, &none), unneeding);
     assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "gex45", unneeding), None);
 
-    let named = |text: &str| crate::pacing::placement::needs::in_box(text, "north", &hosts, &[]);
-    assert_eq!(named("- [ ] The first live `goals red (N)` line reaches the proxy through the fleet tick after the runtime carrying `probes.settle.goals` is promoted (observed in a tick's output)"), ["fleet"], "north#641's first box runs on the host that runs the tick");
-    assert_eq!(named("- [ ] the laptop rebuild and the timer seen running there"), ["laptop"], "north-641-d0441 stopped on Stop: host laptop");
-    assert!(named("- [ ] the laptop field of the Host struct is read from config and a test pins it").is_empty(), "a code box that mentions a laptop field is not the laptop's");
 }
 
 #[test]
@@ -279,7 +274,6 @@ fn a_hand_launch_for_north_757s_session_lifecycle_box_is_not_placed_on_the_ccx33
     let body = format!("{sessions_box}\n{leases_box}");
     let at = 1_794_045_000.0;
     let learned = [super::host_needs::Learned { item: "north#757".into(), need: "ccx33".into(), session: "n-leases".into(), at: at - 3600.0, boxes: vec![leases_box.to_owned()] }];
-    let hosts: Vec<String> = ["ccx33", "cpx62", "whiterabbit"].map(str::to_owned).to_vec();
     let claimed = issue("north", 757, &body, &[]);
     let cfg: toml_edit::DocumentMut = r#"
 [hosts.ccx33]
@@ -295,17 +289,17 @@ serves = ["laptop"]
     let brief = "Item: north#757 sessions reland\nBox: **1. Fleet session lifecycle and retirement**\nRepository: north";
     let lacks = |needs: &[String]| crate::pacing::placement::gate::lacks(&cfg, "cpx62", &crate::pacing::placement::needs::with_needs(brief, needs));
 
-    let whole = super::host_needs::of(&claimed, &hosts, &learned, at);
+    let whole = super::host_needs::of(&claimed, &learned, at);
     assert_eq!(whole, ["ccx33"]);
     assert_eq!(lacks(&whole).as_deref(), Some("reach to ccx33"), "n-loss-lead's launch of cpx62-sessions-reland read the other box's stop");
 
-    let only = super::host_needs::of_box(&claimed, super::facets::declared_in(brief, "Box").unwrap(), &hosts, &learned, at);
+    let only = super::host_needs::of_box(&claimed, super::facets::declared_in(brief, "Box").unwrap(), &learned, at);
     assert!(only.is_empty(), "{only:?}");
     assert_eq!(lacks(&only), None);
 
-    let leases = super::host_needs::of_box(&claimed, "**9. Capacity leases**", &hosts, &learned, at);
+    let leases = super::host_needs::of_box(&claimed, "**9. Capacity leases**", &learned, at);
     assert_eq!(leases, ["ccx33"], "the box that learned the stop still reads it");
-    assert_eq!(super::host_needs::of_box(&claimed, "a box no line holds", &hosts, &learned, at), whole, "an unmatched Box: line reads every open box");
+    assert_eq!(super::host_needs::of_box(&claimed, "a box no line holds", &learned, at), whole, "an unmatched Box: line reads every open box");
 }
 
 #[test]
@@ -347,23 +341,23 @@ fn north_722_waited_twice_on_one_stop_and_a_box_due_by_a_date_or_after_landings_
 }
 
 #[test]
-fn a_box_is_placed_on_its_own_needs_line_and_an_issue_with_one_box_needing_nothing_is_placed_north_787() {
+fn a_box_is_placed_on_its_own_needs_line_and_its_prose_never_holds_it_north_787() {
     let at = 1_794_041_000.0;
-    let hosts: Vec<String> = ["gex45", "ccx33", "whiterabbit"].map(str::to_owned).to_vec();
-    let needs = |body: &str, learned: &[super::host_needs::Learned]| super::host_needs::of(&issue("north", 787, body, &[]), &hosts, learned, at);
-    let prose = "- [ ] the laptop rebuild picks the landing up, read on ccx33";
-    assert_eq!(needs(prose, &[]), ["ccx33", "laptop"], "a box with no Needs: line is read from its prose");
-    assert!(needs(&format!("{prose} Needs: none"), &[]).is_empty(), "Needs: none declares a box that only mentions them");
-    assert_eq!(needs(&format!("{prose} Needs: gex45, native-client"), &[]), ["gex45", "native"], "its own line replaces its prose");
-    assert_eq!(needs("- [ ] watch the laptop timer Needs: laptop", &[]), ["laptop"], "a box that truly needs the laptop stays held");
+    let needs = |body: &str, learned: &[super::host_needs::Learned]| super::host_needs::of(&issue("north", 787, body, &[]), learned, at);
+    let prose = "- [ ] the laptop rebuild picks the landing up, read on ccx33 through the fleet tick, in makgora's checkout, as the laptop's niri shows";
+    assert!(needs(prose, &[]).is_empty(), "a box with no Needs: line needs nothing, whatever its prose mentions");
+    assert!(needs(&format!("{prose} Needs: none"), &[]).is_empty());
+    assert_eq!(needs(&format!("{prose} Needs: gex45, native-client"), &[]), ["gex45", "native"], "its own line is its needs");
+    assert_eq!(needs("- [ ] watch the timer Needs: laptop", &[]), ["laptop"], "a box that truly needs the laptop stays held");
     let mixed = format!("{prose}\n- [ ] a test pins the order in the crate");
-    assert!(needs(&mixed, &[]).is_empty(), "a box that needs nothing places the issue, the worker taking what it can");
-    assert_eq!(needs(&format!("{prose}\n- [ ] the laptop's timer runs it"), &[]), ["laptop"], "only the need every box shares holds");
+    assert!(needs(&mixed, &[]).is_empty());
+    assert!(needs(&format!("{prose}\n- [ ] the timer runs it Needs: laptop"), &[]).is_empty(), "a box that needs nothing places the issue, the worker taking what it can");
+    assert_eq!(needs(&format!("{prose} Needs: laptop\n- [ ] the timer runs it Needs: laptop"), &[]), ["laptop"], "only the need every box declares holds");
     let learned = [super::host_needs::Learned { item: "north#787".into(), need: "nexus".into(), session: "n-x".into(), at, boxes: vec![mixed.lines().nth(1).unwrap().to_owned()] }];
     assert_eq!(needs(&mixed, &learned), ["nexus"], "a learned Stop: host still holds the issue");
     let whole = issue("north", 787, &mixed, &[]);
-    assert!(super::host_needs::of_box(&whole, "a test pins the order", &hosts, &[], at).is_empty());
-    assert_eq!(super::host_needs::of_box(&whole, "the laptop rebuild", &hosts, &[], at), ["ccx33", "laptop"], "a hand launch on a box reads that box alone");
+    assert!(super::host_needs::of_box(&whole, "a test pins the order", &[], at).is_empty());
+    assert!(super::host_needs::of_box(&whole, "the laptop rebuild", &[], at).is_empty(), "a hand launch on a box reads that box alone");
 }
 
 
