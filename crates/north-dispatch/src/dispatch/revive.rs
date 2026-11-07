@@ -5,6 +5,7 @@
 use super::issues::IssueRef;
 use super::plan::{self, Capacity};
 use super::slots::Pools;
+use crate::fleet::resume::REVIVED;
 use crate::fleet::stranded::{Stop, Stranded};
 use std::collections::BTreeMap;
 
@@ -85,6 +86,12 @@ pub fn plan(inputs: &Inputs, capacity: &Capacity, pools: &mut Pools) -> Revival 
 
 fn admit(strand: &Strand, inputs: &Inputs, capacity: &Capacity, pools: &mut Pools) -> Result<Revive, String> {
     let session = &strand.session;
+    if session.resumed {
+        return Err("the fleet already woke it for this report".into());
+    }
+    if session.stop == Stop::Capacity && session.machine.is_none() {
+        return Err("its capacity stop is the fleet resume pass's to wake, when the capacity host admits its queued run".into());
+    }
     if inputs.revived.get(&session.name).is_some_and(|revived| *revived >= session.ended_ms) {
         return Err("revived once for this report; it has not reported since".into());
     }
@@ -102,7 +109,7 @@ fn admit(strand: &Strand, inputs: &Inputs, capacity: &Capacity, pools: &mut Pool
 /// The turn a revived session gets: why it runs again and what to finish.
 pub fn prompt(revive: &Revive) -> String {
     format!(
-        "north dispatch revived you: {} takes new work again, and your lane {} still holds work origin/main lacks. Your last report ended on {}. Continue from that report and land the lane through safe-push.",
+        "{REVIVED} {} takes new work again, and your lane {} still holds work origin/main lacks. Your last report ended on {}. Continue from that report and land the lane through safe-push.",
         revive.host,
         revive.lanes.join(", "),
         revive.stop.label()

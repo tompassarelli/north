@@ -150,6 +150,9 @@ pub struct Stranded {
     pub stop: Stop,
     /// When its last turn ended.
     pub ended_ms: u64,
+    /// The fleet already woke it since that report (the resume pass or an earlier revive), so one stop wakes once.
+    #[serde(default)]
+    pub resumed: bool,
     pub lanes: Vec<Lane>,
 }
 

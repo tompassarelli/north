@@ -18,6 +18,7 @@ struct Stopped {
     stop: Stop,
     ended_ms: u64,
     repo: Option<String>,
+    resumed: bool,
     trees: Vec<Worktree>,
 }
 
@@ -54,6 +55,7 @@ impl Fleet {
                     machine,
                     stop: session.stop,
                     ended_ms: session.ended_ms,
+                    resumed: session.resumed,
                     lanes: held,
                 })
             })
@@ -76,7 +78,8 @@ impl Fleet {
             let Some(checkout) = checkouts.entry(key).or_insert_with(|| lanes.checkout(record.machine.as_ref(), &record.cwd)) else { continue };
             let trees: Vec<Worktree> = checkout.named(&report).into_iter().cloned().collect();
             if !trees.is_empty() {
-                found.push(Stopped { repo: checkout.repo(), record, status, stop, ended_ms, trees });
+                let resumed = self.resumed_since_report(&record);
+                found.push(Stopped { repo: checkout.repo(), record, status, stop, ended_ms, resumed, trees });
             }
         }
         Ok(found)

@@ -8,7 +8,7 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::sender::Sender;
 use crate::fleet::transcript::last_written;
 
-pub use north_resume::{Admission, Held, Landing, OPENERS, Settlement, Waking, landing};
+pub use north_resume::{Admission, Held, Landing, OPENERS, REVIVED, Settlement, Waking, landing};
 
 pub fn ended_ms(record: &SessionRecord) -> Option<u64> {
     let ended = last_written(record)?.duration_since(UNIX_EPOCH).ok()?;

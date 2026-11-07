@@ -8,9 +8,10 @@ use north_base::platform::attribution::{Cause, Harness};
 pub const OVER: &str = "[north: the run you waited on is over]";
 const LANDING: &str = "[north: the lander has decided]";
 const ADMITTED: &str = "[north: your queued run was admitted]";
+pub const REVIVED: &str = "[north: dispatch revived you]";
 
 /// Every opener a resume message starts with, which `Fleet::resumed_since_report` finds a wake by.
-pub const OPENERS: [&str; 3] = [LANDING, ADMITTED, OVER];
+pub const OPENERS: [&str; 4] = [LANDING, ADMITTED, OVER, REVIVED];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Landing {

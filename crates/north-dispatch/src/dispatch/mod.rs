@@ -73,6 +73,8 @@ mod grounds_tests;
 mod tries_tests;
 #[cfg(test)]
 mod spread_tests;
+#[cfg(test)]
+mod revive_tests;
 
 const USAGE: &str = "usage: north dispatch [--dry-run] | pause --reason TEXT | resume | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
 
