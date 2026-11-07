@@ -93,7 +93,7 @@ impl Facts {
         let spends = north_pace::credit::spends(&ledger, &prices, at)?;
         let (today, from) = (at.iso_date(), Timestamp::from_unix_seconds(since).iso_date());
         self.expired = north_pace::credit::expired_unspent(sources.policy, &spends.orgs, &from, &today).into_iter().filter_map(|(day, usd)| Some((parse_day_number(&day)? * DAY_S, usd))).collect();
-        self.held_back = north_pace::credit::sources(sources.policy, sources.state, at).iter().map(|source| source.left.max(0.0)).fold(0.0, |all, left| all + left);
+        self.held_back = held_back(sources.policy, sources.state, at);
         Ok(())
     }
 
@@ -110,6 +110,11 @@ impl Facts {
             held_back_usd: stranded(if end > self.now { self.held_back } else { 0.0 }),
         }
     }
+}
+
+/// The credit left on each organization's open grant that no provider refusal has closed: a refusal for credit is the mechanical truth that the organization is spent, whatever the counted spend left of it.
+fn held_back(policy: &Path, state: &Path, at: Timestamp) -> f64 {
+    north_pace::credit::sources(policy, state, at).iter().filter(|source| !source.exhausted).map(|source| source.left.max(0.0)).fold(0.0, |all, left| all + left)
 }
 
 /// When each worker first try that landed ended: a run with no `Follows:` that no later run follows and whose outcome is done, which the bars count as landed on origin/main.
