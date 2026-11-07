@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 
+use north_base::cites;
+
 use super::doc_paths::{Tree, broken_links, missing_paths};
 use super::{Range, git};
 
@@ -31,15 +33,50 @@ fn documents(directory: &Path, revision: &str) -> Option<BTreeMap<String, String
     Some(documents)
 }
 
-fn pointing_at_nothing(documents: &BTreeMap<String, String>, tree: &Tree) -> BTreeSet<(String, String)> {
-    documents
+struct Revision<'a> {
+    directory: &'a Path,
+    revision: &'a str,
+    tree: &'a Tree,
+}
+
+impl Revision<'_> {
+    fn show(&self, path: &str) -> Option<String> {
+        git::text(self.directory, &["show", &format!("{}:{path}", self.revision)])
+    }
+}
+
+impl cites::Tree for Revision<'_> {
+    fn exists(&self, path: &str) -> bool {
+        self.tree.contains(path)
+    }
+
+    fn text(&self, path: &str) -> Option<String> {
+        if self.tree.files.contains(path) {
+            return self.show(path);
+        }
+        let directory = format!("{}/", path.trim_end_matches('/'));
+        let files: Vec<&String> = self.tree.files.range(directory.clone()..).take_while(|file| file.starts_with(&directory)).collect();
+        (!files.is_empty()).then(|| files.into_iter().filter_map(|file| self.show(file)).collect())
+    }
+}
+
+fn pointing_at_nothing(revision: &Revision, documents: &BTreeMap<String, String>) -> BTreeSet<(String, String)> {
+    let tree = revision.tree;
+    let mut found: BTreeSet<(String, String)> = documents
         .iter()
         .flat_map(|(name, text)| {
-            let paths = missing_paths(text, tree).into_iter().map(|path| format!("names `{path}`"));
-            let links = broken_links(name, text, tree).into_iter().map(|target| format!("links to {target}"));
+            let paths = missing_paths(text, tree).into_iter().map(|path| format!("names `{path}`, which does not exist"));
+            let links = broken_links(name, text, tree).into_iter().map(|target| format!("links to {target}, which does not exist"));
             paths.chain(links).map(|reference| (name.clone(), reference)).collect::<Vec<_>>()
         })
-        .collect()
+        .collect();
+    if let Some(doc) = documents.get(cites::FEEDBACK_LOOP) {
+        found.extend(cites::dead_readers(doc, revision).into_iter().map(|fault| (cites::FEEDBACK_LOOP.to_owned(), format!("cites {fault}"))));
+    }
+    if let Some(registry) = revision.show(cites::LOOPS) {
+        found.extend(cites::dead_loop_sites(&registry, revision).into_iter().map(|fault| (cites::LOOPS.to_owned(), format!("cites {fault}"))));
+    }
+    found
 }
 
 fn listing(directory: &Path, revision: &str) -> Option<Tree> {
@@ -56,18 +93,22 @@ pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {
         let _ = writeln!(out, "doc-links: cannot read {head}");
         return 1;
     };
-    let now = pointing_at_nothing(&after, &tree);
+    let now = pointing_at_nothing(&Revision { directory, revision: head, tree: &tree }, &after);
     let before = match (documents(directory, &fork), listing(directory, &fork)) {
-        (Some(documents), Some(tree)) if !now.is_empty() => pointing_at_nothing(&documents, &tree),
+        (Some(documents), Some(tree)) if !now.is_empty() => pointing_at_nothing(&Revision { directory, revision: &fork, tree: &tree }, &documents),
         _ => BTreeSet::new(),
     };
     let mut refused = false;
     for (name, reference) in now.difference(&before) {
         refused = true;
-        let _ = writeln!(out, "doc-links: {name} {reference}, which does not exist; fix or delete the line (a `Creates:` line lists files the work will add)");
+        let _ = writeln!(out, "doc-links: {name} {reference}; fix or delete the line (a `Creates:` line lists files the work will add)");
     }
     if refused {
-        let _ = writeln!(out, "doc-links: a lane may not leave README.md, AGENTS.md or docs/ pointing at nothing (north#635)");
+        let _ = writeln!(out, "doc-links: a lane may not leave README.md, AGENTS.md, docs/ or the loop registry pointing at nothing (north#635, north#722)");
     }
     u8::from(refused)
 }
+
+#[cfg(test)]
+#[path = "doc_links_tests.rs"]
+mod tests;

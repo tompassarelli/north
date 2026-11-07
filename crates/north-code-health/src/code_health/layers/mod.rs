@@ -77,8 +77,9 @@ fn verdict(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, u8), Str
         None => head_rules.clone(),
     };
     let (before, after) = (Revision::at(repo, base)?, Revision::at(repo, head)?);
-    let mut lines = Vec::new();
-    for (old, new) in changes(repo, base, head)?.into_iter().filter(|(_, new)| head_rules.checked(new)) {
+    let changed = changes(repo, base, head)?;
+    let mut lines = unplanned_crates(repo, base, &changed, &head_rules)?;
+    for (old, new) in changed.into_iter().filter(|(_, new)| head_rules.checked(new)) {
         let known: BTreeSet<(Rule, String, String)> = match old {
             Some(old) => before.breaches(&base_rules, &old)?.into_iter().map(|(_, _, breach)| (breach.rule, breach.from, breach.to)).collect(),
             None => BTreeSet::new(),
@@ -94,10 +95,22 @@ fn verdict(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, u8), Str
     let summary = if lines.is_empty() {
         "layers: no new reference breaks structure.toml's module layers or crate DAG".to_owned()
     } else {
-        format!("✗ layers: {} new reference(s) break structure.toml's module layers or crate DAG", lines.len())
+        format!("✗ layers: {} new reference(s) or crate(s) break structure.toml's module layers or crate DAG", lines.len())
     };
     lines.push(summary);
     Ok((lines, code))
+}
+
+fn unplanned_crates(repo: &Path, base: &str, changed: &[(Option<String>, String)], rules: &Rules) -> Result<Vec<String>, String> {
+    let mut lines = Vec::new();
+    for (_, path) in changed {
+        let Some(name) = path.strip_prefix("crates/").and_then(|rest| rest.strip_suffix("/Cargo.toml")).filter(|name| !name.contains('/')) else { continue };
+        if rules.plans_crate(&format!("crates/{name}/src/lib.rs")) || show(repo, base, path)?.is_some() {
+            continue;
+        }
+        lines.push(format!("✗ crate-dag {path}: adds crate {name} with no [[crate_dag.crate]] entry in structure.toml, so no reference into or out of it is checked (plan {PLAN}); add its paths and may_use in this change"));
+    }
+    Ok(lines)
 }
 
 fn refusal(path: &str, line: usize, target: &str, breach: &Breach) -> String {
@@ -149,3 +162,6 @@ fn git(repo: &Path, arguments: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
+
+#[cfg(test)]
+mod tests;

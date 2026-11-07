@@ -2,7 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const ROOTS: &[&str] = &["bin/", "crates/", "harness/", "src/", "docs/", "agent-machinery/", "lib/"];
+use north_base::cites;
+
 const UNREAD_SECONDS: u64 = 7 * 24 * 60 * 60;
 const UNVERIFIABLE: &str = "unverifiable";
 
@@ -29,43 +30,16 @@ pub(crate) fn section<'a>(doc: &'a str, heading: &str) -> Vec<Vec<&'a str>> {
     rows.into_iter().skip(1).collect()
 }
 
-fn signal_rows(doc: &str) -> Vec<Vec<&str>> {
-    let mut rows = Vec::new();
-    let mut inside = false;
-    for line in doc.lines() {
-        if line.starts_with("| signal | writer | reader on main") {
-            inside = true;
-            continue;
-        }
-        if inside && !line.starts_with('|') {
-            break;
-        }
-        if inside && !line.starts_with("|---") {
-            rows.push(line.trim().trim_matches('|').split('|').map(str::trim).collect());
-        }
-    }
-    rows
-}
+struct WorkingCopy<'a>(&'a Path);
 
-enum Cite {
-    Path(String, Option<usize>),
-    Line(usize),
-    Symbol(String),
-}
+impl cites::Tree for WorkingCopy<'_> {
+    fn exists(&self, path: &str) -> bool {
+        self.0.join(path).exists()
+    }
 
-fn classify(raw: &str) -> Option<Cite> {
-    let token = raw.trim_matches(|c: char| matches!(c, ',' | ';' | '.' | '`' | '(' | ')'));
-    if let Some(line) = token.strip_prefix(':') {
-        return line.parse().ok().map(Cite::Line);
+    fn text(&self, path: &str) -> Option<String> {
+        source_text(&self.0.join(path))
     }
-    if ROOTS.iter().any(|root| token.starts_with(root)) {
-        return Some(match token.rsplit_once(':') {
-            Some((path, line)) if line.parse::<usize>().is_ok() => Cite::Path(path.into(), line.parse().ok()),
-            _ => Cite::Path(token.into(), None),
-        });
-    }
-    let word = !token.is_empty() && token.contains('_') && token.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
-    word.then(|| Cite::Symbol(token.into()))
 }
 
 fn source_text(target: &Path) -> Option<String> {
@@ -79,72 +53,6 @@ fn source_text(target: &Path) -> Option<String> {
         }
     }
     Some(text)
-}
-
-fn resolve(root: &Path, path: &str, line: Option<usize>, symbol: Option<&str>) -> Result<(), String> {
-    let target = root.join(path);
-    if !target.exists() {
-        return Err(format!("{path} does not exist"));
-    }
-    if let Some(line) = line {
-        let length = fs::read_to_string(&target).map(|text| text.lines().count()).unwrap_or(0);
-        if line > length {
-            return Err(format!("{path}:{line} is past the end ({length} lines)"));
-        }
-    }
-    if let Some(symbol) = symbol
-        && !source_text(&target).is_some_and(|text| text.contains(symbol))
-    {
-        return Err(format!("{symbol} is not in {path}"));
-    }
-    Ok(())
-}
-
-fn check_cell(root: &Path, cell: &str) -> Vec<String> {
-    let mut faults = Vec::new();
-    let mut current: Option<(String, Option<usize>)> = None;
-    let mut fresh = false;
-    for word in cell.split_whitespace() {
-        match classify(word) {
-            Some(Cite::Path(path, line)) => {
-                if let Err(fault) = resolve(root, &path, line, None) {
-                    faults.push(fault);
-                }
-                current = Some((path, line));
-                fresh = true;
-            }
-            Some(Cite::Line(line)) => {
-                if let Some((path, _)) = &current {
-                    if let Err(fault) = resolve(root, path, Some(line), None) {
-                        faults.push(fault);
-                    }
-                    fresh = true;
-                }
-            }
-            Some(Cite::Symbol(symbol)) => {
-                if let (true, Some((path, _))) = (fresh, &current)
-                    && let Err(fault) = resolve(root, path, None, Some(&symbol))
-                {
-                    faults.push(fault);
-                }
-                fresh = false;
-            }
-            None => fresh = false,
-        }
-    }
-    faults.dedup();
-    faults
-}
-
-pub(super) fn stale_readers(root: &Path, doc: &str) -> Vec<String> {
-    signal_rows(doc)
-        .into_iter()
-        .filter(|cells| cells.len() >= 3)
-        .flat_map(|cells| {
-            let name = cells[0].to_owned();
-            check_cell(root, cells[2]).into_iter().map(move |fault| format!("{name}: {fault}"))
-        })
-        .collect()
 }
 
 pub(super) fn unread_signals(doc: &str, modified: &dyn Fn(&str) -> Option<u64>) -> Report {
@@ -175,10 +83,12 @@ pub(super) fn state_modified(base: PathBuf) -> impl Fn(&str) -> Option<u64> {
 }
 
 pub(super) fn verdict(root: &Path, base: PathBuf) -> (Result<(), String>, Vec<String>) {
-    let Ok(doc) = fs::read_to_string(root.join("docs/feedback-loop.md")) else {
-        return (Err("docs/feedback-loop.md missing".into()), Vec::new());
+    let Ok(doc) = fs::read_to_string(root.join(cites::FEEDBACK_LOOP)) else {
+        return (Err(format!("{} missing", cites::FEEDBACK_LOOP)), Vec::new());
     };
-    let mut faults = stale_readers(root, &doc);
+    let tree = WorkingCopy(root);
+    let mut faults = cites::dead_readers(&doc, &tree);
+    faults.extend(cites::dead_loop_sites(&fs::read_to_string(root.join(cites::LOOPS)).unwrap_or_default(), &tree));
     let report = unread_signals(&doc, &state_modified(base));
     faults.extend(report.stale);
     let result = if faults.is_empty() { Ok(()) } else { Err(format!("{} dead feedback-loop cites: {}", faults.len(), faults.join("; "))) };

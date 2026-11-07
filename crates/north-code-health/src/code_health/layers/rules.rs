@@ -91,6 +91,10 @@ impl Rules {
         self
     }
 
+    pub(super) fn plans_crate(&self, path: &str) -> bool {
+        self.crates.is_empty() || first(&self.crates, path).is_some()
+    }
+
     pub(super) fn checked(&self, path: &str) -> bool {
         path.ends_with(".rs") && !self.ignore.iter().any(|glob| glob.matches(path))
     }

@@ -152,8 +152,8 @@ constants = [
   "crates/north-landing-gates/src/landing/check_timings.rs::WINDOW",
   "crates/north-landing/src/land/slots/runner.rs::CANCEL_GRACE",
   "crates/north-landing/src/land/slots/runner.rs::CANCELLED",
-  "crates/north-landing/src/land/slots/runner.rs::FIRST_ERROR_BOUND",
-  "crates/north-landing/src/land/slots/runner.rs::INFRASTRUCTURE",
+  "crates/north-landing/src/land/slots/runner/log.rs::FIRST_ERROR_BOUND",
+  "crates/north-landing/src/land/checks.rs::INFRASTRUCTURE",
   "crates/north-landing/src/land/slots/runner.rs::KILLED",
   "crates/north-landing/src/land/slots/runner.rs::LOG_KEEP",
   "crates/north-landing/src/land/slots/runner.rs::OFFLOAD_GRACE",
@@ -168,7 +168,6 @@ decision = "the account and machine a fleet launch runs on"
 sites = [
   "crates/north-dispatch/src/pacing/placement/gate.rs",
   "crates/north-dispatch/src/pacing/placement/hosts.rs",
-  "crates/north-dispatch/src/pacing/placement/launch.rs",
   "crates/north-dispatch/src/dispatch/plan.rs",
 ]
 updated_by = "agents/orchestration.toml by hand"
@@ -203,7 +202,7 @@ constants = [
   "crates/north-landing/src/land/heartbeat.rs::STUCK",
   "crates/north-landing/src/land/jobs.rs::REST",
   "crates/north-landing/src/land/lander.rs::DEPTH",
-  "crates/north-landing/src/land/pause.rs::RETRY_SECONDS",
+  "crates/north-landing/src/land/after_landing_lifecycle.rs::RETRY",
   "crates/north-landing/src/land/serve.rs::ATTEMPTS",
   "crates/north-landing/src/land/serve.rs::DISCOVERY",
   "crates/north-landing/src/land/serve.rs::POLL",
@@ -500,7 +499,7 @@ constants = [
   "crates/north-landing-gates/src/landing/land_actions.rs::QUEUED_SECONDS",
   "crates/north-landing-gates/src/landing/landed_tree.rs::PATH_CHUNK",
   "crates/north-landing-gates/src/landing/lane_target.rs::MIB",
-  "crates/north-landing/src/landing/mutant_trees.rs::TAIL_LINES",
+  "crates/north-mutants/src/trees.rs::TAIL_LINES",
   "crates/north-landing-gates/src/landing/red_check.rs::GH_LIMIT",
   "crates/north-landing-gates/src/landing/red_check.rs::MAIN_RED",
   "crates/north-landing-gates/src/landing/red_check.rs::OFFLOAD_SECONDS",
