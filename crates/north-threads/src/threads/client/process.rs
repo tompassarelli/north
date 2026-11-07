@@ -45,13 +45,27 @@ pub(super) fn spooled_write(path: &Path) -> bool {
     path.extension().is_some_and(|extension| extension == "jsonl" || extension == "argv")
 }
 
-/// Starts `program` with `arguments` in its own process group and reaps it on a thread, so the caller neither waits on it nor leaves a zombie.
+/// Starts `program` with `arguments` in its own process group, in its own systemd scope where a user manager runs, and
+/// reaps it on a thread, so the caller neither waits on it nor leaves a zombie, and a oneshot caller that ends kills only its own cgroup.
 pub(super) fn detach(program: &[OsString], arguments: &[&std::ffi::OsStr]) {
-    let mut command = Command::new(&program[0]);
-    command.args(&program[1..]).args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
+    let mut command = if own_scope() {
+        let mut scoped = Command::new("systemd-run");
+        scoped.args(["--user", "--scope", "--quiet", "--collect", "--"]).args(program);
+        scoped
+    } else {
+        let mut plain = Command::new(&program[0]);
+        plain.args(&program[1..]);
+        plain
+    };
+    command.args(arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
     if let Ok(mut child) = command.spawn() {
         std::thread::spawn(move || child.wait());
     }
+}
+
+/// Whether `systemd-run --user --scope` works here: a user manager answers on this host.
+fn own_scope() -> bool {
+    Command::new("systemd-run").args(["--user", "--scope", "--quiet", "--collect", "true"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
 }
 
 fn feed(mut child: Child, bytes: Option<Vec<u8>>) -> Child {

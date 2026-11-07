@@ -87,16 +87,24 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
     let options = parse(arguments)?;
     let main = std::env::var_os("LEDGER_MAIN").and_then(|path| fs::read_to_string(path).ok()).unwrap_or_default();
     let mut out = BufWriter::new(io::stdout().lock());
-    emit(&options, &main, &mut out)?;
-    Ok(out.flush()?)
+    let unread = emit(&options, &main, &mut out)?;
+    out.flush()?;
+    if unread.is_empty() { Ok(()) } else { Err(unread_error(&unread)) }
 }
 
-pub fn rows(session: Option<&str>, since: &str, settled: HashMap<String, Option<String>>, recorded: HashSet<String>, main: &str, out: &mut impl Write) -> NorthResult<()> {
+/// Why a host's runs go unrecorded: config dirs holding fresh transcripts that no declared account reads.
+pub fn unread_error(unread: &[PathBuf]) -> NorthError {
+    let dirs: Vec<String> = unread.iter().map(|dir| dir.display().to_string()).collect();
+    NorthError::Configuration(format!("{} hold transcripts written since the cutoff that no account declared for this host in [accounts.claude] reads, so their runs go unrecorded", dirs.join(" and ")))
+}
+
+/// Writes this host's Claude rows to `out` and returns the config dirs under north's profiles whose fresh transcripts no declared account reads.
+pub fn rows(session: Option<&str>, since: &str, settled: HashMap<String, Option<String>>, recorded: HashSet<String>, main: &str, out: &mut impl Write) -> NorthResult<Vec<PathBuf>> {
     let options = Options { session: session.map(str::to_owned).filter(|session| !session.is_empty()), since: since.to_owned(), settled, recorded };
     emit(&options, main, out)
 }
 
-fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<()> {
+fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<Vec<PathBuf>> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or_else(|| NorthError::Usage("no home directory".into()))?);
     let policy = fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse().ok());
     let main = MainIndex::parse(main);
@@ -104,15 +112,29 @@ fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<()> 
     let pushes = landing::settle(landings::pushes(&landings::push_log()), &main, |push| landing::subject_in(&repositories, push));
     let ledger = Ledger { policy, prices: Prices::parse(&CATALOG, &DEFAULTS), main, sessions: fleet_sessions(), pushes, now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
-    for root in roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name()) {
+    let roots = roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name());
+    for root in &roots {
         for path in transcripts(&root.projects, options).into_iter().filter(|path| ledger.rereads(options, path)) {
             hook_rows(&path, out)?;
-            if let Some(row) = record(&ledger, options, &root, &path) {
+            if let Some(row) = record(&ledger, options, root, &path) {
                 writeln!(out, "{}", Value::Object(row))?;
             }
         }
     }
-    Ok(())
+    Ok(unread(&home.join(".local/state/north/profiles"), &roots, options))
+}
+
+fn unread(profiles: &Path, roots: &[Root], options: &Options) -> Vec<PathBuf> {
+    let mut unread: Vec<PathBuf> = entries(profiles)
+        .into_iter()
+        .filter(|dir| {
+            let projects = dir.join("projects");
+            let projects = fs::canonicalize(&projects).unwrap_or(projects);
+            !roots.iter().any(|root| root.projects == projects) && !transcripts(&projects, options).is_empty()
+        })
+        .collect();
+    unread.sort();
+    unread
 }
 
 pub fn north_program() -> String {
@@ -162,12 +184,14 @@ fn fleet_sessions() -> HashMap<String, FleetSession> {
 fn roots(home: &Path, explicit: Option<PathBuf>, policy: Option<&DocumentMut>, host: &str) -> Vec<Root> {
     let default = default_home(home);
     let mut configs = vec![(explicit.clone().unwrap_or_else(|| default.clone()), explicit, None)];
-    let profiles = claude_policy(policy, "profiles").and_then(|profiles| profiles.as_table_like());
-    for (label, hosts) in profiles.into_iter().flat_map(|table| table.iter()) {
-        let Some(profile) = hosts.get(host) else { continue };
-        let path = profile.get("path").and_then(|path| path.as_str()).map(|path| path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| home.join(rest)));
-        let token_label = path.as_ref().and(profile.get("token_file")).map(|_| label);
-        configs.push((path.clone().unwrap_or_else(|| default.clone()), path, token_label));
+    for (table, keyed) in [("profiles", false), ("api_keys", true)] {
+        let accounts = claude_policy(policy, table).and_then(Item::as_table_like);
+        for (label, hosts) in accounts.into_iter().flat_map(|accounts| accounts.iter()) {
+            let Some(profile) = hosts.get(host) else { continue };
+            let path = profile.get("path").and_then(|path| path.as_str()).map(|path| path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| home.join(rest)));
+            let token_label = path.as_ref().filter(|_| keyed || profile.get("token_file").is_some()).map(|_| label);
+            configs.push((path.clone().unwrap_or_else(|| default.clone()), path, token_label));
+        }
     }
     let mut roots: Vec<Root> = Vec::new();
     for (root, config, token_label) in configs {

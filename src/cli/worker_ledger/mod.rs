@@ -156,7 +156,7 @@ fn record(options: &Options) -> u8 {
     }
     let (Some(recorded), Some(settled)) = (run_ids(&["run-ids"]), run_ids(&["run-ids", "--settled", "--ended"])) else { return 1 };
     let ids = Ids { recorded, settled };
-    let Some((mut rows, unread)) = rows(options, &ids) else { return 1 };
+    let Some(Rows { mut rows, unread, missed }) = rows(options, &ids) else { return 1 };
     if recalibrate::owns_ledger() {
         pull::hosts(options, &ids, &mut rows);
     }
@@ -165,7 +165,7 @@ fn record(options: &Options) -> u8 {
         label_runs();
     }
     recalibrate::run();
-    if ingested == 0 && unread { 1 } else { ingested }
+    if missed || (ingested == 0 && unread) { 1 } else { ingested }
 }
 
 /// `--emit`: the rows this host would record against the ledger's ids read from stdin, printed instead of ingested.
@@ -181,21 +181,36 @@ fn emit(options: &Options) -> u8 {
             return 2;
         }
     };
-    let Some((rows, unread)) = rows(options, &ids) else { return 1 };
+    let Some(Rows { rows, unread, .. }) = rows(options, &ids) else { return 1 };
     if std::io::stdout().lock().write_all(&rows).is_err() || (rows.is_empty() && unread) { 1 } else { 0 }
 }
 
-/// This host's provider rows the ledger lacks, and whether a provider's store went unread.
-fn rows(options: &Options, ids: &Ids) -> Option<(Vec<u8>, bool)> {
+/// This host's provider rows the ledger lacks.
+struct Rows {
+    rows: Vec<u8>,
+    /// A provider's store went unread.
+    unread: bool,
+    /// A config dir on this host holds transcripts no declared account reads.
+    missed: bool,
+}
+
+fn rows(options: &Options, ids: &Ids) -> Option<Rows> {
     let recorded: HashSet<String> = settled_ids(&ids.recorded).into_keys().collect();
     let known = if options.backfill { HashMap::new() } else { settled_ids(&ids.settled) };
     let text = merged(&options.since);
     let mut rows = Vec::new();
     let session = Some(options.session.as_str()).filter(|session| !session.is_empty());
-    if let Err(error) = claude::runs::rows(session, &options.since, known.clone(), recorded.clone(), &text, &mut rows) {
-        eprintln!("error: {}", error.user_message());
-        return None;
-    }
+    let missed = match claude::runs::rows(session, &options.since, known.clone(), recorded.clone(), &text, &mut rows) {
+        Ok(unread) if unread.is_empty() => false,
+        Ok(unread) => {
+            eprintln!("north ledger worker: {}", claude::runs::unread_error(&unread).user_message());
+            true
+        }
+        Err(error) => {
+            eprintln!("error: {}", error.user_message());
+            return None;
+        }
+    };
     let known: HashSet<String> = known.into_keys().collect();
     let main = MainIndex::parse(&text);
     let prices = Prices::parse(&CATALOG, &DEFAULTS);
@@ -207,7 +222,7 @@ fn rows(options: &Options, ids: &Ids) -> Option<(Vec<u8>, bool)> {
             unread = true;
         }
     }
-    Some((rows, unread))
+    Some(Rows { rows, unread, missed })
 }
 
 fn label_runs() {

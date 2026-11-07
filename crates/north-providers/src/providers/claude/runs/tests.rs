@@ -89,3 +89,21 @@ fn a_resume_past_the_cache_ttl_counts_as_a_miss_when_it_rewrites_at_least_half_i
     ];
     assert_eq!(super::telemetry::context_metrics(&records)["idle_gap_misses"], json!(2));
 }
+
+#[test]
+fn the_runs_of_a_worker_on_the_api_account_are_read_from_its_declared_config_dir_north_748() {
+    let home = tempfile::tempdir().unwrap();
+    let profiles = home.path().join(".local/state/north/profiles");
+    let policy: toml_edit::DocumentMut = "[accounts.claude.profiles.a]\nlaptop = { path = \"~/.local/state/north/profiles/claude-a\", token_file = \"~/tokens/claude-a\" }\n[accounts.claude.api_keys.api]\nlaptop = { path = \"~/.local/state/north/profiles/claude-api\" }\nother = { path = \"~/elsewhere\" }\n".parse().unwrap();
+    for profile in ["claude-a", "claude-api", "claude-z"] {
+        std::fs::create_dir_all(profiles.join(profile).join("projects/-home-tom-code-north")).unwrap();
+        std::fs::write(profiles.join(profile).join("projects/-home-tom-code-north/run.jsonl"), "{}\n").unwrap();
+    }
+    let roots = super::roots(home.path(), None, Some(&policy), "laptop");
+    let read: Vec<(std::path::PathBuf, String)> = roots.iter().map(|root| (root.projects.clone(), root.account.clone())).collect();
+    assert!(read.contains(&(profiles.join("claude-api/projects"), "claude-api".to_owned())), "{read:?}");
+    assert!(read.contains(&(profiles.join("claude-a/projects"), "claude-a".to_owned())), "{read:?}");
+    assert!(!read.iter().any(|(projects, _)| projects.starts_with(home.path().join("elsewhere"))), "{read:?}");
+    let options = super::Options { session: None, since: String::new(), settled: Default::default(), recorded: Default::default() };
+    assert_eq!(super::unread(&profiles, &roots, &options), vec![profiles.join("claude-z")]);
+}
