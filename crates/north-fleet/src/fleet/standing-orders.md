@@ -7,3 +7,4 @@
 - North code is Rust, apart from narrow exceptions such as browser automation. (2026-10-15)
 - Quality bar: the best-looking repo in the world, from semantics to module names, separation of concerns and dependency inversion. (2026-10-15)
 - Tom shouldn't have to repeat himself; an instruction he repeats becomes a line here. (2026-10-15)
+- First-try success, zero first tries lost to the harness, and landing p90 under 60 s outrank all other north work. (2026-11-08)
