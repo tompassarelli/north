@@ -16,6 +16,11 @@ static CAPACITY: LazyLock<Regex> = LazyLock::new(|| {
     .expect("capacity pattern")
 });
 
+/// Whether a tool call is a commit or a check run, the work that spends a try.
+pub fn did_work(tool: &str) -> bool {
+    COMMIT.is_match(tool) || CHECK.is_match(tool)
+}
+
 /// Why the session in `north fleet show NAME --json` spent no try, or None when it did work.
 pub fn unspent(session: &Value) -> Option<String> {
     let entries = session["entries"].as_array()?;
@@ -23,7 +28,7 @@ pub fn unspent(session: &Value) -> Option<String> {
     if let Some(why) = super::stops::nowhere(session) {
         return Some(format!("got nowhere on its rung ({why}), so its box climbs one"));
     }
-    if text("tool").any(|tool| COMMIT.is_match(tool) || CHECK.is_match(tool)) {
+    if text("tool").any(did_work) {
         return None;
     }
     let report = text("assistant").next_back().or_else(|| entries.last().and_then(|entry| entry["text"].as_str())).unwrap_or_default().trim();

@@ -360,3 +360,22 @@ fn a_laptop_launch_reads_its_stop_from_the_reports_the_laptop_mirrors_north_706(
     assert_eq!(boxes[0].stop.until.as_ref().map(|(written, _)| written.as_str()), Some("2026-11-08T03:00Z"), "dispatch noted wisp-188-d1646 report unread and could relaunch the box");
     assert!(super::survey::shown(&launch, Some("whiterabbit"), &serde_json::Value::Null).is_err(), "a report the laptop has not mirrored stays unread");
 }
+
+#[test]
+fn a_mirrored_session_keeps_what_dispatch_reads_and_reads_the_same_stop_as_the_whole_transcript_north_706() {
+    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
+    let mut entries: Vec<(String, String)> = vec![("user".into(), "Item: wisp#188".into()), ("assistant".into(), "Starting.".into())];
+    entries.extend((0..50).map(|n| ("tool".to_owned(), format!("rg thing{n}"))));
+    entries.push(("tool".into(), "git commit -m x".into()));
+    entries.push(("user".into(), "[from service:north-land] landed wisp-188 as abc123".into()));
+    entries.push(("assistant".into(), "Not done: the capture needs the laptop's client.\nStop: wait until 2026-11-08T03:00Z".into()));
+    entries.push(("assistant".into(), "The lander's message confirms what I reported.".into()));
+    let whole = serde_json::json!({"entries": entries.iter().map(|(kind, text)| serde_json::json!({"kind": kind, "text": text})).collect::<Vec<_>>(), "turns": [{"exit": "completed", "ended_ms": 5_000}]});
+
+    let kept = super::stops::entries_read(&entries);
+    let read = serde_json::json!({"entries": kept.iter().map(|(kind, text)| serde_json::json!({"kind": kind, "text": text})).collect::<Vec<_>>(), "turns": [{"exit": "completed", "ended_ms": 5_000}]});
+
+    assert_eq!(kept.len(), 5, "{kept:?}: the three assistant messages, the first commit and the lander notice are what dispatch reads, and the 50 other tool calls are not, out of a 38 MB mirror");
+    assert_eq!(super::stops::stop(&read, &launch), super::stops::stop(&whole, &launch));
+    assert_eq!(super::tries::unspent(&read), super::tries::unspent(&whole));
+}

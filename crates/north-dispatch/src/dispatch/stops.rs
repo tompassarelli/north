@@ -69,6 +69,17 @@ fn out_of_approach(report: &str) -> bool {
     NOT_DONE.is_match(report) && REASONING.is_match(report)
 }
 
+/// The entries of a retired session that dispatch reads, as `(kind, text)` in order: its first and last assistant message and
+/// the newest one opening with a report word (`stop`, `unspent`), every lander notice it was sent (`nowhere`) and its first
+/// commit or check run (`tries::unspent`), so a host that mirrors the session sends a few messages and not its whole transcript.
+pub fn entries_read(entries: &[(String, String)]) -> Vec<(String, String)> {
+    let said: Vec<usize> = (0..entries.len()).filter(|&at| entries[at].0 == "assistant").collect();
+    let report = said.iter().rfind(|&&at| REPORT.is_match(&entries[at].1)).copied();
+    let worked = (0..entries.len()).find(|&at| entries[at].0 == "tool" && super::tries::did_work(&entries[at].1));
+    let kept: std::collections::BTreeSet<usize> = said.first().into_iter().chain(said.last()).copied().chain(report).chain(worked).chain((0..entries.len()).filter(|&at| matches!(entries[at].0.as_str(), "user" | "notice") && Notice::delivered(&entries[at].1).is_some())).collect();
+    kept.into_iter().map(|at| entries[at].clone()).collect()
+}
+
 /// The newest assistant message that opens with a report word, else the newest assistant message: a reply to a later
 /// notice ("the lander's message confirms the landing I already reported") is not the report.
 fn final_report(session: &Value) -> Option<&str> {
