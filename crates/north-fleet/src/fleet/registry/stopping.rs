@@ -22,6 +22,7 @@ pub enum Halt {
     /// `north fleet stop` or `north fleet forget`.
     Ordered,
     Relaunched,
+    MovedAccount,
     FailedStart,
     /// Tom opened the conversation in its interactive UI.
     Interactive,
@@ -47,6 +48,7 @@ impl Halt {
         match self {
             Self::Ordered => (Cause::Harness(Harness::Halted), "north fleet stop or forget ended the turn"),
             Self::Relaunched => (Cause::Harness(Harness::Halted), "relaunched under another model or effort mid-turn"),
+            Self::MovedAccount => (Cause::Harness(Harness::Capacity), "moved onto another account mid-turn"),
             Self::FailedStart => (Cause::Harness(Harness::Halted), "stopped after its first turn failed to start"),
             Self::Interactive => (Cause::Tom, "opened in the interactive UI mid-turn"),
             Self::TakenOver => (Cause::Harness(Harness::Halted), "a launch took over its name mid-turn"),

@@ -157,33 +157,58 @@ pub fn moved_to(account: &str, orgs: &[Org], today: &str, exhausted: impl Fn(&Or
     open(orgs, today, |org| org.name == spent || exhausted(org), |_| true).map(|(org, _)| format!("{label}:{}", org.name))
 }
 
-/// Marks exhausted the organization of each recent session on an `api:ORG` account whose newest turn on that account ended on the API's
-/// low-credit error, then moves it, and each session not mid-turn on an organization marked exhausted, onto the entry the pool opens next, on its conversation; one line per mark and move.
+/// What a fleet tick reads of the pool: each organization's grants a launch may still draw on, by id, each one's next credit day, and today.
+pub struct Reading {
+    pub grants: BTreeMap<String, Vec<Grant>>,
+    pub next_credits: BTreeMap<String, String>,
+    pub today: String,
+}
+
+impl Reading {
+    fn of(policy: &Path, state: &Path) -> Self {
+        let today = today();
+        Self { grants: crate::credit::open_grants(policy, &state.join("ledger.db"), &today), next_credits: crate::credit::next_credits(policy), today }
+    }
+}
+
+/// Marks exhausted each organization whose recorded spend has left no grant a launch may draw on, and of each recent session on an `api:ORG` account whose newest turn on
+/// that account ended on the API's low-credit error; then moves that session, and each session not mid-turn on an organization marked exhausted, onto the entry the pool opens next, on its conversation; one line per mark and move.
 pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Path) -> Vec<String> {
+    let reading = Reading::of(policy, &home.join(".local/state/north"));
+    settle(fleet, runtime, (policy, home), &reading, |record, spent, to, machine, failed| move_onto(fleet, record, spent, (to, policy, home, machine), failed))
+}
+
+fn settle(fleet: &Fleet, runtime: &dyn Runtime, (policy, home): (&Path, &Path), reading: &Reading, mut moving: impl FnMut(&SessionRecord, &str, &str, &str, bool) -> String) -> Vec<String> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let (today, state) = (today(), home.join(".local/state/north"));
-    let grants = crate::credit::open_grants(policy, &state.join("ledger.db"), &today);
-    let next_credits = crate::credit::next_credits(policy);
-    let dir = state.join("api-exhausted");
+    let Reading { grants, next_credits, today } = reading;
+    let until = |org: &Org| next_credits.get(&org.id).map(String::as_str);
+    let dir = home.join(".local/state/north/api-exhausted");
     let mut lines = Vec::new();
+    for org in declared(&document, grants, home, &crate::platform::host::name()).iter().filter(|org| org.sorts_by(today).is_none()) {
+        match marks::mark(&dir, &org.id, "grant", today, until(org)) {
+            Ok(true) => lines.push(format!("api:{} marked exhausted: its recorded spend reached its grant", org.name)),
+            Ok(false) => {}
+            Err(error) => lines.push(format!("api:{} spent its grant but its exhausted mark was not written: {error}", org.name)),
+        }
+    }
     for record in fleet.sessions().unwrap_or_default().into_iter().filter(|record| !record.ended() && recent(record)) {
         let Some((_, name)) = record.account.split_once(':') else { continue };
         let machine = record.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());
-        let orgs = declared(&document, &grants, home, &machine);
+        let orgs = declared(&document, grants, home, &machine);
         let Some(org) = orgs.iter().find(|org| org.name == name) else { continue };
         let Some(transcript) = on_account(fleet, runtime, &record) else { continue };
         let failed = ran_out(&transcript.entries);
         if !failed && (transcript.status == Status::Working || !exhausted(&dir, org)) {
             continue;
         }
-        let marked = if failed { marks::mark(&dir, &org.id, &record.name, &today, next_credits.get(&org.id).map(String::as_str)) } else { Ok(false) };
+        let marked = if failed { marks::mark(&dir, &org.id, &record.name, today, until(org)) } else { Ok(false) };
         match &marked {
             Ok(true) => lines.push(format!("api:{} marked exhausted: {}'s last turn ended on a credit balance too low", org.name, record.name)),
             Ok(false) => {}
             Err(error) => lines.push(format!("api:{} ran out of credit but its exhausted mark was not written: {error}", org.name)),
         }
-        match moved_to(&record.account, &orgs, &today, |org| exhausted(&dir, org)) {
-            Some(to) => lines.push(move_onto(fleet, &record, &org.name, (&to, policy, home, &machine), failed)),
+        match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org)) {
+            Some(to) => lines.push(moving(&record, &org.name, &to, &machine, failed)),
             None if matches!(marked, Ok(true)) => lines.push(format!("{}: api:{} ran out of credit and no other api org is open, so it stays parked", record.name, org.name)),
             None => {}
         }
@@ -194,7 +219,7 @@ pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Pa
 fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str), failed: bool) -> String {
     let moved = || -> NorthResult<()> {
         super::accounts::on_machine(&record.provider, policy, home, to, machine)?;
-        switch(fleet, record, to)?;
+        switch(fleet, record, to, |name| fleet.revive(name, None).map(drop))?;
         fleet.waits().clear_usage(&record.name)?;
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("moved from account {} to {to}: org {spent} ran out of credit", record.account));
         if !failed {
@@ -209,14 +234,14 @@ fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, ho
 }
 
 /// Restarts `record` on its conversation under `to`; a restart that fails puts the session back on its account and running, so the next tick tries the move again instead of finding it stopped half moved.
-fn switch(fleet: &Fleet, record: &SessionRecord, to: &str) -> NorthResult<()> {
-    fleet.halt(&record.name, Halt::Relaunched)?;
+fn switch(fleet: &Fleet, record: &SessionRecord, to: &str, restart: impl Fn(&str) -> NorthResult<()>) -> NorthResult<()> {
+    fleet.halt(&record.name, Halt::MovedAccount)?;
     set_account(fleet, &record.name, to)?;
     let (since, host_dir) = (fleet.session_dir(&record.name)?.join(ACCOUNT_SINCE), fleet.session(&record.name)?.host_dir);
     std::fs::write(&since, format!("{} {}\n", stream_len(&host_dir), host_dir.display()))?;
-    let Err(error) = fleet.revive(&record.name, None) else { return Ok(()) };
+    let Err(error) = restart(&record.name) else { return Ok(()) };
     let _ = std::fs::remove_file(&since);
-    let restored = set_account(fleet, &record.name, &record.account).and_then(|()| fleet.revive(&record.name, None));
+    let restored = set_account(fleet, &record.name, &record.account).and_then(|()| restart(&record.name));
     Err(match restored {
         Ok(_) => error,
         Err(left) => NorthError::State(format!("{}; it stays stopped on {}, which did not restart either: {}", error.user_message(), record.account, left.user_message())),

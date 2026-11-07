@@ -1,4 +1,4 @@
-use super::{Org, declared, moved_to, open, ran_out, since};
+use super::{Org, Reading, declared, moved_to, open, ran_out, settle, since, switch, today};
 use crate::credit::{Grant, launchable};
 use crate::fleet::model::Transcript;
 use crate::fleet::runtime::Runtime;
@@ -75,4 +75,95 @@ fn only_the_newest_low_credit_turn_on_the_current_account_counts() {
     assert!(!ran_out_from(moved));
     append(&stream, &low_credit_turn("apple")[1..]);
     assert!(ran_out_from(moved));
+}
+
+// KEEP(bug): on 2026-11-07 an org past its grant in `north usage` kept its live sessions on it until each lost a turn to the low-credit refusal, and the proxy wrote its exhausted mark by hand on every host (north#781)
+#[test]
+fn a_tick_marks_an_org_whose_recorded_spend_reached_its_grant_and_moves_its_idle_sessions_with_no_refused_turn_and_an_org_under_its_grant_keeps_them() {
+    use crate::fleet::registry::{Fleet, fixtures};
+    let tick = |spent: f64| {
+        let home = tempfile::tempdir().unwrap();
+        let here = crate::platform::host::name();
+        let policy = home.path().join("orchestration.toml");
+        std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n[accounts.claude.api_orgs.gmail]\nid = \"g\"\nkeys = {{ \"{here}\" = [\"/k/g\"] }}\n")).unwrap();
+        let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+        for name in ["idle", "working"] {
+            fixtures::live(&fleet, name);
+            let file = home.path().join(".local/state/north/fleet").join(name).join("session.json");
+            let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+            record["account"] = json!("api:proton");
+            std::fs::write(&file, record.to_string()).unwrap();
+        }
+        let prompt = json!({"type": "user", "session_id": "working", "uuid": "p1", "message": {"content": "split the crate"}});
+        std::fs::write(home.path().join(".local/state/north/fleet/working/g1/stream.jsonl"), format!("{prompt}\n")).unwrap();
+        let today = today();
+        let proton = launchable(&[grant(200.0, "2099-12-31")], &[(today.clone(), spent)], &today);
+        let reading = Reading { grants: [("p".to_owned(), proton), ("g".to_owned(), vec![grant(200.0, "2099-12-31")])].into(), next_credits: [("p".to_owned(), "2099-01-01".to_owned())].into(), today };
+        let mut moved = Vec::new();
+        let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |record, spent, to, _, failed| {
+            moved.push((record.name.clone(), spent.to_owned(), to.to_owned(), failed));
+            String::new()
+        });
+        (moved, std::fs::read_to_string(home.path().join(".local/state/north/api-exhausted/p")).ok(), lines)
+    };
+
+    let (moved, mark, lines) = tick(150.0);
+    assert_eq!(moved, [("idle".to_owned(), "proton".to_owned(), "api:gmail".to_owned(), false)], "{lines:?}");
+    assert_eq!(mark.as_deref().and_then(|mark| mark.split_once(' ')).map(|(by, rest)| (by, rest.ends_with("until=2099-01-01\n"))), Some(("grant", true)));
+
+    let (moved, mark, lines) = tick(10.0);
+    assert!(moved.is_empty() && mark.is_none(), "{moved:?} {mark:?} {lines:?}");
+}
+
+fn host_process() -> u32 {
+    use std::os::unix::process::CommandExt;
+    let mut host = std::process::Command::new("sleep").arg("60").process_group(0).spawn().unwrap();
+    let pid = host.id();
+    std::thread::spawn(move || host.wait());
+    pid
+}
+
+// KEEP(bug): at 12:42 PM on 2026-11-07 n-replay-case, idle with its last turn ended success and a background task open, was moved onto another org and its parent was told its host exited mid-task; the move's halt was recorded as a relaunch under another model or effort (north#781)
+#[test]
+fn a_session_moved_between_accounts_raises_no_mid_task_exit_and_no_carry_on_and_its_halt_says_it_moved() {
+    use crate::fleet::registry::{Fleet, fixtures};
+    let home = tempfile::tempdir().unwrap();
+    let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+    let parent = fixtures::live(&fleet, "proxy");
+    let child = fixtures::live(&fleet, "n-replay-case");
+    let dir = home.path().join(".local/state/north/fleet/n-replay-case");
+    let first = host_process();
+    let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+    (record["host_pid"], record["parent"], record["account"]) = (json!(first), json!("proxy"), json!("api:proton"));
+    std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
+    std::fs::write(dir.join("host.pid"), first.to_string()).unwrap();
+    let turn = [
+        json!({"type": "user", "session_id": "n-replay-case", "uuid": "u1", "message": {"content": "replay the case"}}),
+        json!({"type": "system", "subtype": "task_started", "session_id": "n-replay-case", "task_id": "b1"}),
+        json!({"type": "assistant", "session_id": "n-replay-case", "message": {"content": [{"type": "text", "text": "Not done: the replay runs in the background.\nStop: capacity"}]}}),
+        json!({"type": "result", "subtype": "success", "session_id": "n-replay-case"}),
+    ];
+    std::fs::write(dir.join("g1/stream.jsonl"), turn.map(|frame| frame.to_string() + "\n").concat()).unwrap();
+    let watcher = fleet.clone();
+    let watchdog = std::thread::spawn(move || watcher.guard("n-replay-case"));
+    let moving = fleet.session("n-replay-case").unwrap();
+
+    switch(&fleet, &moving, "api:gmail", |name| {
+        let second = host_process();
+        let mut stopped = fleet.session(name)?;
+        stopped.host_pid = Some(second);
+        crate::fleet::records::write_record(&dir, &stopped)?;
+        std::fs::write(dir.join("host.pid"), second.to_string())?;
+        fleet.phases()?.live(stopped.launch(), Some(second), "a session host started for it").map(drop)
+    })
+    .unwrap();
+    watchdog.join().unwrap().unwrap();
+
+    let told = parent.frames.lock().unwrap();
+    assert!(told.iter().all(|frame| !frame.contains("exited mid-task")), "{told:?}");
+    let handed = child.frames.lock().unwrap();
+    assert!(handed.iter().all(|frame| !frame.contains("Carry on")), "{handed:?}");
+    let ledger = rusqlite::Connection::open(home.path().join(".local/state/north/ledger.db")).unwrap();
+    let cause: String = ledger.query_row("SELECT cause FROM lifecycle_moves WHERE instance LIKE 'n-replay-case@%' AND to_state = 'stopped'", [], |row| row.get(0)).unwrap();
+    assert_eq!(cause, "moved onto another account");
 }
