@@ -20,6 +20,7 @@ mod gate_relay;
 mod hook_stats;
 mod hook_verb;
 mod ledger;
+mod moved;
 mod nix;
 mod orders;
 mod probe_account;
@@ -108,6 +109,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     }
     if arguments == ["guard", "language"] {
         return Ok(Command::GuardLanguage);
+    }
+    if let Some(hint) = moved::hint(&arguments) {
+        return Err(NorthError::Usage(format!("unrecognized command '{}'\n\n{hint}", arguments.join(" "))));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"

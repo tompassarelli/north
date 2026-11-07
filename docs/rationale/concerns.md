@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS concern_samples(
 
 `value` is NULL and `why` holds the failure when a reading fails; `detail` holds the detail lines; `state` is the judged state, kept for views and audits. `sampler` names the writer (`concerns-tick`, `land-doctor`, `flow`, `concerns-ledger`). Each sampler writes one batch per run as `"type": "concern"` rows of `north threads ingest`, the path the hook verdict rows already take, so the threads client carries it to the ledger host and spools it when that host is unreachable, as every other ledger write does.
 
-Readers (`--trend`, the views, the dividend) open `threads_database()`: the ledger itself on the ledger host, else the page snapshot, refreshed every 15 minutes. A 12 h window does not notice that lag, and `--trend` prints the current value from its own live run. The judge does not read the snapshot: it needs the previous sample's state, which a 15-minute-old copy can miss, so each sampler keeps the judged state and episode of every concern it measures in its own state file, as the goal tick keeps `north/goals/tick.json` today. On gex45 the snapshot is 0 bytes since 2026-10-27 and `north scoreboard --ready` fails there with "no such table: landings"; lane 2's Done when is read on a host whose snapshot reads, and the broken pull is its own issue (north#712).
+Readers (`--trend`, the views, the dividend) open `threads_database()`: the ledger itself on the ledger host, else the page snapshot, refreshed every 15 minutes. A 12 h window does not notice that lag, and `--trend` prints the current value from its own live run. The judge does not read the snapshot: it needs the previous sample's state, which a 15-minute-old copy can miss, so each sampler keeps the judged state and episode of every concern it measures in its own state file, as the goal tick keeps `north/goals/tick.json` today. On gex45 the snapshot is 0 bytes since 2026-10-27 and `north ledger scoreboard` fails there with "no such table: landings"; lane 2's Done when is read on a host whose snapshot reads, and the broken pull is its own issue (north#712).
 
 Alternatives that lost:
 - North's own `ledger.db`: one per host, so a lander concern and a fleet concern would live in two files no single view reads.
@@ -102,7 +102,7 @@ Four places judge health today, each with its own thresholds and its own judge. 
 
 ### Ready bars
 
-The nine `ready` goals become climbs in north's concerns.toml with `direction`, `target` = today's bar, no `worst`, `window = "24h"`, `host = "here"`, owners north#641, `revisit` "north#641's ready verdict holds three days in a row", and the oracle `north scoreboard --ready --metric NAME`, a new flag that prints the worst reading over the ready repositories (north and makgora) for the last 24 h with one detail line per repository, and fails when no repository has a record:
+The nine `ready` goals become climbs in north's concerns.toml with `direction`, `target` = today's bar, no `worst`, `window = "24h"`, `host = "here"`, owners north#641, `revisit` "north#641's ready verdict holds three days in a row", and the oracle `north ledger scoreboard --metric NAME`, a new flag that prints the worst reading over the ready repositories (north and makgora) for the last 24 h with one detail line per repository, and fails when no repository has a record:
 
 - `ready-landing-p90`, `ready-verification-p50`, `ready-verification-p90`, `ready-rework`, `ready-first-try`, `ready-ask-to-landing`, `ready-corrections`, `ready-priority-now`, `ready-idle-account`.
 

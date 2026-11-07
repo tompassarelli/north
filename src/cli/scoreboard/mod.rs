@@ -1,4 +1,4 @@
-//! `north ledger scoreboard`: the harness's weekly numbers for the last 7 days and the 7 days before them,
+//! `north ledger scoreboard`: the bars that say the harness is ready for production work (ready.rs); `--weekly` prints the harness's weekly numbers for the last 7 days and the 7 days before them,
 //! each read from a recorded source, so one week can be set against the last and against published
 //! figures (docs/rationale/scoreboard.md).
 use std::fmt::Write;
@@ -21,7 +21,7 @@ mod tom;
 mod weekly;
 mod workers;
 
-const USAGE: &str = "usage: north ledger scoreboard [--record | --ready [--all] [--explain] | --rework [--since 7d] | audit [--tell]]";
+const USAGE: &str = "usage: north ledger scoreboard ([--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell])";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +102,7 @@ impl Figure {
 
 pub fn render(measures: &[Measure], now: i64) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "north ledger scoreboard: last 7 days | the 7 days before, ending {} today", Timestamp::from_unix_seconds(now).local_twelve_hour());
+    let _ = writeln!(out, "north ledger scoreboard --weekly: last 7 days | the 7 days before, ending {} today", Timestamp::from_unix_seconds(now).local_twelve_hour());
     for (index, measure) in measures.iter().enumerate() {
         let _ = writeln!(out, "- {}: {} | {}", measure.name, measure.weeks[0].text(), measure.weeks[1].text());
         if measures.get(index + 1).is_none_or(|next| next.source != measure.source) {
@@ -207,10 +207,11 @@ fn ready_table(flags: &[String]) -> u8 {
 
 pub fn run(arguments: &[String]) -> u8 {
     let recording = match arguments {
-        [] => false,
         [word, rest @ ..] if word == "audit" => return audit::run(rest),
+        [flag] if flag == "--weekly" => false,
         [flag] if flag == "--record" => true,
-        [flag, rest @ ..] if flag == "--ready" => return ready_table(rest),
+        [] => return ready_table(arguments),
+        [flag, ..] if flag == "--all" || flag == "--explain" => return ready_table(arguments),
         _ => match cause::Request::parse(arguments) {
             Some(request) => return rework(&request),
             None => {

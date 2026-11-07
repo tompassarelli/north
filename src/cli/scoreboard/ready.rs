@@ -1,4 +1,4 @@
-//! `north ledger scoreboard --ready`: one table of the bars that say the harness is ready for production
+//! `north ledger scoreboard`: one table of the bars that say the harness is ready for production
 //! work, read per repository from the same records as the weekly scoreboard. The thresholds are the
 //! `ready` class of north's goals.toml; days in a row counts the newest consecutive 24 h windows in
 //! which every bar passed (docs/rationale/scoreboard.md).
@@ -360,12 +360,12 @@ impl Goals {
     }
 }
 
-/// One bar's readings for one repository: the last 24 h carries the verdict, 1 h, 12 h and 7 d are context.
+/// One bar's readings for one repository: the last 3 h carries the verdict, 1 h, 6 h and 24 h are context.
 struct Cells {
     hour: Option<Reading>,
-    half_day: Option<Reading>,
-    day: (Option<Reading>, Standing),
-    week: Option<Reading>,
+    three_hours: (Option<Reading>, Standing),
+    six_hours: Option<Reading>,
+    day: Option<Reading>,
 }
 
 struct Repo {
@@ -388,7 +388,7 @@ fn assess(reading: impl Fn(Bar, Window) -> Option<Reading>, goals: &Goals, repo:
         .map(|day| Window { start: now - (day + 1) * DAY_S + 1, end: now - day * DAY_S + 1 })
         .take_while(|window| Bar::ALL.iter().all(|bar| counts(standing(*bar, *window).1, *bar)))
         .count();
-    let bars = Bar::ALL.iter().map(|&bar| Cells { hour: reading(bar, last(now, 1)), half_day: reading(bar, last(now, 12)), day: standing(bar, last(now, 24)), week: reading(bar, last(now, DAYS as i64 * 24)) }).collect();
+    let bars = Bar::ALL.iter().map(|&bar| Cells { hour: reading(bar, last(now, 1)), three_hours: standing(bar, last(now, 3)), six_hours: reading(bar, last(now, 6)), day: reading(bar, last(now, 24)) }).collect();
     Repo { name: repo, bars, days_in_a_row }
 }
 
@@ -425,7 +425,7 @@ pub fn report(now: i64) -> Vec<String> {
     let line = match (Goals::read(), Records::read(&Sources::live(), now)) {
         (Ok(goals), Ok(records)) => {
             let heads: Vec<String> = shown(false).into_iter().map(|repo| table::headline(&assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now))).collect();
-            format!("ready bar: {} (north ledger scoreboard --ready prints the table)", heads.join("; "))
+            format!("ready bar: {} (north ledger scoreboard prints the table)", heads.join("; "))
         }
         (Err(why), _) | (_, Err(why)) => format!("ready bar not read: {why}"),
     };
