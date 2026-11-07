@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
-use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, runner};
+use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, runner, runtime};
 pub(super) use self::subverbs::ledger_runner;
 use crate::timers::{self, Timer};
 use crate::{
@@ -54,8 +54,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("wc3-login-field", crate::ops::wc3_login_field::run),
     ("credentials", crate::ops::credentials::run),
     ("agent-capture", crate::ops::agent_capture::run),
-    ("claude-runtime-update", crate::ops::vendor_runtime::run_claude),
-    ("agy-runtime-update", crate::ops::vendor_runtime::run_agy),
     ("incident-mine", crate::ops::incident_mine::run),
     ("tool-mine", crate::ops::tool_mine::run),
     ("policy-replay", crate::ops::policy_replay::run),
@@ -95,7 +93,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("agent-contain", crate::agent_contain::run),
     ("retain", crate::ops::retention::run),
     ("lane", lane),
-    ("runtime", crate::runtime::run),
+    ("runtime", runtime),
     ("tune", crate::tune::run),
     ("loops", crate::loops::run),
     ("climb", north_climb::run),

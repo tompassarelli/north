@@ -80,3 +80,20 @@ const LEDGER: &[(&str, Run)] = &[
 pub(in crate::cli) fn ledger_runner(verb: &str) -> Option<Run> {
     runner(LEDGER, verb)
 }
+
+const RUNTIME: &[(&str, Run)] = &[
+    ("agents", agent_runtime_update),
+    ("agy", crate::ops::vendor_runtime::run_agy),
+    ("claude", crate::ops::vendor_runtime::run_claude),
+];
+
+fn agent_runtime_update(arguments: &[String]) -> u8 {
+    crate::timers::Timer::AgentRuntimeUpdate.run(arguments, &super::super::agents::claude_access())
+}
+
+pub(super) fn runtime(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if let Some(run) = runner(RUNTIME, verb) => run(rest),
+        _ => crate::runtime::run(arguments),
+    }
+}

@@ -51,8 +51,7 @@ System and telemetry:
   agent-config-check  Check the shared agent harness and its budgets
   config                Manage skills and hooks, or check the package
   agents                Agent catalog, plan, usage and routines
-  runtime               Update, deploy or check the north runtime
-  agent-runtime-update  Update the North, Claude and Agy runtimes
+  runtime               Update, deploy or check the north and agent runtimes
   capacity              Machine-capacity leases, modes and the watchdog
   nexus-run             Run a bounded CPU job on Nexus
   watch --once          Run every work probe once and print alerts
