@@ -16,7 +16,7 @@ use crate::land::trace::{self, Category, Span};
 use crate::land::trace::check_log::{self, Line, Mark};
 use crate::landing::check_timings::Timing;
 use crate::landing::land_test_selection::SELECT_PATHS_ENV;
-use super::{ACTIONS_CLASS, CANCELLED, KILLED, OFFLOAD_GRACE, REAP, Shared, TIMED_OUT, say, warn};
+use super::{ACTIONS_CLASS, CANCELLED_STATUS, KILLED_STATUS, OFFLOAD_GRACE, REAP, Shared, TIMED_OUT_STATUS, say, warn};
 use super::log::{new_log, Sink, tee};
 
 #[derive(Clone, Copy)]
@@ -220,7 +220,7 @@ impl Shared {
         }
         marks.sort_by(|left, right| left.at.total_cmp(&right.at));
         let seconds = started.elapsed().as_secs();
-        let exceeded = status == TIMED_OUT || (status == KILLED && seconds >= timeout);
+        let exceeded = status == TIMED_OUT_STATUS || (status == KILLED_STATUS && seconds >= timeout);
         Ok(Ran { status, seconds, exceeded, log, started_at, ended_at, marks })
     }
 
@@ -255,7 +255,7 @@ impl Shared {
     pub(super) async fn run_check(self: Arc<Self>, command: String, leased: bool) -> i32 {
         let started = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
         if self.fail_fast && *self.cancel.borrow() {
-            return self.cancelled(&command, started, CANCELLED, 0, None);
+            return self.cancelled(&command, started, CANCELLED_STATUS, 0, None);
         }
         self.outcome.record(&["ran"]);
         if !self.workflow.is_empty() && self.offload_host_for(&command).is_none() && let Some(reason) = self.config.off_actions_reason(&command) {

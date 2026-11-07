@@ -37,17 +37,13 @@ pub use queue_checks::refuse_queue_checks;
 use crate::land::after::follow::program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, TIMED_OUT_STATUS};
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
 const OFFLOAD_GRACE: u64 = 900;
 const BATCH_GRACE: u64 = 30;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
-const TIMED_OUT: i32 = 124;
-const KILLED: i32 = 137;
-const RED_MAIN: i32 = 3;
-const CANCELLED: i32 = 130;
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
 const ACTIONS_CLASS: &str = "actions";
 const OFF_HOST_PATIENCE: Duration = Duration::from_secs(10 * 60);
@@ -135,7 +131,7 @@ async fn forward_signals(cancel: watch::Sender<bool>) {
     }
     let _ = cancel.send(true);
     tokio::time::sleep(CANCEL_GRACE).await;
-    std::process::exit(CANCELLED);
+    std::process::exit(CANCELLED_STATUS);
 }
 
 fn scope_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<Scope> {

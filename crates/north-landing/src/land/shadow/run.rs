@@ -9,14 +9,9 @@ use super::super::setting;
 use super::super::slots::select::Config;
 use super::super::reuse::{self, Key, Verdict};
 use super::{OWNER, Settings};
-use north_base::foundation::exit::NO_VERDICT_STATUS;
+use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
 use north_base::foundation::offload::OWNER_ENV;
 
-const RED_MAIN: i32 = 3;
-const SLOTS_BUSY: i32 = 96;
-const TIMED_OUT: i32 = 124;
-const CANCELLED: i32 = 130;
-const KILLED: i32 = 137;
 
 pub struct Found {
     pub head: String,
@@ -43,7 +38,7 @@ pub fn missing(settings: &Settings, worktree: &Path, main: &str, path: &Path, ti
 pub fn verdict_of(code: Option<i32>) -> Option<Verdict> {
     match code {
         Some(0) => Some(Verdict::Pass),
-        Some(NO_VERDICT_STATUS | RED_MAIN | SLOTS_BUSY | TIMED_OUT | CANCELLED | KILLED) | None => None,
+        Some(NO_VERDICT_STATUS | RED_MAIN_STATUS | SLOTS_BUSY_STATUS | TIMED_OUT_STATUS | CANCELLED_STATUS | KILLED_STATUS) | None => None,
         Some(_) => Some(Verdict::Fail),
     }
 }

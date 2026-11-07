@@ -10,7 +10,7 @@ use tokio::task::JoinSet;
 use north_base::foundation::exit::NO_VERDICT_STATUS;
 
 use crate::land::slots::shared_build;
-use crate::land::slots::select::OFFLOAD_SLOTS_BUSY;
+use north_base::foundation::exit::SLOTS_BUSY_STATUS;
 use crate::landing::check_timings::outcomes::Records;
 use crate::land::after::follow::program;
 use crate::land::telemetry::epoch;
@@ -18,7 +18,7 @@ use crate::land::trace::{self, Category, Span};
 use crate::land::trace::check_log::{self, Line};
 use crate::landing::check_timings;
 use super::fail_fast::Plan;
-use super::{ACTIONS_CLASS, BATCH_GRACE, KILLED, OFFLOAD_GRACE, RED_MAIN, Shared, TIMED_OUT, batch, resolve_runner_host, say, warn};
+use super::{ACTIONS_CLASS, BATCH_GRACE, KILLED_STATUS, OFFLOAD_GRACE, RED_MAIN_STATUS, Shared, TIMED_OUT_STATUS, batch, resolve_runner_host, say, warn};
 use super::log::new_log;
 use super::spawn::{Attempt, Ran, exit_code, shell_deadline, under_capacity};
 
@@ -32,7 +32,7 @@ async fn forward_cancel(mut cancel: watch::Receiver<bool>, stop: Arc<watch::Send
 }
 
 fn first_failure(failed: &mut i32, status: i32) {
-    if *failed == 0 || (matches!(*failed, NO_VERDICT_STATUS | OFFLOAD_SLOTS_BUSY) && status != 0 && status != OFFLOAD_SLOTS_BUSY) {
+    if *failed == 0 || (matches!(*failed, NO_VERDICT_STATUS | SLOTS_BUSY_STATUS) && status != 0 && status != SLOTS_BUSY_STATUS) {
         *failed = status;
     }
 }
@@ -44,7 +44,7 @@ pub(super) struct Listed {
 
 impl Listed {
     pub(super) fn status(&self) -> i32 {
-        if self.failed == 0 && !self.overflowed.is_empty() { OFFLOAD_SLOTS_BUSY } else { self.failed }
+        if self.failed == 0 && !self.overflowed.is_empty() { SLOTS_BUSY_STATUS } else { self.failed }
     }
 }
 
@@ -125,7 +125,7 @@ impl Shared {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let seconds = part.seconds.round() as u64;
             let started_at = running + part.offset;
-            let checked = Ran { status: part.status, seconds, exceeded: part.status == TIMED_OUT || (part.status == KILLED && seconds >= timeout), log, started_at, ended_at: started_at + part.seconds, marks: Vec::new() };
+            let checked = Ran { status: part.status, seconds, exceeded: part.status == TIMED_OUT_STATUS || (part.status == KILLED_STATUS && seconds >= timeout), log, started_at, ended_at: started_at + part.seconds, marks: Vec::new() };
             statuses.push(self.finish_check(command, Attempt { leased: false, started, timeout }, &checked, None, Some(&line.id)).await);
         }
         let _ = fs::remove_file(&ran.log);
@@ -277,7 +277,7 @@ impl Shared {
             .status()
             .await
             .map_or(1, exit_code);
-        if status == RED_MAIN {
+        if status == RED_MAIN_STATUS {
             self.outcome.record(&["red-main", &self.arguments.base]);
         }
     }

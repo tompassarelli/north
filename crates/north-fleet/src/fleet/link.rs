@@ -18,10 +18,10 @@ use tokio::time::Instant;
 use crate::error::{NorthError, NorthResult};
 
 use super::runtime::binary;
+use north_base::foundation::exit::TRANSPORT_FAILED_STATUS;
 
 const USAGE: &str = "Usage: north session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND";
 const OPTIONS: [&str; 11] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ControlPath=none"];
-const TRANSPORT_FAILED: i32 = 255;
 const RETRY_FIRST: Duration = Duration::from_secs(1);
 const RETRY_MOST: Duration = Duration::from_secs(15);
 const DRAIN: Duration = Duration::from_secs(2);
@@ -229,7 +229,7 @@ impl Link {
         };
         Ok(match (header, code) {
             (None, _) => Connection::Lost { attached: false },
-            (Some(header), Some(code)) if code != TRANSPORT_FAILED && header.cli != 0 => Connection::Ended(u8::try_from(code).unwrap_or(1)),
+            (Some(header), Some(code)) if code != TRANSPORT_FAILED_STATUS && header.cli != 0 => Connection::Ended(u8::try_from(code).unwrap_or(1)),
             (Some(header), Some(code)) if header.cli == 0 && stream.received >= header.output => Connection::Ended(u8::try_from(code).unwrap_or(1)),
             (Some(_), _) => Connection::Lost { attached: true },
         })

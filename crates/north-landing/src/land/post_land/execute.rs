@@ -14,7 +14,7 @@ use super::{Landed, Run, superseded};
 use crate::landing::red_check::{self, Failure};
 use crate::land::candidate::change_worktrees_alone;
 use crate::land::checks::Verdict;
-use crate::land::slots::select::OFFLOAD_SLOTS_BUSY;
+use north_base::foundation::exit::SLOTS_BUSY_STATUS;
 use crate::land::telemetry;
 
 pub(crate) struct Checked {
@@ -103,7 +103,7 @@ pub(super) fn judged(status: ExitStatus, run: &Run) -> Verdict {
         _ if status.success() => Verdict::Green,
         Some(126 | 127) => Verdict::Transient(format!("post-land checks could not start their command (exit {status}), so they reached no verdict; log: {}", run.log.display())),
         Some(NO_VERDICT_STATUS) => Verdict::Transient(format!("post-land checks exited {NO_VERDICT_STATUS}; log: {}", run.log.display())),
-        Some(OFFLOAD_SLOTS_BUSY) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
+        Some(SLOTS_BUSY_STATUS) => Verdict::Transient(format!("every build-host slot stayed busy, so the post-land checks reached no verdict; log: {}", run.log.display())),
         _ if steps(&run.outcome).is_empty() => Verdict::Transient(format!("post-land checks exited {status} with no check reaching a failing verdict, so they reached no verdict; log: {}", run.log.display())),
         _ => Verdict::RedMain(failed_check(&run.outcome).unwrap_or_else(|| format!("exit {status}; log: {}", run.log.display()))),
     }

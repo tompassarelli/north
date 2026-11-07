@@ -9,7 +9,7 @@ use crate::landing::check_timings::outcomes::Outcome as CheckOutcome;
 use crate::land::checks::{BASE_FAILS, BROKEN_BASE, ROUND};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
-use super::{Shared, TIMED_OUT, host_name, say, timeout_row, warn};
+use super::{Shared, TIMED_OUT_STATUS, host_name, say, timeout_row, warn};
 use super::checkout::Checkout;
 use super::log::{log_findings, first_error};
 use super::spawn::{Attempt, Ran};
@@ -168,10 +168,10 @@ impl Shared {
                 Some(host) => format!("finished it in {seconds} s while this host ran at load {:.1} over its {} cores", host.load, host.cores),
                 None => {
                     warn(&format!("safe-push: land check {command} hung: it ran past its {timeout} s deadline on this lane, while base tree {tree} finished it in {seconds} s; log: {}; NOT pushed.", log.display()));
-                    self.cache_record(TIMED_OUT, &[command.to_owned()]).await;
+                    self.cache_record(TIMED_OUT_STATUS, &[command.to_owned()]).await;
                     self.outcome.record(&["event", "land check", "failed", &format!("{command} hung past its {timeout} s deadline; log: {}", log.display())]);
                     self.outcome.record(&["failed-step", command, &log.display().to_string()]);
-                    return TIMED_OUT;
+                    return TIMED_OUT_STATUS;
                 }
             },
             Base::Exceeded => "also ran past it".to_owned(),

@@ -12,9 +12,9 @@ use crate::providers::claude::runs::telemetry::Prices;
 use crate::providers::claude::runs::{CATALOG, DEFAULTS};
 use crate::providers::ledger_rows::Shared;
 use crate::providers::{agy, claude, codex};
+use crate::foundation::exit::TRANSPORT_FAILED_STATUS;
 
 const USAGE: &str = include_str!("usage.txt");
-const REMOTE_UNREACHABLE: i32 = 255;
 
 struct Options {
     session: String,
@@ -113,7 +113,7 @@ fn run_ids(arguments: &[&str]) -> Option<String> {
     let output = threads(arguments).and_then(|mut command| command.stderr(Stdio::inherit()).output()).map_err(|error| eprintln!("north ledger worker: cannot run north threads: {error}")).ok()?;
     match output.status.code() {
         Some(0) => Some(String::from_utf8_lossy(&output.stdout).into_owned()),
-        Some(REMOTE_UNREACHABLE) => Some(String::new()),
+        Some(TRANSPORT_FAILED_STATUS) => Some(String::new()),
         _ => None,
     }
 }

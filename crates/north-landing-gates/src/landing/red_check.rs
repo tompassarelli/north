@@ -1,4 +1,5 @@
 use crate::platform::process;
+use north_base::foundation::exit::RED_MAIN;
 use crate::platform::rolling_issue::{self, Tracker, section_box, settle};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,7 +12,6 @@ const USAGE: &str = "usage: north land red-check --main SHA --log FILE [--lane B
 const GH_LIMIT: Duration = Duration::from_secs(60);
 const OFFLOAD_SECONDS: u64 = 1800;
 const RANGE_LIMIT: usize = 200;
-pub const MAIN_RED: u8 = 3;
 const UNKNOWN: u8 = 2;
 const STEP: &str = "land step failed: ";
 
@@ -364,7 +364,7 @@ pub fn run(arguments: &[String]) -> u8 {
         send(&lead, &line);
     }
     println!("red check: {line} ({source})");
-    MAIN_RED
+    RED_MAIN
 }
 
 #[cfg(test)]

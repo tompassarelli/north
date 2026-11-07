@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use crate::error::{NorthError, NorthResult};
 use crate::threads::{board, calibration, causes, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, schema, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
+use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 
 mod process;
 mod spool;
@@ -35,12 +36,10 @@ const PORTED: [(&[&str], verb::Verb); 10] = [
     (&causes::VERBS, causes::run),
     (&review_findings::VERBS, review_findings::run),
 ];
-const UNREACHABLE: i32 = 255;
 /// The verb a call starts detached to send the spool to the ledger host without waiting on it.
 const SPOOL_FLUSH: &str = "spool-flush";
 /// Set on a `queue follow` the sender has vetted against its own checkouts before forwarding it.
 const FORWARDED: &str = "THREADS_FORWARDED";
-const TIMED_OUT: i32 = 124;
 const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
 const INGEST_WAIT: Duration = Duration::from_secs(5);
@@ -50,7 +49,7 @@ const SPOOL_DRAIN: Duration = Duration::from_secs(10);
 const USAGE_SNAPSHOT_AGE: Duration = Duration::from_secs(300);
 
 fn unanswered(code: i32) -> &'static str {
-    if code == TIMED_OUT { "ledger host timed out" } else { "ledger host unreachable" }
+    if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host unreachable" }
 }
 
 pub struct Client {
@@ -340,7 +339,7 @@ impl Client {
         }
         if first == Some("job-run") {
             let code = self.ssh(dest, &argv, Input::Null, false, err)?;
-            if !matches!(code, UNREACHABLE | TIMED_OUT) {
+            if !matches!(code, TRANSPORT_FAILED_STATUS | TIMED_OUT_STATUS) {
                 return Ok(Some(code));
             }
             self.spool_argv(&argv, unanswered(code))?;
@@ -357,9 +356,9 @@ impl Client {
                 let code = self.ssh(dest, &argv, Input::Bytes(data.clone()), false, err)?;
                 if code == ingest_lock::RETRY {
                     state = "busy";
-                } else if code == TIMED_OUT {
+                } else if code == TIMED_OUT_STATUS {
                     state = "timed out";
-                } else if code != UNREACHABLE {
+                } else if code != TRANSPORT_FAILED_STATUS {
                     if code == 0 && has_usage(&data)? {
                         self.refresh_snapshot_later(dest, USAGE_SNAPSHOT_AGE);
                     }
@@ -371,8 +370,8 @@ impl Client {
             return Ok(Some(0));
         }
         if first == Some("agent-event") {
-            let code = if clear { self.ssh(dest, &argv, Input::Null, false, err)? } else { UNREACHABLE };
-            if !matches!(code, UNREACHABLE | TIMED_OUT) {
+            let code = if clear { self.ssh(dest, &argv, Input::Null, false, err)? } else { TRANSPORT_FAILED_STATUS };
+            if !matches!(code, TRANSPORT_FAILED_STATUS | TIMED_OUT_STATUS) {
                 return Ok(Some(code));
             }
             self.spool_argv(&argv, unanswered(code))?;
@@ -386,17 +385,17 @@ impl Client {
         } else {
             Input::Inherit
         };
-        let code = if reachable { self.ssh(dest, &argv, input, false, err)? } else { UNREACHABLE };
+        let code = if reachable { self.ssh(dest, &argv, input, false, err)? } else { TRANSPORT_FAILED_STATUS };
         if first == Some("agent-events") || first == Some("agent-event-state") {
-            if code == UNREACHABLE {
+            if code == TRANSPORT_FAILED_STATUS {
                 writeln!(err, "NorthThreads: {dest} unreachable; canonical events unavailable")?;
             }
             return Ok(Some(code));
         }
-        if code == TIMED_OUT {
+        if code == TIMED_OUT_STATUS {
             return Ok(Some(code));
         }
-        if code != UNREACHABLE {
+        if code != TRANSPORT_FAILED_STATUS {
             let calibrate_write = first == Some("calibrate") && has("--write");
             if !(code == 0 && calibrate_write && has("--goal-row")) {
                 if code == 0 && (first == Some("record-priors") || calibrate_write) {
@@ -485,12 +484,12 @@ impl Client {
                     return Err(error);
                 }
             };
-            if code == UNREACHABLE {
+            if code == TRANSPORT_FAILED_STATUS {
                 spool.release(&name, "ledger host unreachable", (self.clock)())?;
                 return Ok(Flush::Down);
             }
-            if matches!(code, ingest_lock::RETRY | TIMED_OUT) {
-                spool.release(&name, if code == TIMED_OUT { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
+            if matches!(code, ingest_lock::RETRY | TIMED_OUT_STATUS) {
+                spool.release(&name, if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
                 return Ok(Flush::Busy);
             }
             if code != 0 {
@@ -564,7 +563,7 @@ impl Client {
         Ok(match self.flush_spool(dest, err, None)? {
             Flush::Clear => 0,
             Flush::Busy => ingest_lock::RETRY,
-            Flush::Down => UNREACHABLE,
+            Flush::Down => TRANSPORT_FAILED_STATUS,
         })
     }
 
@@ -638,7 +637,7 @@ impl Client {
             Some(status) => Ok(code_of(status)),
             None => {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok(TIMED_OUT)
+                Ok(TIMED_OUT_STATUS)
             }
         }
     }
@@ -654,7 +653,7 @@ impl Client {
             Some(status) => Ok(Some(code_of(status))),
             None => {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok(Some(TIMED_OUT))
+                Ok(Some(TIMED_OUT_STATUS))
             }
         }
     }
@@ -804,7 +803,7 @@ exit "$(cat "$ROOT/code")"
         rig.client.ssh_wait = Duration::from_millis(300);
         fs::write(rig.root.join("sleep"), "30").unwrap();
         let begun = Instant::now();
-        assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b""), (TIMED_OUT, "NorthThreads: ledger-host timed out; remote outcome unknown\n".to_owned()));
+        assert_eq!(call(&rig, &["claim", "wisp#99", "--by", "stall"], b""), (TIMED_OUT_STATUS, "NorthThreads: ledger-host timed out; remote outcome unknown\n".to_owned()));
         assert!(begun.elapsed() < Duration::from_secs(5), "{:?}", begun.elapsed());
         assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' north threads claim 'wisp#99' --by stall")]);
         assert!(!rig.client.spool.exists(), "a timed-out claim was queued for replay");
