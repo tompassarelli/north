@@ -1,6 +1,6 @@
 //! A proxy launches a worker only on work the fact graph chooses: an issue among the top five of `north graph ready`'s
 //! measured order, or one it created or edited in a turn answering a message Tom typed (north#734). The rule is the
-//! `proxy-launch-rank` gate of harness/gates.toml; in shadow it allows the launch, warns the proxy and logs what it
+//! `proxy-launch-rank` gate of harness/gates.toml; under shadow it allows the launch, warns the proxy and logs what it
 //! would refuse.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -44,19 +44,18 @@ pub(super) fn admit(fleet: &Fleet, request: &LaunchRequest, caller: Option<&str>
     Ok(())
 }
 
-/// Ok when the launch's issues include one of `leaders` (issue and standing, best first), or every one was created or
+/// Ok when the launch names no issue (a worker that files its own, a red main to repair), its issues include one of `leaders` (issue and standing, best first), or every one was created or
 /// edited at or after a typed `turn` began; else the refusal naming the top of the ranking.
 pub(super) fn verdict(issues: &[IssueRef], leaders: &[(String, String)], turn: Option<&TypedTurn>, edited: impl Fn(&IssueRef) -> Option<u64>) -> Result<(), String> {
-    if issues.iter().any(|issue| leaders.iter().any(|(leader, _)| *leader == issue.to_string())) {
+    if issues.is_empty() || issues.iter().any(|issue| leaders.iter().any(|(leader, _)| *leader == issue.to_string())) {
         return Ok(());
     }
     if let Some(turn) = turn
-        && !issues.is_empty()
         && issues.iter().all(|issue| edited(issue).is_some_and(|at| at >= turn.at_ms))
     {
         return Ok(());
     }
-    let named = if issues.is_empty() { "names no issue".to_owned() } else { format!("names {}", issues.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")) };
+    let named = format!("names {}", issues.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "));
     let typed = match turn {
         Some(_) => "was not created or edited in this turn, which answers a message Tom typed",
         None => "and this turn answers no message Tom typed",
@@ -106,6 +105,7 @@ mod tests {
     fn a_proxy_launch_off_the_top_five_is_refused_unless_it_files_what_tom_typed_in_that_turn() {
         let never = |_: &IssueRef| None;
         assert_eq!(verdict(&issue(634), &leaders(), None, never), Ok(()), "a top-five issue launches");
+        assert_eq!(verdict(&[], &leaders(), None, never), Ok(()), "a launch that files its own issue or repairs a red main names nothing to rank");
         let refused = verdict(&issue(88), &leaders(), None, never).unwrap_err();
         assert!(refused.contains("names north#88") && refused.contains("answers no message Tom typed") && refused.contains("5. north#636 ("), "{refused}");
         let turn = TypedTurn { conversation: "c".into(), at_ms: 1_000 };

@@ -10,4 +10,11 @@ decisions = 58
 
 # A proxy launches a worker only on one of the top five issues of `north graph ready` or an issue it filed or edited in a turn answering a message Tom typed (north#734). Would-be refusals: $XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl on the launching host.
 [gate.proxy-launch-rank]
-mode = "shadow"
+mode = "enforce"
+
+[gate.proxy-launch-rank.review]
+reviewed = "2026-11-08"
+by = "bd-706-rank"
+decisions = 198
+hours = 25
+false_refusals_fixed = "47 of the 198 would-be refusals named no issue (a worker filing its own issue, a red main to repair, a probe), so there was nothing to rank; a launch naming no issue now passes"

@@ -150,8 +150,7 @@ be read dispatch prints a `note:` and falls back to label and age order and the 
 A proxy-role session launches a worker only on one of the first five issues of that order, or on an issue it created or
 edited in a turn that answers a message Tom typed (the newest prompt of its transcript carries no `[from NAME]` or `[gate ID]`
 sender); otherwise `north fleet launch` names the top five and refuses. The rule is the `proxy-launch-rank` gate of
-harness/gates.toml, in shadow until reviewed: it warns the proxy and appends each would-be refusal to
-`$XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl`. Dispatch's own launches run without the caller's fleet session, so
+harness/gates.toml, enforcing since its review (north#706): a launch whose Item names no issue (a worker that files its own, a red main to repair) is outside the rule. Dispatch's own launches run without the caller's fleet session, so
 the rule never reads them as the proxy's.
 
 ## Grounding
