@@ -85,9 +85,9 @@ pub fn run(arguments: &[String]) -> u8 {
         Span::new(head, name, category, start, epoch()).on(&host).with(PHASE, AFTER)
     };
     let spans = [
+        timed("runtime follow", Category::Follow, &[os("runtime"), os("follow"), os("--repo-dir"), os(repo)]),
         timed("after-landing gates", Category::Ci, &[os("after-landing"), os("--git-dir"), os(git_dir), os("--base"), os(base), os("--head"), os(head)]),
         timed("follows-release", Category::Follow, &[os("follows-release"), os("--repo-dir"), os(repo)]),
-        timed("runtime follow", Category::Follow, &[os("runtime"), os("follow"), os("--repo-dir"), os(repo)]),
         timed("graph ingest", Category::Follow, &[os("graph"), os("ingest")]),
     ];
     trace::record(&spans);

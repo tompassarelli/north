@@ -40,13 +40,21 @@ enum Pass {
 }
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
-    let updated = update_locked(layout);
+    recorded(layout, lock(layout, FlockOperation::NonBlockingLockExclusive))
+}
+
+pub(super) fn update_after_landing(layout: &Layout) -> Result<(), Failure> {
+    recorded(layout, lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime promote").map(Some))
+}
+
+fn recorded(layout: &Layout, lock: Result<Option<File>, Failure>) -> Result<(), Failure> {
+    let updated = lock.and_then(|lock| update_locked(layout, lock));
     host_facts::record_if_stale(layout);
     updated
 }
 
-fn update_locked(layout: &Layout) -> Result<(), Failure> {
-    let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
+fn update_locked(layout: &Layout, lock: Option<File>) -> Result<(), Failure> {
+    let Some(_lock) = lock else {
         println!("north runtime update already running");
         return Ok(());
     };
@@ -191,8 +199,10 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     }
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
-    super::deploy::stage_for_lander(layout, target, runtime);
-    sync(layout, previous, target)
+    std::thread::scope(|scope| {
+        scope.spawn(|| super::deploy::stage_for_lander(layout, target, runtime));
+        sync(layout, previous, target)
+    })
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {

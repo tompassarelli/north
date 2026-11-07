@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 const JOURNAL: &str = "runtime-live.jsonl";
 const SEEN: &str = "runtime-live-seen.json";
 const ACTIVE_S: i64 = 86_400;
+const ORIGIN_MAIN: &str = "refs/remotes/origin/main";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -46,7 +47,29 @@ fn landed(checkout: &Path, previous: &str, runtime: &str) -> Vec<(String, i64)> 
         return Vec::new();
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    text.lines().filter_map(|line| line.split_once(' ')).filter(|(sha, _)| layout::is_sha(sha)).filter_map(|(sha, at)| Some((sha.to_owned(), at.trim().parse().ok()?))).collect()
+    let committed = text.lines().filter_map(|line| line.split_once(' ')).filter(|(sha, _)| layout::is_sha(sha)).filter_map(|(sha, at)| Some((sha.to_owned(), at.trim().parse().ok()?)));
+    on_main(committed, &reached(checkout))
+}
+
+fn reached(checkout: &Path) -> HashMap<String, i64> {
+    let Ok(output) = process::run("git", Some(checkout), &["log", "--walk-reflogs", "--date=unix", "--format=%H %gd", ORIGIN_MAIN]) else { return HashMap::new() };
+    let mut reached = HashMap::new();
+    for (sha, at) in String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.split_once(' ')).filter_map(|(sha, selector)| Some((sha.to_owned(), selector.rsplit_once("@{")?.1.strip_suffix('}')?.parse::<i64>().ok()?))) {
+        let earliest = reached.entry(sha).or_insert(at);
+        *earliest = (*earliest).min(at);
+    }
+    reached
+}
+
+fn on_main(committed: impl Iterator<Item = (String, i64)>, reached: &HashMap<String, i64>) -> Vec<(String, i64)> {
+    let mut earliest: Option<i64> = None;
+    committed
+        .map(|(sha, committed_at)| {
+            earliest = earliest.into_iter().chain(reached.get(&sha).copied()).min();
+            let landed_at = earliest.map_or(committed_at, |at| at.max(committed_at));
+            (sha, landed_at)
+        })
+        .collect()
 }
 
 pub fn everywhere(rows: &[Live]) -> Vec<(i64, f64)> {
@@ -68,4 +91,18 @@ pub fn everywhere(rows: &[Live]) -> Vec<(i64, f64)> {
 
 pub fn read(state: &Path) -> Vec<Live> {
     fs::read_to_string(journal(state)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::on_main;
+    use std::collections::HashMap;
+
+    #[test]
+    fn a_commit_lands_when_it_reaches_main_not_when_the_lander_commits_it() {
+        let reached = HashMap::from([("9bd76afd".to_owned(), 1_794_017_717), ("1b19fc89".to_owned(), 1_794_017_597)]);
+        let committed = [("c0ffee00".to_owned(), 1_794_017_700), ("9bd76afd".to_owned(), 1_794_017_631), ("ba5eba11".to_owned(), 1_794_017_560), ("1b19fc89".to_owned(), 1_794_017_546)];
+        let landed: Vec<i64> = on_main(committed.into_iter(), &reached).into_iter().map(|(_, at)| at).collect();
+        assert_eq!(landed, [1_794_017_700, 1_794_017_717, 1_794_017_717, 1_794_017_597]);
+    }
 }
