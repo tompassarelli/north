@@ -13,7 +13,7 @@ use super::model::{Observation, Subject, censored, command_key, current_cache_st
 use crate::capacity::local_machine::host_name;
 use super::policy::batch_class;
 use super::handover::Listening;
-use super::offering::{Admitted, Declines, NO_BUILD_HOST, Waiting, agent_session, accepted, offer_first, try_offload};
+use super::offering::{Admitted, Declines, NO_BUILD_HOST, Waiting, agent_session, accepted, offer_first, queue_time_left, try_offload};
 use super::terminations::Terminations;
 use super::quiet_holds::{QuietHolds, quiet_owners};
 use super::requeue;
@@ -108,14 +108,15 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
     }
     let offer = (request.name == "heavy" || request.name == "moderate" && crate::capacity::gate::compiles_rust(command)) && !request.landing;
     let mut declined = Declines::new();
+    let began = now_ms();
     let resumed = requeue::resumed(root);
-    if resumed.is_none() && offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
+    if resumed.is_none() && offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, began, declined: &mut declined }, host, terminations).await {
         return admitted;
     }
     let pullable = offer && agent_session() && request.name == "heavy" && crate::capacity::handover::pullable(command);
     let mut offered_at = now_ms();
     let follow = requeue::Follow::here();
-    let (ticket, queued_at) = resumed.map_or_else(|| (wait_ticket(root, request, create, pullable), now_ms()), |resumed| (resumed.ticket, resumed.queued_at));
+    let (ticket, queued_at) = resumed.map_or_else(|| (wait_ticket(root, request, create, pullable), began), |resumed| (resumed.ticket, resumed.queued_at));
     let handover = pullable.then(|| Listening::open(root, &ticket)).flatten();
     let mut reported = None;
     let mut quiet = QuietHolds::default();
@@ -142,7 +143,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         }
         if offer && now_ms() - offered_at >= declined.retry_milliseconds {
             offered_at = now_ms();
-            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, reason(&result).is_some_and(|reason| reason.starts_with("DEFER_")), host, terminations, None).await {
+            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, began: queued_at, declined: &mut declined }, reason(&result).is_some_and(|reason| reason.starts_with("DEFER_")), host, terminations, None).await {
                 dequeue(root, &ticket);
                 return Admitted::Offloaded(code);
             }
@@ -159,7 +160,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
             () = tokio::time::sleep(queue_time_left(create.timeout_seconds, queued_seconds)) => {}
             taker = accepted(handover.as_ref()) => {
                 let on_deferred = reason(&result).is_some_and(|reason| reason.starts_with("DEFER_"));
-                if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, on_deferred, host, terminations, Some(taker)).await {
+                if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, began: queued_at, declined: &mut declined }, on_deferred, host, terminations, Some(taker)).await {
                     dequeue(root, &ticket);
                     return Admitted::Offloaded(code);
                 }
@@ -174,11 +175,6 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
             }
         }
     }
-}
-
-/// How long a queued request may still wait before its --timeout-seconds ends it; without one it waits on.
-fn queue_time_left(timeout_seconds: Option<u64>, queued_seconds: f64) -> Duration {
-    timeout_seconds.map_or(Duration::MAX, |timeout| Duration::from_secs_f64((timeout as f64 - queued_seconds).max(0.0)))
 }
 
 /// The batch lease this process already runs inside, by its environment or its cgroup scope.
@@ -458,7 +454,7 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
     }
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap_or_else(|error| fail(&error.to_string(), 1));
     let create = Create { kind: "run", owner: owner.to_owned(), timeout_seconds };
-    runtime.block_on(async {
+    let code = runtime.block_on(async {
         let mut terminations = Terminations::listen();
         let admitted = match admit(root, request, &create, command, host, &mut terminations).await {
             Admitted::Here(admitted) => admitted,
@@ -473,5 +469,7 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
         }
         super::priority::record_use(owner, request, &admitted, command);
         u8::try_from(run_admitted(root, request, owner, timeout_seconds, command, &admitted, &mut terminations).await & 0xff).unwrap_or(1)
-    })
+    });
+    runtime.shutdown_background();
+    code
 }

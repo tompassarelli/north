@@ -141,7 +141,7 @@ async fn hand(root: &std::path::Path, ticket: &str, peer: UnixStream) -> Option<
     let create = Create { kind: "run", owner: "worker".to_owned(), timeout_seconds: Some(60) };
     let command = ["cargo".to_owned(), "test".to_owned()];
     let mut declined = Declines::new();
-    let waiting = Waiting { root, ticket: Some(ticket), request: &request, create: &create, command: &command, declined: &mut declined };
+    let waiting = Waiting { root, ticket: Some(ticket), request: &request, create: &create, command: &command, began: super::machine::now_ms(), declined: &mut declined };
     try_offload(waiting, true, &host(), &mut Terminations::none(), Some(peer)).await
 }
 

@@ -67,3 +67,40 @@ fn a_session_build_is_offered_away_before_deciding_only_on_a_host_that_does_not_
     assert!(!offers_before_deciding(&free, true), "the laptop with no playtest lease decides on them here first");
     assert!(!offers_before_deciding(&playing, false), "a build outside a fleet session is decided here first");
 }
+
+static RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn stalled(_: &Candidate, _: &Job, _: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+    while !RELEASED.load(std::sync::atomic::Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    Err(None)
+}
+
+fn running_slowly(_: &Candidate, _: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+    announce("gex45");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    Ok(7)
+}
+
+async fn offer(host: &Host, queued_seconds: u64) -> Option<u8> {
+    let request = super::request::Request { name: "heavy".to_owned(), ..super::request::Request::default() };
+    let create = Create { kind: "run", owner: "worker".to_owned(), timeout_seconds: Some(5) };
+    let command = ["cargo".to_owned(), "test".to_owned()];
+    let mut declined = super::offering::Declines::new();
+    let began = super::machine::now_ms() - queued_seconds as f64 * 1000.0;
+    let waiting = super::offering::Waiting { root: std::path::Path::new("/nonexistent"), ticket: None, request: &request, create: &create, command: &command, began, declined: &mut declined };
+    super::offering::try_offload(waiting, true, host, &mut super::terminations::Terminations::none(), None).await
+}
+
+// KEEP(bug): on 2026-11-06 a queued gate with --timeout-seconds 3600 sat at DEFER_CPU_PRESSURE for 6,498 s because its admit loop was stuck awaiting an offload offer that never answered; an offer that has not started now gives up when the gate's timeout ends, while one a host has taken runs on; north#634
+#[tokio::test]
+async fn an_offload_offer_that_never_starts_ends_with_the_gates_timeout_and_one_already_running_does_not() {
+    let hung = Host { build_offload: stalled, ..laptop(|| None) };
+    let started = std::time::Instant::now();
+    assert_eq!(offer(&hung, 5).await, None, "the stalled offer ended with the gate's timeout");
+    assert!(started.elapsed() < std::time::Duration::from_secs(3), "{:?}", started.elapsed());
+    RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let running = Host { build_offload: running_slowly, ..laptop(|| None) };
+    assert_eq!(offer(&running, 5).await, Some(7), "a job a host started finishes past the gate's timeout");
+}

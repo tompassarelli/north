@@ -1,11 +1,14 @@
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde_json::Value;
 
 use super::decision::decision;
 use super::handover::{self, Listening};
 use super::json::Obj;
-use super::machine::env;
+use super::machine::{env, now_ms};
 use super::print_to;
 use super::request::{Create, Request};
 use super::state::dequeue;
@@ -28,13 +31,20 @@ pub(super) struct Waiting<'a> {
     pub(super) request: &'a Request,
     pub(super) create: &'a Create,
     pub(super) command: &'a [String],
+    /// When the request began waiting, in milliseconds, so an offer that has not started never outlasts its --timeout-seconds.
+    pub(super) began: f64,
     pub(super) declined: &'a mut Declines,
 }
 
 impl Waiting<'_> {
     pub(super) fn again(&mut self) -> Waiting<'_> {
-        Waiting { root: self.root, ticket: self.ticket, request: self.request, create: self.create, command: self.command, declined: &mut *self.declined }
+        Waiting { root: self.root, ticket: self.ticket, request: self.request, create: self.create, command: self.command, began: self.began, declined: &mut *self.declined }
     }
+}
+
+/// How long a queued request may still wait before its --timeout-seconds ends it; without one it waits on.
+pub(super) fn queue_time_left(timeout_seconds: Option<u64>, queued_seconds: f64) -> Duration {
+    timeout_seconds.map_or(Duration::MAX, |timeout| Duration::from_secs_f64((timeout as f64 - queued_seconds).max(0.0)))
 }
 
 /// What the offload offers so far have declined for: the reason last printed, which an unchanged decline stays silent about, and how long the next offer waits, stretched while every offload host is out of reach so a queued build stops probing hosts this host has no path to.
@@ -66,7 +76,10 @@ fn report_declined(why: Option<Declined>, create: &Create, declines: &mut Declin
 
 /// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path, printing why once per change of reason.
 pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminations: &mut Terminations, taker: Option<std::os::unix::net::UnixStream>) -> Option<u8> {
-    let Waiting { root, ticket, request, create, command, declined } = waiting;
+    let Waiting { root, ticket, request, create, command, began, declined } = waiting;
+    let patience = queue_time_left(create.timeout_seconds, (now_ms() - began) / 1000.0);
+    let started = Arc::new(AtomicBool::new(false));
+    let announced = Arc::clone(&started);
     let host = *host;
     let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
     let (waiting_root, waiting_ticket) = (root.clone(), ticket.clone());
@@ -81,6 +94,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     let work = tokio::task::spawn_blocking(move || {
         let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, agent, offloaded_already, artifact };
         let announce = |target: &str| {
+            announced.store(true, Ordering::SeqCst);
             print_to(&Obj::new().put("decision", "OFFLOADED").put("reason", build_offload::REASON).put("host", target).put("class", class.as_str()).put("owner", owner.as_str()), true);
             match &ticket {
                 Some(ticket) if handed => handover::set_aside(&root, ticket),
@@ -94,23 +108,41 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
             None => (host.build_offload)(&candidate, &job, &announce),
         }
     });
-    tokio::select! {
-        done = work => match done.ok()? {
-            Ok(code) => Some(code),
-            Err(why) => {
-                if handed && let Some(ticket) = &waiting_ticket {
-                    handover::restore(&waiting_root, ticket);
+    let mut work = work;
+    let mut stalled = std::pin::pin!(tokio::time::sleep(patience));
+    let mut expired = false;
+    let finished = loop {
+        tokio::select! {
+            done = &mut work => break Some(done),
+            () = &mut stalled, if !expired => {
+                if !started.load(Ordering::SeqCst) {
+                    break None;
                 }
-                report_declined(why, create, declined);
-                None
+                expired = true;
             }
-        },
-        number = terminations.next() => {
-            if let Some(ticket) = &waiting_ticket {
-                dequeue(&waiting_root, ticket);
-                handover::forget(&waiting_root, ticket);
+            number = terminations.next() => {
+                if let Some(ticket) = &waiting_ticket {
+                    dequeue(&waiting_root, ticket);
+                    handover::forget(&waiting_root, ticket);
+                }
+                std::process::exit(128 + number)
             }
-            std::process::exit(128 + number)
+        }
+    };
+    let Some(done) = finished else {
+        if handed && let Some(ticket) = &waiting_ticket {
+            handover::restore(&waiting_root, ticket);
+        }
+        return None;
+    };
+    match done.ok()? {
+        Ok(code) => Some(code),
+        Err(why) => {
+            if handed && let Some(ticket) = &waiting_ticket {
+                handover::restore(&waiting_root, ticket);
+            }
+            report_declined(why, create, declined);
+            None
         }
     }
 }
