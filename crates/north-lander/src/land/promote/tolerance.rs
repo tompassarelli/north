@@ -27,11 +27,20 @@ fn in_lander(checkout: &Path, base: &str, failure: &Failure) -> bool {
     files.is_empty() || files.iter().any(|file| LANDER_PATHS.iter().any(|prefix| file.starts_with(prefix)))
 }
 
-pub(super) fn tolerated(held: &Held, repository: &Repository, checker: &str, round: &Round, base: &str, candidate: &replay::Replayed) -> Result<String, String> {
-    let binary = held.binary.ok_or("no held runtime to compare with")?;
-    let against = run_replay(binary, &repository.checkout, base, checker, &round.tickets())?;
+pub(super) struct Untolerated {
+    pub(super) why: String,
+    pub(super) adds_failures: bool,
+}
+
+fn differs(why: String) -> Untolerated {
+    Untolerated { why, adds_failures: false }
+}
+
+pub(super) fn tolerated(held: &Held, repository: &Repository, checker: &str, round: &Round, base: &str, candidate: &replay::Replayed) -> Result<String, Untolerated> {
+    let binary = held.binary.ok_or_else(|| differs("no held runtime to compare with".to_owned()))?;
+    let against = run_replay(binary, &repository.checkout, base, checker, &round.tickets()).map_err(differs)?;
     if first_word(&against.verdict) != first_word(&candidate.verdict) {
-        return Err(format!("the held runtime replayed {}", first_word(&against.verdict)));
+        return Err(differs(format!("the held runtime replayed {}", first_word(&against.verdict))));
     }
     let new: Vec<&Failure> = candidate.failures.difference(&against.failures).collect();
     if new.is_empty() {
@@ -41,7 +50,7 @@ pub(super) fn tolerated(held: &Held, repository: &Repository, checker: &str, rou
     if held.only_fixes && !new.iter().any(|failure| in_lander(&repository.checkout, base, failure)) {
         return Ok(format!("a revert or sheriff-fix candidate whose new failures ({named}) lie outside the lander's crates"));
     }
-    Err(format!("new failures the held runtime does not have: {named}"))
+    Err(Untolerated { why: format!("new failures the held runtime does not have: {named}"), adds_failures: true })
 }
 
 pub(super) fn only_fixes(checkout: &Path, held: &Path, target: &Path) -> bool {

@@ -19,7 +19,11 @@ A mismatch is now a decision with a bound, made in the same promotion run:
 - Undeclared. The judge replays the first undeclared round with the built runtimes in
   `~/.local/state/north/runtimes` whose commits lie on main's first-parent line between the held
   and the candidate runtime, held first. If the held runtime does not reproduce the recorded
-  verdict either, no commit between them caused it: the link stays and the proxy is told. Otherwise
+  verdict either, no commit between them caused it and holding the link gains nothing: the link
+  follows and the proxy is told to file the flaky test (2026-11-07: holding on b96d3b9e for 39
+  minutes after north-798 failed on the candidate and again on the held runtime, north#634). When
+  the held runtime fails the round the same way but the candidate adds failures the held runtime
+  lacks, those failures are the candidate's own: the link stays and the proxy is told. Otherwise
   a binary search finds the first runtime that diverges; a runtime that cannot replay is skipped,
   so the search always ends. The commits between the last matching and the first diverging runtime
   that touch the lander's crates (all of them when none do) are reverted through the sheriff's

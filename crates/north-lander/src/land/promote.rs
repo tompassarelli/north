@@ -215,9 +215,9 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
                     replayed += 1;
                     continue;
                 }
-                Err(why) => {
-                    let held_note = if held.binary.is_some() { format!(" ({why})") } else { String::new() };
-                    divergences.push(Divergence { checkout: repository.checkout.clone(), tickets: round.tickets(), lanes, base, recorded: round.verdict.clone(), replayed: format!("{verdict}{held_note}") });
+                Err(untolerated) => {
+                    let held_note = if held.binary.is_some() { format!(" ({})", untolerated.why) } else { String::new() };
+                    divergences.push(Divergence { checkout: repository.checkout.clone(), tickets: round.tickets(), lanes, base, recorded: round.verdict.clone(), replayed: format!("{verdict}{held_note}"), adds_failures: untolerated.adds_failures });
                     continue;
                 }
             }
