@@ -199,6 +199,7 @@ impl Policy {
         let mut stack = Vec::new();
         let mut prev_sep: Option<String> = None;
         let mut created: Vec<String> = Vec::new();
+        let mut cd_ok: Option<Vec<String>> = None;
         let mut out = Vec::new();
         for (text, sep) in shell::shell_segments_sep(text) {
             let text = TEMPORARY.replace_all(&text, TEMPORARY_DIRECTORY).into_owned();
@@ -218,8 +219,10 @@ impl Policy {
                 .first()
                 .is_some_and(|s| BLOCK_OPEN.contains(&s.as_str()))
             {
-                stack.push((false, cwds.clone()));
+                let skipped = if prev_sep.as_deref() == Some("||") { cd_ok.take() } else { None };
+                stack.push((false, skipped.unwrap_or_else(|| cwds.clone())));
             }
+            cd_ok = None;
             out.push(Segment {
                 text,
                 env: env.clone(),
@@ -230,6 +233,9 @@ impl Policy {
             if prev_sep.as_deref() != Some("|") && !matches!(sep.as_deref(), Some("|" | "&")) {
                 let moved = self.cd_destinations(&words, &env, &cwds);
                 if !moved.is_empty() {
+                    if sep.as_deref() == Some("||") {
+                        cd_ok = Some(moved.clone());
+                    }
                     cwds = if sep.as_deref() == Some("&&")
                         || moved.iter().all(|path| std::path::Path::new(path).is_dir() || created.iter().any(|made| path == made || path.starts_with(&format!("{made}/"))))
                     {

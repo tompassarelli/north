@@ -630,6 +630,7 @@ label = "true"
 rule = "launch-critical"
 window = "2026-11-07 to 2026-11-08, after 786ac1b9d4"
 drawn = "1 in 3 of 103 distinct refused calls"
+narrowed = "2026-11-08 north#706: a `cd` into a worktree the same command adds after `cd X ||` no longer carries the main checkout, redirect tokens are dropped before comparing merge sources, and a heredoc literal counts only when its line or the variable it names reaches a write"
 
 [[sample.row]]
 command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/offering_tests.rs\",\"old_string\":\"    let running = Host { bu"

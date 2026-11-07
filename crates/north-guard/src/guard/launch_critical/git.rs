@@ -217,12 +217,18 @@ pub(super) fn wip_destroying(verb: &str, args: &[String]) -> Option<String> {
     }
 }
 pub(super) fn takes_only_origin_main(verb: &str, args: &[String]) -> bool {
-    let sources: Vec<&str> = args
-        .iter()
-        .take_while(|s| s.as_str() != "--")
-        .filter(|s| !s.starts_with('-'))
-        .map(String::as_str)
-        .collect();
+    let mut sources: Vec<&str> = Vec::new();
+    let mut words = args.iter().take_while(|s| s.as_str() != "--");
+    while let Some(word) = words.next() {
+        let redirect = word.trim_start_matches(|c: char| c.is_ascii_digit() || c == '&');
+        if redirect.starts_with(['>', '<']) {
+            if redirect.trim_start_matches(['>', '<']).is_empty() {
+                words.next();
+            }
+        } else if !word.starts_with('-') {
+            sources.push(word);
+        }
+    }
     match verb {
         "pull" => sources == ["origin", "main"],
         _ => sources == ["origin/main"] || sources == ["refs/remotes/origin/main"],
