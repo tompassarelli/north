@@ -107,11 +107,12 @@ fn enqueue_refuses_a_lane_an_enqueue_marked_after_line_fails_and_leaves_an_unmar
     git(&fixture.repo, &["commit", "-qm", "Add the features index check"]);
     git(&fixture.repo, &["push", "-q", "origin", "lane:main"]);
     fs::write(fixture.repo.join("docs/features/01-first/0002-long.md"), &long).unwrap();
+    fs::write(fixture.repo.join("docs/features.md"), format!("# Features\n\n## First\n\n- A short entry.\n{long}")).unwrap();
     git(&fixture.repo, &["add", "."]);
-    git(&fixture.repo, &["commit", "-qm", "Add a features entry without its index"]);
+    git(&fixture.repo, &["commit", "-qm", "Add a features entry over the cap"]);
     let (output, _) = north_enqueue_with(&fixture, &[]);
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(!output.status.success() && log.contains("docs/features.md is stale") && log.contains("a check before queueing exited"), "{log}");
+    assert!(!output.status.success() && log.contains("over the 1200-character entry cap") && log.contains("a check before queueing exited"), "{log}");
     assert_eq!(runs(&unmarked), 0, "a line without the enqueue marker ran before queueing: {log}");
     assert!(!written(&fixture.state).iter().any(|path| path.extension().is_some_and(|extension| extension == "json")), "{:?}", written(&fixture.state));
 }
