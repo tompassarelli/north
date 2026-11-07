@@ -65,7 +65,7 @@ impl StateFiles for Live {
             landed: "",
             session: pushed.session,
         };
-        push_ledger::record(&self.state_home, &push)
+        push_ledger::record(&push_ledger::log(&self.state_home), &push)
     }
 
     fn is_directory(&self, path: &Path) -> bool {

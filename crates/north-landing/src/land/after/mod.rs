@@ -112,6 +112,7 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
     let _ = fetch_main(lander);
     let state = state_home();
     let batch_size = tickets.len();
+    let log = push_ledger::landing_log(&lander.repo, &state, &north_goals::code_root());
     let mut spans = trace::landing::shared(stages, head);
     for (path, ticket) in tickets {
         let name = name_of(&path);
@@ -120,7 +121,7 @@ pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &St
         spans.extend(trace::landing::spans(stages, &trace::landing::Landed { ticket: &ticket_name, branch: &ticket.branch, queued, landed: head, batch: batch_size }));
         let repository = push_ledger::repository(&ticket.origin);
         let push = push_ledger::Push { at_secs: telemetry::seconds(), repository: &repository, branch: &ticket.branch, oid: &ticket.head, landed: head, session: ticket.session.as_deref().unwrap_or("") };
-        if let Err(error) = push_ledger::record(&state, &push) {
+        if let Some(log) = &log && let Err(error) = push_ledger::record(log, &push) {
             println!("north land: could not record the push of {}: {error}", ticket.branch);
         }
         if let Err(error) = stages.flush(&state, &repository, &ticket.branch) {
