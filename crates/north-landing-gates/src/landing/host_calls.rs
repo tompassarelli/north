@@ -136,6 +136,18 @@ pub fn unit_calls(listing: &str, script: impl Fn(&Path) -> Option<String>) -> Ve
     found
 }
 
+pub fn unit_names(listing: &str) -> Vec<&str> {
+    listing
+        .lines()
+        .filter_map(|line| {
+            let mut columns = line.split_whitespace();
+            let name = columns.next()?;
+            (columns.next() != Some("transient")).then_some(name)
+        })
+        .filter(|name| UNIT_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) && !name.ends_with("@.service"))
+        .collect()
+}
+
 pub fn units(scope: Scope) -> Result<String, String> {
     let systemctl = |args: &[&str]| {
         Command::new("systemctl")
@@ -149,11 +161,7 @@ pub fn units(scope: Scope) -> Result<String, String> {
         return Err(format!("systemctl {} list-unit-files failed: {}", scope.label(), String::from_utf8_lossy(&listing.stderr).trim()));
     }
     let listing = String::from_utf8_lossy(&listing.stdout);
-    let names: Vec<&str> = listing
-        .lines()
-        .filter_map(|line| line.split_whitespace().next())
-        .filter(|name| UNIT_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)) && !name.ends_with("@.service"))
-        .collect();
+    let names = unit_names(&listing);
     if names.is_empty() {
         return Ok(String::new());
     }

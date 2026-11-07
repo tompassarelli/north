@@ -31,6 +31,11 @@ fn checked(reference: &str) -> Vec<String> {
 
 #[test]
 fn a_runtime_missing_a_command_a_host_unit_or_its_own_ssh_hop_still_calls_is_refused_naming_where_it_is_called() {
+    assert_eq!(
+        host_calls::unit_names("north-fleet-north-259-d1824-c58f4e7f.service transient -\npace-enforcement.service linked enabled\n"),
+        ["pace-enforcement.service"]
+    );
+
     let current = checked(verb_help::reference());
     assert_eq!(current, ["/etc/systemd/user/pace-enforcement.service:4: north pace sample: this runtime has no north pace command; did you mean: north fleet pace sample"]);
 
