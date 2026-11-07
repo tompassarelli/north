@@ -170,7 +170,7 @@ id: pid-liveness
 rule:
   any:
     - pattern: process.kill($P, 0)
-    - { kind: template_string, regex: '^.\/proc\/\$\{' }
+    - { kind: template_string, regex: '^.\/proc\/\$\{[^}]*\}.$' }
 ---
 id: phase-suffix
 rule: { kind: string, regex: '^.[^ ''"`]*\.(PHASE).$' }
