@@ -177,3 +177,51 @@ fn a_closed_cell_costs_the_sum_of_the_runs_it_counts_and_names_the_earliest_of_t
     assert_eq!(cell.runs_since(), Some("2026-10-25T13:00:00Z"));
     assert!(report.dashboard("7d").starts_with("cost/closed, boxes closed in 7d, each priced at API-equivalent rates over all its runs, the earliest started 2026-10-25:"), "{}", report.dashboard("7d"));
 }
+
+fn umbrella() -> String {
+    let stamped = "- [x] A run's kept box is judged by its own stamp. Done when: `cargo test` passes. Evidence: `cargo test` passed on main 1a2b3c4d5e6f on 2026-11-08, exit 0.";
+    let others: String = (1..=14).map(|n| format!("- [x] Piece {n} of the umbrella, self-ticked by its worker (landed 1a2b3c4).\n")).collect();
+    format!("{others}{stamped}\n- [ ] A box nobody has staffed yet.\n")
+}
+
+#[test]
+fn checker_verified_reads_the_stamp_on_the_box_a_runs_brief_named_and_the_whole_issue_only_without_one() {
+    use super::closed::{box_verified, checker_verified};
+    let body = umbrella();
+    assert!(!checker_verified(&body), "the issue-level read fails an umbrella with 14 self-ticked boxes");
+    assert!(box_verified(&body, "A run's kept box is judged by its own stamp"), "the one staffed box is stamped");
+    assert!(!box_verified(&body, "Piece 3 of the umbrella"), "a self-ticked box is not verified by its sibling's stamp");
+    assert!(!box_verified(&body, "A box nobody has staffed yet."), "an unticked box is not kept");
+    assert!(!box_verified(&body, "A box the issue does not hold"));
+}
+
+#[test]
+fn checker_verified_marks_an_arm_box_by_its_runs_box_and_keeps_the_issue_level_reading_beside_it() {
+    use super::closed::SpendRun;
+    let run = |agent: &str, item: &str, box_text: Option<&str>| SpendRun {
+        agent: agent.into(),
+        item: Some(item.into()),
+        role: "worker".into(),
+        tier: "sonnet-high".into(),
+        category: "tooling".into(),
+        arm: "context-400k".into(),
+        box_text: box_text.map(str::to_owned),
+        model: Some("claude-sonnet-5-5".into()),
+        started: "2026-11-08T10:00:00Z".into(),
+        ended: "2026-11-08T11:00:00Z".into(),
+        landed: true,
+        reworked: false,
+        input: 1_000,
+        cache_read: 0,
+        output: 100,
+        skills: Vec::new(),
+    };
+    let runs = [run("a", "north#1", Some("A run's kept box is judged by its own stamp")), run("b", "north#2", None), run("c", "north#3", Some("Piece 3 of the umbrella"))];
+    let closed: std::collections::HashMap<String, String> = ["north#1", "north#2", "north#3"].map(|item| (item.to_owned(), umbrella())).into();
+    let items = closed.keys().cloned().collect();
+    let report = super::summarize(&runs, &items, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed);
+    let read = |item: &str| report.arms.iter().find(|arm| arm.item == item).map(|arm| (arm.verified, arm.issue_verified)).unwrap();
+    assert_eq!(read("north#1"), (true, false), "the staffed, stamped box of an umbrella reads verified");
+    assert_eq!(read("north#2"), (false, false), "a run with no box keeps the issue-level read");
+    assert_eq!(read("north#3"), (false, false), "a self-ticked box is not verified by its sibling's stamp");
+}

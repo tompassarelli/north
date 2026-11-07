@@ -60,6 +60,7 @@ pub fn spend_runs(db: &Connection, judged: &BTreeMap<String, Judged>) -> Vec<Spe
                 tier: row.get(2)?,
                 category: row.get(3)?,
                 arm: row.get(4)?,
+                box_text: None,
                 model: row.get(5)?,
                 started: row.get(6)?,
                 ended: row.get(7)?,

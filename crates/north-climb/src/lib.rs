@@ -70,7 +70,7 @@ fn dry_run(span: f64) -> Result<(), String> {
     println!("live arms over {ARM_WINDOW}, the shares dispatch draws each launch from (kept boxes split by who ticked them, rework judge v{}; only checker-verified boxes win a selection):", armed.judge);
     for arm in arms::live(&armed) {
         let cost = arm.usd_per_kept().map_or("no kept box".to_owned(), |usd| format!("${usd:.2} per kept box"));
-        println!("  {} {}: share {:.0}% of its {} arms ({}), {} boxes, {} closed, {} kept ({} checker-verified, {} self-ticked), {cost}", arm.category, arm.arm, 100.0 * arm.share, arm.family, if arm.settled { "settled by the bootstrap rule".to_owned() } else { format!("Thompson over {} seeded draws, floor {:.0}%", north_dispatch::router::settle::DRAWS, 100.0 * north_dispatch::router::settle::FLOOR) }, arm.boxes, arm.closed, arm.kept, arm.verified, arm.kept - arm.verified);
+        println!("  {} {}: share {:.0}% of its {} arms ({}), {} boxes, {} closed, {} kept ({} checker-verified, {} self-ticked), {cost}, issue-level read {} checker-verified", arm.category, arm.arm, 100.0 * arm.share, arm.family, if arm.settled { "settled by the bootstrap rule".to_owned() } else { format!("Thompson over {} seeded draws, floor {:.0}%", north_dispatch::router::settle::DRAWS, 100.0 * north_dispatch::router::settle::FLOOR) }, arm.boxes, arm.closed, arm.kept, arm.verified, arm.kept - arm.verified, arm.issue_verified);
     }
     Ok(())
 }

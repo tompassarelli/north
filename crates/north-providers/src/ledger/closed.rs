@@ -17,6 +17,7 @@ pub struct SpendRun {
     pub tier: String,
     pub category: String,
     pub arm: String,
+    pub box_text: Option<String>,
     pub model: Option<String>,
     pub started: String,
     pub ended: String,
@@ -42,6 +43,11 @@ pub struct ArmBox {
     pub reworked: bool,
     #[serde(default)]
     pub verified: bool,
+    /// The reading `verified` replaces: every ticked box of the issue stamped, whichever box the run's brief named.
+    #[serde(default)]
+    pub issue_verified: bool,
+    #[serde(default)]
+    pub box_text: Option<String>,
 }
 
 fn closed_by_default() -> bool {
@@ -192,8 +198,19 @@ impl SpendRun {
 }
 
 pub fn checker_verified(body: &str) -> bool {
-    let ticked: Vec<&str> = body.lines().map(str::trim_start).filter(|line| line.starts_with("- [x]") || line.starts_with("- [X]")).collect();
+    let ticked: Vec<&str> = ticked(body).collect();
     !ticked.is_empty() && ticked.iter().all(|line| crate::platform::box_oracles::passed(line))
+}
+
+/// Whether the ticked box of `body` that `box_text` names carries the checker's stamp. A box matches by the slug a claim keeps, so one stored shorter than the slug limit names every box it begins.
+pub fn box_verified(body: &str, box_text: &str) -> bool {
+    let Some(wanted) = crate::threads::claims::box_slug(box_text) else { return false };
+    let named: Vec<&str> = ticked(body).filter(|line| crate::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| slug.starts_with(&wanted))).collect();
+    !named.is_empty() && named.iter().all(|line| crate::platform::box_oracles::passed(line))
+}
+
+fn ticked(body: &str) -> impl Iterator<Item = &str> {
+    body.lines().map(str::trim_start).filter(|line| line.starts_with("- [x]") || line.starts_with("- [X]"))
 }
 
 fn day(started: Option<&str>) -> &str {
@@ -244,7 +261,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         distinct_closed += 1;
         spent_boxes.push(SkillBox::of(item, category, spent, true, runs));
         if !runs[0].arm.is_empty() {
-            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked, verified: false });
+            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked, verified: false, issue_verified: false, box_text: runs[0].box_text.clone() });
         }
     }
     let mut open: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
@@ -265,7 +282,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
             cell.unclosed_usd += spent;
         }
         if !runs[0].arm.is_empty() {
-            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: false, reworked: false, verified: false });
+            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: false, reworked: false, verified: false, issue_verified: false, box_text: runs[0].box_text.clone() });
         }
     }
     let mut cells: Vec<Cell> = cells.into_values().collect();
@@ -290,9 +307,12 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
 
 impl ClosedReport {
     /// Marks each arm box whose issue `verified` names as checker-verified.
-    pub fn verified(mut self, verified: &HashSet<String>) -> Self {
+    /// Marks each closed arm box verified by the stamp on the box its run's brief named, or by every ticked box of the issue `bodies` holds when the run named none, and `issue_verified` by the issue-level read alone.
+    pub fn verified(mut self, bodies: &HashMap<String, String>) -> Self {
         for arm in &mut self.arms {
-            arm.verified = arm.closed && verified.contains(&arm.item);
+            let body = bodies.get(&arm.item).filter(|_| arm.closed);
+            arm.issue_verified = body.is_some_and(|body| checker_verified(body));
+            arm.verified = body.is_some_and(|body| arm.box_text.as_deref().map_or(arm.issue_verified, |text| box_verified(body, text)));
         }
         self
     }

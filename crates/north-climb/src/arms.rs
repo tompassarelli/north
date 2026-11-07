@@ -20,6 +20,8 @@ pub struct Arm {
     pub closed: usize,
     pub kept: usize,
     pub verified: usize,
+    /// The kept boxes the issue-level read would count: every ticked box of the issue stamped.
+    pub issue_verified: usize,
     pub usd: f64,
 }
 
@@ -34,6 +36,7 @@ impl Arm {
 struct Named<'a> {
     tier: &'a str,
     verified: usize,
+    issue_verified: usize,
 }
 
 /// Every experiment the window's boxes carry, each arm with its share of the experiment's boxes in its
@@ -41,8 +44,10 @@ struct Named<'a> {
 pub fn live(report: &ClosedReport) -> Vec<Arm> {
     let mut experiments: BTreeMap<(&str, &'static str), BTreeMap<&str, Named>> = BTreeMap::new();
     for armed in &report.arms {
-        let arm = experiments.entry((armed.category.as_str(), settle::family(&armed.arm))).or_default().entry(armed.arm.as_str()).or_insert(Named { tier: armed.tier.as_str(), verified: 0 });
-        arm.verified += usize::from(armed.closed && !armed.reworked && armed.verified);
+        let arm = experiments.entry((armed.category.as_str(), settle::family(&armed.arm))).or_default().entry(armed.arm.as_str()).or_insert(Named { tier: armed.tier.as_str(), verified: 0, issue_verified: 0 });
+        let kept = armed.closed && !armed.reworked;
+        arm.verified += usize::from(kept && armed.verified);
+        arm.issue_verified += usize::from(kept && armed.issue_verified);
     }
     let mut live = Vec::new();
     for ((category, family), named) in experiments {
@@ -52,7 +57,7 @@ pub fn live(report: &ClosedReport) -> Vec<Arm> {
         let experiment = Shares::of(category, family, &arms, &outcomes);
         for (name, share) in experiment.arms {
             let boxes = outcomes.get(&name).map_or(&[][..], Vec::as_slice);
-            let Named { tier, verified } = named.get(name.as_str()).copied().unwrap_or(Named { tier: "", verified: 0 });
+            let Named { tier, verified, issue_verified } = named.get(name.as_str()).copied().unwrap_or(Named { tier: "", verified: 0, issue_verified: 0 });
             live.push(Arm {
                 category: category.to_owned(),
                 tier: tier.to_owned(),
@@ -63,6 +68,7 @@ pub fn live(report: &ClosedReport) -> Vec<Arm> {
                 closed: settle::closed(boxes),
                 kept: boxes.iter().filter(|outcome| outcome.kept).count(),
                 verified,
+                issue_verified,
                 usd: boxes.iter().map(|outcome| outcome.usd).sum(),
                 arm: name,
             });
