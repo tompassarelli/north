@@ -25,7 +25,7 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
 
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
-    let world = World { open: &open, holds: &holds, box_holds: &BTreeMap::new(), live: &BTreeSet::new(), planned: &planned, backlog: None, at: 0.0 };
+    let world = World { open: &open, holds: &holds, box_holds: &BTreeMap::new(), box_tries: &BTreeMap::new(), live: &BTreeSet::new(), planned: &planned, backlog: None, at: 0.0 };
     let box_at = |touched: f64| Issue { stop: stop.clone(), touched, ..issue("makgora", 587, "- [ ] a", &[]) };
     assert_eq!(issues::readiness(&box_at(900.0), &world), Err("last worker stopped for a decision".into()));
     assert_eq!(issues::readiness(&box_at(1000.0), &world), Err("last worker stopped for a decision".into()), "the worker's own comment lands at or before its report");
@@ -223,7 +223,7 @@ fn north_751_at_12_02_pm_is_held_until_its_1_h_cell_can_be_read_an_hour_after_th
     let body = "- [x] Sessions the proxy names and places itself pass the same box-needs placement, fixed by 745f9b42a\n- [x] A run ending on the API's \"Credit balance is too low\" counts as capacity, fixed by 3a3a29687\n- [ ] the 10 min and 1 h cells reach 1% or less, quoted with their n; the capacity losses left are sessions stopped while their own build waited in admission, worked on in north#772";
     let held = Issue { landed: at("2026-11-07T04:45Z"), touched: at("2026-11-07T05:03Z"), ..issue("north", 751, body, &[]) };
     let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
-    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
+    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
     assert_eq!(held.cited_shas(), ["745f9b42a", "3a3a29687"]);
     assert_eq!(
         issues::readiness(&held, &world("2026-11-07T05:02Z")),
@@ -281,7 +281,7 @@ fn north_722_waited_twice_on_one_stop_and_a_box_due_by_a_date_or_after_landings_
     let body = "- [ ] the after-landing debt is under 5 boxes";
     let directory = tempfile::tempdir().unwrap();
     let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
-    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
+    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
     let pass = |records: &[record::Record], readable: bool, now: &str| {
         let mut boxes = [issue("north", 722, body, &[])];
         let show = |_: &record::Record| if readable { Ok(waited.clone()) } else { Err::<serde_json::Value, String>("no session".into()) };

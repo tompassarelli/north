@@ -134,15 +134,15 @@ impl Issue {
         self.takeable(at).filter(move |line| !wanted.is_empty() && line.contains(wanted))
     }
 
-    /// How many workers may take this issue's boxes at once: its `Workers: N` line, else one, which staffs the issue whole.
-    pub fn workers(&self) -> usize {
-        super::facets::declared(self, "Workers").and_then(|count| count.split_whitespace().next()?.parse().ok()).filter(|count| *count > 0).unwrap_or(1)
+    /// How many workers may take this issue's boxes at once, its `Workers: N` line; without one, the free slots are the only limit.
+    pub fn worker_cap(&self) -> Option<usize> {
+        super::facets::declared(self, "Workers").and_then(|count| count.split_whitespace().next()?.parse().ok()).filter(|count| *count > 0)
     }
 
-    /// The first takeable box no worker in `held` has, as the text of its line without the checkbox.
-    pub fn free_box(&self, held: &BTreeSet<String>, at: f64) -> Option<String> {
-        self.takeable(at).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).find(|text| crate::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug)))
-            .map(str::to_owned)
+    /// The takeable boxes no worker in `held` has and none waits out its window over readings, as the text of each line without the checkbox.
+    pub fn free_boxes<'a>(&'a self, held: &'a BTreeSet<String>, at: f64) -> impl Iterator<Item = &'a str> {
+        let anchor = if self.landed > 0.0 { self.landed } else { self.touched };
+        self.takeable(at).filter(move |line| window_seconds(line).is_none_or(|window| anchor + window <= at)).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).filter(|text| crate::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug)))
     }
 
     /// The needs the boxes `lines` declare with their own `Needs:` lines; a box with none declares none, whatever its prose mentions.
@@ -326,8 +326,10 @@ pub fn predecessors(issue: &Issue) -> Result<Vec<IssueRef>, String> {
 pub struct World<'a> {
     pub open: &'a BTreeSet<IssueRef>,
     pub holds: &'a BTreeMap<IssueRef, String>,
-    /// The boxes workers hold, by box slug, on issues that let several workers take their boxes at once.
+    /// The boxes workers hold, by box slug.
     pub box_holds: &'a super::record::BoxHolds,
+    /// The boxes dispatch tried twice in a day without ticking, by box slug, which wait for the proxy and count toward no cap.
+    pub box_tries: &'a super::record::BoxHolds,
     /// The fleet sessions every reached registry lists as running or parked on a wait.
     pub live: &'a BTreeSet<String>,
     pub planned: &'a BTreeMap<IssueRef, BTreeSet<IssueRef>>,
@@ -391,14 +393,19 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     if let Some(holder) = world.holds.get(&reference) {
         return Err(format!("held by {holder}"));
     }
-    if let Some(boxes) = world.box_holds.get(&reference) {
-        let cap = issue.workers();
-        if boxes.len() >= cap {
-            return Err(format!("{} workers hold its boxes, which is its cap of {cap}", boxes.len()));
-        }
-        if issue.free_box(&boxes.keys().cloned().collect(), world.at).is_none() {
-            return Err("every box a worker could take already has one".into());
-        }
+    let held = world.box_holds.get(&reference);
+    if let (Some(cap), Some(boxes)) = (issue.worker_cap(), held)
+        && boxes.len() >= cap
+    {
+        return Err(format!("{} workers hold its boxes, which is its cap of {cap}", boxes.len()));
+    }
+    let tried = world.box_tries.get(&reference);
+    let taken: BTreeSet<String> = held.into_iter().chain(tried).flat_map(|boxes| boxes.keys().cloned()).collect();
+    if issue.takeable(world.at).next().is_some() && issue.free_boxes(&taken, world.at).next().is_none() {
+        return Err(match tried.and_then(|boxes| boxes.values().next()) {
+            Some(why) => format!("no box is free: each has a worker, waits out its window or was tried twice in 24 h: {why}"),
+            None => "no box is free: each has a worker or waits out its window".into(),
+        });
     }
     if super::stops::awaits_decision(issue) {
         return Err("last worker stopped for a decision".into());

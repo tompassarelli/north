@@ -141,7 +141,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());
     outcome.revival = revival;
-    let world = issues::World { open: &survey.open, holds: &holds, box_holds: &survey.box_holds, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
+    let world = issues::World { open: &survey.open, holds: &holds, box_holds: &survey.box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let mut claims = hotspots::Claims::default();
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Err(why) = screen::admitted(survey, issue, &world) {
@@ -149,32 +149,44 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         outcome.ready.push(issue.reference());
-        let cap = issue.workers();
-        let mut taken: BTreeSet<String> = survey.box_holds.get(&issue.reference()).map(|held| held.keys().cloned().collect()).unwrap_or_default();
-        let mut staffed = taken.len();
-        let mut launched_here = false;
-        loop {
-            let box_text = issue.free_box(&taken, survey.at);
-            if cap > 1 && box_text.is_none() {
+        let reference = issue.reference();
+        let none = std::collections::BTreeMap::new();
+        let running = survey.box_holds.get(&reference).unwrap_or(&none);
+        let tried = survey.box_tries.get(&reference).unwrap_or(&none);
+        for text in issue.takeable(survey.at) {
+            if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
+                claims.take(&hotspots::paths(issue, Some(text)), holder);
+            }
+        }
+        let taken: BTreeSet<String> = running.keys().chain(tried.keys()).cloned().collect();
+        let mut boxes: Vec<Option<&str>> = issue.free_boxes(&taken, survey.at).map(Some).collect();
+        if issue.takeable(survey.at).next().is_none() {
+            boxes.push(None);
+        }
+        let mut staffed = running.len();
+        for box_text in boxes {
+            if issue.worker_cap().is_some_and(|cap| staffed >= cap) {
                 break;
             }
-            if !launched_here && let Some((file, holder)) = claims.conflict(issue) {
-                outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
-                break;
+            let paths = hotspots::paths(issue, box_text);
+            let named = box_text.map_or_else(String::new, |text| format!("box `{text}` "));
+            if let Some((path, holder)) = claims.conflict(&paths) {
+                outcome.skipped.push((reference.clone(), format!("ready, not placed: {named}{}", hotspots::hold_reason(&path, holder))));
+                continue;
             }
-            let (route, brief) = match screen::written(survey, issue, launched_by, box_text.as_deref()) {
+            let (route, brief) = match screen::written(survey, issue, launched_by, box_text) {
                 Ok(written) => written,
                 Err(why) => {
-                    outcome.skipped.push((issue.reference(), format!("ready, not placed: {why}")));
+                    outcome.skipped.push((reference.clone(), format!("ready, not placed: {why}")));
                     break;
                 }
             };
             let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
-            let ready = Ready { item: issue.reference(), brief, code_only, route };
+            let ready = Ready { item: reference.clone(), brief, code_only, route };
             match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
                 Ok(mut launch) => {
                     screen::arm(survey, &mut launch);
-                    claims.take(issue);
+                    claims.take(&paths, &format!("{named}of {reference}, launched in this run"));
                     outcome.launches.push(launch);
                 }
                 Err(why) => {
@@ -183,11 +195,6 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
                 }
             }
             staffed += 1;
-            launched_here = true;
-            taken.extend(box_text.as_deref().and_then(crate::threads::claims::box_slug));
-            if cap == 1 || staffed >= cap {
-                break;
-            }
         }
     }
     outcome

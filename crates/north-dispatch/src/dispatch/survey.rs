@@ -40,8 +40,10 @@ pub struct Survey {
     pub issues: Vec<Issue>,
     pub open: BTreeSet<IssueRef>,
     pub holds: BTreeMap<IssueRef, String>,
-    /// The boxes workers hold, or that dispatch tried twice in a day, by box slug; they hold a box, not the issue.
+    /// The boxes workers hold, by box slug; they hold a box, not the issue.
     pub box_holds: record::BoxHolds,
+    /// The open boxes dispatch tried twice in a day without ticking, by box slug, which wait for the proxy and count toward no cap.
+    pub box_tries: record::BoxHolds,
     /// The fleet sessions every reached registry lists as running or parked on a wait, which own the boxes their names are on.
     pub live: BTreeSet<String>,
     /// Every session name a reached registry lists, parked or stopped included.
@@ -408,11 +410,12 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let listed = fleets::listed(&fleet_lists);
     let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref()), &mut notes);
     holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &records, at)));
+    let mut box_tries = record::BoxHolds::new();
     for (item, boxes) in record::box_retries(&records, at, &unspent) {
         let Some(issue) = issues.iter().find(|issue| issue.reference() == item) else { continue };
         let unticked: BTreeSet<String> = issue.takeable(at).filter_map(crate::threads::claims::box_slug).collect();
         for (slug, why) in boxes.into_iter().filter(|(slug, _)| unticked.contains(slug)) {
-            box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
+            box_tries.entry(item.clone()).or_default().insert(slug, why);
         }
     }
     for (item, boxes) in record::box_launching(&records, at, &fleets::gone(&fleet_lists, &copies, &records, at)) {
@@ -462,7 +465,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         Vec::new()
     });
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, fresh_waits, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, fresh_waits, at })
 }
 
 pub(super) mod github;

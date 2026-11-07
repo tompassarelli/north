@@ -94,6 +94,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         open,
         holds: BTreeMap::new(),
         box_holds: BTreeMap::new(),
+        box_tries: BTreeMap::new(),
         live: BTreeSet::new(),
         listed: BTreeSet::new(),
         cloud,
@@ -159,7 +160,7 @@ fn an_issue_whose_every_open_box_names_a_live_owner_or_whose_planning_box_adds_a
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
     let live: BTreeSet<String> = ["n-land-first", "n-cull-it", "n-cull-landing", "lead-88"].map(str::to_owned).into();
-    let world = super::issues::World { open: &open, holds: &holds, box_holds: &BTreeMap::new(), live: &live, planned: &planned, backlog: None, at: 0.0 };
+    let world = super::issues::World { open: &open, holds: &holds, box_holds: &BTreeMap::new(), box_tries: &BTreeMap::new(), live: &live, planned: &planned, backlog: None, at: 0.0 };
     let ready = |body: &str| super::issues::readiness(&issue("north", 633, body, &[]), &world);
     assert_eq!(ready("- [x] done (owner: n-fast-land)\n- [ ] cores first (owner: n-land-first)"), Err("every open box has a live owner: n-land-first".into()));
     assert_eq!(ready("- [ ] cull north (owners: n-cull-it, -landing)\n  - [ ] code: delete it. Owner: lead-88."), Err("every open box has a live owner: lead-88, n-cull-it, n-cull-landing".into()));
@@ -233,9 +234,9 @@ fn a_run_that_began_before_the_proxy_paused_dispatch_launches_and_revives_nothin
     assert!(lines[0].starts_with("skip revive n-state-machines on gex45 claude:a") && lines[0].ends_with("dispatch was paused while this run was working: paused"), "{lines:?}");
 }
 
-/// north#782 had three boxes and one worker at a time. A one-worker issue is staffed one box at a time too: on 2026-11-07 first tries on north#634 (33 open boxes) ticked the box they took and still ended Not done because the brief asked for every box.
+/// north#782 had three boxes and one worker at a time. An issue with no Workers: line is staffed box by box up to the free slots:on 2026-11-07 first tries on north#634 (33 open boxes) ticked the box they took and still ended Not done because the brief asked for every box.
 #[test]
-fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_one_that_does_not_is_staffed_one_box_at_a_time() {
+fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_one_without_a_cap_staffs_every_free_box() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let body = "Workers: 3\n- [ ] the loss is classified\n- [ ] the run row names its box\n- [ ] the staffing replays\n- [ ] the docs say so";
@@ -250,8 +251,29 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     let full = decide(&surveyed(body, &["the-loss-is-classified", "the-run-row-names-its-box", "the-staffing-replays"]), "test");
     assert!(full.launches.is_empty());
     assert!(full.skipped.iter().any(|(_, why)| why.contains("3 workers hold its boxes, which is its cap of 3")), "{:?}", full.skipped);
-    assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &[])), [Some("a".to_owned())], "an issue with no Workers: line is staffed by one launch naming its first box, so its Done when is that box and not the whole issue (north#706)");
-    assert!(decide(&surveyed("- [ ] a\n- [ ] b", &["a"]), "test").launches.is_empty(), "a held box holds the issue when the cap is one");
+    assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &[])), [Some("a".to_owned()), Some("b".to_owned())], "an issue with no Workers: line gets one launch per free box, each brief's Done when that box and not the whole issue (north#706, north#835)");
+    assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &["a"])), [Some("b".to_owned())], "a held box holds only itself");
+}
+
+/// north#835: on 2026-11-08 merging issues left 14 open boxes on north#719 and 28 on north#706, run one at a time; north-740-d1801 spent a first try on a box whose window over readings had not passed.
+#[test]
+fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_windowed_box_wait() {
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let first = "the claims replay in `crates/north-fleet/src/fleet/claims.rs` passes";
+    let body = format!("- [ ] {first}\n- [ ] holds in crates/north-dispatch/src/dispatch/hotspots.rs\n- [ ] harness/skills/workers/SKILL.md says so\n- [ ] the ready list in `crates/north-dispatch/src/dispatch` names each box\n- [ ] Over 3 h no launch is refused");
+    let surveyed = |tried: &[&str]| {
+        let mut survey = survey(vec![issue("north", 835, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        survey.box_tries.insert(super::issues::IssueRef::new("north", 835), tried.iter().filter_map(|text| Some((crate::threads::claims::box_slug(text)?, "tried twice".to_owned()))).collect());
+        decide(&survey, "test")
+    };
+    let boxes = |outcome: &super::Outcome| outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect::<Vec<_>>();
+    let outcome = surveyed(&[]);
+    assert_eq!(boxes(&outcome), [first, "holds in crates/north-dispatch/src/dispatch/hotspots.rs", "harness/skills/workers/SKILL.md says so"], "the windowed box waits out its 3 h");
+    let held: Vec<&String> = outcome.skipped.iter().map(|(_, why)| why).collect();
+    assert!(held.len() == 1 && held[0].contains("box `the ready list") && held[0].contains("both name crates/north-dispatch/src/dispatch"), "{held:?}");
+    let tried = surveyed(&[first]);
+    assert_eq!(boxes(&tried).len(), 2, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
 }
 
 /// The 2026-11-07 3:15 PM reading: claude:a at 99% of its week took two launches and both died on the weekly limit (north#259).
