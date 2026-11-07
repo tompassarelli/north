@@ -1,4 +1,4 @@
-use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, job_mib, quote};
+use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, job_mib, quote};
 
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
@@ -52,6 +52,7 @@ pub(super) const REMOTE: &str = r#"set -eu
 repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-} pins=${14:-} lander_slot=${15:-}
 root=@ROOT@
 mkdir -p "$root"
+if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/north" ] || [ ! -f "$HOME/.local/state/north/runtimes/$runtime/@TREE_MARKER@" ]; }; then echo "offload: the lander runtime $runtime is not on this host yet" >&2; exit @RUNTIME_MISSING@; fi
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
 trap 'rm -f "$bundle"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 trap 'exit 143' HUP INT TERM
@@ -244,7 +245,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {

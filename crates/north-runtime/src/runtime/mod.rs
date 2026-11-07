@@ -36,10 +36,6 @@ follow --repo-dir DIR  after a landing: start promote in the background when DIR
 covers [--head REV] [--code PATH,...]
                        print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor Cargo.lock or rust-toolchain.toml, so a land check runs it instead of building north from the tree";
 
-pub fn staged_on(host: &str, sha: &str) -> bool {
-    deploy::staged(host, sha)
-}
-
 pub fn stage_on(host: &str, sha: &str, runtime: &Path) -> Result<(), String> {
     deploy::stage_runtime(host, sha, runtime).map_err(|failure| failure.message)
 }

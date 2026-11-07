@@ -563,3 +563,35 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     assert_eq!(fs::read_to_string(&ran_elsewhere).unwrap(), home.path().join(".cache/land-offload/code-p-main-1").display().to_string(), "the nested job at another head took a free slot past its caller's one-job cap");
     assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "the nested jobs left no ticket in the queue");
 }
+
+// KEEP(bug): until 2026-11-07 every offloaded land check from the laptop opened a second ssh connection, about 1.8 s over its 230 ms link to gex45, only to ask whether the lander runtime was there; the job now asks in its own connection and stages only on this exit (north#697)
+#[test]
+fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_with_it_runs() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let runtime = "0123456789abcdef0123456789abcdef01234567";
+    let job = || {
+        Command::new("sh")
+            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", runtime, "0"])
+            .env("HOME", home.path())
+            .env("PATH", &path)
+            .env_remove(crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .stdin(fs::File::open(&bundle).unwrap())
+            .output()
+            .unwrap()
+    };
+    let missing = job();
+    assert_eq!(missing.status.code(), Some(i32::from(super::RUNTIME_MISSING)), "{}", String::from_utf8_lossy(&missing.stderr));
+    assert!(!home.path().join(".cache/land-offload/code-p-main").exists(), "the job took no slot");
+    let shipped = home.path().join(".local/state/north/runtimes").join(runtime);
+    let marker = shipped.join(crate::runtime::layout::tree_marker());
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    fs::write(marker, "").unwrap();
+    crate::foundation::shim::write_script(&shipped.join("north"), NORTH_SHIM);
+    let ran = job();
+    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+}

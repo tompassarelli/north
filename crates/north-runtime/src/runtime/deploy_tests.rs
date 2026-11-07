@@ -43,3 +43,31 @@ fn a_staged_runtime_replaces_a_treeless_one_whole_and_a_complete_one_stays() {
     assert!(live.join("marker").is_file(), "a complete runtime is left untouched");
     assert!(!runtimes(home).join(format!("{TARGET}.staging")).exists());
 }
+
+fn whole(home: &Path, sha: &str) {
+    let directory = runtimes(home).join(sha);
+    fs::create_dir_all(directory.join(TREE)).unwrap();
+    for program in super::PROGRAMS {
+        write_executable(&directory.join(program), "built\n");
+    }
+}
+
+fn prepared(home: &Path) -> super::Prepared {
+    let output = Command::new("sh").arg("-c").arg(super::prepare_script(TARGET, &std::collections::BTreeSet::new())).current_dir(home).output().unwrap();
+    assert!(output.status.success());
+    super::Prepared::read(&String::from_utf8_lossy(&output.stdout))
+}
+
+// KEEP(bug): on 2026-11-07 the laptop re-sent all 85 MB of runtime 0c54814b5c to gex45 twice in a minute, 18 and 25 s each over its 230 ms link, after gex45 had built and installed that runtime itself, and every first copy sent the whole runtime though the host kept the previous one (north#697)
+#[test]
+fn a_runtime_already_whole_on_the_host_is_not_copied_and_a_missing_one_is_copied_against_the_newest_whole_one() {
+    let home = tempfile::tempdir().unwrap();
+    let home = home.path();
+    let older = "0c54814b5c34a736fc44672f7e752782a7dbcd03";
+    whole(home, older);
+    fs::create_dir_all(runtimes(home).join("c3f70f1043954eabcea7d6f4c5043b1684c64fe9.staging")).unwrap();
+    assert_eq!(prepared(home), super::Prepared::Staging(Some(older.to_owned())));
+    assert!(runtimes(home).join(format!("{TARGET}.staging")).is_dir());
+    whole(home, TARGET);
+    assert_eq!(prepared(home), super::Prepared::Whole);
+}

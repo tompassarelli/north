@@ -9,6 +9,7 @@ const WRONG_TREE: u8 = 98;
 use north_base::foundation::exit::NO_VERDICT;
 const BESIDE_MISSING: u8 = NO_VERDICT;
 const SLOTS_BUSY: u8 = 96;
+const RUNTIME_MISSING: u8 = 95;
 const WAITED: &str = "offload: waited ";
 const RUNNING: &str = "offload: running ";
 const FREE_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -150,33 +151,33 @@ mod bundle;
 mod pinned;
 mod relay;
 
-fn ensure_shipped(host: &str, sha: &str, present: impl FnOnce() -> bool, ship: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
-    if present() {
-        return Ok(());
-    }
-    ship().map_err(|why| format!("shipping the lander runtime {sha} to {host}: {why}"))
-}
-
 pub(super) fn run(land: &Land) -> u8 {
     let (relative, name) = match checkout(land.checkout) {
         Ok(found) => found,
         Err(why) => return unreached(&why),
     };
-    let reference = job_ref(&land.head);
-    let bundle = match bundle(land, &reference) {
-        Ok(file) => file,
-        Err(why) => return unreached(&why),
-    };
-    let name = land.class.slot_name(&name);
-    let script = remote_script(&name, land.class);
     let own = crate::runtime::own_runtime();
-    if let Some((sha, directory)) = &own
-        && !land.ssh.is_empty()
-        && let Err(why) = ensure_shipped(land.ssh, sha, || crate::runtime::staged_on(land.ssh, sha), || crate::runtime::stage_on(land.ssh, sha, directory))
-    {
-        return unreached(&why);
+    let reported = match (attempt(land, &relative, &name, own.as_ref().map(|(sha, _)| sha.as_str())), &own) {
+        (Ok((Some(RUNTIME_MISSING), None)), Some((sha, directory))) if !land.ssh.is_empty() => {
+            if let Err(why) = crate::runtime::stage_on(land.ssh, sha, directory) {
+                return unreached(&format!("shipping the lander runtime {sha} to {}: {why}", land.ssh));
+            }
+            attempt(land, &relative, &name, Some(sha))
+        }
+        (first, _) => first,
+    };
+    match reported {
+        Ok((exited, ran)) => verdict(exited, ran).unwrap_or_else(|why| unreached(&why)),
+        Err(code) => code,
     }
-    let runtime = own.map_or_else(String::new, |(sha, _)| sha);
+}
+
+/// One shipping of the job to the host: the remote script's exit and the status it reported for the command, or this host's failure to ship it.
+fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Result<(Option<u8>, Option<u8>), u8> {
+    let reference = job_ref(&land.head);
+    let bundle = bundle(land, &reference).map_err(|why| unreached(&why))?;
+    let name = land.class.slot_name(name);
+    let script = remote_script(&name, land.class);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
     let cpus = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
@@ -184,23 +185,17 @@ pub(super) fn run(land: &Land) -> u8 {
     let lander_slot = std::env::var(LANDER_SLOT_ENV).unwrap_or_default();
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let beside = beside::pin(land.command, &relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, &runtime, &cpus, &red_fix, &marker, &beside.pins, &lander_slot];
+    let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
+    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, runtime.unwrap_or_default(), &cpus, &red_fix, &marker, &beside.pins, &lander_slot];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let spawned = on_host(land.ssh, &script, &words, &["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", crate::platform::ssh::OWN_CONNECTION])
         .stdin(Stdio::from(bundle))
         .stdout(Stdio::piped())
         .spawn();
-    let mut child = match spawned {
-        Ok(child) => child,
-        Err(error) => return unreached(&format!("ssh: {error}")),
-    };
+    let mut child = spawned.map_err(|error| unreached(&format!("ssh: {error}")))?;
     let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, || waiting.end()));
-    let exited = match child.wait() {
-        Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()),
-        Err(error) => return unreached(&format!("ssh: {error}")),
-    };
-    verdict(exited, ran).unwrap_or_else(|why| unreached(&why))
+    let exited = child.wait().map_err(|error| unreached(&format!("ssh: {error}")))?;
+    Ok((exited.code().and_then(|code| u8::try_from(code).ok()), ran))
 }
 
 fn on_host(ssh: &str, script: &str, words: &[&str], options: &[&str]) -> Command {
