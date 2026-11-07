@@ -1,12 +1,17 @@
 use std::process::{Command, Output};
 use std::time::Duration;
 
+use crate::foundation::hook_deadline::HOOK_TIMEOUT_SECS;
+
 use super::north_binary::north_binary;
 use super::process;
 
 const JUDGE_LIMIT: Duration = Duration::from_secs(300);
-// The runtime ends a PreToolUse hook at 10 s and then lets the call through (nixos-config modules/north-profile/claude-hooks.json).
-const HOOK_LIMIT: Duration = Duration::from_secs(7);
+const JUDGE_P90_SECS: u64 = 28;
+const HOOK_MARGIN_SECS: u64 = 15;
+const HOOK_LIMIT: Duration = Duration::from_secs(HOOK_TIMEOUT_SECS as u64 - HOOK_MARGIN_SECS);
+const _: () = assert!(HOOK_LIMIT.as_secs() >= JUDGE_P90_SECS + 10, "the hook must wait past the judge's measured p90 (13 to 28 s on 2026-11-08) with room to spare");
+const JUDGE_ARGS: [&str; 5] = ["check", "privacy", "judge", "--text", "-"];
 const SPAN_CHARS: usize = 160;
 pub const KINDS_ENV: &str = "NORTH_PRIVATE_KINDS";
 pub const SEGMENT_BREAK: &str = "\u{1e}\n";
@@ -46,9 +51,14 @@ pub fn judge_in_hook(text: &str) -> Result<Vec<Finding>, String> {
     }
 }
 
+/// Whether `arguments` (a process's argv) are a private-text judge run, which a hook may leave running past its own wait.
+pub fn is_judge_run(arguments: &[String]) -> bool {
+    arguments.len() >= JUDGE_ARGS.len() && arguments[arguments.len() - JUDGE_ARGS.len()..].iter().map(String::as_str).eq(JUDGE_ARGS)
+}
+
 fn command() -> Command {
     let mut command = Command::new(north_binary());
-    command.args(["check", "privacy", "judge", "--text", "-"]);
+    command.args(JUDGE_ARGS);
     command
 }
 

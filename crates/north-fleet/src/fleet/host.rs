@@ -305,4 +305,20 @@ mod tests {
         let after = revived.detached();
         assert!(after.iter().all(|live| live.pid != before[0].pid), "the killed run still counts: {after:?}");
     }
+
+    #[test]
+    fn a_private_text_judge_a_hook_left_running_is_no_run_of_the_session() {
+        let root = tempfile::tempdir().unwrap();
+        let (proc, cgroups) = (root.path().join("proc"), root.path().join("cgroup"));
+        let mut judge = Command::new("sh").args(["-c", "sleep 301; :", "check", "privacy", "judge", "--text", "-"]).process_group(0).stdin(Stdio::null()).spawn().unwrap();
+        let (mut run, mut host) = (sleeper("302"), sleeper("303"));
+        for pid in [judge.id(), run.id(), host.id()] {
+            enroll(&proc, pid, "north-session-host.scope");
+        }
+
+        let detached = Procfs::new(proc, cgroups, host.id()).detached();
+
+        let _ = (judge.kill(), run.kill(), host.kill(), judge.wait(), run.wait(), host.wait());
+        assert_eq!(detached.iter().map(|live| live.pid).collect::<Vec<_>>(), [run.id()], "a left judge counted as the session's run: {detached:?}");
+    }
 }

@@ -1,12 +1,15 @@
 //! Runs a worker detached from its CLI (`setsid`, `nohup`, `job-run --notify`): the live processes in
 //! the session host's own scope that are neither the host nor its descendants. The CLI's own
 //! background tasks descend from the host and are tracked from its stream instead. A process handed
-//! the host's pid (safe-push's lane reaper) watches the session rather than works for it, and is no run.
+//! the host's pid (safe-push's lane reaper) watches the session rather than works for it, and is no run;
+//! nor is a private-text judge a hook left running past its wait, which the session never started.
 //! A revived session's earlier hosts leave their scopes behind (`host.priors`, one `UNIT PID` per
 //! line) holding only the runs that host's tree did not own; the new host reads those scopes too.
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use north_base::platform::private_text;
 
 use super::runtime::summarize;
 use super::waits::Run;
@@ -106,7 +109,7 @@ impl Procfs {
             .iter()
             .filter(|(pid, stat)| detached(**pid) && !(stats.contains_key(&stat.parent) && detached(stat.parent)))
             .map(|(pid, stat)| (*pid, stat.started, self.arguments(*pid)))
-            .filter(|(_, _, arguments)| !arguments.contains(&host.to_string()))
+            .filter(|(_, _, arguments)| !arguments.contains(&host.to_string()) && !private_text::is_judge_run(arguments))
             .map(|(pid, started, arguments)| Detached { pid, started, command: summarize(&arguments.join(" "), COMMAND_CHARS) })
             .collect();
         roots.sort_by_key(|run| run.pid);

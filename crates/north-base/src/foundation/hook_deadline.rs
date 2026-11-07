@@ -7,6 +7,9 @@ use std::{
     time::Instant,
 };
 
+/// The seconds the runtime lets a hook run before it ends the hook and lets the call through; the generated hook wiring sets it on every hook (nixos-config modules/north-profile/claude-hooks.json).
+pub const HOOK_TIMEOUT_SECS: u32 = 60;
+
 pub fn within<T: Send + 'static>(deadline: Instant, work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
     let (sender, receiver) = mpsc::channel();
     let worker = std::thread::spawn(move || {
