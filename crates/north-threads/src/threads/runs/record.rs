@@ -301,12 +301,13 @@ impl Ingest<'_> {
         Ok(())
     }
 
-    /// A run already recorded: a backfill or a non-worker report fills what the ledger lacks.
+    /// A run already recorded: a backfill or a non-worker report fills what the ledger lacks, and a worker run read `unclear` whose session has opened a newer turn waits as idle, since the turn that ended was not its end.
     fn backfill(&mut self, run: &Run, prior: &Recorded) -> Result<(), Failure> {
         let (r, agent) = (&run.r, run.agent()?);
+        let outcome = if run.worker() && run.status == "running" { Sql::Text("idle".into()) } else { r.sql("outcome")? };
         self.db.execute(
             "UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), provider=coalesce(?, provider), tier=coalesce(?, tier), skills=coalesce(?, skills), outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?",
-            params![r.sql("model")?, r.sql("effort")?, run.provider()?, r.sql("tier")?, r.skills(), r.sql("outcome")?, agent],
+            params![r.sql("model")?, r.sql("effort")?, run.provider()?, r.sql("tier")?, r.skills(), outcome, agent],
         )?;
         if run.worker() && run.status == "finished" && matches!((&prior.ended, r.get("ended").and_then(Value::as_str)), (Sql::Text(recorded), Some(ended)) if ended > recorded.as_str()) {
             self.db.execute(
