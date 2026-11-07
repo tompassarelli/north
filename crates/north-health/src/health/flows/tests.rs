@@ -84,3 +84,23 @@ fn a_dispatch_timer_stopped_without_a_pause_and_one_restarted_under_a_pause_both
     facts(&mut world, "nexus").dispatch = Some(Dispatch { timer_active: true, paused: Some(paused), last_run: Some(at("2026-11-07T02:56:00Z")) });
     alarms_only(&world, "dispatch", "nexus runs the dispatch timer though the proxy paused dispatch 4 min ago");
 }
+
+#[test]
+fn a_state_whose_holder_died_alarms_as_a_stuck_state_machine_and_an_unreadable_store_alarms_too() {
+    let mut world = healthy(at("2026-11-07T02:30:00Z"));
+    let owner = north_base::lifecycle::Owner { host: "whiterabbit".into(), pid: 4242, started: 1, booted_ms: 1 };
+    let stuck = north_base::lifecycle::Fault {
+        machine: "snapshot-pull".into(),
+        instance: "whiterabbit".into(),
+        state: "pulling".into(),
+        since_ms: Timestamp::parse_rfc3339("2026-11-07T00:55:00Z").unwrap().unix_millis(),
+        kind: north_base::lifecycle::FaultKind::Orphaned { owner },
+        cause: "the snapshot is 15 min old".into(),
+    };
+    facts(&mut world, "whiterabbit").lifecycles = Lifecycles::Read(vec![stuck]);
+    alarms_only(&world, "state-machines", "whiterabbit: snapshot-pull/whiterabbit pulling for 95 min, held by pid 4242 on whiterabbit, which is gone");
+
+    let mut world = healthy(at("2026-11-07T02:30:00Z"));
+    facts(&mut world, "gex45").lifecycles = Lifecycles::Unreadable("database is locked".into());
+    alarms_only(&world, "state-machines", "gex45: its lifecycle store is unreadable: database is locked");
+}

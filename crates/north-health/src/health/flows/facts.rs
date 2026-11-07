@@ -5,9 +5,10 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use north_base::agents_sync::UNPUBLISHED;
 use north_base::dispatch_pause::{RECORD, TIMER};
+use north_base::lifecycle::Store;
 use north_pace::usage::profiles;
 
-use super::{Dispatch, Held, HostFacts};
+use super::{Dispatch, Held, HostFacts, Lifecycles};
 use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};
 
@@ -66,6 +67,13 @@ fn dispatch(state: &Path) -> Option<Dispatch> {
     Some(Dispatch { timer_active: property(&timer, "ActiveState") == Some("active"), paused: held(&state.join(RECORD)), last_run })
 }
 
+fn lifecycles() -> Lifecycles {
+    match Store::host().and_then(|store| store.faults(Timestamp::now())) {
+        Ok(faults) => Lifecycles::Read(faults),
+        Err(error) => Lifecycles::Unreadable(error.to_string()),
+    }
+}
+
 pub fn gather(home: &Path) -> HostFacts {
     let state = home.join(".local/state/north");
     let runtime = fs::read_link(state.join("current")).ok().and_then(|link| link.file_name().map(|name| name.to_string_lossy().into_owned()));
@@ -80,5 +88,6 @@ pub fn gather(home: &Path) -> HostFacts {
         newest_run: newest_run(home),
         newest_activity: newest_activity(&state.join("fleet")),
         spool_since: spool_since(&home.join(".local/state/threads/spool")),
+        lifecycles: lifecycles(),
     }
 }

@@ -3,6 +3,10 @@
 //! A flow that stops alarms the proxy through health's episode alerts, with the flow, the age and the first cause.
 use serde::{Deserialize, Serialize};
 
+use north_base::lifecycle::Fault;
+
+use crate::foundation::clock::Timestamp;
+
 pub mod facts;
 pub mod probe;
 
@@ -22,6 +26,20 @@ const LANDING_LAG_S: f64 = 10.0 * 60.0;
 pub struct Held {
     pub since: f64,
     pub cause: String,
+}
+
+/// What this host's lifecycle store says is stuck, or why it could not be read.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Lifecycles {
+    Read(Vec<Fault>),
+    Unreadable(String),
+}
+
+impl Default for Lifecycles {
+    fn default() -> Self {
+        Self::Read(Vec::new())
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -44,6 +62,7 @@ pub struct HostFacts {
     pub newest_run: Option<f64>,
     pub newest_activity: Option<f64>,
     pub spool_since: Option<f64>,
+    pub lifecycles: Lifecycles,
 }
 
 /// One host as the laptop saw it: its facts, or why they could not be read, and how far its runtime trails main.
@@ -96,7 +115,7 @@ impl World {
     }
 
     pub fn judge(&self) -> Vec<Flow> {
-        vec![self.probes(), self.recording(), self.snapshot(), self.policy(), self.hooks(), self.dispatch(), self.landing()]
+        vec![self.probes(), self.recording(), self.snapshot(), self.policy(), self.hooks(), self.dispatch(), self.landing(), self.lifecycles()]
     }
 
     fn probes(&self) -> Flow {
@@ -190,5 +209,19 @@ impl World {
             }
         }
         flow("landing", Some(age), faults)
+    }
+
+    /// Every explicit state machine on every host, judged from its records: a state past its dwell, a state whose
+    /// holder died, or a move the machine does not have.
+    fn lifecycles(&self) -> Flow {
+        let now = Timestamp::from_unix_seconds_f64(self.now);
+        let faults = self
+            .reached()
+            .flat_map(|(name, facts)| match &facts.lifecycles {
+                Lifecycles::Read(faults) => faults.iter().map(|fault| format!("{name}: {}", fault.line(now))).collect(),
+                Lifecycles::Unreadable(why) => vec![format!("{name}: its lifecycle store is unreadable: {why}")],
+            })
+            .collect();
+        flow("state-machines", Some(0.0), faults)
     }
 }
