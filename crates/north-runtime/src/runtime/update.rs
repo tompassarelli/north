@@ -24,6 +24,7 @@ const PINNED_LOCK_WAIT: Duration = Duration::from_secs(10 * 60);
 const ROLLBACK_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 
 const PASSES: usize = 5;
+const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
 pub(super) const DEPLOY_LOCK: &str = "runtime-deploy.lock";
 
@@ -401,6 +402,7 @@ fn export_tree(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Fail
 }
 
 pub(crate) fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::Result<()> {
+    reap_unfinished_copies(&layout.runtimes(), ABANDONED_COPY)?;
     let mut listed = Vec::new();
     for entry in fs::read_dir(layout.runtimes())? {
         let entry = entry?;
@@ -427,6 +429,21 @@ pub(crate) fn collect(layout: &Layout, target: &str, previous: Option<&Path>) ->
         };
         process::run("chmod", None, &[OsStr::new("-R"), "u+w".as_ref(), doomed.as_os_str()])?;
         fs::remove_dir_all(&doomed)?;
+    }
+    Ok(())
+}
+
+/// A copy shipped over a slow link stages in `SHA.staging` and moves into place only whole, so one that stopped part-way leaves its staging directory behind; one untouched for `idle` has no copy writing to it.
+fn reap_unfinished_copies(runtimes: &Path, idle: Duration) -> std::io::Result<()> {
+    for entry in fs::read_dir(runtimes)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let unfinished = [".staging", ".old"].iter().any(|suffix| name.strip_suffix(suffix).is_some_and(layout::is_sha));
+        if !unfinished || !entry.file_type()?.is_dir() || entry.metadata()?.modified()?.elapsed().unwrap_or_default() < idle {
+            continue;
+        }
+        process::run("chmod", None, &[OsStr::new("-R"), "u+w".as_ref(), entry.path().as_os_str()])?;
+        fs::remove_dir_all(entry.path())?;
     }
     Ok(())
 }
@@ -459,6 +476,22 @@ mod tests {
         collect(&layout, &shas[6], None).unwrap();
         assert!(layout.runtime(&shas[0]).is_dir());
         assert!(!layout.runtime(&shas[1]).exists());
+    }
+
+    #[test]
+    fn a_copy_interrupted_over_an_hour_ago_leaves_no_staging_directory_while_a_fresh_one_stays() {
+        let state = tempfile::tempdir().unwrap();
+        let layout = Layout { state: state.path().to_path_buf() };
+        let (stale, fresh) = (format!("{}.staging", "a".repeat(40)), format!("{}.staging", "b".repeat(40)));
+        for name in [&stale, &fresh] {
+            fs::create_dir_all(layout.runtimes().join(name)).unwrap();
+            fs::write(layout.runtimes().join(name).join("north"), "half").unwrap();
+        }
+        let hours_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 60 * 60);
+        File::open(layout.runtimes().join(&stale)).unwrap().set_modified(hours_ago).unwrap();
+        collect(&layout, &"c".repeat(40), None).unwrap();
+        assert!(!layout.runtimes().join(&stale).exists());
+        assert!(layout.runtimes().join(&fresh).exists());
     }
 }
 
