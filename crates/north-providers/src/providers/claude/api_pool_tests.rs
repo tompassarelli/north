@@ -14,7 +14,7 @@ fn grant(usd: f64, expires: &str) -> Grant {
 }
 
 // KEEP(bug): an api org whose first grant is spent still ranked by that grant's date, so a later grant was drawn before an untouched sooner one (north#737)
-// KEEP(bug): proton ran out at Anthropic at $145.76 of list-price spend on its $200 grant while the pool still opened it, and its sessions failed their turns instead of moving to gmail (north#755)
+// KEEP(bug): an org's sessions failed their turns on the API's low-credit refusal instead of moving to the next org (north#755)
 #[test]
 fn the_pool_opens_the_org_whose_soonest_grant_with_credit_left_expires_first() {
     let proton = [grant(199.99, "2026-11-08"), grant(200.0, "2026-12-08")];
@@ -28,8 +28,9 @@ fn the_pool_opens_the_org_whose_soonest_grant_with_credit_left_expires_first() {
     assert_eq!(first(&declared(&POLICY.parse().unwrap(), &all_spent, Path::new("/home"), "gex45")), None);
 
     let at = |usd: f64| launchable(&proton, &[(today.to_owned(), usd)], today);
-    assert_eq!(at(100.0).len(), 2);
-    assert_eq!(at(145.76), [grant(200.0, "2026-12-08")]);
+    assert_eq!(at(199.98).len(), 2);
+    assert_eq!(at(199.99), [grant(200.0, "2026-12-08")]);
+    assert_eq!(at(1000.0), [grant(200.0, "2026-12-08")]);
     let mut transcript = Transcript::default();
     for frame in [
         json!({"type": "user", "uuid": "u1", "message": {"content": "Item: north#722"}}),
@@ -77,9 +78,9 @@ fn only_the_newest_low_credit_turn_on_the_current_account_counts() {
     assert!(ran_out_from(moved));
 }
 
-// KEEP(bug): on 2026-11-07 an org past its grant in `north usage` kept its live sessions on it until each lost a turn to the low-credit refusal, and the proxy wrote its exhausted mark by hand on every host (north#781)
+// KEEP(bug): on 2026-11-07 the pool marked an org exhausted from its counted spend, a 10% reserve and a billing multiplier while the provider still held credit on it (north#792)
 #[test]
-fn a_tick_marks_an_org_whose_recorded_spend_reached_its_grant_and_moves_its_idle_sessions_with_no_refused_turn_and_an_org_under_its_grant_keeps_them() {
+fn a_tick_keeps_an_org_open_and_its_sessions_on_it_whatever_its_counted_spend_until_the_provider_refuses_a_turn() {
     use crate::fleet::registry::{Fleet, fixtures};
     let tick = |spent: f64| {
         let home = tempfile::tempdir().unwrap();
@@ -107,12 +108,10 @@ fn a_tick_marks_an_org_whose_recorded_spend_reached_its_grant_and_moves_its_idle
         (moved, std::fs::read_to_string(home.path().join(".local/state/north/api-exhausted/p")).ok(), lines)
     };
 
-    let (moved, mark, lines) = tick(150.0);
-    assert_eq!(moved, [("idle".to_owned(), "proton".to_owned(), "api:gmail".to_owned(), false)], "{lines:?}");
-    assert_eq!(mark.as_deref().and_then(|mark| mark.split_once(' ')).map(|(by, rest)| (by, rest.ends_with("until=2099-01-01\n"))), Some(("grant", true)));
-
-    let (moved, mark, lines) = tick(10.0);
-    assert!(moved.is_empty() && mark.is_none(), "{moved:?} {mark:?} {lines:?}");
+    for spent in [150.0, 199.99, 400.0] {
+        let (moved, mark, lines) = tick(spent);
+        assert!(moved.is_empty() && mark.is_none(), "{spent}: {moved:?} {mark:?} {lines:?}");
+    }
 }
 
 fn host_process() -> u32 {

@@ -31,7 +31,7 @@ pub struct Org {
 }
 
 impl Org {
-    /// The earliest expiry of a grant with credit left that is not yet past on `today`, or `NEVER` when no grant is dated; an entry whose dated grants are all spent or expired has none left.
+    /// The earliest expiry of a grant a launch may draw on that is not yet past on `today`, or `NEVER` when no grant is dated; an entry whose dated grants all expired has none.
     fn sorts_by(&self, today: &str) -> Option<&str> {
         match &self.expires {
             None => Some(NEVER),
@@ -171,8 +171,8 @@ impl Reading {
     }
 }
 
-/// Marks exhausted each organization whose recorded spend has left no grant a launch may draw on, and of each recent session on an `api:ORG` account whose newest turn on
-/// that account ended on the API's low-credit error; then moves that session, and each session not mid-turn on an organization marked exhausted, onto the entry the pool opens next, on its conversation; one line per mark and move.
+/// Marks exhausted the organization of each recent session on an `api:ORG` account whose newest turn on that account ended on the API's low-credit error, the
+/// only sign an organization is spent; then moves that session, and each session not mid-turn on an organization marked exhausted, onto the entry the pool opens next, on its conversation; one line per mark and move.
 pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Path) -> Vec<String> {
     let reading = Reading::of(policy, &home.join(".local/state/north"));
     settle(fleet, runtime, (policy, home), &reading, |record, spent, to, machine, failed| move_onto(fleet, record, spent, (to, policy, home, machine), failed))
@@ -184,13 +184,6 @@ fn settle(fleet: &Fleet, runtime: &dyn Runtime, (policy, home): (&Path, &Path), 
     let until = |org: &Org| next_credits.get(&org.id).map(String::as_str);
     let dir = home.join(".local/state/north/api-exhausted");
     let mut lines = Vec::new();
-    for org in declared(&document, grants, home, &crate::platform::host::name()).iter().filter(|org| org.sorts_by(today).is_none()) {
-        match marks::mark(&dir, &org.id, "grant", today, until(org)) {
-            Ok(true) => lines.push(format!("api:{} marked exhausted: its recorded spend reached its grant", org.name)),
-            Ok(false) => {}
-            Err(error) => lines.push(format!("api:{} spent its grant but its exhausted mark was not written: {error}", org.name)),
-        }
-    }
     for record in fleet.sessions().unwrap_or_default().into_iter().filter(|record| !record.ended() && recent(record)) {
         let Some((_, name)) = record.account.split_once(':') else { continue };
         let machine = record.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());

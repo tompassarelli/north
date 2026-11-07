@@ -88,17 +88,13 @@ fn remaining(grants: &[Grant], spends: &[(String, f64)]) -> Vec<f64> {
     left
 }
 
-/// Anthropic's billing per dollar of north's list-price spend: proton's $200 grant ran out at $145.76 of list-price spend on 2026-11-07 (north#755).
-pub const BILLED_PER_LIST: f64 = 200.0 / 145.76;
-
-/// The share of a grant the pool keeps unopened, so the sessions already on it can finish their turns before billing runs out.
-pub const RESERVE: f64 = 0.10;
-
-/// The grants unexpired on `today` a launch may still draw on: with `spends` billed at `BILLED_PER_LIST` times list price, each keeps more than `RESERVE` of its credit; soonest expiry first.
+/// The grants unexpired on `today` a launch may draw on, from the soonest one list-price `spends` leave credit on, else the last of them: counted spend only ranks an
+/// organization, since only the provider's refusal of a turn for credit closes it; soonest expiry first.
 pub fn launchable(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Vec<Grant> {
-    let billed: Vec<(String, f64)> = spends.iter().map(|(day, usd)| (day.clone(), usd * BILLED_PER_LIST)).collect();
-    let left = remaining(grants, &billed);
-    (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= today && has_credit(left[*index] - RESERVE * grants[*index].usd)).map(|index| grants[index].clone()).collect()
+    let left = remaining(grants, spends);
+    let live: Vec<usize> = (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= today).collect();
+    let current = live.iter().position(|index| has_credit(left[*index])).unwrap_or(live.len().saturating_sub(1));
+    live[current..].iter().map(|index| grants[*index].clone()).collect()
 }
 
 /// Reports the soonest grant unexpired on `today` that has credit left, with what is spent of it and the grants after it.
@@ -109,7 +105,7 @@ pub fn balance(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Optio
     Some(Balance { grant: grants[current].clone(), spent: grants[current].usd - left[current], left: left[current], later: live.iter().filter(|index| **index > current).map(|index| grants[*index].clone()).collect() })
 }
 
-/// Each organization id's grants a launch may draw on `today`, read from the ledger's api spend; an id appears only when it has dated grants, so an empty list means every grant is spent, held in reserve or expired.
+/// Each organization id's grants a launch may draw on `today`, read from the ledger's api spend; an id appears only when it has dated grants, so an empty list means every grant expired.
 pub fn open_grants(policy: &Path, ledger: &Path, today: &str) -> BTreeMap<String, Vec<Grant>> {
     let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(ledger, &prices, Timestamp::now())).map(|reading| reading.orgs).unwrap_or_default();
     let named = named(policy);
