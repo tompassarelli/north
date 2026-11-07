@@ -143,9 +143,9 @@ class = "ready"
 
 [[goal]]
 name = "ready-harness-loss"
-source = "north#706: at most 10% of worker first attempts over the newest 24 h end in a failure the harness caused (placement, landing refusal, false revert, capacity, compaction, waits, duplicate or gate refusal), by the shared attribution of each run's report"
+source = "north#706: at most 1% of worker first attempts over the newest 24 h end in a failure the harness caused (placement, landing refusal, false revert, capacity, compaction, waits, duplicate or gate refusal), by the shared attribution of each run's report; the bar was 10% until 2026-11-07, when Tom asked that it state the real target of 1%"
 unit = "%"
-max = 10
+max = 1
 class = "ready"
 
 [[goal]]
