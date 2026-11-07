@@ -41,6 +41,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     assert_eq!(runs(&counter), 1, "a cached pass for the same tree runs clippy no second time: {second_log}");
     a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_is_queued_in_order();
     enqueue_refuses_a_lane_whose_check_before_queueing_reached_no_verdict();
+    enqueue_refuses_a_lane_an_enqueue_marked_after_line_fails_and_leaves_an_unmarked_one_to_the_lander();
     enqueue_compiles_on_the_queueing_host_when_no_build_host_has_room_and_refuses_a_failure_there();
 }
 
@@ -88,4 +89,30 @@ fn a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_i
     };
     assert!(urgent("crates/pay/file").is_some_and(|why| why.starts_with("slow reads 90 s")), "the lane that pays goes first");
     assert_eq!(urgent("docs/elsewhere"), None, "any other lane keeps its place");
+}
+
+fn enqueue_refuses_a_lane_an_enqueue_marked_after_line_fails_and_leaves_an_unmarked_one_to_the_lander() {
+    let first = "- A short entry.\n";
+    let long = format!("- {}\n", "word ".repeat(260));
+    let fixture = Fixture::seeded(&[
+        ("docs/features/_header.md", "# Features\n"),
+        ("docs/features/01-first/_title.md", "## First\n"),
+        ("docs/features/01-first/0001-short.md", first),
+        ("docs/features.md", "# Features\n\n## First\n\n- A short entry.\n"),
+    ]);
+    let unmarked = fixture.root.join("unmarked-runs");
+    let lines = format!("[land]\n\tafter = \"@enqueue,docs/features/,docs/features.md :: $NORTH_LAND_NORTH docs features-index --check\"\n\tafter = \"docs/ :: echo ran >>{} && exit 1\"\n", unmarked.display());
+    fs::write(fixture.repo.join(".safe-push"), lines).unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add the features index check"]);
+    git(&fixture.repo, &["push", "-q", "origin", "lane:main"]);
+    fs::write(fixture.repo.join("docs/features/01-first/0002-long.md"), &long).unwrap();
+    fs::write(fixture.repo.join("docs/features.md"), format!("# Features\n\n## First\n\n- A short entry.\n{long}")).unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add a features entry over the cap"]);
+    let (output, _) = north_enqueue_with(&fixture, &[]);
+    let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(!output.status.success() && log.contains("over the 1200-character entry cap") && log.contains("a check before queueing exited"), "{log}");
+    assert_eq!(runs(&unmarked), 0, "a line without the enqueue marker ran before queueing: {log}");
+    assert!(!written(&fixture.state).iter().any(|path| path.extension().is_some_and(|extension| extension == "json")), "{:?}", written(&fixture.state));
 }

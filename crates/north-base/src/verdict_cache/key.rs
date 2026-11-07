@@ -5,12 +5,12 @@ use std::process::{Command, Stdio};
 
 use sha2::{Digest, Sha256};
 
-use crate::build_inputs::rust_build_input_paths;
+use crate::build_inputs::{ENQUEUE_PATTERN, rust_build_input_paths};
 
 const SEPARATOR: &str = " :: ";
 const RUST_INPUT: &str = "@rust-input";
 const TOOLCHAIN: [&str; 3] = ["flake.lock", "rust-toolchain.toml", "rust-toolchain"];
-const LINE_KEYS: [&str; 3] = ["land.check", "land.after", "land.queue"];
+const LINE_KEYS: [&str; 2] = ["land.check", "land.after"];
 const MACHINE_MARKERS: [&str; 3] = ["code/south", "code/nixos-config", "machine-bound"];
 const SCRIPT_LIMIT: usize = 1 << 20;
 const BUILDS_NORTH: [&str; 2] = ["bin/head-north", "cargo "];
@@ -50,7 +50,7 @@ fn selectors(repo: &Path, tree: &str, command: &str) -> Option<BTreeSet<String>>
         .filter(|(_, line_command)| *line_command == command)
         .flat_map(|(paths, _)| paths.split(','))
         .map(str::trim)
-        .filter(|path| !path.is_empty())
+        .filter(|path| !path.is_empty() && *path != ENQUEUE_PATTERN)
         .flat_map(|path| if path == RUST_INPUT { rust_build_input_paths().map(str::to_owned).collect() } else { vec![path.to_owned()] })
         .collect();
     (!patterns.is_empty()).then_some(patterns)

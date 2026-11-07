@@ -1,3 +1,4 @@
+pub const ENQUEUE_PATTERN: &str = "@enqueue";
 const ROOT_FILES: [&str; 8] = ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml", "rust-toolchain", "flake.nix", "flake.lock", "bin/cargo"];
 const ROOT_DIRS: [&str; 3] = ["crates/", "src/", ".cargo/"];
 const EMBEDDED: &[&str] = &[

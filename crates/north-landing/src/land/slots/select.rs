@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::infer::infer;
-use north_base::build_inputs::rust_build_input;
+use north_base::build_inputs::{ENQUEUE_PATTERN, rust_build_input};
 
 const SEPARATOR: &str = " :: ";
 const RUST_INPUT: &str = "@rust-input";
@@ -17,7 +17,6 @@ pub struct Config {
     pub capacity: Option<String>,
     checks: Vec<String>,
     after: Vec<String>,
-    queue: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
     deadlines: Vec<String>,
@@ -53,7 +52,6 @@ impl Config {
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks,
             after: blob_values(repo, head, "land.after"),
-            queue: blob_values(repo, head, "land.queue"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
             deadlines: blob_values(repo, head, "land.deadline"),
@@ -75,7 +73,8 @@ impl Config {
     }
 
     pub fn queue_set(&self) -> Self {
-        Self { checks: self.queue.clone(), after: Vec::new(), queue: Vec::new(), inferred: Vec::new(), ..self.clone() }
+        let queued = self.after.iter().filter(|entry| entry.split_once(SEPARATOR).is_some_and(|(patterns, _)| patterns.split(',').any(|spec| spec == ENQUEUE_PATTERN))).cloned().collect();
+        Self { checks: queued, after: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
     pub fn local_checks(&self) -> bool {
@@ -177,7 +176,7 @@ pub fn path_class(repo: &Path, base: &str, head: &str) -> String {
 }
 
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {
-    let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').partition(|spec| *spec == RUST_INPUT);
+    let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').filter(|spec| *spec != ENQUEUE_PATTERN).partition(|spec| *spec == RUST_INPUT);
     (!rust.is_empty() && changed(repo, base, head, &[]).iter().any(|path| rust_build_input(path))) || (!specs.is_empty() && !changed(repo, base, head, &specs).is_empty())
 }
 
