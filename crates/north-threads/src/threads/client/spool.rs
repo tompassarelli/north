@@ -46,7 +46,16 @@ impl Lifecycle for SpooledWrite {
         match state {
             Phase::Queued => Some(Duration::from_secs(15 * 60)),
             Phase::Sending => Some(Duration::from_secs(10 * 60)),
-            Phase::Sent | Phase::Refused => None,
+            Phase::Refused => Some(Duration::ZERO),
+            Phase::Sent => None,
+        }
+    }
+
+    fn keep(state: Phase) -> Option<Duration> {
+        match state {
+            Phase::Sent => Some(Duration::from_secs(24 * 3600)),
+            Phase::Refused => Some(Duration::from_secs(7 * 24 * 3600)),
+            Phase::Queued | Phase::Sending => None,
         }
     }
 
@@ -188,8 +197,8 @@ mod spool_lifecycle {
 
         let mut next = Spool::adopting(store(&ledger, 11, 10), &directory, at(2)).unwrap();
         let faults = next.store.faults(at(2)).unwrap();
-        assert_eq!(faults.iter().map(|fault| (fault.instance.as_str(), fault.state.as_str())).collect::<Vec<_>>(), [("2-2.argv", "sending")]);
-        assert!(matches!(faults[0].kind, FaultKind::Orphaned { .. }));
+        assert_eq!(faults.iter().map(|fault| (fault.instance.as_str(), fault.state.as_str())).collect::<Vec<_>>(), [("3-3.failed", "refused"), ("2-2.argv", "sending")]);
+        assert!(matches!(faults[0].kind, FaultKind::Overdue { .. }) && matches!(faults[1].kind, FaultKind::Orphaned { .. }));
 
         assert!(next.take("2-2.argv", at(3)).unwrap());
         let causes: Vec<_> = next.store.history(SpooledWrite::NAME, "2-2.argv").unwrap().into_iter().map(|logged| (logged.to, logged.cause)).collect();

@@ -41,6 +41,12 @@ pub trait Lifecycle {
 
     /// Where an instance goes when the process holding `state` dies; `None` for a state no process holds.
     fn orphan(state: Self::State) -> Option<Self::State>;
+
+    /// How long an instance that came to rest in `state` keeps its record; `None` keeps it until it moves again.
+    fn keep(state: Self::State) -> Option<Duration> {
+        let _ = state;
+        None
+    }
 }
 
 /// The one record of an instance.

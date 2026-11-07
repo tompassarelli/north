@@ -149,9 +149,7 @@ impl Store {
         }
         let first = Record { instance: instance.to_owned(), state: to, since: at, due: None, owner: None, cause: String::new(), seq: 0 };
         let record = write::<L>(&transaction, &self.who, current.as_ref().unwrap_or(&first), to, cause, at)?;
-        transaction
-            .execute("DELETE FROM lifecycle_moves WHERE machine = ?1 AND instance = ?2 AND at_ms < ?3", params![L::NAME, instance, at.unix_millis() - millis(KEEP_MOVES)])
-            .map_err(sql)?;
+        prune::<L>(&transaction, at)?;
         transaction.commit().map_err(sql)?;
         Ok(Ok(record))
     }
@@ -267,5 +265,18 @@ fn log(transaction: &Transaction, machine: &str, instance: &str, from: Option<&s
             params![machine, instance, from, to, at.unix_millis(), serde_json::to_string(who)?, cause, i64::from(refused)],
         )
         .map_err(sql)?;
+    Ok(())
+}
+
+/// Drops the machine's records that rested past their state's keep, and its logged moves older than [`KEEP_MOVES`].
+fn prune<L: Lifecycle>(transaction: &Transaction, at: Timestamp) -> NorthResult<()> {
+    for state in L::State::ALL.iter().copied() {
+        if let Some(keep) = L::keep(state) {
+            transaction
+                .execute("DELETE FROM lifecycle_states WHERE machine = ?1 AND state = ?2 AND since_ms < ?3", params![L::NAME, state.name(), at.unix_millis() - millis(keep)])
+                .map_err(sql)?;
+        }
+    }
+    transaction.execute("DELETE FROM lifecycle_moves WHERE machine = ?1 AND at_ms < ?2", params![L::NAME, at.unix_millis() - millis(KEEP_MOVES)]).map_err(sql)?;
     Ok(())
 }
