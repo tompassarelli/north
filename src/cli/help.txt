@@ -39,6 +39,7 @@ Engineering and landing:
   code-health           Measure structure debt, crate lines and build time
   coverage              Pick the tests a change reaches; record the map
   mutant                Run a mutation sweep or verify kill claims
+  frontier              Replay landed boxes under north and plain Claude Code; grade and compare
   privacy judge         Judge a text for private kinds
   docs                  Regenerate or check the docs indexes
   split move-module     Move modules into a crate

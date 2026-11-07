@@ -70,7 +70,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-frontier"
 paths = ["crates/north-frontier/src/**"]
-may_use = []
+may_use = ["north-base", "north-fleet", "north-providers"]
 
 [[crate_dag.crate]]
 name = "north-mutants"
@@ -377,8 +377,8 @@ may_use = ["crate-roots", "foundation", "platform"]
 [[module]]
 name = "frontier"
 paths = ["crates/north-frontier/src/**"]
-responsibility = "The frontier scoreboard's arithmetic: the run rows of north against plain Claude Code on the same boxes, and their intervals and paired tests."
-may_use = []
+responsibility = "The frontier benchmark: frozen landed boxes, a sandbox per arm, the north and plain Claude Code arms, grading by the landing's own tests, the run rows and their intervals and paired tests."
+may_use = ["crate-roots", "fleet", "foundation", "platform", "providers"]
 
 [[module]]
 name = "mutants"

@@ -97,6 +97,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("tune", crate::tune::run),
     ("loops", crate::loops::run),
     ("climb", north_climb::run),
+    ("frontier", north_frontier::run),
     ("code-health", code_health),
 ];
 

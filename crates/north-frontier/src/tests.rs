@@ -3,7 +3,7 @@ use crate::rows::{Arm, Run, parse};
 use crate::stats::{Pairs, mcnemar, wilson};
 
 fn run(task: &str, arm: Arm, first: bool) -> Run {
-    Run { task: task.into(), arm, correct_first_pass: first, correct: first, cost_usd: 2.0, wall_seconds: 600.0, interventions: 0, contaminated: false }
+    Run { task: task.into(), arm, model: "claude-sonnet-5-5".into(), effort: "high".into(), correct_first_pass: first, correct: first, cost_usd: 2.0, wall_seconds: 600.0, interventions: 0, contaminated: false }
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn a_contaminated_pair_leaves_the_headline() {
 
 #[test]
 fn rows_parse_from_json_lines_and_name_the_bad_line() {
-    let good = r#"{"task":"north#1","arm":"north","correct_first_pass":true,"correct":true,"cost_usd":1.5,"wall_seconds":90.0,"interventions":1}"#;
+    let good = r#"{"task":"north#1","arm":"north","model":"claude-sonnet-5-5","effort":"high","correct_first_pass":true,"correct":true,"cost_usd":1.5,"wall_seconds":90.0,"interventions":1}"#;
     assert_eq!(parse(&format!("{good}\n\n{good}\n")).unwrap().len(), 2);
     assert!(parse(&format!("{good}\nnot json\n")).unwrap_err().contains(":2:"));
 }

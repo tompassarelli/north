@@ -14,6 +14,8 @@ pub enum Arm {
 pub struct Run {
     pub task: String,
     pub arm: Arm,
+    pub model: String,
+    pub effort: String,
     pub correct_first_pass: bool,
     pub correct: bool,
     pub cost_usd: f64,
@@ -29,4 +31,21 @@ pub fn parse(text: &str) -> Result<Vec<Run>, String> {
         .filter(|(_, line)| !line.trim().is_empty())
         .map(|(index, line)| serde_json::from_str(line).map_err(|why| format!("{RESULTS}:{}: {why}", index + 1)))
         .collect()
+}
+
+impl Arm {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "north" => Some(Self::North),
+            "plain" => Some(Self::Plain),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::North => "north",
+            Self::Plain => "plain",
+        }
+    }
 }

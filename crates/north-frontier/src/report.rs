@@ -112,6 +112,10 @@ pub fn render(runs: &[Run]) -> String {
     }
     let refs: Vec<&Pair<'_>> = pairs.iter().collect();
     for which in [Arm::North, Arm::Plain] {
+        let spent: f64 = pairs.iter().map(|pair| arm(pair, which).cost_usd).sum();
+        let _ = writeln!(out, "- dollars per task, {which:?}: {} (${spent:.2} over {} tasks)", dollars(spent / pairs.len() as f64), pairs.len());
+    }
+    for which in [Arm::North, Arm::Plain] {
         let cost = cost_per_correct(&refs, which).map_or_else(|| "no correct run".into(), dollars);
         let _ = writeln!(out, "- dollars per correct task, {which:?}: {cost}");
     }
