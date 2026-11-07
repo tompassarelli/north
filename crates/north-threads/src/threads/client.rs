@@ -44,9 +44,30 @@ const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
 const INGEST_WAIT: Duration = Duration::from_secs(5);
 const INGEST_HOLD: Duration = Duration::from_secs(12);
+/// How many rows one ingest commits under one hold of the ledger: a backfill of about 5,000 rows held it 33 to 45 s on 2026-11-07, over the 30 s a hold may last, and the hold cap only trips on a busy ledger, so a batch is cut here instead.
+const INGEST_CHUNK_ROWS: usize = 400;
 const SPOOL_DRAIN: Duration = Duration::from_secs(10);
 /// How old a snapshot may be before an ingest carrying usage pulls it: each pull rebuilds the whole ledger image on the ledger host, and every host ingests usage each minute.
 const USAGE_SNAPSHOT_AGE: Duration = Duration::from_secs(300);
+
+/// `data` cut after every `rows` lines, whole lines only; a batch with no row is one empty chunk.
+fn rows_in_chunks(data: &[u8], rows: usize) -> Vec<&[u8]> {
+    let mut chunks = Vec::new();
+    let (mut start, mut seen) = (0, 0);
+    for (at, byte) in data.iter().enumerate() {
+        if *byte == b'\n' {
+            seen += 1;
+            if seen == rows {
+                chunks.push(&data[start..=at]);
+                (start, seen) = (at + 1, 0);
+            }
+        }
+    }
+    if start < data.len() || chunks.is_empty() {
+        chunks.push(&data[start..]);
+    }
+    chunks
+}
 
 /// The reads a remote client answers from its own snapshot, never the ledger host: each fetches every staffed repo's
 /// issues from GitHub or scores every run, which on 2026-11-07 held nexus at 85% of a core per peer call.
@@ -74,6 +95,7 @@ pub struct Client {
     ssh_wait: Duration,
     ingest_wait: Duration,
     ingest_hold: Duration,
+    ingest_chunk_rows: usize,
     spool_drain: Duration,
     /// The `north threads` a call starts without waiting on it to pull a stale snapshot or send the spool; with none, the call does both inline.
     background: Option<Vec<OsString>>,
@@ -211,6 +233,7 @@ impl Client {
             ssh_wait: SSH_TIMEOUT,
             ingest_wait: INGEST_WAIT,
             ingest_hold: INGEST_HOLD,
+            ingest_chunk_rows: INGEST_CHUNK_ROWS,
             spool_drain: SPOOL_DRAIN,
             background: Some(vec![crate::platform::north_binary::north_binary().into(), "threads".into()]),
             clock: Arc::new(Timestamp::now),
@@ -279,11 +302,21 @@ impl Client {
     fn ingest_locally(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
         let mut data = Vec::new();
         stdin.read_to_end(&mut data)?;
+        for chunk in rows_in_chunks(&data, self.ingest_chunk_rows) {
+            let code = self.ingest_chunk(argv, chunk, err)?;
+            if code != 0 {
+                return Ok(code);
+            }
+        }
+        Ok(0)
+    }
+
+    fn ingest_chunk(&self, argv: &[String], data: &[u8], err: &mut dyn Write) -> NorthResult<i32> {
         let ledger = self.ledger();
         let started = (self.clock)();
         let log = ledger.with_file_name("ingest.log");
         let record = |acquired: Option<Timestamp>, exit: i32| {
-            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: (self.clock)(), exit, rows: ingest_log::rows(&data) });
+            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: (self.clock)(), exit, rows: ingest_log::rows(data) });
         };
         let Some(_lock) = ingest_lock::acquire(&ledger.with_file_name("ingest.lock"), self.ingest_wait)? else {
             writeln!(err, "NorthThreads: another ingest holds the ledger; retry")?;
@@ -292,7 +325,7 @@ impl Client {
         };
         let acquired = (self.clock)();
         let hold = hold::Hold::start(self.ingest_hold);
-        let outcome = self.local(argv, Some(&ledger), Some(&data));
+        let outcome = self.local(argv, Some(&ledger), Some(data));
         let expired = hold.expired();
         drop(hold);
         let code = match outcome {
@@ -1032,6 +1065,17 @@ exit "$(cat "$ROOT/code")"
             assert_eq!(client.main(&["ingest".to_owned()], &mut &[batch("one"), batch("two")].concat()[..], &mut Vec::new()).unwrap(), 0);
         }
         assert_eq!(recorded(directory.path()), ["one", "two"]);
+    }
+
+    #[test]
+    fn a_batch_past_the_chunk_size_is_committed_in_chunks_each_under_its_own_lock_and_logged_apart() {
+        let (directory, mut client) = ledger_host(Duration::from_secs(5));
+        client.ingest_chunk_rows = 2;
+        let batches: Vec<u8> = ["a", "b", "c", "d", "e"].iter().flat_map(|id| batch(id)).collect();
+        assert_eq!(client.main(&["ingest".to_owned()], &mut &batches[..], &mut Vec::new()).unwrap(), 0);
+        let rows: Vec<u64> = logged(directory.path()).iter().map(|line| line["rows"]["run"].as_u64().unwrap()).collect();
+        assert_eq!(rows, [2, 2, 1]);
+        assert_eq!(recorded(directory.path()), ["a", "b", "c", "d", "e"]);
     }
 
     fn logged(root: &Path) -> Vec<Value> {
