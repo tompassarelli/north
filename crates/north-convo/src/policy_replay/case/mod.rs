@@ -101,7 +101,7 @@ struct Job {
 }
 
 fn child_env() -> Vec<(String, String)> {
-    std::env::vars().filter(|(name, _)| !name.starts_with("AGENT_") && !name.starts_with("CLAUDE_CODE_") && name != "CLAUDECODE" && name != "CLAUDE_CONFIG_DIR").collect()
+    std::env::vars().filter(|(name, _)| !name.starts_with("AGENT_") && (!name.starts_with("CLAUDE_CODE_") || name == "CLAUDE_CODE_OAUTH_TOKEN") && name != "CLAUDECODE" && name != "CLAUDE_CONFIG_DIR").collect()
 }
 
 fn prepare(id: &str, arms: &[Arm]) -> Result<Prepared, NorthError> {
@@ -155,7 +155,7 @@ fn sample(prepared: &Prepared, job: &Job, options: &Options, env: &[(String, Str
             let lines: Vec<String> = calls.iter().map(|call| format!("{} {}", call["name"].as_str().unwrap_or(""), call["input"].as_str().unwrap_or(""))).chain([answer.clone()]).collect();
             let grade = match prepared.spec.detector.repeats(&lines) {
                 Some(repeats) => judge::Grade { repeats: Some(repeats), line: "pattern detector".into(), usd: 0.0 },
-                None => judge::grade(case, &calls, &answer, &options.judge, env)?,
+                None => judge::grade(case, prepared.spec.kind, &calls, &answer, &options.judge, env)?,
             };
             row["repeats"] = json!(grade.repeats);
             row["judge"] = json!(grade.line);

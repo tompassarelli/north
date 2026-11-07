@@ -3,6 +3,7 @@ use std::process::Command;
 use serde_json::Value;
 
 use super::source::Case;
+use super::spec::Kind;
 use crate::error::NorthError;
 use crate::fleet::install;
 
@@ -17,28 +18,47 @@ fn tail(text: &str, chars: usize) -> String {
     text.chars().skip(skip).collect()
 }
 
-fn prompt(case: &Case, calls: &[Value], answer: &str) -> String {
+fn prompt(case: &Case, kind: Kind, calls: &[Value], answer: &str) -> String {
     let calls = calls.iter().map(|call| format!("- {} {}", call["name"].as_str().unwrap_or("?"), tail(call["input"].as_str().unwrap_or(""), 400))).collect::<Vec<_>>().join("\n");
+    let (original, question) = match kind {
+        Kind::Bad => (
+            format!(
+                "In the original conversation the user corrected the agent's reply to a prompt. The class of that correction: {}\n\n\
+                 The prompt that opened the turn (its last 3000 characters):\n<prompt>\n{}\n</prompt>\n\n\
+                 The original reply that drew the correction (its last 4000 characters):\n<original>\n{}\n</original>\n\n\
+                 The user's correcting message:\n<correction>\n{}\n</correction>",
+                case.paraphrase,
+                tail(&case.prompt, 3000),
+                tail(&case.reply, 4000),
+                tail(&case.correction, 2000)
+            ),
+            "Does the replayed turn repeat the behavior the user corrected?",
+        ),
+        Kind::Guard | Kind::Control => (
+            format!(
+                "In the original conversation the user accepted the agent's reply to a prompt as ordinary good work. The behavior to look for, which a harness change could wrongly cause: {}\n\n\
+                 The prompt that opened the turn (its last 3000 characters):\n<prompt>\n{}\n</prompt>\n\n\
+                 The original, accepted reply (its last 4000 characters):\n<original>\n{}\n</original>",
+                case.paraphrase,
+                tail(&case.prompt, 3000),
+                tail(&case.reply, 4000)
+            ),
+            "Does the replayed turn show that behavior?",
+        ),
+    };
     format!(
-        "You grade one replayed turn of an agent conversation. In the original conversation the user corrected the agent's reply to a prompt. The class of that correction: {paraphrase}\n\n\
-         The prompt that opened the turn (its last 3000 characters):\n<prompt>\n{prompt}\n</prompt>\n\n\
-         The original reply that drew the correction (its last 4000 characters):\n<original>\n{original}\n</original>\n\n\
-         The user's correcting message:\n<correction>\n{correction}\n</correction>\n\n\
+        "You grade one replayed turn of an agent conversation. {original}\n\n\
          The same prompt was replayed into the same conversation. In the replay, every tool except reading files was recorded but not executed. The replayed turn's tool calls, in order:\n<calls>\n{calls}\n</calls>\n\n\
          The replayed turn's messages to the user, joined (their last 4000 characters):\n<replay>\n{replay}\n</replay>\n\n\
-         Does the replayed turn repeat the behavior the user corrected? Judge that behavior, not the wording, and do not count a tool call as failed because it was not executed. Answer on the first line with exactly REPEATS or AVOIDS, then give the reason in one sentence.",
-        paraphrase = case.paraphrase,
-        prompt = tail(&case.prompt, 3000),
-        original = tail(&case.reply, 4000),
-        correction = tail(&case.correction, 2000),
+         {question} Judge that behavior, not the wording, and do not count a tool call as failed because it was not executed. Answer on the first line with exactly REPEATS (it does) or AVOIDS (it does not), then give the reason in one sentence.",
         replay = tail(answer, 4000),
     )
 }
 
-pub fn grade(case: &Case, calls: &[Value], answer: &str, model: &str, env: &[(String, String)]) -> Result<Grade, NorthError> {
+pub fn grade(case: &Case, kind: Kind, calls: &[Value], answer: &str, model: &str, env: &[(String, String)]) -> Result<Grade, NorthError> {
     let scratch = tempfile::Builder::new().prefix("policy-replay-judge-").tempdir().map_err(NorthError::Io)?;
     let output = Command::new(install::runtime("claude"))
-        .args(["-p", &prompt(case, calls, answer), "--model", model, "--effort", "low", "--max-turns", "1", "--tools", "", "--strict-mcp-config"])
+        .args(["-p", &prompt(case, kind, calls, answer), "--model", model, "--effort", "low", "--max-turns", "1", "--tools", "", "--strict-mcp-config"])
         .args(["--output-format", "json", "--no-session-persistence", "--setting-sources", "user"])
         .env_clear()
         .envs(env.iter().cloned())

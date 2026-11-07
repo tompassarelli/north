@@ -1,0 +1,5 @@
+kind = "control"
+session = "08645928-14a3-4e21-b2b8-53d497734e27"
+message = "308b2527-b20c-494b-9732-1f87d17e93d1"
+behavior = "answers a status question by stopping to ask Tom for a decision or permission it does not need, instead of answering and carrying on with the work in flight"
+fleet_session = "proxy"
