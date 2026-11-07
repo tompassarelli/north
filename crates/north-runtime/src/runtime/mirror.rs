@@ -82,7 +82,7 @@ fn copy(state: &Path, destination: &str, current: &[PathBuf]) -> Result<(), Stri
     fs::write(&list, &listed).map_err(|error| error.to_string())?;
     let mut rsync = Command::new("rsync");
     rsync
-        .args(["-a", "--delete-missing-args", "--from0", "--timeout=20", "-e", OWN_RSH])
+        .args(["-a", "--copy-dirlinks", "--delete-missing-args", "--from0", "--timeout=20", "-e", OWN_RSH])
         .arg(format!("--files-from={}", list.display()))
         .arg(format!("{}/", state.display()))
         .arg(format!("{destination}:.local/state/{ROOT}/"))
