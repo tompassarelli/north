@@ -83,7 +83,7 @@ pub(super) fn census(snapshot: &Snapshot, caps: &Caps) -> Vec<Measured> {
     measured
 }
 
-fn owns(dir: &str, path: &str) -> bool {
+pub(super) fn owns(dir: &str, path: &str) -> bool {
     let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
     path.strip_prefix(&prefix).is_some_and(|rest| rest.starts_with("src/") || rest == "build.rs")
 }

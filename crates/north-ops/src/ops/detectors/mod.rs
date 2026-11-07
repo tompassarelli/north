@@ -1,6 +1,6 @@
 //! The self-detectors: pure functions from recorded state to findings, run by `north ledger flow`. A stalled
 //! plan box, a silent signal, a repeated lander refusal class, a class of Tom's corrections seen twice and a test over its
-//! time line in its newest after-landing runs each become one box on the owning issue, filed once per key and left to dispatch to staff.
+//! time line in its newest after-landing runs, and a crate within 5% of its line cap or over it, each become one box on the owning issue, filed once per key and left to dispatch to staff.
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -14,6 +14,7 @@ pub use filing::Filer;
 pub use gather::Gatherer;
 
 mod correction;
+mod crate_headroom;
 mod disk;
 mod filing;
 mod gather;
@@ -51,10 +52,11 @@ pub enum Detector {
     RepeatedCorrection,
     SlowTest,
     SlowCheck,
+    CrateHeadroom,
 }
 
 impl Detector {
-    pub const ALL: [Self; 8] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck];
+    pub const ALL: [Self; 9] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck, Self::CrateHeadroom];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -66,6 +68,7 @@ impl Detector {
             Self::RepeatedCorrection => "repeated-correction",
             Self::SlowTest => "slow-test",
             Self::SlowCheck => "slow-check",
+            Self::CrateHeadroom => "crate-headroom",
         }
     }
 }
@@ -133,6 +136,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes()),
             Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
             Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs), &default_text("detector_slow_check_owner")),
+            Detector::CrateHeadroom => crate_headroom::near(&gatherer.crates()),
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);

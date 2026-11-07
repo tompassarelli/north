@@ -31,15 +31,21 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         return Verdict::Allow;
     }
     let limit = limit();
-    let mut lines = Vec::new();
+    let (mut lines, mut notes) = (Vec::new(), Vec::new());
     for path in paths.iter().take(MAX_FILES) {
-        lines.extend(findings(path, &cwd, limit));
+        let (debt, headroom) = findings(path, &cwd, limit);
+        lines.extend(debt);
+        if let Some(note) = headroom
+            && !notes.contains(&note)
+        {
+            notes.push(note);
+        }
     }
-    if lines.is_empty() {
-        return Verdict::Allow;
+    if !lines.is_empty() {
+        lines.truncate(MAX_LINES);
+        notes.insert(0, format!("{HEADER}\n{}", lines.join("\n")));
     }
-    lines.truncate(MAX_LINES);
-    Verdict::Advise(format!("{HEADER}\n{}", lines.join("\n")))
+    if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join("\n")) }
 }
 
 fn limit() -> Duration {
@@ -113,17 +119,17 @@ fn run(program: &str, args: &[&std::ffi::OsStr], dir: &Path, limit: Duration) ->
     matches!(output.status.code(), Some(0 | 1)).then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn findings(path: &Path, cwd: &Path, limit: Duration) -> Vec<String> {
+fn findings(path: &Path, cwd: &Path, limit: Duration) -> (Vec<String>, Option<String>) {
     let Some(parent) = path.parent() else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
     let args = ["-C".as_ref(), parent.as_os_str(), "rev-parse".as_ref(), "--show-toplevel".as_ref()];
     let Some(top) = run("git", &args, cwd, limit) else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
     let top = PathBuf::from(top.trim());
     if top.as_os_str().is_empty() || !top.join("structure.toml").is_file() {
-        return Vec::new();
+        return (Vec::new(), None);
     }
     let mut lines: Vec<String> = run("north", &["code-health".as_ref(), "check".as_ref(), path.as_os_str()], &top, limit)
         .unwrap_or_default()
@@ -131,8 +137,9 @@ fn findings(path: &Path, cwd: &Path, limit: Duration) -> Vec<String> {
         .filter(|line| !line.trim().is_empty())
         .map(str::to_owned)
         .collect();
-    if let Some(relative) = path.strip_prefix(&top).ok().and_then(Path::to_str).filter(|name| name.ends_with(".rs")) {
+    let relative = path.strip_prefix(&top).ok().and_then(Path::to_str).filter(|name| name.ends_with(".rs"));
+    if let Some(relative) = relative {
         lines.extend(crate::code_health::habits(&top, relative));
     }
-    lines
+    (lines, relative.and_then(|relative| crate::code_health::crate_headroom(&top, relative)))
 }

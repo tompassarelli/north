@@ -48,6 +48,10 @@ pub fn habits(root: &std::path::Path, edited: &str) -> Vec<String> {
     habits::findings(root, Some(edited)).unwrap_or_default()
 }
 
+pub fn crate_headroom(root: &std::path::Path, edited: &str) -> Option<String> {
+    crate_lines::headroom(root, edited)
+}
+
 fn habits_command(arguments: &[String]) -> u8 {
     let root = match arguments {
         [] => std::path::PathBuf::from("."),

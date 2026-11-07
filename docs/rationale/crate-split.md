@@ -1,5 +1,9 @@
 # Crate split: why a leaf edit rebuilt 141k lines
 
+Owner: north#722
+
+The crate-headroom detector files each crate near or over its `[crate_lines]` cap as one split box on the owner.
+
 Measured 2026-10-31 on the laptop, heavy class (6 CPUs, 8 GiB), warm cache: appending a blank line to
 `src/provenance.rs` cost 10.5 s for `cargo build` and 15.6 s for `cargo test --no-run`. The whole loop was
 one rustc run over the single `north` crate. No build setting got near 1.5x, so the crate had to split.
@@ -169,8 +173,10 @@ crate's non-test Rust lines: `default` (25000) for most crates, `hub` (10000) fo
 Non-test lines are the lines of `src/**` and `build.rs` that are neither blank, comment-only nor inside a
 `#[cfg(test)]` item, in files not named `tests.rs` or `*_tests.rs` and not under a `tests/` directory.
 `north code-health` prints each crate's count against its cap. `north code-health crate-lines BASE HEAD`
-counts both revisions from git and refuses a crate over its cap whose count grew, and a new crate over its
-cap; crates already over (north-core) may shrink or stay but not grow. `north-ops` left `north-core` already over
+counts both revisions from git. A landing that takes a crate across its cap (or adds a new crate over
+its cap) passes and prints the split it calls for, and the crate-headroom self-detector files that split as
+a box for dispatch, as it does for any crate within 5% of its cap, so no lane is refused for being the one
+that happened to cross the line (north#729). A crate already over its cap may shrink or stay but not grow. `north-ops` left `north-core` already over
 the default cap, so its override is the count it moved with (37362) and it ratchets the same way. The refusal names where the new
 code goes: the smallest crate under its cap that the grown crate already depends on, or a new
 `crates/<name>/` named after the module that grew most. It runs as the `crate-lines` after-landing gate

@@ -25,7 +25,8 @@ data.
   It closes with the change cost since the last review: the median hand files a feature commit touched and the share
   of feature commits later reverted (`change_cost.rs`). The rewrite's co-change script was the idea; the port is Rust,
   in the module that already walked the history.
-- Budget: a landing that grows a crate already over its `[crate_lines]` cap is refused unless a commit in it records
+- Budget: a landing that grows a crate already over its `[crate_lines]` cap is refused (one that only crosses
+  the cap lands and files the split, north#729) unless a commit in it records
   why with a `Code-health-allow: crate-lines <crate> — <reason>` trailer, the same escape the file, function and
   hotspot rules have. The report lists every allow as debt for the next review.
 - When a review runs: the `[review]` table in `structure.toml` gains `hidden_links`, `volatile_imports` and

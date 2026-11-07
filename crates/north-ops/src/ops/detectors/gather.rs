@@ -6,6 +6,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use serde_json::Value;
 
 use super::correction;
+use super::crate_headroom;
 use super::disk;
 use super::filing::Filer;
 use super::plan::{self, Doc, IssueBox, Landed};
@@ -26,6 +27,7 @@ const QUEUE_LIVE: [&str; 3] = ["queued", "taken", "requeued"];
 const PLAN_REPO: &str = "north";
 const REFUSAL_DOC: &str = "landing-train";
 const DISK_DOC: &str = "capacity-scheduler";
+const CRATE_DOC: &str = "crate-split";
 const OWNER_PREFIX: &str = "Owner: ";
 const GROUNDING_LEDGER: &str = "north/grounding/ledger.jsonl";
 const RUN_HISTORY: usize = 30;
@@ -242,6 +244,13 @@ impl<'a> Gatherer<'a> {
         let owner = fs::read_to_string(self.checkout().join(format!("docs/rationale/{DISK_DOC}.md"))).ok().and_then(|text| owner_line(&text));
         let readings = crate::ops::flow::read_hosts(self.host, &crate::platform::orchestration::path());
         disk::Facts { owner, hosts: readings.into_iter().map(|reading| disk::Host { name: reading.host, free_gib: reading.disk_free_gib }).collect() }
+    }
+
+    pub fn crates(&self) -> crate_headroom::Facts {
+        let checkout = self.checkout();
+        let owner = fs::read_to_string(checkout.join(format!("docs/rationale/{CRATE_DOC}.md"))).ok().and_then(|text| owner_line(&text));
+        let report = self.host.run(&["north", "code-health", "crate-lines", "--repo", &checkout.to_string_lossy()], None, None).unwrap_or_default();
+        crate_headroom::Facts { owner, crates: crate_headroom::census(&report) }
     }
 
     pub fn refusals(&self, now: f64, window_s: f64) -> refusal::Facts {
