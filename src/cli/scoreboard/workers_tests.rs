@@ -51,3 +51,16 @@ fn an_unfinished_first_try_is_pending_while_its_notify_job_holds_its_lease() {
     let read = |now: &str| attempts(&db, 0, &BTreeSet::new(), &Pending { queued: BTreeSet::new(), waking: waking_sessions(&db, at(now)) }).unwrap().len();
     assert_eq!((read("2026-11-07T06:00:00Z"), read("2026-11-07T06:05:00Z")), (0, 1));
 }
+
+/// On 2026-11-07 28 of the 139 Done runs over 24 h that expected a landing had no landing on their row, and the first-try
+/// bar counted them successes because it read the `Done:` opener alone (north#791): done is a landed sha, not a word.
+#[test]
+fn a_done_run_that_expected_a_landing_and_has_no_landed_sha_is_not_a_first_try_success() {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT, expects_landing INTEGER, landed INTEGER, landed_sha TEXT);").unwrap();
+    for (agent, expects, landed, sha) in [("landed", 1, 1, Some("abc1234")), ("unlanded", 1, 0, None), ("no-landing-expected", 0, 0, None)] {
+        db.execute("INSERT INTO runs VALUES (?1, 'north#791', NULL, 'bug', '2026-11-07T02:21:27Z', '2026-11-07T03:10:21Z', 49, 'done', 'Done: finished.', 'worker', '', 0, 's', ?2, ?3, ?4)", rusqlite::params![agent, expects, landed, sha]).unwrap();
+    }
+    let read = attempts(&db, 0, &BTreeSet::new(), &Pending::default()).unwrap();
+    assert_eq!(read.iter().map(|attempt| attempt.succeeded).collect::<Vec<_>>(), [true, false, true]);
+}

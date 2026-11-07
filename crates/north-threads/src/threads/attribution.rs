@@ -96,6 +96,17 @@ pub fn report_column(db: &Connection) -> &'static str {
     if db.query_row("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'stop'", [], |_| Ok(())).is_ok() { "report || coalesce(char(10) || stop, '')" } else { "report" }
 }
 
+/// The SQL expression for a run's outcome as the bars read it: a `done` run that expected a landing and has no landed sha
+/// is `not done`, since done is the landing on origin/main and never the worker's opener (north#791).
+pub fn outcome_column(db: &Connection) -> &'static str {
+    let has = |column: &str| db.query_row("SELECT 1 FROM pragma_table_info('runs') WHERE name = ?1", [column], |_| Ok(())).is_ok();
+    if has("expects_landing") && has("landed") && has("landed_sha") {
+        "CASE WHEN runs.outcome = 'done' AND coalesce(runs.expects_landing, 0) = 1 AND coalesce(runs.landed, 0) != 1 AND runs.landed_sha IS NULL THEN 'not done' ELSE runs.outcome END"
+    } else {
+        "runs.outcome"
+    }
+}
+
 /// The SQL expression for a run's recorded cause: the latest cause a boundary recorded for the run's fleet session, or
 /// NULL in a ledger that has not recorded any.
 pub fn recorded_column(db: &Connection) -> &'static str {
@@ -141,7 +152,7 @@ impl Reading {
 }
 
 pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
-    let mut statement = db.prepare(&format!("SELECT outcome, {}, coalesce(compactions, 0), coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", report_column(db), recorded_column(db), worker_where()))?;
+    let mut statement = db.prepare(&format!("SELECT {}, {}, coalesce(compactions, 0), coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", outcome_column(db), report_column(db), recorded_column(db), worker_where()))?;
     let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u32>(2)?, row.get::<_, f64>(3)?, row.get::<_, Option<String>>(4)?)))?;
     let mut by: BTreeMap<Harness, (usize, f64)> = BTreeMap::new();
     let (mut unclaimed_usd, mut total_usd, mut proxy) = (0.0, 0.0, (0, 0.0));

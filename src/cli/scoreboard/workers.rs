@@ -12,7 +12,7 @@ use crate::platform::attribution::awaits_lander;
 use crate::platform::run_roles::worker_where;
 use crate::platform::{land_queue, records_mirror};
 use crate::providers::claude::runs::outcome::waits_on_time;
-use crate::threads::attribution::{Cause, attribute, fleet_column, recorded_column, report_column};
+use crate::threads::attribution::{Cause, attribute, fleet_column, outcome_column, recorded_column, report_column};
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred, lander-queued and job-waking runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
@@ -47,7 +47,8 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
     let mut statement = db.prepare("SELECT DISTINCT follows FROM runs WHERE coalesce(follows, '') != ''")?;
     let followed: HashSet<String> = statement.query_map([], |row| row.get(0))?.filter_map(Result::ok).collect();
     let mut statement = db.prepare(&format!(
-        "SELECT agent, category, ended, outcome, coalesce(item, ''), {}, coalesce(compactions, 0), {}, {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        "SELECT agent, category, ended, {}, coalesce(item, ''), {}, coalesce(compactions, 0), {}, {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        outcome_column(db),
         report_column(db),
         recorded_column(db),
         fleet_column(db),

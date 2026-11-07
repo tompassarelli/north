@@ -8,6 +8,18 @@ A bar, an attribution class or a routing score reads only mechanical sources: gi
 
 The phrase rules and report readers below are the fallback that predates this rule. `harness/agent-text-reads.toml` lists every file that still reads agent text to decide a verdict, with the count of lines that do; each box of north#791 replaces one kind with its mechanical source and lowers its entry. `tests/it/agent_text_reads.rs` scans the workspace sources and refuses any line that reads a report beyond that list, so a new read cannot land while the old ones are replaced; the same test plants a read in a new file and in a listed file and checks that both are refused.
 
+## Inventory of 2026-11-07
+
+Measured at 06:14 UTC against the ledger and graph (north#791, the inventory comment n-physics-review posted there); each input is tagged mechanical, structured GitHub, mixed or agent text, and the files that read agent text are the entries of `harness/agent-text-reads.toml`.
+
+- Scoreboard, 11 bars: 5 mechanical, 1 structured GitHub, 2 mixed, 2 agent text (first try, harness loss), 1 model-judged. The first-try bar read the run outcome from the report opener (`src/cli/scoreboard/workers.rs`, `outcome.rs`).
+- Attribution (`attribution.rs`), over the 181 worker runs that finished from 23:00 to 06:14 UTC, when every run carries a fleet name and boundary records exist: 19 (10.5%) decided by a boundary record, the rest (89.5%) by the report opener, a phrase rule or the default. Of the 93 not Done, 20% were recorded and 80% read from the report. Of those 93, 25 ended `Stop: wait`, 24 `Stop: landing`, 22 `Stop: host`, 11 `Stop: capacity` or `client`. (A trailing 24 h window reads 4.1% mechanical only because half of it predates the fleet-name column.)
+- Routing, 18 inputs: 10 agent text (holds after `Stop: decision`, `Blocked:`, `Stop: wait until` and `Stop: host`, the climb after `Stop: reasoning`, box waits, `Category:`, backlog rank, dated checks, measured worth), 3 structured GitHub, 2 mixed, 3 mechanical (placement refusals, saturation refusals, the climb after two lander refusals).
+- The landing join: of the 76 Done runs from 23:00 to 06:14 UTC that expected a landing, 24 showed `landed = 0` on their row, and for 22 of them the lander host's push log names a landing by the same fleet session. A session on another host writes its row there, and only the lander host holds the landing, so the row never saw it. The ledger host now emits each push of its log as a `push_join` row, and ingest gives the session's newest earlier run the sha and time.
+- Done: the first-try bar counted 136 of 339 first tries as Done by opener on the 24 h ledger, and 112 by landed sha; a Done run that expected a landing and has no landed sha is now not done in the first-try and harness-loss readings.
+
+Order of replacement: done from the landed sha with the push-log join, then each `Stop:` kind from its registered or recorded source.
+
 ## The rule
 
 `north_threads::threads::attribution::attribute` reads a finished run's outcome, the cause a boundary recorded for it (below), its final report and its compaction count, and returns one cause:

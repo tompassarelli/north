@@ -113,6 +113,10 @@ fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<Vec<
     let ledger = Ledger { policy, prices: Prices::parse(&CATALOG, &DEFAULTS), main, sessions: fleet_sessions(), pushes, now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     let roots = roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name());
+    let recent = Timestamp::parse_loose(&options.since).unwrap_or_else(|| Timestamp::from_unix_millis(ledger.now.unix_millis() - 7 * 24 * 3_600_000)).unix_millis().max(0) as u64;
+    for push in ledger.pushes.iter().filter(|push| !push.landed.is_empty() && !push.session.is_empty() && push.at_ms >= recent) {
+        writeln!(out, "{}", json!({"push_join": 1, "fleet_name": push.session, "landed_sha": push.landed, "landed_at": Timestamp::from_unix_millis(push.at_ms as i64).iso()}))?;
+    }
     for root in &roots {
         for path in transcripts(&root.projects, options).into_iter().filter(|path| ledger.rereads(options, path)) {
             hook_rows(&path, out)?;

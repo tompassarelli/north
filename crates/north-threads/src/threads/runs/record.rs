@@ -126,6 +126,9 @@ pub(super) struct Ingest<'a> {
 
 impl Ingest<'_> {
     pub(super) fn row(&mut self, r: Row) -> Result<(), Failure> {
+        if r.truthy("push_join") {
+            return self.pushed(&r);
+        }
         self.telemetry(&r)?;
         if r.truthy("telemetry_only") {
             return Ok(());
@@ -145,6 +148,18 @@ impl Ingest<'_> {
         }
         self.attributed(&run)?;
         self.estimates(&run)
+    }
+
+    /// A landing the lander's push log names for a fleet session: the session's newest run that started before it takes
+    /// its sha and time, whichever host ingested the run, since only the lander host's log holds the landing.
+    fn pushed(&self, r: &Row) -> Result<(), Failure> {
+        let (name, landed_at) = (r.required("fleet_name")?, r.required("landed_at")?);
+        self.db.execute(
+            "UPDATE runs SET landed = 1, expects_landing = 1, landed_sha = ?1, landed_at = ?2 WHERE role = 'worker' AND fleet_name = ?3 AND coalesce(landed_sha, '') = '' AND started <= ?2
+             AND NOT EXISTS (SELECT 1 FROM runs later WHERE later.fleet_name = runs.fleet_name AND later.started > runs.started AND later.started <= ?2)",
+            params![r.required("landed_sha")?, landed_at, name],
+        )?;
+        Ok(())
     }
 
     /// The fleet session the run belongs to, which the boundary causes recorded by session name join on, and its

@@ -201,3 +201,21 @@ fn a_run_that_ends_on_the_api_credit_error_is_capacity() {
     let read = crate::threads::attribution::attribute("unclear", "Credit balance is too low", 0, None);
     assert_eq!(read, crate::threads::attribution::Cause::Harness(Harness::Capacity));
 }
+
+/// On 2026-11-07, 22 of the 24 Done runs from 23:00 to 06:14 UTC that expected a landing showed `landed = 0` on their row
+/// though the push log named a landing by the same fleet session: a session on another host writes its row there, and the
+/// lander host holds the landing (north#791). The lander host's push row gives the session's newest run before it the sha.
+#[test]
+fn a_run_ingested_on_another_host_takes_the_landing_the_lander_hosts_push_log_names_for_its_session() {
+    let ledger = ledger();
+    let run = |id: &str, started: &str, ended: &str| {
+        json!({"id": id, "role": "worker", "fleet_name": "cpx62-n757-spool", "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
+               "tier": "high", "actual_min": 20, "started": started, "ended": ended, "outcome": "done", "report": "Done: queued.", "expects_landing": 1, "landed": 0})
+    };
+    ledger.ingest(&[run("first", "2026-10-28T06:00:00.000Z", "2026-10-28T06:20:00.000Z"), run("second", "2026-10-28T08:20:00.000Z", "2026-10-28T08:40:00.000Z")]);
+    ledger.ingest(&[json!({"push_join": 1, "fleet_name": "cpx62-n757-spool", "landed_sha": "abc1234", "landed_at": "2026-10-28T08:45:00.000Z"})]);
+    assert_eq!(
+        ledger.rows("SELECT agent, landed, coalesce(landed_sha, '') FROM runs ORDER BY started"),
+        vec![vec![Value::Text("first".into()), Value::Integer(0), Value::Text(String::new())], vec![Value::Text("second".into()), Value::Integer(1), Value::Text("abc1234".into())]]
+    );
+}
