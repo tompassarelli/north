@@ -5,6 +5,8 @@ mod box_eta;
 mod boxes;
 #[cfg(test)]
 mod boxes_tests;
+#[cfg(test)]
+mod rates_tests;
 mod calibrate;
 mod eta_calibration;
 mod feeds;

@@ -31,10 +31,12 @@ pub struct Raw {
     pub api_usd: Option<f64>,
     pub started: Option<String>,
     pub ended: String,
+    pub account: Option<String>,
     pub cause: Cause,
 }
 
 const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min";
+const ACCOUNT_COLUMN: usize = 26;
 
 static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("router/prices.json parses"));
 
@@ -67,6 +69,7 @@ impl Raw {
             api_usd,
             started: row.get(15)?,
             ended: row.get::<_, Option<String>>(16)?.unwrap_or_default(),
+            account: row.get(ACCOUNT_COLUMN)?,
             cause,
         })
     }
@@ -89,7 +92,16 @@ impl Raw {
 
 /// Worker runs matching `condition`, in table order.
 pub fn raw_runs(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<Vec<Raw>> {
-    let mut statement = db.prepare(&format!("SELECT {COLUMNS}, {}, COALESCE(compactions, 0), {} FROM runs WHERE {} AND {condition}", report_column(db), recorded_column(db), worker_where()))?;
+    runs_where(db, &format!("{} AND {condition}", worker_where()), params)
+}
+
+/// Runs of every role matching `condition`, in table order: the sessions that spend an account's windows are not only workers.
+pub fn every_run(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<Vec<Raw>> {
+    runs_where(db, condition, params)
+}
+
+fn runs_where(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<Vec<Raw>> {
+    let mut statement = db.prepare(&format!("SELECT {COLUMNS}, {}, COALESCE(compactions, 0), {}, account FROM runs WHERE {condition}", report_column(db), recorded_column(db)))?;
     statement.query_map(params, Raw::read)?.collect()
 }
 

@@ -5,7 +5,8 @@ use rusqlite::Connection;
 
 use super::forward::{Figure, Row};
 use super::quantile;
-use super::read::raw_runs;
+use super::read::{every_run, raw_runs};
+use crate::foundation::clock::Timestamp;
 use crate::spend::Turn;
 use crate::usage::decide::world::{Rate, Rates};
 
@@ -22,14 +23,39 @@ pub struct Sample {
     pub resets_at: String,
 }
 
+/// One run's API-equivalent dollars on an account, spent between `started` and `ended`.
 pub struct Cost {
     pub account: String,
-    pub at: String,
+    pub started: String,
+    pub ended: String,
     pub usd: f64,
 }
 
 fn hour(at: &str) -> String {
     at.chars().take(13).collect()
+}
+
+fn seconds(at: &str) -> Option<i64> {
+    Timestamp::parse(at).ok().map(Timestamp::unix_seconds)
+}
+
+/// The reset moment to the minute: the provider reports one reset a second apart (02:00:00Z and 01:59:59Z) between reads.
+fn reset(at: &str) -> Option<i64> {
+    seconds(at).map(|seconds| (seconds + 1).div_euclid(60))
+}
+
+/// The dollars of `cost` in each hour it ran, in proportion to the time it ran in that hour.
+fn by_hour(cost: &Cost) -> Vec<(String, f64)> {
+    let (Some(start), Some(end)) = (seconds(&cost.started), seconds(&cost.ended)) else { return Vec::new() };
+    if end <= start {
+        return vec![(hour(&cost.started), cost.usd)];
+    }
+    (start.div_euclid(3600)..=(end - 1).div_euclid(3600))
+        .map(|slot| {
+            let overlap = end.min((slot + 1) * 3600) - start.max(slot * 3600);
+            (hour(&Timestamp::from_unix_seconds(slot * 3600).iso()), cost.usd * overlap as f64 / (end - start) as f64)
+        })
+        .collect()
 }
 
 fn rises(samples: &[Sample]) -> BTreeMap<(String, &'static str, String), f64> {
@@ -42,7 +68,7 @@ fn rises(samples: &[Sample]) -> BTreeMap<(String, &'static str, String), f64> {
         series.sort_by(|x, y| x.at.cmp(&y.at));
         for pair in series.windows(2) {
             let step = pair[1].used_pct - pair[0].used_pct;
-            if pair[0].resets_at == pair[1].resets_at && step > 0.0 {
+            if reset(&pair[0].resets_at) == reset(&pair[1].resets_at) && step > 0.0 {
                 *rise.entry((account.to_owned(), window, hour(&pair[1].at))).or_default() += step;
             }
         }
@@ -54,7 +80,9 @@ fn rises(samples: &[Sample]) -> BTreeMap<(String, &'static str, String), f64> {
 pub fn measure(samples: &[Sample], costs: &[Cost]) -> Vec<Row> {
     let mut spent: BTreeMap<(&str, String), f64> = BTreeMap::new();
     for cost in costs {
-        *spent.entry((&cost.account, hour(&cost.at))).or_default() += cost.usd;
+        for (at, usd) in by_hour(cost) {
+            *spent.entry((&cost.account, at)).or_default() += usd;
+        }
     }
     let mut totals: BTreeMap<(String, &'static str), (f64, f64, usize)> = BTreeMap::new();
     for ((account, window, at), rise) in rises(samples) {
@@ -83,14 +111,10 @@ pub fn calibrate_rates(db: &Connection, start: &str, end: &str) -> rusqlite::Res
             samples.push(sample?);
         }
     }
-    let mut costs = Vec::new();
-    if present("run_costs")? {
-        let mut statement = db.prepare("SELECT account, started, cost_usd FROM run_costs WHERE started >= ?1 AND started < ?2")?;
-        let found = statement.query_map([start, end], |row| Ok(Cost { account: row.get::<_, String>(0)?.trim_start_matches("claude-").to_owned(), at: row.get(1)?, usd: row.get(2)? }))?;
-        for cost in found {
-            costs.push(cost?);
-        }
-    }
+    let costs = every_run(db, "started IS NOT NULL AND ended >= ?1 AND started < ?2 AND account IS NOT NULL", &[&start, &end])?
+        .into_iter()
+        .filter_map(|run| Some(Cost { account: run.account?.trim_start_matches("claude-").to_owned(), started: run.started?, ended: run.ended, usd: run.api_usd? }))
+        .collect::<Vec<_>>();
     Ok(measure(&samples, &costs))
 }
 
