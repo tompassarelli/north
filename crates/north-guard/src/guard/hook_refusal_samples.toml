@@ -1986,7 +1986,7 @@ command = "for d in ~/.local/state/north/land-queue/*/; do echo \"$d: queued $(l
 label = "true"
 
 [[sample.row]]
-command = "hostname; grep -rl w85nwcsr1mcykmlg6ama5ns9xgwq6rra ~/.local/state/nix/profiles/ /etc/profiles/per-user/tom 2>/dev/null | head -3; readlink -f ~/.loca"
+command = "hostname; grep -rl eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ~/.local/state/nix/profiles/ /etc/profiles/per-user/tom 2>/dev/null | head -3; readlink -f ~/.loca"
 label = "true"
 
 [[sample.row]]

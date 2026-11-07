@@ -42,3 +42,4 @@ mod hook_verbs;
 mod cargo_config;
 mod agent_text_reads;
 mod land_after_set;
+mod embedded_store_paths;

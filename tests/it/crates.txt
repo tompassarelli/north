@@ -26,12 +26,13 @@ session_start_measurement north-guard north-core north-fleet
 cargo_config north
 fleet_launch north-core north-fleet north-dispatch
 fleet_spool north-core north-fleet
+follows_release north-landing-gates north-threads
 policy_replay_case north-convo
 policy_replay_login north-convo
 threads_resume north-core north-threads
 agent_text_reads north
 affected_modules north-landing north north-land-checks north-lander
-follows_release north-landing-gates north-threads
+embedded_store_paths north north-base north-calibration north-claude-stream north-fleet north-guard north-lanes north-ops north-pace north-providers north-safe-push north-threads north-tune
 golden_path north-fleet north-landing north-land-checks north-lander
 land_after_set north-landing north north-land-checks north-lander
 land_checks north-landing north-core north-land-checks north-lander
