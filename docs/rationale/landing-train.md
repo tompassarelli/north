@@ -1158,7 +1158,10 @@ Rules adopted, each in its owner:
   a workspace manifest, `Cargo.lock`, the toolchain, an embedded input, or a crate every member uses.
   A narrowed check also leases fewer CPUs, two per crate with a floor of four, through
   `SAFE_PUSH_LAND_CPUS`, so more prechecks are admitted at once under the build host's cap. Main's CI
-  still runs the whole workspace after landing.
+  still runs the whole workspace after landing. The number caps what admission charges, not what the
+  check may use (2026-11-07): its scope keeps the landing ceiling, so a check alone on a host builds and
+  tests on its free cores; a 400% quota at the slot share held the after-landing build near 77 s and
+  nextest at 4 test threads (north#634).
 
 Urgent lanes (2026-11-05): a fix that unblocks the queue itself waited behind 45 lanes after the morning fan-out. `north land urgent TICKET --reason TEXT` marks a queued ticket so the lander orders it with red fixes, ahead of older tickets, in both the batch queue and the per-lane prechecks. The proxy or a lead sets it; the reason is kept on the ticket.
 

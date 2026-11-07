@@ -119,7 +119,7 @@ fn reaping_an_owner_kills_its_remote_runs_and_leaves_every_other_run_alone() {
 fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
     assert_eq!(remote_run_flake("echo plain", Some(FLAKE_WITHOUT_DEV_SHELL), &[], None), "plain\n");
     let (stdout, stderr) = remote_run("printf '%s' \"$SAFE_PUSH_LAND_CPUS\"", None, &[("SAFE_PUSH_LANDING", "1")], None, "cores=16 cap=4");
-    assert_eq!(stdout, "4", "a slot command's lease is sized by its share of the host's cores");
+    assert_eq!(stdout, "4", "a slot command's lease is charged its share of the host's cores");
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-check --timeout-seconds 10"), "{stderr}");
     let (_, stderr) = remote_run("true", None, &[], None, "");
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-offload --timeout-seconds 10"), "{stderr}");

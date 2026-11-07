@@ -298,12 +298,10 @@ fn landing_run(operation: &str, owner: &str, class: &str, land_head: Option<&str
 
 fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, charge: impl FnOnce() -> f64) {
     if request.landing {
-        let mut sized = policy::landing_check(cores);
-        if let Some(cap) = cap.filter(|cap| cap.is_finite() && *cap >= 1.0) {
-            sized.cpus = sized.cpus.min(cap.ceil());
-        }
-        request.resources = Some(policy::Resources { cpus: sized.cpus.min(charge()), ..request.resources() });
-        request.declared = Some(sized);
+        let ceiling = policy::landing_check(cores);
+        let share = cap.filter(|cap| cap.is_finite() && *cap >= 1.0).map_or(ceiling.cpus, f64::ceil);
+        request.resources = Some(policy::Resources { cpus: ceiling.cpus.min(share).min(charge()), ..request.resources() });
+        request.declared = Some(ceiling);
     }
 }
 
