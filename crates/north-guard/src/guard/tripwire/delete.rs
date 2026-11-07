@@ -97,10 +97,29 @@ impl State<'_> {
         }
         if recursive {
             for t in targets {
-                self.check_target(t, false, cwd)?;
+                match self.glob_files(t, cwd) {
+                    Some(files) => files.iter().try_for_each(|file| self.check_target(file, false, cwd))?,
+                    None => self.check_target(t, false, cwd)?,
+                }
             }
         }
         Ok(())
+    }
+    fn glob_files(&self, text: &str, cwd: &str) -> Option<Vec<String>> {
+        let word = self.expand(strip(text));
+        let (directory, pattern) = word.rsplit_once('/')?;
+        if !pattern.contains(['*', '?']) || pattern.trim_matches(['*', '?']).is_empty() || directory.contains(['*', '?', '$', '`', '\x02']) {
+            return None;
+        }
+        let directory = self.resolve(directory, cwd)?;
+        let names = std::fs::read_dir(&directory).ok()?;
+        Some(
+            names
+                .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+                .filter(|name| (pattern.starts_with('.') || !name.starts_with('.')) && wildcard(pattern.as_bytes(), name.as_bytes()))
+                .map(|name| format!("{directory}/{name}"))
+                .collect(),
+        )
     }
     pub(super) fn find(&mut self, args: &[String], cwd: &str) -> Result<(), String> {
         if !args.iter().any(|s| s == "-delete") {
@@ -146,5 +165,14 @@ impl State<'_> {
             self.check_target(t, typef && narrow, cwd)?;
         }
         Ok(())
+    }
+}
+
+fn wildcard(pattern: &[u8], name: &[u8]) -> bool {
+    match pattern.split_first() {
+        None => name.is_empty(),
+        Some((b'*', rest)) => (0..=name.len()).any(|skip| wildcard(rest, &name[skip..])),
+        Some((b'?', rest)) => name.split_first().is_some_and(|(_, tail)| wildcard(rest, tail)),
+        Some((byte, rest)) => name.split_first().is_some_and(|(head, tail)| head == byte && wildcard(rest, tail)),
     }
 }

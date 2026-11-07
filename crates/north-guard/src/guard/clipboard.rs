@@ -16,6 +16,14 @@ static CLIPBOARD_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
     ))
     .unwrap()
 });
+static LOOKUP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bcommand\s+-[vV]\s+\S+").unwrap());
+static SCREENSHOT_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
+    let head = format!(r"{SEP}\s*{WRAP}{PATHED}");
+    Regex::new(&format!(r"{head}niri\s+msg\b[^\n;&|)}}`]*?\baction\s+screenshot(?:-screen|-window)?\b")).unwrap()
+});
+static PRIVATE_RUNTIME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[\s;&|(])(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*XDG_RUNTIME_DIR=[\x22']?/run/user/[0-9]+/private-desktop\.[A-Za-z0-9]+/runtime[\x22']?(?:\s|;|$)").unwrap()
+});
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()) {
@@ -29,6 +37,10 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub(super) fn touches_clipboard(command: &str) -> bool {
-    HINTS.iter().any(|hint| command.contains(hint))
-        && CLIPBOARD_ACCESS.is_match(&shell::strip_quotes(&shell::strip_heredocs(command)))
+    if !HINTS.iter().any(|hint| command.contains(hint)) {
+        return false;
+    }
+    let scan = shell::strip_quotes(&LOOKUP.replace_all(&shell::strip_heredocs(command), ""));
+    let access = if PRIVATE_RUNTIME.is_match(command) { &SCREENSHOT_ACCESS } else { &CLIPBOARD_ACCESS };
+    access.is_match(&scan)
 }

@@ -102,10 +102,17 @@ fn origin_branch_hold(deadline: Instant, directory: &str, remote: &str, branch: 
         return None;
     }
     let git = |arguments: &[&str]| within(deadline, "git", arguments, None);
+    let landed = |tip: &str| git(&["-C", directory, "merge-base", "--is-ancestor", tip, &format!("refs/remotes/{remote}/main")]).is_some();
+    if landed(&format!("refs/remotes/{remote}/{branch}")) {
+        return None;
+    }
     let Some(listed) = git(&["-C", directory, "ls-remote", remote, &format!("refs/heads/{branch}")]) else {
         return held(branch, "origin's tip could not be read in time, so a queued Autoland run cannot be ruled out");
     };
     let tip = listed.split_whitespace().next()?;
+    if landed(tip) {
+        return None;
+    }
     let url = git(&["-C", directory, "remote", "get-url", "--push", remote]).unwrap_or_else(|| remote.to_owned());
     let slug = repository_slug(&url);
     deletion_hold(branch, tip, Timestamp::now().unix_millis(), |arguments| within(deadline, "gh", arguments, slug.as_deref()))

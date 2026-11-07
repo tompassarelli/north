@@ -309,8 +309,30 @@ fn join(words: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+const LITERAL_TICK: char = '\u{2}';
+const LITERAL_DOLLAR: char = '\u{3}';
+
+fn literal_in_single_quotes(text: &str) -> String {
+    let (mut single, mut double, mut escaped) = (false, false, false);
+    text.chars()
+        .map(|ch| {
+            let literal = escaped;
+            escaped = !literal && !single && ch == '\\';
+            match ch {
+                '\'' if !literal && !double => single = !single,
+                '"' if !literal && !single => double = !double,
+                '`' if single => return LITERAL_TICK,
+                '$' if single => return LITERAL_DOLLAR,
+                _ => {}
+            }
+            ch
+        })
+        .collect()
+}
+
 fn dangerous(text: &str, inherited: &BTreeMap<String, String>) -> bool {
-    let stripped = shell::strip_heredocs(text);
+    let restored = text.replace(LITERAL_TICK, "`").replace(LITERAL_DOLLAR, "$");
+    let stripped = literal_in_single_quotes(&shell::strip_heredocs(&restored));
     if substitutions(&stripped)
         .iter()
         .any(|body| *body != text && dangerous(body, inherited))
@@ -436,3 +458,7 @@ pub fn decide(input: &HookInput) -> Verdict {
     };
     Verdict::Rewrite(updated, CONTEXT.into())
 }
+
+#[cfg(test)]
+#[path = "desktop_action_tests.rs"]
+mod tests;

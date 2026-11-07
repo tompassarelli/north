@@ -162,7 +162,7 @@ fn nested_prints(stage: &Stage, depth: usize) -> bool {
     if let Some(script) = shell_script(&stage.words) {
         return prints_decrypted(&restore(&script), depth + 1, false);
     }
-    let captured = assignment_only(&stage.words);
+    let captured = assignment_only(&stage.words) || stage.to_file;
     if remote_command(&stage.words).iter().any(|script| prints_decrypted(&restore(script), depth + 1, false)) {
         return true;
     }
@@ -243,6 +243,41 @@ fn decrypts(words: &[String]) -> bool {
     })
 }
 
+const NAME_FILTERS: &[&str] = &["keys", "keys[]", "keys_unsorted", "keys_unsorted[]", "length", "type"];
+
+fn prints_no_values(stage: &Stage) -> bool {
+    let Some(start) = program(&stage.words) else {
+        return false;
+    };
+    let args: Vec<&str> = stage.words[start + 1..].iter().map(String::as_str).filter(|arg| !arg.starts_with('-')).collect();
+    match basename(&stage.words[start]) {
+        "jq" => args.first().is_some_and(|filter| NAME_FILTERS.contains(&filter.trim())),
+        "awk" => args.first().is_some_and(|program| awk_prints_no_field(program)),
+        _ => false,
+    }
+}
+
+fn awk_prints_no_field(program: &str) -> bool {
+    let program = restore(program);
+    let program = program.as_str();
+    static LENGTH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"length\([^)]*\)").unwrap());
+    static MATCH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$[0-9A-Za-z_]+\s*!?~\s*/[^/]*/").unwrap());
+    let without_length = LENGTH.replace_all(program, "");
+    let rest = MATCH.replace_all(&without_length, "");
+    program.contains("print") && !rest.contains('$')
+}
+
+fn quiet_comparison(words: &[String]) -> bool {
+    let Some(start) = program(words) else {
+        return false;
+    };
+    match basename(&words[start]) {
+        "cmp" => true,
+        "diff" => words[start + 1..].iter().any(|arg| matches!(arg.as_str(), "-q" | "-s" | "--brief" | "--quiet")),
+        _ => false,
+    }
+}
+
 fn writes_elsewhere(args: &[String]) -> bool {
     args.iter().any(|arg| {
         matches!(arg.as_str(), "-i" | "--in-place" | "--output") || arg.starts_with("--output=")
@@ -265,7 +300,7 @@ fn reaches_terminal(pipeline: &Pipeline, index: usize) -> bool {
         return false;
     }
     match consumers.last() {
-        Some(last) => !extracts(words) && !last.to_file,
+        Some(last) => !extracts(words) && !last.to_file && !prints_no_values(last),
         None => true,
     }
 }
@@ -284,6 +319,7 @@ struct Builder {
     stages: Vec<Stage>,
     stage: Stage,
     target: Option<Target>,
+    comparing: bool,
 }
 
 impl Builder {
@@ -338,11 +374,14 @@ impl Builder {
         match op {
             "|" => {
                 self.target = None;
+                self.comparing = false;
                 self.stages.push(std::mem::take(&mut self.stage));
             }
             "(" => {
-                let assigned = assignment_only(&self.stage.words)
-                    && self.stage.words.last().is_some_and(|word| word.ends_with("=$"));
+                self.comparing |= self.target.is_some() && quiet_comparison(&self.stage.words);
+                let assigned = self.comparing
+                    || assignment_only(&self.stage.words)
+                        && self.stage.words.last().is_some_and(|word| word.ends_with("=$"));
                 self.end();
                 self.captured.push(assigned);
             }
@@ -353,7 +392,10 @@ impl Builder {
                 }
             }
             "<" => self.target = Some(Target::Other),
-            _ => self.end(),
+            _ => {
+                self.comparing = false;
+                self.end();
+            }
         }
     }
 }
@@ -452,8 +494,28 @@ mod tests {
             "bash <<'EOF'\nsops -d f\nEOF",
             "ssh host <<EOF\nsops -d f\nEOF",
             "cat <<EOF\nIt's: $(sops -d f)\nEOF",
+            "sops -d f | jq .pem",
+            "sops -d f | jq 'keys' | tee /dev/tty",
+            "sops -d f | awk '{print $2}'",
+            "cat <(sops -d f)",
+            "printf %s \"$(sops -d f)\"",
         ] {
             assert!(refused(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn allows_decrypt_whose_output_never_prints_a_value() {
+        for command in [
+            "sops -d --output-type json f | jq 'keys'",
+            "sudo env SOPS_AGE_KEY_FILE=/k sops -d --output-type json f | jq 'keys'; echo done",
+            "sops -d f | jq -r 'keys[]'",
+            "sops -d f | awk -F': ' '/api_key/ {print \"length\", length($2), \"ok:\", ($2 ~ /^sk-/)}'",
+            "cmp <(sops -d --extract '[\"a\"]' f) <(sops -d --extract '[\"a\"]' g) && echo same",
+            "diff -q <(sops -d a) <(sops -d b)",
+            "printf 'header = \"Bearer %s\"\\n' \"$(sops -d --extract '[\"k\"]' f)\" > \"$t\"",
+        ] {
+            assert!(!refused(command), "{command}");
         }
     }
 

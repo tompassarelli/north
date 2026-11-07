@@ -53,14 +53,17 @@ fn forced(argument: &str) -> bool {
         || (argument.starts_with('-') && !argument.starts_with("--") && argument.contains('f'))
 }
 
-fn push(rest: &[String], safe_push: bool) -> Result<(), String> {
+fn push(rest: &[String], safe_push: bool, off_github: bool) -> Result<(), String> {
+    if rest.iter().any(|s| s == "--dry-run" || s == "-n") {
+        return Ok(());
+    }
     if rest.iter().any(|s| forced(s)) {
         return Err(
             "git push force/mirror — history rewrites are deliberate + manual, never automated"
                 .into(),
         );
     }
-    if !safe_push && !rest.iter().any(|s| s == "--delete" || s.starts_with(':')) {
+    if !safe_push && !off_github && !rest.iter().any(|s| s == "--delete" || s.starts_with(':')) {
         return Err("raw 'git push' — house policy: use safe-push (betterleaks-scans the outgoing commits, then pushes)".into());
     }
     Ok(())
@@ -103,6 +106,19 @@ impl<'a> State<'a> {
             None => Ok(()),
         }
     }
+    fn off_github(&self, rest: &[String], directory: &str, cwd: &str) -> bool {
+        let (remote, _) = deletion(rest);
+        let url = if remote.contains([':', '/']) || remote.starts_with(['.', '~']) {
+            remote
+        } else {
+            let root = if directory.is_empty() { Some(if cwd.is_empty() { self.cwd.clone() } else { cwd.to_owned() }) } else { self.resolve(directory, cwd) };
+            match root.and_then(|root| git(&root, &["remote", "get-url", "--push", &remote])) {
+                Some(url) => url,
+                None => return false,
+            }
+        };
+        !url.contains("github.com")
+    }
     pub(super) fn git(&mut self, args: &[String], cwd: &str) -> Result<(), String> {
         let (directory, i) = global_options(args);
         let Some(sub) = args.get(i) else {
@@ -114,7 +130,10 @@ impl<'a> State<'a> {
                 self.worktree_add(&rest[1..], directory, cwd);
                 Ok(())
             }
-            "push" => push(rest, self.safe_push).and_then(|()| if self.safe_push { Ok(()) } else { self.queued_deletion(rest, directory, cwd) }),
+            "push" => {
+                let off_github = self.off_github(rest, directory, cwd);
+                push(rest, self.safe_push, off_github).and_then(|()| if self.safe_push || off_github { Ok(()) } else { self.queued_deletion(rest, directory, cwd) })
+            }
             "clean" => self.clean(rest, directory, cwd),
             _ => Ok(()),
         }
@@ -212,6 +231,9 @@ impl<'a> State<'a> {
         }
         Ok(())
     }
+    fn command_text(&self) -> Option<&str> {
+        self.input.command().and_then(|command| command.as_str())
+    }
     fn gh_body(&self, value: &str, input: bool) -> bool {
         let mutation = !input && MUTATION.is_match(value);
         let path = if input {
@@ -224,7 +246,7 @@ impl<'a> State<'a> {
             return mutation;
         };
         if path == "-" {
-            return true;
+            return !input || self.command_text().is_none_or(|text| MUTATION.is_match(text));
         }
         let Some(p) = self.resolve(path, "") else {
             return true;

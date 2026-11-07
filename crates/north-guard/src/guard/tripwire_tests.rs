@@ -231,13 +231,17 @@ fn ported_cases_match_the_shell_guard() {
 }
 
 fn push_verdict(command: &str, env: &[(&str, &str)], hold: &super::Hold) -> Verdict {
+    verdict_at("/tmp", command, env, hold)
+}
+
+fn verdict_at(cwd: &str, command: &str, env: &[(&str, &str)], hold: &super::Hold) -> Verdict {
     let log = tempfile::tempdir().unwrap();
     let log = log.path().display().to_string();
     let payload = serde_json::json!({
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": command},
-        "cwd": "/tmp"
+        "cwd": cwd
     });
     let input = HookInput::parse(payload.to_string().as_bytes()).unwrap();
     decide(
@@ -304,4 +308,74 @@ fn raw_gh_and_curl_calls_outside_the_github_broker_are_refused_with_a_named_reas
     for command in ["gh auth status", "curl -s https://example.com/api.github.com"] {
         assert_eq!(push_verdict(command, &[("PATH", &real)], &none), Verdict::Allow, "{command}");
     }
+}
+
+#[test]
+fn a_push_to_a_remote_that_is_not_github_and_a_dry_run_are_not_raw_pushes() {
+    let none = |_: std::time::Instant, _: &str, _: &str, _: &[String]| None;
+    for command in [
+        "git push -q gex45:code/proj/main HEAD:refs/heads/lane",
+        "git push -q ssh://gex45/home/tom/code/proj/main lane:refs/heads/lane",
+        "git push --dry-run origin HEAD:refs/heads/probe",
+        "git -C /tmp push -n origin HEAD:refs/heads/probe",
+    ] {
+        assert_eq!(push_verdict(command, &[], &none), Verdict::Allow, "{command}");
+    }
+    for command in ["git push origin main", "git push https://github.com/o/r HEAD:main", "git push -f gex45:code/proj/main lane", "git push --force --dry-run=no gex45:x lane"] {
+        assert!(matches!(push_verdict(command, &[], &none), Verdict::Deny(_) | Verdict::Rewrite(..)), "{command}");
+    }
+}
+
+#[test]
+fn a_graphql_body_piped_to_gh_is_judged_by_the_command_text() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("north-bin");
+    fs::create_dir_all(&directory).unwrap();
+    crate::foundation::shim::write_executable(&directory.join("gh"), "#!/bin/sh\nexec north gh-session \"$dir/$name\" \"$@\"\n");
+    let path = directory.display().to_string();
+    let none = |_: std::time::Instant, _: &str, _: &str, _: &[String]| None;
+    let query = "q='{ viewer { login } }'; jq -n --arg q \"$q\" '{query:$q}' | gh api graphql --input -";
+    assert_eq!(push_verdict(query, &[("PATH", &path)], &none), Verdict::Allow);
+    let mutation = "q='mutation { createRef(input: {}) { ref { id } } }'; jq -n --arg q \"$q\" '{query:$q}' | gh api graphql --input -";
+    assert!(matches!(push_verdict(mutation, &[("PATH", &path)], &none), Verdict::Deny(_)));
+}
+
+#[test]
+fn a_recursive_delete_of_globbed_files_is_judged_by_the_files() {
+    let root = tempfile::tempdir().unwrap();
+    let base = root.path().display().to_string();
+    let main = format!("{base}/proj/main");
+    touch(&format!("{main}/keep/a.txt"), "a\n");
+    touch(&format!("{main}/logs/a.log"), "");
+    git(&main, &["init", "-q"]);
+    git(&main, &["add", "keep", "logs"]);
+    git(&main, &["commit", "-qm", "base"]);
+    let none = |_: std::time::Instant, _: &str, _: &str, _: &[String]| None;
+    assert_eq!(verdict_at(&main, &format!("rm -rf {main}/logs/*.log"), &[], &none), Verdict::Allow);
+    assert!(matches!(verdict_at(&main, &format!("rm -rf {main}/*"), &[], &none), Verdict::Deny(_)));
+}
+
+#[test]
+fn deleting_a_land_branch_already_on_origin_main_has_no_autoland_hold() {
+    let root = tempfile::tempdir().unwrap();
+    let base = root.path().display().to_string();
+    let run = |directory: &str, args: &[&str]| {
+        let status = Command::new("git").args(["-C", directory, "-c", "user.email=t@example", "-c", "user.name=t"]).args(args).output().unwrap().status;
+        assert!(status.success(), "git {args:?} in {directory}");
+    };
+    fs::create_dir_all(&base).unwrap();
+    run(&base, &["init", "-q", "--bare", "-b", "main", "origin.git"]);
+    run(&base, &["clone", "-q", "origin.git", "work"]);
+    let work = format!("{base}/work");
+    run(&work, &["commit", "-q", "--allow-empty", "-m", "one"]);
+    run(&work, &["push", "-q", "origin", "HEAD:main"]);
+    run(&work, &["checkout", "-q", "-b", "claude/land-x"]);
+    run(&work, &["commit", "-q", "--allow-empty", "-m", "two"]);
+    run(&work, &["push", "-q", "origin", "claude/land-x"]);
+    run(&work, &["checkout", "-q", "main"]);
+    run(&work, &["merge", "-q", "--ff-only", "claude/land-x"]);
+    run(&work, &["push", "-q", "origin", "main"]);
+    run(&work, &["fetch", "-q", "origin"]);
+    let hold = crate::autoland_status::origin_branches_hold;
+    assert_eq!(verdict_at(&work, "git push origin --delete claude/land-x", &[], &hold), Verdict::Allow);
 }
