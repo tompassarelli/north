@@ -15,7 +15,7 @@ fn is_test_file(path: &str) -> bool {
 }
 
 fn read_pattern() -> Regex {
-    Regex::new(r#"(?i)has_opener\(|report_column\(|starts_with\("Stop:"\)|\br#?"[^"\n]*(stop\s*:|stop\\s|stop\\W|not done|blocked:)"#).unwrap()
+    Regex::new(r#"(?i)has_opener\(|report_column\(|starts_with\("Stop:|\br#?"[^"\n]*(stop\s*:|stop\\s|stop\\W|not done|blocked:)"#).unwrap()
 }
 
 fn literal_pattern() -> Regex {

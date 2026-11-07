@@ -1,5 +1,5 @@
 //! A first try's automatic chain: a failed run the harness resumed by itself (a `resume` cause row, north#790) or
-//! relaunched on another host (`Follows: SESSION (Stop: host NEED)`) is one first try, judged where the chain ends. A
+//! relaunched on another host (a `host-need` cause row from `north fleet need`, then `Follows: SESSION (Stop: host NEED)`) is one first try, judged where the chain ends. A
 //! message from Tom, a lead or the proxy (a `tom` or `proxy` cause row) ends the chain: the run stays the failed first try.
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,6 +9,8 @@ use crate::foundation::clock::Timestamp;
 
 /// The `source` a boundary writes on the cause row of an automatic resume; `recorded_column` skips it.
 const RESUME_SOURCE: &str = "resume";
+/// The `source` `north fleet need` writes on the cause row of a host need a worker recorded.
+const NEED_SOURCE: &str = "host-need";
 
 /// How a run ended: what the scorer reads of a first try.
 #[derive(Clone)]
@@ -35,6 +37,7 @@ pub struct Raw {
 pub struct Marks {
     resumes: BTreeMap<String, Vec<i64>>,
     corrections: BTreeMap<String, Vec<i64>>,
+    needs: BTreeMap<String, Vec<i64>>,
 }
 
 impl Marks {
@@ -44,7 +47,7 @@ impl Marks {
         let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)));
         for (session, source, cause, at) in rows.into_iter().flatten().flatten() {
             let Ok(at) = Timestamp::parse(&at).map(|at| at.unix_seconds()) else { continue };
-            let kind = if source == RESUME_SOURCE { &mut marks.resumes } else if matches!(cause.as_str(), "tom" | "proxy") { &mut marks.corrections } else { continue };
+            let kind = if source == RESUME_SOURCE { &mut marks.resumes } else if source == NEED_SOURCE { &mut marks.needs } else if matches!(cause.as_str(), "tom" | "proxy") { &mut marks.corrections } else { continue };
             kind.entry(session).or_default().push(at);
         }
         marks
@@ -60,8 +63,9 @@ fn settled(end: &End) -> bool {
 }
 
 /// `rows` with each chain folded into its first run, which takes the end of the chain; a chain not yet ended is left
-/// out. `relaunches` maps a session stopped on `Stop: host` to the end of the run that relaunched it; a `Stop: host` run
-/// not yet relaunched is a chain not yet ended while it ended after `relaunch_since`, and its own end after that.
+/// out. `relaunches` maps a session that recorded a host need to the end of the run that relaunched it; a run whose session
+/// recorded a host need inside its window and was not yet relaunched is a chain not yet ended while it ended after
+/// `relaunch_since`, and its own end after that.
 pub fn fold(mut rows: Vec<Raw>, marks: &Marks, relaunches: &BTreeMap<String, End>, relaunch_since: i64) -> Vec<Raw> {
     rows.sort_by_key(|row| row.started);
     let mut dropped = BTreeSet::new();
@@ -102,7 +106,7 @@ pub fn fold(mut rows: Vec<Raw>, marks: &Marks, relaunches: &BTreeMap<String, End
             } else {
                 dropped.insert(at);
             }
-        } else if row.ended >= relaunch_since && !ends.contains_key(&at) && stopped_for_host(&row.end.report) {
+        } else if row.ended >= relaunch_since && !ends.contains_key(&at) && Marks::any(&marks.needs, &row.session, row.started, row.ended.saturating_add(1)) {
             dropped.insert(at);
         }
     }
@@ -110,8 +114,4 @@ pub fn fold(mut rows: Vec<Raw>, marks: &Marks, relaunches: &BTreeMap<String, End
         Some(end) => Raw { end, ..row },
         None => row,
     }).collect()
-}
-
-fn stopped_for_host(report: &str) -> bool {
-    report.lines().any(|line| line.trim_start().starts_with("Stop: host "))
 }

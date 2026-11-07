@@ -138,14 +138,17 @@ fn a_failed_run_whose_session_registered_a_wait_inside_its_window_is_a_waits_los
     assert_eq!(read.iter().map(|attempt| attempt.cause).collect::<Vec<_>>(), [Cause::Worker, Cause::Harness(Harness::Waits)]);
 }
 
-/// north-750-d1226 landed its server half on gex45 and stopped `Stop: host laptop` at 12:29 UTC on 2026-11-07 for the box
-/// only the laptop can prove, and the bar counted that first try lost to placement before dispatch could relaunch it
-/// (north#751): its relaunch judges it, and only a stop left unrelaunched for a day is judged by its own end.
+/// north-750-d1226 landed its server half on gex45 and stopped for the box only the laptop can prove at 12:29 UTC on
+/// 2026-11-07, and the bar counted that first try lost to placement before dispatch could relaunch it (north#751): the host
+/// need the session recorded with `north fleet need` holds it for its relaunch for a day, whatever its report says
+/// (north#791), and a `Stop: host` line with no need row is the worker's.
 #[test]
-fn a_first_try_stopped_for_another_host_waits_on_its_relaunch_for_a_day() {
-    let stopped = "Not done: this session runs on gex45 and has no route to the laptop.\nStop: host laptop";
-    let db = chain_db(&[], &[("a", "2026-11-07T12:00:00Z", "2026-11-07T12:29:00Z", stopped)]);
+fn a_first_try_whose_session_recorded_a_host_need_waits_on_its_relaunch_for_a_day_and_a_stop_line_alone_does_not() {
     let at = |iso: &str| crate::foundation::clock::Timestamp::parse(iso).unwrap().unix_seconds();
-    let read = |now: &str| attempts(&db, 0, &BTreeSet::new(), &Pending { now: at(now), ..Pending::default() }).unwrap().len();
-    assert_eq!((read("2026-11-07T12:47:00Z"), read("2026-11-08T12:30:00Z")), (0, 1));
+    let read = |db: &Connection, now: &str| attempts(db, 0, &BTreeSet::new(), &Pending { now: at(now), ..Pending::default() }).unwrap().len();
+    let runs = |report: &'static str| [("a", "2026-11-07T12:00:00Z", "2026-11-07T12:29:00Z", report)];
+    let recorded = chain_db(&[("host-need", "harness:placement", "2026-11-07T12:28:00Z")], &runs("Not done: this session has no route to the laptop."));
+    assert_eq!((read(&recorded, "2026-11-07T12:47:00Z"), read(&recorded, "2026-11-08T12:30:00Z")), (0, 1));
+    let said = chain_db(&[], &runs("Not done: this session has no route to the laptop.\nStop: host laptop"));
+    assert_eq!(read(&said, "2026-11-07T12:47:00Z"), 1);
 }

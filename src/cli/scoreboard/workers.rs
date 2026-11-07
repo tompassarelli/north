@@ -84,7 +84,7 @@ fn end_columns(db: &Connection) -> String {
     format!("{}, coalesce(compactions, 0), {}", report_column(db), recorded_column(db))
 }
 
-/// The ends of the runs that relaunched a session stopped on `Stop: host`, by the stopped session.
+/// The ends of the runs that relaunched a session that recorded a host need, by the stopped session.
 fn relaunches(db: &Connection) -> rusqlite::Result<BTreeMap<String, End>> {
     let mut statement = db.prepare(&format!("SELECT follows, {}, {} FROM runs WHERE follows LIKE '% (Stop: host %'", outcome_column(db), end_columns(db)))?;
     let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, End { outcome: row.get(1)?, report: row.get(2)?, compactions: row.get(3)?, recorded: row.get(4)? })))?;
@@ -101,7 +101,7 @@ pub struct Pending {
     pub waking: BTreeSet<String>,
     /// This host's capacity database: a failed run whose session queued past the bound for admission inside its window lost to capacity, whatever its report says.
     pub capacity: Option<Connection>,
-    /// When the scorer reads: a `Stop: host` first try that ended less than `RELAUNCH_WAIT_S` before it waits on its relaunch.
+    /// When the scorer reads: a first try with a recorded host need that ended less than `RELAUNCH_WAIT_S` before it waits on its relaunch.
     pub now: i64,
 }
 
