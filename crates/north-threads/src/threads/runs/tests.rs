@@ -193,3 +193,11 @@ fn a_blocked_report_that_stops_on_a_host_is_placement() {
     assert_eq!(read("Blocked: I'm on ccx33, and the runner lane lives on gex45.\nStop: host gex45"), crate::threads::attribution::Cause::Harness(Harness::Placement));
     assert_eq!(read("Blocked: the pilot spends money.\nStop: decision"), crate::threads::attribution::Cause::Tom);
 }
+
+/// north-751-d0333 found runs that ended on the API's "Credit balance is too low" charged to the worker on 2026-11-07
+/// when no boundary recorded a cause: a run the API refused for credit is a capacity loss.
+#[test]
+fn a_run_that_ends_on_the_api_credit_error_is_capacity() {
+    let read = crate::threads::attribution::attribute("unclear", "Credit balance is too low", 0, None);
+    assert_eq!(read, crate::threads::attribution::Cause::Harness(Harness::Capacity));
+}
