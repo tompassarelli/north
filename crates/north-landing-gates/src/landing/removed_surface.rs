@@ -4,6 +4,7 @@ use std::process::Command;
 
 const COMMAND_TABLES: &str = "src/cli";
 const COMMAND_DEPTH: usize = 2;
+const VERB_KINDS: &str = "src/cli/verbs.rs";
 const FLAG_SOURCES: [&str; 6] = ["src", "crates", ":(exclude)*_tests.rs", ":(exclude)*/tests/*", ":(exclude)tests", ":(exclude)*.md"];
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -18,6 +19,7 @@ pub struct Removed {
     pub bins: Vec<String>,
     pub commands: Vec<String>,
     pub flags: Vec<String>,
+    pub live: Vec<String>,
 }
 
 impl Removed {
@@ -46,14 +48,18 @@ fn commands(repo: &Path, rev: &str) -> Result<BTreeSet<String>, String> {
     grep_literals(repo, rev, "^[[:space:]]+\\(\"[a-z][a-z0-9-]*\",", &[COMMAND_TABLES])
 }
 
+fn live_paths(repo: &Path, rev: &str) -> Result<BTreeSet<String>, String> {
+    grep_literals(repo, rev, "^[[:space:]]+\\(\"[a-z][a-z0-9-]* [a-z][a-z0-9-]*\",", &[VERB_KINDS])
+}
+
 fn flags(repo: &Path, rev: &str) -> Result<BTreeSet<String>, String> {
     grep_literals(repo, rev, "\"--[a-z0-9][a-z0-9-]*\"", &FLAG_SOURCES)
 }
 
-pub fn removed_commands_and_flags(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, Vec<String>), String> {
+pub fn removed_surface(repo: &Path, base: &str, head: &str, bins: Vec<String>) -> Result<Removed, String> {
     let commands = commands(repo, base)?.difference(&commands(repo, head)?).cloned().collect();
     let flags = flags(repo, base)?.difference(&flags(repo, head)?).cloned().collect();
-    Ok((commands, flags))
+    Ok(Removed { bins, commands, flags, live: live_paths(repo, head)?.into_iter().collect() })
 }
 
 pub fn invocation(line: &str, prefixes: &[&str]) -> Option<Vec<String>> {
@@ -77,8 +83,11 @@ pub fn invocation(line: &str, prefixes: &[&str]) -> Option<Vec<String>> {
 
 pub fn removed_in(words: &[String], removed: &Removed) -> Vec<(Kind, String)> {
     let mut found = Vec::new();
-    for command in words.iter().take_while(|word| !word.starts_with('-')).take(COMMAND_DEPTH).filter(|word| removed.commands.contains(word)) {
-        found.push((Kind::Command, command.clone()));
+    let live = |depth: usize, word: &str| depth > 0 && removed.live.iter().any(|path| *path == format!("{} {word}", words[0]));
+    for (depth, command) in words.iter().take_while(|word| !word.starts_with('-')).take(COMMAND_DEPTH).enumerate() {
+        if removed.commands.contains(command) && !live(depth, command) {
+            found.push((Kind::Command, command.clone()));
+        }
     }
     for word in words.iter().filter(|word| word.starts_with("--")) {
         let flag = word.split('=').next().unwrap_or(word);

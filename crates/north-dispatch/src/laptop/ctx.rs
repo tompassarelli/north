@@ -96,7 +96,7 @@ impl Ctx {
         }
         let mut words = vec!["env".to_owned()];
         words.extend(env);
-        words.extend(["north".to_owned(), "laptop".to_owned()]);
+        words.extend(["north".to_owned(), "fleet".to_owned(), "laptop".to_owned()]);
         words.extend(argv.iter().cloned());
         let command = words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" ");
         let options = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &destination, &command];

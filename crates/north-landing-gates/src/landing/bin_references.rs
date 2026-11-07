@@ -2,13 +2,15 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::removed_surface::{Kind, Removed, invocation, removed_commands_and_flags, removed_in};
+use super::removed_surface::{Kind, Removed, invocation, removed_in, removed_surface};
 
 const USAGE: &str = "usage: north bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]";
 const PREFIXES: [&str; 3] = ["tree/bin/", "${northBin}/", "north/bin/"];
 const BARE: [&str; 1] = [""];
 const ORACLE: &str = "oracle = ";
 const SOURCE_REF: &str = "origin/main";
+const NORTH: [&str; 1] = ["north"];
+const LAUNCHER: &str = ":-north}\" ";
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Reference {
@@ -20,9 +22,11 @@ pub struct Reference {
 
 struct Source {
     label: &'static str,
-    dir: PathBuf,
+    checkout: PathBuf,
+    rev: String,
     pathspecs: &'static [&'static str],
-    oracles: bool,
+    needles: &'static [&'static str],
+    prefixes: &'static [&'static str],
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -61,6 +65,7 @@ pub fn names_entry(line: &str, entry: &str) -> bool {
 }
 
 fn matching(removed: &Removed, holder: &str, location: &str, line: &str, prefixes: &[&str]) -> Vec<Reference> {
+    let line = &line.replace(LAUNCHER, " north ");
     let reference = |kind, entry: &str| Reference { kind, entry: entry.to_owned(), holder: holder.to_owned(), location: location.to_owned() };
     let mut found: Vec<Reference> = removed.bins.iter().filter(|entry| names_entry(line, entry)).map(|entry| reference(Kind::Bin, entry)).collect();
     if let Some(words) = invocation(line, prefixes) {
@@ -70,30 +75,28 @@ fn matching(removed: &Removed, holder: &str, location: &str, line: &str, prefixe
 }
 
 fn source_references(source: &Source, removed: &Removed) -> Result<Vec<Reference>, String> {
-    let main = source.dir.join("main");
-    git(&main, &["fetch", "-q", "origin", "main"]).ok();
-    let mut arguments = vec!["grep", "-n", "-I", "-F"];
-    if source.oracles {
-        arguments.extend(["-e", ORACLE]);
-    } else {
-        PREFIXES.iter().for_each(|prefix| arguments.extend(["-e", *prefix]));
+    let main = &source.checkout;
+    if source.rev == SOURCE_REF {
+        git(main, &["fetch", "-q", "origin", "main"]).ok();
     }
-    arguments.extend([SOURCE_REF, "--"]);
+    let mut arguments = vec!["grep", "-n", "-I", "-F"];
+    source.needles.iter().for_each(|needle| arguments.extend(["-e", *needle]));
+    arguments.extend([source.rev.as_str(), "--"]);
     arguments.extend(source.pathspecs);
-    let output = Command::new("git").arg("-C").arg(&main).args(&arguments).output().map_err(|error| format!("git grep: {error}"))?;
+    let output = Command::new("git").arg("-C").arg(main).args(&arguments).output().map_err(|error| format!("git grep: {error}"))?;
     match output.status.code() {
         Some(0) => {}
         Some(1) => return Ok(Vec::new()),
         _ => return Err(format!("git grep in {} failed: {}", main.display(), String::from_utf8_lossy(&output.stderr).trim())),
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    let holder = format!("{} {SOURCE_REF}", source.label);
+    let holder = format!("{} {}", source.label, source.rev);
     let mut found = Vec::new();
     for hit in text.lines() {
-        let Some(hit) = hit.strip_prefix(SOURCE_REF).and_then(|rest| rest.strip_prefix(':')) else { continue };
+        let Some(hit) = hit.strip_prefix(source.rev.as_str()).and_then(|rest| rest.strip_prefix(':')) else { continue };
         let mut fields = hit.splitn(3, ':');
         let (Some(path), Some(number), Some(line)) = (fields.next(), fields.next(), fields.next()) else { continue };
-        found.extend(matching(removed, &holder, &format!("{path}:{number}"), line, if source.oracles { &BARE } else { &PREFIXES }));
+        found.extend(matching(removed, &holder, &format!("{path}:{number}"), line, source.prefixes));
     }
     Ok(found)
 }
@@ -159,26 +162,27 @@ pub fn refusal(found: &[Reference]) -> String {
     lines.join("\n")
 }
 
-fn sources(nixos_config: PathBuf, south: PathBuf) -> [Source; 4] {
+fn sources(repo: &Path, head: &str, nixos_config: PathBuf, south: PathBuf) -> [Source; 5] {
+    let main = |checkout: PathBuf, label, pathspecs, needles, prefixes| Source { label, checkout: checkout.join("main"), rev: SOURCE_REF.to_owned(), pathspecs, needles, prefixes };
     [
-        Source { label: "nixos-config", dir: nixos_config, pathspecs: &[".", ":(exclude)*.md"], oracles: false },
-        Source { label: "south", dir: south, pathspecs: &["agents/routines", "modules", "hosts", "bin"], oracles: false },
-        Source { label: "makgora", dir: home_dir("makgora", "SAFE_PUSH_MAKGORA"), pathspecs: &["goals.toml"], oracles: true },
-        Source { label: "wisp", dir: home_dir("wisp", "SAFE_PUSH_WISP"), pathspecs: &["goals.toml"], oracles: true },
+        Source { label: "north", checkout: repo.to_path_buf(), rev: head.to_owned(), pathspecs: &["bin", "harness", ":(exclude)*.md"], needles: &NORTH, prefixes: &BARE },
+        main(nixos_config, "nixos-config", &[".", ":(exclude)*.md"], &PREFIXES, &PREFIXES),
+        main(south, "south", &["agents/routines", "modules", "hosts", "bin"], &PREFIXES, &PREFIXES),
+        main(home_dir("makgora", "SAFE_PUSH_MAKGORA"), "makgora", &["goals.toml"], &[ORACLE], &BARE),
+        main(home_dir("wisp", "SAFE_PUSH_WISP"), "wisp", &["goals.toml"], &[ORACLE], &BARE),
     ]
 }
 
 fn collect(repo: &Path, base: &str, head: &str, nixos_config: PathBuf, south: PathBuf) -> Result<(Vec<Reference>, Vec<String>), String> {
-    let (commands, flags) = removed_commands_and_flags(repo, base, head)?;
-    let removed = Removed { bins: deleted_entries(repo, base, head)?, commands, flags };
+    let removed = removed_surface(repo, base, head, deleted_entries(repo, base, head)?)?;
     if removed.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
     let mut found = Vec::new();
     let mut warnings = Vec::new();
-    for source in sources(nixos_config, south) {
-        if !source.dir.join("main").is_dir() {
-            warnings.push(format!("safe-push: ⚠ no {} checkout at {}, so its units were not checked for bin/ entries, subcommands or flags this landing removes.", source.label, source.dir.display()));
+    for source in sources(repo, head, nixos_config, south) {
+        if !source.checkout.is_dir() {
+            warnings.push(format!("safe-push: ⚠ no {} checkout at {}, so its units were not checked for bin/ entries, subcommands or flags this landing removes.", source.label, source.checkout.display()));
             continue;
         }
         found.extend(source_references(&source, &removed)?);
