@@ -8,6 +8,11 @@ hotspot_top = 10
 owners = ["crates/north-base/src/lifecycle.rs", "crates/north-base/src/lifecycle/"]
 typed = "north_base::lifecycle (one Lifecycle enum per state, written only through lifecycle::Store)"
 
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-providers/src/providers/claude/window_inbox.rs"
+reason = "the status of a Claude Code window is read from the session file Claude Code writes, an external format with no north lifecycle behind it"
+
 [crate_lines]
 default = 25000
 hub = 10000
