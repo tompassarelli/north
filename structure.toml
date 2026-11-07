@@ -452,7 +452,7 @@ may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "f
 [[module]]
 name = "landing.probes"
 paths = ["crates/north-land-probes/src/**"]
-responsibility = "Which candidates the lander checks in one round, split into footprint sub-queues, and which one each sub-queue lands."
+responsibility = "Which candidates the lander checks in one round, split into footprint sub-queues, how wide and in what order, and which one each sub-queue lands."
 may_use = []
 
 [[module]]

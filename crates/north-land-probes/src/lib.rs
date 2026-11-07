@@ -4,8 +4,10 @@
 //! lanes of different sub-queues land in the same round without a check of their union. The crate is pure and depends on nothing.
 #![forbid(unsafe_code)]
 
+mod pace;
 mod subqueue;
 
+pub use pace::{RefusalRate, paced, urgent_first};
 pub use subqueue::{Footprint, SubRound, partition, round, share};
 
 #[derive(Debug, PartialEq, Eq)]
