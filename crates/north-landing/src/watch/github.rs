@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use north_base::platform::harness::default_number;
+use north_base::platform::watch_named::run_time as at;
 
 use super::facts::{RepoFacts, Run};
 use super::landing::recent_land_check_failures;
@@ -27,16 +28,6 @@ pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
         alerts.extend(autoland(context, repo));
     }
     alerts
-}
-
-pub fn at(text: &str) -> Option<u64> {
-    let number = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
-    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
-    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
-    let month = time::Month::try_from(u8::try_from(month).ok()?).ok()?;
-    let date = time::Date::from_calendar_date(i32::try_from(year).ok()?, month, u8::try_from(day).ok()?).ok()?;
-    let days = i64::from(date.to_julian_day()) - 2_440_588;
-    u64::try_from(days * 86_400 + hour * 3600 + minute * 60 + second).ok()
 }
 
 fn raise(repo: &RepoFacts, kind: &str, severity: Severity, owner: Option<String>, summary: String, since: u64) -> Alert {

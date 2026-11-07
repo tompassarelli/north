@@ -93,7 +93,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let context = facts::gather(&state);
     let alerts = evaluate(&context);
-    let lines = sink::deliver(&dir.join("incidents.json"), &alerts, &context.unavailable, context.now, &sink::Fleet::default());
+    let lines = sink::deliver(&state, &dir.join("incidents.json"), &alerts, &context.unavailable, context.now, &sink::Fleet::default());
     for line in lines.iter().filter(|_| !quiet) {
         println!("{line}");
     }

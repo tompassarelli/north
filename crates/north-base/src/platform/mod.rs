@@ -59,4 +59,5 @@ pub mod pystats;
 pub mod trials;
 pub mod twister;
 pub mod wait;
+pub mod watch_named;
 pub mod toml_json;

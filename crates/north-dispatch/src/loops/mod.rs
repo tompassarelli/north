@@ -1,7 +1,8 @@
 mod check;
 mod hosts;
+mod red_main;
 
-pub use check::{Checked, Reading, check};
+pub use check::{Checked, Finding, Reading, check};
 pub use hosts::{Hosts, last_written};
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -117,7 +118,8 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
             Box::new(move |found| hosts.holds(found))
         }
     };
-    Ok(check(&loops, &*held, &read, &score, SystemTime::now()))
+    let watched = held(Role::Lander).then(|| red_main::finding(&state, SystemTime::now()));
+    Ok(check(&loops, &*held, &read, &score, watched.into_iter().collect(), SystemTime::now()))
 }
 
 pub fn run(arguments: &[String]) -> u8 {

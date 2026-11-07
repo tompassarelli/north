@@ -29,6 +29,8 @@ Each role is checked where its records live. The daily `north tune` on the ledge
 
 `north tune` runs the check after its own work and appends the registry's lines to its output. Its exit code is 1 when any closed loop it holds is stale or never updated, or when the registry cannot be parsed, which fires the nexus unit's failure alert. The same code that fails `north tune` fails `north loops check`.
 
+On the lander host the check also reads the watch's cargo.yml run history (`north/watch/runs-north.json`) and fails when main stayed red over 10 minutes with neither a sheriff revert (`Sheriff-Reverts:` on origin/main after the red commit) nor a fleet message naming the commit, recorded in `north/watch/named.jsonl` by `north ops watch`; reds from before the record began are not judged. Added 2026-11-08 under north#634 after Tom twice had to be the alarm for a red main (class tom-as-monitor in `harness/corrections.toml`).
+
 ## Completeness
 
 The registry is kept complete by a test in `crates/north-dispatch/src/loops/inventory_tests.rs`, not by comments at the decision sites. It scans the dispatch, fleet-launch, placement, capacity-admission and lander source directories (leaving out test files and the text after `#[cfg(test)]`) for numeric `const` items and for the keys of `default(...)`-style reads of `harness/defaults.toml`. Each must be named, as `path::NAME` or as the key, in some loop's `constants` or `defaults`, or in the `[plumbing]` lists at the end of the registry, which hold values that do not decide anything (protocol limits, buffer sizes, wait intervals). A name the scan no longer finds also fails, so the lists cannot go stale.

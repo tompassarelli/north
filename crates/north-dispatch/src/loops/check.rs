@@ -13,7 +13,13 @@ pub struct Checked {
     pub failing: Vec<String>,
 }
 
-pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, score: &dyn Fn(&str) -> Option<String>, now: SystemTime) -> Checked {
+pub struct Finding {
+    pub name: &'static str,
+    pub verdict: String,
+    pub failed: bool,
+}
+
+pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, score: &dyn Fn(&str) -> Option<String>, extra: Vec<Finding>, now: SystemTime) -> Checked {
     let mut lines = Vec::new();
     let mut failing = Vec::new();
     for found in loops {
@@ -24,7 +30,13 @@ pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) ->
         let scored = found.score.as_deref().filter(|_| held(found.host)).and_then(score).map(|text| format!("; score: {text}")).unwrap_or_default();
         lines.push(format!("{}: {verdict}{scored}", found.name));
     }
-    lines.push(format!("loops: {} of {} failing", failing.len(), loops.len()));
+    for finding in &extra {
+        if finding.failed {
+            failing.push(finding.name.to_owned());
+        }
+        lines.push(format!("{}: {}", finding.name, finding.verdict));
+    }
+    lines.push(format!("loops: {} of {} failing", failing.len(), loops.len() + extra.len()));
     Checked { lines, failing }
 }
 

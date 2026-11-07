@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use north_base::platform::watch_named;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -76,11 +77,12 @@ pub fn load(path: &Path) -> BTreeMap<String, Incident> {
     fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
 }
 
-pub fn deliver(path: &Path, alerts: &[Alert], unavailable: &[String], now: u64, outbox: &Fleet) -> Vec<String> {
+pub fn deliver(state: &Path, path: &Path, alerts: &[Alert], unavailable: &[String], now: u64, outbox: &Fleet) -> Vec<String> {
+    watch_named::begin(state, now);
     let mut incidents = load(path);
     let mut lines = Vec::new();
     for alert in alerts {
-        step(&mut incidents, alert, now, outbox, &mut lines);
+        step(state, &mut incidents, alert, now, outbox, &mut lines);
     }
     let ended: Vec<String> = incidents.keys().filter(|key| !alerts.iter().any(|alert| &alert.key == *key) && !unavailable.iter().any(|prefix| key.starts_with(prefix.as_str()))).cloned().collect();
     for key in ended {
@@ -96,13 +98,14 @@ pub fn deliver(path: &Path, alerts: &[Alert], unavailable: &[String], now: u64, 
     lines
 }
 
-fn step(incidents: &mut BTreeMap<String, Incident>, alert: &Alert, now: u64, outbox: &Fleet, lines: &mut Vec<String>) {
+fn step(state: &Path, incidents: &mut BTreeMap<String, Incident>, alert: &Alert, now: u64, outbox: &Fleet, lines: &mut Vec<String>) {
     let to = recipients(alert.owner.as_deref(), outbox);
     let entry = incidents.entry(alert.key.clone());
     let incident = match entry {
         std::collections::btree_map::Entry::Vacant(vacant) => {
             if alert.severity > Severity::Info {
                 send_all(&to, &format!("north ops watch: {}", alert.summary), outbox, lines);
+                watch_named::record(state, now, &alert.summary);
             } else {
                 lines.push(format!("info: {}", alert.summary));
             }
@@ -116,6 +119,7 @@ fn step(incidents: &mut BTreeMap<String, Incident>, alert: &Alert, now: u64, out
             if alert.severity > Severity::Info && now.saturating_sub(incident.last_sent) >= REPEAT_SECONDS {
                 let minutes = now.saturating_sub(incident.since) / 60;
                 send_all(&to, &format!("north ops watch: still, {minutes} min: {}", alert.summary), outbox, lines);
+                watch_named::record(state, now, &alert.summary);
                 incident.last_sent = now;
             }
             incident
