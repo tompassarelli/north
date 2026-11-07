@@ -289,6 +289,8 @@ pub struct SessionRecord {
     pub box_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adopted_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revived_mid_task_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -353,6 +355,7 @@ impl SessionRecord {
             budget: request.budget(),
             box_name: request.box_name(),
             adopted_ms: None,
+            revived_mid_task_ms: None,
         }
     }
 

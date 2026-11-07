@@ -7,12 +7,14 @@ use crate::error::NorthResult;
 use super::super::gates::GateRequest;
 use super::super::host::{Host, alive};
 use super::super::model::{Delivery, Role, SessionRecord, Status};
-use super::super::receipts::{Courier, HostDeath, deliver_death, still_watched};
+use super::super::receipts::{Aftermath, Courier, HostDeath, deliver_death, still_watched};
+use super::super::records::write_record;
 use super::super::runtime::{Runtime, binary, now_ms};
 use super::super::sender::Sender;
 use super::super::turns::Turns;
 use super::super::unaccepted::Unaccepted;
 use super::Fleet;
+use super::relaunching::REVIVED_MID_TURN;
 
 const WATCHDOG_POLL: Duration = Duration::from_secs(1);
 
@@ -26,12 +28,26 @@ impl Fleet {
         let runtime = self.runtime(&child)?;
         let lines = self.recent(runtime.as_ref(), &child)?.entries;
         let death = HostDeath { child: &child, host_pid, mid_task: mid_task(self, runtime.as_ref(), &child)?, lines: &lines };
-        if deliver_death(self.ledger.as_ref(), &Inline(self), &death, now_ms())? {
-            Host::new(child.host_dir.clone()).terminate()?;
-        } else {
-            self.resume_unaccepted(name, host_pid)?;
+        match deliver_death(self.ledger.as_ref(), &Inline(self), &death, now_ms())? {
+            Aftermath::Revive => self.revive_mid_task(name, host_pid),
+            Aftermath::Reported => Host::new(child.host_dir.clone()).terminate(),
+            Aftermath::Quiet => self.resume_unaccepted(name, host_pid),
         }
-        Ok(())
+    }
+
+    fn revive_mid_task(&self, name: &str, dead_host: u32) -> NorthResult<()> {
+        {
+            let _start = self.start_lock(name)?;
+            let Ok(mut child) = self.record(name) else { return Ok(()) };
+            if !still_watched(Some(&child), dead_host) {
+                return Ok(());
+            }
+            Host::new(child.host_dir.clone()).terminate()?;
+            child.revived_mid_task_ms = Some(now_ms());
+            write_record(&self.session_dir(name)?, &child)?;
+            self.revive_held(name, None, None, None)?;
+        }
+        self.carry_on(name, REVIVED_MID_TURN)
     }
 
     fn resume_unaccepted(&self, name: &str, dead_host: u32) -> NorthResult<()> {
