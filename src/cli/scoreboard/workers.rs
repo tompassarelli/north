@@ -69,6 +69,7 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
     Ok(chain::fold(raws, &Marks::read(db), &relaunches, pending.now.saturating_sub(RELAUNCH_WAIT_S))
         .into_iter()
         .filter_map(|Raw { agent, category, item, session, started, ended, end: End { outcome, report, compactions, recorded } }| {
+            let outcome = if outcome != "done" && pending.landed_during(&session, started, ended) { "done".to_owned() } else { outcome };
             let recorded = recorded.or_else(|| (outcome != "done" && pending.queued_behind_capacity(&session, started, ended)).then(|| Cause::Harness(Harness::Capacity).label().to_owned()));
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
             if outcome != "done" && pending.holds(&session) {
@@ -115,6 +116,11 @@ impl Pending {
 
     fn queued_behind_capacity(&self, session: &str, from: i64, to: i64) -> bool {
         self.capacity.as_ref().is_some_and(|db| !queued_behind_capacity(db, session, from, to).is_empty())
+    }
+
+    /// Whether the session queued a lane inside the run that the lander has landed: done is the landing, read from the lander's own record when the scorer reads, not from the ledger's landed sha, which its 15-minute join fills in later.
+    fn landed_during(&self, session: &str, from: i64, to: i64) -> bool {
+        self.lanes.get(session).is_some_and(|lanes| lanes.iter().any(|lane| lane.landed() && (from..=to).contains(&i64::try_from(lane.queued_ms() / 1000).unwrap_or(i64::MAX))))
     }
 
     fn holds(&self, session: &str) -> bool {

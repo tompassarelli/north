@@ -12,7 +12,7 @@ use crate::threads::attribution::{Cause, Harness};
 
 /// n-takeable queued its north#706 lane and reported `Stop: landing` at 10:10 AM on 2026-11-07, and the ready bar counted
 /// that first try lost to the harness while the lander still held its ticket (north#751): a run whose session has an
-/// undecided ticket is pending, and the same report whose ticket is decided counts as a landing refusal.
+/// undecided ticket is pending, the same report whose ticket was refused counts as a landing refusal, and one whose ticket landed is done.
 #[test]
 fn a_landing_stop_is_pending_while_its_ticket_waits_in_the_lander_queue() {
     let state = tempfile::tempdir().unwrap();
@@ -20,14 +20,15 @@ fn a_landing_stop_is_pending_while_its_ticket_waits_in_the_lander_queue() {
     fs::create_dir_all(queue.join("done")).unwrap();
     fs::write(queue.join("1794020829623648-n706-claim-filed.json"), r#"{"session":"n-takeable"}"#).unwrap();
     fs::write(queue.join("done/1794020468167698-n706-boxneeds.json"), r#"{"session":"n-decided"}"#).unwrap();
+    fs::write(queue.join("done/1794018600000000-ingest-chunks.json"), r#"{"session":"n-landed","verdict":"landed ba47d1dd7ee370ecebbf378f4b77260e337e036a"}"#).unwrap();
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT);").unwrap();
-    for (agent, session, report) in [("queued", "n-takeable", "Not done: the lane is queued."), ("decided", "n-decided", "Not done: the lane is queued.\nStop: landing")] {
+    for (agent, session, report) in [("queued", "n-takeable", "Not done: the lane is queued."), ("decided", "n-decided", "Not done: the lane is queued.\nStop: landing"), ("landed", "n-landed", "Not done: the lane is queued.\nStop: landing")] {
         db.execute("INSERT INTO runs VALUES (?1, 'north#706', NULL, 'bug', '2026-11-07T02:21:27Z', '2026-11-07T03:10:21Z', 49, 'not done', ?3, 'worker', '', 0, ?2)", [agent, session, report]).unwrap();
     }
     let read = attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: lanes_by_session(&land_queue::queues(state.path())).unwrap(), waking: BTreeSet::new(), ..Pending::default() }).unwrap();
-    let causes: Vec<Cause> = read.iter().map(|attempt| attempt.cause).collect();
-    assert_eq!(causes, [Cause::Harness(Harness::LandingRefusal)]);
+    let causes: Vec<(Cause, bool)> = read.iter().map(|attempt| (attempt.cause, attempt.succeeded)).collect();
+    assert_eq!(causes, [(Cause::Harness(Harness::LandingRefusal), false), (Cause::Worker, true)], "north-255-d1828 queued a lane that landed six minutes after its Stop: landing report on 2026-11-07, and read as lost until the ledger's join caught up");
 }
 
 /// north-751-d0501 ended `Stop: wait until 2026-11-07T05:45Z` on 2026-11-07 because its only open box measured a time
