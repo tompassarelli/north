@@ -1,5 +1,5 @@
 //! `north capacity sandbox --lane DIR -- COMMAND...`: runs a command another host composed, such as a heavy run pulled from a peer's queue, inside bubblewrap so its build scripts, tests and dev-shell hook never touch this host's credentials. The lane is the only writable checkout; HOME and TMPDIR are private and empty; the nix store, the cargo registry, the compiler cache and the lane's git directory are read-only; the network is a fresh namespace with only its own loopback, so the command reaches no host at all and the nix daemon socket is its one way out of the sandbox.
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,8 +9,8 @@ use super::dev_shell;
 
 const USAGE: &str = "usage: north capacity sandbox --lane DIR -- COMMAND...";
 const SYSTEM: [&str; 7] = ["/nix", "/etc", "/run/current-system", "/bin", "/usr", "/lib64", "/sys"];
-const PASSED: [&str; 18] = [
-    "PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "AGENT_CAPACITY_LEASE", "AGENT_CAPACITY_PAIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_CACHE_SIZE", "SCCACHE_BASEDIRS", "CMAKE_C_COMPILER_LAUNCHER", "CMAKE_CXX_COMPILER_LAUNCHER", "NORTH_DEV_SHELL_TRACE", "NIX_PATH",
+const PASSED: [&str; 17] = [
+    "LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "AGENT_CAPACITY_LEASE", "AGENT_CAPACITY_PAIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_CACHE_SIZE", "SCCACHE_BASEDIRS", "CMAKE_C_COMPILER_LAUNCHER", "CMAKE_CXX_COMPILER_LAUNCHER", "NORTH_DEV_SHELL_TRACE", "NIX_PATH",
 ];
 const MARKS: [&str; 4] = [REMOTE_MARK, SHIP_SECONDS_ENV, SLOT_TARGET_ENV, SLOT_HEAD_ENV];
 
@@ -22,6 +22,7 @@ pub struct Layout {
     pub runtime: PathBuf,
     pub git: Option<(PathBuf, PathBuf)>,
     pub reads: Vec<PathBuf>,
+    pub path: Option<OsString>,
 }
 
 impl Layout {
@@ -32,7 +33,7 @@ impl Layout {
         let mut reads = vec![cargo.join("registry"), cargo.join("git"), home.join(".local/state/north/dev-shells")];
         reads.extend(set("SCCACHE_DIR"));
         let runtime = north.parent().map_or_else(|| north.to_path_buf(), Path::to_path_buf);
-        Self { home: home.to_path_buf(), lane: lane.to_path_buf(), directory: directory.to_path_buf(), runtime, git: git_directories(lane), reads }
+        Self { home: home.to_path_buf(), lane: lane.to_path_buf(), directory: directory.to_path_buf(), runtime, git: git_directories(lane), reads, path: std::env::var_os("PATH") }
     }
 
     /// The bubblewrap invocation that runs `command` in this layout.
@@ -51,6 +52,9 @@ impl Layout {
         }
         sandbox.arg("--bind").arg(&self.lane).arg(&self.lane);
         sandbox.arg("--symlink").arg(&self.runtime).arg(self.home.join(".local/state/north/current"));
+        if let Some(path) = &self.path {
+            sandbox.arg("--setenv").arg("PATH").arg(outside_home(&self.home, path));
+        }
         for name in PASSED.iter().chain(&MARKS) {
             if let Some(value) = std::env::var_os(name) {
                 sandbox.arg("--setenv").arg(name).arg(value);
@@ -71,6 +75,15 @@ impl Layout {
         sandbox.arg("--chdir").arg(&self.directory).arg("--").args(command);
         sandbox
     }
+}
+
+/// `path` with each directory under `home` named by its real path when that lies outside `home`, since the sandbox hides `home` and a host may keep programs such as git only in a home profile that links into the nix store.
+fn outside_home(home: &Path, path: &OsStr) -> OsString {
+    let directories = std::env::split_paths(path).map(|directory| {
+        let real = directory.starts_with(home).then(|| std::fs::canonicalize(&directory).ok()).flatten();
+        real.filter(|real| !real.starts_with(home)).unwrap_or(directory)
+    });
+    std::env::join_paths(directories.collect::<Vec<_>>()).unwrap_or_else(|_| path.to_os_string())
 }
 
 /// The lane's shared git directory, mounted read-only, and its own worktree directory inside it, mounted writable so git can refresh the lane's index.

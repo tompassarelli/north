@@ -310,3 +310,22 @@ fn capacity_a_pulled_run_executes_in_a_sandbox_without_credentials_or_network_an
     }
     assert!(super::remote::script(super::remote::Trust::Pulled).contains(r#""$north" capacity sandbox --lane "$slot" -- "$@""#), "the taker's lane script runs the job through the sandbox");
 }
+
+// KEEP(bug): on 2026-11-07 every git-spawning test of a cargo test gex45 offloaded to cpx62 and ccx33 failed with os error 2, since those hosts keep git only in the home profile the sandbox hides (north#764)
+#[test]
+fn capacity_a_pulled_run_finds_the_programs_its_host_keeps_in_a_home_profile() {
+    let scratch = tempfile::tempdir().unwrap();
+    let home = scratch.path().join("home");
+    let lane = home.join(".cache/build-offload/code-proj-main-pulled");
+    std::fs::create_dir_all(&lane).unwrap();
+    let git = std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|directory| directory.join("git")).find(|git| git.is_file()).expect("git on PATH");
+    std::os::unix::fs::symlink(std::fs::canonicalize(git).unwrap().parent().unwrap(), home.join(".nix-profile")).unwrap();
+    let north = std::env::current_exe().unwrap();
+    let mut layout = crate::capacity::sandbox::Layout::of(&lane, &lane, &home, &north);
+    if !layout.command(&["true".to_owned()]).status().is_ok_and(|status| status.success()) {
+        return;
+    }
+    layout.path = Some(home.join(".nix-profile").into_os_string());
+    let output = layout.command(&["git".to_owned(), "--version".to_owned()]).output().unwrap();
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("git version"), "a pulled run finds no git its host keeps in a home profile: {}", String::from_utf8_lossy(&output.stderr));
+}
