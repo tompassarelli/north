@@ -60,7 +60,7 @@ fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {
 pub(super) const MAX_5X: PlanSize = PlanSize { five_hour: 1.0, week: 1.0 };
 
 pub(super) fn sized(name: &str, hosts: &[&str], plan: PlanSize, room: Room) -> Account {
-    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room }
+    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room, grant: None }
 }
 
 /// The spend view of `accounts`: each one's readings are its room, so an account with no five-hour

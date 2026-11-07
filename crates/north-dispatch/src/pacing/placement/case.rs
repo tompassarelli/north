@@ -9,7 +9,7 @@ use super::{local, strings};
 use crate::capacity::saturation::Saturation;
 use crate::capacity::{agent_load, laptop_auto, mode};
 use crate::fleet::roster::Roster;
-use north_strategy_types::placement::{Case, Config, Here, Host, Launch, Usage, Window};
+use north_strategy_types::placement::{Case, Config, GrantSource, Here, Host, Launch, Usage, Window};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use toml_edit::{Array, DocumentMut, Item, Table, value};
@@ -48,6 +48,7 @@ pub fn gather(ask: &Ask) -> Result<Case, String> {
         machines,
         here: here(),
         github: crate::platform::github_quota::seen(at),
+        grants: grant_sources(ask.roster, at),
     })
 }
 
@@ -63,7 +64,9 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     let basis = Basis::new(&cfg, case.at);
     let credit = hosts::credit_verdict(&case.credit, case.config.cloud_credit.as_deref().unwrap_or_default(), case.at);
     let here = case.here.name.as_str();
-    let mut decision = gate::decide(&case.brief, &cfg, gate::verdicts_of(&gate_value, &case.roster, &basis), credit, &machines, here, case.here.gaming);
+    let mut verdicts = gate::verdicts_of(&gate_value, &case.roster, &basis);
+    verdicts.extend(case.grants.iter().map(gate::grant_verdict));
+    let mut decision = gate::decide(&case.brief, &cfg, verdicts, credit, &machines, here, case.here.gaming);
     decision.here_on_battery = case.here.battery.map(|percent| gate::battery_refusal(here, percent, &machines));
     decision.here_closed = gate::closed(here, case.here.playtest_hold_until, || case.here.battery, case.at as u64);
     if let Some(name) = case.launch.named_machine.as_deref() {
@@ -230,4 +233,35 @@ pub fn recorded_target(target: &gate::Target) -> north_strategy_types::placement
 /// Where placement targets the launch a logged case recorded, decided again from the case alone.
 pub fn replayed_target(case: &Case) -> Option<north_strategy_types::placement::Target> {
     decide(case).ok().map(|decision| recorded_target(&decision.target))
+}
+
+/// The API grants this host can launch on (its roster lists `api:NAME`) that are unexpired, unmarked and have credit left.
+pub fn grant_sources(roster: &Roster, at: f64) -> Vec<GrantSource> {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), std::path::PathBuf::from);
+    let now = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at);
+    let claude = crate::fleet::model::ProviderName::new("claude");
+    crate::credit::sources(&crate::platform::orchestration::path(), &state, now)
+        .into_iter()
+        .filter(|source| !source.exhausted && source.left > 0.0)
+        .filter(|source| matches!(roster.standing(&claude, &format!("api:{}", source.name)), crate::fleet::roster::Standing::Listed(_)))
+        .map(|source| {
+            let now_s = now.unix_seconds();
+            GrantSource { account: format!("claude:api:{}", source.name), left_usd: source.left, deadline_h: source.deadline_h(now_s), urgent: !source.drains(now_s), line: source.line(now_s) }
+        })
+        .collect()
+}
+
+/// Every plan account and API grant this host can launch on, in the order placement ranks them (first is
+/// placed first), each with its verdict line and the reason for its rank: what `north fleet accounts --plan` prints.
+pub fn plan(roster: &Roster) -> Result<Vec<(String, String)>, String> {
+    let text = std::fs::read_to_string(crate::platform::orchestration::path()).map_err(|error| error.to_string())?;
+    let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
+    let at = storage::now();
+    let (gate_value, _) = usage(at);
+    let basis = Basis::new(&cfg, at);
+    let mut verdicts: Vec<gate::Verdict> = gate::verdicts(&gate_value, roster, &basis).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
+    verdicts.extend(grant_sources(roster, at).iter().map(gate::grant_verdict));
+    verdicts.sort_by(|a, b| b.available.cmp(&a.available).then(b.rank.order(&a.rank)).then(a.account.cmp(&b.account)));
+    Ok(verdicts.into_iter().map(|verdict| (verdict.line, if verdict.available { verdict.rank.reason() } else { "unavailable".to_owned() })).collect())
 }

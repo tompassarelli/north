@@ -118,3 +118,82 @@ fn next_credits(policy: &Path) -> BTreeMap<String, String> {
         .filter_map(|org| Some((org.get("id")?.as_str()?.to_owned(), date(org.get("next_credit")?.as_value()?)?)))
         .collect()
 }
+
+const BURN_WINDOW_S: i64 = 24 * 3600;
+
+/// One pool entry as the router ranks it against plan accounts: what is left of its soonest unexpired grant,
+/// when that grant expires, and the whole fleet's list-price spend per hour over the last day, the most it could send there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Source {
+    pub name: String,
+    pub left: f64,
+    pub expires_s: i64,
+    pub burn_per_h: f64,
+    pub exhausted: bool,
+}
+
+impl Source {
+    /// Hours from `now_s` to the grant's expiry, which is treated as the start of its UTC day.
+    pub fn deadline_h(&self, now_s: i64) -> f64 {
+        (self.expires_s - now_s) as f64 / 3600.0
+    }
+
+    /// Whether the fleet, at its last day's burn, could spend what is left before the grant expires.
+    pub fn drains(&self, now_s: i64) -> bool {
+        self.burn_per_h * self.deadline_h(now_s) >= self.left
+    }
+
+    pub fn line(&self, now_s: i64) -> String {
+        let pace = if self.drains(now_s) { "drains by then" } else { "cannot drain by then" };
+        format!("${:.2} left, expires in {:.0}h; at the fleet's ${:.2}/h over the last day it {pace}", self.left, self.deadline_h(now_s), self.burn_per_h)
+    }
+}
+
+/// The pool entries `[accounts.claude.api_orgs.NAME]` declares, as (name, organization id), the first name of each id.
+pub fn orgs(policy: &Path) -> Vec<(String, String)> {
+    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let table = document.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs")).and_then(Item::as_table_like);
+    let mut named: Vec<(String, String)> = Vec::new();
+    for (name, org) in table.into_iter().flat_map(|table| table.iter()) {
+        let Some(id) = org.get("id").and_then(Item::as_str) else { continue };
+        if !named.iter().any(|(_, seen)| seen == id) {
+            named.push((name.to_owned(), id.to_owned()));
+        }
+    }
+    named
+}
+
+/// Every pool entry with an unexpired grant, from the grants beside `policy`, the ledger and exhausted marks under `state` (the XDG state root).
+pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
+    let grants = grants(policy);
+    let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices)).unwrap_or_default();
+    let (today, now_s) = (now.iso_date(), now.unix_seconds());
+    let burn_per_h = PriceTable::load().ok().and_then(|prices| fleet_spend(&state.join("north/ledger.db"), &prices, now_s - BURN_WINDOW_S).ok()).unwrap_or(0.0) / (BURN_WINDOW_S as f64 / 3600.0);
+    orgs(policy)
+        .into_iter()
+        .filter_map(|(name, id)| {
+            let mine = spends.get(&name).cloned().unwrap_or_default();
+            let balance = balance(grants.get(&id).map_or(&[][..], Vec::as_slice), &mine, &today)?;
+            let expires_s = crate::foundation::clock::parse_day_number(&balance.grant.expires)? * 86_400;
+            let exhausted = state.join("north/api-exhausted").join(&id).exists();
+            Some(Source { name, left: balance.left, expires_s, burn_per_h, exhausted })
+        })
+        .collect()
+}
+
+/// The list-price dollars of every session's turns in `ledger` that started at or after `since_s`, on any account.
+fn fleet_spend(ledger: &Path, prices: &PriceTable, since_s: i64) -> Result<f64, String> {
+    let db = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| format!("{}: {error}", ledger.display()))?;
+    let mut statement = db
+        .prepare("SELECT model, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM runs WHERE started_ms >= ?1")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([since_s * 1000], |row| Ok((row.get::<_, Option<String>>(0)?, TokenUse { input: row.get(1)?, output: row.get(2)?, cache_read: row.get(3)?, cache_write: row.get(4)? })))
+        .map_err(|error| error.to_string())?;
+    let mut total = 0.0;
+    for row in rows {
+        let (model, tokens) = row.map_err(|error| error.to_string())?;
+        total += model.as_deref().and_then(|model| prices.price(model)).map_or(0.0, |price| price.of(tokens));
+    }
+    Ok(total)
+}

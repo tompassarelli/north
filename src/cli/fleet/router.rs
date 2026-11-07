@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
 use crate::fleet::model::{ProviderName, Role};
 use crate::fleet::registry::{self, Controlled, Fleet};
@@ -116,6 +116,12 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["accounts"] => accounts(&fleet, false),
         ["accounts", "--claude-ai"] => accounts(&fleet, true),
         ["accounts", "--api"] => api_pool_listing(),
+        ["accounts", "--plan"] => {
+            for (index, (line, reason)) in crate::pacing::placement::case::plan(&fleet.roster()).map_err(NorthError::State)?.into_iter().enumerate() {
+                println!("{}. {line} [{reason}]", index + 1);
+            }
+            Ok(())
+        }
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),

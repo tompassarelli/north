@@ -177,6 +177,7 @@ fn placed_case(used_5h: f64) -> placement::Case {
         machines: Vec::new(),
         here: placement::Here::default(),
         github: None,
+        grants: Vec::new(),
     }
 }
 

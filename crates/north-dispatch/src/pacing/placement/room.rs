@@ -31,7 +31,7 @@ pub struct Room {
 }
 
 impl Room {
-    const SOONEST_RESET_H: f64 = 1.0 / 60.0;
+    pub const SOONEST_RESET_H: f64 = 1.0 / 60.0;
 
     /// Week room in plan units per hour until it resets: the capacity lost each hour it is not spent.
     pub fn expiring(&self, plan: PlanSize) -> f64 {
@@ -78,22 +78,45 @@ pub fn room(windows: &Value, at: f64) -> Room {
     room
 }
 
-/// What orders accounts for a launch: the week's room that expires soonest, in plan units per hour
-/// until its reset; then five-hour room in plan units. `north fleet launch`, revive and dispatch all
-/// rank by this, and it never refuses.
+/// What orders accounts and API grants for a launch, earliest deadline first: a source the fleet cannot
+/// drain before its deadline, then the one whose capacity is lost soonest (a plan's weekly reset, a
+/// grant's expiry), then the week's room that expires soonest in plan units per hour until its reset,
+/// then five-hour room in plan units. `north fleet launch`, revive and dispatch all rank by this, and it never refuses.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rank {
+    urgent: bool,
+    deadline_h: Option<f64>,
     expiring: f64,
     five_hour: f64,
 }
 
 impl Rank {
     pub fn of(room: Room, plan: PlanSize) -> Self {
-        Self { expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour }
+        let deadline_h = (room.week > 0.0).then(|| room.week_reset_h.max(Room::SOONEST_RESET_H));
+        Self { urgent: false, deadline_h, expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour }
+    }
+
+    /// An API grant with credit left: its deadline is its expiry, and it is urgent when the measured burn would not spend it by then.
+    pub fn grant(deadline_h: f64, urgent: bool) -> Self {
+        Self { urgent, deadline_h: Some(deadline_h.max(Room::SOONEST_RESET_H)), expiring: 0.0, five_hour: 0.0 }
     }
 
     pub fn order(&self, other: &Self) -> Ordering {
-        self.expiring.total_cmp(&other.expiring).then(self.five_hour.total_cmp(&other.five_hour))
+        let soonest = |rank: &Self| rank.deadline_h.map_or(0.0, |hours| 1.0 / hours);
+        self.urgent
+            .cmp(&other.urgent)
+            .then(soonest(self).total_cmp(&soonest(other)))
+            .then(self.expiring.total_cmp(&other.expiring))
+            .then(self.five_hour.total_cmp(&other.five_hour))
+    }
+
+    /// Why the source ranks where it does, as a placement records it.
+    pub fn reason(&self) -> String {
+        match (self.urgent, self.deadline_h) {
+            (true, Some(hours)) => format!("cannot drain before its deadline in {hours:.0}h"),
+            (false, Some(hours)) => format!("deadline in {hours:.0}h"),
+            (_, None) => "no room before its deadline".to_owned(),
+        }
     }
 }
 

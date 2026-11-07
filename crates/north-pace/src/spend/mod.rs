@@ -186,7 +186,7 @@ impl View {
     }
 
     /// The cap on working sessions alone, the one rule a worker on an API-key account meets, since it spends no subscription week.
-    fn capped(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
+    pub fn capped(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
         let working = self.working + placed.workers;
         if working >= rules.cap {
             return Err(Refusal { rule: Rule::Cap, line: format!("{working} worker sessions are working, the cap is {}", rules.cap) });

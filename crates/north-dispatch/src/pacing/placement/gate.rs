@@ -595,3 +595,9 @@ pub fn here_in_game_reserve() -> bool {
 pub fn probed(cfg: &DocumentMut, fleet_load: &BTreeMap<String, i64>) -> Vec<Machine> {
     super::hosts::probed_machines(machines(cfg), fleet_load)
 }
+
+/// An API grant as a placement verdict, ranked by its deadline beside the plan accounts.
+pub fn grant_verdict(source: &north_strategy_types::placement::GrantSource) -> Verdict {
+    let rank = Rank::grant(source.deadline_h, source.urgent);
+    Verdict { account: source.account.clone(), available: true, exhausted: false, headroom: source.left_usd, rank, line: format!("{} available: {}", source.account, source.line), owners: Vec::new() }
+}

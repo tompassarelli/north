@@ -71,6 +71,8 @@ pub struct Account {
     /// Plan size per window in Max 5x units (`[accounts.PROVIDER] plans`), which puts every account's percent on one scale.
     pub plan: PlanSize,
     pub room: Room,
+    /// The deadline rank of an API grant, which has no plan windows; None for a plan account.
+    pub grant: Option<crate::pacing::placement::room::Rank>,
 }
 
 impl Account {

@@ -70,7 +70,8 @@ impl Capacity<'_> {
 
 /// The shared rank (`room::Rank`) of each account's room less what this run has charged it.
 fn rank(pools: &Pools, a: &Account, b: &Account) -> Ordering {
-    Rank::of(pools.room(a), a.plan).order(&Rank::of(pools.room(b), b.plan)).then(b.name.cmp(&a.name))
+    let ranked = |account: &Account| account.grant.unwrap_or_else(|| Rank::of(pools.room(account), account.plan));
+    ranked(a).order(&ranked(b)).then(b.name.cmp(&a.name))
 }
 
 fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str) -> Option<&'a Account> {
@@ -120,7 +121,7 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             Cloud::Closed(_) => {}
         }
     }
-    capacity.spend.fleet(capacity.rules, pools.placed()).map_err(|refusal| refusal.to_string())?;
+    capacity.spend.capped(capacity.rules, pools.placed()).map_err(|refusal| refusal.to_string())?;
     let mut refused = Vec::new();
     for candidate in candidates {
         if let Some(why) = &candidate.refusal {

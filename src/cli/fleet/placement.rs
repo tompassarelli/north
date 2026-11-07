@@ -114,18 +114,19 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
         return Ok(placed);
     }
     let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
-    let rules = match spend_refusal(request, starter, &fleet.roster()) {
+    let account = placed.as_ref().ok().and_then(|placed| placed.account.clone()).unwrap_or_else(|| request.account.clone());
+    let rules = match spend_refusal(&account, starter, &fleet.roster()) {
         Ok(rules) => rules,
         Err(why) => return Ok(Err(Refusal::Spend(why))),
     };
     Ok(placed.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref()), &rules), ..placed } } else { placed }))
 }
 
-/// The spend rule on this launch: a worker meets the cap, the pooled reserve and its account's
+/// The spend rule on the account placement chose: a worker meets the cap, the pooled reserve and its account's
 /// tripwire; the proxy and a scheduled routine may use the reserve, so they meet the provider's limit alone.
-fn spend_refusal(request: &LaunchRequest, starter: Starter, roster: &Roster) -> Result<spend::Rules, String> {
+fn spend_refusal(account: &str, starter: Starter, roster: &Roster) -> Result<spend::Rules, String> {
     let (view, rules) = crate::dispatch::spend_now(roster).map_err(|why| format!("spend view unread: {why}"))?;
-    view.admit(&rules, &format!("claude:{}", request.account), starter, spend::Placed::default()).map_err(|refusal| refusal.to_string())?;
+    view.admit(&rules, &format!("claude:{account}"), starter, spend::Placed::default()).map_err(|refusal| refusal.to_string())?;
     Ok(rules)
 }
 
@@ -196,6 +197,10 @@ pub(super) fn settle(decision: &Decision, launch: &Launch, text: &str, overrides
     }
     let account = pick(decision, overrides)?;
     let mut placed = admit(decision, &Launch { account: &account, ..*launch }, text, overrides)?;
+    if let Some(verdict) = decision.verdict(&format!("claude:{account}")) {
+        let source = format!("source: {account}, {}", verdict.rank.reason());
+        placed.note = Some(placed.note.map_or_else(|| source.clone(), |note| format!("{note}; {source}")));
+    }
     placed.account = Some(account);
     Ok(placed)
 }

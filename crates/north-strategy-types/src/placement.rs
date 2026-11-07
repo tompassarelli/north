@@ -19,6 +19,19 @@ pub struct Case {
     /// The lowest GitHub rate limit the broker last saw, None when it has seen none in a live window.
     #[serde(default)]
     pub github: Option<crate::github::Quota>,
+    /// The API grants signed in here that have credit left, as the router ranks them beside plan accounts.
+    #[serde(default)]
+    pub grants: Vec<GrantSource>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GrantSource {
+    /// `claude:api:NAME`.
+    pub account: String,
+    pub left_usd: f64,
+    pub deadline_h: f64,
+    pub urgent: bool,
+    pub line: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

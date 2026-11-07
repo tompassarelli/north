@@ -61,9 +61,11 @@ An account with no reading at all starts nothing.
 spawners between two samples are not charged; the sampler reads every few minutes, so at most a few starts
 fall in that gap, and the reserve absorbs them.
 
-**Order.** Rules decide whether a worker may start; order decides only which account takes it. Placement
-puts the soonest-expiring week room first (`room::Rank`: room per plan unit per hour to reset, from the same
-readings, less this run's charges), so one dispatch run spreads its launches. Order never refuses.
+**Order.** Rules decide whether a worker may start; order decides only which source takes it. Placement
+ranks plan accounts and API grants earliest deadline first (`room::Rank`, north#723): first a source the fleet's
+measured burn could not use up before its deadline, then the soonest deadline (a plan's weekly reset while its
+week has room, a grant's expiry), then week room per plan unit per hour to reset, less this run's charges, then
+five-hour room. `north fleet accounts --plan` prints the order with each source's reason. Order never refuses.
 
 **Providers.** The pool, the reserve and the tripwire cover Claude accounts. Other providers have no plan
 accounts in use; a launch on one meets the cap and its provider's limit.

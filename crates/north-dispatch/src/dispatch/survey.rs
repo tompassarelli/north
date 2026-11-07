@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
 pub(super) use crate::pacing::placement::room::room;
-use crate::pacing::placement::room::Basis;
+use crate::pacing::placement::room::{Basis, Rank, Room};
 
 pub struct Survey {
     pub here: String,
@@ -136,14 +136,31 @@ pub fn account(name: &str, usage: &Value, basis: &Basis, hosts: Vec<String>, at:
         notes.push(why);
         PlanSize { five_hour: 1.0, week: 1.0 }
     });
-    Account { name: name.to_owned(), hosts, plan, room: room(usage, at) }
+    Account { name: name.to_owned(), hosts, plan, room: room(usage, at), grant: None }
 }
 
 fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
     let usage = placement::pace_state("usage-gate.json");
     let basis = Basis::new(cfg, at);
     let sampled = usage["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
-    sampled.map(|(name, windows)| account(name, windows, &basis, signed_in(cfg, roster, name, here), at, notes)).collect()
+    let mut found: Vec<Account> = sampled.map(|(name, windows)| account(name, windows, &basis, signed_in(cfg, roster, name, here), at, notes)).collect();
+    found.extend(grants(cfg, roster, at));
+    found
+}
+
+/// Each API grant with credit left as an account on the hosts that hold its key, ranked by its deadline.
+fn grants(cfg: &DocumentMut, roster: &Roster, at: f64) -> Vec<Account> {
+    let orgs = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs"));
+    crate::pacing::placement::case::grant_sources(roster, at)
+        .into_iter()
+        .map(|source| {
+            let name = source.account.trim_start_matches("claude:api:");
+            let keys = orgs.and_then(|orgs| orgs.get(name)).and_then(|org| org.get("keys")).and_then(Item::as_table_like);
+            let hosts = keys.into_iter().flat_map(|keys| keys.iter().map(|(host, _)| host.to_owned())).collect();
+            let room = Room { five_hour: 100.0, week: 100.0, week_reset_h: source.deadline_h };
+            Account { name: source.account, hosts, plan: PlanSize { five_hour: 1.0, week: 1.0 }, room, grant: Some(Rank::grant(source.deadline_h, source.urgent)) }
+        })
+        .collect()
 }
 
 /// The spend rule's view at `at`: every account's readings, counted while some host is signed in to
