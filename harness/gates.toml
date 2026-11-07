@@ -19,3 +19,7 @@ mode = "shadow"
 # A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). It exits 0 and prints "would refuse:" lines in the land check output while in shadow.
 [gate.code-comment]
 mode = "shadow"
+
+# A north lane whose own build drops a flag or subcommand that a nixos-config unit or script on its origin/main still runs (north#706): `north land scan tool-removal` asks the lane's build for `north PATH --help`. Would-be refusals: $XDG_STATE_HOME/north/gates/peer-invocation.jsonl on the checking host.
+[gate.peer-invocation]
+mode = "shadow"

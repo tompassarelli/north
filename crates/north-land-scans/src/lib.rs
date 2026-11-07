@@ -16,6 +16,7 @@ pub mod incident_guard;
 pub mod language;
 pub mod nix_entry;
 pub mod outgoing;
+mod peer_invocations;
 pub mod policy;
 pub mod rule_owners;
 pub mod safe_push_verbs;

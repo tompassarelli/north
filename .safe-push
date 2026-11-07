@@ -22,6 +22,7 @@
 [land]
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets ${SAFE_PUSH_LAND_CHANGED:---workspace} --locked --offline -- -D warnings
 	check = harness/gates.toml,.safe-push :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/gate_shadow.rs,src/cli/ --no-build land scan gate-shadow ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
+	check = src/,crates/ :: CARGO_TARGET_DIR=target ./bin/head-north land scan tool-removal ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = ** :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-land-scans/src/detector_proof.rs,src/cli/ --no-build land scan detector-proof ${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/agent_config_check/ --no-build check harness tree-policy
 	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=fail ${SAFE_PUSH_LAND_PACKAGES:---workspace} --lib --bins ${SAFE_PUSH_LAND_IT:---test it -E kind(lib)|kind(bin)|binary_id(north::it)}

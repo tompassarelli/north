@@ -5,7 +5,8 @@ use std::ffi::OsStr;
 
 use north_base::platform::entry_points;
 
-use super::{Range, git};
+use super::{Range, git, peer_invocations};
+use crate::platform::records_mirror;
 
 const CORE_TOOLS: [&str; 2] = ["agents", "threads"];
 
@@ -123,6 +124,9 @@ pub fn scan(directory: &Path, home: &Path, range: &str, out: &mut impl Write) ->
             )
         };
         let _ = writeln!(out, "{line}");
+        refused = true;
+    }
+    if own == "bin" && peer_invocations::scan(directory, &from, head, &peer, &records_mirror::state_home(), &mut peer_invocations::own_help, out) {
         refused = true;
     }
     u8::from(refused)
