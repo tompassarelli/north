@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -63,14 +64,13 @@ struct Row {
 }
 
 impl Store {
-    /// This host's store, beside the run ledger in `~/.local/state/north/ledger.db`.
+    /// This host's store, beside the run ledger in `$XDG_STATE_HOME/north/ledger.db`, else `~/.local/state/north/ledger.db`.
     pub fn host() -> NorthResult<Self> {
         Self::open(&Self::host_path()?)
     }
 
     pub fn host_path() -> NorthResult<PathBuf> {
-        let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?;
-        Ok(PathBuf::from(home).join(".local/state/north/ledger.db"))
+        host_path_in(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
     }
 
     pub fn open(path: &Path) -> NorthResult<Self> {
@@ -322,4 +322,12 @@ fn prune<L: Lifecycle>(transaction: &Transaction, at: Timestamp) -> NorthResult<
     }
     transaction.execute("DELETE FROM lifecycle_moves WHERE machine = ?1 AND at_ms < ?2", params![L::NAME, at.unix_millis() - millis(KEEP_MOVES)]).map_err(sql)?;
     Ok(())
+}
+
+pub(super) fn host_path_in(state: Option<OsString>, home: Option<OsString>) -> NorthResult<PathBuf> {
+    if let Some(state) = state.filter(|state| !state.is_empty()) {
+        return Ok(PathBuf::from(state).join("north/ledger.db"));
+    }
+    let home = home.filter(|home| !home.is_empty()).ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?;
+    Ok(PathBuf::from(home).join(".local/state/north/ledger.db"))
 }

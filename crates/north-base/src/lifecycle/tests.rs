@@ -115,3 +115,13 @@ fn a_live_holder_keeps_its_state_and_one_on_another_host_keeps_it_only_until_its
     assert!(overdue.iter().all(|fault| matches!(fault.kind, FaultKind::Overdue { .. })));
     assert_eq!(other.transition::<Puller>("gex45", Pull::Pulling, "take over", at(81)).unwrap().unwrap().owner, Some(owner("laptop", 11)));
 }
+
+// KEEP(bug): on 2026-11-08 a post-land test that redirected only XDG_STATE_HOME made the lander write 16 red-main moves for a repository named origin into the laptop's real ledger.db, because the host store path read HOME alone (north#844)
+#[test]
+fn the_host_store_lives_under_the_state_root_a_caller_redirects_and_under_home_only_without_one() {
+    let path = |state: Option<&str>, home: Option<&str>| super::store::host_path_in(state.map(Into::into), home.map(Into::into)).ok();
+    assert_eq!(path(Some("/scratch/state"), Some("/home/tom")), Some("/scratch/state/north/ledger.db".into()));
+    assert_eq!(path(Some(""), Some("/home/tom")), Some("/home/tom/.local/state/north/ledger.db".into()));
+    assert_eq!(path(None, Some("/home/tom")), Some("/home/tom/.local/state/north/ledger.db".into()));
+    assert_eq!(path(None, None), None);
+}
