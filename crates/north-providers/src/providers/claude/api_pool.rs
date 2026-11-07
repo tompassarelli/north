@@ -5,7 +5,7 @@ use north_base::platform::attribution::{self, Cause, Harness};
 use toml_edit::{DocumentMut, Item};
 
 use crate::credit::{Grant, marks};
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::limit::recent;
 use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, SessionRecord};
 use crate::fleet::records::write_record;
@@ -131,7 +131,7 @@ pub fn move_spent(fleet: &Fleet, policy: &Path, home: &Path) -> Vec<String> {
             Err(error) => lines.push(format!("api:{} ran out of credit but its exhausted mark was not written: {error}", org.name)),
         }
         match moved_to(&record.account, &orgs, &today, |org| exhausted(&dir, org)) {
-            Some(to) => lines.push(move_onto(fleet, &record, &org.name, &to)),
+            Some(to) => lines.push(move_onto(fleet, &record, &org.name, (&to, policy, home, &machine))),
             None if matches!(marked, Ok(true)) => lines.push(format!("{}: api:{} ran out of credit and no other api org is open, so it stays parked", record.name, org.name)),
             None => {}
         }
@@ -139,13 +139,10 @@ pub fn move_spent(fleet: &Fleet, policy: &Path, home: &Path) -> Vec<String> {
     lines
 }
 
-fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, to: &str) -> String {
+fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str)) -> String {
     let moved = || -> NorthResult<()> {
-        fleet.halt(&record.name, Halt::Relaunched)?;
-        let mut stopped = fleet.session(&record.name)?;
-        to.clone_into(&mut stopped.account);
-        write_record(&fleet.session_dir(&record.name)?, &stopped)?;
-        fleet.revive(&record.name, None)?;
+        super::accounts::on_machine(&record.provider, policy, home, to, machine)?;
+        switch(fleet, record, to)?;
         fleet.waits().clear_usage(&record.name)?;
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("moved from account {} to {to}: org {spent} ran out of credit", record.account));
         fleet.send_signed(&Sender::fleet(), &record.name, &resume_message(spent, to), Delivery::Queued)
@@ -154,6 +151,24 @@ fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, to: &str) -> St
         Ok(()) => format!("{}: moved from account {} to {to} on its conversation, since org {spent} ran out of credit", record.name, record.account),
         Err(error) => format!("{}: not moved from account {} to {to}: {}", record.name, record.account, error.user_message()),
     }
+}
+
+/// Restarts `record` on its conversation under `to`; a restart that fails puts the session back on its account and running, so the next tick tries the move again instead of finding it stopped half moved.
+fn switch(fleet: &Fleet, record: &SessionRecord, to: &str) -> NorthResult<()> {
+    fleet.halt(&record.name, Halt::Relaunched)?;
+    set_account(fleet, &record.name, to)?;
+    let Err(error) = fleet.revive(&record.name, None) else { return Ok(()) };
+    let restored = set_account(fleet, &record.name, &record.account).and_then(|()| fleet.revive(&record.name, None));
+    Err(match restored {
+        Ok(_) => error,
+        Err(left) => NorthError::State(format!("{}; it stays stopped on {}, which did not restart either: {}", error.user_message(), record.account, left.user_message())),
+    })
+}
+
+fn set_account(fleet: &Fleet, name: &str, account: &str) -> NorthResult<()> {
+    let mut record = fleet.session(name)?;
+    account.clone_into(&mut record.account);
+    write_record(&fleet.session_dir(name)?, &record)
 }
 
 pub fn resume_message(spent: &str, to: &str) -> String {
