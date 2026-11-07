@@ -523,14 +523,19 @@ fn every_slot_of_a_checkout_serves_sccache_on_its_own_stable_port_in_range() {
 #[test]
 fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_waiting_out_the_queue() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
+    let repo = home.path().join("code/p/main");
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "second"]);
+    let other = git(&repo, &["rev-parse", "HEAD"]);
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let inner = home.path().join("inner.sh");
     fs::write(&inner, &script).unwrap();
+    let nested = |head: &str, ran: &Path| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = crate::capacity::land_claim::OFFLOAD_SLOT_ENV);
     let ran = home.path().join("inner-ran");
-    let command = format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = crate::capacity::land_claim::OFFLOAD_SLOT_ENV);
+    let ran_elsewhere = home.path().join("inner-ran-elsewhere");
+    let command = format!("{} && {}", nested(&head, &ran), nested(&other, &ran_elsewhere));
     let started = std::time::Instant::now();
     let mut outer = Command::new("setsid")
         .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
@@ -553,7 +558,8 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
         let _ = outer.wait();
     }
     let err = fs::read_to_string(home.path().join("outer.err")).unwrap_or_default();
-    assert!(finished.is_some_and(|status| status.success()), "the nested job did not run within 10 s while its caller held the host's one slot: {err}");
+    assert!(finished.is_some_and(|status| status.success()), "the nested jobs did not run within 10 s while their caller held the host's one-job cap: {err}");
     assert_eq!(fs::read_to_string(&ran).unwrap(), home.path().join(".cache/land-offload/code-p-main").display().to_string(), "the nested job ran in the slot its caller holds");
-    assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "the nested job left no ticket in the queue");
+    assert_eq!(fs::read_to_string(&ran_elsewhere).unwrap(), home.path().join(".cache/land-offload/code-p-main-1").display().to_string(), "the nested job at another head took a free slot past its caller's one-job cap");
+    assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "the nested jobs left no ticket in the queue");
 }

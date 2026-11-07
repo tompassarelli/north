@@ -63,8 +63,9 @@ fi
 git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
 "#;
 
-const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-}
-if [ -z "@BACKGROUND@" ] && [ "${caller_slot%/*}" = "$root" ] && case ${caller_slot##*/} in "$name" | "$name"-[1-9]) true ;; *) false ;; esac && [ "$(git -C "$caller_slot" rev-parse HEAD 2>/dev/null)" = "$head" ]; then
+const NESTED: &str = r#"caller_slot=${@SLOT_ENV@:-} nested=
+[ -n "@BACKGROUND@" ] || [ "${caller_slot%/*}" != "$root" ] || nested=1
+if [ -n "$nested" ] && case ${caller_slot##*/} in "$name" | "$name"-[1-9]) true ;; *) false ;; esac && [ "$(git -C "$caller_slot" rev-parse HEAD 2>/dev/null)" = "$head" ]; then
   s=${caller_slot##*/} slot=$caller_slot
   echo "offload: running in $s, the slot this job's caller holds on this host" >&2
 else
@@ -93,8 +94,7 @@ case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=1 ;; esac
 [ -z "$red_fix" ] || rank=0
 [ -z "@BACKGROUND@" ] || rank=3
 ticket=$queue/$rank-$(date +%s%N)-$$@$name
-exec 8>"$ticket"
-flock -n 8
+[ -n "$nested" ] || { exec 8>"$ticket"; flock -n 8; }
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 @JOBS@@CAP@served=$root/served
 mkdir -p "$served"
@@ -126,7 +126,7 @@ while :; do
     if flock -n 9; then s=$reserved; break; fi
     exec 9>&-
   fi
-  if first_in_line && { [ -n "@BACKGROUND@" ] || { [ "$(slot_jobs "$name")" -lt "$cap" ] && [ "$(host_jobs)" -lt "$host_cap" ]; }; }; then
+  if [ -n "$nested" ] || { first_in_line && { [ -n "@BACKGROUND@" ] || { [ "$(slot_jobs "$name")" -lt "$cap" ] && [ "$(host_jobs)" -lt "$host_cap" ]; }; }; }; then
     for s in $nearest; do
       exec 9>"$root/$s.lock"
       if flock -n 9; then break 2; fi
