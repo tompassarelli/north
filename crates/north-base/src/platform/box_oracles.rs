@@ -12,6 +12,17 @@ pub fn unproven(body: &str) -> Vec<&str> {
     body.lines()
         .filter(|line| !cleanup::is_box(line))
         .filter_map(|line| TICKED.captures(line)?.get(1).map(|text| text.as_str().trim()))
-        .filter(|text| !LANDED.is_match(text) && !PASSED.is_match(text) && !SPLIT.is_match(text))
+        .filter(|text| !LANDED.is_match(text) && !passed(text) && !SPLIT.is_match(text))
         .collect()
 }
+
+pub fn evidence(command: &str, exit: i32, sha: &str, date: &str) -> String {
+    format!("Evidence: `{command}` passed on main {} on {date}, exit {exit}.", &sha[..sha.len().min(12)])
+}
+
+pub fn passed(text: &str) -> bool {
+    PASSED.is_match(text)
+}
+
+#[cfg(test)]
+mod tests;

@@ -99,7 +99,7 @@ fn a_command_box_is_ticked_only_when_its_expectation_holds_on_main_and_a_landed_
     settle(&mut issue, 7, &only(body, Some("Climb shares")), &run, &stamp(), false).unwrap();
     assert_eq!(ran.into_inner(), ["true"], "only the landed box's command runs");
     let [edited] = issue.edits.as_slice() else { panic!("{:?}", issue.edits) };
-    assert!(edited.lines().next().unwrap().starts_with("- [x] Climb shares. Done when: `true` passes. Evidence: `true` exited 0 on main "), "{edited}");
+    assert!(edited.lines().next().unwrap().starts_with("- [x] Climb shares. Done when: `true` passes. Evidence: `true` passed on main "), "{edited}");
     assert!(edited.contains("- [ ] Other box."), "{edited}");
     assert!(north_providers::ledger::closed::checker_verified(edited), "{edited}");
 }

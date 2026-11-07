@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::platform::rolling_issue::{Gh, Tracker};
-use crate::platform::{git, github, process};
+use crate::platform::{box_oracles, git, github, process};
 
 pub use expectation::{Expectation, Expected, Outcome};
 
@@ -114,8 +114,7 @@ pub fn ticked(body: &str, verdicts: &[Verdict], stamp: &Stamp) -> String {
         let Some(index) = lines.iter().position(|line| line.trim() == open) else { continue };
         let indent: String = lines[index].chars().take_while(|character| character.is_whitespace()).collect();
         let ticked = lines[index].trim_end().replacen("- [ ]", "- [x]", 1);
-        let short = &stamp.sha[..stamp.sha.len().min(12)];
-        lines[index] = format!("{ticked} Evidence: `{}` exited {} on main {short} on {}.", verdict.check.command, verdict.run.exit, stamp.date);
+        lines[index] = format!("{ticked} {}", box_oracles::evidence(&verdict.check.command, verdict.run.exit, &stamp.sha, &stamp.date));
         let block: Vec<String> = attachment(&verdict.run.output).into_iter().map(|line| format!("{indent}{line}")).collect();
         lines.splice(index + 1..index + 1, block);
     }

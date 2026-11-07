@@ -191,11 +191,9 @@ impl SpendRun {
     }
 }
 
-/// Whether a closed issue's boxes were ticked by the independent Done-when check: it has a ticked box and
-/// every ticked box carries the `Evidence:` stamp `north task check --done-when` writes for an exit of 0.
 pub fn checker_verified(body: &str) -> bool {
     let ticked: Vec<&str> = body.lines().map(str::trim_start).filter(|line| line.starts_with("- [x]") || line.starts_with("- [X]")).collect();
-    !ticked.is_empty() && ticked.iter().all(|line| line.contains("Evidence: `") && line.contains(" exited 0 on "))
+    !ticked.is_empty() && ticked.iter().all(|line| crate::platform::box_oracles::passed(line))
 }
 
 fn day(started: Option<&str>) -> &str {
