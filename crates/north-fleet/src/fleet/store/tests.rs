@@ -111,3 +111,16 @@ fn a_registration_is_refused_for_a_live_name_past_its_machine_resident_cap_and_p
     assert_eq!(cap, "spend cap: 12 worker sessions are starting or working across the fleet, the cap is 12");
     assert_eq!(held, "the session name north-0 is held fleet-wide by a starting session on nexus");
 }
+
+#[test]
+fn a_settled_wait_leaves_its_registration_in_the_wait_history() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    store.wait(&WaitRequest { session: "north-730-d0351".into(), kind: WaitKind::Job, key: "n730-poolkey-landed".into(), within_secs: 60 }).unwrap();
+    store.settle("north-730-d0351", WaitKind::Job, "n730-poolkey-landed").unwrap();
+
+    let db = Connection::open(&path).unwrap();
+    let live: i64 = db.query_row("SELECT count(*) FROM fleet_waits", [], |row| row.get(0)).unwrap();
+    let kept: Vec<(String, String)> = db.prepare("SELECT session, key FROM fleet_wait_history").unwrap().query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect();
+    assert_eq!((live, kept), (0, vec![("north-730-d0351".to_owned(), "n730-poolkey-landed".to_owned())]));
+}

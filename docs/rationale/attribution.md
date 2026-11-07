@@ -39,8 +39,8 @@ Order of replacement: done from the landed sha with the push-log join, then each
 - **harness**, the first class whose rule the report matches, in this order:
   - placement: `Stop: host`, or the report says this host or machine cannot run, push, land or reach what the box needs.
   - access: a GitHub, ssh, token or credential call failed, expired or could not decrypt.
-  - capacity: `Stop: capacity|client|budget`, a usage or rate limit, or capacity admission deferred the run.
-  - waits: `Stop: wait until`, or the box was staffed while blocked on an unlanded issue or waiting on a date, a clock or a full day of readings.
+  - capacity: a usage or rate limit, or capacity admission deferred the run; `Stop: capacity|client|budget` no longer decides it.
+  - waits: only a recorded wait (below); the report's `Stop: wait until` and its prose no longer decide it.
   - false revert: the lander, the after-landing gate or red-main reverted the worker's landing.
   - duplicate: the work was already on main, already claimed, owned or overtaken by another session.
   - landing refusal: `Stop: landing`, the lander rejected the lane or safe-push refused it.
@@ -56,6 +56,7 @@ Each boundary of the harness that touches a session writes its own cause for tha
 - lander: a failing check or a conflict in the lane's own lines is worker-caused; a deferral, a hang, a transient error or an origin that refused the push is a landing refusal.
 - dispatch: a launch that failed to place (a host that would not take it) is placement.
 - capacity: a fleet session's build that ends with no verdict (exit 75) is capacity.
+- waits: a failed run whose session registered a wait (`fleet_waits`, or `fleet_wait_history` once the wait settled, which a trigger on `fleet_waits` fills) within the run's window plus ten minutes is waits, read by `recorded_column`; a first try the dated-check read leaves out as deferred also counts as waits.
 - capacity queue: a failed run whose session queued for admission at least `QUEUED_BOUND_SECONDS` (300) inside the run's window, read from the host's `capacity_priority` rows (owner `gate:SESSION`) by `north_capacity_host::capacity::host::queued_behind_capacity`, is capacity; the scorer reads it when no boundary row names the run, and `Stop: capacity`, `Stop: client` and `Stop: budget` no longer decide it (north#791).
 - fleet: a turn that compacted and ended without a standard opener is compaction; a stop that cuts a turn short is halted (Tom when he opened the conversation in its interactive UI); a session parked on its account's usage limit or handed over to another account is capacity.
 

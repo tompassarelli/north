@@ -89,7 +89,7 @@ impl WaitRequest {
 pub(super) fn ensure(db: &Connection) -> NorthResult<()> {
     let kinds = WaitKind::ALL.iter().map(|kind| format!("'{}'", kind.label())).collect::<Vec<_>>().join(",");
     db.execute_batch(&format!(
-        "CREATE TABLE IF NOT EXISTS fleet_waits(session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ({kinds})), key TEXT NOT NULL, deadline TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(session, kind, key)) STRICT;"
+        "CREATE TABLE IF NOT EXISTS fleet_waits(session TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ({kinds})), key TEXT NOT NULL, deadline TEXT NOT NULL, created TEXT NOT NULL, PRIMARY KEY(session, kind, key)) STRICT; CREATE TABLE IF NOT EXISTS fleet_wait_history(session TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, created TEXT NOT NULL, settled TEXT NOT NULL, PRIMARY KEY(session, kind, key, created)) STRICT; CREATE TRIGGER IF NOT EXISTS fleet_waits_settled AFTER DELETE ON fleet_waits BEGIN INSERT OR IGNORE INTO fleet_wait_history VALUES (old.session, old.kind, old.key, old.created, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')); END;"
     ))
     .map_err(sql)
 }

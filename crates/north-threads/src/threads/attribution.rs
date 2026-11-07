@@ -27,7 +27,6 @@ static RULES: LazyLock<Vec<(Harness, Regex)>> = LazyLock::new(|| {
         (Harness::Placement, pattern(r"(?im)^\W*stop:\s*host\b|\b(isn't|is not|not) on this host\b|\bthis (host|machine|session)\b[^.\n]{0,60}\b(can't|cannot|has no|lacks)\b|\b(can't|cannot|couldn't)\b[^.\n]{0,80}\b(from|on) (here|this (host|machine))\b|\bdispatch (put|placed|sent) this session\b|\b(checked|run|measured) on the laptop\b|\b(can't|cannot) reach\b|\bunreachable\b|\bno route to\b|\bnative capture\b|\bclient pair\b|\bcan't (be )?(push|pushed|land|landed|run|reach)\w*( it)? (from|on) \w+")),
         (Harness::Access, pattern(r"(?i)\b(gh|github|token|ssh|credential|broker)\b[^.\n]{0,80}\b(fails?|failed|refus\w*|expired|unreachable|could not decrypt|can't decrypt)\b")),
         (Harness::Capacity, pattern(r"(?i)\bcapacity (admission )?(deferred|refused|denied)\b|\b(usage|rate) limit\b|\bout of slots\b|\bcredit balance is too low\b")),
-        (Harness::Waits, pattern(r"(?im)^\W*stop:\s*wait\b|\b(is |stays |still )?blocked (by|on|until)\b|\bwaits? (on|for) \S+#\d+|\bhasn't landed\b|\bis not ready\b|\bwait(s|ing)? on (a |the )?(date|clock|day|volume)\b|\b(stay open|can't be (measured|ticked|run)( yet)?) until\b|\b(can't|cannot) be measured yet\b|\breview day\b|\b\d+-day window\b|\bfull (day|24 hours)\b")),
         (Harness::FalseRevert, pattern(r"(?i)\b(lander|after-landing|red[- ]main)\b[^.\n]{0,80}\brevert|\brevert(ed)?\b[^.\n]{0,80}\b(lander|after-landing|red[- ]main)\b")),
         (Harness::Duplicate, pattern(r"(?i)\balready (on origin/main|landed|closed|done|claimed)\b|\bovertaken\b|\bduplicate (dispatch|launch|run)\b|\bsomeone else holds\b|\balready (owns|has|have) a (named )?owner\b|\balready owns\b|\balready on main\b|\bstood down\b|\b(another|other|peer) session (holds|owns|landed|is working)\b|\b(another|the same) lane\b")),
         (Harness::LandingRefusal, pattern(r"(?im)^\W*stop:\s*landing\b|\blander[^.\n]{0,40}\b(rejected|refused)\b|\bsafe-push\b[^.\n]{0,60}\brefused\b|\blanding (freeze|queue is (stuck|stalled))\b|\bqueued behind\b")),
@@ -107,14 +106,23 @@ pub fn outcome_column(db: &Connection) -> &'static str {
     }
 }
 
-/// The SQL expression for a run's recorded cause: the latest cause a boundary recorded for the run's fleet session, or
-/// NULL in a ledger that has not recorded any.
-pub fn recorded_column(db: &Connection) -> &'static str {
+/// The SQL expression for a run's recorded cause: the latest cause a boundary recorded for the run's fleet session, else
+/// `waits` when the session registered a wait inside the run's window (a live `fleet_waits` row or a settled
+/// `fleet_wait_history` row, which `fleet_waits` drops at the wait's end), else NULL in a ledger that has neither.
+pub fn recorded_column(db: &Connection) -> String {
     let has = |sql: &str| db.query_row(sql, [], |_| Ok(())).is_ok();
-    if has("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'boundary_causes'") && has("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'fleet_name'") {
-        "(SELECT cause FROM boundary_causes WHERE session = runs.fleet_name AND source != 'resume' AND at >= coalesce(runs.started, '') ORDER BY at DESC, rowid DESC LIMIT 1)"
-    } else {
-        "NULL"
+    let table = |name: &str| has(&format!("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '{name}'"));
+    if !has("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'fleet_name'") {
+        return "NULL".to_owned();
+    }
+    let window = "session = runs.fleet_name AND created >= coalesce(runs.started, '') AND created <= coalesce(strftime('%Y-%m-%dT%H:%M:%SZ', runs.ended, '+10 minutes'), '9')";
+    let boundary = table("boundary_causes").then(|| "(SELECT cause FROM boundary_causes WHERE session = runs.fleet_name AND source != 'resume' AND at >= coalesce(runs.started, '') ORDER BY at DESC, rowid DESC LIMIT 1)".to_owned());
+    let waited: Vec<String> = ["fleet_wait_history", "fleet_waits"].into_iter().filter(|name| table(name)).map(|name| format!("SELECT 'waits' AS cause FROM {name} WHERE {window}")).collect();
+    let waited = (!waited.is_empty()).then(|| format!("(SELECT cause FROM ({} LIMIT 1))", waited.join(" UNION ALL ")));
+    match (boundary, waited) {
+        (Some(boundary), Some(waited)) => format!("coalesce({boundary}, {waited})"),
+        (Some(only), None) | (None, Some(only)) => only,
+        (None, None) => "NULL".to_owned(),
     }
 }
 

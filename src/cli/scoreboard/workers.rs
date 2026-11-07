@@ -73,6 +73,7 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
                 return None;
             }
             let deferred = outcome != "done" && waits_on_time(&report) && !checked_miss();
+            let recorded = recorded.or_else(|| deferred.then(|| Cause::Harness(Harness::Waits).label().to_owned()));
             Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()), deferred })
         })
         .collect())

@@ -118,3 +118,18 @@ fn a_failed_run_whose_session_queued_past_the_bound_for_capacity_is_a_capacity_l
     let read = attempts(&db, 0, &BTreeSet::new(), &Pending { capacity: Some(capacity), ..Pending::default() }).unwrap();
     assert_eq!(read.iter().map(|attempt| attempt.cause).collect::<Vec<_>>(), [Cause::Harness(Harness::Capacity), Cause::Worker, Cause::Worker]);
 }
+
+/// The ten `Stop: wait until` runs of 2026-11-06 23:00 to 2026-11-07 06:14 UTC had no row in `fleet_waits`, which drops a wait
+/// at its end (north#791): `fleet_wait_history` keeps each settled wait, and a failed run whose session registered one inside
+/// its window lost to waits whatever its report says, while a wait registered after the run's window is no evidence about it.
+#[test]
+fn a_failed_run_whose_session_registered_a_wait_inside_its_window_is_a_waits_loss_after_the_wait_settled() {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT); CREATE TABLE fleet_wait_history(session TEXT, kind TEXT, key TEXT, created TEXT, settled TEXT);").unwrap();
+    for (agent, started, ended) in [("d0351", "2026-11-07T03:52:00Z", "2026-11-07T05:41:00Z"), ("d0352", "2026-11-07T01:00:00Z", "2026-11-07T02:00:00Z")] {
+        db.execute("INSERT INTO runs VALUES (?1, 'north#730', NULL, 'bug', ?2, ?3, 60, 'not done', 'Not done: the fix is queued.', 'worker', '', 0, ?4)", rusqlite::params![agent, started, ended, format!("north-730-{agent}")]).unwrap();
+        db.execute("INSERT INTO fleet_wait_history VALUES (?1, 'job', 'n730-poolkey-landed', '2026-11-07T05:41:48Z', '2026-11-07T06:03:39Z')", [format!("north-730-{agent}")]).unwrap();
+    }
+    let read = attempts(&db, 0, &BTreeSet::new(), &Pending::default()).unwrap();
+    assert_eq!(read.iter().map(|attempt| attempt.cause).collect::<Vec<_>>(), [Cause::Worker, Cause::Harness(Harness::Waits)]);
+}
