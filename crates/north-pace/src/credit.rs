@@ -9,6 +9,9 @@ use toml_edit::{DocumentMut, Item, Value};
 use crate::foundation::clock::Timestamp;
 use crate::router::pricing::{PriceTable, TokenUse};
 
+mod runs;
+pub use runs::{Finished, Open, Reading, Snapshot, store};
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Grant {
     pub usd: f64,
@@ -41,26 +44,9 @@ fn date(value: &Value) -> Option<String> {
     value.as_datetime().map(ToString::to_string).or_else(|| value.as_str().map(str::to_owned))
 }
 
-/// The list-price dollars of each api session's turns in `ledger`, as (UTC day, usd) per organization name from its `api:NAME` account.
-pub fn spends(ledger: &Path, prices: &PriceTable) -> Result<BTreeMap<String, Vec<(String, f64)>>, String> {
-    let db = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| format!("{}: {error}", ledger.display()))?;
-    let mut statement = db
-        .prepare("SELECT account, model, started_ms, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write FROM runs WHERE account LIKE 'api:%' ORDER BY started_ms")
-        .map_err(|error| error.to_string())?;
-    let rows = statement
-        .query_map([], |row| {
-            let tokens = TokenUse { input: row.get(3)?, output: row.get(4)?, cache_read: row.get(5)?, cache_write: row.get(6)? };
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)?, tokens))
-        })
-        .map_err(|error| error.to_string())?;
-    let mut found: BTreeMap<String, Vec<(String, f64)>> = BTreeMap::new();
-    for row in rows {
-        let (account, model, started, tokens) = row.map_err(|error| error.to_string())?;
-        let usd = model.as_deref().and_then(|model| prices.price(model)).map_or(0.0, |price| price.of(tokens));
-        let org = account.strip_prefix("api:").unwrap_or(&account).to_owned();
-        found.entry(org).or_default().push((Timestamp::from_unix_millis(started).iso_date(), usd));
-    }
-    Ok(found)
+/// The list-price dollars of each api session's turns, as (UTC day, usd) per organization name from its `api:NAME` account: `ledger`'s runs, the other hosts' snapshots beside it and the turns still open.
+pub fn spends(ledger: &Path, prices: &PriceTable, now: Timestamp) -> Result<Reading, String> {
+    runs::read(ledger, prices, now.unix_millis())
 }
 
 const CENT: f64 = 0.005;
@@ -103,7 +89,7 @@ pub fn balance(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Optio
 
 /// Each organization id's grants with credit left on `today`, read from the ledger's api spend; an id appears only when it has dated grants, so an empty list means every grant is spent or expired.
 pub fn open_grants(policy: &Path, ledger: &Path, today: &str) -> BTreeMap<String, Vec<Grant>> {
-    let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(ledger, &prices)).unwrap_or_default();
+    let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(ledger, &prices, Timestamp::now())).map(|reading| reading.orgs).unwrap_or_default();
     let named = named(policy);
     grants(policy)
         .into_iter()
@@ -200,7 +186,7 @@ pub fn orgs(policy: &Path) -> Vec<(String, String)> {
 /// Every pool entry with an unexpired grant, from the grants beside `policy`, the ledger and exhausted marks under `state` (the XDG state root).
 pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
     let grants = grants(policy);
-    let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices)).unwrap_or_default();
+    let spends = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices, now)).map(|reading| reading.orgs).unwrap_or_default();
     let (today, now_s) = (now.iso_date(), now.unix_seconds());
     let burn_per_h = PriceTable::load().ok().and_then(|prices| fleet_spend(&state.join("north/ledger.db"), &prices, now_s - BURN_WINDOW_S).ok()).unwrap_or(0.0) / (BURN_WINDOW_S as f64 / 3600.0);
     orgs(policy)

@@ -1,0 +1,50 @@
+use super::*;
+
+const MODEL: &str = "claude-opus-5-5";
+const DAY_MS: i64 = 86_400_000;
+const NOW: i64 = 20_000 * DAY_MS;
+
+fn tokens(output: i64) -> TokenUse {
+    TokenUse { output, ..TokenUse::default() }
+}
+
+fn run(session: &str, started_ms: i64, ended_ms: i64, output: i64) -> Finished {
+    Finished { session: session.to_owned(), account: "api:proton".to_owned(), model: Some(MODEL.to_owned()), started_ms, ended_ms, tokens: tokens(output) }
+}
+
+fn turn(session: &str, output: i64) -> Open {
+    Open { session: session.to_owned(), account: "api:proton".to_owned(), model: Some(MODEL.to_owned()), tokens: tokens(output) }
+}
+
+fn snapshot(host: &str, read_ms: i64, finished: Vec<Finished>, open: Vec<Open>) -> Snapshot {
+    Snapshot { host: host.to_owned(), read_ms, finished, open }
+}
+
+fn proton(reading: &Reading) -> f64 {
+    reading.orgs.get("proton").map_or(0.0, |spends| spends.iter().map(|(_, usd)| usd).sum())
+}
+
+fn usd(output: i64) -> f64 {
+    PriceTable::load().unwrap().price(MODEL).unwrap().of(tokens(output))
+}
+
+#[test]
+fn a_run_another_host_recorded_is_charged_once_however_many_hosts_report_it() {
+    let prices = PriceTable::load().unwrap();
+    let local = vec![run("north-1", NOW - 5000, NOW - 4000, 1_000_000)];
+    let nexus = snapshot("nexus", NOW - 1000, vec![run("north-634-d0216", NOW - 3000, NOW - 2000, 2_000_000), run("north-1", NOW - 5000, NOW - 4000, 1_000_000)], Vec::new());
+    let gex45 = snapshot("gex45", NOW - 1000, vec![run("north-634-d0216", NOW - 3000, NOW - 2000, 2_000_000)], Vec::new());
+    let reading = merge(local, vec![nexus, gex45], &prices, NOW);
+    assert!((proton(&reading) - usd(3_000_000)).abs() < 1e-9, "{reading:?}");
+}
+
+#[test]
+fn a_turn_still_open_is_charged_until_a_run_of_its_session_ends_after_the_snapshot() {
+    let prices = PriceTable::load().unwrap();
+    let open = || snapshot("nexus", NOW - 60_000, Vec::new(), vec![turn("north-634-d0216", 500_000)]);
+    assert!((proton(&merge(Vec::new(), vec![open()], &prices, NOW)) - usd(500_000)).abs() < 1e-9);
+    let finished = vec![run("north-634-d0216", NOW - 90_000, NOW - 10_000, 700_000)];
+    assert!((proton(&merge(finished, vec![open()], &prices, NOW)) - usd(700_000)).abs() < 1e-9);
+    let stale = snapshot("nexus", NOW - 3_600_000, Vec::new(), vec![turn("north-634-d0216", 500_000)]);
+    assert_eq!(proton(&merge(Vec::new(), vec![stale], &prices, NOW)), 0.0);
+}

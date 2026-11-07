@@ -5,6 +5,7 @@ use crate::fleet::store::OverSsh;
 use crate::fleet::tick::{Budgets, FarHost, Pulls, open_ledger, tick};
 use crate::pacing::placement::{config, gate, pass};
 
+use super::api_spend;
 use super::ledger::Ledger;
 use super::rebooted;
 use super::waits::Probes;
@@ -24,10 +25,12 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let ledger = open_ledger(|| Ok(Ledger));
     let pulls = Pulls { spools: std::sync::Arc::new(OverSsh::default()), always: always_pulled(fleet) };
     let ticked = tick(fleet, &ledger, &pulls, &Probes, now_ms(), Budgets::TICK);
+    let spend_lines = api_spend::pull(fleet);
     let revived = rebooted::run(fleet, &["--revive"]);
     window_move::auto();
     let ticked = ticked?;
     ticked.lines().iter().for_each(|line| println!("{line}"));
+    spend_lines.iter().for_each(|line| println!("{line}"));
     println!("{}", ticked.timing());
     revived
 }

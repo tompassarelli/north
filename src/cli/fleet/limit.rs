@@ -59,7 +59,7 @@ impl AccountReadings for UsageTable {
 fn credits(now_ms: u64) -> BTreeMap<String, Credit> {
     let policy = crate::platform::orchestration::path();
     let state = watch::state_home();
-    let spends = crate::router::pricing::PriceTable::load().ok().and_then(|prices| north_core::credit::spends(&state.join("north/ledger.db"), &prices).ok()).unwrap_or_default();
+    let spends = crate::router::pricing::PriceTable::load().ok().and_then(|prices| north_core::credit::spends(&state.join("north/ledger.db"), &prices, Timestamp::from_unix_millis(now_ms as i64)).ok()).map(|reading| reading.orgs).unwrap_or_default();
     let today = Timestamp::from_unix_millis(now_ms as i64).iso_date();
     let marks = state.join("north/api-exhausted");
     north_core::credit::left(&policy, &spends, &today)

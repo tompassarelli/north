@@ -1,9 +1,10 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::SessionSpend;
-use crate::fleet::model::Delivery;
+use crate::fleet::model::{Delivery, Status};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind, Spool};
 use crate::fleet::turns::Tokens;
+use crate::credit::Open;
 use crate::router::pricing::{PriceTable, TokenUse};
 
 use super::{Fleet, HandedIn};
@@ -20,6 +21,18 @@ impl Fleet {
         let follower = self.follow(name)?;
         let prices = PriceTable::load().map_err(|error| NorthError::State(format!("price table: {error}")))?;
         Ok(line(&so_far(name, self.spend_of(name)?, &follower.transcript().tracker.live_usage(), record.model.as_deref(), &prices)))
+    }
+
+    /// The api turns running on this host now, each with the tokens it has used so far.
+    pub fn open_api_turns(&self) -> NorthResult<Vec<Open>> {
+        let mut open = Vec::new();
+        for record in self.sessions()?.into_iter().filter(|record| record.account.starts_with("api:") && self.status(record) == Status::Working) {
+            let Ok(follower) = self.follow(&record.name) else { continue };
+            for (model, tokens) in follower.transcript().tracker.live_usage() {
+                open.push(Open { session: record.name.clone(), account: record.account.clone(), model: model.or(record.model.as_deref()).map(str::to_owned), tokens: TokenUse::from(tokens) });
+            }
+        }
+        Ok(open)
     }
 
     pub fn spend_or_ask(&self, name: &str, requester: Option<&str>) -> NorthResult<Spent> {

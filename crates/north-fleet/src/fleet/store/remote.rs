@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::credit::Snapshot;
 use crate::error::NorthResult;
 use crate::fleet::runtime::binary;
 use crate::fleet::ssh::{SSH_WAIT, over_ssh_via};
@@ -82,6 +83,11 @@ impl Default for OverSsh {
 impl OverSsh {
     pub fn through(ssh: PathBuf) -> Self {
         Self { ssh }
+    }
+
+    /// `ssh`'s api spend snapshot, from `north fleet spool api-spend` there.
+    pub fn api_spend(&self, ssh: &str) -> NorthResult<Snapshot> {
+        Ok(serde_json::from_slice(&self.run(ssh, &["fleet", "spool", "api-spend"], &[])?)?)
     }
 
     fn run(&self, host: &str, words: &[&str], input: &[u8]) -> NorthResult<Vec<u8>> {

@@ -198,26 +198,26 @@ fn capitalized(text: &str) -> String {
     characters.next().map_or_else(String::new, |first| first.to_uppercase().chain(characters).collect())
 }
 
-/// One line per API organization the policy pools: its soonest unexpired grant, what api sessions spent of it at list price, and what is left.
+/// One line per API organization the policy pools: its soonest unexpired grant, what api sessions on every host spent of it at list price, and what is left, then how old the readings are.
 fn credit_lines(view: &View) -> Vec<(String, String)> {
     let named = credit::orgs(&view.places.policy);
     if named.is_empty() {
         return Vec::new();
     }
     let grants = credit::grants(&view.places.policy);
-    let spends = crate::router::pricing::PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| credit::spends(&view.places.state.join("north/ledger.db"), &prices));
+    let spends = crate::router::pricing::PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| credit::spends(&view.places.state.join("north/ledger.db"), &prices, view.now));
     let today = view.now.iso_date();
     named
         .iter()
         .map(|(name, id)| {
-            let mine = spends.as_ref().ok().and_then(|spends| spends.get(name).cloned()).unwrap_or_default();
+            let mine = spends.as_ref().ok().and_then(|reading| reading.orgs.get(name).cloned()).unwrap_or_default();
             let line = match (credit::balance(grants.get(id).map_or(&[][..], Vec::as_slice), &mine, &today), &spends) {
                 (None, _) => "no unexpired grant in claude-accounts.toml".to_owned(),
                 (Some(_), Err(error)) => format!("spend unread: {error}"),
-                (Some(balance), Ok(_)) => {
+                (Some(balance), Ok(reading)) => {
                     let later = balance.later.iter().map(|grant| format!("then ${:.2} to {}", grant.usd, grant.expires));
                     let head = format!("grant ${:.2} to {}: ${:.2} spent, ${:.2} left", balance.grant.usd, balance.grant.expires, balance.spent, balance.left);
-                    std::iter::once(head).chain(later).collect::<Vec<_>>().join("; ")
+                    std::iter::once(head).chain(later).chain([reading.age_line(view.now.unix_millis())]).collect::<Vec<_>>().join("; ")
                 }
             };
             (format!("API {name}"), line)
