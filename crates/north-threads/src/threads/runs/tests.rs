@@ -208,11 +208,13 @@ fn a_run_whose_session_recorded_a_host_need_is_placement_and_a_blocked_decision_
 }
 
 /// north-751-d0333 found runs that ended on the API's "Credit balance is too low" charged to the worker on 2026-11-07
-/// when no boundary recorded a cause: a run the API refused for credit is a capacity loss.
+/// when no boundary recorded a cause: a run the API refused for credit is a capacity loss. north-641-d1935 and
+/// north-766-d0421 waited on capacity admission on 2026-11-06 and read as landing refusals for "queued behind" (north#829).
 #[test]
-fn a_run_that_ends_on_the_api_credit_error_is_capacity() {
-    let read = crate::threads::attribution::attribute("unclear", "Credit balance is too low", 0, None);
-    assert_eq!(read, crate::threads::attribution::Cause::Harness(Harness::Capacity));
+fn a_run_that_ends_on_the_api_credit_error_or_a_capacity_queue_is_capacity() {
+    for report in ["Credit balance is too low", "Not done: the cargo check is still queued behind machine-capacity admission.", "Not done: the test run waits in line.\nStop: capacity"] {
+        assert_eq!(crate::threads::attribution::attribute("not done", report, 0, None), crate::threads::attribution::Cause::Harness(Harness::Capacity), "{report}");
+    }
 }
 
 /// On 2026-11-07, 22 of the 24 Done runs from 23:00 to 06:14 UTC that expected a landing showed `landed = 0` on their row
