@@ -19,6 +19,14 @@ static WAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*wa
 static REASONING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*reasoning\b").expect("reasoning pattern"));
 static NOT_DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*Not done:").expect("not done pattern"));
 static REPORT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*(?:Done|Not done|Split|Blocked):").expect("report pattern"));
+static COMMIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bgit\b[^\n|;&]*\bcommit\b|\bsafe-push\b").expect("commit pattern"));
+static CHECK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bcargo\s+(?:test|clippy|nextest)\b|\bbun\s+(?:test|run\s+check)\b|\s--check\b|\.test\.sh\b|\bverify-north\b").expect("check pattern"));
+
+/// Whether a tool call is a commit or a check run, the work that spends a try.
+pub fn did_work(tool: &str) -> bool {
+    COMMIT.is_match(tool) || CHECK.is_match(tool)
+}
 
 /// The holds a final report puts on its box.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -75,7 +83,7 @@ fn out_of_approach(report: &str) -> bool {
 pub fn entries_read(entries: &[(String, String)]) -> Vec<(String, String)> {
     let said: Vec<usize> = (0..entries.len()).filter(|&at| entries[at].0 == "assistant").collect();
     let report = said.iter().rfind(|&&at| REPORT.is_match(&entries[at].1)).copied();
-    let worked = (0..entries.len()).find(|&at| entries[at].0 == "tool" && super::tries::did_work(&entries[at].1));
+    let worked = (0..entries.len()).find(|&at| entries[at].0 == "tool" && did_work(&entries[at].1));
     let kept: std::collections::BTreeSet<usize> = said.first().into_iter().chain(said.last()).copied().chain(report).chain(worked).chain((0..entries.len()).filter(|&at| matches!(entries[at].0.as_str(), "user" | "notice") && Notice::delivered(&entries[at].1).is_some())).collect();
     kept.into_iter().map(|at| entries[at].clone()).collect()
 }
