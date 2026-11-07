@@ -348,7 +348,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 0;
         }
         let reserved = game_reserved();
-        let discharging = crate::capacity::laptop_auto::discharging_percent(&crate::capacity::laptop_auto::power_supply());
+        let discharging = crate::capacity::laptop_auto::shed_battery();
         let here_room = if reserved { None } else { room::read_local() };
         let rooms = remote_rooms.now();
         let mut backoff = false;

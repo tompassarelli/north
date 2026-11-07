@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::agent_load::{self, Host, Plan, Process};
-use super::mode::Effects;
+use super::mode::{Effects, Power};
 use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
@@ -42,7 +42,7 @@ fn system_supplies<'a>(power_supply: &Path, types: &'a [&str]) -> impl Iterator<
         .filter(|supply| read(supply, "type").is_some_and(|kind| types.contains(&kind.as_str())) && read(supply, "scope").as_deref() != Some("Device"))
 }
 
-pub fn discharging_percent(power_supply: &Path) -> Option<u8> {
+fn discharging_percent(power_supply: &Path) -> Option<u8> {
     system_supplies(power_supply, &["Battery"])
         .filter(|supply| read(supply, "status").as_deref() == Some("Discharging"))
         .filter_map(|supply| read(&supply, "capacity")?.parse::<u8>().ok())
@@ -75,6 +75,30 @@ pub fn settled_battery(power_supply: &Path, since: &Path, now: u64) -> Option<u8
     }
     let first = recorded_since(since)?;
     (now.saturating_sub(first) >= UNDERPOWERED_CHARGER.as_secs()).then_some(percent)
+}
+
+pub fn shed_battery() -> Option<u8> {
+    settled_battery(&power_supply(), &discharging_since(&Host::from_env()), now())
+}
+
+pub fn hwmon() -> PathBuf {
+    std::env::var_os("AGENT_LOAD_HWMON").filter(|value| !value.is_empty()).map_or_else(|| "/sys/class/hwmon".into(), PathBuf::from)
+}
+
+pub fn cpu_celsius(hwmon: &Path) -> Option<f64> {
+    fs::read_dir(hwmon)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|sensor| sensor.path())
+        .filter(|sensor| read(sensor, "name").is_some_and(|name| matches!(name.as_str(), "k10temp" | "coretemp" | "zenpower")))
+        .filter_map(|sensor| read(&sensor, "temp1_input")?.parse::<f64>().ok())
+        .map(|millidegrees| millidegrees / 1000.0)
+        .reduce(f64::max)
+}
+
+pub fn power(host: &Host) -> Power {
+    Power { battery: settled_battery(&power_supply(), &discharging_since(host), now()), cpu_celsius: cpu_celsius(&hwmon()) }
 }
 
 fn recorded_since(since: &Path) -> Option<u64> {
@@ -232,7 +256,7 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("{}", sample(&host, idle, preparing_for_sleep(), battery));
         return 0;
     }
-    let applied = super::mode::tick(&host, idle);
+    let applied = super::mode::tick(&host, idle, Power { battery, cpu_celsius: cpu_celsius(&hwmon()) });
     applied.lines.iter().for_each(|line| println!("{line}"));
     let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
     if let Some(notice) = &applied.notice {

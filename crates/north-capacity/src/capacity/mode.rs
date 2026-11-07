@@ -11,7 +11,7 @@ use toml_edit::DocumentMut;
 use super::agent_load::{self, Host};
 use super::game_reserve;
 
-const USAGE: &str = "usage: north capacity mode status | tick | hold [--minutes N] [PHRASE] | extend | release";
+const USAGE: &str = "usage: north capacity mode status | tick | hold [--minutes N] [PHRASE] | extend | release | relieve PERCENT [--minutes N]";
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 
@@ -93,6 +93,14 @@ pub struct State {
     pub ticked: u64,
     #[serde(default)]
     pub agent_quota_percent: Option<u32>,
+    #[serde(default)]
+    pub relief: Option<Relief>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Relief {
+    pub percent: u32,
+    pub until: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -108,6 +116,10 @@ pub struct Limits {
     pub calm_seconds: u64,
     pub agent_quota_percent: u32,
     pub build_host_quota_percent: u32,
+    pub battery_quota_percent: u32,
+    pub hot_quota_percent: u32,
+    pub hot_celsius: f64,
+    pub cool_celsius: f64,
     pub build_host_fresh_seconds: u64,
     pub table: Vec<String>,
 }
@@ -128,6 +140,10 @@ impl Limits {
             calm_seconds: whole("capacity_mode_play_calm_sec"),
             agent_quota_percent: cpus("capacity_agent_cpu_quota_percent"),
             build_host_quota_percent: cpus("capacity_build_host_agent_cpu_quota_percent"),
+            battery_quota_percent: cpus("capacity_battery_agent_cpu_quota_percent"),
+            hot_quota_percent: cpus("capacity_hot_agent_cpu_quota_percent"),
+            hot_celsius: number("capacity_hot_cpu_celsius"),
+            cool_celsius: number("capacity_cool_cpu_celsius"),
             build_host_fresh_seconds: whole("capacity_build_host_fresh_sec"),
             table: strings("capacity_mode_table"),
         }
@@ -235,6 +251,28 @@ pub fn extend(state: &State, now: u64, limits: &Limits) -> Option<State> {
     Some(self::hold(state, now, &hold.phrase, hold.minutes.max(1), limits))
 }
 
+pub fn relieve(state: &State, percent: u32, minutes: u64, now: u64) -> (State, Option<u32>) {
+    let mut next = state.clone();
+    next.relief = Some(Relief { percent, until: now + minutes * 60 });
+    (next, state.agent_quota_percent.is_none_or(|quota| percent < quota).then_some(percent))
+}
+
+fn relieve_now(state: &State, arguments: &[&str]) -> Option<State> {
+    let (percent, minutes) = match arguments {
+        [percent] => (percent.parse::<u32>().ok()?, Limits::bundled().lease_minutes),
+        [percent, "--minutes", minutes] => (percent.parse::<u32>().ok()?, minutes.parse::<u64>().ok()?),
+        _ => return None,
+    };
+    let (mut next, lower) = relieve(state, percent.max(100), minutes, now());
+    if let Some(quota) = lower {
+        match game_reserve::set_agent_quota(&game_reserve::Settings::from_env(), quota) {
+            Ok(()) => next.agent_quota_percent = Some(quota),
+            Err(error) => eprintln!("north capacity mode: agent.slice CPUQuota {quota}%: {error}"),
+        }
+    }
+    Some(next)
+}
+
 pub fn release(state: &State, now: u64) -> State {
     let mut next = state.clone();
     next.hold = None;
@@ -309,8 +347,18 @@ pub fn leases_own_builds() -> bool {
     leases_own_builds_at(checking, &read(&state_dir()), &Limits::bundled(), now())
 }
 
-pub fn agent_quota_percent(effects: Effects, limits: &Limits) -> u32 {
-    if effects.build_host { limits.build_host_quota_percent } else { limits.agent_quota_percent }
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Power {
+    pub battery: Option<u8>,
+    pub cpu_celsius: Option<f64>,
+}
+
+pub fn agent_quota_percent(effects: Effects, power: Power, relief: Option<u32>, previous: Option<u32>, limits: &Limits) -> u32 {
+    let mode_quota = if effects.build_host { limits.build_host_quota_percent } else { limits.agent_quota_percent };
+    let cooling = previous.is_some_and(|quota| quota <= limits.hot_quota_percent);
+    let hot = power.cpu_celsius.is_some_and(|celsius| celsius >= limits.hot_celsius || (cooling && celsius >= limits.cool_celsius));
+    let battery = power.battery.map(|_| limits.battery_quota_percent);
+    [battery, hot.then_some(limits.hot_quota_percent), relief].into_iter().flatten().fold(mode_quota, u32::min)
 }
 
 pub fn confined_agent_cpus(host: &Host) -> Option<u32> {
@@ -343,11 +391,11 @@ pub struct Applied {
     pub notice: Option<String>,
 }
 
-pub fn tick(host: &Host, seat_idle: Option<bool>) -> Applied {
-    tick_in(host, seat_idle, game_reserve::Settings::from_env(), &state_dir(), now())
+pub fn tick(host: &Host, seat_idle: Option<bool>, power: Power) -> Applied {
+    tick_in(host, seat_idle, power, game_reserve::Settings::from_env(), &state_dir(), now())
 }
 
-pub fn tick_in(host: &Host, seat_idle: Option<bool>, mut reserve: game_reserve::Settings, dir: &Path, now: u64) -> Applied {
+pub fn tick_in(host: &Host, seat_idle: Option<bool>, power: Power, mut reserve: game_reserve::Settings, dir: &Path, now: u64) -> Applied {
     let limits = Limits::bundled();
     let previous = read(dir);
     let seen = Observation {
@@ -370,7 +418,9 @@ pub fn tick_in(host: &Host, seat_idle: Option<bool>, mut reserve: game_reserve::
         lines.push(format!("capacity mode: {} -> {}: {}", previous.mode.name(), state.mode.name(), state.reason));
     }
     let effects = limits.effects(state.mode);
-    let quota = agent_quota_percent(effects, &limits);
+    let relief = state.relief.filter(|relief| relief.until > now).map(|relief| relief.percent);
+    state.relief = state.relief.filter(|relief| relief.until > now);
+    let quota = agent_quota_percent(effects, power, relief, state.agent_quota_percent, &limits);
     if state.agent_quota_percent != Some(quota) {
         match game_reserve::set_agent_quota(&reserve, quota) {
             Ok(()) => {
@@ -445,6 +495,12 @@ pub fn status_line(state: &State, limits: &Limits, split: Option<&game_reserve::
     if applied.is_empty() {
         applied.push("no reservation; agents run at their slice weights");
     }
+    if let Some(quota) = state.agent_quota_percent {
+        line.push_str(&format!("; agent.slice CPUQuota {quota}%"));
+    }
+    if let Some(relief) = &state.relief {
+        line.push_str(&format!("; relieved to at most {}% until {}", relief.percent, clock(relief.until)));
+    }
     format!("{line}; {}", applied.join(", "))
 }
 
@@ -459,7 +515,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         ["tick"] => {
             let host = Host::from_env();
-            let applied = tick(&host, super::laptop_auto::seat_idle());
+            let applied = tick(&host, super::laptop_auto::seat_idle(), super::laptop_auto::power(&host));
             applied.lines.iter().chain(&applied.notice).for_each(|line| println!("{line}"));
             println!("{}", status_line(&read(&dir), &limits, enforced_split().as_ref()));
             return 0;
@@ -481,6 +537,13 @@ pub fn run(arguments: &[String]) -> u8 {
             }
         },
         ["release"] => release(&state, now()),
+        ["relieve", rest @ ..] => {
+            let Some(relieved) = relieve_now(&state, rest) else {
+                eprintln!("{USAGE}");
+                return 2;
+            };
+            relieved
+        }
         _ => {
             eprintln!("{USAGE}");
             return 2;

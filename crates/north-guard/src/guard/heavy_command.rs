@@ -110,7 +110,7 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
         fold(segment_decision(words, &set, &cwd, leased, depth), &mut refusals, &mut routed);
     }
     if !leased && cpu_redirect(source) {
-        fold(refuse("only machine-capacity may throttle CPU"), &mut refusals, &mut routed);
+        fold(refuse("only machine-capacity may throttle CPU; to lower agent.slice now without admission, run north capacity mode relieve PERCENT [--minutes N]"), &mut refusals, &mut routed);
     }
     settled(refusals, routed)
 }
@@ -155,7 +155,7 @@ fn own_decision(words: &[String], set: &[&str], cwd: &Path, leased: bool, depth:
     } else if let Some(reason) = farm_only(words, set, cwd) {
         Decision::Refuse(reason)
     } else if !leased && cpu_throttle(words) {
-        refuse("only machine-capacity may throttle CPU")
+        refuse("only machine-capacity may throttle CPU; to lower agent.slice now without admission, run north capacity mode relieve PERCENT [--minutes N]")
     } else if !leased {
         classify(words)
     } else {

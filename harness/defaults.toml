@@ -1076,6 +1076,38 @@ source = "tom: while he is away the laptop is a full build and check host, and t
 fallback = "none: the mode tick always sets the quota"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
+[capacity_battery_agent_cpu_quota_percent]
+value = 600
+allowed = { min = 100, max = 25600 }
+unit = "agent.slice CPUQuota in percent of one CPU while the laptop runs on battery by the battery shed reading (laptop_auto::settled_battery), whatever the mode: a quarter of the 24-thread laptop; the mode tick sets the lowest of the mode, battery and hot quotas"
+source = "measured: on 2026-11-08 the laptop ran every core at 95% with load 87 on battery at 81 C while agent.slice held 22 CPUs, so the battery drained under an underpowered charger; north#834 set a quarter of the cores on battery"
+fallback = "none: the mode tick always sets the quota"
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
+
+[capacity_hot_agent_cpu_quota_percent]
+value = 600
+allowed = { min = 100, max = 25600 }
+unit = "agent.slice CPUQuota in percent of one CPU while the CPU sensor (k10temp, coretemp or zenpower temp1) reads at least capacity_hot_cpu_celsius, held until it falls below capacity_cool_cpu_celsius"
+source = "measured: the 2026-11-08 run at load 87 held the CPU at 81 to 90 C on battery (north#834)"
+fallback = "none: the mode tick always sets the quota"
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
+
+[capacity_hot_cpu_celsius]
+value = 90.0
+allowed = { min = 40.0, max = 110.0 }
+unit = "CPU temperature in degrees Celsius at or above which the mode tick drops agent.slice to capacity_hot_agent_cpu_quota_percent"
+source = "measured: k10temp read 90.6 C on the laptop at load 33 to 55 on 2026-11-08, a few degrees under the part's throttle point (north#834)"
+fallback = "with no CPU sensor the hot quota never applies"
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
+
+[capacity_cool_cpu_celsius]
+value = 80.0
+allowed = { min = 30.0, max = 110.0 }
+unit = "CPU temperature in degrees Celsius below which a hot agent.slice quota lifts, so the quota does not flap at capacity_hot_cpu_celsius"
+source = "north#834: ten degrees of hysteresis under the hot threshold"
+fallback = "with no CPU sensor the hot quota never applies"
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
+
 [capacity_build_host_fresh_sec]
 value = 120
 allowed = { min = 1, max = 3600 }

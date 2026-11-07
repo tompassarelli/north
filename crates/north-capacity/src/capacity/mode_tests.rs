@@ -16,7 +16,7 @@ fn host(root: &Path) -> Host {
 }
 
 fn tick(root: &Path, idle: Option<bool>, now: u64) -> Vec<String> {
-    mode::tick_in(&host(root), idle, settings(root), &root.join("mode"), now);
+    mode::tick_in(&host(root), idle, mode::Power::default(), settings(root), &root.join("mode"), now);
     fs::read_to_string(root.join("calls.log")).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
@@ -55,4 +55,34 @@ fn only_an_away_laptop_takes_land_checks_beside_the_build_hosts() {
     let desk = mode::read(&dir);
     assert!(mode::builds_here_at(&desk, &limits, 1_030), "the desk still builds its own sessions' compiles");
     assert!(!mode::takes_land_checks_at(&desk, &limits, 1_030));
+}
+
+// KEEP(bug): on 2026-11-08 agent.slice held 22 of 24 CPUs on battery at 81 to 90 C while the laptop ran at load 87, because the quota followed the mode alone; north#834
+#[test]
+fn agent_slice_quota_drops_to_the_battery_or_hot_quota_whatever_the_mode() {
+    let limits = Limits::bundled();
+    let desk = limits.effects(Mode::Desktop);
+    let away = limits.effects(Mode::Away);
+    let quota = |effects, battery, cpu_celsius, previous| mode::agent_quota_percent(effects, mode::Power { battery, cpu_celsius }, None, previous, &limits);
+    assert_eq!(quota(desk, Some(56), Some(70.0), None), 600, "in use on battery");
+    assert_eq!(quota(desk, None, Some(70.0), None), 2200, "in use on AC");
+    assert_eq!(quota(away, None, Some(70.0), None), 2200, "idle on AC");
+    assert_eq!(quota(away, None, Some(91.0), Some(2200)), 600, "hot");
+    assert_eq!(quota(away, None, Some(85.0), Some(600)), 600, "a hot quota holds until the CPU cools");
+    assert_eq!(quota(away, None, Some(79.0), Some(600)), 2200, "a cooled CPU lifts the hot quota");
+    assert_eq!(quota(limits.effects(Mode::Play), Some(56), None, None), 600, "a playtest on battery");
+}
+
+// KEEP(bug): on 2026-11-08 the proxy could not lower agent.slice under load because a raw systemctl set-property waited on the capacity admission it was meant to relieve; north#834
+#[test]
+fn a_relief_lowers_the_agent_quota_at_once_never_raises_it_and_lapses() {
+    let limits = Limits::bundled();
+    let away = limits.effects(Mode::Away);
+    let applied = mode::State { agent_quota_percent: Some(2200), ..mode::State::default() };
+    let (relieved, lower) = mode::relieve(&applied, 400, 30, 1_000);
+    assert_eq!(lower, Some(400));
+    assert_eq!(mode::relieve(&applied, 2400, 30, 1_000).1, None, "a relief above the applied quota raises nothing");
+    let relief = relieved.relief.map(|relief| relief.percent);
+    assert_eq!(mode::agent_quota_percent(away, mode::Power::default(), relief, Some(400), &limits), 400, "the tick keeps the relief");
+    assert_eq!(relieved.relief.map(|relief| relief.until), Some(1_000 + 30 * 60));
 }
