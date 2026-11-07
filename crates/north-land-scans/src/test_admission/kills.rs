@@ -13,6 +13,8 @@ use super::super::{Range, git};
 use super::limits;
 use north_base::platform::records_mirror::state_home;
 use north_base::foundation::exit::NO_VERDICT;
+use north_base::foundation::offload::SLOT_ENV;
+use north_base::platform::orchestration;
 
 pub const USAGE: &str = "usage: north land scan test-admission kills [--host NAME] [--remote-north COMMAND] BASE..HEAD\n       north land scan test-admission kills --here BASE..HEAD";
 const SHIP_SECONDS: u64 = 900;
@@ -132,14 +134,25 @@ fn offloaded(directory: &Path, lane: &Lane, host: Option<String>, remote: &str, 
     code
 }
 
-/// The hosts to try in order: the named one alone, else the one with room followed by every other declared build host.
+/// The hosts to try in order: the named one alone, else the one with room, then each declared build host this host reaches.
 fn hosts(directory: &Path, named: Option<String>) -> Vec<String> {
     if let Some(named) = named {
         return vec![named];
     }
-    let mut hosts: Vec<String> = choose(directory).into_iter().collect();
+    let here = north_base::platform::host::name();
+    let in_slot = std::env::var_os(SLOT_ENV).is_some_and(|slot| !slot.is_empty());
     let declared = git::text(directory, &["config", "--file", ".safe-push", "--get", "landing.remote-hosts"]).unwrap_or_default();
-    for host in declared.split_whitespace() {
+    fallbacks(in_slot, || choose(directory, &here), &declared, orchestration::read().ok().as_ref(), &here)
+}
+
+/// A check inside an offload slot runs on the slot's host, which took it, as coverage does; any other tries the host with room, then each declared host this host reaches.
+fn fallbacks(in_slot: bool, chosen: impl FnOnce() -> Option<String>, declared: &str, cfg: Option<&DocumentMut>, here: &str) -> Vec<String> {
+    if in_slot {
+        return vec![here.to_owned()];
+    }
+    let reachable = |host: &str| cfg.is_none_or(|cfg| orchestration::reaches(cfg, here, host));
+    let mut hosts: Vec<String> = chosen().into_iter().collect();
+    for host in declared.split_whitespace().filter(|host| reachable(host)) {
         if !hosts.iter().any(|known| known == host) {
             hosts.push(host.to_owned());
         }
@@ -147,12 +160,10 @@ fn hosts(directory: &Path, named: Option<String>) -> Vec<String> {
     hosts
 }
 
-fn choose(directory: &Path) -> Option<String> {
-    let here = north_base::platform::host::name();
-    let output = Command::new(north_base::platform::north_binary::north_binary()).current_dir(directory).args(["capacity", "offload", "choose", "--any", "--avoid", &here]).stdin(Stdio::null()).stderr(Stdio::inherit()).output().ok()?;
+fn choose(directory: &Path, here: &str) -> Option<String> {
+    let output = Command::new(north_base::platform::north_binary::north_binary()).current_dir(directory).args(["capacity", "offload", "choose", "--any", "--avoid", here]).stdin(Stdio::null()).stderr(Stdio::inherit()).output().ok()?;
     let host = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    let declared = || git::text(directory, &["config", "--file", ".safe-push", "--get", "landing.remote-hosts"]).and_then(|hosts| hosts.split_whitespace().next().map(str::to_owned));
-    (output.status.success() && !host.is_empty()).then_some(host).or_else(declared)
+    (output.status.success() && !host.is_empty()).then_some(host)
 }
 
 fn on_this_host(directory: &Path, lane: &Lane, out: &mut impl Write) -> u8 {
@@ -321,3 +332,7 @@ fn unavailable(out: &mut impl Write, reason: &str) -> u8 {
     let _ = writeln!(out, "mutant kill: could not run, not the lane's fault: {reason}");
     NO_VERDICT
 }
+
+#[cfg(test)]
+#[path = "kills_tests.rs"]
+mod tests;

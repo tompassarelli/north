@@ -47,3 +47,8 @@ pub fn placed_hosts(path: &Path) -> Option<Vec<String>> {
     let hosts: Vec<String> = cfg.get("hosts")?.as_table_like()?.iter().map(|(name, _)| name.to_owned()).collect();
     (!hosts.is_empty()).then_some(hosts)
 }
+
+/// Whether `here` can open ssh to `host`: itself, or a host its `reaches` list names; a host that declares no `reaches` list reaches only itself.
+pub fn reaches(cfg: &DocumentMut, here: &str, host: &str) -> bool {
+    host == here || cfg.get("hosts").and_then(|hosts| hosts.get(here)?.get("reaches")?.as_array()).is_some_and(|names| names.iter().any(|name| name.as_str() == Some(host)))
+}
