@@ -44,7 +44,7 @@ pub(super) fn adapter_commands<'a>(due: &[&'a str], owners: &[String], local: &[
     due.iter()
         .flat_map(|&p| {
             let quiet = (!refresh && p == "claude").then_some("--no-refresh");
-            let argv = move |prefix: &[&str]| -> Vec<String> { prefix.iter().copied().chain(["usage", "--rows", p]).chain(quiet).map(str::to_owned).collect() };
+            let argv = move |prefix: &[&str]| -> Vec<String> { prefix.iter().copied().chain(["fleet", "usage", "--rows", p]).chain(quiet).map(str::to_owned).collect() };
             let remotes = owners.iter().filter(move |_| p == "claude").map(move |destination| (p, true, argv(&["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "north"])));
             let own = local.contains(&p).then(|| (p, false, argv(&[program])));
             own.into_iter().chain(remotes.collect::<Vec<_>>())

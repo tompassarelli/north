@@ -19,7 +19,7 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
     if !is_need(need) || reason.trim().is_empty() {
         return Err(NorthError::Usage(USAGE.into()));
     }
-    let mut asked = vec!["north", "dispatch", "need", session.as_str(), need];
+    let mut asked = vec!["north", "fleet", "dispatch", "need", session.as_str(), need];
     asked.extend(item);
     let answer = match client::ask_ledger_host(&asked, reason.as_bytes())? {
         Some(answer) => String::from_utf8_lossy(&answer).trim().to_owned(),

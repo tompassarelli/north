@@ -122,7 +122,7 @@ pub fn for_launch(item: &IssueRef, body: &str, box_text: Option<&str>, at: f64, 
     }
 }
 
-const SERVED: [&str; 3] = ["north", "dispatch", "needs"];
+const SERVED: [&str; 4] = ["north", "fleet", "dispatch", "needs"];
 
 fn from_ledger_host(item: &IssueRef, notes: &mut Vec<String>) -> Vec<Learned> {
     let reference = item.to_string();

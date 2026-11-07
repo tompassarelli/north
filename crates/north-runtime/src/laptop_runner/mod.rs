@@ -86,7 +86,7 @@ impl Inputs {
 
     fn laptop_state(&self) -> Value {
         let cache = self.logs.join("laptop-state.json");
-        let fresh = run_within(&self.north, &["laptop", "status", "--json"], LAPTOP_WAIT)
+        let fresh = run_within(&self.north, &["fleet", "laptop", "status", "--json"], LAPTOP_WAIT)
             .filter(|output| output.status.success())
             .and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok())
             .filter(|state| !matches!(state.get("state"), None | Some(Value::Null | Value::Bool(false))));
