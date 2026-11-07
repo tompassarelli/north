@@ -141,20 +141,25 @@ fn stdout_lines(output: &Output) -> Vec<String> {
 fn carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_exits_127_for_a_missing_program() {
     let matrix = Matrix::new();
     let cargo = matrix.toolchain.join("cargo").display().to_string();
-    let mut wrong = Vec::new();
-    for entry in ENTRIES {
-        for (probe, expected) in [(&["cargo"][..], &cargo), (&["sh", "-c", "exec \"$(command -v cargo)\""][..], &cargo), (&["sh", "-c", "printenv SAFE_PUSH_LAND_BASE"][..], &matrix.base)] {
-            let output = matrix.run(entry, probe);
-            let seen = stdout_lines(&output);
-            if !output.status.success() || seen != [expected.clone()] {
-                wrong.push(format!("{entry} {probe:?}: exit {:?}, stdout {seen:?}, stderr {}", output.status.code(), String::from_utf8_lossy(&output.stderr).trim()));
+    let probes: [(&[&str], Option<&String>); 4] = [(&["cargo"], Some(&cargo)), (&["sh", "-c", "exec \"$(command -v cargo)\""], Some(&cargo)), (&["sh", "-c", "printenv SAFE_PUSH_LAND_BASE"], Some(&matrix.base)), (&[MISSING, "--version"], None)];
+    let check = |entry: &str, probe: &[&str], expected: Option<&String>| -> Option<String> {
+        let output = matrix.run(entry, probe);
+        match expected {
+            Some(expected) => {
+                let seen = stdout_lines(&output);
+                (!output.status.success() || seen != [expected.clone()]).then(|| format!("{entry} {probe:?}: exit {:?}, stdout {seen:?}, stderr {}", output.status.code(), String::from_utf8_lossy(&output.stderr).trim()))
             }
+            None => (output.status.code() != Some(127)).then(|| format!("{entry} [{MISSING}]: exit {:?}, not 127; stderr {}", output.status.code(), String::from_utf8_lossy(&output.stderr).trim())),
         }
-        let missing = matrix.run(entry, &[MISSING, "--version"]);
-        if missing.status.code() != Some(127) {
-            wrong.push(format!("{entry} [{MISSING}]: exit {:?}, not 127; stderr {}", missing.status.code(), String::from_utf8_lossy(&missing.stderr).trim()));
-        }
-    }
+    };
+    let run_entries = |entries: &[&str]| -> Vec<String> {
+        std::thread::scope(|scope| {
+            let runs: Vec<_> = entries.iter().flat_map(|entry| probes.iter().map(move |(probe, expected)| (*entry, *probe, *expected))).map(|(entry, probe, expected)| scope.spawn(move || check(entry, probe, expected))).collect();
+            runs.into_iter().filter_map(|run| run.join().unwrap()).collect()
+        })
+    };
+    let (sandboxed, others): (Vec<&str>, Vec<&str>) = ENTRIES.iter().partition(|entry| **entry == "depbox run");
+    let mut wrong = run_entries(&others);
+    wrong.extend(run_entries(&sandboxed));
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
-
