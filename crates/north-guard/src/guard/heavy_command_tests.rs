@@ -34,3 +34,47 @@ fn a_build_beside_a_file_or_index_write_is_refused_and_a_read_only_one_still_off
         );
     }
 }
+
+fn verdict_in(cwd: &std::path::Path, command: &str) -> Verdict {
+    let payload = json!({"tool_name": "Bash", "cwd": cwd, "tool_input": {"command": command}});
+    judge(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
+}
+
+// KEEP(bug): 5 of 19 sampled heavy-command refusals were false: `bun test service.test.mjs` read as a full suite because .mjs was no script, and a bare positional filter was no target; north#706
+#[test]
+fn bun_test_with_any_positional_or_module_script_is_not_the_full_suite() {
+    for command in [
+        "cd lib/automation-chrome && timeout 25 bun test service.test.mjs 2>&1 | tail -5",
+        "bun test actions.test.cjs",
+        "bun test a.test.mts",
+        "bun test auth",
+    ] {
+        assert!(!matches!(verdict(command), Verdict::Deny(_)), "{command} was refused");
+    }
+    for command in ["bun test", "bun test 2>&1 | tail -5", "bun run test", "bun test -t name"] {
+        assert!(matches!(verdict(command), Verdict::Deny(_)), "{command} was not refused");
+    }
+}
+
+// KEEP(bug): 2 of 3 sampled heavy-command.farm refusals were false: GAME_MODULES=$(...) set inside a `( ... ) &` group did not narrow a lua-tests run; north#706
+#[test]
+fn a_narrowing_variable_set_inside_a_background_group_permits_a_farm_only_run() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".git")).unwrap();
+    std::fs::create_dir(dir.path().join(".agents")).unwrap();
+    std::fs::write(
+        dir.path().join(".agents/farm-only.toml"),
+        "[[command]]\npattern = [\"bun\", \"scripts/lua-tests.ts\"]\nnarrowing_env = [\"GAME_TESTS\", \"GAME_MODULES\"]\nfarm = \"farm\"\nwhy = \"full suite\"\n",
+    )
+    .unwrap();
+    for command in [
+        "(GAME_MODULES=$(cat m.txt) bun scripts/lua-tests.ts > out.log 2>&1) &",
+        "GAME_TESTS=$(cat t.txt) bun scripts/lua-tests.ts > out.log",
+        "( GAME_MODULES=a bun scripts/lua-tests.ts ) &",
+        "x=$(GAME_TESTS=a bun scripts/lua-tests.ts)",
+    ] {
+        assert!(!matches!(verdict_in(dir.path(), command), Verdict::Deny(_)), "{command} was refused");
+    }
+    assert!(matches!(verdict_in(dir.path(), "(bun scripts/lua-tests.ts > out.log) &"), Verdict::Deny(_)));
+    assert!(matches!(verdict_in(dir.path(), "bun scripts/lua-tests.ts"), Verdict::Deny(_)));
+}

@@ -26,30 +26,30 @@ False share by guard (over 10% marked *):
 - poll-loop 30/30 * (narrowed here)
 - privacy-judge.pending 14/30 * (narrowed by 0a478d5770: no pending refusal in the 2 h after it deployed)
 - issue-cleanup 24/30 *
-- heavy-command.farm 2/3 * (after df206b8a67; the 26 earlier false rows were already fixed)
+- heavy-command.farm 2/3 * (after df206b8a67; the 26 earlier false rows were already fixed) (narrowed here)
 - resource-safe-search 20/30 *
 - session-kill.self-match 19/30 * (narrowed here)
 - session-kill 13/30 * (narrowed here)
 - worker-tier.item 11/30 *
 - corpus-scan 8/30 *
-- modern-search 8/30 *
+- modern-search 8/30 * (narrowed here)
 - tripwire 8/30 *
 - issue-filing 6/30 *
 - privacy-judge 6/30 *
 - tripwire.push 6/30 *
 - proxy-role 6/10 *
 - sops-decrypt 6/18 *
-- heavy-command 5/19 *
+- heavy-command 5/19 * (narrowed here)
 - worker-tier.facet-value 5/30 *
 - worker-tier.lands-before 5/7 *
 - launch-critical 4/30 *
 - tripwire.delete 4/30 *
-- nix-activity.deny 4/7 *
+- nix-activity.deny 4/7 * (narrowed here)
 - clipboard 4/5 *
 - public-text 3/15 *
 - worker-tier.routing 3/14 *
 - desktop-action 1/6 *
-- native-evidence 1/3 *
+- native-evidence 1/3 * (narrowed here)
 - worker-tier.missing-facet 3/30
 - heavy-command.local-write 2/30
 - launch-critical.layout 0/30

@@ -1,4 +1,4 @@
-use super::super::search_words::{is_file, join, tilde};
+use super::super::search_words::{expand_glob, has_glob, is_file, join, tilde};
 
 const SAME: &str = "nilcvwxoqHFPab";
 const DROPPED: &str = "rEGIsUT";
@@ -161,6 +161,14 @@ fn short_map(letter: char) -> Option<&'static str> {
     })
 }
 
+fn file_operand(path: &str, base: &str, home: &str) -> bool {
+    let full = join(base, &tilde(path, home));
+    if !has_glob(path) {
+        return is_file(&full);
+    }
+    expand_glob(&full).is_some_and(|found| !found.is_empty() && found.iter().all(|file| is_file(file)))
+}
+
 pub(super) fn to_rg(arguments: &[String], base: &str, home: &str) -> Option<Vec<String>> {
     translate(arguments, base, home, false)
 }
@@ -208,7 +216,7 @@ pub(super) fn translate(
     if !paths.is_empty()
         && paths
             .iter()
-            .all(|path| is_file(&join(base, &tilde(path, home))))
+            .all(|path| file_operand(path, base, home))
     {
         return None;
     }

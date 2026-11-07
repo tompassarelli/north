@@ -43,19 +43,6 @@ fn expands(source: &str) -> bool {
     false
 }
 
-fn redirect(source: &str) -> bool {
-    source
-        .trim_start_matches(|c: char| c.is_ascii_digit())
-        .starts_with(['>', '<'])
-}
-
-fn operator_only(source: &str) -> bool {
-    source
-        .trim_start_matches(|c: char| c.is_ascii_digit())
-        .chars()
-        .all(|c| matches!(c, '>' | '<'))
-}
-
 fn segment_edit(chars: &[char], segment: &[Piece], base: &str, home: &str) -> Option<Option<Edit>> {
     let sources: Vec<String> = segment.iter().map(|piece| shell::slice(chars, *piece)).collect();
     let values = unquoted_words(&sources)?;
@@ -119,9 +106,9 @@ fn split_redirects(sources: &[String], from: usize) -> (Vec<usize>, Vec<usize>) 
     let (mut operands, mut redirects) = (Vec::new(), Vec::new());
     let mut next = from;
     while next < sources.len() {
-        if redirect(&sources[next]) {
+        if search_words::is_redirect(&sources[next]) {
             redirects.push(next);
-            if operator_only(&sources[next]) && next + 1 < sources.len() {
+            if search_words::is_redirect_operator(&sources[next]) && next + 1 < sources.len() {
                 next += 1;
                 redirects.push(next);
             }

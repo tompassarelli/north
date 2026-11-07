@@ -1,3 +1,4 @@
+use super::search_words::{is_plain_argument, is_redirect_operator};
 use crate::hook::{HookInput, Verdict};
 use crate::nix_command::{self, Inner};
 use crate::{platform::pyjson::Value, shell};
@@ -88,7 +89,7 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
         return Decision::Allow;
     }
     let text = shell::strip_heredocs(source);
-    let Some(tokens) = shell::words(&text) else {
+    let Some(tokens) = shell::words(&collapse_substitutions(&text)) else {
         return Decision::Allow;
     };
     let mut cwd = cwd.to_path_buf();
@@ -113,6 +114,30 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
         fold(refuse("only machine-capacity may throttle CPU; to lower agent.slice now without admission, run north capacity mode relieve PERCENT [--minutes N]"), &mut refusals, &mut routed);
     }
     settled(refusals, routed)
+}
+
+fn collapse_substitutions(text: &str) -> String {
+    let mut out = String::new();
+    let (mut depth, mut single) = (0usize, false);
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if depth == 0 => {
+                single = !single;
+                out.push(c);
+            }
+            '$' if !single && depth == 0 && chars.peek() == Some(&'(') => {
+                chars.next();
+                depth = 1;
+                out.push('x');
+            }
+            '(' if depth > 0 => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            _ if depth > 0 => {}
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 fn settled(refusals: Vec<String>, routed: bool) -> Decision {
@@ -277,7 +302,7 @@ fn bun_tests(args: &[String]) -> Decision {
 }
 
 fn script_file(path: &str) -> bool {
-    [".ts", ".js", ".tsx", ".jsx"]
+    [".ts", ".js", ".tsx", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]
         .iter()
         .any(|suffix| path.ends_with(suffix))
 }
@@ -285,6 +310,8 @@ fn script_file(path: &str) -> bool {
 fn test_targets(args: &[String]) -> Vec<&str> {
     let mut skip = false;
     args.iter()
+        .skip_while(|arg| *arg != "test")
+        .skip(1)
         .filter(|arg| {
             if skip {
                 skip = false;
@@ -307,7 +334,11 @@ fn test_targets(args: &[String]) -> Vec<&str> {
                 skip = true;
                 return false;
             }
-            !arg.starts_with('-') && (arg.contains('/') || script_file(arg))
+            if is_redirect_operator(arg) {
+                skip = true;
+                return false;
+            }
+            is_plain_argument(arg)
         })
         .map(String::as_str)
         .collect()

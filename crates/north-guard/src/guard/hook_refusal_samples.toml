@@ -1643,6 +1643,7 @@ label = "true"
 rule = "heavy-command"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 1 of 19 distinct refused calls"
+narrowed = "2026-11-08 north#706: every positional after bun test and the .mjs, .cjs, .mts and .cts scripts count as targets, so a filtered or single-module run is no full suite"
 
 [[sample.row]]
 command = "L=/tmp/claude-1000/-home-tom-code-north/895929a7-6218-4168-b513-3dced3440bf6/scratchpad/cores-laptop-e2e.log; unset AGENT_CAPACITY_CORES; timeout 300 "
@@ -1725,6 +1726,7 @@ label = "true"
 rule = "heavy-command.farm"
 window = "2026-11-05 05:20 UTC to 2026-11-08, after df206b8a67"
 drawn = "1 in 1 of 3 distinct refused calls"
+narrowed = "2026-11-08 north#706: GAME_TESTS or GAME_MODULES set inside a ( ... ) group, a substitution or a background group narrows a farm-only lua-tests run"
 
 [[sample.row]]
 command = "cd /home/tom/code/makgora/worktrees/cull-635/ts && (GAME_MODULES=$(cat /tmp/cull635/s2/modules.txt) bun scripts/lua-tests.ts > /tmp/cull635/s2/run2.ou"
@@ -1869,6 +1871,7 @@ label = "true"
 rule = "modern-search"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 4 of 124 distinct refused calls"
+narrowed = "2026-11-08 north#706: a redirect word is no operand and a glob is expanded before the all-files check, so grep -r over plain files is left alone"
 
 [[sample.row]]
 command = "B=/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service; for s in agent.slice app.slice background.slice game.slice native.slice session.slice; "
@@ -2057,6 +2060,7 @@ label = "true"
 rule = "nix-activity.deny"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 1 of 7 distinct refused calls"
+narrowed = "2026-11-08 north#706: the dev-shell flake is looked up from the directory a leading cd moved to"
 
 [[sample.row]]
 command = "cd /home/tom/code/makgora/worktrees/sc-997-reforged-reset/ts && nix shell nixpkgs#xdotool nixpkgs#wlrctl nixpkgs#grim nixpkgs#tesseract -c bun wisp cl"
@@ -2729,6 +2733,7 @@ label = "false"
 rule = "native-evidence"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 1 of 3 distinct refused calls"
+narrowed = "2026-11-08 north#706: wisp.ts pad is refused only when it names a pad"
 
 [[sample.row]]
 command = "cd /home/tom/code/makgora/dash-attack-ledge/ts && export NORTH_FLEET_SESSION=makgora-1075-worker PATH=$HOME/.local/bin:$PATH; E=/home/tom/.local/state"

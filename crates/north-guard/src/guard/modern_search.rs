@@ -97,10 +97,11 @@ fn inspect_command(text: &str, base: &str, home: &str, depth: usize) -> Option<H
     let tokens = shell::tokenize(&shell::strip_heredocs(text), ";&|\n`", true, true, " \t\r");
     search_words::segments(tokens)
         .into_iter()
-        .find_map(|segment| inspect_segment(&segment.words, base, home, depth))
+        .find_map(|segment| inspect_segment(&segment, base, home, depth))
 }
 
-fn inspect_segment(words: &[String], base: &str, home: &str, depth: usize) -> Option<Hit> {
+fn inspect_segment(segment: &search_words::Segment, base: &str, home: &str, depth: usize) -> Option<Hit> {
+    let words = &segment.words;
     if words.is_empty() || depth > MAX_NESTING {
         return None;
     }
@@ -111,7 +112,7 @@ fn inspect_segment(words: &[String], base: &str, home: &str, depth: usize) -> Op
         Located::Other => return None,
     };
     let executable = shell::basename(&words[index]);
-    let mut arguments = words[index + 1..].to_vec();
+    let mut arguments = without_redirects(&words[index + 1..], &segment.quoted[index + 1..]);
     let replacement = if executable == "find" {
         find::to_fd(&arguments)?
     } else {
@@ -127,6 +128,22 @@ fn inspect_segment(words: &[String], base: &str, home: &str, depth: usize) -> Op
         original: render(&original),
         replacement: render(&replacement),
     })
+}
+
+fn without_redirects(words: &[String], quoted: &[bool]) -> Vec<String> {
+    let mut kept = Vec::new();
+    let mut position = 0;
+    while position < words.len() {
+        let redirect = !quoted[position] && search_words::is_redirect(&words[position]);
+        if redirect && search_words::is_redirect_operator(&words[position]) {
+            position += 1;
+        }
+        if !redirect {
+            kept.push(words[position].clone());
+        }
+        position += 1;
+    }
+    kept
 }
 
 fn exact_pattern_file_rewrite(text: &str, cwd: &str, home: &str) -> Option<String> {

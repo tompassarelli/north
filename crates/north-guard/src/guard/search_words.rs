@@ -36,6 +36,7 @@ pub(super) type Token = (&'static str, String, bool);
 
 pub(super) struct Segment {
     pub words: Vec<String>,
+    pub quoted: Vec<bool>,
     pub piped: bool,
 }
 
@@ -48,19 +49,22 @@ pub(super) enum Located {
 pub(super) fn segments(tokens: Vec<Token>) -> Vec<Segment> {
     let mut found = Vec::new();
     let mut words = Vec::new();
+    let mut quoted = Vec::new();
     let mut piped = false;
-    for (kind, value, _) in tokens {
+    for (kind, value, was_quoted) in tokens {
         if kind == "sep" {
             found.push(Segment {
                 words: std::mem::take(&mut words),
+                quoted: std::mem::take(&mut quoted),
                 piped,
             });
             piped = value == "|";
         } else {
             words.push(value);
+            quoted.push(was_quoted);
         }
     }
-    found.push(Segment { words, piped });
+    found.push(Segment { words, quoted, piped });
     found
 }
 
@@ -229,4 +233,56 @@ pub(super) fn bash_call(input: &crate::hook::HookInput) -> Option<(&str, String)
 
 fn current_dir() -> Option<String> {
     Some(std::env::current_dir().ok()?.to_string_lossy().into_owned())
+}
+
+fn wildcard(pattern: &[char], name: &[char]) -> bool {
+    match pattern.split_first() {
+        None => name.is_empty(),
+        Some(('*', rest)) => (0..=name.len()).any(|skip| wildcard(rest, &name[skip..])),
+        Some(('?', rest)) => name.split_first().is_some_and(|(_, tail)| wildcard(rest, tail)),
+        Some((letter, rest)) => name.split_first().is_some_and(|(first, tail)| first == letter && wildcard(rest, tail)),
+    }
+}
+
+pub(super) fn has_glob(word: &str) -> bool {
+    word.contains(['*', '?', '['])
+}
+
+pub(super) fn expand_glob(pattern: &str) -> Option<Vec<String>> {
+    if pattern.contains(['[', '{', '$', '`', '\\']) {
+        return None;
+    }
+    let mut found = vec![if pattern.starts_with('/') { "/".to_owned() } else { String::new() }];
+    for part in pattern.split('/').filter(|part| !part.is_empty()) {
+        let mut next = Vec::new();
+        for parent in &found {
+            if !has_glob(part) {
+                next.push(Path::new(parent).join(part).to_string_lossy().into_owned());
+                continue;
+            }
+            let entries = std::fs::read_dir(if parent.is_empty() { "." } else { parent }).ok()?;
+            let pattern: Vec<char> = part.chars().collect();
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let chars: Vec<char> = name.chars().collect();
+                if (!name.starts_with('.') || part.starts_with('.')) && wildcard(&pattern, &chars) {
+                    next.push(Path::new(parent).join(&name).to_string_lossy().into_owned());
+                }
+            }
+        }
+        found = next;
+    }
+    Some(found)
+}
+
+pub(super) fn is_redirect(word: &str) -> bool {
+    word.trim_start_matches(|c: char| c.is_ascii_digit()).starts_with(['>', '<'])
+}
+
+pub(super) fn is_redirect_operator(word: &str) -> bool {
+    is_redirect(word) && word.trim_start_matches(|c: char| c.is_ascii_digit()).chars().all(|c| matches!(c, '>' | '<'))
+}
+
+pub(super) fn is_plain_argument(word: &str) -> bool {
+    !word.starts_with('-') && !is_redirect(word) && !word.bytes().all(|b| b.is_ascii_digit())
 }

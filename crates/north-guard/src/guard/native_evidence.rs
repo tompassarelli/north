@@ -1,4 +1,5 @@
 use super::git_invocation::words;
+use super::search_words::is_plain_argument;
 use crate::hook::{HookInput, Verdict};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 
@@ -83,13 +84,13 @@ fn refusal(args: &[String]) -> Option<&'static str> {
     }
     let tail: Vec<_> = args[1..].iter().flat_map(|arg| words(arg)).collect();
     let denied = match name {
-        "wisp" | "wisp.ts" => matches!(
-            tail.as_slice(),
-            ["pad", ..]
-                | ["native-capture", "run", ..]
-                | ["integrity", "capture", ..]
-                | ["lan", "soak", ..]
-        ),
+        "wisp" | "wisp.ts" => {
+            matches!(tail.as_slice(), ["pad", target, ..] if is_plain_argument(target))
+                || matches!(
+                    tail.as_slice(),
+                    ["native-capture", "run", ..] | ["integrity", "capture", ..] | ["lan", "soak", ..]
+                )
+        }
         "nativeCapture.ts" => matches!(tail.as_slice(), ["run" | "batch", ..]),
         "nativeCaptureBatch.ts"
         | "nativeKeyboardPad.ts"
