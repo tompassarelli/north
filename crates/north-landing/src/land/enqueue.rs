@@ -189,6 +189,10 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
     refuse_conflict(&root, &base, &destination)?;
+    let folded = crate::landing::merge_continue::fold(&root, &root.join(crate::landing::merge_set::DEFAULT_CONFIG), &base)?;
+    if !folded.is_empty() {
+        println!("safe-push: regenerated or sorted {} and folded the result into the lane", folded.join(", "));
+    }
     refuse_static_gates(&root, &base, "HEAD")?;
     super::divergence::refuse_malformed(&git(&root, &["log", "--format=%B", &format!("{base}..HEAD")])?)?;
     let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };

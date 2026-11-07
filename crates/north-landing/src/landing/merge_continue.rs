@@ -44,17 +44,25 @@ fn in_progress(worktree: &Path) -> Result<Option<Operation>, String> {
     Ok(None)
 }
 
-fn generator(command: &str) -> Result<Command, String> {
+fn generator(worktree: &Path, command: &str, code: &[String]) -> Result<Command, String> {
     let mut words = command.split_whitespace();
     let program = words.next().ok_or("an empty regenerate command")?;
-    let program = if program == "north" { std::env::current_exe().map_err(|error| format!("the running north: {error}"))? } else { PathBuf::from(program) };
-    let mut command = Command::new(program);
+    let head_north = worktree.join("bin/head-north");
+    let mut command = match program {
+        "north" if !code.is_empty() && head_north.is_file() => {
+            let mut built = Command::new(head_north);
+            built.args(["--code", &code.join(",")]);
+            built
+        }
+        "north" => Command::new(std::env::current_exe().map_err(|error| format!("the running north: {error}"))?),
+        other => Command::new(other),
+    };
     command.args(words);
     Ok(command)
 }
 
-fn generate(worktree: &Path, command: &str) -> Result<(), String> {
-    let output = generator(command)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
+fn generate(worktree: &Path, command: &str, code: &[String]) -> Result<(), String> {
+    let output = generator(worktree, command, code)?.current_dir(worktree).output().map_err(|error| format!("{command}: {error}"))?;
     if !output.status.success() {
         return Err(format!("{command} failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
@@ -70,13 +78,13 @@ fn regenerate(worktree: &Path, rules: &[merge_set::Rule], operation: Operation) 
     let mut commands = Vec::new();
     for path in &conflicted {
         match rules.iter().find(|rule| rule.path == *path).map(|rule| &rule.kind) {
-            Some(Kind::Regenerate { command, .. }) if !commands.contains(&command) => commands.push(command),
+            Some(Kind::Regenerate { command, generator, .. }) if !commands.iter().any(|(known, _)| *known == command) => commands.push((command, generator)),
             Some(Kind::Regenerate { .. }) => {}
             _ => return Err(format!("{path} conflicts and is not a regenerated file")),
         }
     }
-    for command in commands {
-        generate(worktree, command)?;
+    for (command, generator) in commands {
+        generate(worktree, command, generator)?;
     }
     let mut add = vec!["add", "--"];
     add.extend(conflicted);
@@ -112,6 +120,38 @@ pub fn generator_moved(worktree: &Path, config: &Path, base: &str, picked_onto: 
     Ok(merge_set::generator_moved(&rules, &ahead, &pick))
 }
 
+pub fn fold(worktree: &Path, config: &Path, base: &str) -> Result<Vec<String>, String> {
+    if !config.exists() || !git(worktree, &["diff", "--cached", "--quiet"])?.status.success() {
+        return Ok(Vec::new());
+    }
+    let fork = stdout(worktree, &["merge-base", base, "HEAD"])?;
+    let changed = stdout(worktree, &["diff", "--name-only", "-z", fork.trim(), "HEAD"])?;
+    let changed: Vec<&str> = changed.split('\0').filter(|path| !path.is_empty()).collect();
+    let touches = |prefixes: &[String]| changed.iter().any(|path| prefixes.iter().any(|prefix| path.starts_with(prefix.as_str())));
+    let mut folded = Vec::new();
+    for rule in merge_set::read_rules(config)? {
+        match &rule.kind {
+            Kind::Regenerate { command, sources, generator } if touches(sources) => generate(worktree, command, generator)?,
+            Kind::Block { start, end, sorted: true } if changed.contains(&rule.path.as_str()) => {
+                let path = worktree.join(&rule.path);
+                let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", rule.path))?;
+                if let Some(sorted) = merge_set::sort_block(&text, start, end) {
+                    std::fs::write(&path, sorted).map_err(|error| format!("{}: {error}", rule.path))?;
+                }
+            }
+            _ => continue,
+        }
+        if !stdout(worktree, &["status", "--porcelain", "--", &rule.path])?.is_empty() {
+            stdout(worktree, &["add", "--", &rule.path])?;
+            folded.push(rule.path);
+        }
+    }
+    if !folded.is_empty() {
+        stdout(worktree, &["commit", "-q", "--amend", "--no-edit", "--no-verify"])?;
+    }
+    Ok(folded)
+}
+
 pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<String>, String> {
     if !config.exists() {
         return Ok(Vec::new());
@@ -121,12 +161,12 @@ pub fn refresh(worktree: &Path, config: &Path, picked_onto: &str) -> Result<Vec<
     let changed = changed.split('\0').filter(|path| !path.is_empty()).collect::<Vec<_>>();
     let mut refreshed = Vec::new();
     for rule in &rules {
-        let Kind::Regenerate { command, sources, .. } = &rule.kind else { continue };
+        let Kind::Regenerate { command, sources, generator } = &rule.kind else { continue };
         let stale = !changed.contains(&rule.path.as_str()) && changed.iter().any(|path| sources.iter().any(|source| path.starts_with(source.as_str())));
         if !stale {
             continue;
         }
-        generate(worktree, command)?;
+        generate(worktree, command, generator)?;
         if !stdout(worktree, &["status", "--porcelain", "--", &rule.path])?.is_empty() {
             stdout(worktree, &["add", "--", &rule.path])?;
             refreshed.push(rule.path.clone());

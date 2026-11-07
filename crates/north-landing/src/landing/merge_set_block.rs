@@ -43,13 +43,29 @@ fn parse_block(text: &str, start: &str, end: &str) -> Result<Block, String> {
     Ok(Block { skeleton, entries })
 }
 
-pub(super) fn merge_block(base: &str, ours: &str, theirs: &str, start: &str, end: &str) -> Result<String, String> {
+pub(super) fn merge_block(base: &str, ours: &str, theirs: &str, start: &str, end: &str, sorted: bool) -> Result<String, String> {
     let (base, ours, theirs) = (parse_block(base, start, end)?, parse_block(ours, start, end)?, parse_block(theirs, start, end)?);
     let (merged, conflicts) = text_merge(&base.skeleton, &ours.skeleton, &theirs.skeleton)?;
     if conflicts || merged.matches(PLACEHOLDER).count() != 1 {
         return Err("the text around the block conflicts".to_owned());
     }
-    let entries = merge_entries(&base.entries, &ours.entries, &theirs.entries)?;
+    let mut entries = merge_entries(&base.entries, &ours.entries, &theirs.entries)?;
+    if sorted {
+        in_order(&mut entries);
+    }
     let block = entries.iter().map(|entry| format!("{}\n", entry.text)).collect::<String>();
     Ok(merged.replace(&format!("{PLACEHOLDER}\n"), &block))
+}
+
+fn in_order(entries: &mut Vec<Entry>) {
+    entries.sort_by(|left, right| left.text.as_bytes().cmp(right.text.as_bytes()));
+    entries.dedup_by(|left, right| left.text == right.text);
+}
+
+pub(crate) fn sort_block(text: &str, start: &str, end: &str) -> Option<String> {
+    let mut block = parse_block(text, start, end).ok()?;
+    in_order(&mut block.entries);
+    let lines = block.entries.iter().map(|entry| format!("{}\n", entry.text)).collect::<String>();
+    let sorted = block.skeleton.replace(&format!("{PLACEHOLDER}\n"), &lines);
+    (sorted != text).then_some(sorted)
 }

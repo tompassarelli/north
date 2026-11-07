@@ -50,7 +50,7 @@ fn doubled_first_words(entries: &[Entry]) -> BTreeSet<&str> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Kind {
     Lines(Identity),
-    Block { start: String, end: String },
+    Block { start: String, end: String, sorted: bool },
     TomlArray(Vec<String>),
     Regenerate { command: String, sources: Vec<String>, generator: Vec<String> },
 }
@@ -385,7 +385,7 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
                 Some(other) => return Err(format!("{path}: entry {other:?} must be line or first-word")),
             },
             (Some("block"), None, None) => match (field("start"), field("end")) {
-                (Some(start), Some(end)) if !start.trim().is_empty() && !end.trim().is_empty() => Kind::Block { start: start.trim().to_owned(), end: end.trim().to_owned() },
+                (Some(start), Some(end)) if !start.trim().is_empty() && !end.trim().is_empty() => Kind::Block { start: start.trim().to_owned(), end: end.trim().to_owned(), sorted: table.get("sorted").and_then(toml_edit::Item::as_bool).unwrap_or(false) },
                 _ => return Err(format!("{path}: a block entry needs a start and an end line")),
             },
             (Some("toml-array"), Some(key), None) => {
@@ -414,7 +414,7 @@ pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
 fn merge_text(kind: &Kind, base: &str, ours: &str, theirs: &str) -> Result<String, String> {
     match kind {
         Kind::Lines(identity) => merge_lines(base, ours, theirs, *identity),
-        Kind::Block { start, end } => block::merge_block(base, ours, theirs, start, end),
+        Kind::Block { start, end, sorted } => block::merge_block(base, ours, theirs, start, end, *sorted),
         Kind::TomlArray(keys) => merge_array_keys(base, ours, theirs, keys),
         Kind::Regenerate { command, .. } => Err(format!("a generated file: `north merge-driver continue` runs `{command}` on the merged sources")),
     }
@@ -484,6 +484,7 @@ pub fn run(arguments: &[String]) -> u8 {
 
 #[path = "merge_set_block.rs"]
 mod block;
+pub(crate) use block::sort_block;
 
 #[cfg(test)]
 #[path = "merge_set_tests.rs"]

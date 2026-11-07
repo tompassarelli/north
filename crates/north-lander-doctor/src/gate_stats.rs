@@ -41,7 +41,7 @@ pub fn gate(verdict: &str, log_line: impl Fn(&str) -> Option<String>) -> Option<
     if let Some(path) = rest.strip_prefix('/').map(|_| rest.split_whitespace().next().unwrap_or(rest)) {
         return Some(log_line(path).unwrap_or_else(|| "lander scan".to_owned()));
     }
-    Some(rest.split(';').next().unwrap_or(rest).trim().to_owned())
+    Some(rest.split([';', ':']).next().unwrap_or(rest).trim().to_owned())
 }
 
 fn check_name(command: &str) -> String {
@@ -108,6 +108,7 @@ pub fn render(window: &str, rows: &BTreeMap<String, Row>, after: &BTreeMap<Strin
     for (name, row) in &ordered {
         let hours: f64 = row.requeued.iter().sum::<f64>() / 60.0;
         let middle = median(&row.requeued).map_or_else(|| "-".to_owned(), |minutes| format!("{minutes:.1}"));
+        let name: String = name.chars().take(34).collect();
         let _ = writeln!(out, "{name:<34} {:>8} {:>8} {middle:>10} {hours:>8.1} {:>12} {:>9}", row.refusals, row.requeued.len(), row.landed_later, row.unchanged);
     }
     let listed = |counts: &BTreeMap<String, usize>| counts.iter().map(|(name, count)| format!("{name} {count}")).collect::<Vec<_>>().join(", ");
