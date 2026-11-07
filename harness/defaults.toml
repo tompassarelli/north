@@ -247,10 +247,10 @@ fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n <
 consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
 
 [spend_reserve]
-value = 3
+value = 10
 allowed = { min = 0, max = 100 }
 unit = "percent of the largest counted account's week that must stay unspent across all accounts together; a new worker starts only while the pooled week left after it stays above this"
-source = "tom: 2026-11-07 dip the pooled reserve from 10 to 3 until the next weekly reset of a counted account, so the harness-loss fixes can start now (north#702)"
+source = "tom: the pooled reserve is 10; dipped to 3 on 2026-11-07 until a counted account's weekly reset (north#702), restored 2026-11-08 after that reset"
 fallback = "none: the reserve is a stated amount, not a measurement"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
