@@ -224,8 +224,8 @@ pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
     }
     if let Some(worker) = world.worker().filter(|_| !BLOCKS.is_match(&body) || world.files_its_item()) {
         notes.push(match world.claim(&new, &worker) {
-            Ok(said) => format!("{said}: an issue a fleet worker files is claimed for it, so north dispatch does not staff it again."),
-            Err(why) => format!("Could not claim {}#{} for you ({why}); claim it with `north threads claim {}#{} --by {worker}` before north dispatch staffs it again.", new.0, new.1, new.0, new.1),
+            Ok(said) => format!("{said}: an issue a fleet worker files is claimed for it, so north fleet dispatch does not staff it again."),
+            Err(why) => format!("Could not claim {}#{} for you ({why}); claim it with `north threads claim {}#{} --by {worker}` before north fleet dispatch staffs it again.", new.0, new.1, new.0, new.1),
         });
     }
     if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join(" ")) }
@@ -323,7 +323,7 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
     (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
-const NO_BOX: &str = "No. The body has no `- [ ]` box, and north dispatch staffs only issues with an unticked box. Write each check as a `- [ ]` line under a `## Done when` heading, one per guarantee, each naming the command or observation that proves it.";
+const NO_BOX: &str = "No. The body has no `- [ ]` box, and north fleet dispatch staffs only issues with an unticked box. Write each check as a `- [ ]` line under a `## Done when` heading, one per guarantee, each naming the command or observation that proves it.";
 const UNFOUNDED: &str = "No. A worker files an issue only for what it cannot finish in its lane: a blocker, with a `Blocks: repo#N` body line naming the issue it blocks, or a measured defect, with a `Defect:` body line giving the command you ran and what it showed. A finding you can fix in 20 minutes is fixed in this lane and lands with it. An idea or a possible follow-up goes under `Ideas:` in your final report, not into a new issue. The issue for the item you were launched on passes when its body carries your brief's Done when.";
 const OPAQUE: &str = " This body is built from a shell variable or a pipe the guard cannot read, so give it literally, in a heredoc or with --body-file PATH.";
 
@@ -373,8 +373,8 @@ fn similar(title: &str, other: &str) -> bool {
 }
 
 
-const NO_CATEGORY: &str = "No. The body has no `Category:` line and no label names one (`category:NAME`, enhancement, bug or documentation), and north dispatch places no box without a category. Add a `Category:` line before the first blank line, such as `Category: tooling`.";
-const NO_CLASS: &str = "No. A bug category (bug-known-cause, debugging-unknown-cause, or the bug label) needs a `Class:` line, and north dispatch places no such box without one. Add `Class:` before the first blank line naming the class of failure, and write a Done when that covers every instance of it.";
+const NO_CATEGORY: &str = "No. The body has no `Category:` line and no label names one (`category:NAME`, enhancement, bug or documentation), and north fleet dispatch places no box without a category. Add a `Category:` line before the first blank line, such as `Category: tooling`.";
+const NO_CLASS: &str = "No. A bug category (bug-known-cause, debugging-unknown-cause, or the bug label) needs a `Class:` line, and north fleet dispatch places no such box without one. Add `Class:` before the first blank line naming the class of failure, and write a Done when that covers every instance of it.";
 
 /// The category dispatch would place the issue under: its `Category:` line, else a category label.
 fn category(body: &str, labels: &[String]) -> Option<String> {
@@ -396,7 +396,7 @@ fn shape(write: &GhWrite, body: &str) -> Vec<String> {
     }
     match category(body, &write.labels) {
         None => reasons.push(NO_CATEGORY.to_owned()),
-        Some(category) if let Err(why) = crate::router::brief::known_category(&category) => reasons.push(format!("No. {why}, and north dispatch places no box under another word.")),
+        Some(category) if let Err(why) = crate::router::brief::known_category(&category) => reasons.push(format!("No. {why}, and north fleet dispatch places no box under another word.")),
         Some(category) if BUG_CATEGORIES.contains(&category.as_str()) && !CLASS.is_match(body) => reasons.push(NO_CLASS.to_owned()),
         Some(_) => {}
     }

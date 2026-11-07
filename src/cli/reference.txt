@@ -79,7 +79,7 @@ Commands:
   remote-serve --peer HOST [--repos REPO,...] [--log FILE]  The ssh forced command for a peer key: run SSH_ORIGINAL_COMMAND only if the allowlist and the peer's guards admit it, exit 126 on a refusal, and log one row per call
   remote-serve audit --peer HOST [--log FILE] [--keys FILE]  Count a peer's logged calls and refusals and print its key's days to expiry-time from authorized_keys
   cloud [list|events|sweep|send|wait|collect|land|reap|launch]  Launch, read, message, wait on, land, reap and sweep Anthropic cloud sessions
-  dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
+  fleet dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
   ops check [--dry-run]                         Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
@@ -92,11 +92,11 @@ Commands:
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   private-desktop [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
-  orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
+  fleet orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R)]   Record a verdict north observed itself, or tick issue boxes whose Observe: command exits 0
   ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main and first commit->main p50 and p90, refused alone, queued now; --record writes the last hour and day to the ledger (hourly timer)
   gate [open --session S --question Q --option O... --recommend N [--default N --default-after D] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | list [--json] | digest [--peek]]  Open or answer a decision gate; digest prints the for-Tom gates still open and the defaults applied since the last look
-  digest [--since DURATION]  Print what landed, what is in flight, open gates with their recommendation and stalls from the fleet store
+  fleet digest [--since DURATION]  Print what landed, what is in flight, open gates with their recommendation and stalls from the fleet store
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity dev-shell run [--dir D] (--prepare | -- COMMAND...)  Run COMMAND inside the flake default dev shell, entering it once offline from its GC root; --prepare realises the root
   capacity admission < FACTS.json               Decide one machine-capacity admission
@@ -179,10 +179,10 @@ Commands:
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
   loops check [--role ledger|lander|here]       Check the declared control loops and their scores
-  pace [place|sample|gate PROVIDER]            Place a launch on a machine and account, or sample account usage
+  fleet pace [place|sample|gate PROVIDER]            Place a launch on a machine and account, or sample account usage
   private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
   provider-capacity events|status [--minutes N]  Read provider capacity events
-  report                                        Print the fleet report
+  fleet report                                        Print the fleet report
   resident-cap gate claude|codex [ARG...] | status  Refuse a launch over this host's resident session cap, or print the count and cap
   capacity bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
   session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND  Link a remote session unit
@@ -193,7 +193,7 @@ Commands:
   ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers
   lane seed [DIR]                               Seed a lane's cargo target from the shared one
   tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
-  usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Read account usage
+  fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Read account usage
   help                                          Show the operator and agent commands
 
 Options:

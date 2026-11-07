@@ -40,7 +40,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("mutant", |arguments| north_mutants::cli::run(arguments, &super::mutant_issues::MirrorIssues, crate::land::scans::test_admission::contract_tests)),
     ("coverage", north_coverage::run),
     ("graph", graph),
-    ("report", crate::ops::report::run),
     ("agents", super::agents::run),
     ("resident-cap", crate::resident_cap::run),
     ("split", crate::split::run),
@@ -102,6 +101,7 @@ pub(super) enum Tool {
     Capacity,
     SessionUnit,
     Dispatch,
+    Report,
     Timer(Timer),
 }
 
@@ -114,6 +114,14 @@ const OPERATIONS: &[(&str, Tool)] = &[
 ];
 
 impl Tool {
+    pub(super) fn fleet_verb(verb: &str) -> Option<Self> {
+        match verb {
+            "report" => Some(Self::Report),
+            "dispatch" | "pace" | "usage" => Self::named(verb),
+            _ => None,
+        }
+    }
+
     pub(super) fn named(command: &str) -> Option<Self> {
         named(UNIFORM, command)
             .map(Self::Uniform)
@@ -133,6 +141,7 @@ impl Tool {
                 crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
             }),
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
+            Self::Report => super::in_runtime(async move { Ok(ExitCode::from(crate::ops::report::run(arguments))) }),
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
             Self::Capacity => match arguments.split_first() {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(crate::ops::run_bounded::run(rest)),

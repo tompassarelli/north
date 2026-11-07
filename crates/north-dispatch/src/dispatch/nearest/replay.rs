@@ -1,4 +1,4 @@
-//! `north dispatch route-replay [--days N] [--db PATH]`: walks the last N days of first-assignment worker
+//! `north fleet dispatch route-replay [--days N] [--db PATH]`: walks the last N days of first-assignment worker
 //! boxes in launch order and, using only runs that finished before each launch, compares the rung the old
 //! routing started it on with the rung its nearest finished boxes pick. Both are projected through the same
 //! escalation ladder, each rung's keep chance and cost read from the box's next K nearest boxes, disjoint from the K
@@ -12,7 +12,7 @@ use rusqlite::{Connection, OpenFlags};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: north dispatch route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north fleet dispatch route-replay [--days N] [--db PATH]";
 const ATTEMPTS: usize = 3;
 const RERUN_HOURS: f64 = 24.0;
 
@@ -53,7 +53,7 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         Err(why) => {
-            eprintln!("north dispatch route-replay: {why}");
+            eprintln!("north fleet dispatch route-replay: {why}");
             1
         }
     }

@@ -1,5 +1,5 @@
 //! One line per non-AI service of the operator's costs.toml from its costs/<id>.json readout, then the weekly total,
-//! and the short form `north usage` prints: the services still billing and the weekly total.
+//! and the short form `north fleet usage` prints: the services still billing and the weekly total.
 use std::fs;
 
 use serde_json::Value;

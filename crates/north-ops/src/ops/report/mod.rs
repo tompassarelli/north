@@ -1,4 +1,4 @@
-//! `north report`: what the feedback loop has learned, read from the worker ledger and the
+//! `north fleet report`: what the feedback loop has learned, read from the worker ledger and the
 //! operator's state: calibration, spawn-gate denials and goal scores.
 use std::path::Path;
 use std::time::Duration;
@@ -102,7 +102,7 @@ fn select(database: &Path, query: &str) -> Vec<Value> {
 
 pub fn run(arguments: &[String]) -> u8 {
     if !arguments.is_empty() {
-        eprintln!("usage: north report");
+        eprintln!("usage: north fleet report");
         return 2;
     }
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());

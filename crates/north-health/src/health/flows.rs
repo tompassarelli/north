@@ -178,7 +178,7 @@ impl World {
             age = dispatch.last_run.map(|run| self.age(run)).into_iter().chain(age).reduce(f64::max);
             match (&dispatch.paused, dispatch.timer_active) {
                 (Some(paused), true) => faults.push(format!("{name} runs the dispatch timer though the proxy paused dispatch {} ago: {}", minutes(self.age(paused.since)), paused.cause)),
-                (None, false) => faults.push(format!("{name} has its dispatch timer stopped with no pause recorded (`north dispatch pause --reason TEXT` records one)")),
+                (None, false) => faults.push(format!("{name} has its dispatch timer stopped with no pause recorded (`north fleet dispatch pause --reason TEXT` records one)")),
                 _ => {}
             }
         }

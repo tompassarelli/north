@@ -72,7 +72,7 @@ pub fn plan(inputs: &Inputs, capacity: &Capacity, pools: &mut Pools) -> Revival 
         let held = |why: &str| format!("fleet session {} on {} stranded by {}: {why}", session.name, strand.registry, session.stop.label());
         match admit(strand, inputs, capacity, pools) {
             Ok(revive) => {
-                revival.holds.extend(items.into_iter().map(|item| (item, held("revived by north dispatch"))));
+                revival.holds.extend(items.into_iter().map(|item| (item, held("revived by north fleet dispatch"))));
                 revival.steps.push(Step::Revive(revive));
             }
             Err(why) => {
@@ -101,7 +101,7 @@ fn admit(strand: &Strand, inputs: &Inputs, capacity: &Capacity, pools: &mut Pool
     }
     let account = format!("{}:{}", session.provider, session.account);
     plan::revive(capacity, pools, host, &account)?;
-    let local = session.machine.is_none().then(|| format!("north dispatch revives {} where its conversation lives", session.name));
+    let local = session.machine.is_none().then(|| format!("north fleet dispatch revives {} where its conversation lives", session.name));
     let lanes = session.lanes.iter().filter(|lane| lane.unlanded()).map(|lane| lane.label()).collect();
     Ok(Revive { name: session.name.clone(), registry: strand.registry.clone(), host: host.to_owned(), account, stop: session.stop, lanes, ended_ms: session.ended_ms, local })
 }

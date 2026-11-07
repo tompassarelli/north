@@ -1,4 +1,4 @@
-//! `north usage sample`: the one-minute reader. Token accounts are read from their Messages response headers
+//! `north fleet usage sample`: the one-minute reader. Token accounts are read from their Messages response headers
 //! (utilization, reset and status), every account with a login from `claude -p /usage` (which carries the
 //! `extra_usage` flag), and the readings are recorded in the usage table.
 use rusqlite::Connection;
@@ -31,7 +31,7 @@ fn token_readings(headers: &[(String, Result<String, String>)], at: f64) -> Vec<
         .iter()
         .flat_map(|(label, headers)| {
             headers.clone().and_then(|headers| events::header_rows(label, &headers, at)).unwrap_or_else(|error| {
-                eprintln!("north usage sample: claude:{label} header read failed: {error}");
+                eprintln!("north fleet usage sample: claude:{label} header read failed: {error}");
                 Vec::new()
             })
         })

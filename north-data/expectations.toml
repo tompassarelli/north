@@ -8,7 +8,7 @@ breach_when = "below"
 threshold = 1
 window = "24h"
 owner = "dispatch"
-fix = "north dispatch places every code-only makgora or wisp box in the cloud lane while the credit lasts, and says why when it does not"
+fix = "north fleet dispatch places every code-only makgora or wisp box in the cloud lane while the credit lasts, and says why when it does not"
 on = "nexus"
 until = "2026-11-05"
 
@@ -19,7 +19,7 @@ breach_when = "above"
 threshold = 5
 window = "6h"
 owner = "dispatch"
-fix = "north dispatch holds a box whose launch keeps failing and names the refusal in one alert instead of retrying"
+fix = "north fleet dispatch holds a box whose launch keeps failing and names the refusal in one alert instead of retrying"
 on = "nexus"
 
 [[expectation]]

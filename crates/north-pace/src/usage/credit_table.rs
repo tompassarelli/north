@@ -1,4 +1,4 @@
-//! The API section of the default `north usage` table: one aligned row per pooled organization in the order launches spend
+//! The API section of the default `north fleet usage` table: one aligned row per pooled organization in the order launches spend
 //! them (soonest expiring grant with credit left first), and one footer line saying which hosts' spend it was charged with.
 use super::Places;
 use super::plain::{self, grid};

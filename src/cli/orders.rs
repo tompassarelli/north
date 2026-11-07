@@ -1,7 +1,7 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
 
-const USAGE: &str = "Usage: north orders list | north orders add TEXT...";
+const USAGE: &str = "Usage: north fleet orders list | north fleet orders add TEXT...";
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let orders = fleet.orders();

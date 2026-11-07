@@ -45,7 +45,7 @@ pub fn sampler_plan(failing: &[Failing], previous: &State, now: f64) -> (State, 
         let key = format!("sampler:{}:fleet:proxy", failure.provider);
         if stale >= STALE_SECONDS && !record.sent.contains_key(&key) {
             let text = format!(
-                "Usage sampler for {} has not read for {:.0}m ({}); last good reading {}. Every pace reader is on stale usage until it reads; run north pace sample on this host and fix the read",
+                "Usage sampler for {} has not read for {:.0}m ({}); last good reading {}. Every pace reader is on stale usage until it reads; run north fleet pace sample on this host and fix the read",
                 failure.provider,
                 stale / 60.0,
                 failure.why,

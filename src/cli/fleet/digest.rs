@@ -1,4 +1,4 @@
-//! `north digest [--since 24h]`: one digest of the fleet store for Tom, on request and after each usage reset.
+//! `north fleet digest [--since 24h]`: one digest of the fleet store for Tom, on request and after each usage reset.
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::digest_report::{Facts, GateLine, render};
 use crate::fleet::gates::Gate;
@@ -6,7 +6,7 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::router::moment::Moment;
 
-const USAGE: &str = "Usage: north digest [--since DURATION] (30m, 4h, 1d; default 24h)";
+const USAGE: &str = "Usage: north fleet digest [--since DURATION] (30m, 4h, 1d; default 24h)";
 
 pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let label = match words {

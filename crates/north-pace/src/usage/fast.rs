@@ -1,4 +1,4 @@
-//! `north usage --fast PROVIDER`: whether routing turns plan-billed fast on for a new lead on the provider while it is under pace.
+//! `north fleet usage --fast PROVIDER`: whether routing turns plan-billed fast on for a new lead on the provider while it is under pace.
 use rusqlite::Connection;
 use serde_json::{Value, json};
 

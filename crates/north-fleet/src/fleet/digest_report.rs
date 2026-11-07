@@ -1,4 +1,4 @@
-//! The text of `north digest`: what landed, what is in flight, the open gates with their recommendation, and stalls.
+//! The text of `north fleet digest`: what landed, what is in flight, the open gates with their recommendation, and stalls.
 use std::fmt::Write;
 
 use crate::fleet::books::Landing;

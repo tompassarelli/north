@@ -5,17 +5,11 @@ Usage: north [COMMAND]
 Run north with no arguments to open the fleet screen.
 
 Operator console:
-  fleet                 Run headless agent sessions; no argument opens the screen
+  fleet                 Sessions, dispatch, pace, usage, orders, digest and report
   gate                  Open, answer or list decision gates
-  orders                List or add the standing orders every launch carries
-  digest                Print landings, work in flight, open gates and stalls
-  report                Print the fleet report
   ledger                Fleet runs and cost; worker tiers, flow, tempo, incidents, scoreboard
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
-  dispatch              Launch ready boxes on every free worker slot
-  pace                  Place a launch on a machine and account, or sample account usage
-  usage                 Read account usage
   laptop                Set or read the laptop's placement availability
   private-desktop       Run or control an isolated private desktop
   agent-capture         Take a screenshot without touching the clipboard

@@ -35,7 +35,7 @@ fn decision(target: Target) -> Decision {
 fn an_account_at_its_provider_limit_refuses_even_a_pin_and_names_the_account_placement_picks() {
     let placed = decision(Target::Account("claude:a".into()));
     let launch = Launch { name: "burndown-lead", account: "c", brief: None, cwd: None, machine: None, lead: false };
-    let revived = Overrides::default().recorded(Some("pin: north dispatch ranks claude:c first"));
+    let revived = Overrides::default().recorded(Some("pin: north fleet dispatch ranks claude:c first"));
     let refused = admit(&placed, &launch, "", &revived).unwrap_err().to_string();
     assert!(refused.starts_with("provider limit: claude:c unavailable: 5h window at the provider's limit"), "{refused}");
     assert!(refused.contains("placement picks claude:a (claude:a available") && refused.ends_with("launch with --account a"), "{refused}");

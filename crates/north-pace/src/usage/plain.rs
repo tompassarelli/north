@@ -1,4 +1,4 @@
-//! Plain-word times for the default `north usage` table: spans, reading ages and local 12-hour clock times.
+//! Plain-word times for the default `north fleet usage` table: spans, reading ages and local 12-hour clock times.
 use time::{OffsetDateTime, UtcOffset};
 
 use crate::foundation::clock::Timestamp;

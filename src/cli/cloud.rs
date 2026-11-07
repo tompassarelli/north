@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::foundation::clock::Timestamp;
 
 pub(super) const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF [--item REPO#N] | events SESSION_ID OUT.jsonl | sweep OUT_DIR | reap | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS] | collect EVENTS.jsonl OUT.mbox | land EVENTS.jsonl [--repo DIR]
-launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north dispatch holds that issue for six hours.
+launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north fleet dispatch holds that issue for six hours.
 sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
 send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
 wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout); a turn that ends with no Done:/Not done:/Split:/Blocked: line and no patch handback gets a continue message posted and is waited on again, at most twice, before wait reports the worker stalled and exits 1; when those events hold a patch handback it then lands it as land does.

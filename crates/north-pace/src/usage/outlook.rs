@@ -1,4 +1,4 @@
-//! Each Claude account's weekly use and how long it lasts, for callers that act on `north usage`'s outlook column.
+//! Each Claude account's weekly use and how long it lasts, for callers that act on `north fleet usage`'s outlook column.
 use std::path::Path;
 
 use rusqlite::Connection;

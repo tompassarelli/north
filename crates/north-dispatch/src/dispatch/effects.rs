@@ -42,7 +42,7 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
         .map(str::to_owned)
         .into();
     words.extend(launch.route.invocation(&survey.cfg)?);
-    let held = (!remote && launch.local.is_none()).then(|| format!("north dispatch placed this box on {}", launch.host));
+    let held = (!remote && launch.local.is_none()).then(|| format!("north fleet dispatch placed this box on {}", launch.host));
     if let Some(reason) = launch.local.as_ref().or(held.as_ref()) {
         words.extend(["--local".to_owned(), reason.clone()]);
     }
@@ -177,19 +177,19 @@ pub fn tell_tom(line: &str, dry_run: bool, at: f64) {
         println!("would alert: {line}");
         return;
     }
-    match run_within("nexus-alert", &["normal", line, "north dispatch"], Duration::from_secs(30)) {
+    match run_within("nexus-alert", &["normal", line, "north fleet dispatch"], Duration::from_secs(30)) {
         Some(output) if output.status.success() => {
             println!("alerted: {line}");
             remember("alert.json", &json!({"text": line, "at": at}));
         }
-        _ => eprintln!("north dispatch: nexus-alert failed; the line was: {line}"),
+        _ => eprintln!("north fleet dispatch: nexus-alert failed; the line was: {line}"),
     }
 }
 
 /// The message that asks the triage lead to box the open issues that have none.
 pub fn boxless_summary(issues: &[&Issue]) -> String {
     let listed: Vec<String> = issues.iter().map(|issue| format!("{} {}", issue.reference(), issue.title)).collect();
-    format!("north dispatch: {} open issues have no Done-when box, so dispatch cannot staff them; give each a box, a roadmap label, or close it: {}", issues.len(), listed.join("; "))
+    format!("north fleet dispatch: {} open issues have no Done-when box, so dispatch cannot staff them; give each a box, a roadmap label, or close it: {}", issues.len(), listed.join("; "))
 }
 
 /// Who is asked to box them: the session `[dispatch] triage_lead` names while some registry lists
@@ -221,7 +221,7 @@ pub fn ask_for_boxes(cfg: &DocumentMut, listed: &BTreeSet<String>, issues: &[&Is
         }
         failed => {
             let why = failed.map_or_else(|| "timed out".to_owned(), |output| refusal_line(&String::from_utf8_lossy(&output.stderr)));
-            eprintln!("north dispatch: north fleet send {to} failed: {why}; the summary was: {text}");
+            eprintln!("north fleet dispatch: north fleet send {to} failed: {why}; the summary was: {text}");
             remember("boxless.json", &json!({"to": to, "at": at, "failed": why}));
         }
     }
@@ -230,6 +230,6 @@ pub fn ask_for_boxes(cfg: &DocumentMut, listed: &BTreeSet<String>, issues: &[&Is
 fn remember(file: &str, value: &serde_json::Value) {
     let saved = std::fs::create_dir_all(record::directory()).map_err(|error| error.to_string()).and_then(|()| serde_json::to_vec(value).map_err(|error| error.to_string()));
     if let Err(why) = saved.and_then(|bytes| std::fs::write(record::directory().join(file), bytes).map_err(|error| error.to_string())) {
-        eprintln!("north dispatch: {file} not recorded: {why}");
+        eprintln!("north fleet dispatch: {file} not recorded: {why}");
     }
 }

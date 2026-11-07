@@ -137,10 +137,10 @@ fn from_ledger_host(item: &IssueRef, notes: &mut Vec<String>) -> Vec<Learned> {
     }
 }
 
-/// `north dispatch needs REPO#N`: one record line per need learned for the item on this host, which a launch on another host reads.
+/// `north fleet dispatch needs REPO#N`: one record line per need learned for the item on this host, which a launch on another host reads.
 pub fn serve(item: &str) -> u8 {
     let Some(item) = IssueRef::parse(item) else {
-        eprintln!("north dispatch needs: {item} names no issue");
+        eprintln!("north fleet dispatch needs: {item} names no issue");
         return 2;
     };
     let reference = item.to_string();
@@ -152,11 +152,11 @@ pub fn serve(item: &str) -> u8 {
     0
 }
 
-/// `north dispatch need SESSION NEED [REPO#N]`, the reason on stdin: what `north fleet need` asks the host holding the dispatch records to write.
+/// `north fleet dispatch need SESSION NEED [REPO#N]`, the reason on stdin: what `north fleet need` asks the host holding the dispatch records to write.
 pub fn serve_need(session: &str, need: &str, item: Option<&str>) -> u8 {
     let mut reason = String::new();
     if let Err(error) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut reason) {
-        eprintln!("north dispatch need: the reason is unread: {error}");
+        eprintln!("north fleet dispatch need: the reason is unread: {error}");
         return 2;
     }
     match register(session, need, &reason, item) {
@@ -165,7 +165,7 @@ pub fn serve_need(session: &str, need: &str, item: Option<&str>) -> u8 {
             0
         }
         Err(why) => {
-            eprintln!("north dispatch need: {why}");
+            eprintln!("north fleet dispatch need: {why}");
             1
         }
     }

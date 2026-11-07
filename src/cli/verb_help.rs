@@ -71,10 +71,13 @@ fn covers(entry: &Entry, path: &[String]) -> bool {
 }
 
 pub(super) fn usage(path: &[String]) -> Option<String> {
-    if let Some((_, contract)) = CONTRACTS.iter().filter(|(prefix, _)| starts_with(path, prefix)).max_by_key(|(prefix, _)| prefix.len()) {
+    let entries = entries();
+    let literal = |length: usize| entries.iter().any(|entry| entry.words.len() >= path.len() && path.iter().zip(&entry.words).all(|(word, token)| word == token) && path.len() > length);
+    if let Some((prefix, contract)) = CONTRACTS.iter().filter(|(prefix, _)| starts_with(path, prefix)).max_by_key(|(prefix, _)| prefix.len())
+        && !literal(prefix.len())
+    {
         return Some(format!("{}\n", contract.trim_end()));
     }
-    let entries = entries();
     let matched = (1..=path.len()).rev().map(|length| &path[..length]).find_map(|prefix| {
         let listed: Vec<&Entry> = entries.iter().filter(|entry| covers(entry, prefix)).collect();
         (!listed.is_empty()).then_some(listed)

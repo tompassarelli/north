@@ -1,4 +1,4 @@
-//! `north dispatch`: keep every free worker slot busy with ready work. Each run reads the hosts'
+//! `north fleet dispatch`: keep every free worker slot busy with ready work. Each run reads the hosts'
 //! resident sessions, which accounts the out-rule keeps out and the staffed repositories' open issues,
 //! launches each ready box it can place through `north fleet launch`, records the launch, and tells
 //! Tom in one line when ready work and free slots coexist and nothing could launch.
@@ -76,7 +76,7 @@ mod spread_tests;
 #[cfg(test)]
 mod revive_tests;
 
-const USAGE: &str = "usage: north dispatch [--dry-run] | pause --reason TEXT | resume | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north fleet dispatch [--dry-run] | pause --reason TEXT | resume | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -205,7 +205,7 @@ pub fn alert(outcome: &Outcome, failures: &[String], here: &str) -> Option<Strin
         return None;
     }
     let why = failures.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
-    Some(format!("north dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready.len(), outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
+    Some(format!("north fleet dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready.len(), outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
 }
 
 fn print_survey(survey: &Survey) {
@@ -314,18 +314,18 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         }
     };
     if !dry_run && let Some(reason) = pause::standing() {
-        println!("north dispatch: paused on this host, launching nothing: {reason}; `north dispatch resume` ends the pause");
+        println!("north fleet dispatch: paused on this host, launching nothing: {reason}; `north fleet dispatch resume` ends the pause");
         return 0;
     }
     let survey = match roster().map_err(|error| error.to_string()).and_then(|roster| survey::survey(&roster)) {
         Ok(survey) => survey,
         Err(why) => {
-            eprintln!("north dispatch: {why}");
+            eprintln!("north fleet dispatch: {why}");
             return 2;
         }
     };
     print_survey(&survey);
-    let outcome = decide(&survey, &format!("north dispatch on {}", survey.here));
+    let outcome = decide(&survey, &format!("north fleet dispatch on {}", survey.here));
     for (place, item) in outcome.ready.iter().enumerate() {
         let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));
         println!("ready {}\t{item}\t{standing}", place + 1);

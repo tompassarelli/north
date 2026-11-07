@@ -1,4 +1,4 @@
-//! `north usage --refresh`: read every account's adapter (and the labelled accounts signed in on other machines),
+//! `north fleet usage --refresh`: read every account's adapter (and the labelled accounts signed in on other machines),
 //! record the readings in the usage table (a remote client publishes them to the host first), rewrite the pace gate
 //! and notify promotions that are about to end.
 use std::fs::OpenOptions;

@@ -69,7 +69,7 @@ owner = "north#112 Effort is an arm"
 name = "context-window"
 decision = "the auto-compact window a dispatched Claude box with no tier or effort arm launches with"
 sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-fleet/src/fleet/compaction.rs", "crates/north-providers/src/providers/claude/session_env.rs"]
-updated_by = "north dispatch draws the arms in equal seeded shares, and its dry run prints each arm's boxes, kept boxes and cost per kept box from the ledger"
+updated_by = "north fleet dispatch draws the arms in equal seeded shares, and its dry run prints each arm's boxes, kept boxes and cost per kept box from the ledger"
 cadence_hours = 24
 owner = "north#636 The policy loop owns experiment design end to end"
 

@@ -1,4 +1,4 @@
-//! The `north usage --verbose` detail: one line per account with its windows, billing, reset availability, burn and plan.
+//! The `north fleet usage --verbose` detail: one line per account with its windows, billing, reset availability, burn and plan.
 use std::collections::BTreeSet;
 
 use rusqlite::Connection;

@@ -1,5 +1,5 @@
 //! The api spend this host reports to the others, and the pull of every other host's report on the fleet tick,
-//! so `north usage` and the api pool charge a grant with the runs of every host; and the swap of exhausted marks,
+//! so `north fleet usage` and the api pool charge a grant with the runs of every host; and the swap of exhausted marks,
 //! so an organization one host found out of credit is closed to launches on every host.
 use std::collections::BTreeMap;
 use std::path::PathBuf;

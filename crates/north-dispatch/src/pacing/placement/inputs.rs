@@ -1,4 +1,4 @@
-//! The placement inputs `north dispatch` reads beside the gate: South's orchestration, the cloud
+//! The placement inputs `north fleet dispatch` reads beside the gate: South's orchestration, the cloud
 //! credit, the laptop's state, a host's resident CLIs and pace-control's state files.
 use super::super::{sampling, storage};
 use super::{credit, laptop, resident};
@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use toml_edit::DocumentMut;
 
-/// South's orchestration.toml, which placement and `north dispatch` read.
+/// South's orchestration.toml, which placement and `north fleet dispatch` read.
 pub fn config() -> Result<DocumentMut, String> {
     sampling::config()
 }

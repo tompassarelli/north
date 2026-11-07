@@ -1,4 +1,4 @@
-//! The default `north usage` table: one aligned row per Claude account with its 5-hour and weekly windows, the
+//! The default `north fleet usage` table: one aligned row per Claude account with its 5-hour and weekly windows, the
 //! weekly reset in local time and an outlook, one line per other provider, and this week's operating cost.
 use std::collections::BTreeMap;
 
@@ -11,7 +11,7 @@ use super::plain::{self, GAP, grid};
 use super::{Places, costs, credit_table, detail, py, settings, web};
 use crate::foundation::clock::Timestamp;
 
-const NO_SNAPSHOT: &str = "No usage readings yet; run `north usage --refresh`.";
+const NO_SNAPSHOT: &str = "No usage readings yet; run `north fleet usage --refresh`.";
 const HEADER: [&str; 5] = ["Claude", "5 hours", "week", "week resets", "outlook"];
 
 const NONE: &str = "—";

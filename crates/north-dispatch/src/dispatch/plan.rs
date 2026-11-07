@@ -115,9 +115,9 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
                     let account = format!("claude login on {}", capacity.here);
                     return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None });
                 }
-                local = Some(format!("north dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
+                local = Some(format!("north fleet dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
             }
-            Cloud::Unreachable(why) => local = Some(format!("north dispatch: cloud lane unreachable from {}: {why}", capacity.here)),
+            Cloud::Unreachable(why) => local = Some(format!("north fleet dispatch: cloud lane unreachable from {}: {why}", capacity.here)),
             Cloud::Closed(_) => {}
         }
     }

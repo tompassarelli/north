@@ -1,4 +1,4 @@
-//! `north usage`: the latest reading of each account window in the threads ledger's usage table, as a short
+//! `north fleet usage`: the latest reading of each account window in the threads ledger's usage table, as a short
 //! table of each account's windows, weekly reset and outlook with this week's cost; with `--verbose`, one
 //! detail line per account with every window, billing, reset, burn and cost line; with `--json`, the same
 //! rows with whether each is older than `usage_stale_min`.
@@ -32,7 +32,7 @@ mod table;
 mod tests;
 mod web;
 
-const USAGE: &str = "usage: north usage [--refresh [--local]] [--json | --verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample";
+const USAGE: &str = "usage: north fleet usage [--refresh [--local]] [--json | --verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample";
 const PACED: [&str; 2] = ["claude", "gemini"];
 /// A usage reading older than this is stale: readers mark it so, the sampler never backs off past it, and flow alerts.
 pub const STALE_SECONDS: f64 = 600.0;

@@ -105,9 +105,9 @@ pub fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, go
                 let names: Vec<&str> = counted.iter().map(|record| record.name.as_str()).collect();
                 let spared: Vec<String> = spared.iter().map(|record| format!("{}, which {}", record.name, unspent[&record.name])).collect();
                 let spared = if spared.is_empty() { String::new() } else { format!("; not counted: {}", spared.join("; ")) };
-                format!("north dispatch, {} tries in 24 h without closing ({}){spared}; the proxy decides the next one", counted.len(), names.join(", "))
+                format!("north fleet dispatch, {} tries in 24 h without closing ({}){spared}; the proxy decides the next one", counted.len(), names.join(", "))
             } else if let Some(last) = last.filter(|last| at - last.at < hold(last)) {
-                format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
+                format!("north fleet dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             } else {
                 return None;
             };
@@ -127,7 +127,7 @@ pub fn launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BTreeM
             newest.insert(item, record);
         }
     }
-    newest.into_iter().filter(|(_, last)| last.launched && at - last.at < hold(last)).map(|(item, last)| (item, format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0))).collect()
+    newest.into_iter().filter(|(_, last)| last.launched && at - last.at < hold(last)).map(|(item, last)| (item, format!("north fleet dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0))).collect()
 }
 
 /// The boxes a dispatch launch staffed within its hold, whose sessions may not show in any fleet list yet, less those in `gone`: for each item the slug of each box with the launch that holds it.
@@ -135,7 +135,7 @@ pub fn box_launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> Bo
     let mut held = BoxHolds::new();
     for record in records.iter().filter(|record| record.launched && !record.hand && !gone.contains(&record.name) && at - record.at < hold(record)) {
         let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
-        held.entry(item).or_default().insert(slug, format!("north dispatch launch {} on {} {:.0} min ago", record.name, record.host, (at - record.at) / 60.0));
+        held.entry(item).or_default().insert(slug, format!("north fleet dispatch launch {} on {} {:.0} min ago", record.name, record.host, (at - record.at) / 60.0));
     }
     held
 }

@@ -5,7 +5,7 @@ use crate::router::ctx::Knobs;
 pub(super) fn ask(op: &str, fields: Value) -> Result<Value, String> {
     let mut request = fields;
     request["op"] = json!(op);
-    crate::router::ops::answer(&request).unwrap_or_else(|| Err(format!("unknown op {op}"))).map_err(|error| format!("north pace: {error}"))
+    crate::router::ops::answer(&request).unwrap_or_else(|| Err(format!("unknown op {op}"))).map_err(|error| format!("north fleet pace: {error}"))
 }
 
 pub(super) fn text(value: &Value) -> String {

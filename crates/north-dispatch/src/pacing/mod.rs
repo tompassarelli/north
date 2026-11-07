@@ -31,7 +31,7 @@ pub fn run(arguments: &[String], fleet: FleetFacts, token_usage: TokenUsage) -> 
         }
     match arguments.first().map(String::as_str) {
         Some("place") => finish(placement::cli(&arguments[1..], fleet), "north place"),
-        Some("sample") => finish(command::cli(&arguments[1..]), "north pace"),
+        Some("sample") => finish(command::cli(&arguments[1..]), "north fleet pace"),
         _ => request(),
     }
 }
@@ -55,7 +55,7 @@ fn gate(provider: &str) -> u8 {
             }
         }
         Err(error) => {
-            eprintln!("north pace: {error}");
+            eprintln!("north fleet pace: {error}");
             2
         }
     }
@@ -77,7 +77,7 @@ fn request() -> u8 {
             0
         }
         Err(message) => {
-            eprintln!("north pace: {message}");
+            eprintln!("north fleet pace: {message}");
             2
         }
     }
