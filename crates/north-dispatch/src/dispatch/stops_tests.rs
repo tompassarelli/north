@@ -67,6 +67,45 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     super::survey::stopped(&[launch("north#714", "north-714-d2130", 1_794_000_658.0, true)], &mut boxes, gone, |name| crate::fleet::records::retired_report(fleet.path(), name), &mut notes);
     assert_eq!((boxes[0].stop.host.as_deref(), notes.len()), (Some("laptop"), 0), "the reaper retired the session before dispatch read it, and its archived report still holds the box off gex45: {notes:?}");
 
+    let hosts: Vec<String> = ["gex45", "ccx33", "nexus", "whiterabbit"].map(str::to_owned).to_vec();
+    let cfg: toml_edit::DocumentMut = r#"
+[hosts.gex45]
+launches = true
+serves = ["native:wisp", "warcraft:wisp", "wc3:wisp", "client:wisp", "private:makgora", "native:makgora", "warcraft:makgora", "wc3:makgora", "client:makgora"]
+[hosts.ccx33]
+launches = true
+serves = []
+[hosts.nexus]
+deploy_ssh = "nexus"
+[hosts.whiterabbit]
+reaches = ["gex45", "ccx33", "nexus"]
+serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-state", "tui", "fleet", "live", "desktop", "laptop"]
+"#.parse().unwrap();
+    let d0216 = 1_794_017_760.0;
+    let placed = |number: u64, body: &str| {
+        let mut issue = issue("north", number, body, &[]);
+        issue.needs = issue.box_needs(&hosts, d0216);
+        let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default());
+        hosts.iter().filter(|host| *host != "nexus" && crate::pacing::placement::gate::lacks(&cfg, host, &brief).is_none()).cloned().collect::<Vec<_>>()
+    };
+    assert_eq!(placed(733, "- [ ] On the laptop (owner: a laptop-placed session; gex45 has no shell there), exercise a proxy take-over: `niri msg -j windows` shows a ghostty window titled `north proxy`"), ["whiterabbit"], "north-733-d0216 went to gex45, which has no niri desktop");
+    assert_eq!(placed(731, "- [ ] Three consecutive landings go live on all four hosts within 2 minutes each, with a dirty checkout planted during one of them that does not stop the runtime."), ["whiterabbit"], "north-731-d0216 went to gex45, which reaches no other host");
+    let goals = "- [ ] makgora's frame goals read the current main: a scheduled job re-runs `bun wisp perf playable-bot-four --samples` (76 s)\n- [ ] makgora's and wisp's goals that stay unmeasured get an oracle or a stated reason\n- [ ] The experiment decisions-never-stop-work is reviewed on 2026-11-23 (registered in north ce12b5de3)";
+    assert_eq!(placed(641, goals), ["gex45", "whiterabbit"], "north-641-d0216 went to ccx33, which holds no makgora or wisp checkout");
+    assert_eq!(placed(630, "- [ ] `north ops check` on Nexus shows launch_failures within 5 over 6 h for a full day after both land. (not before 2026-11-07T00:00Z) The fixes landed as 8f2fde4c7 and 1eb741624 on 2026-11-05."), ["whiterabbit"], "north-630-d0216 went to ccx33, which cannot reach nexus");
+    let measured = issue("north", 706, "- [ ] over 24 h no run is attributed host-caused (not before 2026-11-08T00:00Z)\n- [ ] over 6 h no worker run's report names only a measurement that has not come due (not before 2026-11-08T00:00Z)\n- [ ] Clean-up: scaffolding removed.", &[]);
+    assert_eq!(issues::readiness(&measured, &world(d0216)), Err("every open box waits, the first until 2026-11-08T00:00Z".into()), "north-706-d0216 was staffed while every box's measurement was not yet due");
+    let reported = Issue { stop: super::stops::stop(&session("Not done: every open box is a measurement whose window has not elapsed.\nStop: wait until 2026-11-08T00:00Z"), &ran), ..issue("north", 706, "- [ ] over 24 h no run is attributed host-caused", &[]) };
+    assert_eq!(issues::readiness(&reported, &world(d0216)), Err("its last worker stopped to wait until 2026-11-08T00:00Z".into()));
+    let gone = |state: &str, body: &str| super::survey::github::gone(&serde_json::json!({"state": state, "body": body}));
+    assert_eq!(gone("CLOSED", "- [x] a").as_deref(), Some("closed on GitHub, though the mirror listed it open"), "north-736-d0226 launched on an issue closed minutes before, from a stale mirror");
+    assert_eq!(gone("OPEN", "- [x] a\n- [x] b").as_deref(), Some("no unticked box on GitHub, though the mirror listed one"));
+    assert_eq!(gone("OPEN", "- [x] a\n- [ ] b"), None);
+    let copies = tempfile::tempdir().unwrap();
+    std::fs::write(copies.path().join("threads-whiterabbit.json"), r#"[{"item": "north#730", "owner": "n-frontier", "standing": "live"}]"#).unwrap();
+    let (host, listing) = super::survey::laptop_claims(&cfg, "nexus", copies.path(), d0216, &mut Vec::new()).expect("whiterabbit is the laptop");
+    assert_eq!(super::survey::claim_rows(&listing, &host, &BTreeSet::new()), [(IssueRef::new("north", 730), "threads claim by n-frontier on whiterabbit".to_owned())], "north-730-d0216 launched while n-frontier on the laptop held north#730");
+
     let on = |tier: &str, effort: Option<&str>| record::Record { name: "n705-d0900".into(), tier: Some(tier.into()), effort: effort.map(str::to_owned), ..launch("north#705", "", 10.0, true) };
     let failed = |report: &str, ran: &record::Record| Issue { stop: super::stops::stop(&session(report), ran), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
     let climbed = |issue: &Issue| super::tier::route(issue, &super::tier::History::default(), &BTreeMap::new()).unwrap();

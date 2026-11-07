@@ -185,9 +185,9 @@ pub fn spend_now(roster: &Roster) -> Result<(View, Rules), String> {
     Ok((spend_view(&cfg, roster, &here, &rules, &sessions, at), rules))
 }
 
-/// NorthThreads claim listings from this host's ledger and every ssh host's, since a host whose
+/// NorthThreads claim listings from this host's ledger, every ssh host's, and the laptop's copy, since a host whose
 /// ledger is local records its workers' claims there.
-fn claim_listings(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+fn claim_listings(cfg: &DocumentMut, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name, Some(machine.ssh)));
     let mut found = Vec::new();
     for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
@@ -196,7 +196,16 @@ fn claim_listings(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec
             Err(why) => notes.push(format!("{host} threads list unread, so its claims are unknown: {why}")),
         }
     }
+    found.extend(laptop_claims(cfg, here, &record::directory(), at, notes));
     found
+}
+
+/// The claim listing the laptop copies to `directory` as `threads-HOST.json` (south's north-dispatch-mirror), since no
+/// ssh reaches its ledger and a laptop session's claim held nothing here before it was read.
+pub(super) fn laptop_claims(cfg: &DocumentMut, here: &str, directory: &std::path::Path, at: f64, notes: &mut Vec<String>) -> Option<(String, Value)> {
+    let laptop = fleets::laptop(cfg, here)?;
+    let listing = fleets::mirrored(directory, "threads", &laptop, at, notes);
+    Some((laptop, listing))
 }
 
 /// The holders in `threads list --json`: its live claims, the ones `threads claim` refuses on,
@@ -344,7 +353,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         let fleet_lists = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
         let gates = read(scope, |notes| fleets::everywhere(cfg_ref, here_ref, &["gate", "list", "--json"], "gates", at, PROBE, notes));
         let issues = read(scope, |notes| github::open_issues(repos, at, notes));
-        let claim_lists = read(scope, |notes| claim_listings(cfg_ref, here_ref, notes));
+        let claim_lists = read(scope, |notes| claim_listings(cfg_ref, here_ref, at, notes));
         let evidence = read(scope, |notes| {
             let report = closed(notes);
             let ledger = evidence_from(&tier::evidenced(), report.as_ref(), notes);
@@ -391,6 +400,9 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let rules = Rules::configured();
     let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
     stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref()), crate::fleet::registry::retired_report_here, &mut notes);
+    for issue in &mut issues {
+        issue.needs = issue.box_needs(&names, at);
+    }
     let history = History::new(&records);
     let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();
     notes.extend(tier::context_figures(&arm_boxes));
@@ -404,7 +416,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, at })
 }
 
-mod github;
+pub(super) mod github;
 
 #[cfg(test)]
 #[path = "survey_tests.rs"]

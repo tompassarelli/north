@@ -3,7 +3,8 @@
 //! (`waits-on`, `doc-waits-on`, `blocked-by`, `follows`, `rank`, `label`, `loss-usd`, `box-usd`), so a dependency and
 //! an order live in the graph once and dispatch, the stop guard, the proxy's launch guard and `north graph ready` agree.
 //! The ready boxes run in measured order: the 24 h harness usage an issue owns per dollar one of its boxes costs, most
-//! first, with priority label, then backlog-ranking.md's rank, breaking ties (north#734).
+//! first, with priority label, then backlog-ranking.md's rank, breaking ties (north#734). A ready box whose dated check is still ahead
+//! (`due`) is held behind it, so an issue with nothing takeable yet leads nothing (north#706).
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -15,6 +16,7 @@ use crate::rules::{held_query, label_query, rank_query, ready_query, worth_query
 use crate::show::name;
 
 const PATIENCE: Duration = Duration::from_millis(400);
+const DATED_CHECK: &str = "its dated check";
 const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
 
 /// Where a priority label puts an issue among equals, `priority:now` first and an unlabelled issue second.
@@ -100,6 +102,11 @@ fn ask(graph: &Graph, query: &Value) -> Result<Vec<Vec<Term>>, String> {
 }
 
 pub fn read_from(graph: &Graph) -> Result<Backlog, String> {
+    read_from_at(graph, north_base::foundation::clock::Timestamp::now().unix_seconds())
+}
+
+/// The backlog as of `now`: a ready box whose dated check is still ahead of `now` is held behind it.
+pub fn read_from_at(graph: &Graph, now: i64) -> Result<Backlog, String> {
     let ranks = ask(graph, &rank_query())?.iter().filter_map(|row| Some((string(row.first()?), integer(row.get(1)?)?))).collect();
     let worth = ask(graph, &worth_query())?.iter().filter_map(|row| Some((string(row.first()?), Worth { loss_usd: float(row.get(1)?)?, box_usd: float(row.get(2)?)? }))).collect();
     let mut labels: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -109,14 +116,16 @@ pub fn read_from(graph: &Graph) -> Result<Backlog, String> {
         }
     }
     let priorities = labels.into_iter().map(|(issue, labels)| (issue, priority(labels.iter().map(String::as_str)))).collect();
-    let ready = ask(graph, &ready_query())?
+    let ready: Vec<Entry> = ask(graph, &ready_query())?
         .iter()
         .filter_map(|row| Some(Entry { issue: string(row.get(1)?), node: string(row.get(2)?), text: string(row.get(3)?) }))
         .collect();
-    let held = ask(graph, &held_query())?
+    let mut held: Vec<Held> = ask(graph, &held_query())?
         .iter()
         .filter_map(|row| Some(Held { entry: Entry { issue: string(row.first()?), node: string(row.get(1)?), text: string(row.get(2)?) }, edge: string(row.get(3)?), edge_text: string(row.get(4)?) }))
         .collect();
+    let (ready, dated): (Vec<Entry>, Vec<Entry>) = ready.into_iter().partition(|entry| crate::due::pending(&entry.text, now).is_none());
+    held.extend(dated.into_iter().filter_map(|entry| Some(Held { edge: DATED_CHECK.to_owned(), edge_text: crate::due::pending(&entry.text, now)?.1, entry })));
     let mut backlog = Backlog { ranks, worth, priorities, ready, held };
     backlog.order();
     Ok(backlog)

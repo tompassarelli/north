@@ -5,7 +5,7 @@
 //! (`crate::spend`).
 use super::super::storage::{self, load, rows};
 pub use super::repository::{anchored, repository};
-use super::needs::{LOCAL_NEEDS, words};
+use super::needs::{holds_checkout, is_local_need, words};
 use super::reach::Reach;
 use super::room::{Basis, Rank};
 use super::{facets, strings};
@@ -269,7 +269,7 @@ fn local_needs(text: &str) -> Vec<String> {
         .into_iter()
         .chain(needs)
         .chain(words(text, "Needs"))
-        .filter(|w| LOCAL_NEEDS.contains(&w.as_str()))
+        .filter(|w| is_local_need(w))
         .chain(native.then(|| "native".to_owned()))
         .collect();
     local.sort();
@@ -357,7 +357,7 @@ pub fn bar1_margin_mib(cfg: &DocumentMut, here: &str) -> Option<u32> {
 
 pub fn capacity_need(text: &str) -> Option<String> {
     let repo = repository(text);
-    let needs: Vec<String> = local_needs(text).into_iter().map(|need| if repo.is_empty() { need } else { format!("{need}:{repo}") }).collect();
+    let needs: Vec<String> = local_needs(text).into_iter().map(|need| if repo.is_empty() || need.contains(':') { need } else { format!("{need}:{repo}") }).collect();
     (!needs.is_empty()).then(|| needs.join(","))
 }
 
@@ -386,6 +386,9 @@ fn can_push(pushes: Option<&[String]>, repo: &str) -> bool {
 }
 
 fn covers(serves: &[String], need: &str, repo: &str) -> bool {
+    if let Some(held) = holds_checkout(serves, need) {
+        return held;
+    }
     serves.iter().any(|served| served == need || served.split_once(':') == Some((need, repo)))
 }
 

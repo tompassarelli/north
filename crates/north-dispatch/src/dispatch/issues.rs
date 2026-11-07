@@ -22,8 +22,6 @@ static WAITS: LazyLock<Regex> = LazyLock::new(|| {
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
 static ANY_BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[[ xX]\]").expect("any box pattern"));
 static OWNERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\(owners?:\s*([^)]*)\)|\bowner:\s*([A-Za-z0-9][\w.:-]*)").expect("owner pattern"));
-static NOT_BEFORE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\(not before ((\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})Z)\)").expect("not-before pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"github\.com/([\w.-]+)/([\w.-]+)/issues/(\d+)|(?:([\w.-]+)/)?([A-Za-z][\w.-]*)?#(\d+)").expect("reference pattern")
 });
@@ -70,6 +68,8 @@ pub struct Issue {
     pub created: f64,
     /// What the last dispatched worker's final report holds the box for.
     pub stop: super::stops::Stop,
+    /// What its takeable boxes name they need beyond its own repository, read from their text by the survey.
+    pub needs: Vec<String>,
 }
 
 impl Issue {
@@ -78,7 +78,7 @@ impl Issue {
     }
 
     pub fn unticked(&self) -> usize {
-        UNTICKED.find_iter(&self.body).count()
+        unticked_boxes(&self.body)
     }
 
     pub fn product_unticked(&self) -> usize {
@@ -103,16 +103,30 @@ impl Issue {
         (!owners.is_empty()).then_some(owners)
     }
 
-    pub fn gated_until(&self, at: f64) -> Option<&str> {
-        let mut earliest: Option<(i64, &str)> = None;
-        for line in self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)) {
-            let (when, text) = NOT_BEFORE.captures_iter(line).filter_map(|found| Some((not_before(&found)?, found.get(1)?.as_str()))).max()?;
-            if when as f64 <= at {
-                return None;
-            }
-            earliest = Some(earliest.map_or((when, text), |first| first.min((when, text))));
+    /// The unticked product boxes whose dated check, if any, has come by `at`: the boxes a session launched now can take.
+    pub fn takeable(&self, at: f64) -> impl Iterator<Item = &str> {
+        self.product_lines().filter(move |line| north_graph_ground::due_pending(line, at as i64).is_none())
+    }
+
+    /// The needs its takeable boxes name (`needs::in_box`): the laptop, a host of `hosts`, or another repository's checkout.
+    pub fn box_needs(&self, hosts: &[String], at: f64) -> Vec<String> {
+        let repos = &crate::threads::catalog::CATALOG.repos;
+        let mut found: Vec<String> = self.takeable(at).flat_map(|line| crate::pacing::placement::needs::in_box(line, &self.repo, hosts, repos)).collect();
+        found.sort();
+        found.dedup();
+        found
+    }
+
+    /// The earliest dated check among the unticked product boxes, when every one of them is still waiting for its date.
+    pub fn gated_until(&self, at: f64) -> Option<String> {
+        if self.takeable(at).next().is_some() {
+            return None;
         }
-        earliest.map(|(_, text)| text)
+        self.product_lines().filter_map(north_graph_ground::due).min().map(|(_, written)| written)
+    }
+
+    fn product_lines(&self) -> impl Iterator<Item = &str> {
+        self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line))
     }
 
     pub fn labelled(&self, names: &[&str]) -> Option<&str> {
@@ -132,6 +146,11 @@ impl Issue {
     pub fn priority(&self) -> usize {
         north_graph_ground::priority(self.labels.iter().map(String::as_str))
     }
+}
+
+/// The unticked Done-when boxes in `body`, the clean-up group included.
+pub fn unticked_boxes(body: &str) -> usize {
+    UNTICKED.find_iter(body).count()
 }
 
 /// The unticked Done-when boxes in `body`, not counting the clean-up group every product issue carries.
@@ -162,13 +181,6 @@ pub fn references(text: &str, repo: &str) -> Vec<IssueRef> {
             }
         })
         .collect()
-}
-
-pub(super) fn not_before(found: &regex::Captures) -> Option<i64> {
-    let part = |index: usize| found.get(index)?.as_str().parse::<u8>().ok();
-    let year = found.get(2)?.as_str().parse().ok()?;
-    let date = time::Date::from_calendar_date(year, time::Month::try_from(part(3)?).ok()?, part(4)?).ok()?;
-    Some(date.with_time(time::Time::from_hms(part(5)?, part(6)?, 0).ok()?).assume_utc().unix_timestamp())
 }
 
 fn line_values<'a>(body: &'a str, key: &str) -> impl Iterator<Item = &'a str> {

@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*(?:Stop:\s*decision\b|Blocked:)").expect("stop pattern"));
-static WAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*wait\s+until\s+((\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})Z)").expect("wait pattern"));
+static WAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*wait\s+until\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z)").expect("wait pattern"));
 static HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*host\s+([a-z][\w.-]*)").expect("host pattern"));
 static REASONING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*reasoning\b").expect("reasoning pattern"));
 static NOT_DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*Not done:").expect("not done pattern"));
@@ -108,7 +108,10 @@ pub fn retired_stop(retired: &RetiredReport, launch: &Record) -> Stop {
 }
 
 fn holds(report: &str, ended: Option<f64>, nowhere: Option<String>, launch: &Record) -> Stop {
-    let until = WAIT.captures(report).and_then(|found| Some((found.get(1)?.as_str().to_owned(), super::issues::not_before(&found)? as f64)));
+    let until = WAIT.captures(report).and_then(|found| {
+        let written = found.get(1)?.as_str();
+        Some((written.to_owned(), crate::foundation::clock::Timestamp::parse_loose(written)?.unix_seconds_f64()))
+    });
     let climb = nowhere.and_then(|why| Some(Climb { session: launch.name.clone(), rung: Rung::recorded(launch)?, ended: ended?, report: report.trim().to_owned(), why }));
     Stop { decision: ended.filter(|_| STOP.is_match(report)), until, host: host_need(report), climb }
 }

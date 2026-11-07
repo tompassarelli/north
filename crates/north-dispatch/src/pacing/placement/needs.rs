@@ -1,12 +1,22 @@
 //! The words a brief's facet line names, and which of them are local needs that keep a box off
 //! code-only targets. A chrome-profile is the laptop's sign-ins; native-client and gpu are native work.
+//! A box's own text names needs too (`in_box`): the laptop or its desktop, a host by name, every host,
+//! or another repository's checkout (`checkout:REPO`), so placement reads them before a session spawns.
 use super::field;
+use regex::Regex;
+use std::sync::LazyLock;
 
-pub(super) const LOCAL_NEEDS: [&str; 12] = [
+const LOCAL_NEEDS: [&str; 12] = [
     "warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop",
 ];
 
 const SYNONYMS: [(&str, &str); 3] = [("chrome-profile", "sign-ins"), ("native-client", "native"), ("gpu", "native")];
+const CHECKOUT: &str = "checkout:";
+
+static LAPTOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:on (?:tom's |the )?laptop|laptop's|laptop-placed|niri|ghostty)\b").expect("laptop pattern"));
+static HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:on|from) ([a-z][\w-]*)\b|\b([a-z][\w-]*)'s\b").expect("host pattern"));
+static EVERY_HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:all|every|each)(?: (?:two|three|four|five|six))? hosts?\b").expect("every-host pattern"));
+static REPOSITORY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b([a-z][\w-]*)'s\b|\bcode/([a-z][\w-]*)|\bbun ([a-z][\w-]*)\b").expect("repository pattern"));
 
 pub fn words(text: &str, key: &str) -> Vec<String> {
     field(text, key)
@@ -16,6 +26,33 @@ pub fn words(text: &str, key: &str) -> Vec<String> {
         .map(|word| SYNONYMS.iter().find(|(name, _)| *name == word).map_or(word, |(_, need)| need).to_owned())
         .collect()
 }
+
 pub(super) fn is_local_need(word: &str) -> bool {
-    LOCAL_NEEDS.contains(&word)
+    LOCAL_NEEDS.contains(&word) || word.starts_with(CHECKOUT)
+}
+
+/// Whether a host's `serves` list covers `checkout:REPO`: it serves some need for that repository, or a bare need,
+/// which it serves for every repository.
+pub(super) fn holds_checkout(serves: &[String], need: &str) -> Option<bool> {
+    let repo = need.strip_prefix(CHECKOUT)?;
+    Some(serves.iter().any(|served| served.split_once(':').is_none_or(|(_, there)| there == repo)))
+}
+
+/// The needs a box's text names beyond its own repository `repo`: `laptop`, each of `hosts` it names or all of them
+/// when it names every host, and `checkout:REPO` for each other repository of `repos` it works in.
+pub fn in_box(text: &str, repo: &str, hosts: &[String], repos: &[String]) -> Vec<String> {
+    let lowered = text.to_lowercase();
+    let mut found: Vec<String> = Vec::new();
+    if LAPTOP.is_match(text) {
+        found.push("laptop".into());
+    }
+    if EVERY_HOST.is_match(text) {
+        found.extend(hosts.iter().cloned());
+    }
+    let named = |pattern: &Regex| -> Vec<String> { pattern.captures_iter(&lowered).filter_map(|found| found.iter().skip(1).flatten().next().map(|word| word.as_str().to_owned())).collect() };
+    found.extend(named(&HOST).into_iter().filter(|word| hosts.contains(word)));
+    found.extend(named(&REPOSITORY).into_iter().filter(|word| word != repo && repos.contains(word)).map(|word| format!("{CHECKOUT}{word}")));
+    found.sort();
+    found.dedup();
+    found
 }

@@ -234,10 +234,14 @@ fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) -> Vec<Stri
     lines
 }
 
-/// The line one launch prints, and its failure for Tom's alert.
+/// The line one launch prints, and its failure for Tom's alert; a box whose issue GitHub shows closed or fully ticked since
+/// the mirror copied it is skipped.
 fn start(survey: &Survey, launch: &Launch, dry_run: bool) -> (String, Option<String>) {
     let verb = if launch.cloud { "cloud-launch" } else { "launch" };
     let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
+    if let Some(why) = survey::github::recheck(&launch.item) {
+        return (format!("skip {}: {why}", launch.item), None);
+    }
     if dry_run {
         let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
         return (format!("would {line} ({why})"), None);

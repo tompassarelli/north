@@ -38,7 +38,7 @@ fn graph() -> Graph {
 }
 
 #[test]
-fn the_reader_lists_ready_boxes_most_measured_loss_per_dollar_first_then_by_label_and_rank_with_each_held_boxs_edge() {
+fn the_reader_lists_ready_boxes_most_measured_loss_per_dollar_first_then_by_label_and_rank_with_each_held_boxs_edge_and_holds_a_box_behind_its_dated_check() {
     let backlog = read_from(&graph()).unwrap();
     let ready: Vec<(&str, &str)> = backlog.ready.iter().map(|entry| (entry.issue.as_str(), entry.node.as_str())).collect();
     assert_eq!(ready, [("north#5", "box:5a"), ("north#1", "box:1a"), ("north#4", "box:4c"), ("north#2", "box:2a")], "the issue owning measured loss leads, and a later label sinks below rank");
@@ -60,4 +60,14 @@ fn the_reader_lists_ready_boxes_most_measured_loss_per_dollar_first_then_by_labe
     assert_eq!(lines[0], "ready 1\tnorth#5\t6.0 = $9.00 lost 24 h / $1.50 a box, rank 4\tWaits on a closed issue");
     assert_eq!(lines[2], "ready 3\tnorth#2\t0 measured, rank 2\tBuild the broker", "north#4's ready Clean-up box is not listed while a product box of it waits");
     assert_eq!(lines[3], "held\tnorth#1\t0 measured, rank 1\tMove the callers\twaits on box:2a \"Build the broker\"");
+
+    let mut graph = graph();
+    issue(&mut graph, "north#706", Some(5), &[("box:706a", "Over 3 h no run is attributed host-caused (not before 2026-11-08T00:00Z)")]);
+    tell(&mut graph, "north#706", "loss-usd", Term::float(90.0));
+    tell(&mut graph, "north#706", "box-usd", Term::float(1.0));
+    let before = crate::backlog::read_from_at(&graph, 1_794_017_760).unwrap();
+    assert_eq!(before.leaders(), ["north#5", "north#1", "north#2"], "north#706 led by measured loss on 2026-11-07 with nothing takeable");
+    let Verdict::Held(why) = before.verdict("north#706") else { panic!("north#706 waits for its date") };
+    assert_eq!(why, "box \"Over 3 h no run is attributed host-caused (not before 2026-1…\" waits on its dated check \"2026-11-08T00:00Z\"");
+    assert_eq!(crate::backlog::read_from_at(&graph, 1_794_096_000).unwrap().leaders()[0], "north#706", "it leads again once its date comes");
 }
