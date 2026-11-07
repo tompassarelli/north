@@ -41,18 +41,27 @@ pub(super) fn read(settings: &Settings) -> Vec<Reading> {
     directories.sort();
     directories.dedup();
     directories.retain(|directory| directory.as_ref().is_none_or(|directory| directory.join(".credentials.json").exists()));
+    if settings.refresh {
+        for directory in &directories {
+            refresh_if_stale(settings, directory.as_deref());
+        }
+    }
     std::thread::scope(|scope| {
         let reads: Vec<_> = directories.iter().map(|directory| scope.spawn(|| read_profile(settings, directory.as_deref(), &now))).collect();
         reads.into_iter().flat_map(|read| read.join().unwrap_or_default()).collect()
     })
 }
 
-fn read_profile(settings: &Settings, directory: Option<&Path>, now: &str) -> Vec<Reading> {
+fn refresh_if_stale(settings: &Settings, directory: Option<&Path>) {
     let path = directory.unwrap_or(&settings.home).join(".claude.json");
     let fetched = || std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).and_then(|data| data["cachedUsageUtilization"]["fetchedAtMs"].as_f64()).unwrap_or(0.0) / 1000.0;
-    if settings.refresh && Timestamp::now().unix_seconds_f64() - fetched() > FRESH_SECONDS {
+    if Timestamp::now().unix_seconds_f64() - fetched() > FRESH_SECONDS {
         refresh(directory);
     }
+}
+
+fn read_profile(settings: &Settings, directory: Option<&Path>, now: &str) -> Vec<Reading> {
+    let path = directory.unwrap_or(&settings.home).join(".claude.json");
     let Some(data) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else { return Vec::new() };
     let mut cache = data["cachedUsageUtilization"].clone();
     if cache.as_object().is_some_and(|cache| !cache.is_empty()) && cache["accountUuid"].as_str().is_none_or(str::is_empty) {
