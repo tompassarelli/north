@@ -18,6 +18,7 @@ use crate::tui;
 
 use super::placement::{self, Overrides};
 use super::usage_ingest::IngestUsage;
+use super::accounts;
 use super::adopt;
 use super::ask;
 use super::admission;
@@ -115,10 +116,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["tree"] => tree::tree(&fleet),
         ["spend", rest @ ..] => spend::run(&fleet, rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
-        ["accounts"] => accounts(&fleet, false),
-        ["accounts", "--claude-ai"] => accounts(&fleet, true),
-        ["accounts", "--api"] => api_pool_listing(),
-        ["accounts", "--plan"] => account_plan(&fleet),
+        ["accounts", flags @ ..] => accounts::run(&fleet, flags),
         ["launch", rest @ ..] => launch(&fleet, rest),
         ["adopt", rest @ ..] => adopt::run(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
@@ -141,7 +139,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     }
 }
 
-fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
+pub(super) fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
     match verb {
         "interrupt" => controlled(fleet, ControlVerb::Interrupt, name),
         "stop" => controlled(fleet, ControlVerb::Stop, name),
@@ -175,29 +173,6 @@ fn forget(fleet: &Fleet, name: &str, force: Option<&str>) -> NorthResult<()> {
 }
 
 
-fn api_pool_listing() -> NorthResult<()> {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    let policy = crate::platform::orchestration::path();
-    for line in crate::providers::claude::api_pool::listing(&policy, &home, &home.join(".local/state/north"), &crate::platform::host::name()) {
-        println!("{line}");
-    }
-    Ok(())
-}
-
-fn accounts(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
-    let roster = fleet.roster();
-    for account in roster.accounts.iter().filter(|account| !claude_ai || account.home.join(".credentials.json").is_file()) {
-        match &account.api {
-            Some(key) => println!("{}\t{}\t{}", account.provider.label(), account.label, key.org),
-            None => println!("{}\t{}", account.provider.label(), account.label),
-        }
-    }
-    for omitted in roster.omitted() {
-        eprintln!("omitted: {omitted}");
-    }
-    Ok(())
-}
-
 pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
@@ -229,7 +204,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     Ok(())
 }
 
-fn account_plan(fleet: &Fleet) -> NorthResult<()> {
+pub(super) fn account_plan(fleet: &Fleet) -> NorthResult<()> {
     for (index, (line, reason)) in crate::pacing::placement::case::plan(&fleet.roster()).map_err(NorthError::State)?.into_iter().enumerate() {
         println!("{}. {line} [{reason}]", index + 1);
     }
