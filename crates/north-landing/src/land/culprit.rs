@@ -1,11 +1,9 @@
 use std::collections::BTreeMap;
-use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use north_base::foundation::offload;
 
-use rustix::fs::{FlockOperation, flock};
-
+use super::after::follow;
 use super::bisect::{self, Strikes};
 use super::candidate::{self, Pick};
 use super::checks::{self, Started, Verdict};
@@ -57,24 +55,12 @@ fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
 
-fn slot_name(repo: &Path) -> Option<String> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    Some(repo.strip_prefix(home).ok()?.to_string_lossy().replace('/', "-"))
-}
-
-fn belongs(file: &str, name: &str) -> bool {
-    let Some(stem) = file.strip_suffix(".lock") else { return false };
-    stem == name || stem.strip_prefix(name).and_then(|rest| rest.strip_prefix('-')).is_some_and(|index| !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
-}
-
+/// The free then total land checks the reachable build hosts take at once, read from `north capacity offload slots`: each host's free cores over the cores one check uses.
 pub fn free_slots(repo: &Path) -> Option<(usize, usize)> {
-    let (root, name) = (offload::root()?, slot_name(repo)?);
-    let locks: Vec<PathBuf> = fs::read_dir(root).ok()?.flatten().filter(|entry| belongs(&entry.file_name().to_string_lossy(), &name)).map(|entry| entry.path()).collect();
-    if locks.is_empty() {
-        return None;
-    }
-    let free = locks.iter().filter(|lock| File::open(lock).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok())).count();
-    Some((free, locks.len()))
+    let output = Command::new(follow::program()).args(["capacity", "offload", "slots"]).current_dir(repo).stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|output| output.status.success())?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut words = text.split_whitespace().map(str::parse::<usize>);
+    Some((words.next()?.ok()?, words.next()?.ok()?)).filter(|(free, total)| free <= total)
 }
 
 fn wave_size(repo: &Path, wanted: usize) -> (usize, Option<(usize, usize)>) {

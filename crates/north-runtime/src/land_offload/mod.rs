@@ -10,7 +10,7 @@ pub mod room;
 pub mod ship;
 pub(crate) mod slot_lock;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail)";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -22,6 +22,7 @@ pub fn run(arguments: &[String]) -> u8 {
         ["take", rest @ ..] => crate::build_offload::take::run(&rest.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()),
         ["verdict", rest @ ..] => verdict::run(rest),
         ["free", "--host", host] => free(host),
+        ["slots"] => slots(),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
         ["warm"] => warm::run(),
         ["run", "--background", rest @ ..] => run_job(rest, ship::SlotClass::Background),
@@ -212,15 +213,7 @@ fn choose(any: bool, placement: &Placement) -> u8 {
         eprintln!("north capacity offload: this host keeps its game CPUs to game-reserve.slice and confines agent slices to the rest, so the land check runs here");
         return 1;
     }
-    let here = crate::platform::host::name();
-    let reserved = in_reserve || checks_confined_here() || !placement.admits(&here);
-    let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
-    let standing = standing(reserved, on_battery(), builds(&here) || mode::takes_land_checks());
-    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
-    let remotes = std::thread::scope(|scope| {
-        let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
-        reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
-    });
+    let Survey { here, reserved, standing, others, remotes } = survey(in_reserve, placement);
     if let Some(count) = placement.count {
         return spread(standing, &here, remotes, placement, count);
     }
@@ -258,6 +251,42 @@ fn choose(any: bool, placement: &Placement) -> u8 {
             1
         }
     }
+}
+
+struct Survey {
+    here: String,
+    reserved: bool,
+    standing: room::Standing,
+    others: Vec<gate::Machine>,
+    remotes: Vec<(String, Option<room::Room>)>,
+}
+
+/// The hosts a land check may run on and what each reports, read over ssh at once.
+fn survey(in_reserve: bool, placement: &Placement) -> Survey {
+    let here = crate::platform::host::name();
+    let reserved = in_reserve || checks_confined_here() || !placement.admits(&here);
+    let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
+    let standing = standing(reserved, on_battery(), builds(&here) || mode::takes_land_checks());
+    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
+    let remotes = std::thread::scope(|scope| {
+        let reads: Vec<_> = others.iter().map(|machine| scope.spawn(|| (machine.name.clone(), room::read(&machine.ssh)))).collect();
+        reads.into_iter().filter_map(|read| read.join().ok()).collect::<Vec<_>>()
+    });
+    Survey { here, reserved, standing, others, remotes }
+}
+
+/// Prints the land checks the reachable build hosts take at once, free then total, from each host's free cores over the cores one check uses.
+fn slots() -> u8 {
+    let Survey { standing, remotes, .. } = survey(in_game_reserve(), &Placement::default());
+    let local = (standing == room::Standing::Peer).then(room::read_local).flatten();
+    let rooms: Vec<&room::Room> = remotes.iter().filter_map(|(_, room)| room.as_ref()).chain(local.as_ref()).collect();
+    if rooms.is_empty() {
+        eprintln!("north capacity offload: no build host answers, so its slots are unknown");
+        return 1;
+    }
+    let (free, total) = room::check_slots(rooms, crate::capacity::host::land_check_cpus());
+    println!("{free} {total}");
+    0
 }
 
 fn spread(standing: room::Standing, here: &str, remotes: Vec<(String, Option<room::Room>)>, placement: &Placement, count: usize) -> u8 {

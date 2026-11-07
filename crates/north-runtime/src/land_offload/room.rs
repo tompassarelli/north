@@ -121,6 +121,13 @@ fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {
     (room.disk_free_gib < disk).then(|| format!("{:.1} GiB disk free, needs {disk}", room.disk_free_gib))
 }
 
+/// The land checks of `cores` the hosts take at once, free and total: each readable host counts the checks its free CPUs hold, and a host its admission refuses for a check of `cores` counts none free.
+pub(super) fn check_slots<'a>(rooms: impl IntoIterator<Item = &'a Room>, cores: f64) -> (usize, usize) {
+    let cores = cores.max(1.0);
+    let held = |cpus: f64| (cpus.max(0.0) / cores).floor() as usize;
+    rooms.into_iter().fold((0, 0), |(free, total), room| (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()) } else { 0 }, total + held(room.admission.limit_cpus)))
+}
+
 pub(super) fn first_with_room(hosts: impl IntoIterator<Item = (String, Option<Room>)>) -> Result<String, Vec<String>> {
     let mut refused = Vec::new();
     for (name, room) in hosts {
@@ -186,6 +193,24 @@ mod tests {
 
     fn reading(kib: u64, load: &str, committed: &str, pressure: &str) -> Room {
         parse(&PROBE.replace("%KIB%", &kib.to_string()).replace("3.10", load).replace("%COMMITTED%", committed).replace("%PRESSURE%", pressure)).unwrap()
+    }
+
+    #[test]
+    fn a_host_reporting_24_free_cores_at_4_per_check_offers_6_slots_and_two_such_hosts_offer_12() {
+        let gib = 1024 * 1024;
+        let mut host = reading(80 * gib, "3.00", "0.0", "1");
+        host.admission.limit_cpus = 24.0;
+        assert_eq!(check_slots([&host], 4.0), (6, 6));
+        assert_eq!(check_slots([&host, &host], 4.0), (12, 12));
+        let mut small = host;
+        small.admission.limit_cpus = 8.0;
+        assert_eq!(check_slots([&small], 4.0), (2, 2));
+        let mut loaded = host;
+        loaded.admission.committed_cpus = 10.0;
+        assert_eq!(check_slots([&loaded, &host], 4.0), (9, 12), "a host with 14 of 24 cores free holds 3 more checks");
+        let mut pressed = reading(80 * gib, "3.00", "0.0", "90");
+        pressed.admission.limit_cpus = 24.0;
+        assert_eq!(check_slots([&pressed, &host], 4.0), (6, 12), "a host its admission refuses offers no free slot");
     }
 
     #[test]
