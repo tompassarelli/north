@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::Ordering;
 use north_base::foundation::exit::{NO_VERDICT_STATUS, TRANSPORT_FAILED_TEXT};
-use north_base::foundation::offload::{LANDER_SLOT_ENV, OFF_HOST_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_base::foundation::offload::{LANDER_SLOT_ENV, LOCAL_ENV, OFF_HOST_ENV, OWNER_ENV, RED_FIX_ENV};
 
 pub use crate::platform::land_queue::ROUND;
 use super::lander::Lander;
+use north_check_environment as environment;
 use super::refusal;
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
@@ -101,6 +102,7 @@ pub struct Started {
     log: PathBuf,
 }
 
+#[derive(Clone)]
 pub struct Launch<'a> {
     pub checker: &'a [String],
     pub offload_owner: &'a str,
@@ -108,11 +110,12 @@ pub struct Launch<'a> {
     pub red_fix: bool,
     pub lander_slot: bool,
     pub off_host: bool,
+    pub local: bool,
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false, local: environment::active(&lander.queue).is_local() }
     }
 }
 
@@ -139,6 +142,9 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     }
     if launch.off_host {
         command.env(OFF_HOST_ENV, "1");
+    }
+    if launch.local {
+        command.env(LOCAL_ENV, "1");
     }
     if let Some(logs) = log.parent() {
         command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());

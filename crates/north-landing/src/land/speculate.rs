@@ -103,7 +103,7 @@ fn fresh(lander: &Lander, taken: &Taken, stack: &[Next], seen: &mut HashSet<Path
     Ok(arrived)
 }
 
-fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)]) -> Result<Option<Next>, String> {
+fn start(lander: &Lander, launch: &checks::Launch<'_>, level: usize, head: &str, arrived: &[(PathBuf, Ticket)]) -> Result<Option<Next>, String> {
     let Some(worktree) = lander.spares.get(level) else { return Ok(None) };
     candidate::ensure(&lander.repo, worktree)?;
     let built = candidate::build(worktree, head, arrived, &[], usize::MAX, &lander.queue.join("logs"))?;
@@ -118,7 +118,7 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     }
     let log = lander.queue.join("logs").join(format!("{}-speculative-{}.log", micros(), level + 2));
     let stages = Stages::start();
-    let check = match checks::start(&checks::Launch::of(lander), worktree, head, &log, true) {
+    let check = match checks::start(&checks::Launch { red_fix: false, ..launch.clone() }, worktree, head, &log, true) {
         Ok(check) => check,
         Err(verdict) => {
             println!("north land: speculative candidate {} not started: {verdict:?}", built.head);
@@ -129,8 +129,8 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tips, tickets, stages, log, check: Some(check), verdict: None }))
 }
 
-pub fn check(lander: &Lander, watch: &mut Watch, head: &str, base: &str, log: &Path, taken: Option<&Taken>, red_fix: bool) -> (Verdict, Vec<Next>) {
-    let mut started = match checks::start(&checks::Launch { red_fix, ..checks::Launch::of(lander) }, &lander.worktree, base, log, false) {
+pub fn check(lander: &Lander, watch: &mut Watch, head: &str, base: &str, log: &Path, taken: Option<&Taken>, launch: &checks::Launch<'_>) -> (Verdict, Vec<Next>) {
+    let mut started = match checks::start(launch, &lander.worktree, base, log, false) {
         Ok(started) => started,
         Err(verdict) => return (verdict, Vec::new()),
     };
@@ -151,7 +151,7 @@ pub fn check(lander: &Lander, watch: &mut Watch, head: &str, base: &str, log: &P
             && !stack.last_mut().is_some_and(Next::red)
         {
             let parent = stack.last().map_or(head, |next| next.head.as_str()).to_owned();
-            match fresh(lander, taken, &stack, &mut seen).and_then(|arrived| if arrived.is_empty() { Ok(None) } else { start(lander, stack.len(), &parent, &arrived) }) {
+            match fresh(lander, taken, &stack, &mut seen).and_then(|arrived| if arrived.is_empty() { Ok(None) } else { start(lander, launch, stack.len(), &parent, &arrived) }) {
                 Ok(Some(next)) => stack.push(next),
                 Ok(None) => {}
                 Err(error) => println!("north land: no speculative candidate: {error}"),

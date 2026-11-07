@@ -38,10 +38,14 @@ A known state has one remedy, applied once per episode, the run of rounds a boun
 
 A build counts as good once an after-landing run that started after the lander link moved to it was green; `~/.local/state/north/land-doctor/book.json` keeps the newest five with each open episode.
 
+## Broken check environment
+
+A queue whose pause on a broken base has lasted over 10 minutes (counted from the first pause, not its last renewal) is a known state. The lander already judges a candidate whose base fails in the placed environment (the repository's runner or build host) on this host before it pauses, and keeps whichever environment last reached a verdict for new candidates, probing the placement again after 30 minutes (`north-check-environment`). When the placement is still the active environment, the remedy makes this host's environment the active one now (`lander-check-environment`); when this host is active too, main fails in both and the doctor reports it with no remedy, as it does a red main.
+
 ## Unknown states
 
 A bound over with no remedy (rounds run but nothing is decided, the runtime stops following main, a host cannot be read, a slot whose lock is held names no process group), or a remedy that left its bound over 5 minutes after it ran, is an unknown state: the doctor sends the proxy one fleet message per episode and records one `lander-unknown` incident row. A held link is a known state: `north land promote` already records it and alarms the proxy once per hold, so the doctor only reports it.
 
 ## Incidents
 
-Every remedy writes one incident row, `noticed_by = lander-doctor`, with a class per state (`lander-stale-worktree`, `lander-slot-overdue`, `lander-infrastructure-failure`, `lander-disk-pressure`, `lander-wedged`, `lander-rollback`, `lander-source-build`, `lander-promotion-retry`), so the policy loop counts recurrences by class and a recurring remedy points at a cause to fix.
+Every remedy writes one incident row, `noticed_by = lander-doctor`, with a class per state (`lander-stale-worktree`, `lander-slot-overdue`, `lander-infrastructure-failure`, `lander-disk-pressure`, `lander-wedged`, `lander-rollback`, `lander-source-build`, `lander-promotion-retry`, `lander-check-environment`), so the policy loop counts recurrences by class and a recurring remedy points at a cause to fix.

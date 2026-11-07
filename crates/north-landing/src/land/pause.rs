@@ -7,6 +7,7 @@ use north_base::lifecycle::{Record, Store};
 use serde::Deserialize;
 
 use super::after_landing_lifecycle::{self as lifecycle, BaseBroken, Pause};
+use north_check_environment::instance;
 
 const FILE: &str = "base-broken";
 const ALERT_TITLE: &str = "Lander paused";
@@ -15,9 +16,6 @@ fn alert(detail: &str) -> bool {
     Command::new("supply-alert").args(["normal", detail, ALERT_TITLE]).status().is_ok_and(|status| status.success())
 }
 
-fn instance(queue: &Path) -> String {
-    queue.file_name().map_or_else(|| queue.display().to_string(), |name| name.to_string_lossy().into_owned())
-}
 
 fn retry_at(record: &Record<Pause>) -> Timestamp {
     Timestamp::from_unix_millis(record.since.unix_millis() + i64::try_from(BaseBroken::RETRY.as_millis()).unwrap_or(i64::MAX))

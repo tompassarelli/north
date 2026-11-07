@@ -9,7 +9,8 @@ use std::process::{Command, Stdio};
 use north_landing::land::queue::{self, Ticket};
 
 use super::*;
-use crate::bounds::{OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
+use crate::bounds::{BASE_BROKEN_SECS, Bound, OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
+use north_check_environment::Environment;
 use crate::facts::{LinkFacts, PlaceFacts, Probe, QueueFacts, Reach, SlotHold};
 
 const NOW: u64 = 1_800_000_000;
@@ -87,7 +88,7 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
     let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, unserved: Vec::new() };
     let text = render(&cure(&facts, &mut Book::default(), &Fake::default(), NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0"] {
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
 }
@@ -384,4 +385,17 @@ fn a_withdrawn_ticket_refused_by_an_infrastructure_failure_is_never_rerun() {
     assert!(found.infrastructure.is_empty(), "a withdrawn ticket is no rerun candidate: {:?}", found.infrastructure);
     assert!(hands::rerun(&queue_dir, &done).is_err_and(|why| why.contains("was withdrawn")));
     assert!(!queue_dir.join(&name).exists(), "the withdrawn revert stays out of the queue");
+}
+
+// KEEP(bug): the doctor read a lander paused 15 min on a red base in a new check environment as a paused queue with no remedy (north#782)
+#[test]
+fn a_queue_paused_on_a_broken_check_environment_past_its_bound_is_known_and_its_remedy_judges_candidates_on_this_host() {
+    let paused = |broken_for: u64, environment| QueueFacts { paused: Some("main's check environment is broken".to_owned()), broken_for: Some(broken_for), environment: Some(environment), ..busy_queue(30) };
+    let judged = |queue: QueueFacts| bounds::judge(&Facts { queues: vec![queue], ..Facts::default() }, &Book::default(), NOW).into_iter().find(|finding| finding.bound == Bound::BaseBroken).unwrap();
+
+    assert!(!judged(paused(BASE_BROKEN_SECS - 60, Environment::Placed)).over);
+    let placed = judged(paused(BASE_BROKEN_SECS + 60, Environment::Placed));
+    assert_eq!(placed.state, State::Known { name: "check environment broken", remedies: vec![Remedy::CheckHere { queue: PathBuf::from("/queue") }] });
+    let local = judged(paused(BASE_BROKEN_SECS + 60, Environment::Local));
+    assert!(matches!(local.state, State::Known { name: "check environment broken", ref remedies } if matches!(remedies.as_slice(), [Remedy::Wait(_)])), "{local:?}");
 }

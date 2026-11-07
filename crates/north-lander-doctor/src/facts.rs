@@ -6,6 +6,8 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use north_base::land_ticket::{self, Phase};
+use north_base::lifecycle::Store;
+use north_check_environment::{Environment, instance};
 use north_base::platform::land_queue;
 use north_landing::land::after::follow;
 use north_landing::land::candidate::git;
@@ -50,6 +52,8 @@ pub struct QueueFacts {
     pub since_decision: Option<u64>,
     pub round_silence: Option<u64>,
     pub paused: Option<String>,
+    pub broken_for: Option<u64>,
+    pub environment: Option<Environment>,
     pub unit_state: Option<String>,
     pub infrastructure: Vec<Infrastructure>,
     pub source_builds: Vec<SourceBuild>,
@@ -146,9 +150,20 @@ pub fn served_queue_facts(name: &str, queue: &Path, unit: String, now: u64) -> Q
         since_decision,
         round_silence: silence(queue, now),
         paused: pause::held(queue),
+        broken_for: broken_for(queue, now),
+        environment: Some(north_check_environment::active(queue)),
         infrastructure,
         source_builds: source_builds(&queue.join("logs"), now),
     }
+}
+
+/// Seconds since main's check environment first broke, not since the pause's last renewal; `None` while it passes.
+fn broken_for(queue: &Path, now: u64) -> Option<u64> {
+    let moves = Store::host().ok()?.history("base-broken", &instance(queue)).ok()?;
+    let moves: Vec<_> = moves.iter().filter(|logged| !logged.refused).collect();
+    let began = moves.iter().rposition(|logged| logged.to == "clear").map_or(0, |cleared| cleared + 1);
+    let first = moves.get(began).filter(|_| moves.last().is_some_and(|last| last.to != "clear"))?;
+    Some(now.saturating_sub(u64::try_from(first.at.unix_seconds()).unwrap_or(now)))
 }
 
 struct Decided {

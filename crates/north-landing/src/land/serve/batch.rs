@@ -6,7 +6,8 @@ use super::{ATTEMPTS, Pushed, Round, micros};
 use crate::land::{after, alone};
 use crate::land::bisect::{self, Judgement, Strikes};
 use crate::land::candidate::{self, Built, Pick};
-use crate::land::checks::Verdict;
+use crate::land::checks::{Launch, Verdict};
+use north_check_environment::{self as check_environment, Reading};
 use crate::land::culprit::{self, Found};
 use crate::land::heartbeat::Step;
 use crate::land::lander::Lander;
@@ -224,7 +225,17 @@ impl Lander {
         let mut stages = Stages::start();
         let taken = (pass.limit == usize::MAX && !pass.red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(attempt.tickets, included));
         self.heartbeat.enter(Step::Check);
-        let (verdict, stacked) = speculate::check(self, watch, &built.head, attempt.base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()));
+        let red_fix = included.iter().any(|(_, ticket)| ticket.red_fix.is_some());
+        let (verdict, stacked) = check_environment::judge(&self.queue, |environment| {
+            let launch = Launch { red_fix, local: environment.is_local(), ..Launch::of(self) };
+            let (verdict, stacked) = speculate::check(self, watch, &built.head, attempt.base, &log, taken.as_ref(), &launch);
+            let reading = match &verdict {
+                Verdict::BrokenBase(detail) => Reading::Broken(detail.clone()),
+                Verdict::Green | Verdict::Refused(_) | Verdict::RedMain(_) => Reading::Reached,
+                Verdict::Transient(_) | Verdict::Deferred(_) => Reading::Silent,
+            };
+            ((verdict, stacked), reading)
+        });
         stages.checked(&built.head);
         if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
             pause::resume(&self.queue);

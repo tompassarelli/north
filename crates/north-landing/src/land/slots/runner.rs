@@ -225,8 +225,13 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         warn("safe-push: not in a git repo");
         return 1;
     };
-    let loaded = Config::load(&root, &arguments.head);
-    let off_host = Environment::load().off_host;
+    let mut placed = Environment::load();
+    let off_host = placed.off_host;
+    let mut loaded = Config::load(&root, &arguments.head);
+    if placed.local && !arguments.after && !off_host {
+        loaded = loaded.without_placement();
+        placed.runner = None;
+    }
     let local = !arguments.after && !off_host && loaded.local_checks();
     let config = if arguments.after {
         loaded.after_set()
@@ -237,7 +242,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     };
     let (cancel_sender, cancel) = watch::channel(false);
     tokio::spawn(forward_signals(cancel_sender));
-    let environment = if local { Environment::local() } else { Environment::load() };
+    let environment = if local { Environment::local() } else { placed.clone() };
     let commands = if arguments.leased {
         arguments.commands.clone()
     } else if !arguments.commands.is_empty() {
@@ -260,7 +265,7 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         return lander.await;
     }
     say(&format!("safe-push: the live runtime does not cover the checker code of {} land check(s), so a build host builds north from the lane's tree and runs them: {}", built.len(), built.join("; ")));
-    let (lander, built) = tokio::join!(lander, run_set(root, arguments, loaded, Environment::load(), cancel, built));
+    let (lander, built) = tokio::join!(lander, run_set(root, arguments, loaded, placed, cancel, built));
     if lander != 0 { lander } else { built }
 }
 

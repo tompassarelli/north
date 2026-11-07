@@ -76,7 +76,7 @@ fn replay(options: &Options) -> Result<Replayed, String> {
         return Ok(Replayed::of("undecided not every lane was picked"));
     }
     let log = kept_log(&checkout, &base)?;
-    let verdict = match checks::start(&checks::Launch { checker: &options.checker, offload_owner: "north-land-replay", round: "replay".to_owned(), red_fix: false, lander_slot: false, off_host: true }, &worktree, &base, &log, false) {
+    let verdict = match checks::start(&checks::Launch { checker: &options.checker, offload_owner: "north-land-replay", round: "replay".to_owned(), red_fix: false, lander_slot: false, off_host: true, local: false }, &worktree, &base, &log, false) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     };

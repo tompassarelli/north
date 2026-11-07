@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use crate::book::Book;
 use crate::facts::{Facts, LinkFacts, Place, PlaceFacts, QueueFacts, SlotHold};
+use north_check_environment::Environment;
 use north_landing::landing::check_timings::CEILING;
 
 pub const OLDEST_QUEUED_SECS: u64 = 20 * 60;
@@ -15,6 +16,7 @@ pub const SLOT_DEADLINE_SECS: u64 = CEILING + SLOT_GRACE_SECS;
 pub const DISK_FREE_PERCENT: f64 = 10.0;
 pub const PATIENCE_SECS: u64 = 5 * 60;
 pub const NO_VERDICT_PROMOTIONS: u32 = 3;
+pub const BASE_BROKEN_SECS: u64 = 10 * 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Bound {
@@ -30,6 +32,7 @@ pub enum Bound {
     UnservedQueues,
     SourceBuilds,
     NoVerdict,
+    BaseBroken,
 }
 
 impl Bound {
@@ -47,6 +50,7 @@ impl Bound {
             Bound::UnservedQueues => "unserved-queues",
             Bound::SourceBuilds => "toolchain-from-source",
             Bound::NoVerdict => "promotion-no-verdict",
+            Bound::BaseBroken => "base-broken",
         }
     }
 
@@ -57,6 +61,7 @@ impl Bound {
             Bound::RoundSilence => minutes(ROUND_SILENCE_SECS),
             Bound::LinkLag => minutes(LINK_LAG_SECS),
             Bound::Held => minutes(HELD_SECS),
+            Bound::BaseBroken => minutes(BASE_BROKEN_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
             Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
             Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::SourceBuilds | Bound::NoVerdict => "0".to_owned(),
@@ -79,6 +84,7 @@ pub enum Remedy {
     Rollback { home: PathBuf, from: String, to: String, units: Vec<String> },
     Alarm(String),
     Promote,
+    CheckHere { queue: PathBuf },
     Wait(String),
 }
 
@@ -93,6 +99,7 @@ impl Remedy {
             Remedy::Rollback { .. } => Some("lander-rollback"),
             Remedy::Alarm(_) => Some("lander-source-build"),
             Remedy::Promote => Some("lander-promotion-retry"),
+            Remedy::CheckHere { .. } => Some("lander-check-environment"),
             Remedy::Wait(_) => None,
         }
     }
@@ -110,6 +117,7 @@ impl fmt::Display for Remedy {
             Remedy::Rollback { from, to, .. } => write!(formatter, "roll the lander link back from {from} to {to}, the last build that landed a batch green"),
             Remedy::Alarm(text) => write!(formatter, "tell the proxy: {text}"),
             Remedy::Promote => write!(formatter, "retry the promotion with north runtime promote, which replays under lander-promote.lock"),
+            Remedy::CheckHere { queue } => write!(formatter, "judge the candidates of {} in this host's check environment, where main last passed", queue.display()),
             Remedy::Wait(reason) => write!(formatter, "none: {reason}"),
         }
     }
@@ -177,6 +185,7 @@ fn judge_queue(queue: &QueueFacts, link: Option<&LinkFacts>, book: &Book, now: u
         let mut findings = vec![Finding::healthy(Bound::OldestQueued, subject, "none queued".to_owned()), Finding::healthy(Bound::SinceLanding, subject, "none queued".to_owned())];
         findings.extend(infrastructure(queue));
         findings.extend(source_builds(queue));
+        findings.push(base_broken(queue));
         return findings;
     };
     let since_landing = queue.since_landing.map_or(oldest, |since| since.min(oldest));
@@ -205,6 +214,7 @@ fn judge_queue(queue: &QueueFacts, link: Option<&LinkFacts>, book: &Book, now: u
     findings.push(if silent { Finding::over(Bound::RoundSilence, subject, silence, wedged(queue, link, book, now)) } else { Finding::healthy(Bound::RoundSilence, subject, silence) });
     findings.extend(infrastructure(queue));
     findings.extend(source_builds(queue));
+    findings.push(base_broken(queue));
     findings
 }
 
@@ -235,6 +245,18 @@ fn rollback(link: &LinkFacts, book: &Book) -> Option<Remedy> {
     }
     let to = book.good.iter().rev().find(|good| **good != link.lander && link.builds.contains(*good))?;
     Some(Remedy::Rollback { home: link.home.clone(), from: link.lander.clone(), to: to.clone(), units: link.units.clone() })
+}
+
+fn base_broken(queue: &QueueFacts) -> Finding {
+    let subject = queue.name.as_str();
+    let Some(broken) = queue.broken_for.filter(|broken| queue.paused.is_some() && *broken > BASE_BROKEN_SECS) else {
+        return Finding::healthy(Bound::BaseBroken, subject, queue.broken_for.filter(|_| queue.paused.is_some()).map_or_else(|| "passes".to_owned(), minutes));
+    };
+    let state = match queue.environment {
+        Some(Environment::Placed) => known("check environment broken", Remedy::CheckHere { queue: queue.queue.clone() }),
+        _ => wait("check environment broken", "main fails its checks in the placed environment and on this host; the lander judges each candidate in both every round and resumes when either passes"),
+    };
+    Finding::over(Bound::BaseBroken, subject, minutes(broken), state)
 }
 
 fn infrastructure(queue: &QueueFacts) -> Vec<Finding> {

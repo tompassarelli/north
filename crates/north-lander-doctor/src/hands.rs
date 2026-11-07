@@ -8,6 +8,7 @@ use north_landing::land::watchdog::{self, Hands as _};
 use north_landing::land::{promote, queue};
 
 use crate::bounds::Remedy;
+use north_check_environment::Environment;
 use crate::facts::shell;
 
 pub const PROXY: &str = "proxy";
@@ -62,6 +63,10 @@ impl Hands for Host {
             Remedy::Rollback { home, from, to, units } => roll_back(home, from, to, units),
             Remedy::Alarm(text) => if self.page(text) { Ok("the proxy heard of it".to_owned()) } else { Err("paging the proxy failed".to_owned()) },
             Remedy::Promote => promote(),
+            Remedy::CheckHere { queue } => {
+                north_check_environment::settle(queue, Environment::Local, "the lander doctor read main's check environment broken past its bound");
+                Ok("new candidates are judged on this host until the placement is probed again".to_owned())
+            }
             Remedy::Wait(reason) => Ok(reason.clone()),
         }
     }
