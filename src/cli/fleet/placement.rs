@@ -99,7 +99,10 @@ impl std::fmt::Display for Refusal {
 
 impl From<Refusal> for NorthError {
     fn from(refusal: Refusal) -> Self {
-        Self::Refused(refusal.to_string())
+        match refusal {
+            Refusal::Spend(why) => Self::Saturated(why),
+            Refusal::Saturated(_) | Refusal::Final(_) => Self::Refused(refusal.to_string()),
+        }
     }
 }
 
@@ -119,20 +122,45 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], o
         return Ok(placed);
     }
     let starter = if request.role == Some(Role::Proxy) || text.contains("[routine:") { Starter::Reserved } else { Starter::Worker };
-    let account = placed.as_ref().ok().and_then(|placed| placed.account.clone()).unwrap_or_else(|| request.account.clone());
-    let rules = match spend_refusal(&account, starter, &fleet.roster()) {
-        Ok(rules) => rules,
-        Err(why) => return Ok(Err(Refusal::Spend(why))),
+    let (view, rules) = match crate::dispatch::spend_now(&fleet.roster()) {
+        Ok(read) => read,
+        Err(why) => return Ok(Err(Refusal::Spend(format!("spend view unread: {why}")))),
     };
-    Ok(placed.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref()), &rules), ..placed } } else { placed }))
+    let admits = |account: &str| view.admit(&rules, &format!("claude:{account}"), starter, spend::Placed::default()).map_err(|refusal| refusal.to_string());
+    let chosen = placed.as_ref().ok().and_then(|placed| placed.account.clone()).unwrap_or_else(|| request.account.clone());
+    let others: Vec<&str> = view.accounts.iter().filter_map(|other| other.name.strip_prefix("claude:")).collect();
+    let roster = fleet.roster();
+    let load = machine_load(fleet)?;
+    let settled = if request.account.is_empty() {
+        with_room(&chosen, &others, admits, |other| check(&Launch { account: other, ..launch }, &text, overrides, &load, &roster, false), placed)?
+    } else {
+        admits(&chosen).map_err(Refusal::Spend).and(placed)
+    };
+    Ok(settled.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref()), &rules), ..placed } } else { placed }))
 }
 
-/// The spend rule on the account placement chose: a worker meets the cap, the pooled reserve and its account's
-/// tripwire; the proxy and a scheduled routine may use the reserve, so they meet the provider's limit alone.
-fn spend_refusal(account: &str, starter: Starter, roster: &Roster) -> Result<spend::Rules, String> {
-    let (view, rules) = crate::dispatch::spend_now(roster).map_err(|why| format!("spend view unread: {why}"))?;
-    view.admit(&rules, &format!("claude:{account}"), starter, spend::Placed::default()).map_err(|refusal| refusal.to_string())?;
-    Ok(rules)
+/// The placement `chosen` when the spend rule admits its account; otherwise the first other account the rule admits that placement also
+/// accepts, so a launch that named none starts where a worker turn fits. With none left the refusal names each account's reason.
+fn with_room(
+    chosen: &str,
+    accounts: &[&str],
+    admits: impl Fn(&str) -> Result<(), String>,
+    mut place_on: impl FnMut(&str) -> NorthResult<Result<Placed, Refusal>>,
+    placed: Result<Placed, Refusal>,
+) -> NorthResult<Result<Placed, Refusal>> {
+    let Err(first) = admits(chosen) else { return Ok(placed) };
+    let mut refusals = vec![first];
+    for other in accounts.iter().filter(|other| **other != chosen) {
+        match admits(other) {
+            Ok(()) => {
+                if let Ok(settled) = place_on(other)? {
+                    return Ok(Ok(Placed { account: Some((*other).to_owned()), ..settled }));
+                }
+            }
+            Err(why) => refusals.push(why),
+        }
+    }
+    Ok(Err(Refusal::Spend(refusals.join("; "))))
 }
 
 fn slots(fleet: &Fleet, machine: Option<&Machine>, rules: &spend::Rules) -> Slots {
