@@ -50,6 +50,16 @@ impl Fleet {
         })
     }
 
+    /// Spools the message and hands it in; a hand-in that fails leaves the row in the spool, which the next tick delivers.
+    pub fn send_spooled(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+        self.record(name)?;
+        let row = self.spool_message(from, name, text, delivery)?;
+        if let Err(error) = self.hand_in(&row) {
+            eprintln!("north fleet: row {} for {name} stays in the spool for the next tick: {}", row.id, error.user_message());
+        }
+        Ok(())
+    }
+
     pub fn ask(&self, from: &Sender, name: &str, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
         let record = self.revive(name, None)?;
         let asked_from = stream_len(&record.host_dir);

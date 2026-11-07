@@ -1,22 +1,26 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use north_base::platform::attribution::{self, Cause, Harness};
 use toml_edit::{DocumentMut, Item};
 
 use crate::credit::{Grant, marks};
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::limit::recent;
-use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, SessionRecord, Status, Transcript};
+use crate::fleet::handover::AccountReadings;
+use crate::fleet::limit::{park, recent, recent_within};
+use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, Phase, SessionRecord, Status, Transcript};
 use crate::fleet::runtime::Runtime;
 use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::records::write_record;
 use crate::fleet::registry::{Fleet, Halt};
 use crate::fleet::sender::Sender;
 use crate::foundation::clock::Timestamp;
+use crate::usage::decide::world::LimitEvent;
 
 const NEVER: &str = "9999-12-31";
 const LOW_CREDIT: &str = "credit balance is too low";
+const ENDED_RECENT: Duration = Duration::from_secs(6 * 3600);
 const ACCOUNT_SINCE: &str = "account-since";
 
 /// One organization's entry in the pool of API keys: identified by its organization id, so two keys
@@ -172,26 +176,54 @@ impl Reading {
 }
 
 /// Marks exhausted the organization of each recent session on an `api:ORG` account whose newest turn on that account ended on the API's low-credit error, the
-/// only sign an organization is spent; then moves that session, and each session not mid-turn on an organization marked exhausted, onto the entry the pool opens next, on its conversation; one line per mark and move.
-pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Path) -> Vec<String> {
+/// only sign an organization is spent; then moves that session, ended or not, and each session still running and not mid-turn on an organization marked exhausted, onto the entry the pool opens next, on its conversation;
+/// when no entry is open a refused session moves to the subscription account whose window resets first and parks there until it does. One line per mark and move.
+pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Path, readings: &dyn AccountReadings) -> Vec<String> {
     let reading = Reading::of(policy, &home.join(".local/state/north"));
-    settle(fleet, runtime, (policy, home), &reading, |record, spent, to, machine, failed| move_onto(fleet, record, spent, (to, policy, home, machine), failed))
+    let observed = std::cell::OnceCell::new();
+    let subscription = |record: &SessionRecord, machine: &str| {
+        let now = crate::fleet::runtime::now_ms();
+        let labels: Vec<String> = fleet
+            .accounts()
+            .into_iter()
+            .filter(|account| account.api.is_none() && account.provider.label() == record.provider.label())
+            .map(|account| account.label)
+            .filter(|label| super::accounts::on_machine(&record.provider, policy, home, label, machine).is_ok())
+            .collect();
+        let limits = &observed.get_or_init(|| readings.observed(now)).limits;
+        next_subscription(labels.iter().map(String::as_str), limits, now).map(|(label, resumes)| (label.to_owned(), resumes))
+    };
+    settle(fleet, runtime, (policy, home), &reading, subscription, |record, spent, to, machine, failed, resumes| move_onto(fleet, record, spent, (to, policy, home, machine), (failed, resumes)))
 }
 
-fn settle(fleet: &Fleet, runtime: &dyn Runtime, (policy, home): (&Path, &Path), reading: &Reading, mut moving: impl FnMut(&SessionRecord, &str, &str, &str, bool) -> String) -> Vec<String> {
+/// The subscription account to move a session onto once every API org is spent, and when its window resets: an account no reading holds full comes first with no reset, else the one whose full windows lift soonest.
+pub fn next_subscription<'a>(labels: impl IntoIterator<Item = &'a str>, limits: &[LimitEvent], now_ms: u64) -> Option<(&'a str, Option<u64>)> {
+    let lifts = |label: &str| limits.iter().filter(|limit| limit.account.0 == label).filter_map(|limit| u64::try_from(limit.resets_at?.0).ok()).map(|at| at * 1000).filter(|at| *at > now_ms).max();
+    labels.into_iter().map(|label| (label, lifts(label))).min_by_key(|(label, resumes)| (resumes.unwrap_or(0), *label))
+}
+
+fn settle(
+    fleet: &Fleet,
+    runtime: &dyn Runtime,
+    (policy, home): (&Path, &Path),
+    reading: &Reading,
+    mut subscription: impl FnMut(&SessionRecord, &str) -> Option<(String, Option<u64>)>,
+    mut moving: impl FnMut(&SessionRecord, &str, &str, &str, bool, Option<u64>) -> String,
+) -> Vec<String> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
     let Reading { grants, next_credits, today } = reading;
     let until = |org: &Org| next_credits.get(&org.id).map(String::as_str);
     let dir = home.join(".local/state/north/api-exhausted");
     let mut lines = Vec::new();
-    for record in fleet.sessions().unwrap_or_default().into_iter().filter(|record| !record.ended() && recent(record)) {
+    let sessions = fleet.sessions().unwrap_or_default().into_iter().filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::Retired | Phase::Adopted)));
+    for record in sessions.filter(|record| if record.ended() { recent_within(record, ENDED_RECENT) } else { recent(record) }) {
         let Some((_, name)) = record.account.split_once(':') else { continue };
         let machine = record.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());
         let orgs = declared(&document, grants, home, &machine);
         let Some(org) = orgs.iter().find(|org| org.name == name) else { continue };
         let Some(transcript) = on_account(fleet, runtime, &record) else { continue };
         let failed = ran_out(&transcript.entries);
-        if !failed && (transcript.status == Status::Working || !exhausted(&dir, org)) {
+        if !failed && (record.ended() || transcript.status == Status::Working || !exhausted(&dir, org)) {
             continue;
         }
         let marked = if failed { marks::mark(&dir, &org.id, &record.name, today, until(org)) } else { Ok(false) };
@@ -200,28 +232,39 @@ fn settle(fleet: &Fleet, runtime: &dyn Runtime, (policy, home): (&Path, &Path), 
             Ok(false) => {}
             Err(error) => lines.push(format!("api:{} ran out of credit but its exhausted mark was not written: {error}", org.name)),
         }
-        match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org)) {
-            Some(to) => lines.push(moving(&record, &org.name, &to, &machine, failed)),
-            None if matches!(marked, Ok(true)) => lines.push(format!("{}: api:{} ran out of credit and no other api org is open, so it stays parked", record.name, org.name)),
+        let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org)) {
+            Some(to) => Some((to, None)),
+            None if failed => subscription(&record, &machine),
+            None => None,
+        };
+        match next {
+            Some((to, resumes)) => lines.push(moving(&record, &org.name, &to, &machine, failed, resumes)),
+            None if matches!(marked, Ok(true)) => lines.push(format!("{}: api:{} ran out of credit and no other api org or subscription account is open, so it stays parked", record.name, org.name)),
             None => {}
         }
     }
     lines
 }
 
-fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str), failed: bool) -> String {
+fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str), (failed, resumes): (bool, Option<u64>)) -> String {
     let moved = || -> NorthResult<()> {
         super::accounts::on_machine(&record.provider, policy, home, to, machine)?;
         switch(fleet, record, to, |name| fleet.revive(name, None).map(drop))?;
         fleet.waits().clear_usage(&record.name)?;
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("moved from account {} to {to}: org {spent} ran out of credit", record.account));
+        if let Some(until_ms) = resumes {
+            return park(&fleet.waits(), &fleet.session(&record.name)?, until_ms).map(drop);
+        }
         if !failed {
             return Ok(());
         }
-        fleet.send_signed(&Sender::fleet(), &record.name, &resume_message(spent, to), Delivery::Queued)
+        fleet.send_spooled(&Sender::fleet(), &record.name, &resume_message(spent, to), Delivery::Queued)
     };
     match moved() {
-        Ok(()) => format!("{}: moved from account {} to {to} on its conversation, since org {spent} ran out of credit", record.name, record.account),
+        Ok(()) => match resumes {
+            Some(until_ms) => format!("{}: moved from account {} to {to} on its conversation, since org {spent} ran out of credit, and parked until {to}'s window resets at {}", record.name, record.account, Timestamp::from_unix_millis(i64::try_from(until_ms).unwrap_or_default()).iso_date()),
+            None => format!("{}: moved from account {} to {to} on its conversation, since org {spent} ran out of credit", record.name, record.account),
+        },
         Err(error) => format!("{}: not moved from account {} to {to}: {}", record.name, record.account, error.user_message()),
     }
 }

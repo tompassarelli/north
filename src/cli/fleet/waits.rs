@@ -36,6 +36,7 @@ use super::revive;
 
 const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME)";
 const PROBE: Duration = Duration::from_secs(30);
+const API_SPENT: Duration = Duration::from_secs(14);
 const ALERT: Duration = Duration::from_secs(30);
 const JOB_STARTED_BEFORE_MS: f64 = 30.0 * 60_000.0;
 
@@ -111,7 +112,7 @@ impl WaitProbes for Probes {
         let registry = vec![
             ProbeJob { name: "probes.settle.waits", own: None, run: Box::new(|fleet| settle_waits(&fleet)) },
             ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
-            ProbeJob { name: "probes.settle.api_spent", own: None, run: Box::new(|fleet| said(api_spent(&fleet))) },
+            ProbeJob { name: "probes.settle.api_spent", own: Some(API_SPENT), run: Box::new(|fleet| said(api_spent(&fleet))) },
             ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.spend_trips", own: None, run: Box::new(|fleet| said(super::trips::watch(&fleet, now_ms()))) },
             ProbeJob {
@@ -256,7 +257,7 @@ fn branch_state(branch: &str, cwd: &Path) -> Option<String> {
 
 fn api_spent(fleet: &Fleet) -> Vec<String> {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    crate::providers::claude::api_pool::move_spent(fleet, &crate::providers::claude::fleet::Claude, &crate::platform::orchestration::path(), &home)
+    crate::providers::claude::api_pool::move_spent(fleet, &crate::providers::claude::fleet::Claude, &crate::platform::orchestration::path(), &home, &UsageTable)
 }
 
 struct Revival<'a>(&'a Fleet);

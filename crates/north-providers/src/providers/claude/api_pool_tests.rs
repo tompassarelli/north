@@ -1,4 +1,5 @@
-use super::{Org, Reading, declared, moved_to, open, ran_out, settle, since, switch, today};
+use super::{Org, Reading, declared, moved_to, next_subscription, open, ran_out, settle, since, switch, today};
+use crate::fleet::model::SessionRecord;
 use crate::credit::{Grant, launchable};
 use crate::fleet::model::Transcript;
 use crate::fleet::runtime::Runtime;
@@ -101,7 +102,7 @@ fn a_tick_keeps_an_org_open_and_its_sessions_on_it_whatever_its_counted_spend_un
         let proton = launchable(&[grant(200.0, "2099-12-31")], &[(today.clone(), spent)], &today);
         let reading = Reading { grants: [("p".to_owned(), proton), ("g".to_owned(), vec![grant(200.0, "2099-12-31")])].into(), next_credits: [("p".to_owned(), "2099-01-01".to_owned())].into(), today };
         let mut moved = Vec::new();
-        let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |record, spent, to, _, failed| {
+        let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &str| None, |record, spent, to, _, failed, _| {
             moved.push((record.name.clone(), spent.to_owned(), to.to_owned(), failed));
             String::new()
         });
@@ -145,6 +146,7 @@ fn a_session_moved_between_accounts_raises_no_mid_task_exit_and_no_carry_on_and_
     std::fs::write(dir.join("g1/stream.jsonl"), turn.map(|frame| frame.to_string() + "\n").concat()).unwrap();
     let watcher = fleet.clone();
     let watchdog = std::thread::spawn(move || watcher.guard("n-replay-case"));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     let moving = fleet.session("n-replay-case").unwrap();
 
     switch(&fleet, &moving, "api:gmail", |name| {
@@ -165,4 +167,77 @@ fn a_session_moved_between_accounts_raises_no_mid_task_exit_and_no_carry_on_and_
     let ledger = rusqlite::Connection::open(home.path().join(".local/state/north/ledger.db")).unwrap();
     let cause: String = ledger.query_row("SELECT cause FROM lifecycle_moves WHERE instance LIKE 'n-replay-case@%' AND to_state = 'stopped'", [], |row| row.get(0)).unwrap();
     assert_eq!(cause, "moved onto another account");
+}
+
+fn refused_session(fleet: &crate::fleet::registry::Fleet, home: &Path, name: &str, ended: bool, turn: &[serde_json::Value]) {
+    use crate::fleet::registry::fixtures;
+    fixtures::live(fleet, name);
+    let dir = home.join(".local/state/north/fleet").join(name);
+    let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+    record["account"] = json!("api:proton");
+    std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
+    std::fs::write(dir.join("g1/stream.jsonl"), turn.iter().map(|frame| frame.to_string() + "\n").collect::<String>()).unwrap();
+    if ended {
+        fleet.phases().unwrap().moved(fleet.session(name).unwrap().launch(), crate::fleet::model::Phase::HostEnded, "its host ended").unwrap();
+    }
+}
+
+fn pool_tick(open: &[&str], subscription: Option<(String, Option<u64>)>, sessions: &[(&str, bool, Vec<serde_json::Value>)]) -> Vec<(String, String, bool, Option<u64>)> {
+    use crate::fleet::registry::Fleet;
+    let home = tempfile::tempdir().unwrap();
+    let here = crate::platform::host::name();
+    let policy = home.path().join("orchestration.toml");
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"a\"\nkeys = {{ \"{here}\" = [\"/k/a\"] }}\n[accounts.claude.api_orgs.gmail]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n")).unwrap();
+    let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+    for (name, ended, turn) in sessions {
+        refused_session(&fleet, home.path(), name, *ended, turn);
+    }
+    let today = today();
+    let grants = |id: &str, listed: bool| (id.to_owned(), if listed { vec![grant(200.0, "2099-12-31")] } else { Vec::new() });
+    let reading = Reading { grants: [grants("a", false), grants("p", open.contains(&"gmail"))].into(), next_credits: BTreeMap::new(), today };
+    let mut moved = Vec::new();
+    settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &str| subscription.clone(), |record, _, to, _, failed, resumes| {
+        moved.push((record.name.clone(), to.to_owned(), failed, resumes));
+        String::new()
+    });
+    moved
+}
+
+fn refusal(name: &str) -> Vec<serde_json::Value> {
+    let mut turn = low_credit_turn("p1").to_vec();
+    turn.iter_mut().for_each(|frame| frame["session_id"] = json!(name));
+    turn
+}
+
+// KEEP(bug): on 2026-11-07 sessions on a spent api org ended on "Credit balance is too low", their hosts exited, and the tick moved none of the ended ones onto the open org because the move skipped ended sessions (north#792)
+#[test]
+fn a_session_whose_host_exited_on_the_credit_refusal_moves_onto_the_open_org_but_a_finished_one_stays_finished() {
+    let finished = vec![json!({"type": "assistant", "session_id": "n-done", "message": {"content": [{"type": "text", "text": "Done: landed"}]}}), json!({"type": "result", "subtype": "success", "session_id": "n-done"})];
+    let moved = pool_tick(&["gmail"], None, &[("n-ended", true, refusal("n-ended")), ("n-live", false, refusal("n-live")), ("n-done", true, finished)]);
+    let mut names: Vec<_> = moved.iter().map(|(name, to, failed, resumes)| (name.as_str(), to.as_str(), *failed, *resumes)).collect();
+    names.sort();
+    assert_eq!(names, [("n-ended", "api:gmail", true, None), ("n-live", "api:gmail", true, None)]);
+}
+
+// KEEP(bug): on 2026-11-07 a refusal on a spent org parked sessions on a usage limit lasting until the next grant date while another org was open, since the credit refusal read as a usage limit (north#792)
+#[test]
+fn a_credit_refusal_is_not_a_usage_limit() {
+    let scratch = tempfile::tempdir().unwrap();
+    let stream = scratch.path().join("stream.jsonl");
+    append(&stream, &refusal("c"));
+    assert_eq!(since(&Claude, &stream, 0, Some("c")).limit, None);
+}
+
+// KEEP(bug): when no api org was open a refused session only printed "stays parked" and nothing resumed it; it now moves to the subscription account whose window resets first and parks until then (north#792)
+#[test]
+fn with_no_api_org_open_a_refused_session_goes_to_the_subscription_account_that_resets_first_and_parks_there() {
+    let moved = pool_tick(&[], Some(("b".to_owned(), Some(1_800_000_000_000))), &[("n730-arms", true, refusal("n730-arms"))]);
+    assert_eq!(moved, [("n730-arms".to_owned(), "b".to_owned(), true, Some(1_800_000_000_000))]);
+
+    use crate::usage::decide::world::{Label, LimitEvent, Unix, Window};
+    let full = |account: &str, resets_at: i64| LimitEvent { account: Label(account.to_owned()), window: Window::FiveHour, resets_at: Some(Unix(resets_at)), at: Unix(0) };
+    let limits = [full("a", 2_000_000), full("a", 3_000_000), full("b", 2_500_000), full("c", 3_500_000)];
+    assert_eq!(next_subscription(["a", "b", "c"], &limits, 1_000_000), Some(("b", Some(2_500_000_000))));
+    assert_eq!(next_subscription(["a", "b", "c", "d"], &limits, 1_000_000), Some(("d", None)));
+    assert_eq!(next_subscription([], &limits, 1_000_000), None);
 }

@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::fleet::model::UsageLimit;
 
-static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(?:you.ve hit your\b[^\n]*\blimit|(?:your )?credit balance is too low)").expect("usage limit pattern"));
+static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*you.ve hit your\b[^\n]*\blimit").expect("usage limit pattern"));
 
 pub(super) fn stop_text(text: &str) -> bool {
     STOP.is_match(text)
@@ -49,6 +49,6 @@ mod tests {
         assert_eq!(rate_limited_result(&json!({"type": "result", "is_error": false, "result": "You've hit your limit"})), None);
         assert_eq!(rate_limited_result(&json!({"type": "result", "is_error": true, "result": "boom"})), None);
         let credit = json!({"type": "result", "is_error": true, "api_error_status": 400, "result": "Credit balance is too low"});
-        assert_eq!(rate_limited_result(&credit).unwrap().message.as_deref(), Some("Credit balance is too low"));
+        assert_eq!(rate_limited_result(&credit), None);
     }
 }
