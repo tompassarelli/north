@@ -98,8 +98,9 @@ impl Reading {
     /// The hosts that reported and the oldest of their readings' age at `now_ms`, for the usage table.
     pub fn age_line(&self, now_ms: i64) -> String {
         let Some(oldest) = self.hosts.iter().map(|(_, read)| *read).min() else { return "read from this host only".to_owned() };
-        let names: Vec<&str> = self.hosts.iter().map(|(host, _)| host.as_str()).collect();
-        format!("read from this host and {}, the oldest {}", names.join(", "), age(now_ms - oldest))
+        let here = crate::platform::host::name();
+        let others: Vec<&str> = self.hosts.iter().map(|(host, _)| host.as_str()).filter(|host| *host != here).collect();
+        format!("read from this host and {}, the oldest {}", others.join(", "), age(now_ms - oldest))
     }
 }
 

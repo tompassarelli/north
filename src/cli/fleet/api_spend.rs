@@ -25,16 +25,26 @@ pub(super) fn pull(fleet: &Fleet) -> Vec<String> {
         failed.push(format!("api spend of {}: {error}", fleet.host()));
     }
     let Ok(cfg) = config() else { return failed };
-    let far: Vec<_> = gate::machines(&cfg).into_iter().filter(|machine| machine.name != fleet.host()).collect();
+    let far = far_hosts(&cfg, fleet.host());
     let pulled: Vec<NorthResult<Snapshot>> = std::thread::scope(|scope| {
-        let running: Vec<_> = far.iter().map(|machine| scope.spawn(|| OverSsh::default().api_spend(&machine.ssh))).collect();
+        let running: Vec<_> = far.iter().map(|(_, ssh)| scope.spawn(|| OverSsh::default().api_spend(ssh))).collect();
         running.into_iter().map(|run| run.join().unwrap_or_else(|_| Err(NorthError::State("the pull panicked".into())))).collect()
     });
-    for (machine, pulled) in far.iter().zip(pulled) {
-        let stored = pulled.map_err(|error| error.user_message()).and_then(|snapshot| credit::store(&ledger(), &Snapshot { host: machine.name.clone(), ..snapshot }));
+    for ((name, _), pulled) in far.iter().zip(pulled) {
+        let stored = pulled.map_err(|error| error.user_message()).and_then(|snapshot| credit::store(&ledger(), &Snapshot { host: name.clone(), ..snapshot }));
         if let Err(error) = stored {
-            failed.push(format!("api spend of {}: {error}", machine.name));
+            failed.push(format!("api spend of {name}: {error}"));
         }
     }
     failed
 }
+
+/// Every `[hosts.NAME]` but this host's that declares an `ssh` or `deploy_ssh` destination, as (name, destination).
+fn far_hosts(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<(String, String)> {
+    let hosts = cfg.get("hosts").and_then(toml_edit::Item::as_table_like);
+    let declared = hosts.into_iter().flat_map(|hosts| hosts.iter());
+    declared.filter(|(name, _)| *name != here).filter_map(|(name, host)| Some((name.to_owned(), gate::ssh_destination(["ssh", "deploy_ssh"].iter().find_map(|key| host.get(key)?.as_str())?)?.to_owned()))).collect()
+}
+
+#[cfg(test)]
+mod tests;
