@@ -361,8 +361,8 @@ impl Ingest<'_> {
         };
         let mine = claim.as_deref().is_some_and(|owner| run.id == *owner);
         if run.status == "running" && run.worker() {
-            if let (Some(item), Some(held)) = (item.as_deref(), held.as_deref().filter(|_| !mine)) {
-                self.hold(item, held, run, claim.as_deref(), &follows)?;
+            if let (Some(item), Some(held)) = (item.as_deref(), held.as_deref().filter(|_| claim.is_none())) {
+                self.hold(item, held, run, &follows)?;
             }
             return self.created(run, item.as_deref(), &follows);
         }
@@ -377,21 +377,16 @@ impl Ingest<'_> {
         self.finished(run, item.as_deref(), follows)
     }
 
-    /// A running worker holds its brief's issue; taking it from someone else is a handoff.
-    fn hold(&mut self, item: &str, held: &str, run: &Run, claim: Option<&str>, follows: &Value) -> Result<(), Failure> {
+    /// A running worker holds its brief's issue or box while nobody does; a claim someone holds stays theirs, so a lead's claim on its
+    /// issue is never handed to a child it staffs there, and an exited holder's claim goes through the exited sweep.
+    fn hold(&mut self, item: &str, held: &str, run: &Run, follows: &Value) -> Result<(), Failure> {
         let r = &run.r;
-        let prev = claim.map_or_else(|| follows.clone(), Value::from);
         let since = bind(Some(&r.or("started", Value::from(self.context.now.iso()))))?;
-        if claim.is_some() {
-            self.db.execute("UPDATE claims SET owner = ?, since = ?, eta_min = ? WHERE item = ?", params![run.agent()?, since, r.rounded("eta_min")?, held])?;
-            self.tally.claims.push(ClaimMoved::held(held, format!("taken by {} for its running run", run.id.as_str().unwrap_or_default())));
-        } else {
-            self.db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", params![held, run.agent()?, since, r.rounded("eta_min")?])?;
-            self.event(item, "claim", run, Value::object([("eta_min", r.get_or("eta_min", Value::Null))]))?;
-            self.tally.claims.push(ClaimMoved::held(held, format!("claimed by {} for its running run", run.id.as_str().unwrap_or_default())));
-        }
-        if truthy(&prev) && prev != run.id {
-            self.event(item, "handoff", run, Value::object([("from", prev), ("to", run.id.clone())]))?;
+        self.db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", params![held, run.agent()?, since, r.rounded("eta_min")?])?;
+        self.event(item, "claim", run, Value::object([("eta_min", r.get_or("eta_min", Value::Null))]))?;
+        self.tally.claims.push(ClaimMoved::held(held, format!("claimed by {} for its running run", run.id.as_str().unwrap_or_default())));
+        if truthy(follows) && *follows != run.id {
+            self.event(item, "handoff", run, Value::object([("from", follows.clone()), ("to", run.id.clone())]))?;
         }
         Ok(())
     }
