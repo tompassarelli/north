@@ -44,7 +44,8 @@ fn inbox_of(account: &str, sessions: &Path, record: &Value) -> Option<WindowInbo
         return None;
     }
     let socket = PathBuf::from(record["messagingSocketPath"].as_str()?);
-    Some(WindowInbox { account: account.to_owned(), pid, socket, token: peer_token(sessions, pid)? })
+    let busy = record["status"].as_str().is_some_and(|status| status != "idle");
+    Some(WindowInbox { account: account.to_owned(), pid, socket, token: peer_token(sessions, pid)?, busy })
 }
 
 pub(super) fn live(accounts: &[Account]) -> Vec<LiveWindow> {

@@ -54,7 +54,7 @@ impl Fleet {
                 eprintln!("north fleet: {refusal}");
                 self.journaled(row, || Ok(()))
             }
-            ControlVerb::Interrupt if !self.running(&self.record(&row.to)?) => self.journaled(row, || Ok(())),
+            ControlVerb::Interrupt if !self.record(&row.to)?.live() => self.journaled(row, || Ok(())),
             verb => self.journaled(row, || self.run_control(verb, &row.to, row.sender.session())),
         }
     }

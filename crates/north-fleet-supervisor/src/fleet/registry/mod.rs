@@ -174,7 +174,11 @@ impl Fleet {
         self.record(name)
     }
 
+    /// A session is running while a live host serves it, or, adopted, while its interactive window lives.
     pub fn running(&self, record: &SessionRecord) -> bool {
+        if record.adopted() {
+            return self.window_status(record) != Status::Exited;
+        }
         session_running(record)
     }
 

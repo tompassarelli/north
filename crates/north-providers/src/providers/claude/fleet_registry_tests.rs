@@ -233,6 +233,7 @@ fn an_interactive_window_opened_after_the_turn_leaves_a_running_first_turn_to_fi
     fs::write(&stream, frame("assistant")).unwrap();
     let mut turn_over_at_launch = None;
     let mut looks = 0;
+    let mut shown = Vec::new();
     fleet
         .interactive_pacing(
             "proxy",
@@ -241,6 +242,7 @@ fn an_interactive_window_opened_after_the_turn_leaves_a_running_first_turn_to_fi
                 looks += 1;
                 std::io::Write::write_all(&mut fs::OpenOptions::new().append(true).open(&stream).unwrap(), frame("result").as_bytes()).unwrap();
             },
+            |entry| shown.push((entry.kind, entry.text.clone(), !fs::read_to_string(&stream).unwrap().contains("\"type\":\"result\""))),
             |_| {
                 turn_over_at_launch = Some(fs::read_to_string(&stream).unwrap().contains("\"type\":\"result\""));
                 Ok(())
@@ -250,6 +252,7 @@ fn an_interactive_window_opened_after_the_turn_leaves_a_running_first_turn_to_fi
 
     assert_eq!(looks, 1, "the turn was still running at the first look and over at the second");
     assert_eq!(turn_over_at_launch, Some(true), "the window took the conversation while the first turn was still running");
+    assert!(shown.iter().any(|(kind, text, before)| *kind == EntryKind::Assistant && text == "first turn" && *before), "the window showed the first turn while it was still running, not a blank wait: {shown:?}");
 }
 
 #[test]

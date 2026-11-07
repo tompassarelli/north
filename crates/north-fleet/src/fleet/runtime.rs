@@ -46,6 +46,7 @@ pub struct WindowInbox {
     pub pid: u32,
     pub socket: PathBuf,
     pub token: String,
+    pub busy: bool,
 }
 
 pub struct LiveWindow {

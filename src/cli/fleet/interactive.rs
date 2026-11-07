@@ -1,16 +1,21 @@
-//! `north fleet interactive`: stop a fleet session and continue its conversation in the provider's own UI; `--after-turn` lets a running turn end first.
+//! `north fleet interactive`: stop a fleet session and continue its conversation in the provider's own UI; `--after-turn` shows a running turn as it streams and lets it end first.
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::model::Entry;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::HostSpec;
 
 pub(super) const AFTER_TURN: &str = "--after-turn";
 
 pub(super) fn run(fleet: &Fleet, name: &str, after_turn: bool) -> NorthResult<()> {
-    fleet.interactive(name, after_turn, replace_with)?;
+    fleet.interactive(name, after_turn, show, replace_with)?;
     Ok(())
+}
+
+fn show(entry: &Entry) {
+    println!("{}: {}", entry.kind.label(), entry.text);
 }
 
 fn replace_with(spec: &HostSpec) -> NorthResult<()> {

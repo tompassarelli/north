@@ -1,17 +1,22 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use rustix::process::{Pid, Signal, kill_process};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::records::write_record;
-use crate::fleet::host::SOCKET;
+use crate::fleet::host::{SOCKET, alive};
 use crate::fleet::runtime::{LiveWindow, PROXY, Runtime, WindowInbox, now_ms};
 use crate::fleet::store::{Claim, SessionRow, Slots};
 
 use super::takeover::Predecessor;
 use super::Fleet;
+
+const WINDOW_CLOSE: Duration = Duration::from_secs(10);
 
 impl Fleet {
     pub fn adopt(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<SessionRecord> {
@@ -75,9 +80,25 @@ impl Fleet {
 
     pub(super) fn window_status(&self, record: &SessionRecord) -> Status {
         match record.conversation.as_deref().and_then(|conversation| self.window_of(conversation)) {
+            Some((_, inbox)) if !record.ended() && inbox.busy => Status::Working,
             Some(_) if !record.ended() => Status::Idle,
             _ => Status::Exited,
         }
+    }
+
+    /// Hangs up the interactive window holding an adopted session and waits until its process is gone; false when no window held it.
+    pub fn close_window(&self, record: &SessionRecord) -> NorthResult<bool> {
+        let Some((_, inbox)) = record.conversation.as_deref().and_then(|conversation| self.window_of(conversation)) else { return Ok(false) };
+        let pid = i32::try_from(inbox.pid).ok().and_then(Pid::from_raw).ok_or_else(|| NorthError::State(format!("window process {} has no pid", inbox.pid)))?;
+        let _ = kill_process(pid, Signal::Hup);
+        let deadline = Instant::now() + WINDOW_CLOSE;
+        while alive(inbox.pid) {
+            if Instant::now() > deadline {
+                return Err(NorthError::Refused(format!("window process {} of {} was still running {} s after it was hung up", inbox.pid, record.name, WINDOW_CLOSE.as_secs())));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        Ok(true)
     }
 
     pub(super) fn tell_window(&self, record: &SessionRecord, text: &str) -> NorthResult<()> {

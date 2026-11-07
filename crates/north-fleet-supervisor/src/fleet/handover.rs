@@ -3,6 +3,10 @@
 //! gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod proxy;
+#[cfg(test)]
+mod tests;
+
 use north_base::land_ticket::Lane;
 use north_base::platform::attribution::{self, Cause, Harness};
 
@@ -87,6 +91,7 @@ pub fn hand_over(
             let _ = fleet.set_all_out_announced(false);
         }
     }
+    let mut moving = BTreeSet::new();
     for (name, action) in assessed.actions {
         let Some(record) = records.iter().find(|record| record.name == name.0) else { continue };
         let to = match action {
@@ -100,17 +105,20 @@ pub fn hand_over(
                 continue;
             }
         };
-        let proxy = record.role() == Role::Proxy;
-        if !proxy && !holds_work(record) {
+        if record.role() == Role::Proxy {
+            moving.insert(record.name.as_str());
+            done.lines.extend(proxy::advance(fleet, record, &to.0, take_over, now_ms));
+            continue;
+        }
+        if record.adopted() || !holds_work(record) {
             continue;
         }
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("handed over from account {} to {}", record.account, to.0));
         let lane = lanes.get(&record.name).and_then(|held| held.iter().max_by_key(|lane| lane.queued_ms()));
         let request = LaunchRequest {
             account: to.0.clone(),
-            prompt: if proxy { proxy_brief(record, &to.0) } else { brief(record, lane, &to.0) },
+            prompt: brief(record, lane, &to.0),
             placement: Some(format!("handed over from account {}", record.account)),
-            resume: proxy.then(|| record.conversation.clone()).flatten(),
             ..record.relaunch_request()
         };
         match take_over(&request) {
@@ -120,6 +128,9 @@ pub fn hand_over(
             }
             Err(error) => done.lines.push(format!("{}: not handed over from account {} to {}: {}", record.name, record.account, to.0, error.user_message())),
         }
+    }
+    for record in records.iter().filter(|record| record.role() == Role::Proxy && !moving.contains(record.name.as_str())) {
+        proxy::Desk::of(&fleet.root, &record.name).clear();
     }
     done
 }
@@ -133,7 +144,7 @@ fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {
         .into_iter()
         .filter(|record| record.provider.label() == "claude" && !record.verification)
         .filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::IdleExited)))
-        .filter(|record| recent(record) && (fleet.running(record) || parked(&record.name)))
+        .filter(|record| if record.adopted() { fleet.running(record) } else { recent(record) && (fleet.running(record) || parked(&record.name)) })
         .collect()
 }
 
@@ -201,14 +212,6 @@ fn brief(record: &SessionRecord, lane: Option<&Lane>, to: &str) -> String {
     format!(
         "Follows: {follows} (handed over from account {from} to {to}, which is above the floor)\n\n\
          [north: account {from} is at or under its floor, so `north fleet tick` took over {name} onto account {to}] Your earlier conversation ended on {from}. {work}",
-        name = record.name,
-    )
-}
-
-fn proxy_brief(record: &SessionRecord, to: &str) -> String {
-    format!(
-        "[north: account {from} is at or under its floor, so `north fleet tick` moved {name} onto account {to}, the source above the floor with the most headroom] This is the same conversation; carry on where it stopped.",
-        from = record.account,
         name = record.name,
     )
 }
