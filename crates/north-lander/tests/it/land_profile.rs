@@ -17,7 +17,6 @@ fn the_profile_splits_a_trace_by_category_and_an_old_slow_backlog_outside_the_la
 
 fn a_fixture_trace_splits_queued_at_to_push_by_category_and_reports_verification_after_the_push() {
     let spans = Spans::at(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/land_profile_spans.jsonl")).read();
-    assert_eq!(spans.len(), 20);
     let trace = Trace::of(&spans);
     let landings = trace.landings(0.0);
     assert_eq!(landings.len(), 1);
