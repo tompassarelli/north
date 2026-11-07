@@ -20,7 +20,7 @@ const CLAUSE_LIMIT: usize = 90;
 
 fn trigger() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| Regex::new(r"(?i)\b(waits?\s+(?:on|for)|waiting\s+(?:on|for)|blocked\s+by|depends\s+on|follows|after|needs)\s+").unwrap_or_else(|error| panic!("{error}")))
+    PATTERN.get_or_init(|| Regex::new(r"(?i)\b(waits?\s+(?:on|for)|waiting\s+(?:on|for)|blocked\s+by|depends\s+on|follows|after|needs|tracked\s+in)\s+").unwrap_or_else(|error| panic!("{error}")))
 }
 
 fn issue_reference() -> &'static Regex {

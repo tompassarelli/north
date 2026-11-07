@@ -1176,6 +1176,8 @@ dependencies = [
  "north-fleet",
  "north-github-mirror",
  "north-graph",
+ "north-graph-ground",
+ "north-landing",
  "north-threads",
  "regex",
  "rusqlite",
