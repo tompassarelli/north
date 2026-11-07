@@ -9,9 +9,6 @@ use std::time::Duration;
 const LIMIT: Duration = Duration::from_secs(60);
 const ALARMED: &str = "preswap-held";
 
-/// The incoming runtime reads every north call on this host (units, the scripts they run, hooks and its own ssh hops)
-/// against its own command table before current moves to it, so a runtime that dropped a command a caller here still
-/// runs is held while the live one stays; each distinct refusal alarms once.
 pub(super) fn check(layout: &Layout, target: &str, previous: Option<&Path>, notify: &mut dyn FnMut(&str)) -> Result<String, Failure> {
     let runtime = layout.runtime(target);
     let mut command = Command::new(runtime.join("north"));

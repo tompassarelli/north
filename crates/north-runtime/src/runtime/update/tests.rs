@@ -55,8 +55,6 @@ fn a_copy_interrupted_over_an_hour_ago_leaves_no_staging_directory_while_a_fresh
     assert!(layout.runtimes().join(&fresh).exists());
 }
 
-/// Replays 2026-11-07, when runtimes that dropped `north pace sample` went live under pace-enforcement.service: the
-/// incoming runtime's own call check refuses it, current stays on the live runtime, and the refusal alarms once.
 #[test]
 fn a_runtime_whose_call_check_refuses_a_host_unit_is_held_on_the_live_runtime_with_one_alarm() {
     use std::os::unix::fs::PermissionsExt;

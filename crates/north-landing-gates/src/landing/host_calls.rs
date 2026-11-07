@@ -17,7 +17,6 @@ const SSH: &str = "ssh";
 pub enum Source {
     Unit,
     Hook,
-    /// A call in a Rust source that also builds an ssh command, so another host's runtime may be the one that runs it.
     Hop,
     Rust,
 }

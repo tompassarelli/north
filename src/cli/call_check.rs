@@ -1,5 +1,3 @@
-//! `north check calls`: every north call this host makes, read against this binary's own command table, so a runtime
-//! swap can refuse a runtime that a unit, a hook or its own ssh hops would call with a command it no longer has.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -9,10 +7,6 @@ use crate::landing::host_calls::{self, HostCall, Source};
 
 const USAGE: &str = "usage: north check calls [--tree DIR] [--live DIR]";
 
-/// The unparsable calls among `calls`, one line each naming where the call is written. North's own Rust swaps with
-/// this binary, so only an ssh hop to another host answers for its words; a hop that names only a command group relays
-/// the subcommand its local caller appends, so it answers for each gathered call under that group, and a Rust word list
-/// that starts with no north verb is a list of names, not a call.
 pub(super) fn findings(calls: &[HostCall], resolve: impl Fn(&[String]) -> Resolution) -> Vec<String> {
     let mut found = Vec::new();
     for call in calls.iter().filter(|call| call.source != Source::Rust) {

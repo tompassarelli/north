@@ -29,8 +29,6 @@ fn checked(reference: &str) -> Vec<String> {
     findings(&host(), |words| verb_help::resolve(reference, verb_help::reference(), words, tools::defines))
 }
 
-/// Replays 2026-11-07: pace-enforcement.service still ran `north pace sample` after the hidden pace row went, and
-/// laptop-auto's observe forward over ssh broke when its verb moved; the incoming runtime must refuse both by place.
 #[test]
 fn a_runtime_missing_a_command_a_host_unit_or_its_own_ssh_hop_still_calls_is_refused_naming_where_it_is_called() {
     let current = checked(verb_help::reference());
