@@ -20,13 +20,14 @@ pub fn run(arguments: &[String]) -> u8 {
     if std::env::var_os("CARGO_TARGET_DIR").is_some_and(|dir| !dir.is_empty() && !own_target(&here, Path::new(&dir))) {
         return 0;
     }
-    match seed(&here) {
+    seed_or_build_cold(&here)
+}
+
+fn seed_or_build_cold(here: &Path) -> u8 {
+    match seed(here) {
         Ok(Some(from)) => eprintln!("lane seed: copied {} into this checkout's target", from.display()),
         Ok(None) => {}
-        Err(error) => {
-            eprintln!("lane seed: {error}");
-            return 1;
-        }
+        Err(error) => eprintln!("lane seed: {error}; this checkout builds without a seed"),
     }
     0
 }
@@ -138,3 +139,7 @@ fn unit_dirs(target: &Path) -> Vec<PathBuf> {
     let nested = children(target).into_iter().flat_map(|child| children(&child));
     children(target).into_iter().chain(nested).filter(|dir| dir.join(".fingerprint").is_dir() || dir.join(".cargo-lock").is_file()).collect()
 }
+
+#[cfg(test)]
+#[path = "target_seed_tests.rs"]
+mod tests;
