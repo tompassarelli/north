@@ -66,6 +66,15 @@ impl Fleet {
         Ok(record)
     }
 
+    pub fn follow_conversation(&self, name: &str, conversation: &str) -> NorthResult<()> {
+        let mut record = self.record(name)?;
+        if record.conversation.as_deref() == Some(conversation) {
+            return Ok(());
+        }
+        record.conversation = Some(conversation.to_owned());
+        write_record(&self.session_dir(name)?, &record)
+    }
+
     pub fn caller_conversation(&self) -> Option<String> {
         self.runtimes.caller_conversation()
     }

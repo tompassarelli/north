@@ -16,17 +16,22 @@ pub(super) struct Window {
     pub conversation: String,
     pub account: String,
     pub active: SystemTime,
+    pub pid: u32,
 }
 
 pub(in crate::cli) fn admit(fleet: &Fleet, caller: Option<&str>, act: &str) -> NorthResult<()> {
-    admit_beside(fleet, caller, act, window_move::tom_windows, SystemTime::now())
+    admit_beside(fleet, caller, act, window_move::tom_windows, &window_move::own_ancestors(), SystemTime::now())
 }
 
-fn admit_beside(fleet: &Fleet, caller: Option<&str>, act: &str, windows: impl FnOnce() -> Vec<Window>, now: SystemTime) -> NorthResult<()> {
+fn admit_beside(fleet: &Fleet, caller: Option<&str>, act: &str, windows: impl FnOnce() -> Vec<Window>, ancestors: &[u32], now: SystemTime) -> NorthResult<()> {
     let Some(caller) = caller.filter(|caller| lineage::from_proxy(fleet, Some(caller))) else { return Ok(()) };
+    let (mine, windows): (Vec<Window>, Vec<Window>) = windows().into_iter().partition(|window| ancestors.contains(&window.pid));
+    if let Some(window) = mine.first() {
+        fleet.follow_conversation(caller, &window.conversation)?;
+    }
     let own = fleet.sessions()?.into_iter().find(|record| record.name == caller).and_then(|record| record.conversation);
     let archived: Vec<String> = fleet.past_sessions().into_iter().filter(|record| record.role() == Role::Proxy).filter_map(|record| record.conversation).collect();
-    let directing = windows().into_iter().filter(|window| own.as_deref() != Some(window.conversation.as_str()) && !archived.contains(&window.conversation));
+    let directing = windows.into_iter().filter(|window| own.as_deref() != Some(window.conversation.as_str()) && !archived.contains(&window.conversation));
     let Some(window) = directing.max_by_key(|window| window.active) else { return Ok(()) };
     let idle = now.duration_since(window.active).unwrap_or_default();
     if idle >= TYPING {
@@ -66,19 +71,24 @@ mod tests {
         session(home.path(), "proxy", "proxy");
         session(home.path(), "lead-a", "lead");
         let now = SystemTime::now();
-        let window = |conversation: &'static str, idle_minutes: u64| move || vec![Window { conversation: conversation.to_owned(), account: "c".into(), active: now - Duration::from_secs(idle_minutes * 60) }];
-        let refused = admit_beside(&fleet, Some("proxy"), "message worker-1", window("tom-window", 2), now).unwrap_err().user_message();
+        let window = |conversation: &'static str, idle_minutes: u64| move || vec![Window { conversation: conversation.to_owned(), account: "c".into(), active: now - Duration::from_secs(idle_minutes * 60), pid: 4242 }];
+        let refused = admit_beside(&fleet, Some("proxy"), "message worker-1", window("tom-window", 2), &[], now).unwrap_err().user_message();
         assert!(refused.contains("proxy may not message worker-1") && refused.contains("tom-window on account c"), "{refused}");
-        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", window("tom-window", 31), now).is_ok(), "an idle window hands direction back");
-        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", window("proxy-conversation", 2), now).is_ok(), "Tom's window resuming the proxy's own conversation is the same proxy");
-        assert!(admit_beside(&fleet, Some("lead-a"), "message worker-1", window("tom-window", 2), now).is_ok(), "a lead directs its own workers");
-        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", Vec::new, now).is_ok());
+        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", window("tom-window", 31), &[], now).is_ok(), "an idle window hands direction back");
+        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", window("proxy-conversation", 2), &[], now).is_ok(), "Tom's window resuming the proxy's own conversation is the same proxy");
+        assert!(admit_beside(&fleet, Some("lead-a"), "message worker-1", window("tom-window", 2), &[], now).is_ok(), "a lead directs its own workers");
+        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", Vec::new, &[], now).is_ok());
 
         session(home.path(), "proxy-before", "proxy");
         std::fs::create_dir_all(home.path().join(".local/state/north/fleet/.archive")).unwrap();
         std::fs::rename(home.path().join(".local/state/north/fleet/proxy-before"), home.path().join(".local/state/north/fleet/.archive/proxy-before-1")).unwrap();
-        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", window("proxy-before-conversation", 2), now).is_ok(), "the window left on a proxy the take-over archived directs nothing");
+        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", window("proxy-before-conversation", 2), &[], now).is_ok(), "the window left on a proxy the take-over archived directs nothing");
         let both = || window("proxy-before-conversation", 1)().into_iter().chain(window("tom-window", 2)()).collect();
-        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", both, now).is_err(), "a window on any other conversation still directs");
+        assert!(admit_beside(&fleet, Some("proxy"), "message worker-1", both, &[], now).is_err(), "a window on any other conversation still directs");
+
+        session(home.path(), "proxy", "proxy");
+        assert!(admit_beside(&fleet, Some("proxy"), "launch worker-1", window("1f79cfb7", 2), &[], now).is_err(), "a window outside the caller's process tree directs");
+        assert!(admit_beside(&fleet, Some("proxy"), "launch worker-1", window("1f79cfb7", 2), &[9, 4242], now).is_ok(), "the proxy's own window on a new conversation is the proxy");
+        assert_eq!(fleet.session("proxy").unwrap().conversation.as_deref(), Some("1f79cfb7"), "the record follows the conversation its process writes");
     }
 }

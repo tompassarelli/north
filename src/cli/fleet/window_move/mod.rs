@@ -45,7 +45,11 @@ pub(super) fn run(words: &[&str]) -> NorthResult<()> {
 pub(super) fn tom_windows() -> Vec<super::one_proxy::Window> {
     let windows = session::live_windows().into_iter().flatten().flatten();
     let active = windows.filter_map(|window| std::fs::metadata(session::activity_path(&window)).and_then(|meta| meta.modified()).ok().map(|active| (window, active)));
-    active.map(|(window, active)| super::one_proxy::Window { conversation: window.session.id, account: window.account, active }).collect()
+    active.map(|(window, active)| super::one_proxy::Window { conversation: window.session.id, account: window.account, active, pid: window.client }).collect()
+}
+
+pub(super) fn own_ancestors() -> Vec<u32> {
+    std::iter::successors(Some(std::process::id()), |pid| parent_of(*pid).filter(|parent| *parent > 1)).collect()
 }
 
 pub(super) fn auto() {
