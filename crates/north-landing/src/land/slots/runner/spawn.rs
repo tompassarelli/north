@@ -264,7 +264,7 @@ impl Shared {
         let deadline = self.deadline_of(&command);
         let timeout = deadline.seconds;
         let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
-        say(&format!("safe-push: land check{label}: {command} ({deadline})"));
+        say(&format!("safe-push: land check{label}: {command} ({deadline}; started {})", north_base::foundation::clock::Timestamp::now().iso_millis()));
         let measured = self.offload_host_for(&command).is_none();
         let before = children_cpu_seconds();
         let ran = match self.spawn_check(&command, leased, self.arguments.tree(), timeout).await {

@@ -96,9 +96,11 @@ impl Processes for Live {
             run();
             return String::new();
         }
+        let forward = forward_live(&sink, &out);
         run();
         flush_output();
         let _ = (dup2_stdout(&out), dup2_stderr(&err));
+        forward.finish();
         let mut bytes = Vec::new();
         let _ = sink.seek(SeekFrom::Start(0)).and_then(|_| sink.read_to_end(&mut bytes));
         String::from_utf8_lossy(&bytes).into_owned()
@@ -159,4 +161,46 @@ fn signal_group(running: &Running, signal: Signal) {
     if let Some(leader) = i32::try_from(running.id()).ok().and_then(Pid::from_raw) {
         let _ = kill_process_group(leader, signal);
     }
+}
+
+struct Forward {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Forward {
+    fn finish(mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn forward_live(sink: &std::fs::File, out: &std::os::fd::OwnedFd) -> Forward {
+    use std::os::unix::fs::FileExt;
+    use std::sync::atomic::Ordering;
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (Ok(reader), Ok(out)) = (sink.try_clone(), out.try_clone()) else {
+        return Forward { stop, thread: None };
+    };
+    let mut out = std::fs::File::from(out);
+    let flag = stop.clone();
+    let thread = std::thread::spawn(move || {
+        let (mut offset, mut buffer) = (0_u64, [0_u8; 8192]);
+        loop {
+            let stopping = flag.load(Ordering::SeqCst);
+            while let Ok(read) = reader.read_at(&mut buffer, offset) {
+                if read == 0 || out.write_all(&buffer[..read]).is_err() {
+                    break;
+                }
+                offset += read as u64;
+            }
+            if stopping {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+    Forward { stop, thread: Some(thread) }
 }

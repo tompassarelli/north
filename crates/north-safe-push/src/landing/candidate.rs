@@ -138,12 +138,8 @@ pub fn run(base: &str, shell: &Shell) -> u8 {
             println!("safe-push: cancelled");
             130
         }
-        Observed::Silent => {
-            print!("{log}");
-            1
-        }
+        Observed::Silent => 1,
         Observed::Done(facts) => {
-            print!("{log}");
             let verdict = classify(&head, &facts.reached, &log);
             println!("{}", verdict.line());
             if matches!(verdict, Verdict::Green(_)) {

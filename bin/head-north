@@ -12,7 +12,7 @@ hold=3600
 settle=${HEAD_NORTH_SETTLE:-2}
 build() {
   # Built as nextest builds it (test profile, dev-dependency features unified), so this is the binary a warm slot or a nextest run already compiled.
-  printf 'head-north: building north from the tree: %s\n' "${reason%%$'\n'*}" >&2
+  printf 'head-north: building north from the tree: %s (git status: %s)\n' "${reason%%$'\n'*}" "$(git -C "$root" status --porcelain | head -3 | tr '\n' ' ')" >&2
   "$root/bin/land-shell" --dev -- cargo test -q --no-run --locked --offline -p north --test it >&2 || { printf 'head-north: building north from the tree failed, so no older north runs in its place\n' >&2; exit 75; }
   readlink -f "${CARGO_TARGET_DIR:-target}/debug/north"
 }
@@ -25,7 +25,7 @@ prune() {
   done
 }
 clean_tree() {
-  [ -z "$(git -C "$root" status --porcelain)" ] && git -C "$root" rev-parse 'HEAD^{tree}'
+  [ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] && git -C "$root" rev-parse 'HEAD^{tree}'
 }
 store() {
   cp --reflink=auto "$1" "$cache/$tree.part"
