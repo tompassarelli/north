@@ -266,3 +266,35 @@ fn an_interactive_window_that_would_stop_at_a_trust_or_bypass_prompt_is_named_be
 
     assert_eq!(fleet.interactive_prompt("proxy").unwrap(), None);
 }
+
+#[test]
+fn a_session_relaunched_or_revived_mid_turn_is_handed_a_turn_that_carries_on_and_an_idle_one_is_not() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    let working = crate::fleet::registry::fixtures::live(&fleet, "working");
+    let idle = crate::fleet::registry::fixtures::live(&fleet, "idle");
+    let prompt = serde_json::json!({"type": "user", "session_id": "working", "uuid": "p1", "message": {"content": "split the crate"}});
+    let tool = serde_json::json!({"type": "assistant", "session_id": "working", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "cargo check"}}]}});
+    fs::write(fleet.root().join("working/g1/stream.jsonl"), format!("{prompt}\n{tool}\n")).unwrap();
+    let restart = |name: &str| {
+        let mut record = fleet.record(name).unwrap();
+        (record.stopped, record.ended) = (false, None);
+        crate::fleet::records::write_record(&fleet.session_dir(name).unwrap(), &record).unwrap();
+        Ok(record)
+    };
+
+    fleet.relaunch_with("working", Some("opus"), None, restart).unwrap();
+    fleet.relaunch_with("idle", Some("opus"), None, restart).unwrap();
+
+    let frames = working.frames.lock().unwrap();
+    assert!(frames.iter().any(|frame| frame.contains("relaunched on opus in the middle of a turn")), "{frames:?}");
+    assert!(idle.frames.lock().unwrap().iter().all(|frame| !frame.contains("relaunched")), "an idle session was handed a turn");
+
+    let parked = fleet.root().join("parked");
+    fs::create_dir_all(parked.join("g1")).unwrap();
+    let record = serde_json::json!({"name": "parked", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "working", "host_dir": parked, "stream_offset": 0});
+    fs::write(parked.join("session.json"), record.to_string()).unwrap();
+    fs::write(parked.join("g1/stream.jsonl"), format!("{prompt}\n{tool}\n")).unwrap();
+    assert!(fleet.left_mid_turn("parked").unwrap(), "a revive of a host that exited mid-turn would hand it no turn");
+    assert!(!fleet.left_mid_turn("idle").unwrap());
+}

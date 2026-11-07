@@ -57,11 +57,17 @@ impl Fleet {
 
     /// Stops `name`; a turn the stop cuts short records `why` as its cause.
     pub fn halt(&self, name: &str, why: Halt) -> NorthResult<()> {
+        self.halt_cut_short(name, why).map(drop)
+    }
+
+    /// Stops `name` as `halt` does and says whether the stop cut a running turn short.
+    pub(super) fn halt_cut_short(&self, name: &str, why: Halt) -> NorthResult<bool> {
         let mut record = self.record(name)?;
         if record.adopted() {
             record.stopped = true;
             record.ended = Some(Ending::Stopped);
-            return write_record(&self.root.join(name), &record);
+            write_record(&self.root.join(name), &record)?;
+            return Ok(false);
         }
         let _start = self.start_lock(name)?;
         let host = Host::new(record.host_dir.clone());
@@ -90,7 +96,7 @@ impl Fleet {
         if mid_turn {
             why.record(name);
         }
-        Ok(())
+        Ok(mid_turn)
     }
 
     /// Forgets `name` here or spools the forget to its host, unless a land-queue ticket on this host

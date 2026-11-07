@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, SessionRecord};
-use crate::fleet::registry::Fleet;
+use crate::fleet::registry::{Fleet, REVIVED_MID_TURN};
 
 use super::placement::{self, Launch, Overrides, Refusal};
 
@@ -29,7 +29,12 @@ pub(super) fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, 
 }
 
 pub(super) fn restart(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides) -> NorthResult<SessionRecord> {
-    Ok(restart_placed(fleet, name, system_prompt, effort, overrides)??)
+    let cut_short = fleet.left_mid_turn(name)?;
+    let record = restart_placed(fleet, name, system_prompt, effort, overrides)??;
+    if cut_short {
+        fleet.carry_on(name, REVIVED_MID_TURN)?;
+    }
+    Ok(record)
 }
 
 /// Restart, keeping placement's refusal apart from the errors of the restart itself.

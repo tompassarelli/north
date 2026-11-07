@@ -3,6 +3,7 @@ use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{ControlVerb, FleetRow, RowKind, cached_sessions};
 
+use super::relaunching::REVIVED_MID_TURN;
 use super::stopping::Halt;
 use super::{Fleet, HandedIn};
 
@@ -56,7 +57,11 @@ impl Fleet {
             ControlVerb::Forget => self.forget_for(name, why),
             ControlVerb::Stop => self.halt(name, why),
             ControlVerb::Interrupt => self.interrupt_for(name, why),
-            ControlVerb::Revive => self.revive(name, None).map(drop),
+            ControlVerb::Revive => {
+                let cut_short = self.left_mid_turn(name)?;
+                self.revive(name, None)?;
+                if cut_short { self.carry_on(name, REVIVED_MID_TURN) } else { Ok(()) }
+            }
         }
     }
 }

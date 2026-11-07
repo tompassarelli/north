@@ -1,9 +1,10 @@
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Effort, ProviderName, SessionRecord};
+use crate::fleet::model::{Delivery, Effort, ProviderName, SessionRecord, Status};
 use crate::fleet::records::write_record;
+use crate::fleet::sender::Sender;
 
 use super::stopping::Halt;
-use super::{Fleet, efforts};
+use super::{Fleet, efforts, session_running};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Choices {
@@ -43,11 +44,37 @@ impl Fleet {
         let mut changed = SessionRecord { model: model.map(str::to_owned).or_else(|| record.model.clone()), ..record.clone() };
         changed.effort = efforts::revived(&changed, runtime.as_ref(), false, effort)?;
         self.refuse_beside_interactive(&record)?;
-        self.halt(name, self.ordered_by(self.caller().as_deref(), Halt::Relaunched))?;
-        let _start = self.start_lock(name)?;
-        let mut stopped = self.record(name)?;
-        (stopped.model, stopped.effort) = (changed.model, changed.effort);
-        write_record(&self.session_dir(name)?, &stopped)?;
-        restart(name)
+        let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::Relaunched))?;
+        let restarted = {
+            let _start = self.start_lock(name)?;
+            let mut stopped = self.record(name)?;
+            (stopped.model, stopped.effort) = (changed.model.clone(), changed.effort);
+            write_record(&self.session_dir(name)?, &stopped)?;
+            restart(name)?
+        };
+        if cut_short {
+            self.carry_on(name, &relaunched_on(&changed))?;
+        }
+        Ok(restarted)
+    }
+
+    /// Whether `name`'s host is gone and its conversation stopped in the middle of a turn, which a restart without a message of its own leaves waiting.
+    pub fn left_mid_turn(&self, name: &str) -> NorthResult<bool> {
+        let record = self.record(name)?;
+        Ok(!session_running(&record) && self.recent(self.runtime(&record)?.as_ref(), &record)?.status == Status::Working)
+    }
+
+    /// Hands a restarted session the turn that carries on the one `why` cut short, since its CLI resumes the conversation without running anything until a message arrives.
+    pub fn carry_on(&self, name: &str, why: &str) -> NorthResult<()> {
+        self.send_signed(&Sender::fleet(), name, &format!("[north: {why}] Carry on with that turn from where it stopped."), Delivery::Queued)
     }
 }
+
+fn relaunched_on(record: &SessionRecord) -> String {
+    let model = record.model.as_deref().unwrap_or("its default model");
+    let effort = record.effort.map_or(String::new(), |effort| format!(" at {} effort", effort.label()));
+    format!("this session was relaunched on {model}{effort} in the middle of a turn")
+}
+
+/// Why a revive that brings no message of its own hands the session a turn.
+pub const REVIVED_MID_TURN: &str = "this session was revived after its host exited in the middle of a turn";
