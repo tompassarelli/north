@@ -38,11 +38,11 @@ fn mark(text: &str, color: bool) -> String {
     }
 }
 
-/// The first line of a repository's table: its verdict, how many bars fail on the last 3 h and the days in a row.
+/// The first line of a repository's table: how many bars fail on the last 3 h, then whether the harness is ready, which needs every bar passing on 24 h for NEEDED_DAYS days in a row.
 pub(super) fn headline(repo: &Repo) -> String {
     let failing = repo.bars.iter().zip(Bar::ALL).filter(|(cells, bar)| !counts(cells.three_hours.1, *bar)).count();
     let ready = repo.days_in_a_row >= NEEDED_DAYS;
-    format!("{}: {}, {failing} of {} bars fail on the last 3 h, {} of {NEEDED_DAYS} days", repo.name, if ready { "ready" } else { "not ready" }, Bar::ALL.len(), repo.days_in_a_row)
+    format!("{}: {failing} of {} bars fail on the last 3 h; {}: {} of {NEEDED_DAYS} days in a row with every bar passing on 24 h", repo.name, Bar::ALL.len(), if ready { "ready" } else { "not ready" }, repo.days_in_a_row)
 }
 
 fn table(out: &mut String, repo: &Repo, goals: &Goals, view: View) {
