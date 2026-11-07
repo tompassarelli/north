@@ -36,6 +36,3 @@ jobs:
         uses: ./.github/actions/harness
       - name: Shell and Python tests catch their planted fault
         run: harness/scripts/canary.sh harness-tests
-      - name: Agent-machinery tests catch their planted fault
-        if: ${{ !cancelled() }}
-        run: harness/scripts/canary.sh agent-machinery-tests

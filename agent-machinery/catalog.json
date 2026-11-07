@@ -23,7 +23,5 @@
     {"id":"agent-machinery-doctrine","type":"instructions","path":"doctrine.md"},
     {"id":"export-catalog-schema","type":"catalog","path":"catalog.schema.json"}
   ],
-  "contracts": [
-    {"id":"project-exposure-v1","schema":"contracts/project-exposure-profile.schema.json","schemaScope":"structural","fixtures":"contracts/project-exposure-profile.fixtures.json","validator":"validateContract"}
-  ]
+  "contracts": []
 }

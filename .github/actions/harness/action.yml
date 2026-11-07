@@ -1,5 +1,5 @@
 name: Harness test tools
-description: The north build, system tools, namespaces and browser the shell, Python and agent-machinery tests need.
+description: The north build, system tools, namespaces and browser the shell and Python tests need.
 inputs:
   force-slow-download:
     description: Run the browser download as if it were too slow, so its 2 s bound fails it.
@@ -103,11 +103,4 @@ runs:
           echo "AUTOMATION_BROWSER_SKIP=$reason" >> "$GITHUB_ENV"
           echo "skip=$reason" >> "$GITHUB_OUTPUT"
           echo "::error::$reason; the CDP boundary test is skipped"
-        fi
-    - name: Install agent-machinery dependencies
-      shell: bash
-      working-directory: agent-machinery
-      run: |
-        if [ -f bun.lock ] || [ -f bun.lockb ]; then
-          bun install --frozen-lockfile
         fi

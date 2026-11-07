@@ -8,13 +8,7 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 
 | File | Lines | Disposition | Reason / note |
 |---|---|---|---|
-| agent-machinery/index.mjs | 42 | stay | entry of the published @tompassarelli/agent-machinery npm package, whose JS API is the product for outside consumers |
-| agent-machinery/scripts/contracts.mjs | 29 | stay | exported contract schemas of the published package |
 | agent-machinery/scripts/effect-kit.mjs | 322 | stay | drives the target project's own TypeScript compiler and Effect language service (createRequire into the project's node_modules); only JS can load them |
-| agent-machinery/scripts/project-exposure-profile.mjs | 128 | stay | exported profile API of the published package (project-exposure-v1) |
-| agent-machinery/tests/capability-contract.test.mjs | 19 | stay | bun tests of the published package modules above |
-| agent-machinery/tests/contracts.test.mjs | 37 | stay | bun tests of the published package modules above |
-| agent-machinery/tests/package-boundary.test.mjs | 24 | stay | bun tests of the published package modules above |
 | bin/agy | 6 | stay | 6-line launcher for the downloaded agy runtime (exports env then execs a vendor binary) |
 | bin/automation-chrome | 9 | stay | 9-line flock wrapper that execs the Playwright CLI in lib/automation-chrome |
 | bin/automation-chrome.test.sh | 9 | stay | test of the Playwright wrapper |

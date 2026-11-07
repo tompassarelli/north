@@ -1,8 +1,7 @@
 # agent-machinery
 
 agent-machinery is the provider-independent part of the harness: the delivery doctrine every agent
-reads, the engineering procedures any agent can follow, and the machine contracts that check a
-project's exposure profile. It is a source authority, not a runtime. It does not connect to
+reads and the engineering procedures any agent can follow. It is a source authority, not a runtime. It does not connect to
 providers, manage accounts or leases, dispatch work, keep telemetry, coordinate live sessions,
 install hooks or project policy into a harness.
 
@@ -13,9 +12,6 @@ install hooks or project policy into a harness.
   which ones each agent receives. [doctrine.md](doctrine.md) is delivered as instructions.
 - **Agents** load a skill's procedure from its file under [skills/](skills/) once `agents sync` has
   linked it, and read the doctrine as part of their instructions.
-- **Code** imports the package through its exports below: [index.mjs](index.mjs) for the catalog
-  loader and the contract validators, or a file subpath for the raw catalog, schemas, doctrine and
-  skills. No path outside the package is an authority.
 - **The host's file guard** reads [file-skills.toml](file-skills.toml) to name the skill an edit to a
   file type should follow.
 
@@ -36,16 +32,13 @@ Stop at the first that answers:
 - the skill for the task at hand, listed below;
 - [catalog.json](catalog.json) and [catalog.schema.json](catalog.schema.json), for what is exported
   and how a consumer resolves it;
-- [contracts/](contracts/) and [scripts/contracts.mjs](scripts/contracts.mjs), for a contract's
-  structure and the semantics its validator adds;
 - [PROVENANCE.md](PROVENANCE.md) and [NOTICE](NOTICE), for where the material came from.
 
 ## Where each fact lives
 
-- Which skills, modules, assets and contracts the package exports: [catalog.json](catalog.json).
+- Which skills, modules and assets the package exports: [catalog.json](catalog.json).
 - The catalog's shape: [catalog.schema.json](catalog.schema.json), and the extra rules
   the host repository's package check enforces.
-- Package subpaths, commands and dependencies: [package.json](package.json).
 - A procedure, and which agents receive it (an optional `agents` field in its frontmatter; a skill
   without it keeps its catalog targets): that skill's own file under [skills/](skills/).
 - Which skill an edit to a file type should follow: [file-skills.toml](file-skills.toml).
@@ -55,7 +48,7 @@ Stop at the first that answers:
   [LICENSE-APACHE](LICENSE-APACHE).
 - How tests here are kept and run: the [verification skill](skills/verification/SKILL.md).
 
-The lists below mirror the catalog and the package manifest; the host repository's readme_links test
+The lists below mirror the catalog; the host repository's readme_links test
 fails when they differ.
 
 ## Skills
@@ -82,50 +75,10 @@ Which of them each module groups is the `members` list of that module in [catalo
 - [`agent-machinery-doctrine`](doctrine.md)
 - [`export-catalog-schema`](catalog.schema.json)
 
-## Contracts
-
-- [`project-exposure-v1`](contracts/project-exposure-profile.schema.json), checked in full by
-  `validateContract`.
-
-## Package subpaths
-
-- [package root](index.mjs)
-- [catalog](catalog.json)
-- [catalog schema](catalog.schema.json)
-- [doctrine](doctrine.md)
-- [contracts](contracts/)
-- [skills](skills/)
-
-## Module exports
-
-- `CATALOG_SCHEMA_ID`
-- `ENGINEERING_CONTEXTS`
-- `LIFECYCLE_EVIDENCE`
-- `PROFILE_FACT_VALUES`
-- `PROJECT_EXPOSURE_PROFILE_SCHEMA_ID`
-- `PROJECT_EXPOSURE_PROFILE_VERSION`
-- `assetPath`
-- `catalogPath`
-- `deriveEngineeringContext`
-- `loadExportCatalog`
-- `packageRoot`
-- `schemaPath`
-- `validateContract`
-- `validateProjectExposureProfile`
-
-## Commands
-
-Run each with `bun run NAME` inside this directory, or `bun test` for the tests:
-
-- `test`: runs the package tests.
-
 ## Scripts
 
-- [contracts.mjs](scripts/contracts.mjs): the composed contract validator.
 - [effect-kit.mjs](scripts/effect-kit.mjs): the Effect kit that vendors upstream Effect and checks a
   project against it.
-- [project-exposure-profile.mjs](scripts/project-exposure-profile.mjs): the project exposure
-  profile's semantic rules.
 
 ## License
 

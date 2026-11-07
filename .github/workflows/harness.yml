@@ -5,7 +5,6 @@ on:
     paths:
       - 'bin/**'
       - 'lib/**'
-      - 'agent-machinery/**'
       - 'harness/**'
       - 'README.md'
       - 'docs/**'
@@ -16,7 +15,6 @@ on:
     paths:
       - 'bin/**'
       - 'lib/**'
-      - 'agent-machinery/**'
       - 'harness/**'
       - 'README.md'
       - 'docs/**'
@@ -69,9 +67,6 @@ jobs:
             case "$(cat "$log.status")" in 0) ;; 124|137) echo "::error::$t timed out after 300 s"; status=1 ;; *) echo "::error::$t failed"; status=1 ;; esac
           done
           exit $status
-      - name: Agent-machinery tests
-        working-directory: agent-machinery
-        run: bun test
       - name: Automation browser download
         if: ${{ !cancelled() && steps.tools.outputs.browser-skip != '' }}
         env:

@@ -4,8 +4,6 @@ AGENT MACHINERY ACTIVE — provider-independent delivery doctrine.
 
 Missing facts mean volatile owner-controlled research with no lifecycle
 ceremony; never ask the owner to classify the stakes. Resolve this internally.
-Materialize a `project-exposure-v1` sidecar only at a machine boundary that
-consumes one, and cite the permitting fact for each lifecycle mechanism there.
 
 ## Admit only useful work
 
