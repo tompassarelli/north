@@ -599,3 +599,11 @@ box = "The proxy name spends GitHub budget only on calls the proxy makes"
 command = "north github budget | awk '/^session proxy[[:space:]]/{seen=1; gsub(/[()%]/,\"\",$0); pct=$(NF)+0; print; next} seen && /^[[:space:]]+(hook|tick|command)[[:space:]]/{rows++; print} /^session /&&!/^session proxy[[:space:]]/{seen=0} END{exit !(rows>0 && pct<50)}'"
 review = "2026-11-07"
 owner = "tompassarelli/north#638"
+
+[[check]]
+id = "n637-day-without-timeouts-rearmed"
+box = "shows no start timeout for a day after it lands"
+command = "journalctl --user -u fleet-tick.service --since '2026-11-07 10:00' --until '2026-11-08 10:00' | rg -c 'start operation timed out' || echo 0"
+expect = "0"
+review = "2026-11-09"
+owner = "tompassarelli/north#637"
