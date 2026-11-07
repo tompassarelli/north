@@ -28,8 +28,8 @@ False share by guard (over 10% marked *):
 - issue-cleanup 24/30 *
 - heavy-command.farm 2/3 * (after df206b8a67; the 26 earlier false rows were already fixed)
 - resource-safe-search 20/30 *
-- session-kill.self-match 19/30 *
-- session-kill 13/30 *
+- session-kill.self-match 19/30 * (narrowed here)
+- session-kill 13/30 * (narrowed here)
 - worker-tier.item 11/30 *
 - corpus-scan 8/30 *
 - modern-search 8/30 *

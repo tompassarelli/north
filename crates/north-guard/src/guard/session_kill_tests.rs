@@ -54,3 +54,46 @@ fn cross_session_pkill_and_killall_by_pattern_or_name_are_refused() {
     }
 }
 
+
+#[test]
+fn background_jobs_joined_by_a_wait_or_run_bounded_in_a_group_are_allowed() {
+    for command in [
+        "sleep 5 & wait",
+        "sleep 5 & p=$!; sleep 1; wait $p; echo done",
+        "for h in a b; do (ssh $h 'uptime') & done; wait",
+        "( north capacity bounded 1h -- cargo test; echo ok ) &",
+    ] {
+        assert!(!denied(command), "{command}");
+    }
+    for command in [
+        "sleep 5 &",
+        "sleep 5 & echo started",
+        "wait; sleep 5 &",
+        "sleep 5 & wait; nohup sleep 9 &",
+        "sleep 5 & setsid sleep 9; wait",
+        "sleep 5 & disown; wait",
+        "( cargo test; echo ok ) &",
+    ] {
+        assert!(denied(command), "{command}");
+    }
+}
+
+#[test]
+fn a_self_matching_pgrep_is_refused_only_when_its_output_is_consumed() {
+    for command in [
+        "pgrep -af 'cargo test' | head -3",
+        "P=$(pgrep -f 'wisp.ts'); ls /proc/$P",
+        "git log -1; pgrep -fa 'frontier oracle' | cut -c1-120; ls",
+    ] {
+        assert!(!denied(command), "{command}");
+    }
+    for command in [
+        "until ! pgrep -f 'cargo test' >/dev/null; do sleep 1; done",
+        "timeout 110 tail --pid=$(pgrep -f 'bash bin/safe-push.test.sh' | head -1) -f /dev/null",
+        "for p in $(pgrep -f 'cargo test'); do kill $p; done",
+        "pkill -f 'cargo build'; pgrep -fa 'safe-push' | head",
+        "pkill -f 'cargo build'",
+    ] {
+        assert!(denied(command), "{command}");
+    }
+}

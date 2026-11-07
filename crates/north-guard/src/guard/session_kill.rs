@@ -26,9 +26,14 @@ static TEMPORARY_SCRIPT: LazyLock<Regex> =
 static SCRATCHPAD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^/tmp/claude-\d+/[^/\s]+/[^/\s]+/scratchpad/\S+$").unwrap());
 
+static CONSUMER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?:^|[\n;&|({`'"]|\b(?:do|then|else))[ \t]*(?:(?:until|while)[ \t]|(?:kill|xargs|wait)\b)|--pid\b"#).unwrap()
+});
+
 struct Context<'a> {
     root: &'a str,
     own: Vec<String>,
+    pgrep_consumed: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -82,6 +87,7 @@ fn decide_in(command: &str, cgroup: &str) -> Vec<Hit> {
     let ctx = Context {
         root: command,
         own: commands::cgroup_units(cgroup),
+        pgrep_consumed: CONSUMER.is_match(&shell::strip_heredocs(command)),
     };
     let mut hits = teardown(command, None, 0, &[], &ctx);
     if hits.is_empty() {
@@ -194,7 +200,7 @@ fn command_teardown(
         "kill" => kill(args),
         "pkill" => return by_name("pkill", pkill(args), args, host, ctx),
         "killall" => return by_name("killall", killall(args), args, host, ctx),
-        "pgrep" => return self_match("pgrep", args, ctx).into_iter().collect(),
+        "pgrep" => return self_match("pgrep", args, ctx).filter(|_| ctx.pgrep_consumed).into_iter().collect(),
         name @ ("loginctl" | "systemctl") => {
             let call = Systemd::parse(args);
             let local = host.is_none() && call.host.is_none();
@@ -331,17 +337,37 @@ fn produced(words: &[String], stdin: &[String]) -> Vec<String> {
 }
 
 fn detached(command: &str) -> Vec<Hit> {
-    let mut shapes: Vec<String> = segments(&tokens(&shell::strip_heredocs(command)))
-        .into_iter()
-        .filter_map(|segment| {
+    let parsed = segments(&tokens(&shell::strip_heredocs(command)));
+    let launches: Vec<(usize, String)> = parsed
+        .iter()
+        .enumerate()
+        .filter_map(|(index, segment)| {
             let words = &segment.words[shell::command(&segment.words, LAUNCH_PREFIXES)..];
-            launch(words, segment.background)
+            launch(words, segment.background).map(|shape| (index, shape))
         })
         .collect();
-    if shapes.is_empty() {
-        shapes.extend(lexical::detached(command));
+    if launches.is_empty() {
+        return lexical::detached(command).into_iter().map(Hit::Detached).collect();
     }
-    shapes.into_iter().map(Hit::Detached).collect()
+    let joined_at = parsed.iter().rposition(|segment| {
+        segment.words.get(shell::command(&segment.words, LAUNCH_PREFIXES)).map(String::as_str) == Some("wait")
+    });
+    launches
+        .into_iter()
+        .filter(|(index, shape)| {
+            shape != UNMANAGED || !(joined_at.is_some_and(|wait| *index < wait) || bounded_group(&parsed, *index))
+        })
+        .map(|(_, shape)| Hit::Detached(shape))
+        .collect()
+}
+
+fn bounded_group(parsed: &[Segment], index: usize) -> bool {
+    parsed[index].group.is_some_and(|start| {
+        parsed[start..index].iter().any(|segment| {
+            let words = &segment.words[shell::command(&segment.words, LAUNCH_PREFIXES)..];
+            matches!(words, [north, capacity, bounded, ..] if shell::basename(north) == "north" && capacity == "capacity" && bounded == "bounded")
+        })
+    })
 }
 
 fn tokens(text: &str) -> Vec<String> {
@@ -366,12 +392,15 @@ struct Segment {
     words: Vec<String>,
     background: bool,
     piped: bool,
+    group: Option<usize>,
 }
 
 fn segments(tokens: &[String]) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut words: Vec<String> = Vec::new();
     let mut piped = false;
+    let mut opens: Vec<usize> = Vec::new();
+    let mut closed: Option<usize> = None;
     for (index, token) in tokens.iter().enumerate() {
         let redirect = token == "&"
             && (words.last().is_some_and(|word| word.ends_with('>'))
@@ -380,13 +409,22 @@ fn segments(tokens: &[String]) -> Vec<Segment> {
                     .is_some_and(|next| next.starts_with('>')));
         if shell::is_separator(token) && !redirect {
             let background = token == "&";
+            let group = if background && words.is_empty() { closed.take() } else { None };
             out.push(Segment {
                 words: std::mem::take(&mut words),
                 background,
                 piped,
+                group,
             });
+            closed = None;
+            match token.as_str() {
+                "(" => opens.push(out.len()),
+                ")" => closed = opens.pop(),
+                _ => {}
+            }
             piped = matches!(token.trim_end_matches('\n'), "|" | "|&");
         } else {
+            closed = None;
             words.push(token.clone());
         }
     }
@@ -394,6 +432,7 @@ fn segments(tokens: &[String]) -> Vec<Segment> {
         words,
         background: false,
         piped,
+        group: None,
     });
     out
 }

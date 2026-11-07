@@ -1137,6 +1137,7 @@ label = "false"
 rule = "session-kill"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 9 of 288 distinct refused calls"
+narrowed = "2026-11-08 north#706: a background `&` job joined by a later `wait` in the same call and a backgrounded `( north capacity bounded ... ) &` group no longer count; nohup, setsid and disown stay refused. Replayed over this sample: 0 of 30 rows read false, the one true row with a visible `& disown` still refused"
 
 [[sample.row]]
 command = "C=$(cat /tmp/n259/commit); cd /tmp; for h in gex45 ccx33; do (ssh $h \"north capacity host run --class heavy --owner n259-dw --timeout-seconds 3600 -- "
@@ -1263,6 +1264,7 @@ label = "false"
 rule = "session-kill.self-match"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 27 of 810 distinct refused calls"
+narrowed = "2026-11-08 north#706: a self-matching pgrep counts only when the call also has an until or while loop, kill, xargs, wait or --pid to consume it; pkill -f stays refused. Replayed over this sample: 0 of 30 rows read false, every true row with a visible consumer still refused"
 
 [[sample.row]]
 command = "B=/home/tom/code/north/worktrees/n585-wayvnc-clipboard/target/debug/north; R=/run/user/1000/private-desktop.UwZ1lN; tr '\\0' '\\n' < /proc/$(pgrep -f \"^"
