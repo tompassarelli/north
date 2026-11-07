@@ -1,63 +1,99 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use north_base::foundation::clock::Timestamp;
+use north_base::lifecycle::{Record, Store};
+use serde::Deserialize;
 
-use super::queue;
+use super::after_landing_lifecycle::{self as lifecycle, BaseBroken, Pause};
 
-pub const RETRY_SECONDS: u64 = 300;
-pub const FILE: &str = "base-broken";
+const FILE: &str = "base-broken";
 const ALERT_TITLE: &str = "Lander paused";
-
-#[derive(Serialize, Deserialize)]
-struct Pause {
-    detail: String,
-    since: u64,
-    retry_at: u64,
-    alerted: bool,
-}
-
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
-}
-
-fn path(queue: &Path) -> PathBuf {
-    queue.join(FILE)
-}
-
-fn load(queue: &Path) -> Option<Pause> {
-    serde_json::from_str(&fs::read_to_string(path(queue)).ok()?).ok()
-}
 
 fn alert(detail: &str) -> bool {
     Command::new("supply-alert").args(["normal", detail, ALERT_TITLE]).status().is_ok_and(|status| status.success())
 }
 
-fn waiting(pause: &Pause) -> String {
-    format!("{}; new candidates are paused and the base check is retried in {} s", pause.detail, pause.retry_at.saturating_sub(now()))
+fn instance(queue: &Path) -> String {
+    queue.file_name().map_or_else(|| queue.display().to_string(), |name| name.to_string_lossy().into_owned())
+}
+
+fn retry_at(record: &Record<Pause>) -> Timestamp {
+    Timestamp::from_unix_millis(record.since.unix_millis() + i64::try_from(BaseBroken::RETRY.as_millis()).unwrap_or(i64::MAX))
+}
+
+fn waiting(record: &Record<Pause>, now: Timestamp) -> String {
+    format!("{}; new candidates are paused and the base check is retried in {} s", record.cause, (retry_at(record).unix_seconds() - now.unix_seconds()).max(0))
+}
+
+/// The pause a lander older than the lifecycle store left as `Q/base-broken`, adopted once into the record.
+fn adopt(store: &mut Store, queue: &Path) {
+    #[derive(Deserialize)]
+    struct Left {
+        detail: String,
+        alerted: bool,
+    }
+    let path = queue.join(FILE);
+    let Some(left) = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Left>(&text).ok()) else { return };
+    let cause = format!("adopted from {FILE}: {}", left.detail);
+    if lifecycle::moved::<BaseBroken>(store, &instance(queue), Pause::Paused, &cause).is_some() && left.alerted {
+        lifecycle::moved::<BaseBroken>(store, &instance(queue), Pause::Alerted, &cause);
+    }
+    let _ = fs::remove_file(path);
+}
+
+fn with_store<T>(queue: &Path, act: impl FnOnce(&mut Store) -> T) -> Result<T, String> {
+    let mut store = lifecycle::host()?;
+    adopt(&mut store, queue);
+    Ok(act(&mut store))
 }
 
 pub fn held(queue: &Path) -> Option<String> {
-    let pause = load(queue)?;
-    (pause.retry_at > now()).then(|| waiting(&pause))
+    with_store(queue, |store| held_in(store, &instance(queue), Timestamp::now())).unwrap_or_else(|error| {
+        println!("{error}");
+        None
+    })
 }
 
 pub fn raise(queue: &Path, detail: &str) -> Result<String, String> {
-    let earlier = load(queue);
-    let alerted = earlier.as_ref().is_some_and(|pause| pause.alerted) || alert(detail);
-    if !alerted {
-        eprintln!("north land: supply-alert failed for: {detail}");
-    }
-    let pause = Pause { detail: detail.to_owned(), since: earlier.map_or_else(now, |pause| pause.since), retry_at: now() + RETRY_SECONDS, alerted };
-    let text = serde_json::to_string(&pause).map_err(|error| error.to_string())?;
-    queue::write_atomic(&path(queue), &text).map_err(|error| format!("{}: {error}", path(queue).display()))?;
-    Ok(waiting(&pause))
+    with_store(queue, |store| raise_in(store, &instance(queue), detail, Timestamp::now(), alert))?
 }
 
 pub fn resume(queue: &Path) {
-    if load(queue).is_some() && fs::remove_file(path(queue)).is_ok() {
+    if let Err(error) = with_store(queue, |store| resume_in(store, &instance(queue))) {
+        println!("{error}");
+    }
+}
+
+pub(crate) fn held_in(store: &Store, queue: &str, now: Timestamp) -> Option<String> {
+    let record = lifecycle::current::<BaseBroken>(store, queue)?;
+    (record.state != Pause::Clear && retry_at(&record) > now).then(|| waiting(&record, now))
+}
+
+/// Pauses new candidates for `BaseBroken::RETRY`. A pause no raise renewed for two retry windows ended unseen, so a
+/// raise after it is a new breakage and alerts again instead of inheriting the old alert.
+pub(crate) fn raise_in(store: &mut Store, queue: &str, detail: &str, now: Timestamp, alert: impl Fn(&str) -> bool) -> Result<String, String> {
+    let current = lifecycle::current::<BaseBroken>(store, queue);
+    let lapsed = current.as_ref().is_some_and(|record| now.unix_millis() > retry_at(record).unix_millis() + i64::try_from(BaseBroken::RETRY.as_millis()).unwrap_or(i64::MAX));
+    let renewed = match current.map(|record| record.state) {
+        Some(Pause::Alerted) if !lapsed => lifecycle::moved::<BaseBroken>(store, queue, Pause::Alerted, detail),
+        _ => lifecycle::moved::<BaseBroken>(store, queue, Pause::Paused, detail).and_then(|paused| {
+            if alert(detail) {
+                lifecycle::moved::<BaseBroken>(store, queue, Pause::Alerted, detail)
+            } else {
+                eprintln!("north land: supply-alert failed for: {detail}");
+                Some(paused)
+            }
+        }),
+    };
+    renewed.map(|record| waiting(&record, now)).ok_or_else(|| format!("north land: the base-broken pause of {queue} could not be recorded: {detail}"))
+}
+
+pub(crate) fn resume_in(store: &mut Store, queue: &str) {
+    if lifecycle::current::<BaseBroken>(store, queue).is_some_and(|record| record.state != Pause::Clear)
+        && lifecycle::moved::<BaseBroken>(store, queue, Pause::Clear, "main's check environment passes again").is_some()
+    {
         println!("north land: main's check environment passes again; candidates resume");
     }
 }

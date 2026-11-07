@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Instant;
 use north_base::foundation::offload::OWNER_ENV;
+use north_base::lifecycle::Store;
 
 use super::{ALARMED, EPISODE, Checked, Landed, Run, check, deadline, failing, ledger_path, record, steps};
 use crate::landing::red_check::Failure;
@@ -15,6 +16,7 @@ use crate::land::candidate::git;
 use crate::land::checks::Verdict;
 use crate::land::lander::Lander;
 use crate::land::red_episode::Episode;
+use crate::land::after_landing_lifecycle::{self as lifecycle, Main, RedMain};
 use crate::land::setting;
 
 pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String]) -> Option<BTreeSet<Failure>> {
@@ -32,6 +34,7 @@ pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String])
         log: logs.join(format!("{name}.log")),
         outcome: logs.join(format!("{name}.outcome")),
         ledger: PathBuf::new(),
+        store: north_base::lifecycle::Store::host_path().unwrap_or_default(),
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, tree),
@@ -75,7 +78,21 @@ pub(super) fn episode_marker(run: &Run, landed: &Landed) -> PathBuf {
     run.ledger.with_file_name(format!("{EPISODE}-{}", landed.repository.replace('/', "_")))
 }
 
+/// The repository's red-main record, opening the store `run` names; an episode a lander older than the record left as
+/// its marker file alone is adopted as told, since the old lander wrote the marker only once its alarm went out.
+fn episode_state(run: &Run, landed: &Landed) -> Option<(Store, Option<Main>)> {
+    let mut store = Store::open(&run.store).map_err(|error| println!("north land: the red-main record of {} is unreadable: {error}", landed.repository)).ok()?;
+    let mut state = lifecycle::current::<RedMain>(&store, &landed.repository).map(|record| record.state);
+    if matches!(state, None | Some(Main::Green)) && episode_marker(run, landed).exists() {
+        let cause = format!("adopted from {}", episode_marker(run, landed).display());
+        lifecycle::moved::<RedMain>(&mut store, &landed.repository, Main::Opened, &cause);
+        state = lifecycle::moved::<RedMain>(&mut store, &landed.repository, Main::Red, &cause).map(|record| record.state);
+    }
+    Some((store, state))
+}
+
 pub(super) fn rerun_red(landed: &Landed, run: &Run, rerun: impl Fn(&str) -> String) {
+    let Some((_, Some(Main::Opened | Main::Red))) = episode_state(run, landed) else { return };
     let Some(episode) = Episode::read(&episode_marker(run, landed)) else { return };
     if episode.ended_by(&fs::read_to_string(&run.log).unwrap_or_default(), &landed.repo, &landed.head) {
         return;
@@ -118,30 +135,51 @@ pub(super) fn green_message(landed: &Landed) -> String {
     format!("north land: main is green again in {} at {}", landed.repository, landed.head)
 }
 
+
+/// Moves the repository's red-main record on this verdict before telling the proxy, so an episode opens even when
+/// its alarm fails; an untold episode is told on the next verdict and lingers in `north health` until then.
 pub(super) fn announce(landed: &Landed, run: &Run, verdict: &Verdict, alarm: impl Fn(&str, &str) -> bool) {
-    let marker = episode_marker(run, landed);
-    let episode = Episode::read(&marker);
+    let Some((mut store, state)) = episode_state(run, landed) else { return };
+    let (marker, repository) = (episode_marker(run, landed), landed.repository.as_str());
     let log = fs::read_to_string(&run.log).unwrap_or_default();
-    match verdict {
-        Verdict::RedMain(detail) if episode.is_none() => {
+    let state = match verdict {
+        Verdict::RedMain(_) if matches!(state, Some(Main::Opened | Main::Red)) => {
+            if let Some(mut episode) = Episode::read(&marker) {
+                episode.failing.extend(failing(&run.log, &run.outcome));
+                let _ = episode.write(&marker);
+            }
+            state
+        }
+        Verdict::RedMain(_) => {
+            let _ = Episode::opened(&landed.head, &log, failing(&run.log, &run.outcome)).write(&marker);
+            lifecycle::moved::<RedMain>(&mut store, repository, Main::Opened, &format!("the after-landing run of {} is red", landed.head)).map(|record| record.state)
+        }
+        Verdict::Green if matches!(state, Some(Main::Opened | Main::Red)) => {
+            if Episode::read(&marker).is_some_and(|episode| !episode.ended_by(&log, &landed.repo, &landed.head)) {
+                println!("north land: the green after-landing run of {} did not rerun the checks that turned main red, so main stays red", landed.head);
+                return;
+            }
+            let _ = fs::remove_file(&marker);
+            let cleared = lifecycle::moved::<RedMain>(&mut store, repository, Main::Cleared, &format!("the after-landing run of {} is green over the checks that were red", landed.head)).map(|record| record.state);
+            if state == Some(Main::Opened) {
+                lifecycle::moved::<RedMain>(&mut store, repository, Main::Green, "green before the red alarm went out, so neither is sent");
+                return;
+            }
+            cleared
+        }
+        _ => state,
+    };
+    match (verdict, state) {
+        (Verdict::RedMain(detail), Some(Main::Opened)) => {
             if alarm(ALARMED, &red_message(landed, run, detail)) {
-                let _ = Episode::opened(&landed.head, &log, failing(&run.log, &run.outcome)).write(&marker);
+                lifecycle::moved::<RedMain>(&mut store, repository, Main::Red, &format!("told {ALARMED} main is red at {}", landed.head));
             } else {
                 eprintln!("north land: could not alarm {ALARMED} about red main {}", landed.head);
             }
         }
-        Verdict::RedMain(_) => {
-            if let Some(mut episode) = episode {
-                episode.failing.extend(failing(&run.log, &run.outcome));
-                let _ = episode.write(&marker);
-            }
-        }
-        Verdict::Green if episode.as_ref().is_some_and(|episode| !episode.ended_by(&log, &landed.repo, &landed.head)) => {
-            println!("north land: the green after-landing run of {} did not rerun the checks that turned main red, so main stays red", landed.head);
-        }
-        Verdict::Green if episode.is_some() => {
+        (Verdict::Green, Some(Main::Cleared)) => {
             if alarm(ALARMED, &green_message(landed)) {
-                let _ = fs::remove_file(&marker);
+                lifecycle::moved::<RedMain>(&mut store, repository, Main::Green, &format!("told {ALARMED} main is green again at {}", landed.head));
             } else {
                 eprintln!("north land: could not tell {ALARMED} that main is green again at {}", landed.head);
             }

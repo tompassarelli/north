@@ -65,8 +65,12 @@ struct Row {
 impl Store {
     /// This host's store, beside the run ledger in `~/.local/state/north/ledger.db`.
     pub fn host() -> NorthResult<Self> {
+        Self::open(&Self::host_path()?)
+    }
+
+    pub fn host_path() -> NorthResult<PathBuf> {
         let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?;
-        Self::open(&PathBuf::from(home).join(".local/state/north/ledger.db"))
+        Ok(PathBuf::from(home).join(".local/state/north/ledger.db"))
     }
 
     pub fn open(path: &Path) -> NorthResult<Self> {

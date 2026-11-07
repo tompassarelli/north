@@ -12,7 +12,7 @@ use crate::landing::red_check::Failure;
 const SWITCHED: &str = "thread 'main' panicked at crates/north-base/src/platform/harness.rs:16:\nnorth: runtime 3c5a1869 has no tree and the checkout ~/code/north/main is at a3ecc7a51; run north runtime update\n";
 
 fn run() -> Run {
-    Run { runner: Vec::new(), worktree: PathBuf::new(), log: PathBuf::from("post-land.log"), outcome: PathBuf::from("absent"), ledger: PathBuf::new(), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60), host: None, cancel: Default::default(), adoptable: false }
+    Run { runner: Vec::new(), worktree: PathBuf::new(), log: PathBuf::from("post-land.log"), outcome: PathBuf::from("absent"), ledger: PathBuf::new(), store: PathBuf::new(), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60), host: None, cancel: Default::default(), adoptable: false }
 }
 
 // KEEP(bug): on 2026-11-06 a check host that could not find the laptop's runtime path ended an after-landing run with exit 127 and the run was reported as red main, putting innocent lanes up for revert (north#662)
@@ -137,6 +137,7 @@ fn a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_rec
     switching.log = scratch.path().join("post-land.log");
     switching.outcome = scratch.path().join("post-land.outcome");
     switching.ledger = scratch.path().join("post-land.tsv");
+    switching.store = scratch.path().join("ledger.db");
     let mut landed = landed(&[&head]);
     landed.repo = repo;
     landed.head = head;
@@ -172,6 +173,7 @@ fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_
     episode.log = scratch.path().join("post-land.log");
     episode.outcome = scratch.path().join("post-land.outcome");
     episode.ledger = scratch.path().join("post-land.tsv");
+    episode.store = scratch.path().join("ledger.db");
     let sent = std::cell::RefCell::new(Vec::new());
     let alarm = |session: &str, message: &str| {
         sent.borrow_mut().push((session.to_owned(), message.to_owned()));
@@ -241,6 +243,7 @@ fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the
     green.log = scratch.path().join("post-land.log");
     green.outcome = scratch.path().join("post-land.outcome");
     green.ledger = scratch.path().join("post-land.tsv");
+    green.store = scratch.path().join("ledger.db");
     let marker = scratch.path().join("post-land-red-owner_repo");
     let failing = std::collections::BTreeSet::from([Failure::Cargo("drill".to_owned()), Failure::Harness("harness/a.test.sh".to_owned())]);
     crate::land::red_episode::Episode { head: "red".to_owned(), scope: Default::default(), failing }.write(&marker).unwrap();

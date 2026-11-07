@@ -9,6 +9,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::after;
+use super::after_landing_lifecycle::{self as lifecycle, AfterLandingRun, Run};
 use super::candidate::{self, git, output};
 use super::checks::Verdict;
 use super::lander::Lander;
@@ -25,7 +26,7 @@ use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
 const WORKTREE: &str = "lander-revert";
 const JOURNAL: &str = "following";
 const RETRY: Duration = Duration::from_secs(30);
-const UNSETTLED: u32 = 3;
+const UNSETTLED: usize = 3;
 const AFTER_RUNS: &str = "landing.after-runs";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -55,12 +56,11 @@ struct Batch {
     heads: Vec<Followed>,
     started: Option<f64>,
     retry_at: f64,
-    misses: u32,
 }
 
 impl Batch {
     fn landed(base: String, head: String, lanes: Vec<LandedLane>, at: f64) -> Self {
-        Self { base, heads: vec![Followed { head: head.clone(), at }], head, lanes, started: None, retry_at: 0.0, misses: 0 }
+        Self { base, heads: vec![Followed { head: head.clone(), at }], head, lanes, started: None, retry_at: 0.0 }
     }
 
     fn covers(&self, head: &str) -> bool {
@@ -146,6 +146,25 @@ fn read_entry(path: &Path) -> Result<Entry, String> {
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
+fn heads(batch: &Batch) -> impl Iterator<Item = &str> {
+    batch.heads.iter().map(|followed| followed.head.as_str())
+}
+
+/// Moves each head's after-landing run record, printing why when the store cannot be opened.
+fn moved<'a>(heads: impl IntoIterator<Item = &'a str>, to: Run, cause: &str) {
+    match lifecycle::host() {
+        Ok(mut store) => heads.into_iter().for_each(|head| {
+            lifecycle::moved::<AfterLandingRun>(&mut store, head, to, cause);
+        }),
+        Err(error) => println!("{error}"),
+    }
+}
+
+/// Whether a stopped lander's journal entry still needs its run: a head whose record retired already has its verdict.
+fn unsettled(head: &str) -> bool {
+    lifecycle::host().ok().and_then(|store| lifecycle::current::<AfterLandingRun>(&store, head)).is_none_or(|record| record.state != Run::Retired)
+}
+
 impl Watch {
     pub fn resume(lander: &Lander) -> Self {
         let mut watch = Self::default();
@@ -155,9 +174,14 @@ impl Watch {
         let mut journaled: Vec<Journaled> = Vec::new();
         for (at, path) in paths {
             match read_entry(&path) {
-                Ok(entry) => journaled.push((at, entry)),
+                Ok(entry) if unsettled(&entry.head) => journaled.push((at, entry)),
+                Ok(entry) => {
+                    let _ = fs::remove_file(&path);
+                    println!("north land: {} already has its after-landing verdict; dropping its journal entry", entry.head);
+                }
                 Err(error) => {
                     println!("north land: dropping the unreadable after-landing journal entry {}: {error}", path.display());
+                    moved(path.file_stem().and_then(|stem| stem.to_str()), Run::Retired, &format!("its journal entry is unreadable: {error}"));
                     let _ = fs::remove_file(&path);
                 }
             }
@@ -179,6 +203,7 @@ impl Watch {
         for (at, Entry { base, head, lanes }) in journaled {
             println!("north land: rerunning the after-landing run of {head}, which a stopped lander left without a verdict");
             record(lander, &[Span::new(&head, "after-landing run lost to a lander restart", Category::Lander, at, resumed).with(PHASE, AFTER)]);
+            moved([head.as_str()], Run::Journaled, "rerun: a stopped lander left it without a verdict");
             if !watch.pending.covers(&head) {
                 watch.pending.add(Batch::landed(base, head, lanes, resumed));
             }
@@ -187,7 +212,7 @@ impl Watch {
     }
 
     fn adopt(&mut self, lander: &Lander, runner: post_land::Record, covered: Vec<Journaled>) {
-        let mut batch = Batch { base: runner.base.clone(), head: runner.head.clone(), lanes: Vec::new(), heads: Vec::new(), started: Some(runner.started), retry_at: 0.0, misses: 0 };
+        let mut batch = Batch { base: runner.base.clone(), head: runner.head.clone(), lanes: Vec::new(), heads: Vec::new(), started: Some(runner.started), retry_at: 0.0 };
         for (at, entry) in covered {
             batch.lanes.extend(entry.lanes);
             batch.heads.push(Followed { head: entry.head, at });
@@ -197,6 +222,7 @@ impl Watch {
         }
         let host = runner.host.clone();
         let cancel = Arc::default();
+        moved(heads(&batch), Run::Running, "adopted the runner a stopped lander started");
         let run = post_land::adopt(lander, landed(lander, &batch), runner, Arc::clone(&cancel));
         self.running.push(Running { batch, run, host, cancel });
     }
@@ -228,6 +254,7 @@ impl Watch {
             println!("north land: could not journal the after-landing run of {head}, so a lander restart before its verdict loses it: {error}");
         }
         let Entry { base, head, lanes } = entry;
+        moved([head.as_str()], Run::Journaled, &format!("landed on {base}"));
         self.supersede(lander, &head);
         self.pending.add(Batch::landed(base, head, lanes, epoch()));
         self.start_next(lander);
@@ -263,6 +290,7 @@ impl Watch {
         record(lander, &waits);
         let host = self.hosts.claim(&lander.repo, &batch.head);
         let cancel = Arc::default();
+        moved(heads(&batch), Run::Running, &format!("its after-landing run of {} started{}", batch.head, host.as_deref().map_or_else(String::new, |host| format!(" on {host}"))));
         let run = post_land::start(lander, landed(lander, &batch), host.clone(), Arc::clone(&cancel));
         self.running.push(Running { batch, run, host, cancel });
         true
@@ -303,6 +331,7 @@ impl Watch {
         };
         if outcome.superseded && matches!(outcome.verdict, Verdict::Transient(_)) {
             println!("north land: the after-landing run of {} was superseded; its landings run again now with the newest landing", batch.head);
+            moved(heads(&batch), Run::Journaled, "superseded by a landing that changed its check lines");
             for followed in &mut batch.heads {
                 followed.at = ended;
             }
@@ -314,8 +343,9 @@ impl Watch {
         if let Verdict::Transient(detail) = &outcome.verdict {
             println!("north land: the after-landing run of {} reached no verdict ({detail}); it runs again in {} s", batch.head, RETRY.as_secs());
             batch.retry_at = ended + RETRY.as_secs_f64();
-            batch.misses += 1;
-            if batch.misses == UNSETTLED {
+            moved(heads(&batch), Run::Unsettled, detail);
+            let misses = lifecycle::host().map_or(0, |store| heads(&batch).map(|head| lifecycle::misses(&store, head)).max().unwrap_or(0));
+            if misses == UNSETTLED {
                 after::send("proxy", &format!("north land: the after-landing run of {} reached no verdict {UNSETTLED} times in a row ({detail}); main is unverified until one does, and it keeps running every {} s", batch.head, RETRY.as_secs()));
             }
             release(&mut self.hosts, &host);
@@ -333,6 +363,7 @@ impl Watch {
         record(lander, &verdicts);
         match outcome.search.take() {
             Some(search) if !outcome.superseded => {
+                moved(heads(&batch), Run::Searching, &format!("verdict {class}, searching for the culprit lane"));
                 self.searching.push(Searching { batch, outcome, search: post_land::search(search), host, cancel });
                 return;
             }
@@ -341,7 +372,7 @@ impl Watch {
         if outcome.superseded && matches!(outcome.verdict, Verdict::RedMain(_)) {
             println!("north land: the after-landing run of {} is red, but a later landing changed its check lines before its culprit search, so no lane is blamed and the newest landing's run checks the current lines", batch.head);
         }
-        retire(lander, &batch);
+        retire(lander, &batch, &format!("verdict {class}"));
     }
 }
 
@@ -360,10 +391,11 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
     } else if let Verdict::RedMain(detail) = &outcome.verdict {
         blame(lander, batch, found.culprit, detail, outcome);
     }
-    retire(lander, batch);
+    retire(lander, batch, "its culprit search ended");
 }
 
-fn retire(lander: &Lander, batch: &Batch) {
+fn retire(lander: &Lander, batch: &Batch, cause: &str) {
+    moved(heads(batch), Run::Retired, cause);
     for followed in &batch.heads {
         let _ = fs::remove_file(entry_path(lander, &followed.head));
     }
