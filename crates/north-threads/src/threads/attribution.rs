@@ -96,11 +96,12 @@ pub fn report_column(db: &Connection) -> &'static str {
 }
 
 /// The SQL expression for a run's outcome as the bars read it: a `done` run that expected a landing and has no landed sha
-/// is `not done`, since done is the landing on origin/main and never the worker's opener (north#791).
+/// is `not done`, and a finished run whose lane landed is `done` whatever its opener said, since done is the landing on
+/// origin/main and never the worker's opener (north#791, north#829).
 pub fn outcome_column(db: &Connection) -> &'static str {
     let has = |column: &str| db.query_row("SELECT 1 FROM pragma_table_info('runs') WHERE name = ?1", [column], |_| Ok(())).is_ok();
     if has("expects_landing") && has("landed") && has("landed_sha") {
-        "CASE WHEN runs.outcome = 'done' AND coalesce(runs.expects_landing, 0) = 1 AND coalesce(runs.landed, 0) != 1 AND runs.landed_sha IS NULL THEN 'not done' ELSE runs.outcome END"
+        "CASE WHEN runs.outcome NOT IN ('running', 'idle') AND coalesce(runs.landed_sha, '') != '' THEN 'done' WHEN runs.outcome = 'done' AND coalesce(runs.expects_landing, 0) = 1 AND coalesce(runs.landed, 0) != 1 AND runs.landed_sha IS NULL THEN 'not done' ELSE runs.outcome END"
     } else {
         "runs.outcome"
     }

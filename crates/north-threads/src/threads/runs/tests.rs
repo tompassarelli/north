@@ -163,6 +163,8 @@ fn a_usage_batch_rewrites_only_the_intervals_its_rows_fall_in_and_leaves_run_cos
 
 /// A long report's closing `Stop:` line fell outside the 600 characters the ledger keeps, so 40% of a day's worker
 /// usage read as unattributed (north#706): the kept line names the worker's own cause, and a boundary's record wins.
+/// Eleven of the 26 runs read as landing refusals over the 24 h to 2026-11-07T18:26Z ended `Stop: landing` on a queued
+/// lane that then landed with the run's sha (north#829): a run whose lane landed is no harness loss.
 #[test]
 fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overrides_its_report() {
     let ledger = ledger();
@@ -171,7 +173,8 @@ fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overri
                "tier": "high", "actual_min": 20, "started": "2026-10-28T08:20:00Z", "ended": "2026-10-28T08:40:00Z", "outcome": "not done", "report": report, "stop": stop})
     };
     let head: String = format!("Not done: {}", "the lane holds three files. ".repeat(30)).chars().take(600).collect();
-    ledger.ingest(&[worker("long", &head, Some("Stop: landing")), worker("cut", "Not done: clippy is clean, so the lane goes next.", None), worker("told", "Not done: the proxy asked me to stop here.", None)]);
+    ledger.ingest(&[worker("long", &head, Some("Stop: landing")), worker("cut", "Not done: clippy is clean, so the lane goes next.", None), worker("told", "Not done: the proxy asked me to stop here.", None), worker("queued", "Not done: the lane is queued with the lander.", Some("Stop: landing"))]);
+    ledger.ingest(&[json!({"push_join": 1, "fleet_name": "w-queued", "landed_sha": "abc1234", "landed_at": "2026-10-28T08:45:00.000Z"})]);
     let context = Context { database: &ledger.path, actor: "tester".into(), no_native: None, outside: &ledger.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
     for (session, cause) in [("w-cut", "halted"), ("w-told", "proxy")] {
         let argv: Vec<String> = ["cause", "record", "--session", session, "--source", "fleet", "--cause", cause].map(str::to_owned).to_vec();
