@@ -256,6 +256,49 @@ fn an_interactive_window_opened_after_the_turn_leaves_a_running_first_turn_to_fi
 }
 
 #[test]
+fn an_interactive_window_opened_after_the_turn_waits_for_a_background_task_the_turn_left_running() {
+    let home = tempfile::tempdir().unwrap();
+    let (proc, cgroups) = (home.path().join("proc"), home.path().join("cgroup"));
+    let (host, shell, task) = (std::process::id(), 4001, 4002);
+    let scope = cgroups.join("user.slice/north-session-proxy.scope");
+    fs::create_dir_all(&scope).unwrap();
+    fs::write(scope.join("cgroup.procs"), format!("{host}\n{shell}\n{task}\n")).unwrap();
+    for (pid, parent) in [(host, 1), (shell, host), (task, shell)] {
+        let dir = proc.join(pid.to_string());
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("cgroup"), "0::/user.slice/north-session-proxy.scope\n").unwrap();
+        fs::write(dir.join("stat"), format!("{pid} (claude) S {parent} 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 100 0 0\n")).unwrap();
+    }
+    let fleet = fleet(home.path(), "").reading_proc(proc.clone()).reading_cgroups(cgroups);
+    let session = fleet.root().join("proxy");
+    let record = serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 5, "host_pid": host, "conversation": "c", "host_dir": session, "role": "proxy", "stopped": false});
+    fs::create_dir_all(session.join("g1")).unwrap();
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let frame = |kind: &str| serde_json::json!({"type": kind, "subtype": "success", "session_id": "c", "message": {"content": [{"type": "text", "text": "turn over"}]}}).to_string() + "\n";
+    fs::write(session.join("g1/stream.jsonl"), frame("assistant") + &frame("result")).unwrap();
+    let mut looks = 0;
+    let mut task_over_at_launch = None;
+    fleet
+        .interactive_pacing(
+            "proxy",
+            true,
+            || {
+                looks += 1;
+                fs::remove_dir_all(proc.join(task.to_string())).unwrap();
+            },
+            |_| {},
+            |_| {
+                task_over_at_launch = Some(!proc.join(task.to_string()).exists());
+                Ok(())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(looks, 1, "the turn had ended, so only the running background task held the window back");
+    assert_eq!(task_over_at_launch, Some(true), "the window took the conversation while the background task still ran");
+}
+
+#[test]
 fn an_interactive_window_that_would_stop_at_a_trust_or_bypass_prompt_is_named_before_it_opens() {
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path(), "");

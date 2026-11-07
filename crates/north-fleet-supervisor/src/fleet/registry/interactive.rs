@@ -8,13 +8,14 @@ use crate::fleet::host::Host;
 use crate::fleet::model::{Entry, SessionRecord, Status};
 use crate::fleet::runtime::HostSpec;
 
+use super::detached;
 use super::{Fleet, session_running};
 use super::stopping::Halt;
 
 const TURN_POLL: Duration = Duration::from_millis(500);
 
 impl Fleet {
-    /// Hands a session to its provider's own interactive UI: with `after_turn`, first shows the turn the host is running through `show` as it streams and waits until it has ended instead of cutting it off; stops the fleet host and waits until it has exited, so the fleet host and the UI never hold one conversation together, then passes the interactive command to `launch`. The record stays stopped, so nothing in the fleet restarts it; `revive` takes it back once the UI is closed.
+    /// Hands a session to its provider's own interactive UI: with `after_turn`, first shows the turn the host is running through `show` as it streams and waits until it has ended and no background task its CLI started still runs, instead of cutting either off (stopping the host kills them); stops the fleet host and waits until it has exited, so the fleet host and the UI never hold one conversation together, then passes the interactive command to `launch`. The record stays stopped, so nothing in the fleet restarts it; `revive` takes it back once the UI is closed.
     pub fn interactive(&self, name: &str, after_turn: bool, show: impl FnMut(&Entry), launch: impl FnOnce(&HostSpec) -> NorthResult<()>) -> NorthResult<()> {
         self.interactive_pacing(name, after_turn, || sleep(TURN_POLL), show, launch)
     }
@@ -31,8 +32,8 @@ impl Fleet {
         self.refuse_beside_interactive(&record)?;
         let (instructions, _) = self.instructions(&record)?;
         let spec = runtime.interactive(&account, &record.relaunch_request(), &conversation, &instructions)?;
-        if after_turn && self.turn_running(name)? {
-            eprintln!("north fleet: {name} is mid-turn; its turn streams here and its window opens on the conversation when the turn ends");
+        if after_turn && self.work_running(name)? {
+            eprintln!("north fleet: {name} is mid-turn or runs a background task; its turn streams here and its window opens on the conversation when both have ended");
             let mut follower = self.follow(name)?;
             let mut shown = 0;
             loop {
@@ -40,7 +41,7 @@ impl Fleet {
                 let entries = &follower.transcript().entries;
                 entries.iter().skip(shown).for_each(&mut show);
                 shown = entries.len();
-                if !self.turn_running(name)? {
+                if !self.work_running(name)? {
                     break;
                 }
                 pause();
@@ -54,6 +55,11 @@ impl Fleet {
     pub fn interactive_prompt(&self, name: &str) -> NorthResult<Option<String>> {
         let (record, request) = (self.record(name)?, self.record(name)?.relaunch_request());
         Ok(self.runtime(&record)?.interactive_prompt(&self.account(&request)?, &request))
+    }
+
+    fn work_running(&self, name: &str) -> NorthResult<bool> {
+        let record = self.record(name)?;
+        Ok(self.turn_running(name)? || record.live() && record.host_pid.is_some_and(|host| detached::cli_work(&self.proc, &self.cgroups, host) > 0))
     }
 
     fn turn_running(&self, name: &str) -> NorthResult<bool> {

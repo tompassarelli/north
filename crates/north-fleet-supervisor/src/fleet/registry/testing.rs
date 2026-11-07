@@ -39,6 +39,11 @@ impl Fleet {
         self
     }
 
+    pub fn reading_cgroups(mut self, cgroups: PathBuf) -> Self {
+        self.cgroups = cgroups;
+        self
+    }
+
     pub fn reading_admission(mut self, admission: PathBuf) -> Self {
         self.admission = admission;
         self
