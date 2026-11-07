@@ -5,7 +5,9 @@ use std::process::Command;
 use super::removed_surface::{Kind, Removed, invocation, removed_commands_and_flags, removed_in};
 
 const USAGE: &str = "usage: north bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]";
-const PREFIXES: [&str; 2] = ["tree/bin/", "${northBin}/"];
+const PREFIXES: [&str; 3] = ["tree/bin/", "${northBin}/", "north/bin/"];
+const BARE: [&str; 1] = [""];
+const ORACLE: &str = "oracle = ";
 const SOURCE_REF: &str = "origin/main";
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -20,6 +22,7 @@ struct Source {
     label: &'static str,
     dir: PathBuf,
     pathspecs: &'static [&'static str],
+    oracles: bool,
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -57,10 +60,10 @@ pub fn names_entry(line: &str, entry: &str) -> bool {
     })
 }
 
-fn matching(removed: &Removed, holder: &str, location: &str, line: &str) -> Vec<Reference> {
+fn matching(removed: &Removed, holder: &str, location: &str, line: &str, prefixes: &[&str]) -> Vec<Reference> {
     let reference = |kind, entry: &str| Reference { kind, entry: entry.to_owned(), holder: holder.to_owned(), location: location.to_owned() };
     let mut found: Vec<Reference> = removed.bins.iter().filter(|entry| names_entry(line, entry)).map(|entry| reference(Kind::Bin, entry)).collect();
-    if let Some(words) = invocation(line, &PREFIXES) {
+    if let Some(words) = invocation(line, prefixes) {
         found.extend(removed_in(&words, removed).into_iter().map(|(kind, name)| reference(kind, &name)));
     }
     found
@@ -69,7 +72,13 @@ fn matching(removed: &Removed, holder: &str, location: &str, line: &str) -> Vec<
 fn source_references(source: &Source, removed: &Removed) -> Result<Vec<Reference>, String> {
     let main = source.dir.join("main");
     git(&main, &["fetch", "-q", "origin", "main"]).ok();
-    let mut arguments = vec!["grep", "-n", "-I", "-F", "-e", PREFIXES[0], "-e", PREFIXES[1], SOURCE_REF, "--"];
+    let mut arguments = vec!["grep", "-n", "-I", "-F"];
+    if source.oracles {
+        arguments.extend(["-e", ORACLE]);
+    } else {
+        PREFIXES.iter().for_each(|prefix| arguments.extend(["-e", *prefix]));
+    }
+    arguments.extend([SOURCE_REF, "--"]);
     arguments.extend(source.pathspecs);
     let output = Command::new("git").arg("-C").arg(&main).args(&arguments).output().map_err(|error| format!("git grep: {error}"))?;
     match output.status.code() {
@@ -84,7 +93,7 @@ fn source_references(source: &Source, removed: &Removed) -> Result<Vec<Reference
         let Some(hit) = hit.strip_prefix(SOURCE_REF).and_then(|rest| rest.strip_prefix(':')) else { continue };
         let mut fields = hit.splitn(3, ':');
         let (Some(path), Some(number), Some(line)) = (fields.next(), fields.next(), fields.next()) else { continue };
-        found.extend(matching(removed, &holder, &format!("{path}:{number}"), line));
+        found.extend(matching(removed, &holder, &format!("{path}:{number}"), line, if source.oracles { &BARE } else { &PREFIXES }));
     }
     Ok(found)
 }
@@ -97,7 +106,7 @@ pub fn host_references(units: &str, removed: &Removed) -> Vec<Reference> {
             unit = path.trim().to_owned();
             continue;
         }
-        found.extend(matching(removed, "this host's systemctl --user cat", &unit, line));
+        found.extend(matching(removed, "this host's systemctl --user cat", &unit, line, &PREFIXES));
     }
     found
 }
@@ -150,10 +159,12 @@ pub fn refusal(found: &[Reference]) -> String {
     lines.join("\n")
 }
 
-fn sources(nixos_config: PathBuf, south: PathBuf) -> [Source; 2] {
+fn sources(nixos_config: PathBuf, south: PathBuf) -> [Source; 4] {
     [
-        Source { label: "nixos-config", dir: nixos_config, pathspecs: &[".", ":(exclude)*.md"] },
-        Source { label: "south", dir: south, pathspecs: &["agents/routines"] },
+        Source { label: "nixos-config", dir: nixos_config, pathspecs: &[".", ":(exclude)*.md"], oracles: false },
+        Source { label: "south", dir: south, pathspecs: &["agents/routines", "modules", "hosts", "bin"], oracles: false },
+        Source { label: "makgora", dir: home_dir("makgora", "SAFE_PUSH_MAKGORA"), pathspecs: &["goals.toml"], oracles: true },
+        Source { label: "wisp", dir: home_dir("wisp", "SAFE_PUSH_WISP"), pathspecs: &["goals.toml"], oracles: true },
     ]
 }
 
@@ -235,3 +246,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "bin_references_tests.rs"]
+mod tests;
