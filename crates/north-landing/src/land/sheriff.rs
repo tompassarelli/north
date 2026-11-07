@@ -257,9 +257,10 @@ impl Probes<'_> {
 
 fn lane_ticket(lander: &Lander, request: &Request, tip: &str, lane: &str) -> Option<Ticket> {
     let done = fs::read_dir(lander.queue.join("done")).ok()?;
-    done.filter_map(Result::ok).filter_map(|entry| queue::read(&entry.path()).ok()).find(|ticket| {
-        ticket.verdict.as_deref().is_some_and(|verdict| verdict.starts_with("landed "))
-            && (ticket.head == lane || git(&lander.repo, &["cherry", &ticket.head, tip, &request.parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}"))))
+    let store = north_base::land_ticket::recorded(&lander.queue);
+    let landed = done.filter_map(Result::ok).map(|entry| entry.path()).filter_map(|path| Some((queue::read(&path).ok()?, path)));
+    landed.filter(|(ticket, path)| north_base::land_ticket::read(store.as_ref(), &lander.queue, path, ticket.verdict.as_deref()) == north_base::land_ticket::Phase::Landed).map(|(ticket, _)| ticket).find(|ticket| {
+        ticket.head == lane || git(&lander.repo, &["cherry", &ticket.head, tip, &request.parent]).is_ok_and(|cherry| cherry.lines().any(|line| line == format!("- {lane}")))
     })
 }
 
@@ -275,6 +276,7 @@ pub(crate) fn queue_revert_in(repo: &Path, queue_dir: &Path, worktree: &Path, br
     let ticket = Ticket { origin, root: worktree.to_owned(), host, branch: branch.to_owned(), head: head.clone(), session: None, queued_at: rfc3339(OffsetDateTime::now_utc()), queued_micros: Some(micros), first_commit_secs: None, several_commits: None, red_fix: Some(RedFix::Marker), verdict: None, keep_lane: true, urgent: None, decided_on: None, published: None };
     let path = queue_dir.join(queue::file_name(micros, branch));
     queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    north_base::land_ticket::queued(&path, "the sheriff queued a revert").map_err(|error| format!("cannot record {}: {error}", path.display()))?;
     Ok(head)
 }
 

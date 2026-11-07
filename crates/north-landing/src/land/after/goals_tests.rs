@@ -42,7 +42,7 @@ fn the_commit_that_turned_a_contract_goal_red_is_named_among_a_landed_range_and_
     queue(&landed, &lander, &culprit, "no-bad-file").unwrap();
     let message = git(&repo, &["log", "-1", "--format=%B", &format!("goals-revert-{}", &culprit[..12])]).unwrap();
     assert!(message.contains(&format!("Reverts: {culprit}")) && message.contains("Goal-red: no-bad-file"), "{message}");
-    let queued = std::fs::read_dir(&lander.queue).unwrap().flatten().filter(|entry| entry.path().is_file()).count();
+    let queued = std::fs::read_dir(&lander.queue).unwrap().flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).count();
     assert_eq!(queued, 1, "one ticket for the revert goes ahead of the queue");
     assert!(queue(&landed, &lander, &culprit, "no-bad-file").unwrap().contains("already queued"));
     let _ = std::fs::remove_dir_all(&container);

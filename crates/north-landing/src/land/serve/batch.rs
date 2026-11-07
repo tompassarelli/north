@@ -14,6 +14,7 @@ use crate::land::push_refusal::Refusal;
 use crate::land::queue::{self, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::telemetry::Stages;
+use north_base::land_ticket::Records;
 use crate::land::watch::{LandedLane, Watch};
 use crate::land::{incidents, jobs, pause, red, speculate, steps};
 use crate::platform::decision_log;
@@ -125,7 +126,12 @@ impl Lander {
                 (false, None) => Round::Idle,
             }));
         }
-        self.check_included(watch, pass, &attempt, included)
+        let taken: Vec<PathBuf> = included.iter().map(|(path, _)| (*path).clone()).collect();
+        let mut records = Records::open(&self.queue).map_err(|error| error.to_string())?;
+        records.checking(&taken).map_err(|error| error.to_string())?;
+        let flow = self.check_included(watch, pass, &attempt, included);
+        records.unchecked(&taken, "its land check ended without a verdict").map_err(|error| error.to_string())?;
+        flow
     }
 
     fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool, answering: bool) -> Option<Flow> {

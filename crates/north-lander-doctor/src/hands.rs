@@ -80,23 +80,12 @@ pub fn promote() -> Result<String, String> {
     Ok(format!("started north runtime promote (pid {}), logging to {}", child.id(), log.display()))
 }
 
-/// Moves a refused ticket back into its queue once, leaving a marker so its next refusal is final.
+/// Moves a refused ticket back into its queue once, so its next refusal is final: its record keeps the rerun.
 pub fn rerun(queue_dir: &Path, ticket: &Path) -> Result<String, String> {
     let name = ticket.file_name().ok_or_else(|| format!("{} names no file", ticket.display()))?;
-    if queue::is_withdrawn(queue_dir, name) {
-        return Err(format!("{} was withdrawn, so it is never queued again", name.to_string_lossy()));
-    }
-    let mut decided = queue::read(ticket).map_err(|error| format!("{}: {error}", ticket.display()))?;
-    decided.verdict = None;
-    decided.decided_on = None;
-    let marker = queue_dir.join(crate::RERAN).join(name);
-    if let Some(parent) = marker.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-    }
-    fs::write(&marker, format!("{}\n", ticket.display())).map_err(|error| format!("{}: {error}", marker.display()))?;
-    queue::write(&queue_dir.join(name), &decided).map_err(|error| format!("{}: {error}", queue_dir.display()))?;
-    fs::remove_file(ticket).map_err(|error| format!("{}: {error}", ticket.display()))?;
-    Ok(format!("requeued {} ({})", decided.branch, name.to_string_lossy()))
+    let requeued = queue::requeue(queue_dir, ticket, "the lander doctor reran an infrastructure refusal").map_err(|error| format!("{}: {error}", ticket.display()))?;
+    let branch = queue::read(&requeued).map(|decided| decided.branch).unwrap_or_default();
+    Ok(format!("requeued {branch} ({})", name.to_string_lossy()))
 }
 
 /// Points the lander link at `to`, names `from` refused so north land promote leaves it off the lander, and restarts each lander unit.

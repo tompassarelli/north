@@ -1,27 +1,28 @@
 use super::candidate::Pick;
+use north_base::land_ticket::Phase;
 
 pub const KEPT_SECS: u64 = 24 * 60 * 60;
 
 pub const REPLACED: &str = "replaced by a newer ticket for this lane";
 
-pub struct Decided<'a> {
+pub struct Decided {
     pub queued: u128,
     pub decided_secs: u64,
-    pub verdict: &'a str,
+    pub phase: Phase,
 }
 
-fn sent_back(verdict: &str) -> bool {
-    verdict.starts_with("conflict ")
+fn sent_back(decided: &Decided) -> bool {
+    decided.phase == Phase::Conflict
 }
 
-pub fn run<'a, 'b>(newest_first: &'b [Decided<'a>]) -> &'b [Decided<'a>] {
-    let length = newest_first.iter().take_while(|decided| sent_back(decided.verdict) || decided.verdict == REPLACED).count();
+pub fn run(newest_first: &[Decided]) -> &[Decided] {
+    let length = newest_first.iter().take_while(|decided| sent_back(decided) || decided.phase == Phase::Replaced).count();
     &newest_first[..length]
 }
 
 pub fn position(queued: u128, newest_first: &[Decided], now_secs: u64) -> u128 {
     let run = run(newest_first);
-    let kept = run.iter().find(|decided| sent_back(decided.verdict)).is_some_and(|last| now_secs.saturating_sub(last.decided_secs) < KEPT_SECS);
+    let kept = run.iter().find(|decided| sent_back(decided)).is_some_and(|last| now_secs.saturating_sub(last.decided_secs) < KEPT_SECS);
     if !kept {
         return queued;
     }

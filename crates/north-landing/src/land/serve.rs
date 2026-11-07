@@ -165,6 +165,11 @@ fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
 
 fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
+    match super::queue::adopt(&lander.queue) {
+        Ok(0) => {}
+        Ok(adopted) => println!("north land: recorded the phase of {adopted} tickets that had none"),
+        Err(error) => println!("north land: cannot record the phase of this queue's tickets: {error}"),
+    }
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
     let mut retiring: Option<Instant> = None;

@@ -12,6 +12,7 @@ use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
 use super::repositories;
 use super::setting;
+use north_base::land_ticket;
 mod arguments;
 mod refuse;
 use refuse::{refuse_archived, refuse_conflict, refuse_lane_gates, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
@@ -145,6 +146,17 @@ fn lander_ledger_at(lander: &str, queue: &Path, environment: &Environment) -> Op
     is_other_host(lander, environment.host).then(|| fs::read_to_string(queue.join(queue::LANDER_LEDGER)).ok()).flatten()
 }
 
+/// Writes a new ticket: an outboxed one replaces its lane's older outboxed ticket, and one in the lander's own queue is
+/// recorded as queued, its older ticket left for the lander to decide as replaced.
+fn file(directory: &Path, path: &Path, ticket: &Ticket, outbox: bool) -> Result<(), String> {
+    queue::write(path, ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    if outbox {
+        replace_older(directory, path, &ticket.root, &ticket.branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))
+    } else {
+        land_ticket::queued(path, "enqueued").map_err(|error| format!("cannot record {}: {error}", path.display()))
+    }
+}
+
 fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io::Result<()> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -232,8 +244,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let outbox = is_other_host(&lander_host, environment.host);
     let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
     let path = directory.join(queue::file_name(queued_micros, &branch));
-    queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-    replace_older(&directory, &path, &root, &branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))?;
+    file(&directory, &path, &ticket, outbox)?;
     Ok(Queued { path, outbox, ticket, squash })
 }
 

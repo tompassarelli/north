@@ -13,6 +13,7 @@ use super::candidate::{self, git};
 use super::lander::Lander;
 use super::pause;
 use super::queue;
+use north_base::land_ticket::Phase;
 use super::serve::Round;
 
 pub const LEAD: &str = "lander-lead";
@@ -276,7 +277,7 @@ fn repair_error(queue: &Path, latest: &Observation, problem: &str, reason: &str,
     }
     let lanes = pending.len();
     for (path, ticket) in pending {
-        queue::settle(&path, ticket, reason.to_owned(), QUARANTINE).map_err(|error| format!("cannot quarantine {}: {error}", path.display()))?;
+        queue::settle(&path, ticket, reason.to_owned(), Phase::Quarantined).map_err(|error| format!("cannot quarantine {}: {error}", path.display()))?;
     }
     Ok(vec![Repair::QuarantinedRepository(lanes)])
 }

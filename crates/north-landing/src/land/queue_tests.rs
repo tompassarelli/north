@@ -29,7 +29,7 @@ fn a_ticket_written_back_into_the_queue_after_its_withdrawal_is_never_pending_ag
     let withdrawn = file_name(1_000, "sheriff-revert-344cf09f8");
     write(&directory.path().join(&withdrawn), &ticket("sheriff-revert-344cf09f8", 1_000)).unwrap();
     write(&directory.path().join(file_name(2_000, "other")), &ticket("other", 2_000)).unwrap();
-    settle(&directory.path().join(&withdrawn), ticket("sheriff-revert-344cf09f8", 1_000), "withdrawn by proxy: not reproducible".to_owned(), WITHDRAWN).unwrap();
+    settle(&directory.path().join(&withdrawn), ticket("sheriff-revert-344cf09f8", 1_000), "withdrawn by proxy: not reproducible".to_owned(), north_base::land_ticket::Phase::Withdrawn).unwrap();
     write(&directory.path().join(&withdrawn), &ticket("sheriff-revert-344cf09f8", 1_000)).unwrap();
     let order: Vec<String> = collect(directory.path()).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
     assert_eq!(order, ["other"], "a withdrawn ticket a later writer put back (the doctor's rerun, a lander rewrite) never lands");

@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use north_base::foundation::clock::Timestamp;
+use north_base::land_ticket::{self, Phase};
 use serde_json::Value;
 
 const USAGE: &str = "usage: north land gate-stats [--since 7d|48h]";
@@ -21,6 +22,7 @@ pub struct Ticket {
     pub branch: String,
     pub head: String,
     pub verdict: String,
+    pub phase: Phase,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -31,8 +33,8 @@ pub struct Row {
     pub unchanged: usize,
 }
 
-pub fn gate(verdict: &str, log_line: impl Fn(&str) -> Option<String>) -> Option<String> {
-    if verdict.starts_with("landed") || verdict.starts_with("replaced") || verdict.starts_with("conflict") {
+pub fn gate(phase: Phase, verdict: &str, log_line: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if phase != Phase::Failed {
         return None;
     }
     let rest = verdict.strip_prefix("failed ").unwrap_or(verdict);
@@ -75,14 +77,14 @@ pub fn first_refusal_line(log: &str) -> Option<String> {
 pub fn tally(tickets: &[Ticket], since_micros: u64, log_line: impl Fn(&str) -> Option<String>, same_patch: impl Fn(&Ticket, &Ticket) -> bool) -> BTreeMap<String, Row> {
     let mut rows: BTreeMap<String, Row> = BTreeMap::new();
     for ticket in tickets.iter().filter(|ticket| ticket.micros >= since_micros) {
-        let Some(name) = gate(&ticket.verdict, &log_line) else { continue };
+        let Some(name) = gate(ticket.phase, &ticket.verdict, &log_line) else { continue };
         let row = rows.entry(name).or_default();
         row.refusals += 1;
         let later: Vec<&Ticket> = tickets.iter().filter(|other| other.root == ticket.root && other.branch == ticket.branch && other.micros > ticket.micros).collect();
         if let Some(next) = later.iter().min_by_key(|other| other.micros) {
             row.requeued.push((next.micros - ticket.micros) as f64 / 60e6);
         }
-        if let Some(landed) = later.iter().filter(|other| other.verdict.starts_with("landed")).min_by_key(|other| other.micros) {
+        if let Some(landed) = later.iter().filter(|other| other.phase == Phase::Landed).min_by_key(|other| other.micros) {
             row.landed_later += 1;
             row.unchanged += usize::from(same_patch(ticket, landed));
         }
@@ -150,14 +152,16 @@ fn queues(state: &Path) -> Vec<PathBuf> {
 }
 
 fn tickets(queue: &Path) -> Vec<Ticket> {
+    let store = land_ticket::recorded(queue);
     std::fs::read_dir(queue.join("done"))
         .into_iter()
         .flatten()
         .flatten()
-        .filter_map(|entry| serde_json::from_str::<Value>(&std::fs::read_to_string(entry.path()).ok()?).ok())
-        .filter_map(|ticket| {
+        .filter_map(|entry| Some((entry.path(), serde_json::from_str::<Value>(&std::fs::read_to_string(entry.path()).ok()?).ok()?)))
+        .filter_map(|(path, ticket)| {
+            let phase = land_ticket::read(store.as_ref(), queue, &path, ticket["verdict"].as_str());
             let text = |key: &str| ticket[key].as_str().unwrap_or_default().to_owned();
-            Some(Ticket { micros: ticket["queued_micros"].as_u64()?, root: text("root"), branch: text("branch"), head: text("head"), verdict: text("verdict") })
+            Some(Ticket { micros: ticket["queued_micros"].as_u64()?, root: text("root"), branch: text("branch"), head: text("head"), verdict: text("verdict"), phase })
         })
         .collect()
 }

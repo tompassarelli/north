@@ -4,6 +4,7 @@ pub mod dispatch_pause;
 pub mod build_inputs;
 pub mod error;
 pub mod foundation;
+pub mod land_ticket;
 pub mod lifecycle;
 pub mod nix_command;
 pub mod platform;

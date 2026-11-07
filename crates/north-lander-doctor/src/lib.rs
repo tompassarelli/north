@@ -24,7 +24,6 @@ use facts::{Facts, Place, Reach};
 use hands::Hands;
 
 pub use north_landing::land::promote::REFUSED;
-pub const RERAN: &str = "doctor/reran";
 pub const BOOK: &str = "north/land-doctor/book.json";
 pub const UNKNOWN: &str = "lander-unknown";
 const USAGE: &str = "usage: north land doctor [--dry-run] (reads every lander health bound, applies each known remedy, pages the proxy once per unknown state)";

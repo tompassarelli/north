@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use north_base::land_ticket::{self, Phase};
 use north_base::platform::land_queue;
 use north_landing::land::after::follow;
 use north_landing::land::candidate::git;
@@ -125,13 +126,13 @@ pub fn queue_facts(name: &str, queue: &Path, repo: &Path, now: u64) -> QueueFact
 pub fn served_queue_facts(name: &str, queue: &Path, unit: String, now: u64) -> QueueFacts {
     let pending = queue::pending(queue).unwrap_or_default();
     let oldest_queued = pending.iter().map(|(path, _)| u64::try_from(queue::queued_micros(path) / 1_000_000).unwrap_or(u64::MAX)).min().map(|queued| now.saturating_sub(queued));
-    let decided = decided(&queue.join("done"), now);
-    let since_landing = decided.iter().filter(|decision| decision.verdict.starts_with("landed ")).map(|decision| decision.age).min();
+    let decided = decided(queue, now);
+    let since_landing = decided.iter().filter(|decision| decision.phase == Phase::Landed).map(|decision| decision.age).min();
     let since_decision = decided.iter().map(|decision| decision.age).min();
     let infrastructure = decided
         .iter()
-        .filter(|decision| decision.age <= INFRASTRUCTURE_WINDOW_SECS && decision.verdict.starts_with("failed "))
-        .filter(|decision| !pending.iter().any(|(_, ticket)| ticket.branch == decision.branch) && !reran(queue, &decision.path) && !decision.path.file_name().is_some_and(|name| queue::is_withdrawn(queue, name)))
+        .filter(|decision| decision.age <= INFRASTRUCTURE_WINDOW_SECS && decision.phase == Phase::Failed)
+        .filter(|decision| !pending.iter().any(|(_, ticket)| ticket.branch == decision.branch) && !reran(queue, &decision.path))
         .filter_map(|decision| infrastructure_of(&decision.path, &decision.branch, &decision.verdict))
         .collect();
     QueueFacts {
@@ -152,12 +153,14 @@ pub fn served_queue_facts(name: &str, queue: &Path, unit: String, now: u64) -> Q
 struct Decided {
     age: u64,
     verdict: String,
+    phase: Phase,
     branch: String,
     path: PathBuf,
 }
 
-fn decided(done: &Path, now: u64) -> Vec<Decided> {
-    let Ok(entries) = fs::read_dir(done) else { return Vec::new() };
+fn decided(queue: &Path, now: u64) -> Vec<Decided> {
+    let Ok(entries) = fs::read_dir(queue.join("done")) else { return Vec::new() };
+    let store = land_ticket::recorded(queue);
     let mut decided: Vec<Decided> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -166,7 +169,8 @@ fn decided(done: &Path, now: u64) -> Vec<Decided> {
         .filter(|(age, _)| *age <= DECIDED_WINDOW_SECS)
         .filter_map(|(age, path)| {
             let ticket = queue::read(&path).ok()?;
-            Some(Decided { age, verdict: ticket.verdict?, branch: ticket.branch, path })
+            let phase = land_ticket::read(store.as_ref(), queue, &path, ticket.verdict.as_deref());
+            Some(Decided { age, verdict: ticket.verdict?, phase, branch: ticket.branch, path })
         })
         .collect();
     decided.sort_by_key(|decision| decision.age);
@@ -176,7 +180,7 @@ fn decided(done: &Path, now: u64) -> Vec<Decided> {
 }
 
 pub fn reran(queue: &Path, ticket: &Path) -> bool {
-    ticket.file_name().is_some_and(|name| queue.join(crate::RERAN).join(name).exists())
+    land_ticket::recorded(queue).is_some_and(|store| land_ticket::requeued_after_failure(&store, queue, ticket))
 }
 
 /// The infrastructure signature in the logs a refused ticket's verdict names, when one is there.

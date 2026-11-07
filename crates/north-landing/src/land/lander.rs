@@ -7,6 +7,8 @@ use super::heartbeat::Heartbeat;
 use super::jobs::Chores;
 use super::queue::{self, Ticket};
 use super::setting;
+use north_base::land_ticket::Records;
+use north_base::land_ticket::Phase;
 
 pub const DEPTH: usize = 2;
 pub const OFFLOAD_OWNER: &str = "north-land";
@@ -107,6 +109,7 @@ impl Lander {
         let outbox = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}/{}\"", queue::OUTBOX);
         let mirror = format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER);
         let listing = ssh_with_input(host, &format!("{mirror}d={outbox}; [ -d \"$d\" ] || exit 0; for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done"), ledger_tail().as_bytes())?;
+        let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
         let mut taken = Vec::new();
         let mut failures = Vec::new();
         let mut withdrawn = Vec::new();
@@ -132,7 +135,10 @@ impl Lander {
                 continue;
             }
             let path = self.queue.join(name);
-            queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+            if records.phase(&path).is_none() {
+                queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+                records.moved(&path, Phase::Queued, &format!("taken from {host}'s outbox")).map_err(|error| format!("cannot record {}: {error}", path.display()))?;
+            }
             taken.push(name.to_owned());
         }
         if !taken.is_empty() {
@@ -150,6 +156,7 @@ impl Lander {
             let reason = format!("its worktree {} is gone from {host}, so the lander cannot fetch {}", ticket.root.display(), ticket.head);
             ticket.verdict = Some(format!("withdrawn by {OFFLOAD_OWNER}: {reason}"));
             let path = self.queue.join(queue::WITHDRAWN).join(&name);
+            Records::open(&self.queue).and_then(|mut records| records.moved(&path, Phase::Withdrawn, ticket.verdict.as_deref().unwrap_or_default())).map_err(|error| format!("cannot record {}: {error}", path.display()))?;
             queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
             println!("north land: withdrew {name} from {host}'s outbox: {reason}");
             told.push((name, ticket, reason));

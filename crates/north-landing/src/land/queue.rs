@@ -4,7 +4,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use north_base::land_ticket::{self, Phase};
+
 use super::reservation::{self, Decided};
+use north_base::land_ticket::Records;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -73,10 +76,6 @@ pub const OUTBOX: &str = "outbox";
 pub const LANDER_LEDGER: &str = "lander-post-land.tsv";
 pub const WITHDRAWN: &str = "withdrawn";
 
-pub fn is_withdrawn(directory: &Path, name: &std::ffi::OsStr) -> bool {
-    directory.join(WITHDRAWN).join(name).is_file()
-}
-
 pub fn file_name(queued_micros: u128, branch: &str) -> String {
     format!("{queued_micros}-{}.json", slug(branch))
 }
@@ -127,7 +126,8 @@ fn decided_secs(path: &Path) -> u64 {
 pub fn positions(directory: &Path, tickets: &[(PathBuf, Ticket)], now_secs: u64) -> HashMap<PathBuf, u128> {
     let lanes: HashSet<Lane> = tickets.iter().map(|(_, ticket)| lane(ticket)).collect();
     let suffixes: HashSet<String> = tickets.iter().map(|(_, ticket)| format!("-{}.json", slug(&ticket.branch))).collect();
-    let mut decided: HashMap<Lane, Vec<(u128, u64, String)>> = HashMap::new();
+    let store = std::cell::OnceCell::new();
+    let mut decided: HashMap<Lane, Vec<(u128, u64, Phase)>> = HashMap::new();
     for entry in fs::read_dir(directory.join("done")).into_iter().flatten().filter_map(Result::ok) {
         let path = entry.path();
         let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
@@ -135,9 +135,10 @@ pub fn positions(directory: &Path, tickets: &[(PathBuf, Ticket)], now_secs: u64)
             continue;
         }
         let Ok(ticket) = read(&path) else { continue };
+        let phase = land_ticket::read(store.get_or_init(|| land_ticket::recorded(directory)).as_ref(), directory, &path, ticket.verdict.as_deref());
         let key = lane(&ticket);
         if lanes.contains(&key) {
-            decided.entry(key).or_default().push((queued_micros(&path), decided_secs(&path), ticket.verdict.unwrap_or_default()));
+            decided.entry(key).or_default().push((queued_micros(&path), decided_secs(&path), phase));
         }
     }
     tickets
@@ -146,13 +147,13 @@ pub fn positions(directory: &Path, tickets: &[(PathBuf, Ticket)], now_secs: u64)
             let queued = queued_micros(path);
             let mut earlier: Vec<_> = decided.get(&lane(ticket)).into_iter().flatten().filter(|(micros, _, _)| *micros < queued).collect();
             earlier.sort_by_key(|(micros, _, _)| std::cmp::Reverse(*micros));
-            let newest_first: Vec<Decided> = earlier.into_iter().map(|(micros, secs, verdict)| Decided { queued: *micros, decided_secs: *secs, verdict }).collect();
+            let newest_first: Vec<Decided> = earlier.into_iter().map(|(micros, secs, phase)| Decided { queued: *micros, decided_secs: *secs, phase: *phase }).collect();
             (path.clone(), reservation::position(queued, &newest_first, now_secs))
         })
         .collect()
 }
 
-pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
+fn listed(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -161,7 +162,7 @@ pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     let mut tickets = Vec::new();
     for entry in entries {
         let path = entry?.path();
-        if path.extension().is_some_and(|extension| extension == "json") && path.is_file() && !path.file_name().is_some_and(|name| is_withdrawn(directory, name)) {
+        if path.extension().is_some_and(|extension| extension == "json") && path.is_file() {
             let ticket = read(&path)?;
             tickets.push((path, ticket));
         }
@@ -172,21 +173,118 @@ pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     Ok(tickets)
 }
 
-pub fn decide(path: &Path, ticket: Ticket, verdict: String) -> io::Result<PathBuf> {
-    settle(path, ticket, verdict, "done")
+/// The tickets waiting in `directory`, first to be checked first: every ticket file there but one whose record says it
+/// was decided and whose queue copy a lander has yet to clear.
+pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
+    let store = land_ticket::recorded(directory);
+    let mut tickets = listed(directory)?;
+    tickets.retain(|(path, _)| !store.as_ref().and_then(|store| land_ticket::phase(store, directory, path)).is_some_and(Phase::is_decided));
+    Ok(tickets)
 }
 
-pub fn settle(path: &Path, mut ticket: Ticket, verdict: String, area: &str) -> io::Result<PathBuf> {
-    let directory = path.parent().ok_or_else(|| io::Error::other(format!("{} has no parent", path.display())))?;
-    let done = directory.join(area).join(path.file_name().ok_or_else(|| io::Error::other(format!("{} has no file name", path.display())))?);
+pub fn decide(path: &Path, ticket: Ticket, verdict: String) -> io::Result<PathBuf> {
+    let phase = Phase::decided(&verdict);
+    settle(path, ticket, verdict, phase)
+}
+
+fn queue_of(path: &Path) -> io::Result<&Path> {
+    path.parent().ok_or_else(|| io::Error::other(format!("{} has no queue", path.display())))
+}
+
+/// Writes `ticket` into the area of `queue` its `phase` keeps it in and removes the copy at `path`.
+fn place(queue: &Path, path: &Path, ticket: &Ticket, phase: Phase) -> io::Result<PathBuf> {
+    let to = phase.area().map_or_else(|| queue.to_path_buf(), |area| queue.join(area)).join(path.file_name().unwrap_or_default());
+    write(&to, ticket)?;
+    if to != path {
+        match fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+    }
+    Ok(to)
+}
+
+/// The withdrawal asked for while a lander checked the ticket at `path`: its copy in withdrawn/, which the lander's next
+/// move of the ticket honours unless its check landed it.
+fn withdrawal(queue: &Path, path: &Path) -> Option<Ticket> {
+    read(&queue.join(WITHDRAWN).join(path.file_name()?)).ok()
+}
+
+/// Decides the ticket at `path`: its record moves to `phase` with the verdict as the cause, then its file moves to the
+/// phase's area. A ticket still in a lane host's outbox has no record yet: the lander records it when it takes it.
+pub fn settle(path: &Path, mut ticket: Ticket, verdict: String, phase: Phase) -> io::Result<PathBuf> {
+    let (verdict, phase) = match withdrawal(queue_of(path)?, path) {
+        Some(asked) if !matches!(phase, Phase::Landed | Phase::Withdrawn) => (asked.verdict.unwrap_or(verdict), Phase::Withdrawn),
+        _ => (verdict, phase),
+    };
+    if queue_of(path)?.file_name() != Some(std::ffi::OsStr::new(OUTBOX)) {
+        Records::of(path)?.moved(path, phase, &verdict)?;
+    }
     ticket.verdict = Some(verdict);
-    write(&done, &ticket)?;
-    fs::remove_file(path)?;
-    Ok(done)
+    place(queue_of(path)?, path, &ticket, phase)
+}
+
+/// Moves a failed, conflicted or quarantined ticket at `decided` back into `queue` for another check.
+pub fn requeue(queue: &Path, decided: &Path, cause: &str) -> io::Result<PathBuf> {
+    let mut ticket = read(decided)?;
+    let mut records = Records::open(queue)?;
+    if records.phase(decided).is_none() {
+        records.adopted(decided, ticket.verdict.as_deref())?;
+    }
+    records.moved(decided, Phase::Queued, cause)?;
+    ticket.verdict = None;
+    ticket.decided_on = None;
+    place(queue, decided, &ticket, Phase::Queued)
+}
+
+/// At a lander's start: records every ticket file of `queue` that has no record in the phase adoption gives it, and
+/// puts back every ticket a lander that is gone was checking. Returns how many it recorded.
+pub fn adopt(queue: &Path) -> io::Result<usize> {
+    let mut records = Records::open(queue)?;
+    let mut adopted = 0;
+    for directory in land_ticket::directories(queue) {
+        for path in fs::read_dir(&directory).into_iter().flatten().flatten().map(|entry| entry.path()) {
+            if path.extension().is_some_and(|extension| extension == "json") && records.phase(&path).is_none() {
+                let Ok(ticket) = read(&path) else { continue };
+                records.adopted(&path, ticket.verdict.as_deref())?;
+                adopted += 1;
+            }
+        }
+    }
+    records.put_back()?;
+    Ok(adopted)
+}
+
+/// The tickets of `queue` a lander may take. A ticket with no record is adopted first, and a decided ticket's queue copy
+/// goes: its area keeps the ticket, and when the area has none (a settle its lander did not finish), the ticket moves
+/// there with its record's cause as its verdict.
+fn takeable(queue: &Path, tickets: Vec<(PathBuf, Ticket)>) -> io::Result<Vec<(PathBuf, Ticket)>> {
+    let mut records = Records::open(queue)?;
+    let mut kept = Vec::with_capacity(tickets.len());
+    for (path, mut ticket) in tickets {
+        let phase = match records.phase(&path) {
+            Some(phase) => phase,
+            None => records.adopted(&path, ticket.verdict.as_deref())?,
+        };
+        if let Some(asked) = withdrawal(queue, &path).filter(|_| phase == Phase::Queued) {
+            records.moved(&path, Phase::Withdrawn, asked.verdict.as_deref().unwrap_or("withdrawn during its check"))?;
+            fs::remove_file(&path)?;
+            continue;
+        }
+        if !phase.is_decided() {
+            kept.push((path, ticket));
+        } else if phase.area().is_some_and(|area| queue.join(area).join(path.file_name().unwrap_or_default()).is_file()) {
+            fs::remove_file(&path)?;
+        } else {
+            ticket.verdict = records.cause(&path)?;
+            place(queue, &path, &ticket, phase)?;
+        }
+    }
+    Ok(kept)
 }
 
 pub fn collect(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
-    let tickets = pending(directory)?;
+    let tickets = takeable(directory, listed(directory)?)?;
     let mut newest: HashMap<Lane, u128> = HashMap::new();
     for (path, ticket) in &tickets {
         let entry = newest.entry(lane(ticket)).or_insert(0);
@@ -206,3 +304,7 @@ pub fn collect(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
 #[cfg(test)]
 #[path = "queue_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ticket_lifecycle_tests.rs"]
+mod ticket_lifecycle;
