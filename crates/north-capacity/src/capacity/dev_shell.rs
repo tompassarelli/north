@@ -16,6 +16,8 @@ const SEED_FAILED: u8 = 125;
 const SYSTEM_NIX: [&str; 2] = ["/run/current-system/sw/bin/nix", "/nix/var/nix/profiles/default/bin/nix"];
 const PREPARE_TIMEOUT_SECONDS: &str = "1800";
 const WORKTREES: &str = ".worktrees";
+const DERIVATIONS: &str = ".derivations";
+const DERIVATION_HOLD: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
 
 fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -53,8 +55,56 @@ fn system() -> String {
     format!("{}-{os}", std::env::consts::ARCH)
 }
 
-/// The derivation path of the flake's `devShells.<system>.default`, which names the shell whatever file changed.
+fn git(directory: &Path, arguments: &[&str]) -> Option<String> {
+    let output = std::process::Command::new("git").arg("--no-optional-locks").arg("-C").arg(directory).args(arguments).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Where a clean checkout's dev shell derivation is kept: a git flake evaluates only tracked files, so the tree, the flake's place in it, the nix and the system name the derivation, and every slot or worktree on that tree shares one evaluation.
+fn remembered(nix: &Path, flake: &Path) -> Option<PathBuf> {
+    if !git(flake, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
+        return None;
+    }
+    let place = git(flake, &["rev-parse", "HEAD^{tree}", "--show-prefix"])?;
+    let mut digest = Sha256::new();
+    for part in [nix.as_os_str().as_encoded_bytes(), system().as_bytes(), place.as_bytes()] {
+        digest.update(part);
+        digest.update([0]);
+    }
+    Some(roots().join(DERIVATIONS).join(digest.finalize().iter().take(16).map(|byte| format!("{byte:02x}")).collect::<String>()))
+}
+
+fn remember(entry: &Path, derivation: &str) {
+    let Some(directory) = entry.parent() else { return };
+    let part = entry.with_extension(format!("part{}", std::process::id()));
+    let written = std::fs::create_dir_all(directory).and_then(|()| std::fs::write(&part, derivation)).and_then(|()| std::fs::rename(&part, entry));
+    if let Err(error) = written {
+        let _ = std::fs::remove_file(&part);
+        trace(&format!("cannot remember {derivation} at {}: {error}", entry.display()));
+        return;
+    }
+    let stale = std::time::SystemTime::now() - DERIVATION_HOLD;
+    for old in std::fs::read_dir(directory).into_iter().flatten().flatten() {
+        if old.metadata().and_then(|metadata| metadata.modified()).is_ok_and(|modified| modified < stale) {
+            let _ = std::fs::remove_file(old.path());
+        }
+    }
+}
+
+/// The derivation path of the flake's `devShells.<system>.default`, which names the shell whatever file changed; a clean checkout reuses the path its tree last evaluated to while that derivation is still in the store.
 fn derivation(nix: &Path, flake: &Path) -> Result<String, String> {
+    let entry = remembered(nix, flake);
+    if let Some(known) = entry.as_deref().and_then(|entry| std::fs::read_to_string(entry).ok()).filter(|known| !known.is_empty() && Path::new(known).exists()) {
+        return Ok(known);
+    }
+    let derivation = evaluate(nix, flake)?;
+    if let Some(entry) = entry {
+        remember(&entry, &derivation);
+    }
+    Ok(derivation)
+}
+
+fn evaluate(nix: &Path, flake: &Path) -> Result<String, String> {
     let attribute = format!("{}#devShells.{}.default.drvPath", flake.display(), system());
     let output = std::process::Command::new(nix).args(["eval", "--offline", "--raw", &attribute]).output().map_err(|error| format!("{}: {error}", nix.display()))?;
     let derivation = String::from_utf8_lossy(&output.stdout).trim().to_owned();
