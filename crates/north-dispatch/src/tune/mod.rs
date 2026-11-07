@@ -10,7 +10,7 @@
 //! keeps the cells whose median ratio drifted out of the calibrated band in a second rolling north
 //! issue behind the same gate as the rises. It scores each category's runs against the Budget stored at their launch
 //! (share over it, actual/E p50 and p90) and reads the budget cells' multiplier from that p90 once
-//! a category holds enough runs carrying one. It prints the share of the last day's finished runs
+//! a category holds enough runs carrying one, and moves an ETA or budget cell at most 2x from its prior value per tick. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
 //! closed-box rate and cost against matched boxes that did not load it, and flags the installed
 //! skills no run loaded and those whose boxes did worse. A failed read of the arms' evidence keeps the prior effort cells and fails the tick.
@@ -93,6 +93,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     if !ledger.notes.is_empty() {
         cells::carry_efforts(&prior.cells, &mut decided);
     }
+    cells::limit_steps(&prior.cells, &mut decided);
     let changes = cells::changes(&prior.cells, &decided);
     lines.extend(changes.iter().map(Change::line));
     if changes.is_empty() {

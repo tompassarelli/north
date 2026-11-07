@@ -60,6 +60,26 @@ pub fn decide(week: &ClosedReport, evidence: &BTreeMap<String, Evidence>, times:
     decided
 }
 
+pub const MAX_STEP: f64 = 2.0;
+
+pub fn limit_steps(prior: &Cells, decided: &mut [Decided]) {
+    for cell in decided.iter_mut() {
+        let eta = cell.cell.starts_with("eta_minutes ");
+        if !eta && !cell.cell.starts_with("budget_usd ") {
+            continue;
+        }
+        let (Some(was), Some(figure)) = (prior.get(&cell.cell).and_then(Value::as_f64).filter(|was| *was > 0.0), cell.value.as_f64()) else { continue };
+        let (low, high) = (was / MAX_STEP, was * MAX_STEP);
+        if (low..=high).contains(&figure) {
+            continue;
+        }
+        let held = if figure < low { low } else { high };
+        let held = if eta { held.ceil() } else { round_cents(held) };
+        cell.basis.why = format!("{}; held to {held} by the {MAX_STEP}x step limit on the prior {was}", cell.basis.why);
+        cell.value = json!(held);
+    }
+}
+
 fn effort(category: &str, evidence: &Evidence) -> Option<Decided> {
     let effort = evidence.settled_effort()?;
     let kept = |effort: Effort| evidence.efforts.closed(effort);
