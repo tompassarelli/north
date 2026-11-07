@@ -1184,8 +1184,10 @@ run instead of waiting for main-red.yml.
 
 ### What runs before the push
 
-Only what is fast and cannot be undone once main moves, all on the lander host with no capacity
-reservation, offload, runner, Actions dispatch or publication (`land.check-local = true`):
+Only what is fast and cannot be undone once main moves. The scans and gates run on the lander host;
+since 2026-11-07 north leaves `land.check-local` unset, so its `land.check` lines (clippy, nextest,
+gate-shadow) run on a build host through `land.runner`, because on the laptop they and the promotion
+replays held the load at 50 to 90 on 24 threads and drained the battery while plugged in (north#634):
 
 - the clean pick of every queued lane onto main (one candidate for all of them),
 - the outgoing scans (secrets, email, deny-list, language, native references), the stale-revert
