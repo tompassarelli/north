@@ -5,7 +5,8 @@ use super::docs::Index;
 
 const HEADER_FILE: &str = "_header.md";
 const TITLE_FILE: &str = "_title.md";
-const ENTRY_CAP: usize = 1_200;
+const FIRST_SENTENCE_CAP: usize = 600;
+const CLIPPED: char = '…';
 
 fn read(path: &Path) -> Result<String, String> {
     fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
@@ -41,11 +42,62 @@ fn sections(source: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(sorted(source)?.into_iter().filter(|path| path.is_dir() && !hidden(path)).collect())
 }
 
-fn section(dir: &Path) -> Result<String, String> {
+fn first_sentence(item: &str) -> &str {
+    let chars: Vec<(usize, char)> = item.char_indices().collect();
+    let mut quoted = false;
+    for (index, &(at, found)) in chars.iter().enumerate() {
+        match found {
+            '`' => quoted = !quoted,
+            '.' if !quoted => {
+                let (next, after) = (chars.get(index + 1).map(|pair| pair.1), chars.get(index + 2).map(|pair| pair.1));
+                if next.is_none_or(|next| next == ' ' && after.is_some_and(|after| after.is_uppercase() || after == '`' || after == '(')) {
+                    return &item[..=at];
+                }
+            }
+            _ => {}
+        }
+    }
+    item
+}
+
+fn clipped(sentence: &str) -> String {
+    if sentence.chars().count() <= FIRST_SENTENCE_CAP {
+        return sentence.to_owned();
+    }
+    let head: String = sentence.chars().take(FIRST_SENTENCE_CAP - 1).collect();
+    let cut = head.rfind(' ').filter(|space| *space > head.len() / 2).map_or(head.as_str(), |space| &head[..space]);
+    format!("{}{CLIPPED}", cut.trim_end_matches([',', ';', ':']))
+}
+
+fn summary(entry: &str, link: &str) -> String {
+    let mut shortened = false;
+    let mut lines: Vec<String> = entry
+        .lines()
+        .map(|line| {
+            if !is_item(line) {
+                return line.to_owned();
+            }
+            let shown = clipped(first_sentence(line));
+            shortened |= shown != line;
+            shown
+        })
+        .collect();
+    if shortened && let Some(last) = lines.iter_mut().rev().find(|line| is_item(line)) {
+        last.push_str(&format!(" [more]({link})"));
+    }
+    lines.join("\n")
+}
+
+fn link(source: &Path, path: &Path) -> String {
+    let relative = path.strip_prefix(source).unwrap_or(path).to_string_lossy();
+    format!("{}/{relative}", source.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()))
+}
+
+fn section(source: &Path, dir: &Path) -> Result<String, String> {
     let mut out = format!("{}\n", block(&read(&dir.join(TITLE_FILE))?));
     let mut previous: Option<String> = None;
     for path in entries(dir)? {
-        let entry = block(&read(&path)?);
+        let entry = block(&summary(&read(&path)?, &link(source, &path)));
         if previous.as_ref().is_some_and(|previous| !(is_item(previous) && is_item(&entry))) {
             out.push('\n');
         }
@@ -58,23 +110,24 @@ fn section(dir: &Path) -> Result<String, String> {
 pub fn render(source: &Path) -> Result<String, String> {
     let mut parts = vec![block(&read(&source.join(HEADER_FILE))?)];
     for path in sections(source)? {
-        parts.push(section(&path)?);
+        parts.push(section(source, &path)?);
     }
     Ok(parts.join("\n"))
 }
 
-fn lint(source: &Path) -> Result<(), String> {
-    let mut oversize = Vec::new();
+fn notes(source: &Path) -> Result<Vec<String>, String> {
+    let mut notes = Vec::new();
     for dir in sections(source)? {
         for path in entries(&dir)? {
-            let length = read(&path)?.chars().count();
-            if length > ENTRY_CAP {
-                oversize.push(format!("{}: {length} characters, over the {ENTRY_CAP}-character entry cap", path.display()));
+            for line in read(&path)?.lines().filter(|line| is_item(line)) {
+                let length = first_sentence(line).chars().count();
+                if length > FIRST_SENTENCE_CAP {
+                    notes.push(format!("docs/{}: first sentence {length} characters, {} over the {FIRST_SENTENCE_CAP}-character cap; clipped in the index", link(source, &path), length - FIRST_SENTENCE_CAP));
+                }
             }
         }
     }
-    if oversize.is_empty() { Ok(()) } else { Err(oversize.join("\n")) }
+    Ok(notes)
 }
 
-pub const INDEX: Index = Index { command: "features-index", source_dir: "docs/features", file: "docs/features.md", render, lint };
-
+pub const INDEX: Index = Index { command: "features-index", source_dir: "docs/features", file: "docs/features.md", render, notes };
