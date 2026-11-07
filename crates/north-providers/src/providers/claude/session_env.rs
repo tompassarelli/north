@@ -80,6 +80,18 @@ pub(super) fn unguarded(account: &Account, present: &dyn Fn(&Path) -> bool) -> O
     })
 }
 
+/// Why `claude --resume` on `account` in `cwd` with bypassed permissions would stop at a prompt before the conversation shows: the folder is not trusted, or the account never accepted bypass mode.
+pub(super) fn interactive_prompt(account: &Account, cwd: &Path) -> Option<String> {
+    let read = |path: std::path::PathBuf| std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let config = if at_default(account) { account.home.parent().map(|parent| parent.join(".claude.json")) } else { Some(account.home.join(".claude.json")) };
+    let projects = config.and_then(read).map(|state| state["projects"].clone()).unwrap_or_default();
+    if !cwd.ancestors().any(|folder| projects[folder.to_string_lossy().as_ref()]["hasTrustDialogAccepted"] == true) {
+        return Some(format!("account profile {} has not trusted {}, so its window would stop at a trust prompt", account.home.display(), cwd.display()));
+    }
+    let skips_bypass_prompt = read(account.home.join("settings.json")).is_some_and(|settings| settings["skipDangerousModePermissionPrompt"] == true);
+    (!skips_bypass_prompt).then(|| format!("account profile {} would ask to confirm bypass permissions in its window", account.home.display()))
+}
+
 fn at_default(account: &Account) -> bool {
     std::env::var_os("HOME").is_some_and(|home| account.home == default_home(Path::new(&home)))
 }

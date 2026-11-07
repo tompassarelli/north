@@ -76,6 +76,9 @@ pub trait Runtime: Send + Sync {
     fn interactive(&self, _account: &Account, _request: &LaunchRequest, _conversation: &str, _instructions: &str) -> NorthResult<HostSpec> {
         Err(NorthError::Usage(format!("{} sessions have no interactive UI to hand over to", self.provider().label())))
     }
+    fn interactive_prompt(&self, _account: &Account, _request: &LaunchRequest) -> Option<String> {
+        None
+    }
     fn window_inbox(&self, _accounts: &[Account], _conversation: &str) -> Option<WindowInbox> {
         None
     }

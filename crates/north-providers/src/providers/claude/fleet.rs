@@ -115,6 +115,10 @@ impl Runtime for Claude {
         Ok(())
     }
 
+    fn interactive_prompt(&self, account: &Account, request: &LaunchRequest) -> Option<String> {
+        session_env::interactive_prompt(account, &request.cwd)
+    }
+
     fn unguarded(&self, account: &Account, present: &dyn Fn(&Path) -> bool) -> Option<String> {
         session_env::unguarded(account, present)
     }

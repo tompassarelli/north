@@ -3,6 +3,7 @@
 pub(super) mod niri;
 
 use crate::fleet::model::{Role, SessionRecord};
+use crate::fleet::registry::Fleet;
 
 pub(super) trait Opener {
     /// Opens `command` in a new terminal window titled `title` and returns the window's id, or says why no window opened.
@@ -10,13 +11,16 @@ pub(super) trait Opener {
 }
 
 /// Opens the proxy a take-over or hand-over just started in its own window running `north fleet interactive --after-turn`, so the proxy's first turn ends before the window takes the conversation, on the same HOME as the launch so the window finds the fleet that started it, and says what it did; None for any other role.
-pub(super) fn show_proxy(opener: &dyn Opener, record: &SessionRecord, north: &str, home: &str) -> Option<String> {
+pub(super) fn show_proxy(opener: &dyn Opener, record: &SessionRecord, north: &str, home: &str, prompt: Option<String>) -> Option<String> {
     if record.role() != Role::Proxy {
         return None;
     }
     let name = &record.name;
     if let Some(machine) = &record.machine {
         return Some(format!("{name} runs on {}, so no window opened on this desktop", machine.name));
+    }
+    if let Some(why) = prompt {
+        return Some(format!("{name} runs headless and no window opened, because the window would stop at a prompt: {why}"));
     }
     let title = format!("north {name}");
     let command = ["env".to_owned(), format!("HOME={home}"), north.to_owned(), "fleet".to_owned(), "interactive".to_owned(), name.clone(), super::interactive::AFTER_TURN.to_owned()];
@@ -27,10 +31,11 @@ pub(super) fn show_proxy(opener: &dyn Opener, record: &SessionRecord, north: &st
 }
 
 /// Shows a session that just took a name over on this host's desktop when it is the proxy, and notes the outcome on stderr.
-pub(super) fn show_taken(record: &SessionRecord) {
+pub(super) fn show_taken(fleet: &Fleet, record: &SessionRecord) {
     let north = std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.display().to_string());
     let home = std::env::var("HOME").unwrap_or_default();
-    if let Some(line) = show_proxy(&niri::NiriGhostty, record, &north, &home) {
+    let prompt = fleet.interactive_prompt(&record.name).unwrap_or_else(|error| Some(error.user_message()));
+    if let Some(line) = show_proxy(&niri::NiriGhostty, record, &north, &home, prompt) {
         eprintln!("north fleet: {line}");
     }
 }

@@ -249,3 +249,20 @@ fn an_interactive_window_opened_after_the_turn_leaves_a_running_first_turn_to_fi
 
     assert_eq!(turn_over_at_launch, Some(true), "the window took the conversation while the first turn was still running");
 }
+
+#[test]
+fn an_interactive_window_that_would_stop_at_a_trust_or_bypass_prompt_is_named_before_it_opens() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    fleet_proxy(home.path(), "c");
+    let profile = home.path().join(".local/state/north/profiles/claude-a");
+
+    let untrusted = fleet.interactive_prompt("proxy").unwrap().expect("an untrusted folder opens a trust prompt");
+    assert!(untrusted.contains("trust"), "{untrusted}");
+    fs::write(profile.join(".claude.json"), r#"{"projects":{"/tmp":{"hasTrustDialogAccepted":true}}}"#).unwrap();
+    let bypass = fleet.interactive_prompt("proxy").unwrap().expect("bypass mode asks for confirmation until the profile accepts it");
+    assert!(bypass.contains("bypass"), "{bypass}");
+    fs::write(profile.join("settings.json"), r#"{"skipDangerousModePermissionPrompt":true}"#).unwrap();
+
+    assert_eq!(fleet.interactive_prompt("proxy").unwrap(), None);
+}

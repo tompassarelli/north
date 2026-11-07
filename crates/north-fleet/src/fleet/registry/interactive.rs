@@ -11,8 +11,6 @@ use crate::fleet::runtime::HostSpec;
 use super::{Fleet, session_running};
 use super::stopping::Halt;
 
-const TURN_POLL: Duration = Duration::from_millis(500);
-
 impl Fleet {
     /// Hands a session to its provider's own interactive UI: with `after_turn`, first waits until the turn the host is running has ended instead of cutting it off; stops the fleet host and waits until it has exited, so the fleet host and the UI never hold one conversation together, then passes the interactive command to `launch`. The record stays stopped, so nothing in the fleet restarts it; `revive` takes it back once the UI is closed.
     pub fn interactive(&self, name: &str, after_turn: bool, launch: impl FnOnce(&HostSpec) -> NorthResult<()>) -> NorthResult<()> {
@@ -26,26 +24,25 @@ impl Fleet {
         self.refuse_beside_interactive(&record)?;
         let (instructions, _) = self.instructions(&record)?;
         let spec = runtime.interactive(&account, &record.relaunch_request(), &conversation, &instructions)?;
-        if after_turn {
-            self.await_turn_end(name)?;
+        if after_turn && self.turn_running(name)? {
+            eprintln!("north fleet: {name} is mid-turn; waiting for the turn to end before opening its window");
+            while self.turn_running(name)? {
+                sleep(Duration::from_millis(500));
+            }
         }
         self.halt(name, Halt::Interactive)?;
         Host::new(record.host_dir.clone()).await_end()?;
         launch(&spec)
     }
 
-    fn await_turn_end(&self, name: &str) -> NorthResult<()> {
-        let mut told = false;
-        loop {
-            let record = self.record(name)?;
-            if !session_running(&record) || self.recent(self.runtime(&record)?.as_ref(), &record)?.status != Status::Working {
-                return Ok(());
-            }
-            if !std::mem::replace(&mut told, true) {
-                eprintln!("north fleet: {name} is mid-turn; waiting for the turn to end before opening its window");
-            }
-            sleep(TURN_POLL);
-        }
+    pub fn interactive_prompt(&self, name: &str) -> NorthResult<Option<String>> {
+        let (record, request) = (self.record(name)?, self.record(name)?.relaunch_request());
+        Ok(self.runtime(&record)?.interactive_prompt(&self.account(&request)?, &request))
+    }
+
+    fn turn_running(&self, name: &str) -> NorthResult<bool> {
+        let record = self.record(name)?;
+        Ok(session_running(&record) && self.recent(self.runtime(&record)?.as_ref(), &record)?.status == Status::Working)
     }
 
     pub(crate) fn refuse_beside_interactive(&self, record: &SessionRecord) -> NorthResult<()> {
