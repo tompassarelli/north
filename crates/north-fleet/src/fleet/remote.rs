@@ -16,7 +16,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use sha2::{Digest, Sha256};
+use north_session_host::held::{HOLD, PRUNE, unit};
 
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process::try_run_command_within;
@@ -29,29 +29,6 @@ use super::ssh::SSH_WAIT;
 
 const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
 const HELD: &str = ".local/state/north/held";
-
-/// `sh -c HOLD DIR UNIT DETACHED_SECS CLI...`: the service's main process. It feeds the CLI the
-/// input file through a FIFO, records the CLI's status and stops the service once no link has been
-/// attached for DETACHED_SECS.
-const HOLD: &str = r#"d=$0 u=$1 limit=$2; shift 2
-mkfifo "$d/feed" || exit 70
-{ "$@" < "$d/feed" >> "$d/out" 2>> "$d/err"; echo $? > "$d/status"; } &
-cli=$!
-{ seen=$(date +%s); while sleep 60; do
-  if read -r p b < "$d/attach" && [ "$(cut -d' ' -f22 "/proc/$p/stat")" = "$b" ]; then seen=$(date +%s)
-  elif [ $(($(date +%s) - seen)) -ge "$limit" ]; then systemctl --user stop "$u"; fi
-done; } 2>/dev/null &
-watch=$!
-tail -c +1 -f --pid="$cli" "$d/in" > "$d/feed"
-wait "$cli"; code=$?
-kill "$watch" 2>/dev/null
-exit "$code""#;
-
-/// `sh -c PRUNE HELD`: removes held directories untouched for three days whose service is gone.
-const PRUNE: &str = r#"for h in "$0"/*.service; do
-  [ -d "$h" ] && [ -z "$(find "$h" -maxdepth 1 -mmin -4320 -print -quit)" ] && ! systemctl --user -q is-active "${h##*/}" &&
-    rm -f "$h/in" "$h/out" "$h/err" "$h/status" "$h/attach" "$h/feed" "$h/nonce" && rmdir "$h"
-done"#;
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
 pub fn placed(spec: HostSpec, record: &SessionRecord) -> NorthResult<HostSpec> {
@@ -129,14 +106,3 @@ fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path) -> NorthRes
     }
     Ok(())
 }
-
-/// The session's unit, named for reading and suffixed with a digest of the launching host and the
-/// exact session name, so neither sanitised look-alikes nor another launching host share it.
-fn unit(key: &str) -> String {
-    let name: String = key.chars().map(|c| if c.is_ascii_alphanumeric() || "-_.".contains(c) { c } else { '_' }).collect();
-    let launcher = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
-    let digest = Sha256::digest(format!("{}\0{key}", launcher.trim()).as_bytes());
-    let suffix: String = digest.iter().take(4).map(|byte| format!("{byte:02x}")).collect();
-    format!("north-fleet-{name}-{suffix}.service")
-}
-

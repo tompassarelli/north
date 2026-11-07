@@ -111,12 +111,17 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     to_link.write_all(b"one\n").await.unwrap();
     let first = next(&mut lines).await;
     let cli_pid = first.strip_prefix("got one ").unwrap().to_owned();
+    let (ssh, units) = (root.path().join("plain-ssh"), [north_session_host::held::unit("box one")]);
+    crate::foundation::shim::write_script(&ssh, &format!("while [ \"$1\" != -- ]; do shift; done\nPATH='{}':$PATH exec sh -c \"$2\"", root.path().join("shims").display()));
+    let work = || north_session_host::held::work(&ssh, "tom@far", &units).unwrap()[&units[0]];
+    assert_eq!(work(), 0, "an idle CLI has no work below it");
     to_link.write_all(b"wait\n").await.unwrap();
     let started = std::time::Instant::now();
     while !waiting.exists() {
         assert!(started.elapsed() < WAIT, "the CLI never took the wait");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    assert!(work() > 0, "the reaper sees the background wait the CLI runs on its machine (north#770)");
     drop_transport(&root.path().join("shims"));
     to_link.write_all(b"two\n").await.unwrap();
 

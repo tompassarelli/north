@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use north_base::platform::attribution::awaits_lander;
+use north_session_host::held::{self, unit};
 use regex::Regex;
 use serde::Serialize;
 use toml_edit::DocumentMut;
@@ -90,7 +91,7 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
     if !matches!(seen.status, Status::Idle | Status::Parked) {
         return Verdict::Keep;
     }
-    if seen.report.as_ref().is_some_and(|report| report.taken && finishes(&report.text) && report.unlanded.is_empty()) {
+    if seen.report.as_ref().is_some_and(|report| report.taken && finishes(&report.text) && report.unlanded.is_empty() && (opens(&report.text, "Done") || !seen.background)) {
         return Verdict::Finished;
     }
     if seen.quiet >= stale && !seen.background { Verdict::Stale } else { Verdict::Keep }
@@ -244,7 +245,12 @@ impl Evidence for Here {
         let (proc, cgroups) = (Path::new("/proc"), Path::new("/sys/fs/cgroup"));
         let mut running = BTreeMap::new();
         let mut units: Vec<(String, String)> = Vec::new();
+        let mut placed: BTreeMap<&str, BTreeMap<String, String>> = BTreeMap::new();
         for record in records {
+            if let Some(machine) = record.machine.as_ref().filter(|_| !record.stopped) {
+                placed.entry(machine.ssh.as_str()).or_default().insert(unit(&record.name), record.name.clone());
+                continue;
+            }
             if let Some(host) = record.host_pid.filter(|pid| !record.stopped && alive(*pid)) {
                 let detached = detached::Procfs::new(proc.into(), cgroups.into(), host).after(Prior::all(&record.host_dir)).detached();
                 if !detached.is_empty() {
@@ -256,6 +262,10 @@ impl Evidence for Here {
             }
             let scope = std::fs::read_to_string(record.host_dir.join("host.scope")).ok().map(|unit| unit.trim().to_owned()).filter(|unit| !unit.is_empty());
             units.extend(scope.into_iter().chain(Prior::all(&record.host_dir).into_iter().map(|prior| prior.unit)).map(|unit| (record.name.clone(), unit)));
+        }
+        let ssh = &binary("ssh");
+        for (work, named) in std::thread::scope(|scope| placed.into_iter().map(|(destination, named)| scope.spawn(move || (held::work(ssh, destination, &named.keys().cloned().collect::<Vec<_>>()), named))).collect::<Vec<_>>().into_iter().filter_map(|reading| reading.join().ok()).collect::<Vec<_>>()) {
+            running.extend(named.into_iter().filter(|(unit, _)| work.as_ref().is_none_or(|work| work.get(unit).is_some_and(|count| *count > 0))).map(|(_, name)| (name, Work::Cli)));
         }
         if units.is_empty() {
             return running;

@@ -185,8 +185,9 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
     let _lead = live(&fleet, "lead");
     reported(&fleet, "finished", Some("lead"), "Done: the fix landed as 1af7168df on origin/main.");
     reported(&fleet, "monitoring", Some("lead"), "Not done: CI is still running; its monitor wakes me.");
+    reported(&fleet, "queued", Some("lead"), "Not done: the fix is written but clippy is queued in capacity admission, and the run will notify me when it ends.\n\nStop: capacity");
     reported(&fleet, "ended", Some("lead"), "Done: the arm result landed as 2bc8279e0.");
-    for name in ["finished", "monitoring", "ended"] {
+    for name in ["finished", "monitoring", "queued", "ended"] {
         paper.claim_receipt(name, "turn:1", now_ms()).unwrap();
     }
     let dir = fleet.root.join("ended");
@@ -195,7 +196,7 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
     record.ended = Some(Ending::IdleExit);
     crate::fleet::records::write_record(&dir, &record).unwrap();
     fleet.waits().register("ended", Run::Process { pid: 1, started: 1 }, Path::new("/tmp"), Some("sh -c d=$0 u=$1 limit=$2")).unwrap();
-    let running = ["finished", "monitoring"].map(|name| (name.to_owned(), Work::Cli)).into();
+    let running = ["finished", "monitoring", "queued"].map(|name| (name.to_owned(), Work::Cli)).into();
     let evidence = Sight { landed: ["1af7168df".to_owned()].into(), running };
 
     let reaped = reap_after(&fleet, &evidence, Duration::ZERO, now_ms(), true);
@@ -204,6 +205,7 @@ fn a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_w
     names.sort_unstable();
     assert_eq!(names, ["ended", "finished"], "{reaped:?}");
     assert!(reaped.kept.iter().any(|kept| kept.name == "monitoring" && kept.why.contains("background task")), "{reaped:?}");
+    assert!(reaped.kept.iter().any(|kept| kept.name == "queued" && kept.why.contains("background task")), "a Not done whose CLI still runs the job it waits on is paused, not finished (north#770): {reaped:?}");
     assert!(fleet.session("finished").is_err() && fleet.session("ended").is_err() && fleet.session("monitoring").is_ok());
 }
 
