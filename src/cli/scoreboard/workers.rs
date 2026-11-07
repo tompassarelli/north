@@ -11,9 +11,10 @@ use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::attention::references;
 use crate::platform::run_roles::worker_where;
 use crate::platform::{land_queue, records_mirror};
+use crate::capacity::host::{capacity_database_readonly, queued_behind_capacity};
 use crate::providers::claude::runs::outcome::waits_on_time;
 use crate::land_ticket::{Lane, lanes_by_session};
-use crate::threads::attribution::{Cause, attribute, fleet_column, outcome_column, recorded_column, report_column};
+use crate::threads::attribution::{Cause, Harness, attribute, fleet_column, outcome_column, recorded_column, report_column};
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred, lander-queued and job-waking runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
@@ -65,7 +66,8 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
     let relaunches = relaunches(db)?;
     Ok(chain::fold(raws, &Marks::read(db), &relaunches)
         .into_iter()
-        .filter_map(|Raw { agent, category, item, session, ended, end: End { outcome, report, compactions, recorded }, .. }| {
+        .filter_map(|Raw { agent, category, item, session, started, ended, end: End { outcome, report, compactions, recorded } }| {
+            let recorded = recorded.or_else(|| (outcome != "done" && pending.queued_behind_capacity(&session, started, ended)).then(|| Cause::Harness(Harness::Capacity).label().to_owned()));
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
             if outcome != "done" && pending.holds(&session) {
                 return None;
@@ -96,11 +98,17 @@ pub struct Pending {
     pub lanes: BTreeMap<String, Vec<Lane>>,
     /// Sessions holding an unexpired wait lease in the fleet ledger (a `job-run --notify` job, farm, branch or capture), whose end wakes them.
     pub waking: BTreeSet<String>,
+    /// This host's capacity database: a failed run whose session queued past the bound for admission inside its window lost to capacity, whatever its report says.
+    pub capacity: Option<Connection>,
 }
 
 impl Pending {
     pub fn read(db: &Connection, now: i64) -> Self {
-        Self { lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), waking: waking_sessions(db, now) }
+        Self { lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), waking: waking_sessions(db, now), capacity: capacity_database_readonly() }
+    }
+
+    fn queued_behind_capacity(&self, session: &str, from: i64, to: i64) -> bool {
+        self.capacity.as_ref().is_some_and(|db| !queued_behind_capacity(db, session, from, to).is_empty())
     }
 
     fn holds(&self, session: &str) -> bool {

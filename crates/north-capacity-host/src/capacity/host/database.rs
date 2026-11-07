@@ -220,6 +220,39 @@ pub fn insert_priority_use(db: &Connection, row: &PriorityUse<'_>) -> rusqlite::
     Ok(())
 }
 
+/// The longest a session's gated run may queue for admission before the wait counts as the harness holding it, not the worker.
+pub const QUEUED_BOUND_SECONDS: f64 = 300.0;
+
+/// A gated run admitted after queueing for capacity: when it was admitted (unix seconds) and how long it queued.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Queued {
+    pub at: i64,
+    pub seconds: f64,
+}
+
+/// The gated runs of fleet session `session` admitted between `from` and `to` (unix seconds) that queued at least
+/// `QUEUED_BOUND_SECONDS`, longest first, read from the host's `capacity_priority` rows (owner `gate:SESSION`). A database
+/// without the table, or a host that never admitted the session, answers none.
+pub fn queued_behind_capacity(db: &Connection, session: &str, from: i64, to: i64) -> Vec<Queued> {
+    let Ok(mut statement) = db.prepare("SELECT at, queuedSeconds FROM capacity_priority WHERE owner = ?1 AND queuedSeconds >= ?2") else { return Vec::new() };
+    let rows = statement.query_map(rusqlite::params![format!("gate:{session}"), QUEUED_BOUND_SECONDS], |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)));
+    let mut queued: Vec<Queued> = rows
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|(at, seconds)| Some(Queued { at: crate::foundation::clock::Timestamp::parse(&at).ok()?.unix_seconds(), seconds }))
+        .filter(|queued| queued.at >= from && queued.at <= to)
+        .collect();
+    queued.sort_by(|left, right| right.seconds.total_cmp(&left.seconds));
+    queued
+}
+
+/// The capacity database opened read-only where it exists, for a reader that must not create it.
+pub fn capacity_database_readonly() -> Option<Connection> {
+    let path = env("AGENT_CAPACITY_DB").map_or_else(|| state_root().join("agents/machine-capacity/capacity.db"), PathBuf::from);
+    Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX).ok()
+}
+
 fn real(row: &rusqlite::Row<'_>, column: &str) -> rusqlite::Result<Option<f64>> {
     row.get::<_, Option<f64>>(column)
 }

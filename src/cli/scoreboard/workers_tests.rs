@@ -24,7 +24,7 @@ fn a_landing_stop_is_pending_while_its_ticket_waits_in_the_lander_queue() {
     for (agent, session, report) in [("queued", "n-takeable", "Not done: the lane is queued."), ("decided", "n-decided", "Not done: the lane is queued.\nStop: landing")] {
         db.execute("INSERT INTO runs VALUES (?1, 'north#706', NULL, 'bug', '2026-11-07T02:21:27Z', '2026-11-07T03:10:21Z', 49, 'not done', ?3, 'worker', '', 0, ?2)", [agent, session, report]).unwrap();
     }
-    let read = attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: lanes_by_session(&land_queue::queues(state.path())).unwrap(), waking: BTreeSet::new() }).unwrap();
+    let read = attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: lanes_by_session(&land_queue::queues(state.path())).unwrap(), waking: BTreeSet::new(), capacity: None }).unwrap();
     let causes: Vec<Cause> = read.iter().map(|attempt| attempt.cause).collect();
     assert_eq!(causes, [Cause::Harness(Harness::LandingRefusal)]);
 }
@@ -50,7 +50,7 @@ fn an_unfinished_first_try_is_pending_while_its_notify_job_holds_its_lease() {
     db.execute("INSERT INTO runs VALUES ('d0351', 'north#730', NULL, 'bug', '2026-11-07T03:52:00Z', '2026-11-07T05:41:00Z', 109, 'not done', 'Not done: the fix is queued; the job will message me.\nStop: wait until 2026-11-07T06:30Z', 'worker', '', 0, 'north-730-d0351')", []).unwrap();
     db.execute("INSERT INTO fleet_waits VALUES ('north-730-d0351', 'job', 'n730-poolkey-landed@gex45#2758963', '2026-11-07T06:03:39Z', '2026-11-07T05:41:48Z')", []).unwrap();
     let at = |iso: &str| crate::foundation::clock::Timestamp::parse(iso).unwrap().unix_seconds();
-    let read = |now: &str| attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: Default::default(), waking: waking_sessions(&db, at(now)) }).unwrap().len();
+    let read = |now: &str| attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: Default::default(), waking: waking_sessions(&db, at(now)), capacity: None }).unwrap().len();
     assert_eq!((read("2026-11-07T06:00:00Z"), read("2026-11-07T06:05:00Z")), (0, 1));
 }
 
@@ -97,4 +97,24 @@ fn a_run_the_harness_resumed_is_judged_by_where_its_chain_ends_and_a_correction_
     assert_eq!(read.iter().map(|attempt| attempt.succeeded).collect::<Vec<_>>(), [false, true]);
     let pending = chain_db(&[("resume", "harness:landing-refusal", "2026-11-07T16:20:00Z")], &runs[..1]);
     assert!(attempts(&pending, 0, &BTreeSet::new(), &Pending::default()).unwrap().is_empty());
+}
+
+/// Ten of the 66 runs that closed 2026-11-06 23:00 to 2026-11-07 06:14 UTC ended `Stop: capacity` with no boundary record,
+/// and the bar took the worker's word for it (north#791): the capacity host's `capacity_priority` rows name the session
+/// (owner `gate:SESSION`) and how long its run queued for admission, so a failed run whose session queued past the bound
+/// inside its window is a capacity loss whatever its report says, and a session that queued briefly or outside it is not.
+#[test]
+fn a_failed_run_whose_session_queued_past_the_bound_for_capacity_is_a_capacity_loss_without_its_stop_line() {
+    let capacity = Connection::open_in_memory().unwrap();
+    capacity.execute_batch("CREATE TABLE capacity_priority (lease TEXT PRIMARY KEY, at TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, priority TEXT NOT NULL, placed INTEGER NOT NULL, queuedSeconds REAL NOT NULL, command TEXT)").unwrap();
+    for (lease, at, owner, queued) in [("a", "2026-11-07T04:30:00.000Z", "gate:north-757-d0001", 900.0), ("b", "2026-11-07T04:30:00.000Z", "gate:north-757-d0002", 20.0), ("c", "2026-11-07T01:00:00.000Z", "gate:north-757-d0003", 900.0)] {
+        capacity.execute("INSERT INTO capacity_priority VALUES (?1, ?2, ?3, 'test', 'tom-ask', 1, ?4, NULL)", rusqlite::params![lease, at, owner, queued]).unwrap();
+    }
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT);").unwrap();
+    for (agent, session) in [("d0001", "north-757-d0001"), ("d0002", "north-757-d0002"), ("d0003", "north-757-d0003")] {
+        db.execute("INSERT INTO runs VALUES (?1, 'north#757', NULL, 'bug', '2026-11-07T04:00:00Z', '2026-11-07T05:00:00Z', 60, 'not done', 'Not done: the check is queued.', 'worker', '', 0, ?2)", [agent, session]).unwrap();
+    }
+    let read = attempts(&db, 0, &BTreeSet::new(), &Pending { capacity: Some(capacity), ..Pending::default() }).unwrap();
+    assert_eq!(read.iter().map(|attempt| attempt.cause).collect::<Vec<_>>(), [Cause::Harness(Harness::Capacity), Cause::Worker, Cause::Worker]);
 }

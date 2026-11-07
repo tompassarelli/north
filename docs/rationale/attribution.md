@@ -56,6 +56,7 @@ Each boundary of the harness that touches a session writes its own cause for tha
 - lander: a failing check or a conflict in the lane's own lines is worker-caused; a deferral, a hang, a transient error or an origin that refused the push is a landing refusal.
 - dispatch: a launch that failed to place (a host that would not take it) is placement.
 - capacity: a fleet session's build that ends with no verdict (exit 75) is capacity.
+- capacity queue: a failed run whose session queued for admission at least `QUEUED_BOUND_SECONDS` (300) inside the run's window, read from the host's `capacity_priority` rows (owner `gate:SESSION`) by `north_capacity_host::capacity::host::queued_behind_capacity`, is capacity; the scorer reads it when no boundary row names the run, and `Stop: capacity`, `Stop: client` and `Stop: budget` no longer decide it (north#791).
 - fleet: a turn that compacted and ended without a standard opener is compaction; a stop that cuts a turn short is halted (Tom when he opened the conversation in its interactive UI); a session parked on its account's usage limit or handed over to another account is capacity.
 
 The worker's own `Stop:` line is the fallback: the ingest keeps each report's last `Stop:` line in `runs.stop`, because the ledger keeps only a report's first 600 characters and a long report's closing line fell outside them, and the rules read it after the kept head.
