@@ -134,6 +134,16 @@ pub fn ledger_path() -> NorthResult<PathBuf> {
     ambient_client(unread_fleet()).map(|client| client.ledger()).ok_or_else(|| NorthError::Usage("no home directory".into()))
 }
 
+/// The name of the host the ledger lives on, the destination `~/.config/threads/remote` names without its user; None when this host holds the ledger itself.
+pub fn ledger_host_name() -> Option<String> {
+    let client = ambient_client(unread_fleet())?;
+    if client.var("THREADS_DB").is_some() {
+        return None;
+    }
+    let destination = fs::read_to_string(&client.remote).ok()?;
+    destination.trim().rsplit('@').next().filter(|name| !name.is_empty()).map(str::to_owned)
+}
+
 pub fn forward_to_ledger_host(words: &[&str], input: &[u8]) -> NorthResult<Option<i32>> {
     let client = ambient_client(unread_fleet()).ok_or_else(|| NorthError::Usage("no home directory".into()))?;
     client.forward(words, input, &mut io::stderr())

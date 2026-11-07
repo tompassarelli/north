@@ -47,7 +47,7 @@ pub(super) fn restart_placed(fleet: &Fleet, name: &str, system_prompt: Option<Pa
     if record.provider.label() == "claude" && !record.verification && !fleet.running(&record) {
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
-        let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
+        let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()), lead: false };
         placement = match placement::check(&launch, &placement::brief_text(brief.as_deref(), "")?, &overrides, &placement::machine_load(fleet)?, &fleet.roster(), true)? {
             Ok(placed) => placed.note,
             Err(refusal) => return Ok(Err(refusal)),

@@ -34,7 +34,7 @@ fn decision(target: Target) -> Decision {
 #[test]
 fn an_account_at_its_provider_limit_refuses_even_a_pin_and_names_the_account_placement_picks() {
     let placed = decision(Target::Account("claude:a".into()));
-    let launch = Launch { name: "burndown-lead", account: "c", brief: None, cwd: None, machine: None };
+    let launch = Launch { name: "burndown-lead", account: "c", brief: None, cwd: None, machine: None, lead: false };
     let revived = Overrides::default().recorded(Some("pin: north dispatch ranks claude:c first"));
     let refused = admit(&placed, &launch, "", &revived).unwrap_err().to_string();
     assert!(refused.starts_with("provider limit: claude:c unavailable: 5h window at the provider's limit"), "{refused}");
@@ -53,3 +53,14 @@ fn an_account_at_its_provider_limit_refuses_even_a_pin_and_names_the_account_pla
     assert!(admit(&all_out, &launch, "", &revived).unwrap_err().to_string().ends_with("no Claude account is available; wait for a window to reset"));
 }
 
+
+#[test]
+fn a_lead_launched_on_a_worker_host_or_onto_a_worker_machine_is_refused_with_the_reason_that_a_lead_runs_where_it_places() {
+    let trusted = |host: &str| matches!(host, "whiterabbit" | "nexus");
+    let lead = |machine| Launch { name: "n-state-machines", account: "api", brief: None, cwd: Some(Path::new("/home/tom/code/north/main")), machine, lead: true };
+    let on_worker_host = lead_refusal("cpx62", &lead(None), trusted).unwrap();
+    assert!(on_worker_host.starts_with("cpx62 is a worker host: a lead staffs other hosts") && on_worker_host.ends_with("launch n-state-machines from the laptop or nexus"), "{on_worker_host}");
+    assert!(lead_refusal("whiterabbit", &lead(Some("gex45")), trusted).is_some_and(|why| why.starts_with("gex45 is a worker host")));
+    assert_eq!(lead_refusal("whiterabbit", &lead(None), trusted), None);
+    assert_eq!(lead_refusal("cpx62", &Launch { lead: false, ..lead(None) }, trusted), None, "a worker keeps running on a worker host");
+}

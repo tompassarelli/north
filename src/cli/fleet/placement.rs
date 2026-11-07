@@ -69,6 +69,8 @@ pub(super) struct Launch<'a> {
     pub cwd: Option<&'a Path>,
     /// The machine `--cwd HOST:PATH` or the revived record names, which placement must run the box on.
     pub machine: Option<&'a str>,
+    /// A fresh launch of a lead, which staffs other hosts and so runs only where its commands have the reach to launch there.
+    pub lead: bool,
 }
 
 /// The brief placement reads: the system prompt file when there is one, then the prompt.
@@ -108,7 +110,10 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
         return Ok(Ok(Placed::default()));
     }
     let text = gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref());
-    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()) };
+    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()), lead: is_lead(request) };
+    if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
+        return Ok(Err(Refusal::Final(why)));
+    }
     let placed = check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster(), report)?;
     if placed.is_err() {
         return Ok(placed);
@@ -224,6 +229,10 @@ fn decide(case: &Case, launch: &Launch, overrides: &Overrides) -> NorthResult<De
     };
     if absent.is_some() {
         decision.stay_here(absent);
+    }
+    if launch.lead && let Some(machine) = decision.machine.as_ref().filter(|machine| machine.reaches.as_ref().is_none_or(|reached| reached.is_empty())) {
+        let line = format!("{} is a worker host: {LEAD_ON_TRUSTED}, so the lead stays here", machine.name);
+        decision.stay_here(Some(line));
     }
     decision.hold_here();
     Ok(decision)
@@ -367,4 +376,27 @@ pub(super) fn working_directory(cwd: Option<PathBuf>) -> NorthResult<(PathBuf, O
     let Some((host, path)) = named else { return Ok((std::fs::canonicalize(cwd)?, None)) };
     let machine = crate::pacing::placement::machine(host).ok_or_else(|| NorthError::Usage(format!("--cwd {host}:{path} names no [hosts.{host}] with an ssh destination")))?;
     Ok((PathBuf::from(path), Some(machine)))
+}
+
+const LEAD_ON_TRUSTED: &str = "a lead staffs other hosts and its commands run on the host that runs it, so it runs on a host that places sessions on the others (the laptop or nexus)";
+
+/// Whether the session this launch starts is a lead as its record will say: it names no parent and holds no task.
+fn is_lead(request: &LaunchRequest) -> bool {
+    request.role.map_or_else(|| request.parent.is_none() && request.tasks().is_empty() && request.name != crate::fleet::runtime::PROXY, |role| role == Role::Lead)
+}
+
+/// Whether `host` is trusted: it holds the ledger or declares the hosts it `reaches`; a worker host declares none.
+fn trusted(host: &str, here: &str) -> bool {
+    let ledger = crate::threads::client::ledger_host_name();
+    let reaches = crate::pacing::placement::config().ok().and_then(|cfg| cfg.get("hosts")?.get(host)?.get("reaches")?.as_array().map(|hosts| !hosts.is_empty()));
+    reaches.unwrap_or(false) || ledger.as_deref() == Some(host) || (host == here && ledger.is_none())
+}
+
+/// Why a fresh lead may not run on `here`'s own registry or on the worker machine it names, None for any other launch.
+fn lead_refusal(here: &str, launch: &Launch, trusted: impl Fn(&str) -> bool) -> Option<String> {
+    if !launch.lead || launch.cwd.is_none() {
+        return None;
+    }
+    let worker = if trusted(here) { launch.machine.filter(|machine| !trusted(machine))? } else { here };
+    Some(format!("{worker} is a worker host: {LEAD_ON_TRUSTED}; launch {} from the laptop or nexus", launch.name))
 }
