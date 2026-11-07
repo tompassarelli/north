@@ -64,3 +64,20 @@ fn a_lead_launched_on_a_worker_host_or_onto_a_worker_machine_is_refused_with_the
     assert_eq!(lead_refusal("whiterabbit", &lead(None), trusted), None);
     assert_eq!(lead_refusal("cpx62", &Launch { lead: false, ..lead(None) }, trusted), None, "a worker keeps running on a worker host");
 }
+
+#[test]
+fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
+    let gex45 = placement::Machine { name: "gex45".into(), ssh: "tom@gex45".into(), serves: Vec::new(), pushes: None, reaches: None, launches: true, cap: 8, live: Some(5), accounts: vec!["a".into()], claude_ai: Vec::new(), saturation: None };
+    let mut full = decision(Target::Account("claude:a".into()));
+    full.machine = Some(gex45);
+    full.saturated = Some("gex45 skipped: 4 jobs queued in machine-capacity admission (limit 4)".into());
+    let launch = Launch { name: "gex45-n757-leases", account: "a", brief: None, cwd: Some(Path::new("/home/tom/code/north/main")), machine: Some("gex45"), lead: false };
+    let pinned = Overrides { pin: Some("continues the lead's wave on gex45".into()), ..Overrides::default() };
+    let mut placed = full;
+    fall_through(&mut placed, &launch, &pinned);
+    assert_eq!(placed.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"));
+    match admit(&placed, &launch, "", &pinned) {
+        Err(Refusal::Saturated(why)) => assert!(why.starts_with("gex45 skipped: 4 jobs queued in machine-capacity admission (limit 4); it starts there once the host has room"), "{why}"),
+        other => panic!("a pinned launch onto a saturated machine started: {other:?}"),
+    }
+}

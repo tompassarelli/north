@@ -265,11 +265,14 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     if let Some(out) = limit_refusal(decision, launch.account) {
         return Err(Refusal::Spend(out));
     }
-    let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
-    let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; launch from another host, or keep it here with --local \"<reason>\" or --pin \"<reason>\""));
+    let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; it starts there once the host has room, or launch it elsewhere, or here with --local \"<reason>\""));
+    let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; it starts here once the host has room, or launch from another host, or keep it here with --local \"<reason>\""));
+    if let Some(full) = saturated.or(hot) {
+        return Err(Refusal::Saturated(full));
+    }
     let cpu = decision.here_cpu_held.as_ref().filter(|_| machine.is_none()).map(|why| format!("{why} To start it here anyway, launch with --pin \"<reason>\"."));
     let on_battery = decision.here_on_battery.clone().filter(|_| overrides.local.is_some()).map(Refusal::Final);
-    let held = saturated.or(hot).or(cpu).map(Refusal::Saturated).or(on_battery);
+    let held = cpu.map(Refusal::Saturated).or(on_battery);
     if let Some(refusal) = held {
         let Some(reason) = &overrides.pin else {
             return Err(refusal);
