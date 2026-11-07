@@ -123,3 +123,32 @@ fn a_turn_north_interrupts_mid_work_scores_idle_so_the_turn_after_it_decides_the
 
     assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "idle");
 }
+
+#[test]
+fn a_reply_to_north_s_spend_nudge_that_ends_a_working_turn_scores_idle_gex45_n757_gates() {
+    let at = |n: u32| format!("2026-11-07T10:{n:02}:00Z");
+    let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let lines = vec![
+        text("user", 52, "Item: north#757"),
+        text("assistant", 58, "The providers tests are running in the background."),
+        text("user", 59, "[from service:north-budget@gex45] [north: budget] north#757 has spent $2.49 against E p50 $2.76, p90 $9.00, past half of p50 in under a quarter of the expected minutes; check your approach still fits the box's budget."),
+        text("assistant", 59, "Spend is $2.49 against the $2.76 p50 and the approach still fits. The remaining work is the providers test result, clippy, commit and landing."),
+    ];
+    let transcript = super::row::Transcript { lines: &lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) };
+
+    assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "idle");
+}
+
+#[test]
+fn a_turn_that_ends_while_its_background_command_runs_scores_idle_north_725_d0351() {
+    let at = |n: u32| format!("2026-11-07T10:{n:02}:00Z");
+    let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let started = json!({"type": "user", "timestamp": at(54), "sessionId": "s", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "u1", "content": "Command running in background with ID: b2poll. Output is being written to: /tmp/b2poll.output."}]}});
+    let mut lines = vec![text("user", 51, "Item: north#725"), started, text("assistant", 56, "Not landed yet (empty output); the second poll is still running.")];
+    let transcript = |lines: &[serde_json::Value]| super::row::build(&super::row::Transcript { lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) }).unwrap()["outcome"].clone();
+
+    assert_eq!(transcript(&lines), "idle");
+    lines.push(text("user", 58, "<task-notification><task-id>b2poll</task-id><status>completed</status></task-notification>"));
+    lines.push(text("assistant", 59, "Reading the poll output next."));
+    assert_eq!(transcript(&lines), "unclear", "once its command has ended, a turn with no report is unclear again");
+}

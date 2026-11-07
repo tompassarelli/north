@@ -169,11 +169,11 @@ fn note(judged: &mut Judged, state: &mut State, sessions: &[Spending], event: &E
         }
         "warn" => {
             judged.alerts.push(format!("Budget warning: {line}, 2x its p90."));
-            judged.tells.extend(leads.iter().map(|lead| Tell { to: (*lead).to_owned(), text: format!("[north: budget] {line}, past 2x its p90; check the box is still on course.") }));
+            judged.tells.extend(leads.iter().map(|lead| Tell { to: (*lead).to_owned(), text: format!("[north: budget] {line}, past 2x its p90; check the box is still on course in one line, then continue your work in this turn.") }));
         }
         "velocity" => {
             let workers = sessions.iter().filter(who).filter(|spending| !spending.lead).map(|spending| spending.name.as_str());
-            judged.tells.extend(workers.map(|worker| Tell { to: worker.to_owned(), text: format!("[north: budget] {line}, past half of p50 in under a quarter of the expected minutes; check your approach still fits the box's budget.") }));
+            judged.tells.extend(workers.map(|worker| Tell { to: worker.to_owned(), text: format!("[north: budget] {line}, past half of p50 in under a quarter of the expected minutes; check your approach still fits the box's budget in one line, then continue your work in this turn.") }));
             if event.spent >= event.p90 {
                 judged.tells.extend(leads.iter().map(|lead| Tell { to: (*lead).to_owned(), text: format!("[north: budget] {line}, past its p90 in under a quarter of the expected minutes.") }));
             }

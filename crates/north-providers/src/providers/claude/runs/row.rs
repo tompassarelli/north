@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -13,9 +13,12 @@ static ETA: LazyLock<Regex> =
 static STATED_ETA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^ETA:[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*(hours?|hrs?|h|minutes?|mins?|m)\b").unwrap());
 pub static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted flaws?:\s*([0-9]+)").unwrap());
 pub static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
+static BACKGROUNDED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"running in background with ID: (\w+)|moved to the background \(ID: (\w+)\)").unwrap());
+static NOTIFIED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<task-id>(\w+)</task-id>").unwrap());
 const RUNNING_SECONDS: i64 = 7200;
 pub const TRANSCRIPT_ORIGIN: &str = "claude.transcript";
 const INTERRUPTED: &str = "[Request interrupted";
+const DELIVERED: [&str; 2] = ["[from ", "[north:"];
 
 pub(super) struct Transcript<'a> {
     pub lines: &'a [Value],
@@ -94,25 +97,43 @@ fn human(record: &Value) -> bool {
         }
 }
 
+/// Tracks the background commands a line starts (a tool result naming its id) and ends (a task notification), so a
+/// turn that ends while one still runs is read as a wait north will wake, whatever its last line says.
+fn background(line: &Value, running: &mut BTreeSet<String>) {
+    let raw = line["message"]["content"].to_string();
+    running.extend(BACKGROUNDED.captures_iter(&raw).filter_map(|found| found.iter().skip(1).flatten().next().map(|id| id.as_str().to_owned())));
+    for found in NOTIFIED.captures_iter(&raw) {
+        running.remove(&found[1]);
+    }
+}
+
 fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
     let mut turns: Vec<(bool, Vec<&Value>)> = vec![(false, Vec::new())];
+    let mut running: BTreeSet<String> = BTreeSet::new();
     for line in lines {
         if human(line) {
-            if texts(line).starts_with(INTERRUPTED) && let Some((cut, _)) = turns.last_mut() {
-                *cut = true;
+            let said = texts(line);
+            let delivered = DELIVERED.iter().any(|opening| said.starts_with(opening));
+            if (delivered || !running.is_empty() || said.starts_with(INTERRUPTED)) && let Some((aside, _)) = turns.last_mut() {
+                *aside = true;
             }
-            turns.push((false, Vec::new()));
+            background(line, &mut running);
+            turns.push((delivered, Vec::new()));
         } else if let Some((_, turn)) = turns.last_mut() {
+            background(line, &mut running);
             turn.push(line);
         }
     }
+    if let Some((aside, _)) = turns.last_mut().filter(|_| !running.is_empty()) {
+        *aside = true;
+    }
     let reports: Vec<(String, &'static str)> = turns
         .iter()
-        .filter_map(|(cut, turn)| {
+        .filter_map(|(aside, turn)| {
             let assistant: Vec<&Value> = turn.iter().copied().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
             let report = report(&assistant)?;
             let outcome = match outcome::classify(&report, quiet_run(turn.iter().copied())) {
-                "unclear" if *cut => "idle",
+                "unclear" | "not done" if *aside && !crate::platform::attribution::has_opener(&report) => "idle",
                 outcome => outcome,
             };
             Some((report, outcome))
