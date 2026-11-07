@@ -182,9 +182,9 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
         At::Diverges(false) => {}
         At::NoVerdict(why) => return halted(runtimes, divergence, &why),
         At::Diverges(true) | At::Unreplayable => {
-            let reason = format!("{}; the held runtime {} does not reproduce the recorded verdict either, so no commit between the runtimes caused it and holding the link gains nothing: the check is flaky or its environment broke for this round; file the flaky test on its owner", divergence.named(), short(held));
-            tell(runtimes, &format!("north land promote: the lander link follows {}: {reason}", short(commits.last().map_or(held, String::as_str))));
-            return Ok(Judged::Follows(reason));
+            let reason = format!("{}; the held runtime {} does not reproduce the recorded verdict either, so a bisect by verdict cannot name a commit between the runtimes", divergence.named(), short(held));
+            tell(runtimes, &format!("north land promote: lander link held: {reason}"));
+            return Err(reason);
         }
     }
     let (mut good, mut bad) = (0, points.len() - 1);
