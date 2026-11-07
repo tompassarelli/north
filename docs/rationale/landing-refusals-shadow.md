@@ -10,7 +10,7 @@ This is the shadow-first rule of `harness/gates.toml` (north#706) run in reverse
 
 The shadow switch reaches a host with its runtime: the lander's pick and candidate scans read the lander's runtime tree, `north land enqueue` the worker host's.
 
-In shadow, `north land enqueue` skips the cheap `@enqueue` after-landing lines and runs clippy alone before queueing: those lines run after landing anyway, where a failure files debt instead of refusing.
+In shadow, `north land enqueue` skips the cheap `@enqueue` after-landing lines and runs clippy and the `@enqueue` `land.check` lines (the policy gate for a lane that edits harness text, whose refusal held every host's policy generation for about 4 hours on 2026-11-07) before queueing: the after-landing lines run after landing anyway, where a failure files debt instead of refusing.
 
 ## Deleted outright
 

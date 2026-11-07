@@ -72,8 +72,9 @@ impl Config {
         Self { checks: self.after.clone(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
-    pub fn queue_set(&self) -> Self {
-        let queued = self.after.iter().filter(|entry| entry.split_once(SEPARATOR).is_some_and(|(patterns, _)| patterns.split(',').any(|spec| spec == ENQUEUE_PATTERN))).cloned().collect();
+    /// The lines run before a lane queues: land.check lines marked `@enqueue`, and land.after lines so marked when `with_after` is set.
+    pub fn queue_set(&self, with_after: bool) -> Self {
+        let queued = queued(&self.checks).chain(queued(if with_after { &self.after } else { &[] })).cloned().collect();
         Self { checks: queued, after: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
@@ -173,6 +174,10 @@ pub fn path_class(repo: &Path, base: &str, head: &str) -> String {
     tops.sort_unstable();
     tops.dedup();
     tops.join("+")
+}
+
+fn queued(entries: &[String]) -> impl Iterator<Item = &String> {
+    entries.iter().filter(|entry| entry.split_once(SEPARATOR).is_some_and(|(patterns, _)| patterns.split(',').any(|spec| spec == ENQUEUE_PATTERN)))
 }
 
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {

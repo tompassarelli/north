@@ -170,4 +170,17 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     assert!(refused.contains("conflicts with origin/main") && refused.contains("on content.txt"), "{refused}");
     let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
     assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a conflicting lane left a ticket in {}", queue.display());
+
+    let lane = Lane::new();
+    run(&lane.repo, &["switch", "-q", "main"]);
+    fs::write(lane.repo.join(".safe-push"), "[land]\n\tcheck = @enqueue,harness/ :: test ! -e harness/skill.md\n").unwrap();
+    commit(&lane.repo, "main carries the policy check");
+    run(&lane.repo, &["push", "-q", "origin", "main"]);
+    run(&lane.repo, &["switch", "-q", "lane"]);
+    run(&lane.repo, &["rebase", "-q", "main"]);
+    fs::create_dir_all(lane.repo.join("harness")).unwrap();
+    fs::write(lane.repo.join("harness/skill.md"), "grown\n").unwrap();
+    lane.commit("grow harness text", &[]);
+    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
+    assert!(refused.contains("a check before queueing exited 1"), "{refused}");
 }
