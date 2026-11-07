@@ -44,6 +44,7 @@ pub struct WatchContext {
     pub repos: Vec<RepoFacts>,
     pub settle: Option<Value>,
     pub unavailable: Vec<String>,
+    pub defers_fleet_alarms: bool,
 }
 
 pub type Probe = fn(&WatchContext) -> Vec<Alert>;

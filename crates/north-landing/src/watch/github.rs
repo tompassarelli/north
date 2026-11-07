@@ -11,6 +11,9 @@ const FAILED: [&str; 3] = ["failure", "timed_out", "startup_failure"];
 const UNJUDGED: [&str; 3] = ["cancelled", "skipped", "neutral"];
 
 pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
+    if context.defers_fleet_alarms {
+        return Vec::new();
+    }
     let mut alerts = Vec::new();
     for repo in &context.repos {
         if let Some(error) = &repo.error {

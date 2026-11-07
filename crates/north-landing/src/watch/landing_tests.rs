@@ -17,3 +17,19 @@ fn a_stage_past_its_p90_raises_the_overrun_alarm_only_past_the_floor_and_names_i
     assert!(past_both[0].summary.contains("lane lane-a,lane-b:"), "{}", past_both[0].summary);
     assert!(stalls(&context(500.0, 700.0)).is_empty(), "700 s is under 1.5 times a 500 s p90");
 }
+
+#[test]
+fn two_hosts_seeing_one_github_event_alarm_only_from_the_lander_host() {
+    use crate::watch::facts::{RepoFacts, defers_to};
+    let seen_by = |here: &str| {
+        let repo = RepoFacts { name: "wisp".into(), error: Some("gh api: HTTP 502".into()), ..RepoFacts::default() };
+        let settle = serde_json::json!({"landing": "abc", "checkedAt": NOW, "hosts": [{"host": "gex45", "problems": ["not live"]}]});
+        let context = WatchContext { now: NOW, repos: vec![repo], settle: Some(settle), defers_fleet_alarms: defers_to(Some("whiterabbit"), here), ..WatchContext::default() };
+        crate::watch::evaluate(&context)
+    };
+    let (lander, other) = (seen_by("whiterabbit"), seen_by("gex45"));
+    let mut keys: Vec<&str> = lander.iter().map(|alert| alert.key.as_str()).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["gh:wisp:api-error", "land:north:runtime-not-live:abc"]);
+    assert!(other.is_empty(), "{other:?}");
+}

@@ -19,7 +19,9 @@ pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
     alerts.extend(stalls(context));
     alerts.extend(push_errors(context));
     alerts.extend(shared_failures(context));
-    alerts.extend(runtime(context));
+    if !context.defers_fleet_alarms {
+        alerts.extend(runtime(context));
+    }
     alerts
 }
 
