@@ -35,10 +35,9 @@ fn rows_parse_from_json_lines_and_name_the_bad_line() {
 }
 
 #[test]
-fn the_run_directory_in_the_init_event_is_not_a_leak() {
+fn the_task_id_in_a_printed_path_is_not_a_leak() {
     let landed = "4082956297aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let init = r#"{"type":"system","subtype":"init","memory_paths":{"auto":"/pilot/north-685-4082956297/plain-1/config"}}"#;
-    let reached = format!("{init}\n{}", r#"{"type":"assistant","text":"git show 4082956297"}"#);
-    assert!(crate::grade::reached(init, landed).is_empty());
-    assert_eq!(crate::grade::reached(&reached, landed), ["the landed sha"]);
+    let path = "safe-push: /pilot/north-685-4082956297/plain-1/bin/safe-push landed 9c58a7d2";
+    assert!(crate::grade::reached(path, landed).is_empty());
+    assert_eq!(crate::grade::reached("git show 4082956297aaa", landed), ["the landed sha"]);
 }
