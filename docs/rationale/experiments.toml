@@ -599,18 +599,3 @@ box = "The proxy name spends GitHub budget only on calls the proxy makes"
 command = "north github budget | awk '/^session proxy[[:space:]]/{seen=1; gsub(/[()%]/,\"\",$0); pct=$(NF)+0; print; next} seen && /^[[:space:]]+(hook|tick|command)[[:space:]]/{rows++; print} /^session /&&!/^session proxy[[:space:]]/{seen=0} END{exit !(rows>0 && pct<50)}'"
 review = "2026-11-07"
 owner = "tompassarelli/north#638"
-
-[[experiment]]
-id = "concern-states"
-change = "Concerns judge every health threshold from history: four states from Theil-Sen slopes with a noise floor, posture per concern, one announcer"
-landed = "pending"
-note = "docs/rationale/concerns.md"
-rule = "Overturned by: a concern state that disagrees with what the proxy or Tom sees for a week (drifting that never turns red, red that nobody acts on), a sampler that cannot keep 10 minutes, or a fold whose concern messages more than the alert it replaced."
-metric = "none"
-measure = "north concerns check --trend over the week after the folds land: drifting episodes that never turned red, red episodes with no landing on their owners, samplers past twice their cadence in north health, and announcer messages against the replaced alerts' count over the week before"
-direction = "down"
-bar = 0.0
-min_n = 0
-after = ["2026-11-08", "2026-11-22"]
-review = "2026-11-24"
-owner = "tompassarelli/north#709"
