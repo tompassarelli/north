@@ -21,7 +21,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    overwritten and the session revived. The reaper writes `retired.json` with the first 4000 characters of the last
    reply (`reaper.rs:22,194`), so a long report loses its `Stop:` line, and archives a parentless session a minute
    after its report, before dispatch reads it (0c54814b5, 952e8132c). `host.pid` is never removed and liveness has no
-   start time. Shapes: two-flags, pid-liveness, status-string (`fleet_sessions.status TEXT`,
+   start time. Shapes: lifecycle-bools, pid-liveness, status-string (`fleet_sessions.status TEXT`,
    `fleet/store/schema.rs:23`).
 2. **Land ticket lifecycle** (330: 110 x 3). A ticket's phase is its queue directory (`Q/`, `outbox/`, `done/`,
    `withdrawn/`, `quarantine/`, remote `outbox/taken/`) plus the first word of its `verdict` string, read by value in
@@ -31,7 +31,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    exit; `replace_older` deletes a ticket with no record (`land/enqueue.rs:148-165`). The landing intent
    (`Q/landing/intent.json`, `recovering.json`) keeps its tickets out of every candidate while recovery fails
    (`land/jobs.rs:93,119`), and `finish` removes the lane worktree before deciding its ticket (`land/after/mod.rs:136`).
-   Shapes: suffix-phase (directory as phase), status-string.
+   Shapes: phase-suffix (directory as phase), status-string.
 3. **After-landing run, red-main episode and base-broken pause** (255: 85 x 3). The run's phase is spread over
    `Q/following/HEAD.json`, `Q/logs/post-land-SHA.{runner,status,outcome}` and process-group liveness
    (`land/watch.rs:26-186`, `land/post_land/runner.rs:25-99`); `misses` lives in memory, so a restart resets the
@@ -50,7 +50,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    live while saying "rolled back"; `runtime-previous` is not updated on rollback; the one-hour `runtime-failed` hold
    lapses and re-promotes the same failing main every hour (`update/hold.rs:55-93`); `runtime-settle-judged` is
    written before its alarm, so a failed reopen is never retried (`settle.rs:63-66`); the swap log turns a rolled-back
-   runtime's commits live (`live.rs:64-75`). Shapes: link-state, mtime-gate, suffix-phase (`SHA.staging`).
+   runtime's commits live (`live.rs:64-75`). Shapes: link-read, mtime-read, phase-suffix (`SHA.staging`).
 6. **Fleet message delivery** (111: 37 x 3). Spool file, ledger event, `delivered/ID`, a `.handing` marker and a
    flock (`crates/north-fleet/src/fleet/registry/hand_in.rs:16-121`, `fleet/store/spool.rs`); a crash leaves
    `.handing`, resolved only by searching the stream; rows to a stopped session wait while a local send revives it
@@ -58,7 +58,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 7. **Threads spool and mirrored-client mode** (88: 44 x 2). `~/.config/threads/remote` presence switches a host to
    snapshot reads and spooled writes (`crates/north-threads/src/threads/client.rs:118-125`); a refused write is
    renamed `.failed` and never retried, and health skips `.failed` (`client.rs:454`,
-   `crates/north-health/src/health/flows/facts.rs:37`). Shapes: presence-flag, suffix-phase.
+   `crates/north-health/src/health/flows/facts.rs:37`). Shapes: presence-flag, phase-suffix.
 8. **Gates** (84: 28 x 3). Open means `closed_ms IS NULL` in each host's `ledger.db`
    (`crates/north-providers/src/ledger/gates.rs:35-55`); other hosts see a deleted-and-reinserted `fleet_gates`
    snapshot (`crates/north-fleet/src/fleet/store/gates.rs:31`); the answer is delivered after the close with no retry;
@@ -72,29 +72,29 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 10. **Lane retirement** (75: 25 x 3). Lane gc's activity from reflog and mtimes, `flagged_at` carried in
     `stale.json`, reap's age from a `.git` mtime that counts as old enough when unreadable
     (`crates/north-guard/src/lanes/reap.rs:320`), rescue's partial end states, pin sidecars removed after their
-    worktree (`lanes/pin_retire/consumed.rs:54`). Shapes: mtime-gate, presence-flag.
+    worktree (`lanes/pin_retire/consumed.rs:54`). Shapes: mtime-read, presence-flag.
 11. **Job queue and job runs** (68: 34 x 2). A `taken` job has no lease or taker
     (`crates/north-threads/src/threads/jobs/queue.rs:178-224`); a crashed job's `job_runs.finished` stays NULL and
     JOB-START never meets a JOB-EXIT (`crates/north-ops/src/ops/job_run/records.rs`). Shapes: status-string.
 12. **Offload slots** (66: 33 x 2). `SLOT.{lock,holder,owner,pgid}`, queue tickets held by flock, the warmer's
     `warm.lock` and `.warmed`, build-offload claims whose liveness is `/proc/PID`
     (`crates/north-runtime/src/land_offload/ship/script.rs:97-155`, `build_offload/claims.rs:11-55`); a SIGKILL leaves
-    `.owner` and `.pgid`, and a reused pid whose cmdline says "offload" can be killed. Shapes: lock-phase,
+    `.owner` and `.pgid`, and a reused pid whose cmdline says "offload" can be killed. Shapes: lock-flag,
     pid-liveness.
 13. **Window adoption and interactive hand-off** (66: 22 x 3). An adopted name is `adopted_ms` plus `stopped` plus
     `host.sock` created as a directory (`crates/north-fleet/src/fleet/registry/adopting.rs:17-159`); two detectors
     disagree about the window (`window_inbox.rs:18-48`, `interactive.rs:58-66`), so a live window reads exited and
-    the name moves to another window; an interactive hand-off is on disk identical to a stop. Shapes: two-flags,
+    the name moves to another window; an interactive hand-off is on disk identical to a stop. Shapes: lifecycle-bools,
     pid-liveness.
 14. **Dispatch staffing holds** (60: 20 x 3). Holds recomputed from every host's fleet list, a laptop mirror judged by
     mtime, `launches.jsonl` per dispatching host and `revived.json` never pruned
     (`crates/north-dispatch/src/dispatch/{record,revive,effects,survey,fleets}.rs`); a retired session is filed as
-    forgotten, so the two-tries hold never fires. Shapes: status-string (`WORKING`, `HOLDING`), mtime-gate.
+    forgotten, so the two-tries hold never fires. Shapes: status-string (`WORKING`, `HOLDING`), mtime-read.
 15. **Policy publication** (57: 19 x 3; every host held four hours on 2026-11-07). `agents-sync-unpublished`
     presence and mtime (`crates/north-runtime/src/runtime/update/sync.rs:34-148`, cause parsed from log lines),
     `gen-*` directories and the `current` link (`crates/north-core/src/catalog/generation.rs:28-77`); a failed
     profile projection still publishes and then reports "not published" (`catalog/sync_gate.rs:17-46`).
-    Shapes: presence-flag, link-state.
+    Shapes: presence-flag, link-read.
 16. **API organization exhaustion** (57: 19 x 3). A bare file `api-exhausted/ORG` per host, never cleared, read for
     presence in five places (`crates/north-providers/src/providers/claude/api_pool.rs:73-119`, `accounts.rs:63-102`,
     `crates/north-pace/src/credit.rs:213`, `usage/credit_table.rs:19`, `src/cli/fleet/limit.rs:64`), overlapping the
@@ -102,18 +102,18 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 17. **Capacity mode, game reserve and host mode** (52: 26 x 2). `capacity-mode/state.json` read-modify-written
     without a lock by the tick and the quiet phrase (`crates/north-guard/src/guard/quiet_phrase.rs:107`); a quota
     applied with `set-property --runtime` is cached past a reboot; `gaming.json` has two writers; the game reserve is
-    written non-atomically; `K/mode` is a second "away" that resets at boot. Shapes: two-flags, unit-intent.
+    written non-atomically; `K/mode` is a second "away" that resets at boot. Shapes: lifecycle-bools, unit-intent.
 18. **Test-case quarantine** (36: 12 x 3). A flaky entry leaves only through `landed_naming`
     (`crates/north-landing/src/landing/judge.rs:79`), which nothing calls, so after 24 h every lane selecting that test
     file is held (`landing/base_relative.rs:108`). Shapes: status-string.
 19. **Host disk episode and watchdog caps** (32: 16 x 2). `host-disk.episode` written only if its page succeeded
     (`crates/north-runtime/src/offload_cache/mod.rs:307-325`); overload caps recorded even when `systemctl` failed and
     forgotten when `overload.json` is lost (`crates/north-capacity-host/src/capacity/watchdog/act.rs:202`);
-    `disk-reclaim.stamp` written before the reclaim. Shapes: presence-flag, mtime-write.
+    `disk-reclaim.stamp` written before the reclaim. Shapes: presence-flag, marker-stamp.
 20. **Spend breaker, tripwire and usage gate** (30: 15 x 2). An unknown breaker label becomes Within and un-trips
     (`crates/north-pace/src/usage/breaker/state.rs:66`); trips lapse with age, so a stopped tick fails open
     (`spend/tripwire.rs`); each reader of `usage-gate.json` judges its staleness alone. Shapes: status-string,
-    mtime-gate.
+    mtime-read.
 21. **Worker run lifecycle** (27: 9 x 3). `runs.outcome` mixes lifecycle with result; a spawn-hook worker that goes
     quiet keeps a `running` row with `ended=''` forever and never releases its claim
     (`crates/north-threads/src/threads/runs/record.rs:126-146,367`,
@@ -127,11 +127,11 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 24. **GitHub broker and tokens** (16: 8 x 2). A leftover `resident.wanted` makes on-demand brokers flap; a killed
     broker leaves the user's gh config pointing at a dead socket
     (`crates/north-ops/src/ops/gh_broker/mod.rs:90-189`); a stale pushed `gh-write-token` disables minting for good
-    (`crates/north-base/src/platform/github_app.rs:289`). Shapes: presence-flag, mtime-gate.
+    (`crates/north-base/src/platform/github_app.rs:289`). Shapes: presence-flag, mtime-read.
 25. **Snapshot pull** (12: 6 x 2; pulls stopped 95 minutes on 2026-11-07). One `.tried` file carries three
     meanings, its mtime, its flock and its text (`crates/north-threads/src/threads/snapshot.rs:51-91`); a forced
     caller re-stamps it before its lock attempt; health judges age at two different thresholds
-    (`crates/north-health/src/health.rs:111`, `health/flows.rs:18`). Shapes: mtime-write, lock-phase.
+    (`crates/north-health/src/health.rs:111`, `health/flows.rs:18`). Shapes: marker-stamp, lock-flag.
 26. **Health episodes and goal announcements** (no fix commits counted). `health.json` is saved before its alerts
     go out, so a failed alert is lost for the episode (`crates/north-health/src/health.rs:471`); a killed landing probe
     leaves a worktree and branch in `~/code/north/main` (`health.rs:292-329`); `goals/tick.json` is saved before its
@@ -149,7 +149,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 30. **Review and distill locks** (none counted). `code-health/REPO/review.lock` is released by the launched agent's
     `rm` and a dry run keeps a real lock (`crates/north-guard/src/code_health/tick.rs:95-173`); `distill.lock.d` is
     stolen after 10 minutes from a run that still holds it (`crates/north-core/src/grounding/distill.rs:799`).
-    Shapes: mtime-gate, presence-flag.
+    Shapes: mtime-read, presence-flag.
 31. **Private desktop run** (none counted). A launcher killed with SIGKILL leaves its compositor running and only the
     next start archives the directory (`crates/north-ops/src/ops/private_desktop/{session,run_state,reap}.rs`).
     Shapes: presence-flag, pid-liveness.
@@ -168,7 +168,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 36. **Rename-into-place leftovers** (none counted). Staging names nothing reaps after a crash: `.stage.*` and
     `.current.PID` (`crates/north-ops/src/ops/vendor_runtime/mod.rs:100-125`), `.incoming/PID`
     (`ops/retention/archive.rs:141`), `.zst.tmpPID` (`ops/convo/archive.rs:246`), `target.seeding-PID`
-    (`crates/north-guard/src/lanes/target_seed.rs:44`). Shapes: suffix-phase.
+    (`crates/north-guard/src/lanes/target_seed.rs:44`). Shapes: phase-suffix.
 
 ### Not converted
 
@@ -246,28 +246,28 @@ Owner: north#757. The module is `north_base::lifecycle` (`crates/north-base/src/
 
 ### Rules that keep it from coming back (north#758)
 
-North#758 adds an after-landing code-health rule, `implicit-state`, that never refuses a landing and files new
-occurrences as gate debt. The shapes it matches:
+North#758 adds an after-landing code-health rule, `implicit-state` (`north code-health implicit-state` lists the
+debt), that never refuses a landing and files each new occurrence as gate debt. The shapes it files:
 
-- `mtime-write`: `set_modified`, `filetime` or `touch` stamping a file whose time is later read as state.
-- `mtime-gate`: a `modified()` read compared with a `Duration` to decide whether to act (report only; the outcome
-  watchdog's reads of write times as outcomes are legitimate).
-- `presence-flag`: a `fs::write` and `fs::remove_file` pair on one state-directory path whose existence or
-  `read_to_string().ok()` decides behaviour, the empty marker file included.
-- `unit-intent`: `systemctl stop|start|disable|enable|mask` of a north unit used to hold an intent no record keeps.
-- `status-string`: a field or column named status, state, phase or stage compared with a string literal outside
-  parsing, and a SQL `status TEXT` column without a `CHECK(status IN (...))`.
-- `lock-phase`: an flock on a marker file that means "running" while the same file's content or time means
-  something else.
-- `pid-liveness`: `/proc/PID` existence taken as a holder's liveness with no start-time check.
-- `link-state`: a symlink's target or mtime read as which thing is live and since when.
-- `suffix-phase`: a `.staging`, `.old`, `.tmp`, `.partial` or `.done` name whose presence is read as a phase.
-- `two-flags`: a long-lived struct with more than one status boolean, or a boolean beside an `Option` that together
-  encode a phase.
+- `marker-stamp`: `set_modified`, `set_times` or `touch` stamping a file with the current time, read later as state.
+- `presence-flag`: a path the repository writes or removes whose existence, or `read_to_string().ok()`, decides
+  behaviour, the empty marker file included.
+- `unit-intent`: `systemctl stop|disable|mask|kill` of a unit, used to hold an intent no record keeps.
+- `pid-liveness`: `/proc/PID` existence or `kill(pid, 0)` taken as a holder's liveness, with no start-time check.
+- `phase-suffix`: a `.staging`, `.old`, `.partial`, `.done` or `.tried` name whose presence is read as a phase.
+- `status-string`: a field named status, state, phase or stage compared with a word literal outside parsing, a SQL
+  `status TEXT` column without a `CHECK(status IN (...))`, and `WHERE status = '...'`.
+- `lifecycle-bools`: a long-lived struct with two or more lifecycle booleans.
+
+Listed but not filed, because legitimate code reads them too: `mtime-read` (the outcome watchdog reads write times as
+outcomes), `unit-read`, `link-read` (a symlink's target or mtime as what is live and since when), `lock-flag` (an flock
+on a marker file meaning "running") and `state-entropy` (a lifecycle boolean beside four or more booleans and
+`Option`s).
 
 Reviewer-only (no call pattern finds them; the code-health review asks about them): which configuration table an
 entry sits in standing for a phase, a log or journal line parsed back as current state, two writers of one state in
 different crates, a process list or window list read as a session's state, and a cached value whose source can change
 underneath it (a `set-property --runtime` value cached past a reboot).
 
-Code that reads and writes its state through `north_base::lifecycle::Store` is exempt.
+Code that reads and writes its state through `north_base::lifecycle::Store` is exempt; an exception is a
+`[[implicit_state.allow]]` entry in structure.toml naming the shape, path, item and reason.
