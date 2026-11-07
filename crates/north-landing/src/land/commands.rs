@@ -8,7 +8,7 @@ Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--c
 Command { name: "requeue", usage: "north land requeue TICKET --reason TEXT [--repo DIR]", run: requeue::run },
 Command { name: "reuse", usage: "north land reuse hash|record|lookup", run: reuse::run },
 Command { name: "scan", usage: "north land scan dep-gate|tool-removal|test-integrity BASE..HEAD", run: scans::run },
-Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]", run: serve::run },
+Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--app-token PROGRAM]", run: serve::run },
 Command { name: "shadow", usage: "north land shadow tick [--repo DIR]", run: shadow::run },
 Command { name: "urgent", usage: "north land urgent TICKET --reason TEXT [--repo DIR]", run: urgent::run },
 Command { name: "clear-withdrawal", usage: "north land clear-withdrawal TICKET --reason TEXT [--repo DIR] [--noticed-by WHO]", run: scans::withdrawal::run },

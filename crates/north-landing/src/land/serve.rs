@@ -21,8 +21,9 @@ use options::{Options, lander_for, parse};
 mod batch;
 mod handover;
 mod options;
+mod round;
 
-pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
+pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_millis(250);
@@ -99,10 +100,6 @@ fn micros() -> u128 {
 }
 
 impl Lander {
-    fn identity(&self) -> Result<(String, String), String> {
-        Ok((git(&self.worktree, &["rev-parse", "HEAD"])?, git(&self.worktree, &["rev-parse", "--absolute-git-dir"])?))
-    }
-
     pub(super) fn push_token(&self, base: &str) -> Result<Option<String>, String> {
         credential::for_push(&self.worktree, base, &self.app_token)
     }

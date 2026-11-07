@@ -10,7 +10,7 @@ use crate::landing::red_check::Failure;
 use crate::platform::push_ledger;
 use crate::landing::check_timings::Deadline;
 use super::after::{follow, send};
-use super::{blame, culprit};
+use super::{blame, probe_slots};
 use super::candidate::git;
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
@@ -235,7 +235,7 @@ fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
 
 fn locate(landed: &Landed, run: &Run) -> Option<usize> {
     let lanes = landed.tips.len();
-    let room = culprit::free_slots(&landed.repo).map_or(1, |(free, _)| free);
+    let room = probe_slots::free_slots(&landed.repo).map_or(1, |(free, _)| free);
     if room < lanes {
         println!("north land: {room} offload slots are free for the {lanes} prefixes of {}, so the culprit is bisected", landed.head);
     }

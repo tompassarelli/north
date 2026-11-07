@@ -10,7 +10,6 @@ mod landing;
 mod post_land;
 mod promote;
 mod remote;
-mod speculate;
 
 #[path = "../support/land_serve_template.rs"]
 mod template;

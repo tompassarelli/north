@@ -56,7 +56,7 @@ pub fn gate(landed: &Landed, link: &dyn Fn(&Path) -> Result<(), String>) -> Vec<
     let added = git(landed.main, &["worktree", "add", "--quiet", "--detach", &scratch, landed.base]).and_then(|_| link(landed.scratch));
     let found = added.and_then(|()| culprits(landed, red));
     let _ = git(landed.main, &["worktree", "remove", "--force", &scratch]);
-    let lander = Lander::new(landed.main, Vec::new(), 1);
+    let lander = Lander::new(landed.main, Vec::new());
     match found.and_then(|found| Ok((found, lander?))) {
         Ok((found, lander)) => found.into_iter().map(|(commit, goals)| revert(landed, &lander, &commit, &goals)).collect(),
         Err(why) => failure(format!("cannot attribute the red contract goals of {}: {why}", landed.head)),

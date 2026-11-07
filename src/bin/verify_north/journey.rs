@@ -106,7 +106,7 @@ fn land(journey: &mut Journey) -> Result<String, String> {
     let scratch = journey.scratch()?;
     let pushes = scratch.root.join("pushes.tsv");
     let ledger = scratch.root.join("threads.db");
-    let served = journey.north.run_with(&["land", "serve", "--once", "--depth", "1", "--repo", &scratch.main.to_string_lossy()], &[("THREADS_DB", &ledger), ("NORTH_PUSH_LOG", &pushes)], LAND_WAIT)?;
+    let served = journey.north.run_with(&["land", "serve", "--once", "--repo", &scratch.main.to_string_lossy()], &[("THREADS_DB", &ledger), ("NORTH_PUSH_LOG", &pushes)], LAND_WAIT)?;
     let landed = scratch.origin_main()?;
     let parent = scratch.origin(&["rev-parse", &format!("{landed}^")])?;
     let changed = scratch.origin(&["show", "--format=", "--name-only", &landed])?;

@@ -1,4 +1,4 @@
-use super::{Fixture, executable, git};
+use super::{Fixture, executable, git, pushed_trees_were_checked};
 
 #[test]
 fn serve_cas_lost() {
@@ -48,9 +48,27 @@ fn a_lane_failing_a_lane_gate_lands_in_its_batch_with_the_would_be_refusal_logge
         fixture.enqueue(&lane, None);
     }
     assert!(fixture.serve().status.success());
-    assert_eq!(fixture.checks().len(), 1, "one candidate, no culprit search");
+    assert_eq!(fixture.read("pushes").lines().count(), 1, "all three lanes land in one push");
     assert_eq!(fixture.subjects(), ["change from first", "change from skipping", "change from last"]);
     let shadowed = std::fs::read_to_string(fixture.state.join(north_landing::land::landing_refusals::LOG)).unwrap_or_default();
     assert!(shadowed.contains("\"gate\":\"test integrity\"") && shadowed.contains("\"at\":\"pick\"") && shadowed.contains("lane-skipping"), "{shadowed}");
     assert!(shadowed.contains(concat!("probe_tests.rs adds a skip or focus: #[ig", "nore]")), "{shadowed}");
+}
+
+#[test]
+fn a_bad_seventh_lane_of_fourteen_lets_six_land_in_one_push_and_the_other_seven_in_the_next_each_pushed_tree_checked() {
+    let mut fixture = Fixture::new();
+    let names: Vec<String> = (1..=14).map(|number| format!("l{number:02}")).collect();
+    for (at, name) in names.iter().enumerate() {
+        let file = if at == 6 { "fail.txt".to_owned() } else { format!("{name}.txt") };
+        let lane = fixture.lane(name, &file, name);
+        fixture.enqueue(&lane, None);
+    }
+    executable(&fixture.trace.join("hook"), "#!/usr/bin/env bash\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n");
+    assert!(fixture.serve().status.success());
+    let landed: Vec<String> = names.iter().enumerate().filter(|(at, _)| *at != 6).map(|(_, name)| format!("change from {name}")).collect();
+    assert_eq!(fixture.subjects(), landed);
+    let pushes = fixture.read("pushes");
+    assert_eq!(pushes.lines().count(), 2, "lanes 1 to 6 in the first push, 8 to 14 in the second: {pushes}");
+    pushed_trees_were_checked(&fixture);
 }

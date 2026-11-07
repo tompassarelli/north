@@ -58,6 +58,18 @@ pub fn plan<L: Clone + PartialEq>(queue: &[L], slots: usize, cap: usize, suspect
     probes
 }
 
+pub fn cancelled<L: PartialEq>(probes: &[Vec<L>], red: usize, running: &[bool]) -> Vec<usize> {
+    let red_probe = &probes[red];
+    let inner = probes.iter().filter(|probe| probe.len() < red_probe.len() && probe.iter().all(|lane| red_probe.contains(lane))).max_by_key(|probe| probe.len());
+    let stride: Vec<&L> = red_probe.iter().filter(|lane| inner.is_none_or(|inner| !inner.contains(lane))).collect();
+    probes.iter().enumerate().filter(|(at, probe)| *at != red && running.get(*at).copied().unwrap_or(false) && stride.iter().all(|lane| probe.contains(lane))).map(|(at, _)| at).collect()
+}
+
+pub fn superseded<L: PartialEq>(probes: &[Vec<L>], green: usize, running: &[bool]) -> Vec<usize> {
+    let landing = &probes[green];
+    probes.iter().enumerate().filter(|(at, probe)| *at != green && running.get(*at).copied().unwrap_or(false) && probe.iter().all(|lane| landing.contains(lane))).map(|(at, _)| at).collect()
+}
+
 pub fn settle<L: Clone + PartialEq>(probes: &[Vec<L>], green: &[bool]) -> Settled<L> {
     let mut land: &[L] = &[];
     for (probe, _) in probes.iter().zip(green).filter(|(_, green)| **green) {

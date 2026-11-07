@@ -100,7 +100,7 @@ fn invariants(report: &watchdog::Report) -> Vec<Invariant> {
 }
 
 #[test]
-fn a_lane_older_than_twenty_minutes_pages_its_wait_stays_queued_and_when_the_lander_waits_on_transient_verdicts_asks_for_each_lane_to_be_checked_alone_once() {
+fn a_lane_older_than_twenty_minutes_pages_its_wait_stays_queued() {
     let fixture = Fixture::new();
     let hands = Fake::default();
     let stale = fixture.lane(NOW - 21 * MINUTE, "lane/stale");
@@ -113,15 +113,6 @@ fn a_lane_older_than_twenty_minutes_pages_its_wait_stays_queued_and_when_the_lan
     assert!(fixture.quarantined().is_empty());
     assert!(report.violations[0].detail.contains("lane lane/stale (") && report.violations[0].detail.contains("waited 21 minutes"), "{}", report.violations[0].detail);
     assert!(matches!(&report.pages[..], [(Invariant::StaleLane, Page::Sent(text))] if text.contains("lane/stale")));
-
-    let transient = Observation { at_micros: NOW, repo: fixture.repo.clone(), worktree: fixture.lander(), waiting: 2, paused: false, transient: true, problem: None };
-    assert!(watchdog::observe(&fixture.queue, transient, false).unwrap());
-    let report = fixture.patrol(NOW, &hands);
-    assert!(matches!(&report.violations[0].repairs[..], [Repair::AskedForAloneChecks]), "{:?}", report.violations[0].repairs);
-    assert!(north_landing::land::alone::take(&fixture.queue));
-    let report = fixture.patrol(NOW + MINUTE, &hands);
-    assert!(matches!(&report.violations[0].repairs[..], [Repair::Nothing(_)]), "one request per twenty minutes: {:?}", report.violations[0].repairs);
-    assert!(!north_landing::land::alone::take(&fixture.queue));
 }
 
 #[test]

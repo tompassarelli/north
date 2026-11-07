@@ -55,19 +55,19 @@ struct Streak {
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Strikes {
-    base: String,
     streaks: BTreeMap<String, Streak>,
 }
 
 impl Strikes {
-    pub fn load(queue: &Path, base: &str) -> Result<Self, String> {
+    pub fn load(queue: &Path, lanes: &[String]) -> Result<Self, String> {
         let path = queue.join(STRIKES);
-        let stored = match fs::read_to_string(&path) {
+        let mut stored = match fs::read_to_string(&path) {
             Ok(text) => serde_json::from_str::<Self>(&text).map_err(|error| format!("{}: {error}", path.display()))?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => Self::default(),
             Err(error) => return Err(format!("{}: {error}", path.display())),
         };
-        Ok(if stored.base == base { stored } else { Self { base: base.to_owned(), streaks: BTreeMap::new() } })
+        stored.streaks.retain(|lane, _| lanes.contains(lane));
+        Ok(stored)
     }
 
     pub fn save(&self, queue: &Path) -> Result<(), String> {

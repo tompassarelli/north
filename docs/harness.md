@@ -167,8 +167,9 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
    the land checks the lane adds, squashes the lane to one commit unless `--several-commits`, and
    queues it; the worker reports `Done: queued <branch>` and ends its turn;
 
-2. the lander (`north land serve`) takes the queued lanes and builds one candidate from origin/main
-   plus each lane;
+2. the lander (`north land serve`) takes the queued lanes, urgent first, and plans candidates that
+   are each origin/main plus a prefix of them, one per free build slot, building each on its own
+   worktree;
 
 3. it runs the checks the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness
@@ -185,7 +186,7 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
    would-be refusal and lets the lane land ([landing-refusals-shadow](rationale/landing-refusals-shadow.md)); it never
    force-pushes;
 
-5. it pushes the green candidate to main, tells each lane's session it landed, and runs the
+5. it pushes the largest green candidate to main, the exact tree that was checked, tells each lane's session it landed, and runs the
    after-landing checks (`land.after`) and `follows-release`; a red after-landing run reverts only
    the lane that broke it.
 

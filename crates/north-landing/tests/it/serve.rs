@@ -66,7 +66,7 @@ impl World {
     }
 
     pub(super) fn lander(&self, repository: &Repository, hold: Option<&Path>) -> Child {
-        let arguments = ["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--depth", "1", "--checker", self.path().join("bin/checker").to_str().unwrap()].join("\n");
+        let arguments = ["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--checker", self.path().join("bin/checker").to_str().unwrap()].join("\n");
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])

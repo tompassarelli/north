@@ -10,7 +10,7 @@ use north_landing::land::jobs::Chores;
 use north_landing::land::lander::Lander;
 use north_landing::land::watch::Watch;
 use north_landing::land::queue::{self, Ticket};
-use north_landing::land::{after, alone, checks};
+use north_landing::land::{after, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
@@ -116,7 +116,7 @@ impl World {
     }
 
     fn lander(&self) -> Lander {
-        Lander::new(&self.main, self.checker.clone(), 1).unwrap()
+        Lander::new(&self.main, self.checker.clone()).unwrap()
     }
 
     fn lane_in(&self, checkout: &Path, root: &Path, branch: &str, file: &str) -> Ticket {
@@ -271,7 +271,7 @@ fn duplicate_branch_names(world: &World) {
 }
 
 fn remote_runner_lost_mid_check(world: &World) {
-    world.plan(&["lost", "lost", "green"]);
+    world.plan(&["lost"; 6]);
     let lander = world.lander();
     let a = world.enqueue(&lander, &world.lane("a"));
     let b = world.enqueue(&lander, &world.lane("b"));
@@ -286,17 +286,16 @@ fn remote_runner_lost_mid_check(world: &World) {
     landed(&world.settled(&lander, &[&a, &b, &c, &d]));
 }
 
-fn watchdog_split_ending_without_verdicts(world: &World) {
-    world.plan(&["lost", "lost"]);
+fn probes_ending_without_verdicts(world: &World) {
+    world.plan(&["lost"; 6]);
     let lander = world.lander();
     let a = world.enqueue(&lander, &world.lane("a"));
     let b = world.enqueue(&lander, &world.lane("b"));
-    assert!(alone::request(&lander.queue, u64::try_from(micros()).unwrap(), 0).unwrap());
     let held = format!("{:?}", lander.round(&mut Watch::default()));
     assert!(held.contains("Waiting") && held.contains("transient"), "{held}");
     let calls = world.root.join("north-calls");
     let recorded = || fs::read_to_string(&calls).unwrap_or_default().lines().filter(|call| call.starts_with("ledger incident record ") && call.contains("--class lander-transient")).map(str::to_owned).collect::<Vec<_>>();
-    wait_for("an incident for each lane's check alone that ended without a verdict", || recorded().len() == 2);
+    wait_for("an incident for each probe that ended without a verdict", || recorded().len() >= 2);
     for call in recorded() {
         let log = call.rsplit_once("; log: ").map(|(_, log)| PathBuf::from(log.trim())).unwrap_or_else(|| panic!("the incident names no log: {call}"));
         assert!(log.is_file(), "the incident names a log that is not there: {call}");
@@ -424,8 +423,8 @@ fn chaos_duplicate_branch_names_land_as_separate_lanes() {
 }
 
 #[test]
-fn chaos_a_watchdog_split_whose_checks_alone_end_without_a_verdict_records_each_as_a_lander_incident_with_its_log_at_once() {
-    isolated("land_chaos::chaos_a_watchdog_split_whose_checks_alone_end_without_a_verdict_records_each_as_a_lander_incident_with_its_log_at_once", watchdog_split_ending_without_verdicts);
+fn chaos_a_probe_that_ends_without_a_verdict_records_a_lander_incident_with_its_log_at_once() {
+    isolated("land_chaos::chaos_a_probe_that_ends_without_a_verdict_records_a_lander_incident_with_its_log_at_once", probes_ending_without_verdicts);
 }
 
 #[test]

@@ -1413,6 +1413,7 @@ dependencies = [
  "north-diff-gates",
  "north-github-mirror",
  "north-goals",
+ "north-land-probes",
  "north-land-scans",
  "north-landing-gates",
  "north-mutants",

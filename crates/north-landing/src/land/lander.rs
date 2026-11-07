@@ -10,14 +10,12 @@ use super::setting;
 use north_base::land_ticket::Records;
 use north_base::land_ticket::Phase;
 
-pub const DEPTH: usize = 2;
 pub const OFFLOAD_OWNER: &str = "north-land";
 const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
 
 pub struct Lander {
     pub repo: PathBuf,
     pub worktree: PathBuf,
-    pub spares: Vec<PathBuf>,
     pub queue: PathBuf,
     pub checker: Vec<String>,
     pub app_token: Vec<String>,
@@ -56,13 +54,12 @@ fn ssh_with_input(host: &str, script: &str, input: &[u8]) -> Result<String, Stri
 }
 
 impl Lander {
-    pub fn new(repo: &Path, checker: Vec<String>, depth: usize) -> Result<Self, String> {
+    pub fn new(repo: &Path, checker: Vec<String>) -> Result<Self, String> {
         let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
         let queue = queue::directory(&state_home(), &origin);
         Ok(Self {
             repo: repo.to_owned(),
             worktree: candidate::lander_worktree(repo, "lander")?,
-            spares: (2..=depth).map(|level| candidate::lander_worktree(repo, &format!("lander-{level}"))).collect::<Result<_, _>>()?,
             offload_owner: offload_owner(&queue),
             queue,
             checker,
@@ -77,7 +74,6 @@ impl Lander {
         Self {
             repo: self.repo.clone(),
             worktree: self.worktree.clone(),
-            spares: self.spares.clone(),
             queue: self.queue.clone(),
             checker: self.checker.clone(),
             app_token: self.app_token.clone(),

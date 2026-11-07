@@ -37,7 +37,7 @@ fn the_commit_that_turned_a_contract_goal_red_is_named_among_a_landed_range_and_
     assert_eq!(found.into_iter().collect::<Vec<_>>(), vec![(culprit.clone(), vec!["no-bad-file".to_owned()])]);
     let already_red = Landed { base: &culprit, ..landed };
     assert!(culprits(&already_red, red).unwrap().is_empty(), "a goal red at the base of the landing is not this landing's fault");
-    let lander = Lander { queue: container.join("queue"), ..Lander::new(&repo, Vec::new(), 1).unwrap() };
+    let lander = Lander { queue: container.join("queue"), ..Lander::new(&repo, Vec::new()).unwrap() };
     let landed = Landed { base: &base, ..already_red };
     queue(&landed, &lander, &culprit, "no-bad-file").unwrap();
     let message = git(&repo, &["log", "-1", "--format=%B", &format!("goals-revert-{}", &culprit[..12])]).unwrap();
