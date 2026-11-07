@@ -83,3 +83,38 @@ pub fn balance(grants: &[Grant], spends: &[(String, f64)], today: &str) -> Optio
     let current = live.iter().copied().find(|index| left[*index] > 0.0).or_else(|| live.last().copied())?;
     Some(Balance { grant: grants[current].clone(), spent: grants[current].usd - left[current], left: left[current], later: live.iter().filter(|index| **index > current).map(|index| grants[*index].clone()).collect() })
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Left {
+    pub id: String,
+    pub usd: f64,
+    pub next_credit: Option<String>,
+}
+
+pub fn left(policy: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today: &str) -> BTreeMap<String, Left> {
+    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let orgs = document.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs")).and_then(Item::as_table_like);
+    let named: Vec<(String, String)> = orgs.into_iter().flat_map(|orgs| orgs.iter()).filter_map(|(name, org)| Some((name.to_owned(), org.get("id")?.as_str()?.to_owned()))).collect();
+    let grants = grants(policy);
+    let next = next_credits(policy);
+    named
+        .iter()
+        .map(|(name, id)| {
+            let mine: Vec<(String, f64)> = named.iter().filter(|(_, other)| other == id).flat_map(|(other, _)| spends.get(other).cloned().unwrap_or_default()).collect();
+            let usd = balance(grants.get(id).map_or(&[][..], Vec::as_slice), &mine, today).map_or(0.0, |balance| balance.left.max(0.0) + balance.later.iter().map(|grant| grant.usd).sum::<f64>());
+            (name.clone(), Left { id: id.clone(), usd, next_credit: next.get(id).cloned() })
+        })
+        .collect()
+}
+
+fn next_credits(policy: &Path) -> BTreeMap<String, String> {
+    let accounts: DocumentMut = std::fs::read_to_string(policy.with_file_name("claude-accounts.toml")).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    accounts
+        .get("account")
+        .and_then(Item::as_array_of_tables)
+        .into_iter()
+        .flatten()
+        .filter_map(|account| account.get("api_org"))
+        .filter_map(|org| Some((org.get("id")?.as_str()?.to_owned(), date(org.get("next_credit")?.as_value()?)?)))
+        .collect()
+}

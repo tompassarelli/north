@@ -1,7 +1,7 @@
-//! A session with unlanded work whose account is out of usage is taken over onto an account with
-//! headroom: `usage::decide::assess` names the target, the new session gets a `Follows:` brief and
-//! the old one's lane, and a lead goes first.
-use std::collections::BTreeSet;
+//! A session is taken over onto another source when `usage::decide::assess` says so: a worker with
+//! unlanded work once its source is out, a proxy or lead before its source runs out. The new session
+//! gets a `Follows:` brief and the old one's lane, and a lead goes first.
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::limit::{UsageWait, park, recent, unknown_reset_ms};
 use super::model::{Ending, LaunchRequest, Role, SessionRecord};
@@ -10,7 +10,7 @@ use super::waits::Run;
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 use crate::usage::decide::world::{
-    Account, EstimateSource, Expected, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Settings, Standing, Unix, Usd, World,
+    Account, Credit, EstimateSource, Expected, Host, Label, LimitEvent, ModelFamily, Name, Owner, Provider, Rate, Rates, Reading, Session, Settings, Standing, Unix, Usd, World,
 };
 use crate::usage::decide::{Action, Assessments, assess};
 
@@ -19,6 +19,7 @@ use crate::usage::decide::{Action, Assessments, assess};
 pub struct Observed {
     pub readings: Vec<Reading>,
     pub limits: Vec<LimitEvent>,
+    pub credits: BTreeMap<String, Credit>,
 }
 
 pub trait AccountReadings {
@@ -46,8 +47,8 @@ pub fn hand_over(
         return done;
     }
     let host = Host(fleet.host().to_owned());
-    let accounts: Vec<Account> = fleet.accounts().into_iter().filter(|account| account.provider.label() == "claude").map(|account| account_of(account.label, &host)).collect();
     let observed = readings.observed(now_ms);
+    let accounts: Vec<Account> = fleet.accounts().into_iter().filter(|account| account.provider.label() == "claude").filter_map(|account| account_of(account, &observed.credits, &host)).collect();
     let waits = fleet.waits();
     let now = Unix((now_ms / 1000) as i64);
     let mut limits = observed.limits;
@@ -89,7 +90,7 @@ pub fn hand_over(
             Action::Park { resumes_at } => {
                 let until_ms = resumes_at.and_then(|at| u64::try_from(at.0).ok()).map(|at| at * 1000).filter(|at| *at > now_ms).unwrap_or_else(|| unknown_reset_ms(now_ms));
                 match park(&waits, record, until_ms) {
-                    Ok(parked) => done.lines.push(format!("{} (account {} is paused)", parked.line(), record.account)),
+                    Ok(parked) => done.lines.push(format!("{} (account {} is out)", parked.line(), record.account)),
                     Err(error) => done.lines.push(format!("{}: account {} is paused but its wait was not registered: {}", record.name, record.account, error.user_message())),
                 }
                 continue;
@@ -130,17 +131,23 @@ fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {
         .collect()
 }
 
-fn account_of(label: String, host: &Host) -> Account {
+fn account_of(account: crate::fleet::model::Account, credits: &BTreeMap<String, Credit>, host: &Host) -> Option<Account> {
+    let credit = match &account.api {
+        Some(key) if account.label.contains(':') => Some(*credits.get(&key.org)?),
+        Some(_) => return None,
+        None => None,
+    };
     let rate = Rate::Pooled { points_per_usd: 1.0, n: 0 };
-    Account {
+    Some(Account {
         provider: Provider::Claude,
-        label: Label(label),
+        label: Label(account.label),
         weight: 1.0,
         signed_in: BTreeSet::from([host.clone()]),
         extra_usage_enabled: Some(false),
         extra_usage_spend: None,
         rates: Rates { five_hour: rate, week: rate },
-    }
+        credit,
+    })
 }
 
 fn session_of(record: &SessionRecord, standing: Standing, parked_since: Option<Unix>) -> Session {
@@ -167,8 +174,8 @@ fn family_of(model: Option<&str>) -> ModelFamily {
 fn brief(record: &SessionRecord, to: &str) -> String {
     let follows = record.task_ref.clone().unwrap_or_else(|| record.name.clone());
     format!(
-        "Follows: {follows} (handed over from account {from} to {to}, which has usage left)\n\n\
-         [north: account {from} is out of usage, so `north fleet tick` took over {name} onto account {to}] Your lane at {cwd} is intact and your earlier conversation ended on {from}. \
+        "Follows: {follows} (handed over from account {from} to {to}, which is above the floor)\n\n\
+         [north: account {from} is at or under its floor, so `north fleet tick` took over {name} onto account {to}] Your lane at {cwd} is intact and your earlier conversation ended on {from}. \
          Run `git fetch origin`, then check whether your lane is on origin/main. \
          If it is not, rebase it onto origin/main, re-run the targeted checks and re-enqueue it with `safe-push --to main`. \
          If it is, report `Done:` with the landed sha.",
@@ -180,7 +187,7 @@ fn brief(record: &SessionRecord, to: &str) -> String {
 
 fn proxy_brief(record: &SessionRecord, to: &str) -> String {
     format!(
-        "[north: account {from} is out of usage, so `north fleet tick` moved {name} onto account {to}, which has usage left] This is the same conversation; carry on where it stopped.",
+        "[north: account {from} is at or under its floor, so `north fleet tick` moved {name} onto account {to}, the source above the floor with the most headroom] This is the same conversation; carry on where it stopped.",
         from = record.account,
         name = record.name,
     )

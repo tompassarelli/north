@@ -261,7 +261,7 @@ struct Table(crate::fleet::handover::Observed);
 
 impl crate::fleet::handover::AccountReadings for Table {
     fn observed(&self, _: u64) -> crate::fleet::handover::Observed {
-        crate::fleet::handover::Observed { readings: self.0.readings.clone(), limits: self.0.limits.clone() }
+        crate::fleet::handover::Observed { readings: self.0.readings.clone(), limits: self.0.limits.clone(), credits: self.0.credits.clone() }
     }
 }
 
@@ -339,7 +339,7 @@ fn north_576() -> Table {
         read(5, "d", Window::FiveHour, 3.0, 4 * hour),
     ];
     let limits = readings.iter().filter(|reading| reading.used.0 >= 99.5).map(|reading| LimitEvent { account: reading.account.clone(), window: reading.window, resets_at: reading.resets_at, at: reading.read_at }).collect();
-    Table(crate::fleet::handover::Observed { readings, limits })
+    Table(crate::fleet::handover::Observed { readings, limits, ..Default::default() })
 }
 
 fn on_north_576(host: &Host) -> u64 {
@@ -355,7 +355,7 @@ fn on_north_576(host: &Host) -> u64 {
 }
 
 #[test]
-fn north_576_with_a_and_d_reading_headroom_after_their_parks_the_lead_on_c_goes_to_a_or_d_and_tom_hears_no_all_out() {
+fn a_lead_or_proxy_at_its_floor_goes_to_the_source_above_the_floor_with_most_headroom_else_parks_until_the_soonest_windfall_and_a_worker_on_spent_api_credit_waits_for_its_grant() {
     use crate::usage::decide::world::{Account, Host as Machine, Label, Provider, Rate, Rates, Settings, Unix, Window, World};
     use crate::usage::decide::{View, view};
     let host = host("nexus");
@@ -370,10 +370,12 @@ fn north_576_with_a_and_d_reading_headroom_after_their_parks_the_lead_on_c_goes_
     assert_eq!(launched.iter().map(|request| request.name.as_str()).collect::<Vec<_>>(), ["lead"]);
     assert!(["a", "d"].contains(&launched[0].account.as_str()), "{}", launched[0].account);
     let rate = Rate::Pooled { points_per_usd: 1.0, n: 0 };
-    let account = Account { provider: Provider::Claude, label: Label("a".into()), weight: 1.0, signed_in: [Machine("nexus".into())].into(), extra_usage_enabled: Some(false), extra_usage_spend: None, rates: Rates { five_hour: rate, week: rate } };
+    let account = Account { provider: Provider::Claude, label: Label("a".into()), weight: 1.0, signed_in: [Machine("nexus".into())].into(), extra_usage_enabled: Some(false), extra_usage_spend: None, rates: Rates { five_hour: rate, week: rate }, credit: None };
     let settings = Settings::default();
     let world = World { now: Unix((NOW_MS / 1000) as i64), accounts: &[account], readings: &table.0.readings, limits: &table.0.limits, sessions: &[], settings: &settings };
     assert!(matches!(view(&world, &Label("a".into()), Window::FiveHour), View::Stale { .. }), "a's 5-hour reading whose reset passed is unknown, not out");
+
+    on_the_floor();
 }
 
 #[test]
@@ -391,7 +393,7 @@ fn a_working_session_whose_five_hour_window_is_spent_is_parked_by_the_tick_and_r
     with_accounts(&host, &["c"]);
     working_on(&host, "worker", "c", Some("lead"), &lane(&host, "worker"));
     let resets_in_s = 2 * 3_600;
-    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "c", Window::Week, 40.0, 3 * 86_400), read(1, "c", Window::FiveHour, 100.0, resets_in_s)], limits: Vec::new() });
+    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "c", Window::Week, 40.0, 3 * 86_400), read(1, "c", Window::FiveHour, 100.0, resets_in_s)], limits: Vec::new(), ..Default::default() });
     let launches = Launches::default();
 
     let done = hand_over_with(&host, &table, &launches);
@@ -504,4 +506,51 @@ fn a_tick_whose_ledger_exchange_placement_take_far_and_a_probe_hang_past_their_b
     let own_ms: u64 = timing.split(", probes.own ").nth(1).and_then(|rest| rest.split("ms").next()).and_then(|ms| ms.parse().ok()).unwrap_or(u64::MAX);
     assert!(own_ms < 200, "a probe with its own budget is timed to its own finish, not to when the shared probes end: {timing}");
     assert!(Budgets::TICK.worst() < Duration::from_secs(40), "the tick's stage budgets sum to {:?}, past 40 s of its 50 s start timeout", Budgets::TICK.worst());
+}
+
+fn with_api_orgs(host: &Host, orgs: &[&str]) {
+    let file = crate::platform::orchestration::under(host.home.path());
+    let here = crate::platform::host::name();
+    let mut policy = std::fs::read_to_string(&file).unwrap();
+    policy.push_str(&format!("[accounts.claude.api_keys.api]\n\"{here}\" = {{ path = \"{}\" }}\n", host.home.path().join("api").display()));
+    for org in orgs {
+        let key = host.home.path().join(format!("{org}.key"));
+        std::fs::write(&key, "sk-test").unwrap();
+        policy.push_str(&format!("[accounts.claude.api_orgs.{org}]\nid = \"id-{org}\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n", key.display()));
+    }
+    std::fs::write(file, policy).unwrap();
+}
+
+fn credit(left: f64, next_grant_in_s: i64) -> crate::usage::decide::world::Credit {
+    use crate::usage::decide::world::{Credit, Unix, Usd};
+    Credit { left: Usd(left), next_grant: Some(Unix((NOW_MS / 1000) as i64 + next_grant_in_s)) }
+}
+
+fn on_the_floor() {
+    use crate::fleet::waits::Run;
+    use crate::usage::decide::world::Window;
+    let (hour, day) = (3_600, 86_400);
+    let at_ms = |in_s: i64| (NOW_MS / 1000 + in_s as u64) * 1000;
+    let floor = |credits: [(&str, crate::usage::decide::world::Credit); 2], b_week: f64| {
+        let host = host("nexus");
+        with_accounts(&host, &["a", "b"]);
+        with_api_orgs(&host, &["gmail", "proton"]);
+        working_on(&host, "proxy", "a", None, &lane(&host, "proxy"));
+        let cwd = lane(&host, "worker");
+        working_on(&host, "worker", "api:gmail", Some("proxy"), &cwd);
+        let readings = vec![read(0, "a", Window::FiveHour, 98.5, 2 * hour), read(1, "a", Window::Week, 50.0, 4 * day), read(2, "b", Window::FiveHour, 10.0, 3 * hour), read(3, "b", Window::Week, b_week, 3 * day)];
+        let table = Table(crate::fleet::handover::Observed { readings, limits: Vec::new(), credits: credits.into_iter().map(|(org, credit)| (org.to_owned(), credit)).collect() });
+        let launches = Launches::default();
+        let done = hand_over_with(&host, &table, &launches);
+        let launched: Vec<(String, String)> = launches.borrow().iter().map(|request| (request.name.clone(), request.account.clone())).collect();
+        let parked: Vec<(String, Vec<Run>)> = ["proxy", "worker"].iter().map(|name| (name.to_string(), host.fleet.waits().of(name).into_iter().map(|wait| wait.run).collect())).collect();
+        (launched, parked, done)
+    };
+
+    let (launched, _, done) = floor([("gmail", credit(20.0, 5 * day)), ("proton", credit(150.0, 20 * day))], 60.0);
+    assert_eq!(launched, [("proxy".to_owned(), "api:proton".to_owned()), ("worker".to_owned(), "api:proton".to_owned())], "{:?}", done.lines);
+
+    let (launched, parked, done) = floor([("gmail", credit(20.0, 5 * day)), ("proton", credit(49.0, 20 * day))], 98.5);
+    assert!(launched.is_empty(), "{launched:?} {:?}", done.lines);
+    assert_eq!(parked, [("proxy".to_owned(), vec![Run::Usage { account: "a".into(), at_ms: at_ms(2 * hour) }]), ("worker".to_owned(), vec![Run::Usage { account: "api:gmail".into(), at_ms: at_ms(5 * day) }])], "{:?}", done.lines);
 }

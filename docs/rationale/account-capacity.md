@@ -436,7 +436,8 @@ ingests its transcript (the 15-minute timer), so the breaker sees it with that l
 
 ```rust
 pub const FRESH_FOR: Seconds = Seconds(600);
-pub const LEAD_FAILOVER_AFTER: Seconds = Seconds(600);
+pub const SUBSCRIPTION_FLOOR: Percent = Percent(98.0);
+pub const API_FLOOR: Usd = Usd(50.0);
 
 pub fn view(world: &World, account: &Label, window: Window) -> View;
 pub fn state(world: &World, account: &Label, family: ModelFamily) -> State;
@@ -556,7 +557,8 @@ first matching row wins per session:
 
 | # | Condition | Action |
 | --- | --- | --- |
-| 1 | a lead whose account is `Paused` and `now - parked_since >= LEAD_FAILOVER_AFTER` | hand over as in row 3, before any worker |
+| 1 | a proxy or lead whose source is at or under its floor: a subscription at `SUBSCRIPTION_FLOOR` or more of its 5-hour or weekly window (or `Paused`, `WeekOut`, `ScopeOut`), an API organization under `API_FLOOR` of credit left or refused for low credit | hand over, before any worker, to the source above the floor worth most: an API organization's credit left in dollars, a subscription's binding window headroom in dollars at its rate, doubled because it renews; with none above the floor, park until the soonest windfall (a 5-hour or weekly reset, or an organization's next credit) unless already parked (north#724, 2026-11-07) |
+| 1a | a worker on an API organization at or under its floor | hand over to the source above the floor worth most, else park until that organization's next credit |
 | 2 | a session whose account is `Paused` | park with a registered wait `usage:ACCOUNT@resumes_at` (sets `parked_since`); `north fleet waits` revives it after `resumes_at` |
 | 3 | a session whose account is `WeekOut`, or `ScopeOut` for its family, and `place` with `pin = None` places elsewhere | `north fleet launch --take-over` there with a `Follows:` brief, the lane being the durable state |
 | 4 | every account is `Paused`, `WeekOut` or `ScopeOut` for every family in flight | nothing launches; one line to Tom with the earliest resume, once per episode |

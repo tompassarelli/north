@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use super::{LEAD_FAILOVER_AFTER, PROXY_WEEK_CEILING};
+use super::keep::{Footing, footing, keep, strand};
 use super::state::{State, state};
 use super::world::{Account, Label, ModelFamily, Name, Owner, Provider, Session, Standing, Unix, World};
 
@@ -16,25 +16,21 @@ pub fn actions(world: &World) -> Vec<(Name, Action)> {
     let mut failover = Vec::new();
     let mut rest: Vec<(bool, Name, Action)> = Vec::new();
     for session in world.sessions.iter().filter(|session| session.owner != Owner::Tom) {
-        let account_state = state(world, &session.account, session.family);
-        if session.standing == Standing::Proxy
-            && week_spent(account_state)
-            && let Some(to) = week_headroom_target(world, session)
-        {
-            failover.push((session.name.clone(), Action::HandOver { to }));
+        if session.standing != Standing::Worker {
+            if let Some(action) = keep(world, session) {
+                failover.push((session.name.clone(), action));
+            }
             continue;
         }
-        if is_failover(world, session, account_state)
-            && let Some(to) = hand_over_target(world, session)
-        {
-            failover.push((session.name.clone(), Action::HandOver { to }));
+        if let Some(action) = strand(world, session) {
+            rest.push((true, session.name.clone(), action));
             continue;
         }
-        match account_state {
-            State::Paused { resumes_at } if session.parked_since.is_none() => rest.push((session.standing == Standing::Worker, session.name.clone(), Action::Park { resumes_at })),
+        match state(world, &session.account, session.family) {
+            State::Paused { resumes_at } if session.parked_since.is_none() => rest.push((true, session.name.clone(), Action::Park { resumes_at })),
             State::WeekOut { .. } | State::ScopeOut { .. } => {
-                if let Some(to) = hand_over_target(world, session) {
-                    rest.push((session.standing == Standing::Worker, session.name.clone(), Action::HandOver { to }));
+                if let Some(to) = soonest_expiring(world, session) {
+                    rest.push((true, session.name.clone(), Action::HandOver { to }));
                 }
             }
             _ => {}
@@ -51,7 +47,7 @@ pub fn all_out(world: &World) -> Option<Option<Unix>> {
         .sessions
         .iter()
         .filter(|session| session.owner != Owner::Tom)
-        .filter_map(|session| Some((provider_of(world, &session.account)?, session.family)))
+        .filter_map(|session| Some((world.accounts.iter().find(|account| account.label == session.account)?.provider, session.family)))
         .collect();
     if in_flight.is_empty() {
         return None;
@@ -59,7 +55,13 @@ pub fn all_out(world: &World) -> Option<Option<Unix>> {
     let mut earliest: Option<Unix> = None;
     for (provider, family) in in_flight {
         for account in world.accounts.iter().filter(|account| account.provider == provider) {
-            earliest = match (earliest, resume_of(state(world, &account.label, family))?) {
+            let resumes = match (account.credit, footing(world, account, family)) {
+                (Some(_), Footing::Below { windfall }) => windfall,
+                (Some(_), Footing::Unknown) => continue,
+                (Some(_), Footing::Above { .. }) => return None,
+                (None, _) => resume_of(state(world, &account.label, family))?,
+            };
+            earliest = match (earliest, resumes) {
                 (Some(left), Some(right)) => Some(left.min(right)),
                 (left, right) => left.or(right),
             };
@@ -68,37 +70,24 @@ pub fn all_out(world: &World) -> Option<Option<Unix>> {
     Some(earliest)
 }
 
-fn is_failover(world: &World, session: &Session, account_state: State) -> bool {
-    let paused = matches!(account_state, State::Paused { .. });
-    match session.standing {
-        Standing::Proxy => paused,
-        Standing::Lead => paused && session.parked_since.is_some_and(|since| world.now.0 - since.0 >= LEAD_FAILOVER_AFTER.0),
-        Standing::Worker => false,
+fn resume_of(state: State) -> Option<Option<Unix>> {
+    match state {
+        State::Paused { resumes_at } => Some(resumes_at),
+        State::WeekOut { resets_at } | State::ScopeOut { resets_at, .. } => Some(resets_at),
+        State::SignedOut | State::Unknown { .. } | State::Open { .. } => None,
     }
 }
 
-fn week_spent(account_state: State) -> bool {
-    matches!(account_state, State::Open { week, .. } if week >= PROXY_WEEK_CEILING)
-}
-
-fn week_headroom_target(world: &World, session: &Session) -> Option<Label> {
-    roomiest(world, session, |account_state| !week_spent(account_state))
-}
-
-fn hand_over_target(world: &World, session: &Session) -> Option<Label> {
-    roomiest(world, session, |_| true)
-}
-
-fn roomiest(world: &World, session: &Session, takes: impl Fn(State) -> bool) -> Option<Label> {
-    let provider = provider_of(world, &session.account)?;
+fn soonest_expiring(world: &World, session: &Session) -> Option<Label> {
+    let provider = world.accounts.iter().find(|account| account.label == session.account)?.provider;
     let room = |account: &Account| match state(world, &account.label, session.family) {
-        open @ State::Open { week, week_resets, .. } if takes(open) => Some(account.weight * (100.0 - week.0).max(0.0) / hours_to(world, week_resets)),
+        State::Open { week, week_resets, .. } => Some(account.weight * (100.0 - week.0).max(0.0) / hours_to(world, week_resets)),
         _ => None,
     };
     world
         .accounts
         .iter()
-        .filter(|account| account.provider == provider && account.label != session.account)
+        .filter(|account| account.provider == provider && account.label != session.account && account.credit.is_none())
         .filter_map(|account| Some((room(account)?, &account.label)))
         .max_by(|left, right| left.0.total_cmp(&right.0).then_with(|| right.1.cmp(left.1)))
         .map(|(_, label)| label.clone())
@@ -106,16 +95,4 @@ fn roomiest(world: &World, session: &Session, takes: impl Fn(State) -> bool) -> 
 
 fn hours_to(world: &World, at: Option<Unix>) -> f64 {
     at.map_or(WEEK_HOURS, |at| ((at.0 - world.now.0) as f64 / 3600.0).max(1.0 / 60.0))
-}
-
-fn provider_of(world: &World, account: &Label) -> Option<Provider> {
-    world.accounts.iter().find(|candidate| &candidate.label == account).map(|candidate| candidate.provider)
-}
-
-fn resume_of(state: State) -> Option<Option<Unix>> {
-    match state {
-        State::Paused { resumes_at } => Some(resumes_at),
-        State::WeekOut { resets_at } | State::ScopeOut { resets_at, .. } => Some(resets_at),
-        State::SignedOut | State::Unknown { .. } | State::Open { .. } => None,
-    }
 }

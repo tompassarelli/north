@@ -88,6 +88,14 @@ pub struct Account {
     pub extra_usage_enabled: Option<bool>,
     pub extra_usage_spend: Option<Usd>,
     pub rates: Rates,
+    pub credit: Option<Credit>,
+}
+
+/// An API organization's prepaid grant: an account that carries one bills per token and has no plan windows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Credit {
+    pub left: Usd,
+    pub next_grant: Option<Unix>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -1,5 +1,6 @@
 //! What `north fleet waits` reads about a usage limit: the account's reset from the usage table, and
 //! which parked session holds a lane that needs landing first.
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -9,10 +10,10 @@ use crate::fleet::lane_probe::Git;
 use crate::fleet::handover::{AccountReadings, Observed};
 use crate::fleet::limit::{AccountResets, FULL_PCT};
 use crate::fleet::stranded::{Lanes, Worktree};
-use crate::foundation::clock::Timestamp;
+use crate::foundation::clock::{Timestamp, parse_day_number};
 use crate::land::queue;
 use crate::platform::process::run_within;
-use crate::usage::decide::world::{Label, LimitEvent, ModelFamily, Percent, Reading, RowId, Source, Unix, Window};
+use crate::usage::decide::world::{Credit, Label, LimitEvent, ModelFamily, Percent, Reading, RowId, Source, Unix, Usd, Window};
 use crate::usage::{open_ledger, profiles};
 use crate::watch;
 
@@ -23,6 +24,9 @@ pub(super) struct UsageTable;
 
 impl AccountResets for UsageTable {
     fn reset_ms(&self, account: &str, now_ms: u64) -> Option<u64> {
+        if let Some(org) = account.strip_prefix("api:") {
+            return credits(now_ms).remove(org).and_then(|credit| credit.next_grant).map(|at| at.0 as u64 * 1000);
+        }
         let db = open_ledger(&profiles::home(), None, &|| {}).ok()?;
         window_reset_ms(&db, account, now_ms)
     }
@@ -48,8 +52,24 @@ fn window_reset_ms(db: &Connection, account: &str, now_ms: u64) -> Option<u64> {
 impl AccountReadings for UsageTable {
     fn observed(&self, now_ms: u64) -> Observed {
         let Ok(db) = open_ledger(&profiles::home(), None, &|| {}) else { return Observed::default() };
-        latest_windows(&db, now_ms)
+        Observed { credits: credits(now_ms), ..latest_windows(&db, now_ms) }
     }
+}
+
+fn credits(now_ms: u64) -> BTreeMap<String, Credit> {
+    let policy = crate::platform::orchestration::path();
+    let state = watch::state_home();
+    let spends = crate::router::pricing::PriceTable::load().ok().and_then(|prices| north_core::credit::spends(&state.join("north/ledger.db"), &prices).ok()).unwrap_or_default();
+    let today = Timestamp::from_unix_millis(now_ms as i64).iso_date();
+    let marks = state.join("north/api-exhausted");
+    north_core::credit::left(&policy, &spends, &today)
+        .into_iter()
+        .map(|(name, left)| {
+            let usd = if marks.join(&left.id).exists() { 0.0 } else { left.usd };
+            let next_grant = left.next_credit.as_deref().and_then(parse_day_number).map(|days| Unix(days * 86_400));
+            (name, Credit { left: Usd(usd), next_grant })
+        })
+        .collect()
 }
 
 fn latest_windows(db: &Connection, now_ms: u64) -> Observed {

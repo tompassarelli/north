@@ -1,5 +1,4 @@
 mod properties;
-mod proxy_week;
 
 use std::collections::BTreeSet;
 
@@ -21,6 +20,7 @@ pub fn account(name: &str, hosts: &[&str]) -> Account {
         extra_usage_enabled: Some(false),
         extra_usage_spend: None,
         rates: Rates { five_hour: rate, week: rate },
+        credit: None,
     }
 }
 
@@ -28,28 +28,8 @@ pub fn reading(row: i64, name: &str, window: Window, used: f64, resets_at: Optio
     Reading { row: RowId(row), account: label(name), window, used: Percent(used), resets_at: resets_at.map(Unix), read_at: Unix(read_at), source }
 }
 
-pub fn fresh(row: i64, name: &str, window: Window, used: f64, resets_at: Option<i64>) -> Reading {
-    reading(row, name, window, used, resets_at, NOW.0 - 60, Source::Header)
-}
-
 pub fn limit(name: &str, window: Window, resets_at: Option<i64>, at: i64) -> LimitEvent {
     LimitEvent { account: label(name), window, resets_at: resets_at.map(Unix), at: Unix(at) }
-}
-
-pub fn session(name: &str, account: &str, p50: f64, spent: Option<f64>) -> Session {
-    Session {
-        name: Name(name.to_owned()),
-        owner: Owner::Fleet,
-        account: label(account),
-        family: ModelFamily::Opus,
-        workstream: None,
-        box_id: None,
-        standing: Standing::Worker,
-        spent: spent.map(Usd),
-        active_minutes: 0.0,
-        expected: Expected { p50: Usd(p50), p90: Usd(p50 * 2.0), minutes: 30.0, source: EstimateSource::None },
-        parked_since: None,
-    }
 }
 
 #[derive(Debug, Clone, Default)]
