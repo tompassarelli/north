@@ -155,8 +155,8 @@ fn end_turn(turns: &mut [Turn], running: &BTreeSet<String>, cut: bool) {
     }
 }
 
-/// The run's report and outcome: the latest of its best-ranked turn reports, where a turn a wake-up opened never
-/// replaces an earlier report that stands (one with an opener and a final outcome, written with nothing left running).
+/// The run's report and outcome: the latest of its best-ranked turn reports, where a turn a wake-up opened and that ran no
+/// tool never replaces an earlier report that stands (one with an opener and a final outcome, written with nothing left running).
 fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
     let (turns, waiting) = segments(lines);
     let rank = |outcome: &str| match outcome {
@@ -169,11 +169,12 @@ fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
     for turn in &turns {
         let assistant: Vec<&Value> = turn.lines.iter().copied().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
         let Some(report) = report(&assistant) else { continue };
-        if turn.woken && standing {
+        let quiet = quiet_run(turn.lines.iter().copied());
+        if turn.woken && quiet && standing {
             continue;
         }
         let opener = crate::platform::attribution::has_opener(&report);
-        let outcome = match outcome::classify(&report, quiet_run(turn.lines.iter().copied())) {
+        let outcome = match outcome::classify(&report, quiet) {
             "unclear" | "not done" if turn.aside && !opener => "idle",
             outcome => outcome,
         };

@@ -195,3 +195,20 @@ fn a_turn_a_wait_wake_up_opened_keeps_the_split_reported_before_it_north_636_d18
     lines.push(text("assistant", 30, "Done: landed 5f06e90dba on origin/main and ticked the docs box."));
     assert_eq!(outcome(&lines), "done", "a turn a message opened still replaces the standing report");
 }
+
+#[test]
+fn a_turn_a_landing_notice_opened_that_ticks_the_box_replaces_the_not_done_before_it_bd_706_midturn() {
+    let at = |n: u32| format!("2026-11-08T03:{n:02}:00Z");
+    let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let tick = json!({"type": "assistant", "timestamp": at(42), "sessionId": "s", "message": {"role": "assistant", "model": "m", "content": [{"type": "tool_use", "id": "e", "name": "Bash", "input": {"command": "gh issue edit 706 --body-file /tmp/body.md"}}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let lines = vec![
+        text("user", 10, "Item: north#706"),
+        text("assistant", 30, "Not done: the fix is written, tested and queued with the lander, but it is not on origin/main yet.\nStop: landing"),
+        text("user", 40, "<task-notification>\n<task-id>bsv7iuuvp</task-id>\n<summary>Monitor event: \"lane on origin/main\"</summary>\n</task-notification>"),
+        tick,
+        text("assistant", 43, "Done: my box on north#706 is ticked. The fix landed as `db1ea6343d`, an ancestor of origin/main."),
+    ];
+    let transcript = super::row::Transcript { lines: &lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) };
+
+    assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "done");
+}
