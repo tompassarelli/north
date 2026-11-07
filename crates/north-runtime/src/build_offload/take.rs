@@ -348,13 +348,27 @@ pub fn run(arguments: &[String]) -> u8 {
             return 0;
         }
         let reserved = game_reserved();
+        let discharging = crate::capacity::laptop_auto::discharging_percent(&crate::capacity::laptop_auto::power_supply());
         let here_room = if reserved { None } else { room::read_local() };
         let rooms = remote_rooms.now();
         let mut backoff = false;
         let mut polled = false;
         for (source, source_ssh) in &hosts {
             let count = |name: &str| starting.get(name).map_or(0, |count| count.load(Ordering::SeqCst));
-            let mut targets = vec![Target { name: &here, ssh: None, room: here_room.as_ref(), starting: count(&here) }];
+            let mut targets = Vec::new();
+            match discharging {
+                Some(percent) => {
+                    let why = format!("this host's battery discharges at {percent}%, so it runs no pulled build");
+                    if printed.get(&here) != Some(&why) {
+                        log(&why);
+                        printed.insert(here.clone(), why);
+                    }
+                }
+                None => {
+                    printed.remove(&here);
+                    targets.push(Target { name: &here, ssh: None, room: here_room.as_ref(), starting: count(&here) });
+                }
+            }
             targets.extend(hosts.iter().filter(|(name, _)| name != source).map(|(name, ssh)| Target { name, ssh: Some(ssh), room: rooms.get(name), starting: count(name) }));
             let (target, ssh) = match pick(&targets, reserved) {
                 Ok(chosen) => chosen,
