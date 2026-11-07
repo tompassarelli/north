@@ -1,5 +1,5 @@
 use north_base::lifecycle::{Refusal, Store};
-use north_session_host::row_delivery::{Phase, RowDelivery, adoptions, drop_old_journal, instance};
+use north_session_host::row_delivery::{Phase, RowDelivery, adopt, instance};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::store::FleetRow;
@@ -32,14 +32,9 @@ impl Fleet {
     pub(super) fn adopt_journals(&self) -> NorthResult<()> {
         for record in self.sessions()? {
             let journal = self.session_dir(&record.name)?.join("delivered");
-            let Some(journal) = journal.is_dir().then_some(journal) else { continue };
-            let mut store = self.deliveries()?;
-            for (id, phase, cause) in adoptions(&journal, |id| self.took(&record.name, id))? {
-                if store.current::<RowDelivery>(&instance(&record.name, &id))?.is_none() && FleetRow::check_id(&id).is_ok() {
-                    self.advance(&mut store, &record.name, &id, phase, &cause)?;
-                }
+            if journal.is_dir() {
+                adopt(&mut self.deliveries()?, &record.name, &journal, |id| self.took(&record.name, id), |id| FleetRow::check_id(id).is_ok())?;
             }
-            drop_old_journal(&journal)?;
         }
         Ok(())
     }
