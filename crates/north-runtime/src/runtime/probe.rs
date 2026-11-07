@@ -176,7 +176,7 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         ..Facts::default()
     };
     if let (true, Some(runtime), Some(at)) = (facts.swaps.is_empty(), facts.runtime.clone(), facts.swapped_at) {
-        facts.swaps.push(Swap { runtime, at: at as i64 });
+        facts.swaps.push(Swap { runtime, at: at as i64, estimated: true });
     }
     let mut registered: Vec<(String, String)> = Vec::new();
     for (name, body) in sections.iter().filter_map(|(name, body)| Some((name.strip_prefix("settings ")?, body))) {

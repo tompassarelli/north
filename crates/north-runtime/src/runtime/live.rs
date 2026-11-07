@@ -20,6 +20,8 @@ pub struct Live {
     pub host: String,
     pub landed_at: i64,
     pub live_at: i64,
+    #[serde(default)]
+    pub exact: bool,
 }
 
 pub fn journal(state: &Path) -> PathBuf {
@@ -30,12 +32,14 @@ pub fn journal(state: &Path) -> PathBuf {
 pub(super) struct Swap {
     pub(super) runtime: String,
     pub(super) at: i64,
+    #[serde(skip)]
+    pub(super) estimated: bool,
 }
 
 pub(super) fn note_swap(layout: &Layout, link: &Path) {
     let Some(runtime) = layout::linked_sha(link) else { return };
     let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs() as i64);
-    let Ok(line) = serde_json::to_string(&Swap { runtime: runtime.to_owned(), at }) else { return };
+    let Ok(line) = serde_json::to_string(&Swap { runtime: runtime.to_owned(), at, estimated: false }) else { return };
     let _ = fs::OpenOptions::new().create(true).append(true).open(layout.swaps()).and_then(|mut file| writeln!(file, "{line}"));
 }
 
@@ -45,7 +49,7 @@ pub(super) fn record(layout: &Layout, checkout: &Path, hosts: &[(String, Vec<Swa
     let mut rows = Vec::new();
     for (host, swaps) in hosts {
         let moves = moves_since(swaps, seen.get(host).map(String::as_str));
-        rows.extend(moves.into_iter().flat_map(|(previous, swap)| landed(checkout, previous, &swap.runtime).into_iter().map(|(sha, landed_at)| Live { sha, host: host.clone(), landed_at, live_at: swap.at.max(landed_at) })));
+        rows.extend(moves.into_iter().flat_map(|(previous, swap)| landed(checkout, previous, &swap.runtime).into_iter().map(|(sha, landed_at)| Live { sha, host: host.clone(), landed_at, live_at: swap.at.max(landed_at), exact: !swap.estimated })));
         if let Some(last) = swaps.last() {
             seen.insert(host.clone(), last.runtime.clone());
         }
@@ -103,15 +107,16 @@ fn on_main(committed: impl Iterator<Item = (String, i64)>, reached: &HashMap<Str
 }
 
 pub fn everywhere(rows: &[Live]) -> Vec<(i64, f64)> {
+    let rows: Vec<&Live> = rows.iter().filter(|row| row.exact).collect();
     let newest = rows.iter().map(|row| row.live_at).max().unwrap_or(0);
     let mut last: HashMap<&str, i64> = HashMap::new();
-    for row in rows {
+    for row in &rows {
         let at = last.entry(row.host.as_str()).or_insert(row.live_at);
         *at = (*at).max(row.live_at);
     }
     let hosts = last.values().filter(|at| **at >= newest - ACTIVE_S).count();
     let mut landings: HashMap<&str, (i64, i64, usize)> = HashMap::new();
-    for row in rows {
+    for row in &rows {
         let entry = landings.entry(row.sha.as_str()).or_insert((row.landed_at, row.live_at, 0));
         entry.1 = entry.1.max(row.live_at);
         entry.2 += 1;
@@ -125,7 +130,7 @@ pub fn read(state: &Path) -> Vec<Live> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Swap, moves_since, on_main};
+    use super::{Live, Swap, everywhere, moves_since, on_main};
     use std::collections::HashMap;
 
     #[test]
@@ -138,10 +143,17 @@ mod tests {
 
     #[test]
     fn a_landing_a_newer_one_supersedes_before_the_next_probe_keeps_its_own_swap_time() {
-        let swap = |runtime: &str, at| Swap { runtime: runtime.to_owned(), at };
+        let swap = |runtime: &str, at| Swap { runtime: runtime.to_owned(), at, estimated: false };
         let swaps = [swap("aaaa", 100), swap("f640", 200), swap("cf56", 300)];
         let moves: Vec<(&str, i64)> = moves_since(&swaps, Some("aaaa")).into_iter().map(|(from, swap)| (from, swap.at)).collect();
         assert_eq!(moves, [("aaaa", 200), ("f640", 300)]);
         assert!(moves_since(&swaps, Some("cf56")).is_empty());
+    }
+
+    #[test]
+    fn the_bar_counts_only_swaps_recorded_when_they_happened() {
+        let row = |sha: &str, host: &str, live_at, exact| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at: 1_000, live_at, exact };
+        let rows = [row("f640", "laptop", 1_030, true), row("f640", "gex45", 1_040, true), row("cf56", "laptop", 1_500, false), row("cf56", "gex45", 1_520, false)];
+        assert_eq!(everywhere(&rows), [(1_000, 40.0)]);
     }
 }
