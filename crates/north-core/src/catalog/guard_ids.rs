@@ -1,18 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use serde_json::Value;
 
 use crate::error::NorthResult;
 
 use super::configuration;
-use super::registration_checks::git_text;
 
-const PATTERN: &str = r#"authoring_guards_off\(|const (UNIT|ID): &str = ""#;
+pub(super) const PATTERN: &str = r#"authoring_guards_off\(|const (UNIT|ID): &str = ""#;
 const CALL: &str = "authoring_guards_off(";
 
-pub(super) fn require_guard_ids_named(north: &Path, reference: &str, catalog: &Value) -> NorthResult<()> {
-    let sources = git_text(north, &["grep", "-n", "-E", PATTERN, reference, "--", "crates", "src"])?;
+pub(super) fn require_guard_ids_named(sources: &str, reference: &str, catalog: &Value) -> NorthResult<()> {
     let named: BTreeSet<&str> = catalog
         .get("activation")
         .and_then(Value::as_object)
@@ -20,7 +17,7 @@ pub(super) fn require_guard_ids_named(north: &Path, reference: &str, catalog: &V
         .flatten()
         .map(|(unit, _)| unit.as_str())
         .collect();
-    let unnamed = unnamed_guard_ids(&sources, reference, &named);
+    let unnamed = unnamed_guard_ids(sources, reference, &named);
     if unnamed.is_empty() {
         return Ok(());
     }

@@ -212,7 +212,8 @@ pub(super) fn check_registered_owners(arguments: &[String]) -> NorthResult<()> {
         &HookProvision::Names(landing_hook_names(&registrations)),
     )?;
     let (north_root, north_ref) = roots.resolve("north", &current_root, &current_head)?;
-    super::guard_ids::require_guard_ids_named(&north_root, &north_ref, &registrations)?;
+    let guard_sources = git_text(&north_root, &["grep", "-n", "-E", super::guard_ids::PATTERN, &north_ref, "--", "crates", "src"])?;
+    super::guard_ids::require_guard_ids_named(&guard_sources, &north_ref, &registrations)?;
     check_owner_files(&mut registrations, &roots, &current_root, &current_head)?;
     println!("agents owner registrations resolve at their landing refs");
     Ok(())
