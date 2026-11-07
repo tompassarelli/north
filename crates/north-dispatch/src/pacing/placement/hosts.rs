@@ -376,7 +376,7 @@ pub(in crate::pacing) fn signed_in(name: &str, destination: &str, claude_ai: boo
 }
 
 fn claude_labels(listing: &str) -> Vec<String> {
-    listing.lines().filter_map(|line| line.strip_prefix("claude\t")).map(|label| label.trim().to_owned()).collect()
+    listing.lines().filter_map(|line| line.strip_prefix("claude\t")?.split('\t').next()).map(|label| label.trim().to_owned()).collect()
 }
 
 /// The live count from `north resident-cap status`, which prints `HOST: LIVE/CAP resident agent CLIs`.
