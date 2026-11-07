@@ -1,10 +1,17 @@
-use std::path::Path;
-use std::time::Duration;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use north_base::lifecycle::{Lifecycle, Moved, Refusal, State, Store};
 
+use super::process::{Input, detach, python_json};
+use super::{Client, Flush, SPOOL_FLUSH};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
+use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
+use crate::threads::ingest_lock;
 
 /// Where a write spooled on a mirrored client stands on its way to the ledger host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,6 +147,151 @@ impl Spool {
 
 fn refused(name: &str, refusal: &Refusal<Phase>) -> NorthError {
     NorthError::State(format!("spooled write {name}: {refusal:?}"))
+}
+
+
+fn spool_stem() -> String {
+    format!("{}-{}", Timestamp::now().unix_nanos(), std::process::id())
+}
+
+impl Client {
+    fn spool_records(&self) -> NorthResult<Spool> {
+        Spool::open(&self.spool, &self.home.join(".local/state/north/ledger.db"), (self.clock)())
+    }
+
+    fn queue_spooled(&self, tmp: &Path, path: &Path, cause: &str) -> NorthResult<()> {
+        let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        self.spool_records()?.queue(&name, cause, (self.clock)())?;
+        Ok(fs::rename(tmp, path)?)
+    }
+
+    pub(super) fn write_spool(&self, data: &[u8], cause: &str) -> NorthResult<PathBuf> {
+        fs::create_dir_all(&self.spool)?;
+        let path = self.spool.join(format!("{}.jsonl", spool_stem()));
+        let tmp = path.with_extension("tmp");
+        fs::write(&tmp, data)?;
+        self.queue_spooled(&tmp, &path, cause)?;
+        Ok(path)
+    }
+
+    pub(super) fn spool_argv(&self, argv: &[String], cause: &str) -> NorthResult<()> {
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.spool)?;
+        fs::set_permissions(&self.spool, fs::Permissions::from_mode(0o700))?;
+        let path = self.spool.join(format!("{}.argv", spool_stem()));
+        let tmp = path.with_extension("tmp");
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?.write_all(python_json(argv).as_bytes())?;
+        self.queue_spooled(&tmp, &path, cause)
+    }
+
+    /// The spool's lock, or none while another call flushes it: that call sends every spooled write in order, so this one neither waits behind it nor sends any itself.
+    fn spool_lock(&self) -> NorthResult<Option<File>> {
+        let lock = File::create(self.spool.join(".lock"))?;
+        match lock.try_lock() {
+            Ok(()) => Ok(Some(lock)),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+            Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
+        }
+    }
+
+    fn flush_spool(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>) -> NorthResult<Flush> {
+        if !self.spool.is_dir() {
+            return Ok(Flush::Clear);
+        }
+        let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
+        let mut spool = self.spool_records()?;
+        let started = Instant::now();
+        for name in spool.queued((self.clock)())? {
+            if budget.is_some_and(|budget| started.elapsed() >= budget) {
+                return Ok(Flush::Busy);
+            }
+            let path = self.spool.join(&name);
+            let file = match File::open(&path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if !spool.take(&name, (self.clock)())? {
+                return Ok(Flush::Busy);
+            }
+            if let Some(flush) = self.send_and_settle(&mut spool, &name, &path, file, dest, err)? {
+                return Ok(flush);
+            }
+        }
+        Ok(Flush::Clear)
+    }
+
+    fn send_and_settle(&self, spool: &mut Spool, name: &str, path: &Path, file: File, dest: &str, err: &mut dyn Write) -> NorthResult<Option<Flush>> {
+        let code = match self.send_spooled(path, file, dest, err) {
+            Ok(code) => code,
+            Err(error) => {
+                spool.release(name, &format!("the flush failed before the ledger host answered: {error}"), (self.clock)())?;
+                return Err(error);
+            }
+        };
+        if code == TRANSPORT_FAILED_STATUS {
+            spool.release(name, "ledger host unreachable", (self.clock)())?;
+            return Ok(Some(Flush::Down));
+        }
+        if matches!(code, ingest_lock::RETRY | TIMED_OUT_STATUS) {
+            spool.release(name, if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
+            return Ok(Some(Flush::Busy));
+        }
+        if code != 0 {
+            spool.refuse(name, &format!("the ledger host exited {code}"), (self.clock)())?;
+            writeln!(err, "NorthThreads: remote ingest refused {}; it will not be sent again", path.display())?;
+            return Ok(None);
+        }
+        spool.deliver(name, (self.clock)())?;
+        match fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error.into()),
+            _ => Ok(None),
+        }
+    }
+
+    fn send_spooled(&self, path: &Path, mut file: File, dest: &str, err: &mut dyn Write) -> NorthResult<i32> {
+        if path.extension().is_some_and(|extension| extension == "argv") {
+            let mut text = String::new();
+            file.read_to_string(&mut text)?;
+            let args: Vec<String> = serde_json::from_str(&text)?;
+            let quiet = args.first().is_some_and(|verb| verb == "agent-event");
+            self.ssh(dest, &args, Input::Null, quiet, err)
+        } else {
+            self.ssh(dest, &["ingest".to_owned()], Input::File(file), false, err)
+        }
+    }
+
+    /// A spooled write sends the spool before itself, because its order behind the spool matters; any other call leaves the spool to a detached `spool-flush`, because one spooled usage batch holds the ledger host for seconds and a bounded call such as a launch's `holder` must not wait on them.
+    pub(super) fn flush_spool_for(&self, verb: Option<&str>, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
+        let Some(program) = self.background.as_ref().filter(|_| !matches!(verb, Some("ingest" | "agent-event"))) else {
+            let flush = self.flush_spool(dest, err, Some(self.spool_drain))?;
+            if let (Flush::Busy, Some(program)) = (flush, self.background.as_ref()) {
+                detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
+            }
+            return Ok(flush);
+        };
+        if self.spool_pending()? {
+            detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
+        }
+        Ok(Flush::Clear)
+    }
+
+    fn spool_pending(&self) -> NorthResult<bool> {
+        if !self.spool.is_dir() {
+            return Ok(false);
+        }
+        Ok(!self.spool_records()?.queued((self.clock)())?.is_empty())
+    }
+
+    pub(super) fn spool_flush_verb(&self, argv: &[String], err: &mut dyn Write) -> NorthResult<i32> {
+        let [_, dest] = argv else {
+            return Err(NorthError::Usage(format!("usage: north threads {SPOOL_FLUSH} DEST")));
+        };
+        Ok(match self.flush_spool(dest, err, None)? {
+            Flush::Clear => 0,
+            Flush::Busy => ingest_lock::RETRY,
+            Flush::Down => TRANSPORT_FAILED_STATUS,
+        })
+    }
 }
 
 #[cfg(test)]

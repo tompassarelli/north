@@ -1,12 +1,11 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::{self, Read, Seek, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
 use crate::threads::{board, causes, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, runs, schema, snapshot, staffing, verb};
@@ -16,8 +15,7 @@ use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 mod process;
 mod spool;
 pub use process::shell_quote;
-use process::{Input, agent_event_checks, code_of, detach, execute, has_usage, python_json, spool_stem};
-use spool::Spool;
+use process::{Input, agent_event_checks, code_of, detach, execute, has_usage, python_json};
 
 const READS: [&str; 10] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate",
@@ -86,6 +84,19 @@ fn recommend_records_nothing(argv: &[String]) -> bool {
 
 fn unanswered(code: i32) -> &'static str {
     if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host unreachable" }
+}
+
+fn keyed_agent_event(argv: &[String], err: &mut dyn Write) -> NorthResult<Option<Vec<String>>> {
+    if let Err(message) = agent_event_checks(argv) {
+        writeln!(err, "NorthThreads: {message}")?;
+        return Ok(None);
+    }
+    let mut keyed = argv.to_vec();
+    if !argv.iter().any(|arg| arg == "--key" || arg.starts_with("--key=")) {
+        let key = fs::read_to_string("/proc/sys/kernel/random/uuid")?.trim().to_owned();
+        keyed.extend(["--key".to_owned(), key]);
+    }
+    Ok(Some(keyed))
 }
 
 pub struct Client {
@@ -378,58 +389,22 @@ impl Client {
 
     fn proxy(&self, dest: &str, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<Option<i32>> {
         let first = argv.first().map(String::as_str);
-        let has = |flag: &str| argv.iter().any(|arg| arg == flag);
         let mut argv = argv.to_vec();
         if first == Some("agent-event") {
-            if let Err(message) = agent_event_checks(&argv) {
-                writeln!(err, "NorthThreads: {message}")?;
-                return Ok(Some(1));
-            }
-            if !argv.iter().any(|arg| arg == "--key" || arg.starts_with("--key=")) {
-                let key = fs::read_to_string("/proc/sys/kernel/random/uuid")?.trim().to_owned();
-                argv.extend(["--key".to_owned(), key]);
-            }
+            let Some(keyed) = keyed_agent_event(&argv, err)? else { return Ok(Some(1)) };
+            argv = keyed;
         }
         if first == Some("job-run") {
-            let code = self.ssh(dest, &argv, Input::Null, false, err)?;
-            if !matches!(code, TRANSPORT_FAILED_STATUS | TIMED_OUT_STATUS) {
-                return Ok(Some(code));
-            }
-            self.spool_argv(&argv, unanswered(code))?;
-            return Ok(Some(0));
+            return self.proxy_job_run(dest, &argv, err).map(Some);
         }
         let flush = self.flush_spool_for(first, dest, err)?;
-        let reachable = flush != Flush::Down;
-        let clear = flush == Flush::Clear;
         if first == Some("ingest") {
-            let mut data = Vec::new();
-            stdin.read_to_end(&mut data)?;
-            let mut state = if reachable { "busy" } else { "unreachable" };
-            if clear {
-                let code = self.ssh(dest, &argv, Input::Bytes(data.clone()), false, err)?;
-                if code == ingest_lock::RETRY {
-                    state = "busy";
-                } else if code == TIMED_OUT_STATUS {
-                    state = "timed out";
-                } else if code != TRANSPORT_FAILED_STATUS {
-                    if code == 0 && has_usage(&data)? {
-                        self.refresh_snapshot_later(dest, USAGE_SNAPSHOT_AGE);
-                    }
-                    return Ok(Some(code));
-                }
-            }
-            let path = self.write_spool(&data, &format!("ledger host {state}"))?;
-            writeln!(err, "NorthThreads: {dest} {state}; spooled ingest to {}", path.display())?;
-            return Ok(Some(0));
+            return self.proxy_ingest(dest, &argv, stdin, flush, err).map(Some);
         }
         if first == Some("agent-event") {
-            let code = if clear { self.ssh(dest, &argv, Input::Null, false, err)? } else { TRANSPORT_FAILED_STATUS };
-            if !matches!(code, TRANSPORT_FAILED_STATUS | TIMED_OUT_STATUS) {
-                return Ok(Some(code));
-            }
-            self.spool_argv(&argv, unanswered(code))?;
-            return Ok(Some(0));
+            return self.proxy_agent_event(dest, &argv, flush, err).map(Some);
         }
+        let reachable = flush != Flush::Down;
         let follow = first == Some("queue") && argv.get(1).map(String::as_str) == Some("follow");
         let input = if follow {
             let mut brief = Vec::new();
@@ -449,14 +424,7 @@ impl Client {
             return Ok(Some(code));
         }
         if code != TRANSPORT_FAILED_STATUS {
-            let calibrate_write = first == Some("calibrate") && has("--write");
-            if !(code == 0 && calibrate_write && has("--goal-row")) {
-                if code == 0 && (first == Some("record-priors") || calibrate_write) {
-                    self.refresh_snapshot(dest, Duration::ZERO)?;
-                } else {
-                    self.refresh_snapshot_later(dest, snapshot::SNAPSHOT_AGE);
-                }
-            }
+            self.refresh_after_answer(dest, &argv, code)?;
             return Ok(Some(code));
         }
         if first.is_some_and(|verb| READS.contains(&verb)) && self.snapshot.exists() {
@@ -467,108 +435,63 @@ impl Client {
         Ok(Some(code))
     }
 
+    fn proxy_job_run(&self, dest: &str, argv: &[String], err: &mut dyn Write) -> NorthResult<i32> {
+        let code = self.ssh(dest, argv, Input::Null, false, err)?;
+        self.spool_if_unanswered(argv, code)
+    }
+
+    fn proxy_ingest(&self, dest: &str, argv: &[String], stdin: &mut dyn Read, flush: Flush, err: &mut dyn Write) -> NorthResult<i32> {
+        let mut data = Vec::new();
+        stdin.read_to_end(&mut data)?;
+        let mut state = if flush != Flush::Down { "busy" } else { "unreachable" };
+        if flush == Flush::Clear {
+            let code = self.ssh(dest, argv, Input::Bytes(data.clone()), false, err)?;
+            if code == ingest_lock::RETRY {
+                state = "busy";
+            } else if code == TIMED_OUT_STATUS {
+                state = "timed out";
+            } else if code != TRANSPORT_FAILED_STATUS {
+                if code == 0 && has_usage(&data)? {
+                    self.refresh_snapshot_later(dest, USAGE_SNAPSHOT_AGE);
+                }
+                return Ok(code);
+            }
+        }
+        let path = self.write_spool(&data, &format!("ledger host {state}"))?;
+        writeln!(err, "NorthThreads: {dest} {state}; spooled ingest to {}", path.display())?;
+        Ok(0)
+    }
+
+    fn proxy_agent_event(&self, dest: &str, argv: &[String], flush: Flush, err: &mut dyn Write) -> NorthResult<i32> {
+        let code = if flush == Flush::Clear { self.ssh(dest, argv, Input::Null, false, err)? } else { TRANSPORT_FAILED_STATUS };
+        self.spool_if_unanswered(argv, code)
+    }
+
+    fn spool_if_unanswered(&self, argv: &[String], code: i32) -> NorthResult<i32> {
+        if !matches!(code, TRANSPORT_FAILED_STATUS | TIMED_OUT_STATUS) {
+            return Ok(code);
+        }
+        self.spool_argv(argv, unanswered(code))?;
+        Ok(0)
+    }
+
+    fn refresh_after_answer(&self, dest: &str, argv: &[String], code: i32) -> NorthResult<()> {
+        let first = argv.first().map(String::as_str);
+        let has = |flag: &str| argv.iter().any(|arg| arg == flag);
+        let calibrate_write = first == Some("calibrate") && has("--write");
+        if code == 0 && calibrate_write && has("--goal-row") {
+            return Ok(());
+        }
+        if code == 0 && (first == Some("record-priors") || calibrate_write) {
+            return self.refresh_snapshot(dest, Duration::ZERO);
+        }
+        self.refresh_snapshot_later(dest, snapshot::SNAPSHOT_AGE);
+        Ok(())
+    }
+
     fn stale_line(&self, dest: &str) -> NorthResult<String> {
         let modified = fs::metadata(&self.snapshot)?.modified()?;
         Ok(format!("STALE: ledger snapshot from {}; {dest} unreachable", Timestamp::from(modified).iso()))
-    }
-
-    fn spool_records(&self) -> NorthResult<Spool> {
-        Spool::open(&self.spool, &self.home.join(".local/state/north/ledger.db"), (self.clock)())
-    }
-
-    fn queue_spooled(&self, tmp: &Path, path: &Path, cause: &str) -> NorthResult<()> {
-        let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        self.spool_records()?.queue(&name, cause, (self.clock)())?;
-        Ok(fs::rename(tmp, path)?)
-    }
-
-    fn write_spool(&self, data: &[u8], cause: &str) -> NorthResult<PathBuf> {
-        fs::create_dir_all(&self.spool)?;
-        let path = self.spool.join(format!("{}.jsonl", spool_stem()));
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, data)?;
-        self.queue_spooled(&tmp, &path, cause)?;
-        Ok(path)
-    }
-
-    fn spool_argv(&self, argv: &[String], cause: &str) -> NorthResult<()> {
-        fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.spool)?;
-        fs::set_permissions(&self.spool, fs::Permissions::from_mode(0o700))?;
-        let path = self.spool.join(format!("{}.argv", spool_stem()));
-        let tmp = path.with_extension("tmp");
-        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?.write_all(python_json(argv).as_bytes())?;
-        self.queue_spooled(&tmp, &path, cause)
-    }
-
-    /// The spool's lock, or none while another call flushes it: that call sends every spooled write in order, so this one neither waits behind it nor sends any itself.
-    fn spool_lock(&self) -> NorthResult<Option<File>> {
-        let lock = File::create(self.spool.join(".lock"))?;
-        match lock.try_lock() {
-            Ok(()) => Ok(Some(lock)),
-            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
-            Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
-        }
-    }
-
-    fn flush_spool(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>) -> NorthResult<Flush> {
-        if !self.spool.is_dir() {
-            return Ok(Flush::Clear);
-        }
-        let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
-        let mut spool = self.spool_records()?;
-        let started = Instant::now();
-        for name in spool.queued((self.clock)())? {
-            if budget.is_some_and(|budget| started.elapsed() >= budget) {
-                return Ok(Flush::Busy);
-            }
-            let path = self.spool.join(&name);
-            let file = match File::open(&path) {
-                Ok(file) => file,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error.into()),
-            };
-            if !spool.take(&name, (self.clock)())? {
-                return Ok(Flush::Busy);
-            }
-            let code = match self.send_spooled(&path, file, dest, err) {
-                Ok(code) => code,
-                Err(error) => {
-                    spool.release(&name, &format!("the flush failed before the ledger host answered: {error}"), (self.clock)())?;
-                    return Err(error);
-                }
-            };
-            if code == TRANSPORT_FAILED_STATUS {
-                spool.release(&name, "ledger host unreachable", (self.clock)())?;
-                return Ok(Flush::Down);
-            }
-            if matches!(code, ingest_lock::RETRY | TIMED_OUT_STATUS) {
-                spool.release(&name, if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
-                return Ok(Flush::Busy);
-            }
-            if code != 0 {
-                spool.refuse(&name, &format!("the ledger host exited {code}"), (self.clock)())?;
-                writeln!(err, "NorthThreads: remote ingest refused {}; it will not be sent again", path.display())?;
-                continue;
-            }
-            spool.deliver(&name, (self.clock)())?;
-            match fs::remove_file(&path) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
-                _ => {}
-            }
-        }
-        Ok(Flush::Clear)
-    }
-
-    fn send_spooled(&self, path: &Path, mut file: File, dest: &str, err: &mut dyn Write) -> NorthResult<i32> {
-        if path.extension().is_some_and(|extension| extension == "argv") {
-            let mut text = String::new();
-            file.read_to_string(&mut text)?;
-            let args: Vec<String> = serde_json::from_str(&text)?;
-            let quiet = args.first().is_some_and(|verb| verb == "agent-event");
-            self.ssh(dest, &args, Input::Null, quiet, err)
-        } else {
-            self.ssh(dest, &["ingest".to_owned()], Input::File(file), false, err)
-        }
     }
 
     fn refresh_snapshot(&self, dest: &str, within: Duration) -> NorthResult<()> {
@@ -585,39 +508,6 @@ impl Client {
             return;
         }
         detach(program, &["snapshot-pull".as_ref(), "--force".as_ref(), "--snapshot".as_ref(), self.snapshot.as_os_str(), dest.as_ref()]);
-    }
-
-    /// A spooled write sends the spool before itself, because its order behind the spool matters; any other call leaves the spool to a detached `spool-flush`, because one spooled usage batch holds the ledger host for seconds and a bounded call such as a launch's `holder` must not wait on them.
-    fn flush_spool_for(&self, verb: Option<&str>, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
-        let Some(program) = self.background.as_ref().filter(|_| !matches!(verb, Some("ingest" | "agent-event"))) else {
-            let flush = self.flush_spool(dest, err, Some(self.spool_drain))?;
-            if let (Flush::Busy, Some(program)) = (flush, self.background.as_ref()) {
-                detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
-            }
-            return Ok(flush);
-        };
-        if self.spool_pending()? {
-            detach(program, &[SPOOL_FLUSH.as_ref(), dest.as_ref()]);
-        }
-        Ok(Flush::Clear)
-    }
-
-    fn spool_pending(&self) -> NorthResult<bool> {
-        if !self.spool.is_dir() {
-            return Ok(false);
-        }
-        Ok(!self.spool_records()?.queued((self.clock)())?.is_empty())
-    }
-
-    fn spool_flush_verb(&self, argv: &[String], err: &mut dyn Write) -> NorthResult<i32> {
-        let [_, dest] = argv else {
-            return Err(NorthError::Usage(format!("usage: north threads {SPOOL_FLUSH} DEST")));
-        };
-        Ok(match self.flush_spool(dest, err, None)? {
-            Flush::Clear => 0,
-            Flush::Busy => ingest_lock::RETRY,
-            Flush::Down => TRANSPORT_FAILED_STATUS,
-        })
     }
 
     fn pull_argv(&self, dest: &str) -> Vec<OsString> {

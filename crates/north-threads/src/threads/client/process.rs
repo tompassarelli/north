@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::NorthResult;
-use crate::foundation::clock::Timestamp;
 use crate::threads::outside;
 
 pub(super) enum Input {
@@ -121,10 +120,6 @@ pub(super) fn has_usage(data: &[u8]) -> NorthResult<bool> {
         }
     }
     Ok(false)
-}
-
-pub(super) fn spool_stem() -> String {
-    format!("{}-{}", Timestamp::now().unix_nanos(), std::process::id())
 }
 
 pub fn shell_quote(word: &str) -> String {
