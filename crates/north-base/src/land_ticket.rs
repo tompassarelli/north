@@ -236,3 +236,91 @@ impl Records {
 pub fn queued(path: &Path, cause: &str) -> io::Result<()> {
     Records::of(path)?.moved(path, Phase::Queued, cause)
 }
+
+/// One branch a fleet session queued for landing: its newest ticket in a queue, the phase the lander's record puts it in,
+/// when it got there and the verdict that moved it. The scorer's pending bar and the fleet's resume pass read a session's
+/// landing from this and never from the words of its report (north#791, docs/rationale/attribution.md).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Lane {
+    pub queue: PathBuf,
+    pub branch: String,
+    pub phase: Phase,
+    pub since: Option<Timestamp>,
+    pub cause: Option<String>,
+    queued: u128,
+}
+
+impl Lane {
+    pub fn undecided(&self) -> bool {
+        !self.phase.is_decided()
+    }
+
+    pub fn landed(&self) -> bool {
+        self.phase == Phase::Landed
+    }
+}
+
+/// The lanes of `session` in every queue under `queues` (`STATE/north/land-queue`): per queue and branch the newest ticket
+/// in any area. A host that is not the lander's holds no queue, so its answer is none.
+pub fn lanes_of(queues: &Path, session: &str) -> NorthResult<Vec<Lane>> {
+    Ok(read_lanes(queues, Some(session))?.remove(session).unwrap_or_default())
+}
+
+/// The lanes of every session under `queues`, read once.
+pub fn lanes_by_session(queues: &Path) -> NorthResult<std::collections::BTreeMap<String, Vec<Lane>>> {
+    read_lanes(queues, None)
+}
+
+fn read_lanes(queues: &Path, wanted: Option<&str>) -> NorthResult<std::collections::BTreeMap<String, Vec<Lane>>> {
+    let entries = match std::fs::read_dir(queues) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Default::default()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut newest: std::collections::BTreeMap<(PathBuf, String, String), Lane> = std::collections::BTreeMap::new();
+    for queue in entries {
+        let queue = queue?.path();
+        if !queue.is_dir() {
+            continue;
+        }
+        let store = recorded(&queue);
+        for directory in directories(&queue) {
+            for (path, queued, ticket) in tickets_in(&directory)? {
+                let Some(session) = ticket["session"].as_str().filter(|session| wanted.is_none_or(|wanted| wanted == *session)) else { continue };
+                let branch = ticket["branch"].as_str().unwrap_or_default().to_owned();
+                let record = store.as_ref().zip(path.file_name()).and_then(|(store, name)| store.current::<LandTicket>(&instance(&queue, name)).ok().flatten());
+                let phase = record.as_ref().map_or_else(|| unrecorded(&queue, &path, ticket["verdict"].as_str()), |record| record.state);
+                let lane = Lane { queue: queue.clone(), branch: branch.clone(), phase, since: record.as_ref().map(|record| record.since), cause: record.map(|record| record.cause), queued };
+                let slot = newest.entry((queue.clone(), session.to_owned(), branch)).or_insert_with(|| lane.clone());
+                if queued >= slot.queued {
+                    *slot = lane;
+                }
+            }
+        }
+    }
+    let mut by_session: std::collections::BTreeMap<String, Vec<Lane>> = std::collections::BTreeMap::new();
+    for ((_, session, _), lane) in newest {
+        by_session.entry(session).or_default().push(lane);
+    }
+    Ok(by_session)
+}
+
+fn tickets_in(directory: &Path) -> NorthResult<Vec<(PathBuf, u128, serde_json::Value)>> {
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut tickets = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if !path.is_file() || path.extension().is_none_or(|extension| extension != "json") {
+            continue;
+        }
+        let ticket: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+        let named = path.file_name().and_then(|name| name.to_str()).and_then(|name| name.split('-').next()).and_then(|micros| micros.parse().ok());
+        let queued = ticket["queued_micros"].as_u64().map(u128::from).or(named).unwrap_or(u128::MAX);
+        tickets.push((path, queued, ticket));
+    }
+    Ok(tickets)
+}

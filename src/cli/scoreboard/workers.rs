@@ -9,10 +9,10 @@ use super::chain::{self, End, Marks, Raw};
 use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::attention::references;
-use crate::platform::attribution::awaits_lander;
 use crate::platform::run_roles::worker_where;
 use crate::platform::{land_queue, records_mirror};
 use crate::providers::claude::runs::outcome::waits_on_time;
+use crate::land_ticket::{Lane, lanes_by_session};
 use crate::threads::attribution::{Cause, attribute, fleet_column, outcome_column, recorded_column, report_column};
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred, lander-queued and job-waking runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
@@ -67,7 +67,7 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
         .into_iter()
         .filter_map(|Raw { agent, category, item, session, ended, end: End { outcome, report, compactions, recorded }, .. }| {
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
-            if outcome != "done" && pending.holds(&report, &session) {
+            if outcome != "done" && pending.holds(&session) {
                 return None;
             }
             let deferred = outcome != "done" && waits_on_time(&report) && !checked_miss();
@@ -92,19 +92,19 @@ fn relaunches(db: &Connection) -> rusqlite::Result<BTreeMap<String, End>> {
 /// exit wakes it to write, replaces this one.
 #[derive(Default)]
 pub struct Pending {
-    /// Sessions whose lane waits undecided in this host's lander queues, pending when the report stops on landing.
-    pub queued: BTreeSet<String>,
+    /// Each session's lanes in this host's lander queues: a session with an undecided lane waits on the lander's verdict, which wakes it to report again.
+    pub lanes: BTreeMap<String, Vec<Lane>>,
     /// Sessions holding an unexpired wait lease in the fleet ledger (a `job-run --notify` job, farm, branch or capture), whose end wakes them.
     pub waking: BTreeSet<String>,
 }
 
 impl Pending {
     pub fn read(db: &Connection, now: i64) -> Self {
-        Self { queued: land_queue::queued_sessions(&records_mirror::state_home()), waking: waking_sessions(db, now) }
+        Self { lanes: lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), waking: waking_sessions(db, now) }
     }
 
-    fn holds(&self, report: &str, session: &str) -> bool {
-        (awaits_lander(report) && self.queued.contains(session)) || self.waking.contains(session)
+    fn holds(&self, session: &str) -> bool {
+        self.lanes.get(session).is_some_and(|lanes| lanes.iter().any(Lane::undecided)) || self.waking.contains(session)
     }
 }
 

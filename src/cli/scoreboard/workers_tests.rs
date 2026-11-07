@@ -3,6 +3,8 @@ use std::fs;
 
 use rusqlite::Connection;
 
+use crate::land_ticket::lanes_by_session;
+
 use super::{Pending, attempts, waking_sessions};
 use crate::platform::land_queue;
 use crate::threads::attribution::{Cause, Harness};
@@ -19,10 +21,10 @@ fn a_landing_stop_is_pending_while_its_ticket_waits_in_the_lander_queue() {
     fs::write(queue.join("done/1794020468167698-n706-boxneeds.json"), r#"{"session":"n-decided"}"#).unwrap();
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch("CREATE TABLE runs(agent TEXT, item TEXT, follows TEXT, category TEXT, started TEXT, ended TEXT, minutes INTEGER, outcome TEXT, report TEXT, role TEXT, brief_text TEXT, compactions INTEGER, fleet_name TEXT);").unwrap();
-    for (agent, session) in [("queued", "n-takeable"), ("decided", "n-decided")] {
-        db.execute("INSERT INTO runs VALUES (?1, 'north#706', NULL, 'bug', '2026-11-07T02:21:27Z', '2026-11-07T03:10:21Z', 49, 'not done', 'Not done: the lane is queued.\nStop: landing', 'worker', '', 0, ?2)", [agent, session]).unwrap();
+    for (agent, session, report) in [("queued", "n-takeable", "Not done: the lane is queued."), ("decided", "n-decided", "Not done: the lane is queued.\nStop: landing")] {
+        db.execute("INSERT INTO runs VALUES (?1, 'north#706', NULL, 'bug', '2026-11-07T02:21:27Z', '2026-11-07T03:10:21Z', 49, 'not done', ?3, 'worker', '', 0, ?2)", [agent, session, report]).unwrap();
     }
-    let read = attempts(&db, 0, &BTreeSet::new(), &Pending { queued: land_queue::queued_sessions(state.path()), waking: BTreeSet::new() }).unwrap();
+    let read = attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: lanes_by_session(&land_queue::queues(state.path())).unwrap(), waking: BTreeSet::new() }).unwrap();
     let causes: Vec<Cause> = read.iter().map(|attempt| attempt.cause).collect();
     assert_eq!(causes, [Cause::Harness(Harness::LandingRefusal)]);
 }
@@ -48,7 +50,7 @@ fn an_unfinished_first_try_is_pending_while_its_notify_job_holds_its_lease() {
     db.execute("INSERT INTO runs VALUES ('d0351', 'north#730', NULL, 'bug', '2026-11-07T03:52:00Z', '2026-11-07T05:41:00Z', 109, 'not done', 'Not done: the fix is queued; the job will message me.\nStop: wait until 2026-11-07T06:30Z', 'worker', '', 0, 'north-730-d0351')", []).unwrap();
     db.execute("INSERT INTO fleet_waits VALUES ('north-730-d0351', 'job', 'n730-poolkey-landed@gex45#2758963', '2026-11-07T06:03:39Z', '2026-11-07T05:41:48Z')", []).unwrap();
     let at = |iso: &str| crate::foundation::clock::Timestamp::parse(iso).unwrap().unix_seconds();
-    let read = |now: &str| attempts(&db, 0, &BTreeSet::new(), &Pending { queued: BTreeSet::new(), waking: waking_sessions(&db, at(now)) }).unwrap().len();
+    let read = |now: &str| attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: Default::default(), waking: waking_sessions(&db, at(now)) }).unwrap().len();
     assert_eq!((read("2026-11-07T06:00:00Z"), read("2026-11-07T06:05:00Z")), (0, 1));
 }
 

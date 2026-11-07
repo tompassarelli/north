@@ -18,6 +18,15 @@ Measured at 06:14 UTC against the ledger and graph (north#791, the inventory com
 - The landing join: of the 76 Done runs from 23:00 to 06:14 UTC that expected a landing, 24 showed `landed = 0` on their row, and for 22 of them the lander host's push log names a landing by the same fleet session. A session on another host writes its row there, and only the lander host holds the landing, so the row never saw it. The ledger host now emits each push of its log as a `push_join` row, and ingest gives the session's newest earlier run the sha and time.
 - Done: the first-try bar counted 136 of 339 first tries as Done by opener on the 24 h ledger, and 112 by landed sha; a Done run that expected a landing and has no landed sha is now not done in the first-try and harness-loss readings.
 
+Replay of the closing `Stop:` lines of the runs that did not finish Done from 23:00 to 06:14 UTC (66 of the 93 end on one), against the records a mechanical reader would use (north#791):
+
+- `Stop: landing`, 6 runs: the lane's ticket record (`north_base::land_ticket::lanes_of`, read by the scorer's pending check) replaces the words; 3 of the 6 also had a boundary cause.
+- `Stop: capacity`, 10 runs: none has a boundary record, so the worker's line was the only evidence. The fleet records a capacity cause only for a usage-limit park or an exit 75, and neither was written for these sessions.
+- `Stop: wait until`, 24 runs: 2 have a boundary cause and none has a row in `fleet_waits`, which holds only live leases and drops a wait at its end, so the registered wait is gone when the run is scored.
+- `Stop: host`, 20 runs: 4 had a boundary cause; the host a worker named is kept only by dispatch's `host-needs.jsonl`, which is fed by that report line.
+
+Capacity, waits and host therefore need a record written at the boundary and kept before their phrase rules are removed; until then the allowlist keeps their reads.
+
 Order of replacement: done from the landed sha with the push-log join, then each `Stop:` kind from its registered or recorded source.
 
 ## The rule
