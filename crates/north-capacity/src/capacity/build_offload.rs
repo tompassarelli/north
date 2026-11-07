@@ -235,11 +235,11 @@ pub fn ships(changed: &[&str], diff_bytes: usize) -> Result<(), Declined> {
     private.map_or(Ok(()), |path| Err(Declined::refused("private asset", (*path).to_owned())))
 }
 
-/// Runs a candidate's job on another host and returns its exit code, calling the notifier with the host once the command starts there; Err leaves it to the local path, with the reason when an offload was declined.
-pub type Offloader = fn(&Candidate, &Job, &dyn Fn(&str)) -> Result<u8, Option<Declined>>;
+/// Runs a candidate's job on another host and returns its exit code, calling the notifier with the host just before the command starts there and starting it only when the notifier returns true; Err leaves it to the local path, with the reason when an offload was declined.
+pub type Offloader = fn(&Candidate, &Job, &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>>;
 
-/// Runs a candidate's job on the peer that took it over a connection that peer opened (the pull hand-over), returning its exit code once the peer reports it; Err leaves the run queued here.
-pub type HandOver = fn(&Candidate, &Job, std::os::unix::net::UnixStream, &dyn Fn(&str)) -> Result<u8, Option<Declined>>;
+/// Runs a candidate's job on the peer that took it over a connection that peer opened (the pull hand-over), returning its exit code once the peer reports it; the notifier returning false when the peer starts it drops the peer, and Err leaves the run queued here.
+pub type HandOver = fn(&Candidate, &Job, std::os::unix::net::UnixStream, &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>>;
 
 /// The host keeps its own trees at the lane's and the main checkout's absolute paths, so a command that names either would run there against them instead of the shipped lane.
 pub fn names_a_path_here(command: &[String], paths: &[&str]) -> Result<(), Declined> {

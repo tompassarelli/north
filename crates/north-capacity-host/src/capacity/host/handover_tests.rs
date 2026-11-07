@@ -98,9 +98,11 @@ async fn capacity_a_run_is_claimed_once_by_racing_peers_withdrawn_on_local_admis
 
 static RECEIVED: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
-fn relaying_hand_over(_: &Candidate, _: &Job, mut peer: UnixStream, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+fn relaying_hand_over(_: &Candidate, _: &Job, mut peer: UnixStream, announce: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     let mut output = Vec::new();
-    let received = receive(&mut peer, &mut output, &mut std::io::sink(), &mut |host| announce(host));
+    let received = receive(&mut peer, &mut output, &mut std::io::sink(), &mut |host| {
+        announce(host);
+    });
     RECEIVED.lock().unwrap().extend(output);
     match received {
         Received::Exit(code) => Ok(code),
@@ -108,7 +110,7 @@ fn relaying_hand_over(_: &Candidate, _: &Job, mut peer: UnixStream, announce: &d
     }
 }
 
-fn never_pushed(_: &Candidate, _: &Job, _: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+fn never_pushed(_: &Candidate, _: &Job, _: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     unreachable!("a pulled run is never pushed")
 }
 

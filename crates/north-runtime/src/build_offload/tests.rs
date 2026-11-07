@@ -76,7 +76,7 @@ fn ran_command(hosts: &Hosts, lane: &Lane, stub_body: &str, command: &[String]) 
     let mut transport = Command::new("sh");
     transport.args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub);
     let output = hosts.remote.join("output.log");
-    let ran = drive(transport, lane, Some(std::fs::File::create(&output).unwrap()), &|| {}, returned);
+    let ran = drive(transport, lane, Some(std::fs::File::create(&output).unwrap()), &|| true, returned);
     assert!(matches!(ran, Ran::Exit(0)));
     std::fs::read_to_string(&output).unwrap().lines().map(str::to_owned).collect()
 }
@@ -179,7 +179,10 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
     let sink = hosts.remote.join("out.txt");
     let announced = std::sync::Mutex::new(Vec::new());
     let job = Job { owner: "t", timeout_seconds: 60, command: &command };
-    let code = hand_over(queued, &lane, &job, Some(std::fs::File::create(&sink).unwrap()), &|host| announced.lock().unwrap().push(host.to_owned())).expect("the taker ran it");
+    let code = hand_over(queued, &lane, &job, Some(std::fs::File::create(&sink).unwrap()), &|host| {
+        announced.lock().unwrap().push(host.to_owned());
+        true
+    }).expect("the taker ran it");
     taker.join().unwrap();
     assert_eq!(code, 7);
     assert_eq!(*announced.lock().unwrap(), ["ccx33"]);
@@ -328,4 +331,21 @@ fn capacity_a_pulled_run_finds_the_programs_its_host_keeps_in_a_home_profile() {
     layout.path = Some(home.join(".nix-profile").into_os_string());
     let output = layout.command(&["git".to_owned(), "--version".to_owned()]).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("git version"), "a pulled run finds no git its host keeps in a home profile: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+// KEEP(bug): a host started an offloaded command as soon as the lane synced, so an offer the gate had already given up on still ran there beside the local run (found 2026-11-07 with 389e99e7de); the host now waits for the go the announce gives and never starts an abandoned offer; north#634
+#[test]
+fn capacity_a_host_never_starts_an_offload_whose_announce_lost_to_the_gates_timeout() {
+    let hosts = hosts();
+    let lane = gather(&hosts.lane("abandoned"), &hosts.laptop).unwrap().ship(&[]).unwrap();
+    let marker = hosts.remote.join("started");
+    let stub = hosts.remote.join("north-stub");
+    crate::foundation::shim::write_script(&stub, &format!("touch {}\n", marker.display()));
+    let command = ["true".to_owned()];
+    let (script, words) = invocation(&lane, &Job { owner: "t", timeout_seconds: 60, command: &command }, "NORTH-OFFLOAD-RETURNED-test");
+    let mut transport = Command::new("sh");
+    transport.args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub);
+    let ran = drive(transport, &lane, Some(std::fs::File::create(hosts.remote.join("output.log")).unwrap()), &|| false, "NORTH-OFFLOAD-RETURNED-test");
+    assert!(matches!(ran, Ran::Abandoned));
+    assert!(!marker.exists(), "the host started the command of an abandoned offer");
 }

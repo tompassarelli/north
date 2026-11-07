@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -19,6 +19,9 @@ use crate::capacity::effects::Host;
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 pub(super) const NO_BUILD_HOST: &str = "NO_BUILD_HOST";
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
+const OFFER_PENDING: u8 = 0;
+const OFFER_STARTED: u8 = 1;
+const OFFER_ABANDONED: u8 = 2;
 
 pub(super) enum Admitted {
     Here(Obj),
@@ -78,8 +81,8 @@ fn report_declined(why: Option<Declined>, create: &Create, declines: &mut Declin
 pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminations: &mut Terminations, taker: Option<std::os::unix::net::UnixStream>) -> Option<u8> {
     let Waiting { root, ticket, request, create, command, began, declined } = waiting;
     let patience = queue_time_left(create.timeout_seconds, (now_ms() - began) / 1000.0);
-    let started = Arc::new(AtomicBool::new(false));
-    let announced = Arc::clone(&started);
+    let offer = Arc::new(AtomicU8::new(OFFER_PENDING));
+    let announced = Arc::clone(&offer);
     let host = *host;
     let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
     let (waiting_root, waiting_ticket) = (root.clone(), ticket.clone());
@@ -94,13 +97,16 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     let work = tokio::task::spawn_blocking(move || {
         let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, agent, offloaded_already, artifact };
         let announce = |target: &str| {
-            announced.store(true, Ordering::SeqCst);
+            if announced.compare_exchange(OFFER_PENDING, OFFER_STARTED, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+                return false;
+            }
             print_to(&Obj::new().put("decision", "OFFLOADED").put("reason", build_offload::REASON).put("host", target).put("class", class.as_str()).put("owner", owner.as_str()), true);
             match &ticket {
                 Some(ticket) if handed => handover::set_aside(&root, ticket),
                 Some(ticket) => dequeue(&root, ticket),
                 None => {}
             }
+            true
         };
         let job = Job { owner: &owner, timeout_seconds, command: &command };
         match taker {
@@ -115,7 +121,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
         tokio::select! {
             done = &mut work => break Some(done),
             () = &mut stalled, if !expired => {
-                if !started.load(Ordering::SeqCst) {
+                if offer.compare_exchange(OFFER_PENDING, OFFER_ABANDONED, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
                     break None;
                 }
                 expired = true;

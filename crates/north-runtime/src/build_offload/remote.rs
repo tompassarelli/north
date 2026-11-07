@@ -41,7 +41,7 @@ before=$(locks)
 cd "$slot/$sub"
 if [ "${1##*/}" = north ] && [ "${1#/}" != "$1" ] && [ ! -x "$1" ]; then shift; set -- "$north" "$@"; fi
 echo @SYNCED@
-exec 8<&0
+@GO@exec 8<&0
 @MARK@=1 @SHIP@=$shipped @TARGET@=$slot_target @HEAD@=$slot_head "$north" capacity host run --class heavy --owner "$owner" --timeout-seconds "$limit" -- @WRAP@"$@" 9>&- 8<&- &
 child=$!
 ( cat <&8 >/dev/null; kill -TERM "$child" 2>/dev/null ) 9>&- &
@@ -59,6 +59,7 @@ exit "$code"
 pub(super) enum Ran {
     Exit(u8),
     NotSynced(String),
+    Abandoned,
 }
 
 /// The run a lane and job make as a peer is offered it.
@@ -86,9 +87,11 @@ pub(super) enum Trust {
 
 const SANDBOX: &str = r#""$north" capacity sandbox --lane "$slot" -- "#;
 
+const GO: &str = "[ \"$(head -c 1)\" = g ] || exit 95\n";
+
 /// The script that rebuilds a lane on a host and runs the job there under that host's capacity run, which enters the lane's flake dev shell, inside the sandbox for a pulled run.
 pub(super) fn script(trust: Trust) -> String {
-    SCRIPT.replace("@WRAP@", match trust { Trust::Own => "", Trust::Pulled => SANDBOX }).replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV)
+    SCRIPT.replace("@WRAP@", match trust { Trust::Own => "", Trust::Pulled => SANDBOX }).replace("@GO@", match trust { Trust::Own => GO, Trust::Pulled => "" }).replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV)
 }
 
 /// The arguments the script takes for an offer.
@@ -102,8 +105,8 @@ pub(super) fn invocation(lane: &Lane, job: &Job, returned: &str) -> (String, Vec
     (script(Trust::Own), words(&offer(lane, job, returned)))
 }
 
-/// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here, writes back each Cargo.lock the run changed and returns its exit code. A failure before the command starts is `NotSynced`.
-pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn()) -> Ran {
+/// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here, writes back each Cargo.lock the run changed and returns its exit code. A failure before the command starts is `NotSynced`; `started` returning false (the offer gave up first) ends the connection before the host starts it, as `Abandoned`.
+pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn() -> bool) -> Ran {
     let returned = super::returned::marker();
     let (script, words) = invocation(lane, job, &returned);
     let quoted: Vec<String> = words.iter().map(|word| quote(word)).collect();
@@ -113,7 +116,7 @@ pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, sink: Option<File>, started
     drive(ssh_command, lane, sink, started, &returned)
 }
 
-pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, started: &dyn Fn(), returned: &str) -> Ran {
+pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, started: &dyn Fn() -> bool, returned: &str) -> Ran {
     let spawned = transport
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -139,12 +142,22 @@ pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, sta
         }
         ready
     });
-    let Some((stdin, mut reader)) = synced else {
+    let Some((mut stdin, mut reader)) = synced else {
         let _ = child.kill();
         let _ = child.wait();
         return Ran::NotSynced("the host could not rebuild the lane in time".to_owned());
     };
-    started();
+    if !started() {
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ran::Abandoned;
+    }
+    if stdin.write_all(b"g").and_then(|()| stdin.flush()).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ran::Exit(255);
+    }
     let mut output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
     let mut splitter = super::returned::Returned::new(returned, &lane.top);
     let mut buffer = [0u8; 8192];
@@ -161,8 +174,8 @@ pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, sta
 
 const OFFER_REPLY_LIMIT: Duration = Duration::from_secs(SYNC_LIMIT.as_secs() + 30);
 
-/// Offers the lane to the peer that opened `peer`, shows what the peer sends back and returns the exit code it reports; a peer that cannot rebuild the lane, or leaves before it reports an exit, gives the run back to the queue here.
-pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+/// Offers the lane to the peer that opened `peer`, shows what the peer sends back and returns the exit code it reports; a peer that cannot rebuild the lane, or leaves before it reports an exit, gives the run back to the queue here, and so does `started` returning false when the peer starts it, which drops the peer so its run ends there.
+pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     let gone = |error: std::io::Error| Some(Declined::Failed(format!("the taking host left: {error}")));
     peer.set_read_timeout(Some(OFFER_REPLY_LIMIT)).map_err(gone)?;
     let returned = super::returned::marker();
@@ -170,11 +183,19 @@ pub(super) fn hand_over(mut peer: UnixStream, lane: &Lane, job: &Job, sink: Opti
     let output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
     let mut splitting = Splitting { splitter: super::returned::Returned::new(&returned, &lane.top), output };
     let timer = peer.try_clone().map_err(gone)?;
+    let abandoned = std::cell::Cell::new(false);
     let mut on_start = |host: &str| {
         let _ = timer.set_read_timeout(None);
-        started(host);
+        if !started(host) {
+            abandoned.set(true);
+            let _ = timer.shutdown(std::net::Shutdown::Both);
+        }
     };
-    match receive(&mut peer, &mut splitting, &mut std::io::stderr(), &mut on_start) {
+    let received = receive(&mut peer, &mut splitting, &mut std::io::stderr(), &mut on_start);
+    if abandoned.get() {
+        return Err(None);
+    }
+    match received {
         Received::Exit(code) => {
             splitting.splitter.finish(&mut splitting.output);
             Ok(code)

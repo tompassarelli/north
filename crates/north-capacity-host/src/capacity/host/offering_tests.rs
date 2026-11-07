@@ -4,11 +4,11 @@ use super::request::Create;
 use crate::capacity::build_offload::{Candidate, Declined, Job};
 use crate::capacity::effects::Host;
 
-fn never_pushed(_: &Candidate, _: &Job, _: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+fn never_pushed(_: &Candidate, _: &Job, _: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     unreachable!("the refusal decides nothing about pushing")
 }
 
-fn never_handed(_: &Candidate, _: &Job, _: std::os::unix::net::UnixStream, _: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+fn never_handed(_: &Candidate, _: &Job, _: std::os::unix::net::UnixStream, _: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     unreachable!("the refusal decides nothing about handing over")
 }
 
@@ -70,7 +70,7 @@ fn a_session_build_is_offered_away_before_deciding_only_on_a_host_that_does_not_
 
 static RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn stalled(_: &Candidate, _: &Job, _: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+fn stalled(_: &Candidate, _: &Job, _: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     north_base::platform::wait::until(std::time::Duration::from_secs(300), || RELEASED.load(std::sync::atomic::Ordering::SeqCst));
     Err(None)
 }
@@ -78,7 +78,7 @@ fn stalled(_: &Candidate, _: &Job, _: &dyn Fn(&str)) -> Result<u8, Option<Declin
 static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static PAST_TIMEOUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn running_until_released(_: &Candidate, _: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+fn running_until_released(_: &Candidate, _: &Job, announce: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     announce("gex45");
     STARTED.store(true, std::sync::atomic::Ordering::SeqCst);
     north_base::platform::wait::until(std::time::Duration::from_secs(300), || PAST_TIMEOUT.load(std::sync::atomic::Ordering::SeqCst));
@@ -112,4 +112,27 @@ async fn an_offload_offer_that_never_starts_ends_with_the_gates_timeout_and_one_
     };
     let (finished, ()) = tokio::join!(offer(&running, 4), release_once_past_the_timeout);
     assert_eq!(finished, Some(7), "a job a host started finishes past the gate's timeout");
+}
+
+static GAVE_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static HOST_RUNS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+static ANNOUNCE_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn announcing_after_the_gate_gave_up(_: &Candidate, _: &Job, announce: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
+    north_base::platform::wait::until(std::time::Duration::from_secs(300), || GAVE_UP.load(std::sync::atomic::Ordering::SeqCst));
+    if announce("gex45") {
+        HOST_RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    ANNOUNCE_DONE.store(true, std::sync::atomic::Ordering::SeqCst);
+    Err(None)
+}
+
+// KEEP(bug): an offer whose timer fired just before announce left the job to the local path while the host still started it, so one build ran twice (found 2026-11-07 with 389e99e7de); the gate and announce now settle through one state and the host never starts an abandoned offer; north#634
+#[tokio::test(start_paused = true)]
+async fn an_offer_whose_timeout_fires_at_announce_runs_the_job_once_here_and_never_on_the_host() {
+    let racing = Host { build_offload: announcing_after_the_gate_gave_up, ..laptop(|| None) };
+    assert_eq!(offer(&racing, 5).await, None, "the gate gave up, so the job runs on the local path");
+    GAVE_UP.store(true, std::sync::atomic::Ordering::SeqCst);
+    north_base::platform::wait::until(std::time::Duration::from_secs(30), || ANNOUNCE_DONE.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(HOST_RUNS.load(std::sync::atomic::Ordering::SeqCst), 0, "the host must not also start the abandoned offer");
 }

@@ -21,7 +21,7 @@ fn room_of(ssh: &str, claim: Option<&claims::Claim>) -> Room {
 }
 
 /// Ok(exit code) when the build ran on another host, trying each host with room in turn when one cannot take the lane; Err leaves it to the local path, naming why when an offload host was configured.
-pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     if !wants_offload(candidate) {
         return Err(None);
     }
@@ -47,6 +47,7 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Res
         held.iter_mut().for_each(|other| drop(other.take()));
         match run_on(&host, hosts[position].1.as_str(), job, announce)? {
             remote::Ran::Exit(code) => return Ok(code),
+            remote::Ran::Abandoned => return Err(None),
             remote::Ran::NotSynced(why) => {
                 failed.push(format!("{host}: {why}"));
                 rooms[position].1 = Room::Short(why);
@@ -70,13 +71,13 @@ fn prepare(job: &Job) -> Result<Prepared, Option<Declined>> {
     Ok(Prepared { lane, command: plan.command, sink })
 }
 
-fn run_on(host: &str, ssh: &str, job: &Job, announce: &dyn Fn(&str)) -> Result<remote::Ran, Option<Declined>> {
+fn run_on(host: &str, ssh: &str, job: &Job, announce: &dyn Fn(&str) -> bool) -> Result<remote::Ran, Option<Declined>> {
     let Prepared { lane, command, sink } = prepare(job)?;
     Ok(remote::run(ssh, &lane, &Job { command: &command, ..*job }, sink, &|| announce(host)))
 }
 
 /// Ok(exit code) when the peer that opened `peer` took this queued run and ran it; Err leaves the run queued here, naming why when the peer could not take it.
-pub fn hand_over(candidate: &Candidate, job: &Job, peer: std::os::unix::net::UnixStream, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
+pub fn hand_over(candidate: &Candidate, job: &Job, peer: std::os::unix::net::UnixStream, announce: &dyn Fn(&str) -> bool) -> Result<u8, Option<Declined>> {
     if let Some(refused) = refusal(candidate) {
         return Err(Some(refused));
     }
