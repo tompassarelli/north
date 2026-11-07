@@ -2,6 +2,7 @@ use super::canary::{self, Verdict};
 use super::deploy;
 use super::failure::{Failure, failed};
 use super::layout::{self, Layout};
+use super::live;
 use super::probe::{self, Shell};
 use super::update;
 use crate::land_offload;
@@ -36,25 +37,33 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut hosts = vec![Shell::Here(host::name())];
     hosts.extend(destinations.iter().cloned().map(Shell::Ssh));
     if let Some(here) = &here {
-        let runtime = layout.runtime(here);
-        for host in &hosts[1..] {
-            let behind = probe::live_runtime(host).is_none_or(|remote| remote != *here && ancestor(&checkout, &remote, here));
-            if !behind {
-                continue;
+        let (runtime, checkout) = (&layout.runtime(here), &checkout);
+        std::thread::scope(|scope| {
+            for host in &hosts[1..] {
+                scope.spawn(move || {
+                    let behind = probe::live_runtime(host).is_none_or(|remote| remote != *here && ancestor(checkout, &remote, here));
+                    if !behind {
+                        return;
+                    }
+                    if let Err(failure) = deploy::ship_runtime(host.name(), here, runtime) {
+                        eprintln!("north runtime settle: {}", failure.message);
+                    }
+                });
             }
-            if let Err(failure) = deploy::ship_runtime(host.name(), here, &runtime) {
-                eprintln!("north runtime settle: {}", failure.message);
-            }
-        }
+        });
     }
     let landing = due_landing(layout, &checkout)?;
     let live = |runtime: &str| landing.as_ref().is_none_or(|landing| runtime == landing.sha || ancestor(&checkout, &landing.sha, runtime));
     let mut records = Vec::new();
+    let mut swaps = Vec::new();
     let mut failing = Vec::new();
     let mut broken = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     for host in &hosts {
         let facts = probed(layout, &checkout, host);
+        if let (Some(runtime), Some(swapped_at)) = (&facts.runtime, facts.swapped_at) {
+            swaps.push((facts.host.clone(), runtime.clone(), swapped_at));
+        }
         let problems = probe::problems(&facts, live);
         println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
         if !problems.is_empty() {
@@ -63,6 +72,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         }
         records.push(probe::record(&facts, &problems));
     }
+    live::record(layout, &checkout, &swaps);
     let report = json!({"checkedAt": now(), "landing": landing.as_ref().map(|landing| &landing.sha), "hosts": records});
     fs::write(layout.state.join("runtime-settle.json"), format!("{report:#}\n"))?;
     if let Some(landing) = landing.filter(|landing| !judged(layout, &landing.sha)) {

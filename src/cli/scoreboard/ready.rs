@@ -42,10 +42,11 @@ enum Bar {
     Corrections,
     PriorityNow,
     IdleAccount,
+    LiveP90,
 }
 
 impl Bar {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -56,6 +57,7 @@ impl Bar {
         Self::Corrections,
         Self::PriorityNow,
         Self::IdleAccount,
+        Self::LiveP90,
     ];
 
     fn goal(self) -> &'static str {
@@ -70,6 +72,7 @@ impl Bar {
             Self::Corrections => "ready-corrections",
             Self::PriorityNow => "ready-priority-now",
             Self::IdleAccount => "ready-idle-account",
+            Self::LiveP90 => "ready-live-p90",
         }
     }
 
@@ -85,12 +88,13 @@ impl Bar {
             Self::Corrections => "corrections per h (all)",
             Self::PriorityNow => "priority:now open",
             Self::IdleAccount => "longest idle account (all)",
+            Self::LiveP90 => "landing to live everywhere p90",
         }
     }
 
     /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent.
     fn quiet_passes(self) -> bool {
-        matches!(self, Self::AskToLanding | Self::Corrections)
+        matches!(self, Self::AskToLanding | Self::Corrections | Self::LiveP90)
     }
 }
 
@@ -240,6 +244,7 @@ struct Records {
     firsts: HashMap<String, Vec<i64>>,
     priority: Vec<Noted>,
     idle: Idle,
+    live: HashMap<String, Vec<(i64, f64)>>,
 }
 
 fn landed(db: &Connection, since: i64) -> Result<HashMap<String, Vec<(i64, f64)>>, String> {
@@ -282,6 +287,7 @@ impl Records {
             tom: tom::Tom::read(&sources.places, &sources.home, since, now)?,
             priority: note(now),
             idle: Idle::read(since),
+            live: HashMap::from([("north".to_owned(), north_runtime::runtime::live::everywhere(&north_runtime::runtime::live::read(&state_root().join("north"))))]),
         })
     }
 
@@ -305,6 +311,7 @@ impl Records {
             Bar::LandingP90 => spread(&self.landings, 0.9),
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
+            Bar::LiveP90 => spread(&self.live, 0.9),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)
@@ -340,7 +347,8 @@ struct Goals(HashMap<&'static str, Goal>);
 
 impl Goals {
     fn read() -> Result<Self, String> {
-        let path = north_goals::code_root().join("north/main").join(registry::PATH);
+        let tree = north_runtime::runtime::own_runtime().map(|(_, runtime)| runtime.join(north_runtime::runtime::layout::TREE)).filter(|tree| tree.join(registry::PATH).is_file());
+        let path = tree.unwrap_or_else(|| north_goals::code_root().join("north/main")).join(registry::PATH);
         let text = fs::read_to_string(&path).map_err(|why| format!("{}: {why}", path.display()))?;
         Self::parse(&text).map_err(|why| format!("{}: {why}", path.display()))
     }

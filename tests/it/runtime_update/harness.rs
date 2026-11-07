@@ -63,7 +63,7 @@ impl Host {
         script(
             &dir.path().join("bin/north"),
             "[[ \"$1 $2 $3 $4 $5\" == 'fleet send --from service:north-runtime-update proxy' ]] || exit 94\n\
-             [[ \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_PREVIOUS\" ]] || exit 92\n\
+             case \"$(readlink \"$XDG_STATE_HOME/north/current\")\" in runtimes/$TEST_PREVIOUS|runtimes/$TEST_TARGET) ;; *) exit 92 ;; esac\n\
              printf '%s\\n' \"$@\" >>\"$TEST_ALERTS\"\nexit \"$TEST_EVENT_STATUS\"\n",
         );
         Self { dir, target }

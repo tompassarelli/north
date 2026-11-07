@@ -84,10 +84,6 @@ pub(super) fn record(layout: &Layout, sha: &str, cause: Cause, reason: &str) -> 
     fs::write(layout.failed(), holds.iter().map(|hold| hold.sha.as_str()).collect::<Vec<_>>().join("\n"))
 }
 
-pub(super) fn failed_shas(layout: &Layout) -> Vec<String> {
-    recent(layout).into_iter().map(|hold| hold.sha).collect()
-}
-
 pub(in super::super) fn verdict(layout: &Layout, target: &str, shipped: bool) -> Verdict {
     match recent(layout).into_iter().find(|hold| hold.sha == target) {
         None => Verdict::Clear,

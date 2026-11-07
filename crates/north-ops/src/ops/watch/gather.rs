@@ -237,17 +237,12 @@ fn subagents(now: u64, fleet: &[Value]) -> Vec<SubagentView> {
         .collect()
 }
 
-pub(super) fn abandoned(journal: &str) -> Vec<u64> {
-    journal.lines().filter_map(|line| line.split_whitespace().next()?.parse().ok()).collect()
-}
-
 fn runtime(state: &Path, checkout: &Path) -> RuntimeView {
-    let abandoned = abandoned(&fs::read_to_string(state.join("runtime-abandoned")).unwrap_or_default());
     let live = fs::read_link(state.join("current")).ok().and_then(|link| Some(link.file_name()?.to_str()?.to_owned()));
     let rust_change_since = live.as_deref().and_then(|live| {
         let range = format!("{live}..origin/main");
         let output = crate::platform::git::run(checkout, &["log", "--format=%ct", &range, "--", ":(glob)**/*.rs", ":(glob)**/Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]).ok()?;
         String::from_utf8_lossy(&output.stdout).lines().filter_map(|line| line.trim().parse().ok()).min()
     });
-    RuntimeView { abandoned, live, rust_change_since }
+    RuntimeView { live, rust_change_since }
 }

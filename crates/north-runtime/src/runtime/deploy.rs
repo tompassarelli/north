@@ -36,12 +36,13 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     if hosts.is_empty() {
         return Err(failed(64, "no host to deploy to: name one or declare [hosts.NAME] with an ssh or deploy_ssh destination"));
     }
-    let mut failures = Vec::new();
-    for host in &hosts {
-        if let Err(failure) = ship(host, &target, &runtime, &references) {
-            eprintln!("north runtime deploy: {}", failure.message);
-            failures.push(failure);
-        }
+    let failures: Vec<Failure> = std::thread::scope(|scope| {
+        let (target, runtime, references) = (&target, &runtime, &references);
+        let shipping: Vec<_> = hosts.iter().map(|host| scope.spawn(move || ship(host, target, runtime, references))).collect();
+        shipping.into_iter().filter_map(|shipped| shipped.join().unwrap_or_else(|_| Err(failed(1, "shipping panicked"))).err()).collect()
+    });
+    for failure in &failures {
+        eprintln!("north runtime deploy: {}", failure.message);
     }
     match failures.into_iter().next() {
         Some(failure) => Err(failure),

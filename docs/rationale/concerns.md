@@ -102,9 +102,9 @@ Four places judge health today, each with its own thresholds and its own judge. 
 
 ### Ready bars
 
-The nine `ready` goals become climbs in north's concerns.toml with `direction`, `target` = today's bar, no `worst`, `window = "24h"`, `host = "here"`, owners north#641, `revisit` "north#641's ready verdict holds three days in a row", and the oracle `north ledger scoreboard --metric NAME`, a new flag that prints the worst reading over the ready repositories (north and makgora) for the last 24 h with one detail line per repository, and fails when no repository has a record:
+The ten `ready` goals become climbs in north's concerns.toml with `direction`, `target` = today's bar, no `worst`, `window = "24h"`, `host = "here"`, owners north#641, `revisit` "north#641's ready verdict holds three days in a row", and the oracle `north ledger scoreboard --metric NAME`, a new flag that prints the worst reading over the ready repositories (north and makgora) for the last 24 h with one detail line per repository, and fails when no repository has a record:
 
-- `ready-landing-p90`, `ready-verification-p50`, `ready-verification-p90`, `ready-rework`, `ready-first-try`, `ready-ask-to-landing`, `ready-corrections`, `ready-priority-now`, `ready-idle-account`.
+- `ready-landing-p90`, `ready-verification-p50`, `ready-verification-p90`, `ready-rework`, `ready-first-try`, `ready-ask-to-landing`, `ready-corrections`, `ready-priority-now`, `ready-idle-account`, `ready-live-p90`.
 
 src/cli/scoreboard/ready.rs keeps its measurement (`Records`, `Bar` with labels and `quiet_passes`, days in a row from per-day windows of records, one table per repository) and asks `judge` whether each repository's window meets the concern's target. Deleted: the `Goals` struct and its `read`, `parse` and `of`; `Standing::of`'s own comparison; the bound arithmetic in `threshold`, which formats the concern's line instead; the `ready` class, its parse arm in registry.rs, the `class != Ready` filter in `check` and the ready arm in `judge`. `landing-p90` (last 20 landings) and `ready-landing-p90` (last 24 h) stay two concerns because their windows differ; a later pair on the same quantity and window merges.
 

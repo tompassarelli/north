@@ -141,6 +141,7 @@ pub(super) struct Facts {
     pub(super) host: String,
     pub(super) unreachable: Option<String>,
     pub(super) runtime: Option<String>,
+    pub(super) swapped_at: Option<u64>,
     pub(super) units: BTreeMap<String, String>,
     pub(super) psi60: Option<f64>,
     pub(super) load_per_core: Option<f64>,
@@ -164,6 +165,7 @@ pub(super) fn facts(shell: &Shell) -> Facts {
     let mut facts = Facts {
         host,
         runtime: linked_sha(Path::new(section("runtime").trim())).map(str::to_owned),
+        swapped_at: section("swapped").trim().parse().ok(),
         units: UNITS.iter().zip(section("units").lines()).map(|(unit, state)| ((*unit).to_owned(), state.trim().to_owned())).collect(),
         psi60: psi60(section("pressure")),
         load_per_core: load_per_core(section("load")),
@@ -232,6 +234,7 @@ pub(super) fn record(facts: &Facts, problems: &[String]) -> Value {
         "host": facts.host,
         "installing": installing(facts),
         "runtime": facts.runtime,
+        "swappedAt": facts.swapped_at,
         "units": facts.units,
         "cpuPsi60": facts.psi60,
         "loadPerCore": facts.load_per_core,
@@ -248,6 +251,7 @@ fn facts_script() -> String {
         "set -u\nstate=\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north\"\nproc=\"${{NORTH_SETTLE_PROC:-/proc}}\"\n\
          mark() {{ printf '\\n{MARK}%s\\n' \"$1\"; }}\n\
          mark runtime; readlink \"$state/current\"\n\
+         mark swapped; stat -c %Y \"$state/current\"\n\
          mark units; systemctl --user is-active {} || true\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\

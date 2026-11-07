@@ -175,3 +175,10 @@ source = "north#641: no Claude account sits idle for more than 30 min while prio
 unit = "min"
 max = 30
 class = "ready"
+
+[[goal]]
+name = "ready-live-p90"
+source = "north#731: a north landing is the live runtime on every host within 2 min at p90, over the newest 24 h"
+unit = "s"
+max = 120
+class = "ready"

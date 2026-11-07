@@ -11,6 +11,8 @@ use std::time::Duration;
 
 const STEP_LIMIT: Duration = Duration::from_secs(300);
 const LOG_TAIL: usize = 8;
+const AGENTS_SYNC: &str = "agents sync";
+const UNPUBLISHED: &str = "agents-sync-unpublished";
 
 pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
     let staged = layout.state.join("current.tmp");
@@ -20,8 +22,18 @@ pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
 }
 
 pub(super) fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String, Failure> {
-    let steps = vec![("health check", health_check(layout)), ("agents sync", agents_sync(&layout.runtime(target).join("north")))];
+    let steps = vec![("health check", health_check(layout)), (AGENTS_SYNC, agents_sync(&layout.runtime(target).join("north")))];
     settle(layout, previous, target, steps, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))
+}
+
+pub(super) fn republish_if_unpublished(layout: &Layout, target: &str) {
+    if !layout.state.join(UNPUBLISHED).exists() {
+        return;
+    }
+    let steps = vec![(AGENTS_SYNC, agents_sync(&layout.runtime(target).join("north")))];
+    if let Ok(synced) = settle(layout, None, target, steps, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}"))) {
+        print!("{synced}");
+    }
 }
 
 pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, steps: Vec<(&str, Command)>, notify: &mut dyn FnMut(&str)) -> Result<String, Failure> {
@@ -31,7 +43,7 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         .tempfile_in(&layout.state)?;
     swap(layout, &layout::link(target))?;
     let mut failure = None;
-    let mut held = false;
+    let mut unpublished = None;
     let limit = remote::limit(STEP_LIMIT);
     let append = || fs::OpenOptions::new().append(true).open(log.path());
     let note = |line: String| {
@@ -48,8 +60,13 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         };
         match ran {
             Ok(status) if status.success() => continue,
-            Ok(status) if name == "agents sync" && code(status) == POLICY_HELD => {
-                held = true;
+            Ok(status) if name == AGENTS_SYNC => {
+                unpublished = Some(code(status));
+                continue;
+            }
+            Err(error) if name == AGENTS_SYNC => {
+                note(format!("{name} did not run: {error}\n"));
+                unpublished = Some(127);
                 continue;
             }
             Ok(status) => failure = Some((name, code(status))),
@@ -61,12 +78,9 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         break;
     }
     let Some((step, status)) = failure else {
-        let mut synced = fs::read_to_string(log.path()).unwrap_or_default();
-        policy_notice(layout, target, held.then_some(synced.as_str()), notify);
-        if !synced.is_empty() && !synced.ends_with('\n') {
-            synced.push('\n');
-        }
-        return Ok(synced);
+        let logged = fs::read_to_string(log.path()).unwrap_or_default();
+        publication_notice(layout, target, unpublished.map(|status| (status, logged.as_str())), notify);
+        return Ok(logged.lines().map(|line| crate::foundation::redact::redact(line) + "\n").collect());
     };
     if let Some(previous) = previous {
         swap(layout, previous)?;
@@ -85,21 +99,29 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
     Err(failed(1, message))
 }
 
-fn policy_notice(layout: &Layout, target: &str, held: Option<&str>, notify: &mut dyn FnMut(&str)) {
-    let record = layout.state.join("policy-held");
-    let Some(logged) = held else {
+fn publication_notice(layout: &Layout, target: &str, unpublished: Option<(u8, &str)>, notify: &mut dyn FnMut(&str)) {
+    let record = layout.state.join(UNPUBLISHED);
+    let Some((status, logged)) = unpublished else {
         let _ = fs::remove_file(&record);
         return;
     };
-    let cause = logged
-        .lines()
-        .find(|line| line.starts_with("agents sync: ") && !line.contains("generation not published"))
-        .unwrap_or("agents sync: the policy gate refused the generation");
+    let cause = match status {
+        POLICY_HELD => logged
+            .lines()
+            .find(|line| line.starts_with("agents sync: ") && !line.contains("generation not published"))
+            .unwrap_or("agents sync: the policy gate refused the generation")
+            .to_owned(),
+        _ => format!("agents sync exited {status}: {}", log_tail(logged).last().map_or("it printed nothing", String::as_str)),
+    };
     if fs::read_to_string(&record).is_ok_and(|seen| seen == cause) {
         return;
     }
-    let _ = fs::write(&record, cause);
-    notify(&format!("runtime {} is live; the policy generation is held and the last published one stays live: {cause}", &target[..8]));
+    let _ = fs::write(&record, &cause);
+    let short = &target[..8];
+    match status {
+        POLICY_HELD => notify(&format!("runtime {short} is live; the policy generation is held and the last published one stays live: {cause}")),
+        _ => notify(&format!("runtime {short} is live; the harness generation is not published and the last published one stays live until agents sync passes on a later runtime update tick: {cause}")),
+    }
 }
 
 fn log_tail(logged: &str) -> Vec<String> {
@@ -124,6 +146,6 @@ pub(in crate::runtime) fn alert_proxy(text: &str) {
         .args(["fleet", "send", "--from", "service:north-runtime-update", "proxy", text])
         .status();
     if !sent.is_ok_and(|status| status.success()) {
-        eprintln!("north runtime update: rollback alert delivery failed");
+        eprintln!("north runtime update: proxy alert delivery failed");
     }
 }

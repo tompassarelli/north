@@ -14,6 +14,7 @@ pub fn operator_directory() -> NorthResult<PathBuf> {
 }
 
 pub fn run(arguments: &[String]) -> NorthResult<u8> {
+    let projected = project_profiles();
     let operator = operator_directory()?;
     let Some(south) = toplevel(&operator) else {
         eprintln!("agents sync: operator directory is not in a Git checkout");
@@ -40,7 +41,7 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
         return Ok(north_base::agents_sync::POLICY_HELD);
     }
     super::run(arguments)?;
-    if !project_profiles() {
+    if !projected {
         return Ok(1);
     }
     let _ = Command::new(harness.join("bin/effect-kit"))

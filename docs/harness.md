@@ -33,7 +33,9 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
 
 3. `north runtime update` builds origin/main, installs the binary and the commit's own tree under
    `~/.local/state/north/runtimes/<sha>/`, points `~/.local/state/north/current` at it, then runs
-   `north runtime health` and `agents sync`, rolling back if either fails. The `north` command in
+   `north runtime health`, rolling back if it fails, then `agents sync`, whose failure alarms the
+   proxy once per cause and retries every tick but never rolls the runtime back. A build in
+   progress always finishes and promotes before the next one starts on the newest main. The `north` command in
    [bin/north](../bin/north) launches that installed runtime, and scheduled jobs run harness code
    from `current/tree/bin`, so the code they run and the binary they call share a commit.
 

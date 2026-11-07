@@ -5,11 +5,9 @@ use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::peers;
 use super::pull;
-use super::queue::{self, Entry};
 use super::remote;
 use super::reuse;
 use super::store;
-use super::supersede::{self, SUPERSEDED};
 use crate::capacity::game_reserve::Confinement;
 use crate::land_offload;
 use crate::pacing::placement::gate;
@@ -33,7 +31,7 @@ pub(super) mod hold;
 mod sync;
 
 use hold::{Cause, Verdict};
-use sync::{swap, sync};
+use sync::{republish_if_unpublished, swap, sync};
 pub(super) use sync::alert_proxy;
 
 enum Pass {
@@ -54,7 +52,6 @@ fn update_locked(layout: &Layout) -> Result<(), Failure> {
     };
     for _ in 0..PASSES {
         match pass(layout) {
-            Err(failure) if failure.code == SUPERSEDED => println!("north runtime: {}; restarting on the new origin/main", failure.message),
             Ok(Pass::Promoted) => continue,
             finished => return finished.map(|_| ()),
         }
@@ -128,10 +125,10 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
     let previous = fs::read_link(layout.current()).ok();
     if previous.as_deref() == Some(layout::link(&target).as_path()) {
         println!("north runtime current: {}", layout::short(&target));
+        republish_if_unpublished(layout, &target);
         return Ok(Pass::Settled);
     }
-    let wanted = next_build(layout, &checkout, &target, previous.as_deref());
-    match advance(layout, &checkout, &wanted, previous.as_deref()) {
+    match advance(layout, &checkout, &target, previous.as_deref()) {
         Err(deferred) if deferred.code == DEFERRED => catch_up(layout, &checkout, &target, previous.as_deref())?.ok_or(deferred),
         advanced => advanced,
     }
@@ -150,7 +147,6 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     let promoted = promote(layout, checkout, target, previous);
     if let Err((cause, failure)) = &promoted
         && failure.code != DEFERRED
-        && failure.code != SUPERSEDED
     {
         hold::record(layout, target, *cause, &failure.message)?;
     }
@@ -197,24 +193,6 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     store::root(runtime)?;
     super::deploy::stage_for_lander(layout, target, runtime);
     sync(layout, previous, target)
-}
-
-fn skipped(layout: &Layout) -> Vec<String> {
-    let journal = fs::read_to_string(layout.abandoned()).unwrap_or_default();
-    journal.lines().rev().filter_map(|line| line.split_whitespace().nth(1)).filter(|sha| layout::is_sha(sha)).map(str::to_owned).collect()
-}
-
-fn next_build(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> String {
-    let current = previous.and_then(layout::linked_sha);
-    let failed = hold::failed_shas(layout);
-    let mut entries = vec![Entry { sha: target.to_owned(), failed: failed.iter().any(|sha| sha == target) }];
-    for sha in skipped(layout) {
-        let ahead = sha != target && current.is_none_or(|current| sha != current && !ancestor(checkout, &sha, current)) && ancestor(checkout, &sha, target);
-        if ahead && !entries.iter().any(|entry| entry.sha == sha) {
-            entries.push(Entry { failed: failed.contains(&sha), sha });
-        }
-    }
-    queue::next(&entries, |older, newer| ancestor(checkout, older, newer)).unwrap_or(target).to_owned()
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {
@@ -356,17 +334,10 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
         .env("CARGO_TARGET_DIR", &built)
         .env("CARGO_PROFILE_RELEASE_INCREMENTAL", "true");
     let log = BuildLog::open(layout, target)?;
-    let started = Instant::now();
     let mut attempt = || -> Result<_, Failure> {
         let wall = std::time::SystemTime::now();
         log.attach(&mut build)?;
-        let previous = fs::read_to_string(layout.build_seconds()).ok().and_then(|seconds| seconds.trim().parse().ok()).map(Duration::from_secs);
-        let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok()).inspect_err(|failure| {
-            if failure.code == SUPERSEDED {
-                note_abandoned(layout, target);
-                let _ = cargo_build::forget_interrupted_incremental(&built);
-            }
-        })?;
+        let status = build.status()?;
         Ok((status, cargo_build::cargo_ran(&built, wall)))
     };
     let (mut status, mut ran) = attempt()?;
@@ -394,14 +365,7 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
         layout::install(&release.join(program), &runtime.join(program))?;
     }
     fs::write(runtime.join(BUILT_HERE), layout::short(target))?;
-    fs::write(layout.build_seconds(), started.elapsed().as_secs().to_string())?;
     Ok(())
-}
-
-fn note_abandoned(layout: &Layout, target: &str) {
-    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    let line = format!("{at} {target}\n");
-    let _ = fs::OpenOptions::new().create(true).append(true).open(layout.abandoned()).and_then(|mut journal| std::io::Write::write_all(&mut journal, line.as_bytes()));
 }
 
 fn export_tree(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
@@ -502,7 +466,7 @@ mod policy_hold_tests {
     }
 
     #[test]
-    fn a_policy_hold_publishes_the_code_runtime_keeps_the_last_generation_and_notifies_the_proxy_once() {
+    fn an_unpublished_generation_keeps_the_code_runtime_and_notifies_the_proxy_once_per_cause() {
         let state = tempfile::tempdir().unwrap();
         let layout = Layout { state: state.path().to_path_buf() };
         let (old, new) = ("a".repeat(40), "b".repeat(40));
@@ -523,7 +487,13 @@ mod policy_hold_tests {
         assert!(settle(&layout, Some(&previous), &new, steps(POLICY_HELD), &mut |text: &str| notices.push(text.to_owned())).is_ok());
         assert_eq!(notices.len(), 2, "a hold after a published generation is news again");
 
-        assert!(settle(&layout, Some(&previous), &new, steps(1), &mut |text: &str| notices.push(text.to_owned())).is_err());
-        assert_eq!(fs::read_link(layout.current()).unwrap(), previous, "any other sync failure still rolls the code back");
+        assert!(settle(&layout, Some(&previous), &new, steps(1), &mut |text: &str| notices.push(text.to_owned())).is_ok());
+        assert_eq!(fs::read_link(layout.current()).unwrap(), layout::link(&new), "an agents sync failure never rolls the code back");
+        assert!(notices.len() == 3 && notices[2].contains("agents sync exited 1"), "{notices:?}");
+
+        let mut unhealthy = steps(0);
+        unhealthy[0].1 = Command::new("false");
+        assert!(settle(&layout, Some(&previous), &new, unhealthy, &mut |text: &str| notices.push(text.to_owned())).is_err());
+        assert_eq!(fs::read_link(layout.current()).unwrap(), previous, "a failed health check still rolls the code back");
     }
 }

@@ -148,7 +148,6 @@ pub struct WaitView {
 
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeView {
-    pub abandoned: Vec<u64>,
     pub live: Option<String>,
     pub rust_change_since: Option<u64>,
 }

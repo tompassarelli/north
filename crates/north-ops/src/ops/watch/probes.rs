@@ -6,8 +6,6 @@ pub(super) const QUEUE_FLOOR_SECS: u64 = 5 * 60;
 pub(super) const PRESSURE_HOLD_SECS: u64 = 2 * 60;
 pub(super) const SILENT_SECS: u64 = 10 * 60;
 pub(super) const DEFAULT_ETA_MIN: u64 = 45;
-pub(super) const ABANDON_WINDOW_SECS: u64 = 30 * 60;
-pub(super) const ABANDON_LIMIT: usize = 3;
 pub(super) const STALE_RUNTIME_SECS: u64 = 15 * 60;
 pub(super) const UNREACHABLE_SECS: u64 = 2 * 60;
 
@@ -89,18 +87,12 @@ pub fn waits(context: &WatchContext) -> Vec<Alert> {
 }
 
 pub fn runtime_follow(context: &WatchContext) -> Vec<Alert> {
-    let mut alerts = Vec::new();
-    let recent: Vec<u64> = context.runtime.abandoned.iter().copied().filter(|at| context.now.saturating_sub(*at) <= ABANDON_WINDOW_SECS).collect();
-    if recent.len() > ABANDON_LIMIT {
-        let summary = format!("runtime-follow abandoned {} builds in the last 30 min", recent.len());
-        alerts.push(Alert { repo: Some("north".into()), ..alert("work:runtime:abandoned".into(), Severity::Warn, summary, recent.iter().copied().min().unwrap_or(context.now)) });
-    }
-    if let Some(since) = context.runtime.rust_change_since.filter(|since| context.now.saturating_sub(*since) > STALE_RUNTIME_SECS) {
-        let live = context.runtime.live.as_deref().map_or("unknown", |live| live.get(..8).unwrap_or(live));
-        let summary = format!("live north runtime {live} is {} min behind a Rust change on origin/main", minutes(context.now - since));
-        alerts.push(Alert { repo: Some("north".into()), ..alert("work:runtime:stale".into(), Severity::Warn, summary, since) });
-    }
-    alerts
+    let Some(since) = context.runtime.rust_change_since.filter(|since| context.now.saturating_sub(*since) > STALE_RUNTIME_SECS) else {
+        return Vec::new();
+    };
+    let live = context.runtime.live.as_deref().map_or("unknown", |live| live.get(..8).unwrap_or(live));
+    let summary = format!("live north runtime {live} is {} min behind a Rust change on origin/main", minutes(context.now - since));
+    vec![Alert { repo: Some("north".into()), ..alert("work:runtime:stale".into(), Severity::Warn, summary, since) }]
 }
 
 pub fn hosts(context: &WatchContext) -> Vec<Alert> {

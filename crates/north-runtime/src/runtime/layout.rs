@@ -51,14 +51,6 @@ impl Layout {
         self.state.join("runtime-canary")
     }
 
-    pub fn build_seconds(&self) -> PathBuf {
-        self.state.join("runtime-build-seconds")
-    }
-
-    pub fn abandoned(&self) -> PathBuf {
-        self.state.join("runtime-abandoned")
-    }
-
     pub fn build_logs(&self) -> PathBuf {
         self.state.join("runtime-build-logs")
     }
