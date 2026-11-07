@@ -305,7 +305,18 @@ const RUN_OPTIONS: [&str; 15] = [
 ];
 
 fn landing_run(operation: &str, owner: &str, class: &str, land_head: Option<&str>, landing: Option<&str>) -> bool {
-    operation == "run" && policy::batch_class(class) && (owner == "land-check" || (owner.starts_with("gate:") && land_head.is_some_and(|head| !head.is_empty()) && landing == Some("1")))
+    operation == "run" && policy::batch_class(class) && (lander_owner(owner) || (owner.starts_with("gate:") && land_head.is_some_and(|head| !head.is_empty()) && landing == Some("1")))
+}
+
+/// The owners of the lander's own runs: the land checks and their post-land runs, the offload warm build, and the gates of its worktrees (`lander`, `lander-N`, `lander-culprit-N`, `lander-replay`, `lander-goals`), which carry no session and so take the worktree's name.
+fn lander_owner(owner: &str) -> bool {
+    let Some(worktree) = owner.strip_prefix("gate:") else { return matches!(owner, "land-check" | "land-offload") };
+    let numbered = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    match worktree.strip_prefix("lander") {
+        Some("" | "-replay" | "-goals") => true,
+        Some(rest) => rest.strip_prefix('-').is_some_and(|rest| numbered(rest) || rest.strip_prefix("culprit-").is_some_and(numbered)),
+        None => false,
+    }
 }
 
 fn size_landing(request: &mut request::Request, cores: f64, cap: Option<f64>, charge: impl FnOnce() -> f64) {

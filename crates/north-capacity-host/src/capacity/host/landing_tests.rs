@@ -16,3 +16,16 @@ fn a_land_check_lease_is_a_landing_lease_without_the_land_head_in_its_environmen
     assert!(landing_run("run", "land-check", "heavy", None, None));
     assert!(!landing_run("run", "heavy-command-guard", "heavy", Some("abc"), Some("1")));
 }
+
+// KEEP(bug): on 2026-11-08 gate:lander runs queued as ordinary heavy runs behind worker gates for up to 197 s, and land-offload runs up to 139 s on gex45, because only land-check and a gate carrying SAFE_PUSH_LAND_HEAD admitted as the critical class that passes the queue (north#842)
+#[test]
+fn a_queued_lander_run_admits_as_the_critical_class_that_starts_before_earlier_queued_worker_gates() {
+    let admitted = |owner: &str| Request { name: "heavy".to_owned(), landing: landing_run("run", owner, "heavy", None, None), ..Request::default() }.admitted_class().to_owned();
+    for lander in ["land-check", "land-offload", "gate:lander", "gate:lander-2", "gate:lander-culprit-1", "gate:lander-replay", "gate:lander-goals"] {
+        assert_eq!(admitted(lander), "critical", "{lander} waits in the worker line");
+    }
+    for worker in ["gate:north-842-serve", "gate:tom", "gate:lander-lead", "gate:lander-culprit", "gate:landerx", "heavy-command-guard", "makgora-goals-perf"] {
+        assert_eq!(admitted(worker), "heavy", "{worker} takes the landing priority");
+    }
+    assert!(!landing_run("estimate", "gate:lander", "heavy", None, None));
+}
