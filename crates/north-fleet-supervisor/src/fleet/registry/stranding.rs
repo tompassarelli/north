@@ -6,7 +6,7 @@ use crate::error::NorthResult;
 use crate::fleet::model::{EntryKind, Machine, SessionRecord, Status};
 use crate::fleet::resume::OPENERS;
 use crate::fleet::stranded::{self, Checkout, Lane, Lanes, Stop, Stranded, Worktree};
-use crate::fleet::transcript::session_stream_path;
+use crate::fleet::transcript::last_written;
 
 use super::Fleet;
 
@@ -98,8 +98,7 @@ fn machine_name(record: &SessionRecord) -> Option<String> {
 }
 
 pub(super) fn recent(record: &SessionRecord) -> bool {
-    let modified = std::fs::metadata(session_stream_path(&record.host_dir, &record.name)).and_then(|meta| meta.modified());
-    modified.is_ok_and(|at| SystemTime::now().duration_since(at).is_ok_and(|age| age < RECENT))
+    last_written(record).is_some_and(|at| SystemTime::now().duration_since(at).is_ok_and(|age| age < RECENT))
 }
 
 impl Fleet {

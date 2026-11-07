@@ -71,10 +71,12 @@ pub fn session_stream_path(host_dir: &Path, name: &str) -> PathBuf {
     host_dir.join("g1").join(SESSION_STREAMS).join(format!("{name}.jsonl"))
 }
 
-/// When the session's output was last written: the end of its last turn once it has stopped.
+/// When the session's output was last written: the end of its last turn once it has stopped. A reader writes the
+/// session's indexed stream when it indexes the host's stream, never before the host wrote those frames, so the indexed
+/// stream counts only where it is older than the host's.
 pub fn last_written(record: &SessionRecord) -> Option<std::time::SystemTime> {
     let modified = |path: &Path| fs::metadata(path).and_then(|meta| meta.modified()).ok();
-    modified(&session_stream_path(&record.host_dir, &record.name)).or_else(|| modified(&stream_path(&record.host_dir)))
+    modified(&session_stream_path(&record.host_dir, &record.name)).into_iter().chain(modified(&stream_path(&record.host_dir))).min()
 }
 
 /// When the session's last transcript event happened, read from the event's own timestamp so a stream file written later does not move it; the file write time when no event in the tail carries one.

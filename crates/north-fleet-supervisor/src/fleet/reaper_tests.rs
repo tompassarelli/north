@@ -128,8 +128,8 @@ fn a_session_stopped_on_its_queued_lane_stays_until_the_lander_decides_it_and_wa
     let _lead = live(&fleet, "lead");
     reported(&fleet, "north-669-d1955", Some("lead"), "Not done: the guards commit bf636ba82 is in the lander queue but not on origin/main, so no box of north#669 is ticked yet.\nStop: landing");
     paper.claim_receipt("north-669-d1955", "turn:1", now_ms()).unwrap();
-    let stream = fleet.root.join("north-669-d1955/g1/stream.jsonl");
-    std::fs::File::options().write(true).open(stream).unwrap().set_modified(std::time::SystemTime::now() - Duration::from_secs(600)).unwrap();
+    let (stream, ended) = (fleet.root.join("north-669-d1955/g1/stream.jsonl"), std::time::SystemTime::now() - Duration::from_secs(600));
+    std::fs::File::options().write(true).open(stream).unwrap().set_modified(ended).unwrap();
     let queue = state.path().join("north/land-queue/de2e0e8479546ba9");
     std::fs::create_dir_all(&queue).unwrap();
     let ticket = queue.join(format!("{}-guards.json", (now_ms() - 12 * 60_000) * 1000));
@@ -139,10 +139,12 @@ fn a_session_stopped_on_its_queued_lane_stays_until_the_lander_decides_it_and_wa
     let held = |state: &Path| Sight { lanes: north_base::land_ticket::lanes_by_session(&state.join("north/land-queue")).unwrap(), ..Sight::default() };
 
     let open = reap_after(&fleet, &held(state.path()), 24 * HOUR, now_ms(), false);
+    let indexed = crate::fleet::resume::ended_ms(&fleet.session("north-669-d1955").unwrap());
     records.moved(&ticket, north_base::land_ticket::Phase::Failed, "failed: the candidate's tests are red").unwrap();
     let decided = reap_after(&fleet, &held(state.path()), 24 * HOUR, now_ms(), false);
     let settled = reap_after(&fleet, &Sight::default(), 24 * HOUR, now_ms(), false);
 
+    assert_eq!(indexed.map(u128::from), Some(ended.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()), "the reap that indexed the session still reads its end from its stream (north#821)");
     assert!(retired(&open).is_empty() && retired(&decided).is_empty(), "{open:?} {decided:?}");
     assert!(decided.kept.iter().any(|kept| kept.name == "north-669-d1955" && kept.why.contains("lander")), "{decided:?}");
     assert_eq!(retired(&settled), ["north-669-d1955"], "a landing stop with no lane left to wait on finishes: {settled:?}");
