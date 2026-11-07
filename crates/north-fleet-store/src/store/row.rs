@@ -3,9 +3,9 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::super::gates::GateRequest;
-use super::super::model::Delivery;
-use super::super::sender::Sender;
+use crate::gates::GateRequest;
+use crate::status::Delivery;
+use crate::sender::Sender;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RowKind {

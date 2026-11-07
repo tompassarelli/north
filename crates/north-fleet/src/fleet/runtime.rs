@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
 
+pub use north_fleet_store::runtime::{PROXY, binary, now_ms};
 use super::gates::Question;
 use super::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
 use super::roster::Roster;
@@ -127,7 +127,6 @@ pub trait Runtime: Send + Sync {
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
 pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 pub const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
-pub const PROXY: &str = "proxy";
 pub const ACTOR_ENV: &str = "THREADS_ACTOR";
 pub const CAPACITY_NEED_ENV: &str = "AGENT_CAPACITY_NEED";
 
@@ -143,16 +142,6 @@ pub fn summarize(text: &str, limit: usize) -> String {
     }
 }
 
-pub fn binary(name: &str) -> PathBuf {
-    let on_path = std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-        .map(|directory| directory.join(name))
-        .find(|candidate| candidate.is_file());
-    let local = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/bin").join(name));
-    on_path.or(local).unwrap_or_else(|| PathBuf::from(name))
-}
-
 pub fn labelled_homes(directory: &Path, prefix: &str, marker: &str) -> Vec<(String, PathBuf)> {
     let mut found: Vec<(String, PathBuf)> = std::fs::read_dir(directory)
         .into_iter()
@@ -166,8 +155,4 @@ pub fn labelled_homes(directory: &Path, prefix: &str, marker: &str) -> Vec<(Stri
         .collect();
     found.sort();
     found
-}
-
-pub fn now_ms() -> u64 {
-    u64::try_from(Timestamp::now().unix_millis()).unwrap_or(0)
 }

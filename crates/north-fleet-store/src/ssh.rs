@@ -3,13 +3,11 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
-use crate::platform::process::try_run_command_within;
+use north_base::platform::process::try_run_command_within;
 
-use super::link::quote;
+pub const SSH_WAIT: Duration = Duration::from_secs(20);
 
-pub(crate) const SSH_WAIT: Duration = Duration::from_secs(20);
-
-pub(crate) fn over_ssh_via(ssh: &Path, host: &str, words: &[&str], input: Option<&[u8]>, wait: Duration) -> NorthResult<Vec<u8>> {
+pub fn over_ssh_via(ssh: &Path, host: &str, words: &[&str], input: Option<&[u8]>, wait: Duration) -> NorthResult<Vec<u8>> {
     let command = format!("north {}", words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
     let mut ssh_command = Command::new(ssh);
     ssh_command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "--", &command]);
@@ -21,3 +19,6 @@ pub(crate) fn over_ssh_via(ssh: &Path, host: &str, words: &[&str], input: Option
     }
 }
 
+pub fn quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', r"'\''"))
+}

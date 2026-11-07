@@ -15,7 +15,7 @@ fn ledger() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 fn message(id: &str, to: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: crate::fleet::sender::Sender::Tom, gate: None, answer: None, job: None, origin: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: crate::sender::Sender::Tom, gate: None, answer: None, job: None, origin: None }
 }
 
 fn count(path: &std::path::Path, sql: &str) -> i64 {

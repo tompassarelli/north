@@ -2,7 +2,7 @@ use rusqlite::{Connection, Transaction, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::NorthResult;
-use crate::fleet::gates::{Gate, GateRequest};
+use crate::gates::{Gate, GateRequest};
 
 use super::schema::sql;
 

@@ -79,7 +79,7 @@ pub(super) const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_eac
      ORDER BY events.seq";
 
 fn exit_floor() -> String {
-    Timestamp::from_unix_millis(i64::try_from(super::super::runtime::now_ms().saturating_sub(JOB_EXIT_KEPT_MS)).unwrap_or(i64::MAX)).iso()
+    Timestamp::from_unix_millis(i64::try_from(crate::runtime::now_ms().saturating_sub(JOB_EXIT_KEPT_MS)).unwrap_or(i64::MAX)).iso()
 }
 
 fn addressed(db: &Connection, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {

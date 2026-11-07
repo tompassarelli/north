@@ -6,6 +6,7 @@ use crate::error::{NorthError, NorthResult};
 
 pub use super::effort::Effort;
 use super::prompt::PromptMode;
+pub use north_fleet_store::status::{Delivery, Status};
 use super::store::Slots;
 use super::sender::Sender;
 use super::turns::{Turn, Turns};
@@ -432,33 +433,6 @@ impl SessionRecord {
 pub struct LastSender {
     pub name: String,
     pub at_ms: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Delivery {
-    Queued,
-    Now,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Status {
-    Starting,
-    Working,
-    Idle,
-    Parked,
-    Exited,
-}
-
-impl Status {
-    pub fn label(self) -> &'static str {
-        match self {
-            Status::Starting => "starting",
-            Status::Working => "working",
-            Status::Idle => "idle",
-            Status::Parked => "parked",
-            Status::Exited => "exited",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

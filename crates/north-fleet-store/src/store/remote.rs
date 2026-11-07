@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::credit::Snapshot;
 use crate::error::NorthResult;
-use crate::fleet::runtime::binary;
-use crate::fleet::ssh::{SSH_WAIT, over_ssh_via};
+use crate::runtime::binary;
+use crate::ssh::{SSH_WAIT, over_ssh_via};
 
 use super::{Addressee, FleetRow, FleetTable, GateRow, SessionRow, Spooled};
 

@@ -1158,6 +1158,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-claude-stream",
+ "north-fleet-store",
  "north-pace",
  "north-resume",
  "north-session-host",
@@ -1169,6 +1170,20 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-fleet-store"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-pace",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "toml_edit",
 ]
 
