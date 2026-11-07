@@ -39,6 +39,8 @@ mod stall;
 mod stranded;
 mod throughput;
 pub mod typed;
+#[cfg(test)]
+mod typed_tests;
 mod usage;
 
 const USAGE: &str = "usage: north ledger flow [--json] [--repo NAME]... [--stall-alarm] | north ledger flow row REPO [FIELD]... | north ledger flow detect [--dry-run]";
@@ -212,7 +214,7 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("{}", landing::line(row["repo"].as_str().unwrap_or_default(), &row["landing"]));
         }
         let sources = outcome::Places::live(&places.ledger, &places.state);
-        let tom = typed::typed_messages(&sources.convo, &places.home, now as i64 - outcome::LOOKBACK_S, now as i64);
+        let tom = typed::typed_messages(&sources.convo, &places.home, typed::Reach::Fleet, now as i64 - outcome::LOOKBACK_S, now as i64);
         match outcome::report(&sources, &tom, now as i64) {
             Ok(lines) => println!("{}", lines.join("\n")),
             Err(why) => println!("outcome: unread: {why}"),

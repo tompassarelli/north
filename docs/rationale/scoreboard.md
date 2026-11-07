@@ -4,13 +4,14 @@ Tom asked on 2026-11-06 for a weekly scoreboard that shows, by measurement rathe
 
 ## What each number reads
 
-- Tom's corrections per active hour: grounding-ledger rows of kind `correction` whose message is one of Tom's typed messages, over the clock hours that hold at least one typed message. Typed messages are the human turns of the proxy conversations in the convo store, as `north ledger flow`'s outcome lines read them.
+- Tom's corrections per active hour: grounding-ledger rows of kind `correction` whose message is one of Tom's typed messages, over the clock hours that hold at least one typed message. Typed messages are the human-origin turns in the convo store plus what Tom types into a fleet-hosted conversation (the fleet TUI proxy), which the transcript records as an sdk prompt: an sdk user turn after the conversation's opening prompt that carries no delivery prefix (`[from `, `[gate `, `[urgent message`) and no origin is Tom's. Before 2026-11-07 only turns in a session opened in his home directory counted, so the proxy conversation read 0.00 corrections per hour while he corrected the fleet daily (north#641).
 - Tom's ask to its first landed commit: from a typed message whose turn created or edited an issue (as the `recommend-acts` hook reads the turn from its transcript) or staffed one with `north fleet launch|send` to the first worker-ledger run landing that issue on main. Asks with no landing yet are counted, not timed.
 - Landing queue to main: `queued_at` to `landed_at` of each landed lane in the lander's landings ledger.
 - Verification after the push: each landing's after-push check spans, as `north land profile` reads them from the land queues' `spans.jsonl`.
 - Rework within 48 h: worker landings reverted, fixed forward or named a red-main culprit within 48 h, by the rework judge the tier loop already uses; landings younger than 48 h are shown apart.
 - Worker first-try success by category: worker runs with no `Follows:` that reported Done with no later run following them; split, idle and running runs are left out.
 - Proxy recommendations filed as an issue the same turn: proxy turns whose final reply recommends or asks, by the rule of the `recommend-acts` Stop hook (ask-once decisions excluded), that created or edited an issue the reply cites; staffing alone does not count, as in the hook.
+- Cost per verified landing and Tom minutes per verified landing: the window's API-equivalent run cost, and the minutes of Tom's conversations (first to last message per conversation), each divided by the window's landings that the rework judge cleared after 48 h (landed, not reworked, not unjudged, not still inside 48 h), printed with that count. The same figures `north ledger flow` prints as cost per surviving landing and landed per hour of attention, on the weekly table so each week is set against the last (north#641).
 
 ## First reading
 

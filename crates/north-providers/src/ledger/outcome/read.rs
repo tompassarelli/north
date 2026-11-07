@@ -6,7 +6,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 
 use super::attention::{Bug, Correction, Typed, detector, messages};
-use super::{Landed, Outcome, Staffed, WEEK_S, join, lines, weeks};
+use super::{Landed, Outcome, Staffed, WEEK_S, Week, join, lines, weeks};
 use crate::foundation::clock::Timestamp;
 use crate::platform::run_roles::worker_where;
 use crate::router::pricing::PriceTable;
@@ -121,18 +121,23 @@ pub fn corrections(path: &Path, tom: &[Typed]) -> Vec<Correction> {
         .collect()
 }
 
-pub fn report(places: &Places, tom: &[Typed], now: i64) -> Result<Vec<String>, String> {
+pub fn read_weeks(places: &Places, tom: &[Typed], now: i64) -> Result<Vec<Week>, String> {
     let db = Connection::open_with_flags(&places.ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|why| format!("ledger {}: {why}", places.ledger.display()))?;
     let outcomes = outcomes(&db, &places.rework).map_err(|why| format!("ledger {}: {why}", places.ledger.display()))?;
     let failed = |why: rusqlite::Error| format!("ledger {}: {why}", places.ledger.display());
     let delivered = alerts(&places.convo, now - LOOKBACK_S).map_err(|why| format!("convo store {}: {why}", places.convo.display()))?;
     let messages = messages(tom, &delivered);
+    Ok(weeks(&outcomes, &messages, &corrections(&places.grounding, tom), &bugs(&db).map_err(failed)?, now))
+}
+
+pub fn report(places: &Places, tom: &[Typed], now: i64) -> Result<Vec<String>, String> {
+    let weeks = read_weeks(places, tom, now)?;
     let sources = format!(
-        "runs and landings in {}; rework from each ~/code/<repo>/main history within 48 h; cost API-equivalent from router/prices.json; Tom's messages are the human turns of his own conversations (convo store {}, transcript origin human, as presence reads them); corrections from {} (tom correction and tom direction rows whose message is one of those turns); detectors are alerts in the convo store opening {}",
+        "runs and landings in {}; rework from each ~/code/<repo>/main history within 48 h; cost API-equivalent from router/prices.json; Tom's messages are the human turns of his own conversations and what he types in fleet-hosted ones (convo store {}, transcript origin human or an sdk prompt not delivered by the fleet, as presence reads them); corrections from {} (tom correction and tom direction rows whose message is one of those turns); detectors are alerts in the convo store opening {}",
         places.ledger.display(),
         places.convo.display(),
         places.grounding.display(),
         super::attention::DETECTORS.join(", "),
     );
-    Ok(lines(&weeks(&outcomes, &messages, &corrections(&places.grounding, tom), &bugs(&db).map_err(failed)?, now), &sources))
+    Ok(lines(&weeks, &sources))
 }

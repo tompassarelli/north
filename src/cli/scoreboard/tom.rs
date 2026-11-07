@@ -11,7 +11,7 @@ use crate::foundation::clock::Timestamp;
 use crate::guard::recommend_acts::{self, Turn, turn_in};
 use crate::ledger::outcome::attention::{Typed, references};
 use crate::ledger::outcome::read::Places;
-use crate::flow::typed::typed_messages;
+use crate::flow::typed::{Reach, typed_messages};
 
 const HOUR_S: i64 = 3_600;
 
@@ -121,7 +121,7 @@ fn parse_turns(path: &str, turns: &mut [ProxyTurn]) {
 
 impl Tom {
     pub fn read(places: &Places, home: &Path, since: i64, now: i64) -> Result<Self, String> {
-        let typed = typed_messages(&places.convo, home, since, now);
+        let typed = typed_messages(&places.convo, home, Reach::Fleet, since, now);
         let ids: BTreeSet<i64> = typed.iter().map(|typed| typed.id).collect();
         let corrections = grounding_corrections(&places.grounding, &ids);
         let mut by_conversation: BTreeMap<&str, BTreeMap<i64, i64>> = BTreeMap::new();
@@ -142,6 +142,10 @@ impl Tom {
     }
 
     /// The turns that answered a message Tom typed in the window, with their final replies.
+    pub fn typed(&self) -> &[Typed] {
+        &self.typed
+    }
+
     pub fn answered_turns(&self, window: Window) -> Vec<&Turn> {
         self.turns.iter().filter(|proxy| proxy.tom && window.holds(proxy.at)).filter_map(|proxy| proxy.turn.as_ref()).filter(|turn| turn.reply.is_some()).collect()
     }

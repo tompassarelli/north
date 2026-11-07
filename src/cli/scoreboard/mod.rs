@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::foundation::clock::Timestamp;
 use crate::land::trace::profile::percentile;
-use crate::ledger::outcome::read::Places;
+use crate::ledger::outcome::{self, read::Places};
 
 mod audit;
 mod cause;
@@ -21,6 +21,7 @@ mod lanes;
 mod ready;
 mod tom;
 mod weekly;
+mod work;
 mod workers;
 
 const USAGE: &str = "usage: north ledger scoreboard ([--all] [--explain] | --weekly | --frontier | --record | --rework [--since 7d] | audit [--tell])";
@@ -49,11 +50,18 @@ pub enum Better {
     Higher,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spent {
+    Dollars,
+    Minutes,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Figure {
     Rate { count: usize, hours: f64 },
     Spread { seconds: Vec<f64>, open: usize, open_label: &'static str },
     Share { hits: usize, of: usize, pending: usize, pending_label: &'static str },
+    Per { spent: f64, kind: Spent, verified: usize },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,6 +80,15 @@ pub(super) fn duration(seconds: f64) -> String {
     }
 }
 
+impl Spent {
+    fn amount(self, value: f64) -> String {
+        match self {
+            Self::Dollars => format!("${value:.2}"),
+            Self::Minutes => format!("{value:.0} min"),
+        }
+    }
+}
+
 impl Figure {
     /// The week's headline number and how many observations stand behind it.
     pub fn headline(&self) -> Option<(f64, usize)> {
@@ -79,6 +96,7 @@ impl Figure {
             Self::Rate { hours, count } => (*hours > 0.0).then(|| (*count as f64 / hours, *hours as usize)),
             Self::Spread { seconds, .. } => (!seconds.is_empty()).then(|| (percentile(seconds, 0.5), seconds.len())),
             Self::Share { hits, of, .. } => (*of > 0).then(|| (*hits as f64 / *of as f64, *of)),
+            Self::Per { spent, verified, .. } => (*verified > 0).then(|| (*spent / *verified as f64, *verified)),
         }
     }
 
@@ -92,6 +110,11 @@ impl Figure {
                 let open = if *open > 0 { format!(", {open} {open_label}") } else { String::new() };
                 format!("{spread} (n={}{open})", seconds.len())
             }
+            Self::Per { spent, kind, verified } => match (spent, verified) {
+                (spent, 0) if *spent <= 0.0 => "no record".into(),
+                (spent, 0) => format!("none verified ({})", kind.amount(*spent)),
+                (spent, verified) => format!("{} per verified landing (n={verified}, {} in all)", kind.amount(*spent / *verified as f64), kind.amount(*spent)),
+            },
             Self::Share { of: 0, pending: 0, .. } => "no record".into(),
             Self::Share { hits, of, pending, pending_label } => {
                 let share = if *of > 0 { format!("{:.0}%", *hits as f64 / *of as f64 * 100.0) } else { "n/a".into() };
@@ -151,6 +174,7 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
     measures.push(landing::rework(&threads, &sources.places.rework, weeks, now)?);
     measures.extend(workers::first_try(&threads, weeks).map_err(failed)?);
     measures.push(tom.recommendations(weeks));
+    measures.extend(work::per_verified(&outcome::read::read_weeks(&sources.places, tom.typed(), now)?));
     Ok(measures)
 }
 

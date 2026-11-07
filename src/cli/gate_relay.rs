@@ -5,7 +5,7 @@ use crate::fleet::gates::TomTurn;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::ledger::outcome::read::Places;
-use crate::flow::typed::typed_messages;
+use crate::flow::typed::{Reach, typed_messages};
 
 pub(super) fn relay(fleet: &Fleet, id: i64, number: usize, turn: i64) -> NorthResult<String> {
     let relayer = fleet.answerer().ok_or_else(|| NorthError::Refused("--relayed-from-turn is for a fleet session relaying Tom's answer; Tom answers a gate directly".into()))?;
@@ -20,7 +20,7 @@ pub(super) fn relay(fleet: &Fleet, id: i64, number: usize, turn: i64) -> NorthRe
 
 fn tom_turn(index: &Path, home: &Path, conversation: &str, opened_ms: u64, id: i64) -> NorthResult<TomTurn> {
     let since = i64::try_from(opened_ms / 1000).unwrap_or(i64::MAX);
-    let typed = typed_messages(index, home, since, i64::try_from(now_ms() / 1000).unwrap_or(i64::MAX).saturating_add(60));
+    let typed = typed_messages(index, home, Reach::Human, since, i64::try_from(now_ms() / 1000).unwrap_or(i64::MAX).saturating_add(60));
     let found = typed.into_iter().find(|typed| typed.id == id).ok_or_else(|| NorthError::Refused(format!("convo turn {id} is not a human turn by Tom after the gate opened in the convo store (the store refreshes every few minutes)")))?;
     if Path::new(&found.session).file_stem().and_then(|stem| stem.to_str()) != Some(conversation) {
         return Err(NorthError::Refused(format!("convo turn {id} is not in this session's own conversation")));
