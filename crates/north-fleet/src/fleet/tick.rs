@@ -228,6 +228,14 @@ pub fn tick(fleet: &Fleet, ledger: &OpenLedger, pulls: &Pulls, probes: &dyn Wait
             }
         }
     }
+    probe_and_prune(fleet, ledger, probes, clock, ticked, budgets)
+}
+
+pub fn probe_pass(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, budgets: Budgets) -> NorthResult<Ticked> {
+    probe_and_prune(fleet, ledger, probes, Clock::new(), Ticked::default(), budgets)
+}
+
+fn probe_and_prune(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: Clock, mut ticked: Ticked, budgets: Budgets) -> NorthResult<Ticked> {
     settle(fleet, ledger, probes, &clock, &mut ticked, budgets)?;
     ticked.pruned = clock.time("prune", || fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT))?;
     clock.stop(&mut ticked);

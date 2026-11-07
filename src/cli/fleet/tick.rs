@@ -2,7 +2,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::OverSsh;
-use crate::fleet::tick::{Budgets, FarHost, Pulls, open_ledger, tick};
+use crate::fleet::tick::{Budgets, FarHost, Pulls, open_ledger, probe_pass, tick};
 use crate::pacing::placement::{config, gate, pass};
 
 use super::api_spend;
@@ -21,10 +21,17 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if !words.is_empty() {
         return Err(NorthError::Usage(USAGE.into()));
     }
-    let _pass = pass();
     let ledger = open_ledger(|| Ok(Ledger));
+    let probes = Probes::here(fleet);
+    if probes == Probes::Registry {
+        let ticked = probe_pass(fleet, &ledger, &probes, Budgets::TICK)?;
+        ticked.lines().iter().for_each(|line| println!("{line}"));
+        println!("{}", ticked.timing());
+        return Ok(());
+    }
+    let _pass = pass();
     let pulls = Pulls { spools: std::sync::Arc::new(OverSsh::default()), always: always_pulled(fleet) };
-    let ticked = tick(fleet, &ledger, &pulls, &Probes, now_ms(), Budgets::TICK);
+    let ticked = tick(fleet, &ledger, &pulls, &probes, now_ms(), Budgets::TICK);
     let spend_lines = api_spend::pull(fleet);
     let revived = rebooted::run(fleet, &["--revive"]);
     window_move::auto();

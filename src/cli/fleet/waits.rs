@@ -64,7 +64,7 @@ fn register(fleet: &Fleet, run: &str, name: Option<&str>) -> NorthResult<()> {
 }
 
 fn settle(fleet: &Fleet) -> NorthResult<()> {
-    let probed = Probes.jobs().into_iter().map(|job| (job.run)(fleet.clone())).fold(said([]), |mut probed, more| {
+    let probed = Probes::here(fleet).jobs().into_iter().map(|job| (job.run)(fleet.clone())).fold(said([]), |mut probed, more| {
         probed.lines.extend(more.lines);
         probed.settled.extend(more.settled);
         probed
@@ -81,10 +81,23 @@ fn settle(fleet: &Fleet) -> NorthResult<()> {
     })
 }
 
-pub(super) struct Probes;
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum Probes {
+    Fleet,
+    Registry,
+}
+
+impl Probes {
+    pub(super) fn here(fleet: &Fleet) -> Self {
+        if config().is_ok_and(|cfg| gate::spool_pulled(&cfg, fleet.host())) { Self::Registry } else { Self::Fleet }
+    }
+}
 
 impl WaitProbes for Probes {
     fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
+        if *self == Self::Registry {
+            return None;
+        }
         Some(Box::new(|| {
             if let Ok(cfg) = config() {
                 gate::probed(&cfg, &std::collections::BTreeMap::new());
@@ -93,15 +106,12 @@ impl WaitProbes for Probes {
     }
 
     fn jobs(&self) -> Vec<ProbeJob> {
-        vec![
+        let registry = vec![
             ProbeJob { name: "probes.settle.waits", own: None, run: Box::new(|fleet| settle_waits(&fleet)) },
             ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
             ProbeJob { name: "probes.settle.api_spent", own: None, run: Box::new(|fleet| said(api_spent(&fleet))) },
             ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.spend_trips", own: None, run: Box::new(|fleet| said(super::trips::watch(&fleet, now_ms()))) },
-            ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
-            ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
-            ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob {
                 name: "probes.settle.hand_over",
                 own: None,
@@ -111,8 +121,17 @@ impl WaitProbes for Probes {
                 }),
             },
             ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
+        ];
+        let fleet_wide = vec![
+            ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
+            ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
+            ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.records_mirror", own: None, run: Box::new(|_| said(crate::runtime::mirror::publish())) },
-        ]
+        ];
+        match self {
+            Self::Fleet => registry.into_iter().chain(fleet_wide).collect(),
+            Self::Registry => registry,
+        }
     }
 }
 
