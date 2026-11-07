@@ -249,6 +249,8 @@ impl Lander {
     }
 
     fn judge(&self, pass: &Pass, attempt: &Attempt, batch: &mut Batch, verdict: Verdict, checked: &Checked) -> Result<ControlFlow<Round, (Judgement, Verdict)>, String> {
+        let (path, ticket) = batch.lanes[0];
+        incidents::unsettled(&self.queue, path, ticket, &batch.head, attempt.base, &verdict, &checked.log);
         let moved = match &verdict {
             Verdict::Green => false,
             _ => match self.base_moved(attempt.base) {
@@ -321,9 +323,7 @@ impl Lander {
             }
             Judgement::RedMain(detail) => Ok(Flow::Done(Round::Waiting(red::held(&detail, batch.lanes.len())))),
             Judgement::Hold(reason) => {
-                let (path, ticket) = batch.lanes[0];
-                incidents::record(&self.queue, path, ticket, incidents::held(&built.head, base, &reason));
-                incidents::attribute(ticket, &reason);
+                incidents::attribute(batch.lanes[0].1, &reason);
                 Ok(Flow::Done(Round::Waiting(reason)))
             }
             Judgement::Paused(detail) => Ok(Flow::Done(Round::Waiting(pause::raise(&self.queue, &detail)?))),

@@ -9,6 +9,7 @@ use rustix::fs::{FlockOperation, flock};
 use super::bisect::{self, Strikes};
 use super::candidate::{self, Pick};
 use super::checks::{self, Started, Verdict};
+use super::incidents;
 use super::lander::Lander;
 use super::lane_gates;
 use super::queue::Ticket;
@@ -155,7 +156,13 @@ impl Offload<'_> {
     }
 
     fn check(&self, sets: &[&[Entry]]) -> Result<Vec<Checked>, String> {
-        check_wave(self.lander, self.base, sets, self.logs)
+        let checked = check_wave(self.lander, self.base, sets, self.logs)?;
+        for (set, checked) in sets.iter().zip(&checked) {
+            if let Some((path, ticket)) = set.first() {
+                incidents::unsettled(&self.lander.queue, path, ticket, &checked.head, self.base, &checked.verdict, &checked.log);
+            }
+        }
+        Ok(checked)
     }
 
     fn moved(&self) -> Result<bool, String> {

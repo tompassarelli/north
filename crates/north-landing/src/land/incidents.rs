@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::push_ledger;
+use super::checks::Verdict;
 use super::queue::{self, Ticket};
 use super::{records, telemetry};
 
@@ -60,10 +61,12 @@ pub fn decided<'a>(path: &Path, ticket: &Ticket, verdict: &'a str) -> Option<Not
     Some(Noticed { class, key: format!("{class}:{}@{}", name(path), ticket.head), noticed_by: LANDER, detail: verdict })
 }
 
-/// A candidate the lander held without a verdict, once per candidate and base, however many rounds it is held.
-pub fn held<'a>(candidate: &str, base: &str, reason: &'a str) -> Option<Noticed<'a>> {
-    let class = class(reason)?;
-    Some(Noticed { class, key: format!("{class}:{candidate}@{base}"), noticed_by: LANDER, detail: reason })
+/// A check of `head` on `base` that ended without a verdict, recorded the moment it ends and naming its log, once per head and base however many rounds repeat it.
+pub fn unsettled(queue: &Path, path: &Path, ticket: &Ticket, head: &str, base: &str, verdict: &Verdict, log: &Path) {
+    let (kind @ ("transient" | "deferred"), detail) = verdict.class() else { return };
+    let detail = format!("{kind} {detail}; log: {}", log.display());
+    let Some(class) = class(&detail) else { return };
+    record(queue, path, ticket, Some(Noticed { class, key: format!("{class}:{head}@{base}"), noticed_by: LANDER, detail: &detail }));
 }
 
 pub fn arguments(path: &Path, ticket: &Ticket, noticed: &Noticed, at: f64) -> Vec<String> {

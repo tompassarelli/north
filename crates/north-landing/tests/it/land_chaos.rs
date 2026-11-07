@@ -10,7 +10,7 @@ use north_landing::land::jobs::Chores;
 use north_landing::land::lander::Lander;
 use north_landing::land::watch::Watch;
 use north_landing::land::queue::{self, Ticket};
-use north_landing::land::{after, checks};
+use north_landing::land::{after, alone, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
@@ -31,7 +31,7 @@ slow) sleep 1; echo "safe-push: verdict green" ;;
 esac
 "#;
 
-const AFTER_RUNNER: &str = r#"[ "$1" = land ] || exit 0
+const AFTER_RUNNER: &str = r#"[ "$1" = land ] || { echo "$*" >> "$HOME/north-calls"; exit 0; }
 eval outcome=\${$#}
 while [ -e "$HOME/stall" ]; do echo $$ > "$HOME/stalled"; sleep 0.05; done
 [ -e "$HOME/transient" ] && exit 75
@@ -286,6 +286,25 @@ fn remote_runner_lost_mid_check(world: &World) {
     landed(&world.settled(&lander, &[&a, &b, &c, &d]));
 }
 
+fn watchdog_split_ending_without_verdicts(world: &World) {
+    world.plan(&["lost", "lost"]);
+    let lander = world.lander();
+    let a = world.enqueue(&lander, &world.lane("a"));
+    let b = world.enqueue(&lander, &world.lane("b"));
+    assert!(alone::request(&lander.queue, u64::try_from(micros()).unwrap(), 0).unwrap());
+    let held = format!("{:?}", lander.round(&mut Watch::default()));
+    assert!(held.contains("Waiting") && held.contains("transient"), "{held}");
+    let calls = world.root.join("north-calls");
+    let recorded = || fs::read_to_string(&calls).unwrap_or_default().lines().filter(|call| call.starts_with("ledger incident record ") && call.contains("--class lander-transient")).map(str::to_owned).collect::<Vec<_>>();
+    wait_for("an incident for each lane's check alone that ended without a verdict", || recorded().len() == 2);
+    for call in recorded() {
+        let log = call.rsplit_once("; log: ").map(|(_, log)| PathBuf::from(log.trim())).unwrap_or_else(|| panic!("the incident names no log: {call}"));
+        assert!(log.is_file(), "the incident names a log that is not there: {call}");
+    }
+    drive(&lander, &mut Watch::default());
+    landed(&world.settled(&lander, &[&a, &b]));
+}
+
 fn wait_for(what: &str, ready: impl FnMut() -> bool) {
     assert!(wait::until(Duration::from_secs(60), ready), "timed out waiting for {what}");
 }
@@ -402,6 +421,11 @@ fn chaos_deleted_lander_worktrees_are_recreated() {
 #[test]
 fn chaos_duplicate_branch_names_land_as_separate_lanes() {
     isolated("land_chaos::chaos_duplicate_branch_names_land_as_separate_lanes", duplicate_branch_names);
+}
+
+#[test]
+fn chaos_a_watchdog_split_whose_checks_alone_end_without_a_verdict_records_each_as_a_lander_incident_with_its_log_at_once() {
+    isolated("land_chaos::chaos_a_watchdog_split_whose_checks_alone_end_without_a_verdict_records_each_as_a_lander_incident_with_its_log_at_once", watchdog_split_ending_without_verdicts);
 }
 
 #[test]
