@@ -214,3 +214,18 @@ fn a_dispatcher_with_no_api_key_places_on_the_host_that_holds_one_when_every_pla
     let outcome = decide(&surveyed, "test");
     assert_eq!(outcome.launches.iter().map(|launch| (launch.host.as_str(), launch.account.as_str())).collect::<Vec<_>>(), [("gex45", "claude:api:proton")], "{:?}", outcome.skipped);
 }
+
+#[test]
+fn a_run_that_began_before_the_proxy_paused_dispatch_launches_and_revives_nothing_after_it() {
+    let (hosts, accounts) = fleet();
+    let survey = survey(vec![issue("north", 757, "- [ ] a", &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let launch = &decide(&survey, "test").launches[0];
+    let (line, failure) = super::start(&survey, launch, false, || Some("claim rule not live".to_owned()));
+    assert_eq!(line, "skip north#757: dispatch was paused while this run was working: claim rule not live");
+    assert_eq!(failure, None);
+    let step = super::revive::Step::Revive(super::revive::Revive { name: "n-state-machines".into(), registry: "gex45".into(), host: "gex45".into(), account: "claude:a".into(), stop: crate::fleet::stranded::Stop::Capacity, lanes: vec!["lane".into()], ended_ms: 0, local: None });
+    let revival = super::revive::Revival { steps: vec![step], ..Default::default() };
+    let lines = super::revive(&survey, &revival, false, || Some("paused".to_owned()));
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].starts_with("skip revive n-state-machines on gex45 claude:a") && lines[0].ends_with("dispatch was paused while this run was working: paused"), "{lines:?}");
+}

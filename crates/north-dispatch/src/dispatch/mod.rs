@@ -212,7 +212,7 @@ fn print_survey(survey: &Survey) {
 }
 
 /// The lines reviving `revival` prints, in its order.
-fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) -> Vec<String> {
+fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool, standing: fn() -> Option<String>) -> Vec<String> {
     let mut lines: Vec<String> = revival.waiting.iter().map(|(name, why)| format!("stranded {name} waits: {why}")).collect();
     for step in &revival.steps {
         let line = match step {
@@ -221,6 +221,10 @@ fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) -> Vec<Stri
         };
         if dry_run {
             lines.push(format!("would {line}"));
+            continue;
+        }
+        if let (revive::Step::Revive(_), Some(reason)) = (step, standing().filter(|_| !dry_run)) {
+            lines.push(format!("skip {line}: dispatch was paused while this run was working: {reason}"));
             continue;
         }
         let done = match step {
@@ -236,10 +240,13 @@ fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) -> Vec<Stri
 }
 
 /// The line one launch prints, and its failure for Tom's alert; a box whose issue GitHub shows closed or fully ticked since
-/// the mirror copied it is skipped.
-fn start(survey: &Survey, launch: &Launch, dry_run: bool) -> (String, Option<String>) {
+/// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
+fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> (String, Option<String>) {
     let verb = if launch.cloud { "cloud-launch" } else { "launch" };
     let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
+    if let Some(reason) = standing().filter(|_| !dry_run) {
+        return (format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item), None);
+    }
     if let Some(why) = survey::github::recheck(&launch.item) {
         return (format!("skip {}: {why}", launch.item), None);
     }
@@ -256,8 +263,8 @@ fn start(survey: &Survey, launch: &Launch, dry_run: bool) -> (String, Option<Str
 /// Runs the revivals and every launch side by side, since each `north fleet launch` takes most of a minute and the plan already placed them, then prints their lines in plan order.
 fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     let (revived, started) = std::thread::scope(|scope| {
-        let revived = scope.spawn(|| revive(survey, &outcome.revival, dry_run));
-        let started: Vec<_> = outcome.launches.iter().map(|launch| scope.spawn(move || start(survey, launch, dry_run))).collect();
+        let revived = scope.spawn(|| revive(survey, &outcome.revival, dry_run, pause::standing));
+        let started: Vec<_> = outcome.launches.iter().map(|launch| scope.spawn(move || start(survey, launch, dry_run, pause::standing))).collect();
         let started: Vec<(String, Option<String>)> = started.into_iter().map(|handle| handle.join().unwrap_or_else(|_| ("a launch thread panicked".to_owned(), Some("a launch thread panicked".to_owned())))).collect();
         (revived.join().unwrap_or_else(|_| vec!["the revival thread panicked".to_owned()]), started)
     });
