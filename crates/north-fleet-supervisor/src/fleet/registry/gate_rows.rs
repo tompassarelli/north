@@ -39,7 +39,10 @@ impl Fleet {
             None => self.gates_elsewhere()?.into_iter().find(|gate| gate.host == host && gate.id == id).map(|gate| gate.request.session).ok_or_else(|| NorthError::Usage(format!("no open gate {label} in the cached fleet table; name its session: north gate answer {label} {number} --session NAME")))?,
         };
         let session = session.as_str();
-        let held = self.cached_sessions()?.unwrap_or_default().into_iter().find(|row| row.name == session && row.host != self.host).ok_or_else(|| NorthError::Usage(format!("no session named {session} on another host")))?;
+        let Some(held) = self.cached_sessions()?.unwrap_or_default().into_iter().find(|row| row.name == session && row.host != self.host) else {
+            let retired = self.gates_elsewhere()?.into_iter().any(|gate| gate.host == host && gate.id == id && gate.request.session == session);
+            return Err(NorthError::Usage(if retired { format!("{session} has retired from {host}, so a spooled answer has no session to route to; answer there: north gate answer {id} {number}") } else { format!("no session named {session} on another host") }));
+        };
         if held.host != host {
             return Err(NorthError::Usage(format!("{session} runs on {}, not {host}", held.host)));
         }
@@ -118,7 +121,11 @@ impl Fleet {
         self.answer_gate_with(gate, number, note, row.sender.session(), None, deliver).map(drop)
     }
 
+    /// Hands an answer to its asking session; one whose record is gone cannot read it, so the gate's closure is the answer.
     pub(super) fn answer_session(&self, session: &str, text: &str) -> NorthResult<()> {
+        if self.record(session).is_err() {
+            return Ok(());
+        }
         let row = self.spool_answer(session, text)?;
         self.hand_in_answer(&row)
     }
@@ -201,6 +208,26 @@ mod tests {
         let frames = worker.frames.lock().unwrap();
         assert_eq!(frames.len(), 1);
         assert!(frames[0].contains("Tom answered: yes"), "{}", frames[0]);
+    }
+
+    #[test]
+    fn a_gate_whose_asking_session_retired_still_closes_for_tom_without_delivery_and_its_answer_is_listed_unread() {
+        let home = tempfile::tempdir().unwrap();
+        let laptop = fleet(home.path());
+        let _worker = live_under(&laptop, "worker", Some("boss"));
+        let mut asked = request("worker");
+        asked.issue = Some("north#735".into());
+        let id = laptop.open_gate(&asked).unwrap();
+        std::fs::remove_dir_all(laptop.root.join("worker")).unwrap();
+
+        assert!(matches!(laptop.answer_gate(id, 2, None, Some("intruder"), None), Err(NorthError::Rejected(_))));
+        let closure = laptop.answer_gate(id, 2, None, None, None).unwrap();
+
+        assert_eq!((closure.by, closure.answer.as_str()), (Answerer::Tom, "no"));
+        assert!(Spool::at(&laptop.root).pending().unwrap().is_empty(), "no row is spooled for a session that is gone");
+        let unread = laptop.unread_answers(0).unwrap();
+        assert_eq!(unread.iter().map(|gate| gate.id).collect::<Vec<_>>(), [id]);
+        assert!(laptop.gate(id).unwrap().unwrap().phase.is_settled());
     }
 
     #[test]

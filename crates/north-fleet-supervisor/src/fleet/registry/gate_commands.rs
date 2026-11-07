@@ -40,8 +40,8 @@ impl Fleet {
         if !gate.is_open() {
             return settle(self.ledger.as_ref(), id, Decision::Option(number), now_ms(), deliver);
         }
-        let asker = self.record(&gate.request.session)?;
-        gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref(), typed }, now_ms(), deliver)
+        let parent = self.record(&gate.request.session).ok().and_then(|asker| asker.parent);
+        gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: parent.as_deref(), typed }, now_ms(), deliver)
     }
 
     pub fn relay_gate(&self, id: i64, number: usize, turn: &gates::TomTurn, relayer: &str) -> NorthResult<Closure> {
@@ -52,6 +52,12 @@ impl Fleet {
     pub fn close_orphaned_gates(&self, issue_closed: impl Fn(&Gate) -> bool) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
         let orphaned = self.ledger.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && self.record(&gate.request.session).is_err() && issue_closed(gate));
         Ok(orphaned.map(|gate| (gate.id, gates::orphan(self.ledger.as_ref(), gate.id, now_ms()))).collect())
+    }
+
+    /// Each decision gate naming an issue that closed since `since_ms` with an answer its asking session never read, because that session has retired.
+    pub fn unread_answers(&self, since_ms: u64) -> NorthResult<Vec<Gate>> {
+        let closed = gates::decisions(self.ledger.gates(since_ms)?).into_iter().filter(|gate| gate.request.issue.is_some() && gate.closure.as_ref().is_some_and(|closure| closure.by != gates::Answerer::Orphaned));
+        Ok(closed.filter(|gate| self.record(&gate.request.session).is_err()).collect())
     }
 
     /// Each open decision gate that names an issue, here or on another host as the cached fleet table holds it.
