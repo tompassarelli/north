@@ -19,6 +19,23 @@ fn a_stage_past_its_p90_raises_the_overrun_alarm_only_past_the_floor_and_names_i
 }
 
 #[test]
+fn a_land_check_with_no_lane_raises_no_alarm_and_a_real_lane_past_its_p90_still_does() {
+    let mut laneless = context(3.0, 221_105.0);
+    laneless.events[0].lane = String::new();
+    assert!(stalls(&laneless).is_empty(), "no lane is being checked, so nothing is running past its p90");
+    let mut quiet = context(3.0, 221_105.0);
+    quiet.events[0].lane = String::new();
+    quiet.events[0].status = "start".into();
+    assert!(stalls(&quiet).is_empty(), "a laneless event is not a stalled safe-push either");
+    let mut mixed = context(3.0, 700.0);
+    mixed.events.push(Event { time: NOW as f64 - 221_105.0, repo: "north".into(), stage: "land checks".into(), status: "wait".into(), pid: 7, ..Event::default() });
+    mixed.events.reverse();
+    let alerts = stalls(&mixed);
+    assert_eq!(alerts.len(), 1, "{alerts:?}");
+    assert!(alerts[0].summary.contains("lane lane-a,lane-b:"), "{}", alerts[0].summary);
+}
+
+#[test]
 fn two_hosts_seeing_one_github_event_alarm_only_from_the_lander_host() {
     use crate::watch::facts::{RepoFacts, defers_to};
     let seen_by = |here: &str| {

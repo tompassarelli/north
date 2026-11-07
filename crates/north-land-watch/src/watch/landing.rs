@@ -31,7 +31,7 @@ fn alert(key: String, severity: Severity, event: &Event, summary: String, since:
 
 fn latest_live(context: &WatchContext) -> BTreeMap<u32, &Event> {
     let mut latest: BTreeMap<u32, &Event> = BTreeMap::new();
-    for event in context.events.iter().filter(|event| context.live.contains(&event.pid)) {
+    for event in context.events.iter().filter(|event| context.live.contains(&event.pid) && !event.lane.is_empty()) {
         if latest.get(&event.pid).is_none_or(|seen| seen.time <= event.time) {
             latest.insert(event.pid, event);
         }
