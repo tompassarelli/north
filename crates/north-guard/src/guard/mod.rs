@@ -34,6 +34,7 @@ mod poll_loop_measured;
 pub mod session_kill;
 pub mod clipboard;
 pub mod codex_conduct;
+pub mod firn_system_policy;
 pub mod native_item;
 pub mod native_launch;
 pub mod worker_wait;

@@ -19,7 +19,22 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             grounding::prompt_hook(|| guard::activation::authoring_guards_off("prompt-grounding"), grounded_session);
             ExitCode::SUCCESS
         }
-        _ => {
+        Some("language-guard") => {
+            if !guard_off("language-guard") {
+                let _ = crate::language_gate::run_guard();
+            }
+            ExitCode::SUCCESS
+        }
+        Some("firn-system-policy") => {
+            guard::firn_system_policy::run(&arguments[1..]);
+            ExitCode::SUCCESS
+        }
+        first => {
+            if let Some(unit) = dispatcher_unit(first)
+                && guard_off(unit)
+            {
+                return ExitCode::SUCCESS;
+            }
             guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home });
             let started = std::time::Instant::now();
             match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments)) {
@@ -31,6 +46,22 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             }
         }
     }
+}
+
+fn dispatcher_unit(verb: Option<&str>) -> Option<&'static str> {
+    match verb {
+        None | Some("dispatch") => Some("north-hook"),
+        Some("codex-conduct") => Some("codex-conduct"),
+        Some(_) => None,
+    }
+}
+
+fn guard_off(unit: &str) -> bool {
+    let off = guard::activation::authoring_guards_off(unit);
+    if off {
+        let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+    }
+    off
 }
 
 pub(super) fn grounded_session(conversation: &str) -> bool {

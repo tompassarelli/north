@@ -11,6 +11,7 @@ capacity_host north-capacity-host
 capacity_live north-capacity-host
 carry_matrix north-capacity north-runtime
 golden_path north-fleet north-landing
+hook_verbs north-guard
 land_checks north-landing north-core
 land_checks_script north-landing north
 land_enqueue north-landing

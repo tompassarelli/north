@@ -676,6 +676,18 @@ id = "hook.prompt_grounding"
 path = "crates/north-core/src/grounding/prompt_hook.rs"
 
 [[registered]]
+id = "hook.north_hook"
+path = "src/cli/hook_verb.rs"
+
+[[registered]]
+id = "hook.language_guard"
+path = "crates/north-diff-gates/src/language_gate.rs"
+
+[[registered]]
+id = "hook.firn_system_policy"
+path = "crates/north-guard/src/guard/firn_system_policy.rs"
+
+[[registered]]
 id = "guard.codex_conduct"
 path = "crates/north-guard/src/guard/codex_conduct.rs"
 
