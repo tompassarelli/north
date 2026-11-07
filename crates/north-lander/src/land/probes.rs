@@ -81,7 +81,7 @@ impl Round<'_> {
         };
         let set: Vec<Entry> = lanes.iter().map(|lane| self.entries[*lane]).collect();
         let name = set.last().and_then(|(path, _)| path.file_stem()).and_then(|stem| stem.to_str()).unwrap_or("lane");
-        let log = self.logs.join(format!("{}-{name}-{}-candidate.log", micros(), set.len()));
+        let log = self.logs.join(format!("{}-{name}-{}-probe{offset}-candidate.log", micros(), set.len()));
         let tickets: Vec<(PathBuf, Ticket)> = set.iter().map(|(path, ticket)| ((*path).clone(), (*ticket).clone())).collect();
         let built = candidate::ensure(&self.lander.repo, &worktree).and_then(|()| candidate::build(&worktree, self.base, &tickets, &[], set.len(), self.logs));
         let built = match built {
