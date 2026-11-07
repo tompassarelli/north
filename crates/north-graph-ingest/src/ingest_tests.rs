@@ -160,3 +160,53 @@ fn box_waits_and_the_ranking_documents_order_and_edges_reach_the_graph_and_unrea
     assert!(named.contains("mirror: cannot parse a wait of north#7:") && named.contains("the broker box"), "{named}");
     assert!(named.contains("ranking: cannot parse a wait in backlog-ranking.md: each fix -> its observation box"), "{named}");
 }
+
+const DEBT_AT_1022: &str = "Category: bug-known-cause
+Class: a gate that runs after landing failed on a landed commit: every section below.
+Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.
+
+## Done when
+- [ ] No section remains below: each failed gate is fixed forward on main and its section deleted.WAITS
+- [ ] **Split north-ops to about 60% of its line cap.** north-ops is over its 25000-line cap. (detector crate-headroom:north-ops:25000) Tracked in north#743.
+- [ ] **Split north-guard to about 60% of its line cap.** north-guard has 24477 non-test lines against its 25000-line cap. (detector crate-headroom:north-guard:25000) Tracked in north#744.
+- [ ] **Split north-landing to about 60% of its line cap.** north-landing is over its 10000-line cap. (detector crate-headroom:north-landing:10000) Tracked in north#745.
+- [ ] **Split north-fleet to about 60% of its line cap.** north-fleet has 9929 non-test lines against its 10000-line cap. (detector crate-headroom:north-fleet:10000) Tracked in north#746.
+
+<!-- after-landing-gate: ff1a537b8491 crate-lines -->
+### ff1a537b8491 (2026-11-07) gates: GATES
+
+crate-lines
+```
+✗ crate-lines: north-landing grew 22621 -> 22635 non-test lines, over its cap of 10000 (4 dependents)
+after-landing: ✗ crate-lines gate refused: a crate over its cap grew.
+```
+";
+
+fn backlog_of(body: &str) -> north_graph_ground::Backlog {
+    let directory = tempfile::tempdir().unwrap();
+    let places = places(directory.path());
+    let split = |number: u64| json!({"number": number, "title": format!("Split crate {number}"), "body": "- [ ] Split it\n", "labels": {"nodes": []}, "blockedBy": {"nodes": []}});
+    let debt = json!({"number": 722, "title": "After-landing gate debt", "body": body, "labels": {"nodes": []}, "blockedBy": {"nodes": []}});
+    places.mirror.write("north/issues/open", &json!([debt, split(743), split(744), split(745), split(746)]), None, 1.0).unwrap();
+    let path = directory.path().join("graph.db");
+    let mut graph = Graph::open(&path).unwrap();
+    let report = ingest(&mut graph, &places, &[Source::Mirror]);
+    assert!(!report.failed, "{:?}", report.lines);
+    drop(graph);
+    north_graph_ground::read_backlog_from(&path).unwrap()
+}
+
+#[test]
+fn a_debt_issue_whose_every_section_waits_on_a_crate_split_is_held_behind_the_splits_and_one_with_a_fixable_section_is_ready() {
+    use north_graph_ground::Verdict;
+    let held = backlog_of(&DEBT_AT_1022.replace("WAITS", " Waits on boxes 2, 3, 4 and 5.").replace("GATES", "crate-lines"));
+    let Verdict::Held(why) = held.verdict("north#722") else { panic!("every section waits on a split issue: {:?}", held.ready) };
+    let edges: Vec<&str> = held.held.iter().filter(|held| held.entry.issue == "north#722").map(|held| held.edge.as_str()).collect();
+    for split in ["north#743", "north#744", "north#745", "north#746"] {
+        assert!(edges.contains(&split), "{split} missing from {edges:?}: {why}");
+    }
+    assert!(held.held.iter().any(|held| held.entry.text.starts_with("No section remains below") && held.edge_text.contains("Split north-ops")), "the first box waits on the split boxes: {:?}", held.held);
+
+    let fixable = backlog_of(&DEBT_AT_1022.replace("WAITS", "").replace("GATES", "crate-lines, code-health"));
+    assert!(matches!(fixable.verdict("north#722"), Verdict::Ready), "a code-health section can be fixed forward: {:?}", fixable.held);
+}
