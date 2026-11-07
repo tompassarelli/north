@@ -1,4 +1,3 @@
-use super::Outcome;
 use super::plan;
 use super::slots::Pools;
 use super::survey::Survey;
@@ -29,14 +28,4 @@ pub(super) fn print(survey: &Survey) {
     for note in &survey.notes {
         println!("note: {note}");
     }
-}
-
-/// The one line Tom gets when ready work and free slots coexist and nothing launched.
-pub(super) fn alert(outcome: &Outcome, failures: &[String], here: &str) -> Option<String> {
-    let launched = outcome.launches.len() - failures.len().min(outcome.launches.len());
-    if outcome.ready.is_empty() || outcome.free == 0 || launched > 0 {
-        return None;
-    }
-    let why = failures.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
-    Some(format!("north fleet dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready.len(), outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
 }

@@ -29,6 +29,9 @@ mod effects;
 mod facets;
 pub(crate) mod fleets;
 pub use fleets::workers as fleet_workers;
+mod freeze;
+#[cfg(test)]
+mod freeze_tests;
 mod grounds;
 mod host_needs;
 mod home;
@@ -324,9 +327,11 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let failures = execute(&survey, &outcome, dry_run);
-    if let Some(line) = report::alert(&outcome, &failures, &survey.here) {
-        effects::tell_tom(&line, dry_run, placement::now());
+    let frozen = freeze::frozen(&outcome, &failures, &freeze::guards(&survey));
+    if let Some(basis) = &frozen {
+        effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, placement::now());
     }
+    freeze::watch(&survey.here, frozen, dry_run, placement::now());
     0
 }
 

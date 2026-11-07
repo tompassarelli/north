@@ -12,10 +12,12 @@ use crate::fleet::sender::Sender;
 use crate::foundation::clock::Timestamp;
 use crate::spend::tripwire::{self, SPENDERS, Sample, Spenders, TRIP_LOG, Trip};
 use crate::spend::{Rules, TRIPS};
+use crate::threads::calibration::{self, Priced};
 use crate::usage::{open_ledger, profiles};
 use crate::watch;
 
 const SAMPLED_WITHIN_S: f64 = 30.0 * 60.0;
+const STALE_INPUTS: &str = "spend/stale-inputs.json";
 
 pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
     let Ok(db) = open_ledger(&profiles::home(), None, &|| {}) else { return Vec::new() };
@@ -38,16 +40,18 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
     }
     let accounts: std::collections::BTreeSet<&str> = samples.iter().map(|(account, _)| account.as_str()).chain(spenders.sessions.iter().map(|spender| spender.account.as_str())).collect();
     let keyed = crate::platform::orchestration::read().map(|cfg| crate::spend::keyed(&cfg)).unwrap_or_default();
-    let confirmed: Vec<Trip> = accounts
-        .into_iter()
-        .filter(|account| !keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))))
-        .filter_map(|account| {
+    let judged_accounts: Vec<&str> = accounts.into_iter().filter(|account| !keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')))).collect();
+    let priced: Vec<(&str, Result<f64, String>)> = judged_accounts.iter().map(|account| (*account, points_per_usd(&db, account, now_ms))).collect();
+    let confirmed: Vec<Trip> = priced
+        .iter()
+        .filter_map(|(account, rate)| {
             let own: Vec<Sample> = samples.iter().filter(|(name, _)| name == account).map(|(_, sample)| *sample).collect();
-            tripwire::trip(&rules, account, &own, &spenders.sessions, points_per_usd(&db, account), now)
+            tripwire::trip(&rules, account, &own, &spenders.sessions, *rate.as_ref().unwrap_or(&0.0), now)
         })
         .collect();
+    lines.extend(stale_alarm(fleet, &agents, &priced));
     let previous: Vec<Trip> = serde_json::from_value(read_json::<Value>(&agents.join(TRIPS))["trips"].clone()).unwrap_or_default();
-    let judged = tripwire::judge(&previous, confirmed, now, span, |account| points_per_usd(&db, account));
+    let judged = tripwire::judge(&previous, confirmed, now, span, |account| points_per_usd(&db, account, now_ms).unwrap_or(0.0));
     if let Err(why) = append(&agents.join(TRIP_LOG), &judged.new) {
         lines.push(format!("the spend tripwire's new trips were not logged: {why}"));
     }
@@ -84,9 +88,55 @@ fn five_hour_samples(db: &Connection, since: f64) -> rusqlite::Result<Vec<(Strin
     Ok(rows.flatten().filter_map(|(account, ts, used_pct, resets_at)| Some((format!("claude:{account}"), Sample { at: seconds(&ts)?, used_pct, resets_at: resets_at.as_deref().and_then(seconds) }))).collect())
 }
 
-fn points_per_usd(db: &Connection, account: &str) -> f64 {
+/// The five-hour points per dollar the session rule prices `account`'s spend with: zero when unmeasured, so the rule refuses nothing, and why when the newest rate is stale.
+fn points_per_usd(db: &Connection, account: &str, now_ms: u64) -> Result<f64, String> {
     let label = account.strip_prefix("claude:").unwrap_or(account);
-    crate::threads::calibration::rates_of(db, label).ok().flatten().map_or(0.0, |rates| rates.five_hour.points_per_usd())
+    match calibration::priced(db, label, Timestamp::from_unix_millis(now_ms as i64)) {
+        Ok(Priced::Measured(rates)) => Ok(rates.five_hour.points_per_usd()),
+        Ok(Priced::Stale(why)) => Err(why),
+        Ok(Priced::Unmeasured) | Err(_) => Ok(0.0),
+    }
+}
+
+/// The text the proxy gets once when the session rule's rate input on `accounts` is stale, so the rule refuses nothing on it.
+fn stale_text(why: &str, accounts: &[&str]) -> String {
+    format!("spend tripwire: its session rule refuses nothing on {} until the rate is remeasured, and the worker-turn rule there falls back to its assumed charge: {why}", accounts.join(", "))
+}
+
+/// Tells the proxy once per stale rate row the guards met, kept in `STALE_INPUTS` until the row is replaced.
+fn stale_alarm(fleet: &Fleet, agents: &Path, priced: &[(&str, Result<f64, String>)]) -> Vec<String> {
+    let mut stale: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+    for (account, rate) in priced {
+        if let Err(why) = rate {
+            stale.entry(why.as_str()).or_default().push(account);
+        }
+    }
+    let told: Vec<String> = read_json(&agents.join(STALE_INPUTS));
+    let mut lines = Vec::new();
+    let mut kept = Vec::new();
+    for (why, accounts) in stale {
+        if told.iter().any(|earlier| earlier == why) {
+            kept.push(why.to_owned());
+            continue;
+        }
+        let text = stale_text(why, &accounts);
+        if fleet.session(PROXY).is_err() {
+            kept.push(why.to_owned());
+            lines.push(text);
+            continue;
+        }
+        let sent = fleet.send_signed(&Sender::fleet(), PROXY, &text, Delivery::Now);
+        if sent.is_ok() {
+            kept.push(why.to_owned());
+        }
+        lines.push(sent.map_or_else(|error| format!("{text} (not told to the proxy: {})", error.user_message()), |()| format!("{text} (proxy told)")));
+    }
+    if kept != told
+        && let Err(why) = write_json(&agents.join(STALE_INPUTS), &kept)
+    {
+        lines.push(format!("the spend tripwire's stale-input alarms were not kept, so the next tick may tell the proxy again: {why}"));
+    }
+    lines
 }
 
 fn read_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {

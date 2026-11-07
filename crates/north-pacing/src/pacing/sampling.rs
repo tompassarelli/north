@@ -20,7 +20,8 @@ pub(super) fn worker_turns(at: f64) -> impl Fn(&str) -> Option<Turn> {
     let db = rusqlite::Connection::open_with_flags(crate::ledger::threads_database(), flags).ok();
     let since = crate::foundation::clock::Timestamp::from_unix_seconds(at as i64 - TURN_DAYS * 86_400).iso();
     let cost = db.as_ref().and_then(|db| crate::threads::calibration::TurnCost::read(db, &since).ok().flatten());
-    move |account| cost?.on(db.as_ref()?, account.strip_prefix("claude:")?).ok().flatten()
+    let now = crate::foundation::clock::Timestamp::from_unix_seconds(at as i64);
+    move |account| cost?.on(db.as_ref()?, account.strip_prefix("claude:")?, now).ok().flatten()
 }
 
 pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;

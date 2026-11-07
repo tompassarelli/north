@@ -310,6 +310,22 @@ source = "tom: 2026-11-07 starting span (north#702)"
 fallback = "none"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
+[spend_rate_max_h]
+value = 3
+allowed = { min = 1, max = 168 }
+unit = "hours after which an account's newest points-per-dollar row no longer prices spend for the session tripwire and the worker-turn rule"
+source = "north#838, 2026-11-08: calibrate_after_min recalibrates about hourly, so three hours is two missed calibrations; a guard on an older figure refused launches on a stale input"
+fallback = "the session tripwire refuses nothing on that account and the worker-turn rule charges spend_worker_charge, and the proxy is told once"
+consumers = ["crates/north-calibration/src/threads/calibration/rates.rs"]
+
+[dispatch_freeze_alarm_min]
+value = 15
+allowed = { min = 5, max = 240 }
+unit = "minutes of dispatch runs with ready boxes, free slots and no launch before the proxy gets one urgent message naming the refusing guards"
+source = "north#838, 2026-11-08: one stale tripwire figure froze every launch on the only account with headroom for over 20 minutes and nothing told the proxy; dispatch runs every 5 minutes, so 15 is three frozen runs"
+fallback = "none: a stated bound, not a measurement"
+consumers = ["crates/north-dispatch/src/dispatch/freeze.rs"]
+
 [codex_route_tooling]
 value = "codex"
 allowed = { one_of = ["codex", "claude"] }

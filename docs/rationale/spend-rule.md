@@ -93,7 +93,7 @@ five-hour reading from the last 30 minutes, beside the spend breaker, so each ho
 judged on that host. The fleet burst reads the table's five-hour readings, which every host shares. The
 session burst reads the spend so far of each session that host runs, which the tick records per session in
 `agents/spend/spenders.json`, priced in the account's five-hour points by the calibrated points per dollar
-(a session burst is not judged on an account with no calibrated rate). Current trips go to
+(a session burst is not judged on an account with no calibrated rate). A rate row is an input the tripwire and turn cover check before they refuse on it: a row whose source lacks the current `rate method N` stamp (written before the method that measures it changed, or by a host still on the old binary) or one older than `spend_rate_max_h` hours prices nothing, so the session burst refuses nothing on that account and turn cover falls back to its assumed charge, and the proxy is told once per stale row, kept in `agents/spend/stale-inputs.json` until a fresh row replaces it. On 2026-11-08 at 1:55 AM +07 the 1:15 AM pooled rate (3.53 points per dollar, measured before the 1:34 AM rate fix) froze every launch for over 20 minutes; the first row under the fixed method read 0.47 (north#838). Current trips go to
 `agents/spend/trips.json` there, where dispatch, fleet launch and the spawn hook on that host read them, and
 each new one is appended to `agents/spend/trips.jsonl`. Only the host that holds the proxy tells it, so a
 fleet burst every host sees reaches the proxy once. `north spend [--json]` prints the view.
