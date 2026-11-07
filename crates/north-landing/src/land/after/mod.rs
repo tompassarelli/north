@@ -80,11 +80,6 @@ fn notify(lander: &Lander, name: &str, ticket: &Ticket, head: &str) {
     if marker.exists() {
         return;
     }
-    let on_main = git(&lander.worktree, &["cherry", LANDED_MAIN, &ticket.head]).is_ok_and(|cherry| !cherry.lines().any(|line| line.starts_with('+')));
-    if !on_main {
-        println!("north land: {} ({}) is not on main yet; no landed message sent", ticket.branch, ticket.head);
-        return;
-    }
     if send(session, &Notice::Landed { branch: ticket.branch.clone(), sha: head.to_owned() }.text()) {
         if let Some(parent) = marker.parent() {
             let _ = fs::create_dir_all(parent);
