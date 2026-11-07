@@ -1,4 +1,5 @@
 use super::{Landing, Run, Scratch, wait_until, write};
+use north_capacity_host::capacity::lease_lifecycle::{Ledger, Phase};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -75,6 +76,11 @@ fn a_hung_land_check_times_out_and_fails_the_push() {
     assert!(output.contains("ran past its 1 s deadline"), "missing land check timeout: {output}");
 }
 
+fn judged(clock: &Path, milliseconds: u64) -> bool {
+    std::fs::read_dir(clock).into_iter().flatten().flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("seen.") && read(&entry.path()) == milliseconds.to_string())
+}
+
+// KEEP(bug): after north#757 moved a lease's frozen phase into the lifecycle ledger, this test's lease file named no id the ledger knew, so a frozen land check was ended at its 1 s wall deadline and every landing paused on a red main base (north#720)
 #[test]
 fn a_frozen_land_check_times_out_only_after_its_timeout_plus_the_time_it_was_frozen() {
     let scratch = Scratch::new();
@@ -83,22 +89,34 @@ fn a_frozen_land_check_times_out_only_after_its_timeout_plus_the_time_it_was_fro
     let started = landing.root.join("started");
     landing.configure(&lane, &[], &[&format!("touch '{}'; sleep 40", started.display())], "check is frozen past its timeout");
     let runtime = landing.root.join("runtime");
-    let lease = runtime.join("agent-capacity-v1/leases/frozen.json");
-    write(&lease, "{\"expiresAt\":1000,\"frozenAt\":1000}\n");
+    let capacity = runtime.join("agent-capacity-v1");
+    let lease_file = capacity.join("leases/frozen.json");
+    let frozen = serde_json::json!({"id": "frozen", "kind": "run", "expiresAt": 1000, "frozenAt": 1000});
+    write(&lease_file, &format!("{frozen}\n"));
+    let mut ledger = Ledger::open(&capacity).unwrap();
+    assert_eq!(ledger.adopt(&frozen).unwrap(), Some(Phase::Frozen));
+    let clock = landing.root.join("clock");
+    let tick = |milliseconds: u64| write(&clock.join("now"), &milliseconds.to_string());
+    tick(0);
     let mut running = Run::new(&scratch, &lane, &["--dry-run", "--to", "main"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .env("AGENT_CAPACITY_LEASE", "frozen")
+        .env("NORTH_CAPACITY_DEADLINE_CLOCK", &clock)
         .env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "1")
         .start();
     let deadline = "ran past its 1 s deadline";
     assert!(wait_until(Duration::from_secs(60), || started.exists()), "the frozen land check never started");
-    std::thread::sleep(Duration::from_secs(2));
+    tick(2000);
+    assert!(wait_until(Duration::from_secs(60), || judged(&clock, 2000)), "the deadline never judged 2 s: {}", running.output());
     assert!(!running.output().contains(deadline), "a frozen land check was ended by its wall-clock timeout: {}", running.output());
-    write(&lease, "{\"expiresAt\":5000}\n");
-    std::thread::sleep(Duration::from_millis(600));
+    write(&lease_file, &format!("{}\n", serde_json::json!({"id": "frozen", "kind": "run", "expiresAt": 5000})));
+    ledger.advance("frozen", Phase::Running, "the hold ended and its scope thawed", Some(5000.0)).unwrap();
+    tick(4500);
+    assert!(wait_until(Duration::from_secs(60), || judged(&clock, 4500)), "the deadline never judged 4.5 s: {}", running.output());
     assert!(!running.output().contains(deadline), "a frozen land check ended before its timeout plus the time it was frozen: {}", running.output());
-    let ended = wait_until(Duration::from_secs(3), || running.output().contains(deadline));
-    let status = running.exits_within(Duration::from_secs(10));
+    tick(5000);
+    let ended = wait_until(Duration::from_secs(60), || running.output().contains(deadline));
+    let status = running.exits_within(Duration::from_secs(60));
     let output = running.output();
     running.kill();
     assert!(ended, "a thawed land check outlived its timeout plus the time it was frozen: {output}");
