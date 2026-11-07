@@ -25,11 +25,5 @@
     ["w8", "gpt-6.1-sol high", "feature", "done", 1, 1, "n#8", "worker", null],
     ["w9", "haiku", "tooling", "done", 1, 1, "n#9", "worker", "w1"],
     ["w10", "claude-opus-5-5 medium", "feature", "unclear", 1, 1, null, "worker", null]
-  ],
-  "events": [
-    ["claude-haiku-5-6", "2026-11-15T00:00:00Z", 0.5, "expected", "2026-10-20T00:00:00Z"],
-    ["claude-haiku-5-7", "2026-11-10T00:00:00Z", null, "market", "2026-10-21T00:00:00Z"],
-    ["claude-haiku-5-4", "2026-11-01T00:00:00Z", 0.9, "expected", "2026-10-22T00:00:00Z"],
-    ["gpt-6.2-sol", "2026-12-01T00:00:00Z", 0.7, "expected", "2026-10-22T00:00:00Z"]
   ]
 }

@@ -54,17 +54,10 @@ pub(super) fn live_ctx(cfg: &Value, tiers: &[Tier], catalog: &Value, rows: &[&Ro
         })
         .collect();
     let (success, runs) = measured(db, tiers, defaults.min_runs);
-    let due = successors(db, now, tiers)?;
     let listed: Vec<Value> = tiers
         .iter()
         .enumerate()
-        .map(|(rank, tier)| {
-            let mut entry = json!({"key": tier.key, "model": tier.model, "effort": tier.effort, "rank": rank, "start": tier.start, "runs": runs[&tier.key]});
-            if let Some(successor) = due.get(&tier.key) {
-                entry["successor"] = successor.clone();
-            }
-            entry
-        })
+        .map(|(rank, tier)| json!({"key": tier.key, "model": tier.model, "effort": tier.effort, "rank": rank, "start": tier.start, "runs": runs[&tier.key]}))
         .collect();
     let mut accounts = accounts_from(rows, now)?;
     configure_accounts(&mut accounts, cfg);
@@ -216,43 +209,4 @@ fn truthy(cell: &Cell) -> bool {
         Cell::Text(text) => !text.is_empty(),
         Cell::Blob(bytes) => !bytes.is_empty(),
     }
-}
-
-fn lineage(model: &str) -> (Vec<String>, Vec<i64>) {
-    let name = model.split_once(':').map_or(model, |(_, rest)| rest);
-    let parts: Vec<&str> = name.split(['-', '.']).collect();
-    let words = parts.iter().filter(|part| !part.chars().all(|c| c.is_ascii_digit()) || part.is_empty()).map(|part| (*part).to_owned()).collect();
-    let numbers = parts.iter().filter(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit())).filter_map(|part| part.parse().ok()).collect();
-    (words, numbers)
-}
-
-fn successors(db: &Connection, now: Timestamp, tiers: &[Tier]) -> Result<BTreeMap<String, Value>, String> {
-    let mut latest: BTreeMap<String, (String, Option<f64>)> = BTreeMap::new();
-    for row in query(db, "SELECT model, at, p FROM model_events WHERE kind IN ('expected', 'market') AND at IS NOT NULL ORDER BY ts") {
-        let p = match row[2] {
-            Cell::Real(p) => Some(p),
-            Cell::Integer(p) => Some(p as f64),
-            _ => None,
-        };
-        if let (Some(model), Some(at)) = (text(&row[0]), text(&row[1])) {
-            latest.insert(model, (at, p));
-        }
-    }
-    let mut out = BTreeMap::new();
-    for tier in tiers {
-        let (family, version) = lineage(&tier.model);
-        let mut due: Vec<(f64, f64, String)> = Vec::new();
-        for (model, (at, p)) in &latest {
-            let when = py::parse(at)?;
-            let (candidate, newer) = lineage(model);
-            if when >= now && candidate == family && newer > version {
-                due.push(((when.unix_nanos() - now.unix_nanos()) as f64 / 1e9 / 86400.0, p.unwrap_or(1.0), model.clone()));
-            }
-        }
-        due.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
-        if let Some((eta, p, model)) = due.into_iter().next() {
-            out.insert(tier.key.clone(), json!({"eta_days": eta, "p": p, "model": model}));
-        }
-    }
-    Ok(out)
 }

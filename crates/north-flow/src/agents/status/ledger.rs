@@ -3,7 +3,6 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use rusqlite::Connection;
 use rusqlite::types::Value as Cell;
-use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
 
@@ -107,51 +106,6 @@ impl Ledger {
             .collect();
         (success, runs)
     }
-
-    pub(super) fn successors(&self, now: Timestamp, tiers: &[Tier]) -> BTreeMap<String, Value> {
-        let mut latest: BTreeMap<String, (String, Option<f64>)> = BTreeMap::new();
-        let sql = "SELECT model, at, p FROM model_events WHERE kind IN ('expected', 'market') AND at IS NOT NULL ORDER BY ts";
-        for row in self.query(sql, &[]) {
-            let (Some(model), Some(at)) = (text(&row[0]), text(&row[1])) else {
-                continue;
-            };
-            let p = match &row[2] {
-                Cell::Integer(number) => Some(*number as f64),
-                Cell::Real(number) => Some(*number),
-                _ => None,
-            };
-            latest.insert(model, (at, p));
-        }
-        let mut out = BTreeMap::new();
-        for tier in tiers {
-            let (family, version) = lineage(&tier.model);
-            let mut due: Vec<(f64, f64, &String)> = latest
-                .iter()
-                .filter_map(|(model, (at, p))| {
-                    let when = instant(at).filter(|when| *when >= now)?;
-                    let (other, other_version) = lineage(model);
-                    (other == family && other_version > version).then(|| {
-                        ((when.unix_nanos() - now.unix_nanos()) as f64 / 1e9 / 86400.0, p.unwrap_or(1.0), model)
-                    })
-                })
-                .collect();
-            due.sort_by(|left, right| left.0.total_cmp(&right.0).then(left.1.total_cmp(&right.1)).then(left.2.cmp(right.2)));
-            if let Some((eta, p, model)) = due.first() {
-                out.insert(tier.key.clone(), json!({"eta_days": eta, "p": p, "model": model}));
-            }
-        }
-        out
-    }
-}
-
-fn lineage(model: &str) -> (Vec<String>, Vec<u64>) {
-    let name = model.split_once(':').map_or(model, |(_, rest)| rest);
-    let parts: Vec<&str> = name.split(['-', '.']).collect();
-    let digits = |part: &&str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
-    (
-        parts.iter().filter(|part| !digits(part)).map(|part| (*part).to_owned()).collect(),
-        parts.iter().filter(|part| digits(part)).filter_map(|part| part.parse().ok()).collect(),
-    )
 }
 
 pub(super) fn python_iso(time: Timestamp) -> String {

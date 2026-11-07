@@ -2,10 +2,9 @@ use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use crate::platform::{git as platform_git, github};
-use std::process::Command;
 use std::sync::LazyLock;
 
-use crate::foundation::clock::{self, Timestamp};
+use crate::foundation::clock;
 
 const FORMS: &str = "Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident|none>; pointer <quote with date | run file plus rerun command | link | issue>; rationale <repo path#anchor | not recorded>; revisit <YYYY-MM-DD | closed REPO#N | event text>, ending ; soft for a bar that does not gate (origin none only then)";
 const UNIT: &str = r"(seconds|minutes|instructions|allocations|launches|frames|tokens|bytes|lines|units|sec|min|fps|MiB|GiB|KiB|MB|KB|GB|ns|µs|us|ms|s|h|%)";
@@ -630,38 +629,6 @@ fn debt(paths: &[String], only_due: bool) -> Result<(), String> {
     }
     Ok(())
 }
-fn releases(path: &Path) -> Result<BTreeMap<String, String>, String> {
-    let mut result = BTreeMap::<String, String>::new();
-    if !path.is_file() {
-        return Ok(result);
-    }
-    let out = Command::new("sqlite3")
-        .args(["-readonly", "-json"])
-        .arg(path)
-        .arg("SELECT model,at FROM model_events WHERE kind='released' AND at IS NOT NULL")
-        .output()
-        .map_err(|error| format!("sqlite3: cannot read {}: {error}", path.display()))?;
-    if !out.status.success() {
-        return Ok(result);
-    }
-    if !out.stdout.is_empty() {
-        let rows = serde_json::from_slice::<Vec<serde_json::Value>>(&out.stdout)
-            .map_err(|error| format!("sqlite3: invalid release dates: {error}"))?;
-        for row in rows {
-            if let (Some(model), Some(at)) = (row["model"].as_str(), row["at"].as_str()) {
-                let model = model.split_once(':').map_or(model, |(_, m)| m);
-                if let Some(s) = Timestamp::parse_python_datetime(at)
-                    && result
-                        .get(model)
-                        .is_none_or(|old| Timestamp::parse_python_datetime(old).is_none_or(|o| s < o))
-                    {
-                        result.insert(model.into(), at.into());
-                    }
-            }
-        }
-    }
-    Ok(result)
-}
 fn evidence(repo: &Path, pointer: &str) -> BTreeMap<String, serde_json::Value> {
     let Some(word) = crate::shell::shlex_split(pointer).and_then(|words| words.into_iter().next()) else {
         return BTreeMap::new();
@@ -731,8 +698,7 @@ fn evidence_text(value: &serde_json::Value) -> String {
         _ => value.to_string(),
     }
 }
-fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
-    let release = releases(&expand(db))?;
+fn audit(paths: &[String], events: &[String]) -> Result<(), String> {
     let mut rows = Vec::new();
     let mut triggers = BTreeMap::new();
     for repo in repos(paths) {
@@ -779,9 +745,6 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
                     .map(evidence_text)
                     .unwrap_or_default();
                 let model = info.get("model").and_then(|v| v.as_str()).unwrap_or("");
-                let released = release
-                    .get(model.split_once(':').map_or(model, |(_, m)| m))
-                    .map_or("", String::as_str);
                 let mut reasons = Vec::new();
                 let mut priority = 5;
                 if matches!(rationale, "not recorded" | "rationale not recorded") {
@@ -813,10 +776,6 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
                     reasons.push("single-run evidence");
                     priority = priority.min(3);
                 }
-                if Timestamp::parse_python_datetime(&at).zip(Timestamp::parse_python_datetime(released)).is_some_and(|(a, b)| a < b) {
-                    reasons.push("evidence older than model");
-                    priority = priority.min(4);
-                }
                 rows.push((
                     priority,
                     repo_name(&repo),
@@ -830,7 +789,6 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
                         runs,
                         at,
                         model.into(),
-                        released.into(),
                         reasons.join("; "),
                     ],
                 ));
@@ -838,15 +796,15 @@ fn audit(paths: &[String], db: &str, events: &[String]) -> Result<(), String> {
         }
     }
     println!(
-        "repo\tcommit\tpriority\treasons\tclaim\torigin\tpointer\trationale\trevisit\truns\tevidence_date\tmodel\trelease_date"
+        "repo\tcommit\tpriority\treasons\tclaim\torigin\tpointer\trationale\trevisit\truns\tevidence_date\tmodel"
     );
     rows.sort();
     for (priority, name, sha, values) in rows {
         println!(
             "{name}\t{}\t{priority}\t{}\t{}",
             &sha[..sha.len().min(12)],
-            values[9],
-            values[..9].join("\t")
+            values[8],
+            values[..8].join("\t")
         );
     }
     Ok(())
@@ -887,12 +845,11 @@ options:
                event text
   --repo REPO  repository path (default ~/code/*/main)
 "#;
-const HELP_AUDIT: &str = r#"usage: north check provenance audit [-h] [--repo REPO] [--db DB] [--event EVENT]
+const HELP_AUDIT: &str = r#"usage: north check provenance audit [-h] [--repo REPO] [--event EVENT]
 
 options:
   -h, --help     show this help message and exit
   --repo REPO    repository path (default ~/code/*/main)
-  --db DB        read-only model_events store
   --event EVENT  exact recorded event trigger that fired
 "#;
 const HELP_INVENTORY: &str = r#"usage: north check provenance inventory [-h] [--repo REPO] [--rev REV] [--stubs]
@@ -908,7 +865,7 @@ options:
 enum Invocation {
     Check { base: String, head: String },
     Debt { paths: Vec<String>, only_due: bool },
-    Audit { paths: Vec<String>, db: String, events: Vec<String> },
+    Audit { paths: Vec<String>, events: Vec<String> },
     Inventory { repo: String, rev: String, stubs: bool },
 }
 
@@ -1027,15 +984,6 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
     }
     let mut paths = Vec::new();
     let mut events = Vec::new();
-    let mut db = std::env::var("THREADS_DB")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| {
-            home()
-                .join(".local/state/threads/threads.db")
-                .to_string_lossy()
-                .into_owned()
-        });
     let mut only_due = false;
     let mut unknown: Vec<_> = leading.iter().map(String::as_str).collect();
     let mut i = 1;
@@ -1056,7 +1004,7 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
         let options: &[&str] = if command == "debt" {
             &["--due", "--repo"]
         } else {
-            &["--repo", "--db", "--event"]
+            &["--repo", "--event"]
         };
         let candidates: Vec<_> = options
             .iter()
@@ -1074,7 +1022,7 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
                 }
                 only_due = true;
             }
-            "--repo" | "--db" | "--event" if options.contains(&key) => {
+            "--repo" | "--event" if options.contains(&key) => {
                 let value = if let Some(v) = inline {
                     v
                 } else {
@@ -1089,7 +1037,6 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
                 };
                 match key {
                     "--repo" => paths.push(value.to_owned()),
-                    "--db" => db = value.to_owned(),
                     "--event" => events.push(value.to_owned()),
                     _ => unreachable!(),
                 }
@@ -1103,7 +1050,7 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
     if !unknown.is_empty() {
         return Err(Exit::usage("", format!("unrecognized arguments: {}", unknown.join(" "))));
     }
-    Ok(if command == "debt" { Invocation::Debt { paths, only_due } } else { Invocation::Audit { paths, db, events } })
+    Ok(if command == "debt" { Invocation::Debt { paths, only_due } } else { Invocation::Audit { paths, events } })
 }
 
 fn parse_inventory(leading: &[String], args: &[String]) -> Result<Invocation, Exit> {
@@ -1167,7 +1114,7 @@ pub fn run(args: &[String]) -> u8 {
             };
         }
         Invocation::Debt { paths, only_due } => debt(&paths, only_due),
-        Invocation::Audit { paths, db, events } => audit(&paths, &db, &events),
+        Invocation::Audit { paths, events } => audit(&paths, &events),
         Invocation::Inventory { repo, rev, stubs } => {
             return match inventory::inventory(&expand(&repo), &rev, stubs) {
                 Ok(c) => c,

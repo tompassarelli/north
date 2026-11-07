@@ -17,7 +17,7 @@ Commands:
   check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
   check provenance check BASE HEAD              List each new gating bar, hook or policy line with no Provenance record
   check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers
-  check provenance audit [--repo REPO] [--db DB] [--event EVENT]  Audit grounding events
+  check provenance audit [--repo REPO] [--event EVENT]  Audit grounding events
   check provenance inventory [--repo REPO] [--rev REV] [--stubs]  Count the hooks, policy lines, tiers and bars no record names
   work review PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
   ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per new failure on each open "main is red" issue

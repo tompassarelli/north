@@ -168,16 +168,15 @@ value = 7
 allowed = { min = 1, max = 365 }
 unit = "days within which a tier's announced successor holds exploration"
 source = "tom: 2026-10-12 policy-lead-status.md item 20 (via tom-48): rolling 7-day windows"
-fallback = "a tier with no model_events successor is never held"
+fallback = "a tier with no announced successor is never held"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
 
 [successor_p]
 value = 0.6
 allowed = { min = 0, max = 1 }
 unit = "probability a successor ships before exploration is held"
-source = "prior: proxy decision 2026-10-12, thin data"
-settles_when = { need = 10, count = "count_successor_outcomes", what = "model_events expected or market successors whose date has passed, shipped when a released event names the model by then" }
-fallback = "a tier with no model_events successor is never held"
+source = "proxy decision 2026-10-12, thin data; unmeasured since north#824 removed the model watch that wrote its successors"
+fallback = "a tier with no announced successor is never held"
 consumers = ["crates/north-pace/src/router/ctx.rs"]
 
 [priority_headroom]

@@ -122,23 +122,21 @@ fn same(left: &Value, right: &Value, path: &str) {
 
 // KEEP(bug): only test of the spawn gate's ctx builder over a recorded ledger
 #[test]
-fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_recorded_ledger_with_runs_and_model_events() {
+fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_recorded_ledger_with_runs() {
     let state: Value = serde_json::from_str(include_str!("fixtures/gate_state.json")).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let (db_path, policy) = (scratch.path().join("threads.db"), scratch.path().join("orchestration.toml"));
     ledger(&db_path, &state["rows"]);
     let db = Connection::open(&db_path).unwrap();
-    db.execute_batch("CREATE TABLE runs(agent TEXT, tier TEXT, category TEXT, outcome TEXT, expects_landing INTEGER, landed INTEGER, item TEXT, role TEXT, follows TEXT); CREATE TABLE model_events(model TEXT, at TEXT, p REAL, kind TEXT, ts TEXT);").unwrap();
-    for (sql, rows) in [("INSERT INTO runs VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", &state["runs"]), ("INSERT INTO model_events VALUES (?1, ?2, ?3, ?4, ?5)", &state["events"])] {
-        for row in rows.as_array().unwrap() {
-            let cells = row.as_array().unwrap().iter().map(|cell| match cell {
-                Value::Null => rusqlite::types::Value::Null,
-                Value::String(text) => rusqlite::types::Value::Text(text.clone()),
-                number if number.is_i64() => rusqlite::types::Value::Integer(number.as_i64().unwrap()),
-                number => rusqlite::types::Value::Real(number.as_f64().unwrap()),
-            });
-            db.execute(sql, rusqlite::params_from_iter(cells)).unwrap();
-        }
+    db.execute_batch("CREATE TABLE runs(agent TEXT, tier TEXT, category TEXT, outcome TEXT, expects_landing INTEGER, landed INTEGER, item TEXT, role TEXT, follows TEXT);").unwrap();
+    for row in state["runs"].as_array().unwrap() {
+        let cells = row.as_array().unwrap().iter().map(|cell| match cell {
+            Value::Null => rusqlite::types::Value::Null,
+            Value::String(text) => rusqlite::types::Value::Text(text.clone()),
+            number if number.is_i64() => rusqlite::types::Value::Integer(number.as_i64().unwrap()),
+            number => rusqlite::types::Value::Real(number.as_f64().unwrap()),
+        });
+        db.execute("INSERT INTO runs VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", rusqlite::params_from_iter(cells)).unwrap();
     }
     fs::write(&policy, include_str!("../router/fixtures/policy/orchestration.toml")).unwrap();
     let expected: Value = serde_json::from_str(CTX_OLD).unwrap();
@@ -150,7 +148,6 @@ fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_
         same(&expected[provider], &actual, provider);
     }
     assert_eq!(expected["claude"]["success"], serde_json::json!({"claude:haiku|tooling": 60}));
-    assert_eq!(expected["claude"]["tiers"][0]["successor"]["model"], "claude-haiku-5-7");
 }
 
 // KEEP(bug): an expired window that a newer reading of the account postdates reads 0% used, so a setup-token account is not held stale at the spawn gate forever; regression of north#401

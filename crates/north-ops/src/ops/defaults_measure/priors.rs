@@ -54,7 +54,6 @@ fn counter(db: &Connection, context: &Context, name: &str) -> Result<Count, Stri
             Ok((targets.len(), None))
         }
         "count_explored_tier_runs" => Ok((sweeps::least_explored_tier_runs(db, context.registry.number("explore_runs") as usize).map_err(sql)?, None)),
-        "count_successor_outcomes" => successor_outcomes(db).map_err(sql),
         "count_capacity_denials" => {
             let rows = jsonl_rows(&context.state_dir().join("spawn-gate-denials.jsonl"));
             Ok((rows.iter().filter(|row| row["gate"] == "capacity" && truthy(&row["at"])).count(), None))
@@ -99,19 +98,6 @@ fn astra_runs(db: &Connection) -> rusqlite::Result<Count> {
         }
     }
     Ok((rises.len(), quantile(&rises, 0.5)))
-}
-
-fn successor_outcomes(db: &Connection) -> rusqlite::Result<Count> {
-    let now = Timestamp::now().iso();
-    let mut select = db.prepare("SELECT model, max(at) AS at FROM model_events WHERE kind IN ('expected', 'market') AND at IS NOT NULL GROUP BY model")?;
-    let due: BTreeSet<Option<String>> = select
-        .query_map([], |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|(_, at)| *at < now)
-        .map(|(model, _)| model)
-        .collect();
-    Ok((due.len(), None))
 }
 
 fn meter_test_haiku_runs(replay: &Path) -> Count {

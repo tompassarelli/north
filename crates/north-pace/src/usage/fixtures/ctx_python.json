@@ -97,12 +97,7 @@
     "model": "claude-haiku-5-5",
     "rank": 0,
     "runs": 5,
-    "start": 0,
-    "successor": {
-     "eta_days": 12.5,
-     "model": "claude-haiku-5-7",
-     "p": 1.0
-    }
+    "start": 0
    },
    {
     "effort": "low",
@@ -118,12 +113,7 @@
     "model": "gpt-6.1-sol",
     "rank": 2,
     "runs": 0,
-    "start": 20,
-    "successor": {
-     "eta_days": 33.5,
-     "model": "gpt-6.2-sol",
-     "p": 0.7
-    }
+    "start": 20
    },
    {
     "effort": "high",
@@ -131,12 +121,7 @@
     "model": "gpt-6.1-sol",
     "rank": 3,
     "runs": 1,
-    "start": 20,
-    "successor": {
-     "eta_days": 33.5,
-     "model": "gpt-6.2-sol",
-     "p": 0.7
-    }
+    "start": 20
    },
    {
     "effort": "xhigh",
@@ -144,12 +129,7 @@
     "model": "gpt-6.1-sol",
     "rank": 4,
     "runs": 0,
-    "start": 20,
-    "successor": {
-     "eta_days": 33.5,
-     "model": "gpt-6.2-sol",
-     "p": 0.7
-    }
+    "start": 20
    },
    {
     "effort": "high",
@@ -251,12 +231,7 @@
     "model": "claude-haiku-5-5",
     "rank": 0,
     "runs": 5,
-    "start": 0,
-    "successor": {
-     "eta_days": 12.5,
-     "model": "claude-haiku-5-7",
-     "p": 1.0
-    }
+    "start": 0
    },
    {
     "effort": "low",
@@ -272,12 +247,7 @@
     "model": "gpt-6.1-sol",
     "rank": 2,
     "runs": 0,
-    "start": 20,
-    "successor": {
-     "eta_days": 33.5,
-     "model": "gpt-6.2-sol",
-     "p": 0.7
-    }
+    "start": 20
    },
    {
     "effort": "high",
@@ -285,12 +255,7 @@
     "model": "gpt-6.1-sol",
     "rank": 3,
     "runs": 1,
-    "start": 20,
-    "successor": {
-     "eta_days": 33.5,
-     "model": "gpt-6.2-sol",
-     "p": 0.7
-    }
+    "start": 20
    },
    {
     "effort": "xhigh",
@@ -298,12 +263,7 @@
     "model": "gpt-6.1-sol",
     "rank": 4,
     "runs": 0,
-    "start": 20,
-    "successor": {
-     "eta_days": 33.5,
-     "model": "gpt-6.2-sol",
-     "p": 0.7
-    }
+    "start": 20
    },
    {
     "effort": "high",

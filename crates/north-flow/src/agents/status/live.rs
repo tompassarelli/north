@@ -170,17 +170,10 @@ pub(super) fn context(config: &Config, catalog: &Value, rows: &[Reading], ledger
         })
         .collect();
     let (success, runs) = ledger.measured(owned, knobs.min_runs as usize);
-    let due = ledger.successors(now, owned);
     let tier_values: Vec<Value> = owned
         .iter()
         .enumerate()
-        .map(|(rank, tier)| {
-            let mut entry = json!({"key": tier.key, "model": tier.model, "effort": tier.effort, "rank": rank, "start": tier.start, "runs": runs[&tier.key]});
-            if let Some(successor) = due.get(&tier.key) {
-                entry["successor"] = successor.clone();
-            }
-            entry
-        })
+        .map(|(rank, tier)| json!({"key": tier.key, "model": tier.model, "effort": tier.effort, "rank": rank, "start": tier.start, "runs": runs[&tier.key]}))
         .collect();
     let prices = prices(costs);
     let accounts: Map<String, Value> =
