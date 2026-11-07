@@ -12,7 +12,7 @@ hold=3600
 build() {
   # Built as nextest builds it (test profile, dev-dependency features unified), so this is the binary a warm slot or a nextest run already compiled.
   printf 'head-north: building north from the tree: %s\n' "${reason%%$'\n'*}" >&2
-  "$root/bin/land-shell" --dev -- cargo test -q --no-run --locked --offline -p north --test it >&2
+  "$root/bin/land-shell" --dev -- cargo test -q --no-run --locked --offline -p north --test it >&2 || { printf 'head-north: building north from the tree failed, so no older north runs in its place\n' >&2; exit 75; }
   readlink -f "${CARGO_TARGET_DIR:-target}/debug/north"
 }
 prune() {
@@ -44,7 +44,7 @@ from_tree() {
     printf 'head-north: running the north this host built from tree %.12s: %s\n' "$tree" "${reason%%$'\n'*}" >&2
     touch "$cache/$tree"
   else
-    store "$(build)"
+    built=$(build); store "$built"
   fi
   exec 7>&-
   north=$cache/$tree/north

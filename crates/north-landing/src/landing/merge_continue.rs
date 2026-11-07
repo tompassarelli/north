@@ -131,7 +131,7 @@ pub fn fold(worktree: &Path, config: &Path, base: &str) -> Result<Vec<String>, S
     let mut folded = Vec::new();
     for rule in merge_set::read_rules(config)? {
         match &rule.kind {
-            Kind::Regenerate { command, sources, generator } if touches(sources) => generate(worktree, command, generator)?,
+            Kind::Regenerate { command, sources, generator } if touches(sources) && !touches(generator) => generate(worktree, command, generator)?,
             Kind::Block { start, end, sorted: true } if changed.contains(&rule.path.as_str()) => {
                 let path = worktree.join(&rule.path);
                 let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", rule.path))?;
