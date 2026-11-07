@@ -177,7 +177,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         case.conflict_files = Some(files.clone());
         let files = if files.is_empty() { "cherry-pick" } else { files.as_str() };
         let bare_main = picked_onto == base;
-        let with_main = bare_main || !succeeds(worktree, &["merge-tree", "--write-tree", "--quiet", base, &ticket.head]);
+        let with_main = bare_main || !succeeds(worktree, &["merge-tree", "--write-tree", "--no-messages", base, &ticket.head]);
         let red_fix = ticket.red_fix.is_some();
         let queued_ahead = if with_main && !red_fix { queued_ahead(worktree, base, ticket, earlier) } else { None };
         (case.bare_main, case.with_main, case.queued_ahead) = (Some(bare_main), Some(with_main), queued_ahead.map(str::to_owned));
