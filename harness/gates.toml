@@ -1,7 +1,12 @@
 # Every gate that can refuse a launch, a push, a landing or a GitHub write is listed here. A new or changed gate lands with mode = "shadow": it logs what it would refuse, and a reviewer reads those would-be refusals for 24 h or 20 decisions before it may refuse. Switching a gate to "enforce" needs a [gate.NAME.review] table with `reviewed` (date), `by`, and `hours` (>= 24) or `decisions` (>= 20); `north land scan gate-shadow` refuses a lane that enforces a gate without one. The scan's own would-be refusals are in $XDG_STATE_HOME/north/gates/gate-shadow.jsonl on each pushing host. The landing gates outside build, clippy, tests, secrets and privacy share one switch instead, `landing_refusals` in harness/defaults.toml, whose would-be refusals are in $XDG_STATE_HOME/north/gates/landing-shadow.jsonl (north#729).
 
 [gate.gate-shadow]
-mode = "shadow"
+mode = "enforce"
+
+[gate.gate-shadow.review]
+reviewed = "2026-11-08"
+by = "n706-gateshadow"
+decisions = 58
 
 # A proxy launches a worker only on one of the top five issues of `north graph ready` or an issue it filed or edited in a turn answering a message Tom typed (north#734). Would-be refusals: $XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl on the launching host.
 [gate.proxy-launch-rank]

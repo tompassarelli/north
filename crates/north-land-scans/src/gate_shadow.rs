@@ -61,7 +61,7 @@ fn record(state: &Path, head: &str, refused: &[String]) {
     let line = serde_json::json!({"gate": SELF, "at": at, "head": head, "would_refuse": !refused.is_empty(), "gates": refused});
     let _ = std::fs::create_dir_all(&directory);
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(directory.join("gate-shadow.jsonl")) {
-        let _ = writeln!(file, "{line}");
+        let _ = file.write_all(format!("{line}\n").as_bytes());
     }
 }
 
