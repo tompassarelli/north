@@ -15,6 +15,9 @@ const AGENTS_SYNC: &str = "agents sync";
 const UNPUBLISHED: &str = "agents-sync-unpublished";
 
 pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
+    if fs::read_link(layout.current()).is_ok_and(|current| current == link) {
+        return Ok(());
+    }
     let staged = layout.state.join("current.tmp");
     let _ = fs::remove_file(&staged);
     symlink(link, &staged)?;

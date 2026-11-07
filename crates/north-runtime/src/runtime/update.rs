@@ -465,6 +465,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn republishing_onto_the_live_runtime_keeps_the_time_it_went_live() {
+        let state = tempfile::tempdir().unwrap();
+        let layout = Layout { state: state.path().to_path_buf() };
+        let link = layout::link(&"d".repeat(40));
+        swap(&layout, &link).unwrap();
+        let live_at = fs::symlink_metadata(layout.current()).unwrap().modified().unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        swap(&layout, &link).unwrap();
+        assert_eq!(fs::symlink_metadata(layout.current()).unwrap().modified().unwrap(), live_at);
+    }
+
+    #[test]
     fn collecting_old_runtimes_keeps_the_runtime_the_lander_link_pins() {
         let state = tempfile::tempdir().unwrap();
         let layout = Layout { state: state.path().to_path_buf() };
