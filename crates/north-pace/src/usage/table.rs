@@ -7,13 +7,13 @@ use rusqlite::Connection;
 use super::burn::{self, Burn};
 use super::settings::Plan;
 use super::store::Row;
-use super::{Places, costs, detail, plain, py, settings, web};
-use crate::credit;
+use super::plain::{self, GAP, grid};
+use super::{Places, costs, credit_table, detail, py, settings, web};
 use crate::foundation::clock::Timestamp;
 
 const NO_SNAPSHOT: &str = "No usage readings yet; run `north usage --refresh`.";
 const HEADER: [&str; 5] = ["Claude", "5 hours", "week", "week resets", "outlook"];
-const GAP: &str = "   ";
+
 const NONE: &str = "—";
 
 pub(super) struct View<'a> {
@@ -39,33 +39,15 @@ pub(super) fn render(view: &View) -> Result<(String, u8), String> {
             lines.push((label, other_line(view.now, mine)?));
         }
     }
-    lines.extend(credit_lines(view));
-    if let Some(costs) = costs::read(view.places, view.now)? {
-        lines.push(("This week".to_owned(), cost_line(&costs)));
-    }
     if !claude.is_empty() {
         claude.insert(0, HEADER.map(str::to_owned).to_vec());
     }
-    let text = layout(&claude, &lines);
+    let costs: Vec<(String, String)> = costs::read(view.places, view.now)?.map(|costs| ("This week".to_owned(), cost_line(&costs))).into_iter().collect();
+    let first_width = lines.iter().chain(&costs).map(|(label, _)| label).chain(claude.iter().filter_map(|row| row.first())).map(|cell| cell.chars().count()).max().unwrap_or(0);
+    let labelled = |lines: &[(String, String)]| -> Vec<String> { lines.iter().map(|(label, rest)| format!("{label:first_width$}{GAP}{rest}").trim_end().to_owned()).collect() };
+    let blocks = [grid(&claude, first_width), labelled(&lines), credit_table::lines(view.places, view.now), labelled(&costs)];
+    let text = blocks.into_iter().filter(|block| !block.is_empty()).map(|block| block.join("\n")).collect::<Vec<_>>().join("\n\n");
     Ok(if rows.is_empty() { (format!("{NO_SNAPSHOT}\n{text}").trim_end().to_owned(), 1) } else { (text, 0) })
-}
-
-fn layout(table: &[Vec<String>], lines: &[(String, String)]) -> String {
-    let width = |cell: &String| cell.chars().count();
-    let mut widths = vec![0; HEADER.len()];
-    for row in table {
-        for (column, cell) in row.iter().enumerate() {
-            widths[column] = widths[column].max(width(cell));
-        }
-    }
-    widths[0] = lines.iter().map(|(label, _)| width(label)).fold(widths[0], usize::max);
-    let padded = |cell: &String, column: usize| format!("{cell}{}{GAP}", " ".repeat(widths[column] - width(cell)));
-    let mut out: Vec<String> = table.iter().map(|row| row.iter().enumerate().map(|(column, cell)| padded(cell, column)).collect::<String>().trim_end().to_owned()).collect();
-    if !table.is_empty() && !lines.is_empty() {
-        out.push(String::new());
-    }
-    out.extend(lines.iter().map(|(label, rest)| format!("{}{rest}", padded(label, 0)).trim_end().to_owned()));
-    out.join("\n")
 }
 
 fn claude_row(view: &View, account: &str, mine: &[&Row]) -> Result<Vec<String>, String> {
@@ -196,31 +178,4 @@ fn percent(used: f64) -> String {
 fn capitalized(text: &str) -> String {
     let mut characters = text.chars();
     characters.next().map_or_else(String::new, |first| first.to_uppercase().chain(characters).collect())
-}
-
-/// One line per API organization the policy pools: its soonest unexpired grant, what api sessions on every host spent of it at list price, and what is left, then how old the readings are.
-fn credit_lines(view: &View) -> Vec<(String, String)> {
-    let named = credit::orgs(&view.places.policy);
-    if named.is_empty() {
-        return Vec::new();
-    }
-    let grants = credit::grants(&view.places.policy);
-    let spends = crate::router::pricing::PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| credit::spends(&view.places.state.join("north/ledger.db"), &prices, view.now));
-    let today = view.now.iso_date();
-    named
-        .iter()
-        .map(|(name, id)| {
-            let mine = spends.as_ref().ok().and_then(|reading| reading.orgs.get(name).cloned()).unwrap_or_default();
-            let line = match (credit::balance(grants.get(id).map_or(&[][..], Vec::as_slice), &mine, &today), &spends) {
-                (None, _) => "no unexpired grant in claude-accounts.toml".to_owned(),
-                (Some(_), Err(error)) => format!("spend unread: {error}"),
-                (Some(balance), Ok(reading)) => {
-                    let later = balance.later.iter().map(|grant| format!("then ${:.2} to {}", grant.usd, grant.expires));
-                    let head = format!("grant ${:.2} to {}: ${:.2} spent, ${:.2} left", balance.grant.usd, balance.grant.expires, balance.spent, balance.left);
-                    std::iter::once(head).chain(later).chain([reading.age_line(view.now.unix_millis())]).collect::<Vec<_>>().join("; ")
-                }
-            };
-            (format!("API {name}"), line)
-        })
-        .collect()
 }

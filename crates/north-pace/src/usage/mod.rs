@@ -11,6 +11,7 @@ use crate::foundation::clock::Timestamp;
 
 mod burn;
 mod costs;
+mod credit_table;
 pub mod events;
 mod ctx;
 mod detail;

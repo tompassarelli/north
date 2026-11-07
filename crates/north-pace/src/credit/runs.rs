@@ -95,20 +95,32 @@ pub struct Reading {
 }
 
 impl Reading {
-    /// The hosts that reported and the oldest of their readings' age at `now_ms`, for the usage table.
-    pub fn age_line(&self, now_ms: i64) -> String {
-        let Some(oldest) = self.hosts.iter().map(|(_, read)| *read).min() else { return "read from this host only".to_owned() };
-        let here = crate::platform::host::name();
-        let others: Vec<&str> = self.hosts.iter().map(|(host, _)| host.as_str()).filter(|host| *host != here).collect();
-        format!("read from this host and {}, the oldest {}", others.join(", "), age(now_ms - oldest))
+    /// The footer under the usage table's api rows: the hosts whose spend was read (this host first), how old the oldest reading is at `now_ms`, and the `peers` that never reported.
+    pub fn footer(&self, here: &str, peers: &[String], now_ms: i64) -> String {
+        let reported = |host: &str| self.hosts.iter().any(|(reporter, _)| reporter == host);
+        let read: Vec<&str> = std::iter::once(here).chain(self.hosts.iter().map(|(host, _)| host.as_str()).filter(|host| *host != here)).collect();
+        let mut parts = vec![format!("API spend read on {}", listed(&read))];
+        parts.extend(self.hosts.iter().map(|(_, read)| *read).min().map(|oldest| format!("oldest reading {}", age(now_ms - oldest))));
+        let unread: Vec<&str> = peers.iter().map(String::as_str).filter(|peer| !reported(peer)).collect();
+        if !unread.is_empty() {
+            parts.push(format!("no reading from {}", listed(&unread)));
+        }
+        format!("{}.", parts.join("; "))
+    }
+}
+
+fn listed(names: &[&str]) -> String {
+    match names {
+        [rest @ .., last] if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => names.join(""),
     }
 }
 
 fn age(millis: i64) -> String {
     match millis.max(0) / 1000 {
-        0..60 => "under a minute old".to_owned(),
-        seconds @ 60..3600 => format!("{} min old", seconds / 60),
-        seconds => format!("{} h old", seconds / 3600),
+        0..60 => "under a minute".to_owned(),
+        seconds @ 60..3600 => format!("{} min", seconds / 60),
+        seconds => format!("{} h", seconds / 3600),
     }
 }
 

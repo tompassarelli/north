@@ -26,6 +26,21 @@ pub struct Balance {
     pub later: Vec<Grant>,
 }
 
+impl Balance {
+    pub fn exhausted(&self) -> bool {
+        !has_credit(self.left)
+    }
+}
+
+/// The other machines `[hosts.NAME]` declares an `ssh` or `deploy_ssh` destination for, whose api spend this host pulls.
+pub fn peers(policy: &Path) -> Vec<String> {
+    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let hosts = document.get("hosts").and_then(Item::as_table_like);
+    let here = crate::platform::host::name();
+    let declared = hosts.into_iter().flat_map(|hosts| hosts.iter());
+    declared.filter(|(name, host)| *name != here && ["ssh", "deploy_ssh"].iter().any(|key| host.get(key).is_some_and(|destination| destination.as_str().is_some()))).map(|(name, _)| name.to_owned()).collect()
+}
+
 /// Each organization id's grants from `claude-accounts.toml` beside `policy`, soonest expiry first.
 pub fn grants(policy: &Path) -> BTreeMap<String, Vec<Grant>> {
     let accounts: DocumentMut = std::fs::read_to_string(policy.with_file_name("claude-accounts.toml")).ok().and_then(|text| text.parse().ok()).unwrap_or_default();

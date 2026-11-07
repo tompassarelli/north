@@ -3,6 +3,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::foundation::clock::Timestamp;
 
+pub(super) const GAP: &str = "   ";
 const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 pub(super) fn span(minutes: i64) -> String {
@@ -35,4 +36,29 @@ pub(super) fn clock(at: Timestamp, offset_seconds: i64) -> String {
     let hour = moment.hour();
     let weekday = WEEKDAYS[usize::from(moment.weekday().number_days_from_monday())];
     format!("{weekday} {}:{:02} {}", (hour + 11) % 12 + 1, moment.minute(), if hour < 12 { "AM" } else { "PM" })
+}
+
+const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// The month and day of an ISO date such as `2026-12-08`, as `Dec 8`; anything else comes back unchanged.
+pub(super) fn day(date: &str) -> String {
+    let mut parts = date.get(..10).unwrap_or(date).split('-').skip(1).map(|part| part.parse::<usize>().ok());
+    match (parts.next().flatten(), parts.next().flatten()) {
+        (Some(month @ 1..=12), Some(day @ 1..=31)) => format!("{} {day}", MONTHS[month - 1]),
+        _ => date.to_owned(),
+    }
+}
+
+/// `table` as lines with every column padded to its widest cell, the first at least `first_width` wide.
+pub(super) fn grid(table: &[Vec<String>], first_width: usize) -> Vec<String> {
+    let width = |cell: &String| cell.chars().count();
+    let mut widths = vec![first_width];
+    for row in table {
+        widths.resize(widths.len().max(row.len()), 0);
+        for (column, cell) in row.iter().enumerate() {
+            widths[column] = widths[column].max(width(cell));
+        }
+    }
+    let padded = |cell: &String, column: usize| format!("{cell}{}{GAP}", " ".repeat(widths[column] - width(cell)));
+    table.iter().map(|row| row.iter().enumerate().map(|(column, cell)| padded(cell, column)).collect::<String>().trim_end().to_owned()).collect()
 }
