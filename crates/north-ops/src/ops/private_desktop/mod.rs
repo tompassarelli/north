@@ -14,7 +14,7 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "Usage:\n  private-desktop.sh start [--port PORT] [--resolution WIDTHxHEIGHT] [--render-node PATH] [--seconds SECONDS] [-- COMMAND ARG...]\n  private-desktop.sh control RUN_DIRECTORY VNC_ACTION...\n  private-desktop.sh type RUN_DIRECTORY < TEXT\n  private-desktop.sh capture RUN_DIRECTORY ABSOLUTE_PNG_PATH\n  private-desktop.sh clipboard RUN_DIRECTORY MIME_TYPE < DATA\n  private-desktop.sh reap [--dry-run]\n";
+const USAGE: &str = "Usage:\n  north desktop private start [--port PORT] [--resolution WIDTHxHEIGHT] [--render-node PATH] [--seconds SECONDS] [-- COMMAND ARG...]\n  north desktop private control RUN_DIRECTORY VNC_ACTION...\n  north desktop private type RUN_DIRECTORY < TEXT\n  north desktop private capture RUN_DIRECTORY ABSOLUTE_PNG_PATH\n  north desktop private clipboard RUN_DIRECTORY MIME_TYPE < DATA\n  north desktop private reap [--dry-run]\n";
 
 struct StartOptions {
     port: u16,
