@@ -365,9 +365,7 @@ Skills that cite many sources keep them beside the skill, so they are not repeat
   [agent-machinery/skills/babashka-development/references/](../agent-machinery/skills/babashka-development/references/)
   and [harness/skills/repo-safety/references/project-layout.md](../harness/skills/repo-safety/references/project-layout.md):
   domain references.
-- [harness/model-watch-sources.toml](../harness/model-watch-sources.toml) and
-  [harness/model-catalog.toml](../harness/model-catalog.toml): release feeds, prices and benchmark scores the
-  routing reads.
+- [harness/model-catalog.toml](../harness/model-catalog.toml): prices and benchmark scores the routing reads.
 
 ## Inspirations
 

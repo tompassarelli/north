@@ -103,7 +103,6 @@ pub(super) fn runtime(arguments: &[String]) -> u8 {
 
 const OPS: &[(&str, Run)] = &[
     ("climb", north_climb::run),
-    ("model-watch", |arguments| crate::timers::Timer::ModelWatch.run(arguments, &super::super::agents::claude_access())),
     ("credentials", crate::ops::credentials::run),
     ("github", ops_github),
     ("strategy", super::super::strategy::run),

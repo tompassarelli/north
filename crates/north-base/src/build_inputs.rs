@@ -5,12 +5,11 @@ const EMBEDDED: &[&str] = &[
     ".safe-push",
     "harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json",
 ];
-pub const RUN_TIME_DATA: [&str; 19] = [
+pub const RUN_TIME_DATA: [&str; 18] = [
     "harness/disk-ledger.toml",
     "harness/defaults.toml",
     "harness/model-catalog.toml",
     "harness/loops.toml",
-    "harness/model-watch-sources.toml",
     "harness/nix/cards.toml",
     "harness/code-health/review-brief.md",
     "harness/claude/agents/planner.md",

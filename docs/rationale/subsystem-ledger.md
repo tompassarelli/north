@@ -99,7 +99,7 @@ North-landing-gates is 12th, one place out of the quarter, and stays under the s
 
 ## Scope question: decided
 
-The model watch (`model_watch` and `laptop_ntfy` in north-runtime, about 2,900 lines and the `watch_*` tables) is to be deleted, decided 2026-11-08; the lane north-model-watch-delete owns the deletion.
+The model watch (`model_watch` and `laptop_ntfy` in north-runtime, about 2,900 lines and the `watch_*` tables) was deleted, decided 2026-11-08 and landed under north#824; git keeps it.
 
 ## Filed
 

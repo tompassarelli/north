@@ -65,7 +65,6 @@ const UNIFORM: &[(&str, Run)] = &[
 const DIRECT: &[(&str, Run)] = &[
     ("nexus-ram", crate::ops::nexus_ram::run),
     ("laptop-runner", crate::laptop_runner::run),
-    ("laptop-ntfy", crate::laptop_ntfy::run),
     ("agent-contain", crate::agent_contain::run),
     ("retain", crate::ops::retention::run),
     ("lane", lane),

@@ -36,8 +36,7 @@ stalled two of thirteen workers. A hook that fights the runtime costs more than 
 - Latency: `durationMs` from the transcript records (p50/p95), else ten direct runs of the installed
   command with a trivial payload, averaged.
 - Injected characters: mean length of the `additionalContext` or system message per injection.
-- Runtime: the Claude Code changelog (`claude-code` in `harness/model-watch-sources.toml`), cited by
-  version.
+- Runtime: the Claude Code changelog, cited by version.
 
 ## Entries
 

@@ -212,9 +212,6 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 
 ## Watches and alerts
 
-- Public watch: `north ops model-watch [--interests PATH] [--feedback PATH] [--topic normal] [--alerts-only]` snapshots model/release sources, Hacker News and game-development feeds. [more](features/09-watches-and-alerts/0001-public-watch.md)
-- Watch scenario: `cargo test model_watch` replays recorded public fixture inputs against an isolated ledger with a recorded host (fake claude, ssh and feeds); it never posts to any topic.
-- Digest feedback: `north ops model-watch news [--days 7]` shows the last delivered kept items. [more](features/09-watches-and-alerts/0003-digest-feedback.md)
 - Cross-project scan: `north cross-project-scan [--print-bundle]` (laptop timer, daily 07:30) bundles open issues, open `threads list` rows, 24 h first-parent landings and `north fleet tree` for makgora, wisp, north and firn; it asks Claude Opus medium (Codex medium without Claude) for at most 3 overlap findings, writes `cross-project-scan.md`, and sends it through `north fleet send`.
 - Supply alert: `supply-alert normal|urgent TEXT [TITLE]` posts one phone alert through `ssh nexus nexus-alert`, so the ntfy publisher token stays on nexus.
 - Supply scan: `north supply-chain-scan` (daily user timer `supply-chain-scan.timer`) runs osv-scanner on origin/main lockfiles of makgora, wisp, north and nixos-config, alerts through `supply-alert` on new malware (urgent) or new fixable advisories (normal), and records seen IDs in `~/.local/state/supply-chain/seen.json`.

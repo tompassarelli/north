@@ -58,7 +58,6 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs.exitCode | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | capacity_runs.command, cpuSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
 | job_runs | crates/north-threads/src/threads/runs | crates/north-threads/src/threads/jobs/mod.rs job_runs; crates/north-runtime/src/job_watch/mod.rs | read | |
-| model_events | crates/north-runtime/src/model_watch | crates/north-pace/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/database.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-pace/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
 | spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
