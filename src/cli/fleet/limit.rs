@@ -12,6 +12,7 @@ use crate::fleet::limit::{AccountResets, FULL_PCT};
 use crate::fleet::stranded::{Lanes, Worktree};
 use crate::foundation::clock::{Timestamp, parse_day_number};
 use crate::land::queue;
+use crate::land_ticket::{Lane, Phase};
 use crate::platform::process::run_within;
 use crate::usage::decide::world::{Credit, Label, LimitEvent, ModelFamily, Percent, Reading, RowId, Source, Unix, Usd, Window};
 use crate::usage::{open_ledger, profiles};
@@ -106,8 +107,17 @@ fn window_of(name: &str) -> Option<Window> {
     }
 }
 
-/// Whether a session holds work origin/main lacks: a lane not yet landed.
-pub(super) fn holds_unlanded_lane(cwd: &Path) -> bool {
+/// Whether a session holds work origin/main lacks: a land ticket of its own the lander has neither landed nor let go,
+/// or the linked worktree it runs in not yet landed. A primary checkout is never a session's lane, since its HEAD may
+/// carry another session's commits (north#801).
+pub(super) fn holds_unlanded_lane(session: &str, cwd: &Path, tickets: &BTreeMap<String, Vec<Lane>>) -> bool {
+    tickets.get(session).is_some_and(|lanes| lanes.iter().any(|lane| !matches!(lane.phase, Phase::Landed | Phase::Replaced | Phase::Withdrawn))) || own_lane_unlanded(cwd)
+}
+
+fn own_lane_unlanded(cwd: &Path) -> bool {
+    if !cwd.join(".git").is_file() {
+        return false;
+    }
     let tree = Worktree { path: cwd.to_owned(), branch: None };
     Git.lanes(None, &[tree]).iter().any(|lane| lane.unlanded())
 }
@@ -115,7 +125,7 @@ pub(super) fn holds_unlanded_lane(cwd: &Path) -> bool {
 /// Whether a session holds work origin/main lacks that no queued ticket will land: a lane the lander sent
 /// back, or one never enqueued. Such a worker revives before the rest.
 pub(super) fn holds_unqueued_lane(session: &str, cwd: &Path) -> bool {
-    holds_unlanded_lane(cwd) && !queued(session, cwd)
+    own_lane_unlanded(cwd) && !queued(session, cwd)
 }
 
 fn queued(session: &str, cwd: &Path) -> bool {
@@ -124,3 +134,7 @@ fn queued(session: &str, cwd: &Path) -> bool {
     let Some(origin) = origin else { return false };
     queue::pending(&queue::directory(&watch::state_home(), &origin)).is_ok_and(|tickets| tickets.iter().any(|(_, ticket)| ticket.session.as_deref() == Some(session)))
 }
+
+#[cfg(test)]
+#[path = "limit_tests.rs"]
+mod tests;
