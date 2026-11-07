@@ -14,6 +14,7 @@ pub enum NorthError {
     Rejected(String),
     GateAnswered { id: i64, answer: String, by: String },
     Refused(String),
+    Saturated(String),
 }
 
 impl NorthError {
@@ -34,7 +35,7 @@ impl NorthError {
 impl fmt::Display for NorthError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Usage(message) | Self::Refused(message) => formatter.write_str(message),
+            Self::Usage(message) | Self::Refused(message) | Self::Saturated(message) => formatter.write_str(message),
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
             Self::Configuration(message) => {

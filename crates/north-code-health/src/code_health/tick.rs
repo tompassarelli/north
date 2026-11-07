@@ -147,7 +147,7 @@ fn checkout_of(code_root: &Path, repo: &str) -> PathBuf {
     code_root.join(if repo == "firn" { "nixos-config" } else { repo }).join("main")
 }
 
-const SATURATED: [&str; 2] = ["launch from another host", "Queue this worker until a lease ends"];
+const SATURATED: i32 = 75;
 
 pub(super) fn tick_repo(repo: &str, env: &TickEnv, print: &mut dyn FnMut(String)) -> Outcome {
     if env.paused.iter().any(|paused| paused == repo) {
@@ -228,8 +228,7 @@ fn reviewed(repo: &str, checkout: &Path, name: &str, lock: &Path, env: &TickEnv,
     } else {
         run(&command, checkout)
     };
-    let refused = format!("{}{}", started.stderr, started.stdout);
-    if started.code != 0 && SATURATED.iter().any(|said| refused.contains(said)) {
+    if started.code == SATURATED {
         let last = started.stderr.trim().lines().last().unwrap_or_default().to_owned();
         return Ok(Outcome { verdict: Verdict::Deferred, detail: format!("host saturated, the next tick retries: {last}") });
     }

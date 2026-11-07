@@ -65,12 +65,12 @@ fn a_review_lock_named_by_an_exited_session_past_the_launch_grace_is_taken_over_
     assert_ne!(tick(&env, &mut Vec::new()), Verdict::Held);
 }
 
-// KEEP(bug): the spawn guard's CPU refusal failed code-health-review.service as an error instead of deferring to the next tick; north#721
+// KEEP(bug): launches refused for room (the spawn guard's CPU refusal, a held placement) failed code-health-review.service instead of deferring; north#721
 #[test]
-fn a_launch_the_spawn_guard_refuses_for_cpu_capacity_defers_to_the_next_tick_and_frees_the_lock() {
+fn a_launch_refused_for_room_with_exit_75_defers_to_the_next_tick_and_frees_the_lock() {
     let (dir, env) = scratch("echo \"FIRE days 7\"");
     let r = dir.path().display();
-    write_executable(&dir.path().join("north"), format!("#!/usr/bin/env bash\necho \"$*\" >> {r}/north-calls\ncase \"$1 $2\" in\n  \"fleet list\") cat {r}/fleet.json ;;\n  \"fleet launch\") echo 'error: Capacity leases and unleased heavy load commit 6.24 of the 6 CPUs the machine can hand out, protected desktop pressure is 0% (limit 20%), and 0 local workers are running. Queue this worker until a lease ends, send heavy checks to the farm, or use a cloud worker for code-only work (workers skill).' >&2; exit 1 ;;\n  *) exit 2 ;;\nesac\n"));
+    write_executable(&dir.path().join("north"), format!("#!/usr/bin/env bash\necho \"$*\" >> {r}/north-calls\ncase \"$1 $2\" in\n  \"fleet list\") cat {r}/fleet.json ;;\n  \"fleet launch\") echo 'error: held: whiterabbit skipped: load 41 on 24 threads' >&2; exit 75 ;;\n  *) exit 2 ;;\nesac\n"));
     let env = TickEnv { dry_run: false, ..env };
     assert_eq!(tick(&env, &mut Vec::new()), Verdict::Deferred);
     assert!(!lock(&env).exists());

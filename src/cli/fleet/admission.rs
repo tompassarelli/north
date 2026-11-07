@@ -50,11 +50,11 @@ pub(super) fn admitted(
             Err(Refusal::Saturated(why)) => why,
             Err(refusal) => return Err(refusal.into()),
         };
-        let Some(waiting) = waiting else { return Err(NorthError::Refused(why)) };
+        let Some(waiting) = waiting else { return Err(NorthError::Saturated(why)) };
         if started.elapsed() >= waiting.limit {
             let reason = format!("{why}; still saturated after waiting {} min", waiting.limit.as_secs() / 60);
             tell_parent(&format!("[from {name} · launch refused] Not done: {name} was not launched: {reason}\nStop: capacity"));
-            return Err(NorthError::Refused(reason));
+            return Err(NorthError::Saturated(reason));
         }
         say(&format!("fleet launch: {name} waits for admission: {why}; checking again in {} s", waiting.poll.as_secs()));
         std::thread::sleep(waiting.poll);

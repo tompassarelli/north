@@ -81,3 +81,16 @@ fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
         other => panic!("a pinned launch onto a saturated machine started: {other:?}"),
     }
 }
+
+// KEEP(bug): a launch held because this host was loaded refused as final, so code-health-review.service failed instead of retrying; north#721
+#[test]
+fn a_launch_held_because_this_host_is_loaded_is_refused_as_saturated_so_its_caller_retries() {
+    let mut loaded = decision(Target::Account("claude:a".into()));
+    loaded.here_saturated = Some("whiterabbit skipped: load 41 on 24 threads".into());
+    loaded.hold_here();
+    match pick(&loaded, &Overrides::default()) {
+        Err(Refusal::Saturated(why)) => assert_eq!(why, "held: whiterabbit skipped: load 41 on 24 threads"),
+        other => panic!("a launch held for room was not refused as saturated: {other:?}"),
+    }
+    assert!(matches!(pick(&decision(Target::Held("every Claude account is at its provider's limit".into())), &Overrides::default()), Err(Refusal::Final(_))));
+}

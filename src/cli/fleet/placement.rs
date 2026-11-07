@@ -212,6 +212,7 @@ pub(super) fn settle(decision: &Decision, launch: &Launch, text: &str, overrides
 
 fn pick(decision: &Decision, overrides: &Overrides) -> Result<String, Refusal> {
     match (&decision.target, &overrides.local) {
+        (Target::Held(why), _) if decision.held_for_room() => Err(Refusal::Saturated(format!("held: {why}"))),
         (Target::Held(why), _) => Err(Refusal::Final(format!("held: {why}"))),
         (Target::Unserved(_), _) | (Target::Cloud(_), None) => Ok(String::new()),
         _ => picked(decision)

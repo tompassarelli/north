@@ -157,11 +157,19 @@ impl super::gate::Decision {
     /// Holds a box the launching host would keep when that host is saturated, or is closed to work that crowded machines turned away.
     pub fn hold_here(&mut self) {
         let (None, super::gate::Target::Account(_)) = (&self.machine, &self.target) else { return };
-        let closed = self.here_closed.clone().filter(|_| !self.crowded.is_empty());
-        let Some(why) = self.here_saturated.clone().or(closed) else { return };
+        let Some(why) = self.no_room_here() else { return };
         let why = self.crowded.iter().cloned().chain([why]).collect::<Vec<_>>().join("; ");
         self.machine_lines.push(why.clone());
         self.target = super::gate::Target::Held(why);
+    }
+
+    fn no_room_here(&self) -> Option<String> {
+        let closed = self.here_closed.clone().filter(|_| !self.crowded.is_empty());
+        self.here_saturated.clone().or(closed)
+    }
+
+    pub fn held_for_room(&self) -> bool {
+        self.machine.is_none() && matches!(self.target, super::gate::Target::Held(_)) && self.no_room_here().is_some()
     }
 }
 
