@@ -18,7 +18,7 @@ static JUDGMENT: LazyLock<Regex> = LazyLock::new(|| {
 static SOURCED: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\borigin (?:tom|experiment|prior-art|incident)\b|\bsoft\b").unwrap()
 });
-pub(crate) fn hands_tom_a_check(text: &str) -> bool {
+pub fn hands_tom_a_check(text: &str) -> bool {
     VERIFIER.is_match(text)
 }
 fn flagged(body: &str) -> Vec<&str> {
@@ -46,14 +46,14 @@ fn gh(args: &[&str]) -> Result<serde_json::Value, String> {
 fn repository(repo: &str) -> &str {
     repo.strip_prefix("tompassarelli/").unwrap_or(repo)
 }
-pub(crate) fn slug(repo: &str) -> String {
+pub fn slug(repo: &str) -> String {
     if repo.contains('/') {
         repo.to_owned()
     } else {
         format!("tompassarelli/{repo}")
     }
 }
-pub(crate) fn issue(item: &str) -> Result<(&str, &str), String> {
+pub fn issue(item: &str) -> Result<(&str, &str), String> {
     item.split_once('#')
         .filter(|(repo, number)| {
             !repo.is_empty()

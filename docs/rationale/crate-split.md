@@ -21,6 +21,7 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
 - `north-base`: `error`, `foundation`, `platform`, `shell`, `autoland_status` and `test_inputs`. Depends
   on nothing in the repo. `autoland_status` lives here because `guard` reads it; putting it in
   `north-landing` would make `guard` rebuild on every landing-gate edit.
+- `north-landing-gates` (north#745 lane 1): `landing` except `after_landing`, `land_test_runner` and `land_test_selection`, plus `issue_box_lint`, `follows_release` and `land_abandon`. Depends on `north-base`, `north-diff-gates` and `north-mutants`; `north-landing` depends on it and re-exports its modules, so `crate::landing::...` paths are unchanged.
 - `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
 - `north-core`: the agent catalog and config checks, `build_time`, `grounding`, `doctor_nix`, `nix_gc`,

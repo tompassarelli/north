@@ -62,7 +62,7 @@ fn in_order(entries: &mut Vec<Entry>) {
     entries.dedup_by(|left, right| left.text == right.text);
 }
 
-pub(crate) fn sort_block(text: &str, start: &str, end: &str) -> Option<String> {
+pub fn sort_block(text: &str, start: &str, end: &str) -> Option<String> {
     let mut block = parse_block(text, start, end).ok()?;
     in_order(&mut block.entries);
     let lines = block.entries.iter().map(|entry| format!("{}\n", entry.text)).collect::<String>();

@@ -282,7 +282,7 @@ finished-to-landed is measured.
   exits on a passing later base tree; a flaky case's pass does not count; a quarantine older than 24 h
   holds a lane that selects its file.
 - **B11 Judge in the land check.** Follows B10. Delivered in Rust inside `north land tests`
-  (crates/north-landing/src/landing/base_relative.rs), not in bin/safe-push, since the S6a runner
+  (crates/north-landing-gates/src/landing/base_relative.rs), not in bin/safe-push, since the S6a runner
   replaced the bash land-check runner. Inside a candidate check (SAFE_PUSH_LAND_BASE and
   SAFE_PUSH_LAND_HEAD set) every case is recorded in the results store under the head tree, keyed per
   test file (cargo test binaries by name without their build hash) and per repository (its root

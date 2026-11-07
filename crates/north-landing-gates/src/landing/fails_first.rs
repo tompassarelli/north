@@ -12,7 +12,7 @@ use north_mutants::trees::{self, RunDir};
 use north_base::foundation::exit::NO_VERDICT;
 
 const USAGE: &str = "usage: north land fails-first [BASE HEAD] (default: $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)";
-pub(crate) const MARK: &str = "Behavior: unchanged";
+pub const MARK: &str = "Behavior: unchanged";
 
 static HUNK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@").unwrap());
 static ATTRIBUTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*#\[(?:[A-Za-z_][A-Za-z0-9_]*::)*test\b").unwrap());
@@ -66,12 +66,12 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-pub(crate) fn is_test(path: &str) -> bool {
+pub fn is_test(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     path.split('/').rev().skip(1).any(|part| part == "tests") || name.ends_with("_tests.rs") || name.ends_with("_test.rs")
 }
 
-pub(crate) fn is_code(path: &str) -> bool {
+pub fn is_code(path: &str) -> bool {
     (path.starts_with("crates/") || path.starts_with("src/")) && !is_test(path)
 }
 
@@ -210,7 +210,7 @@ fn apply(tree: &Path, patch: &[u8]) -> Result<Option<String>, Stop> {
     Ok((!output.status.success()).then(|| format!("the lane's added test hunks do not apply to base: {}", String::from_utf8_lossy(&output.stderr).trim())))
 }
 
-pub(crate) fn pass_on_base(cwd: &Path, base: &str, patch: &[u8], names: &BTreeSet<String>, out: &mut dyn Write) -> Result<BTreeMap<String, bool>, String> {
+pub fn pass_on_base(cwd: &Path, base: &str, patch: &[u8], names: &BTreeSet<String>, out: &mut dyn Write) -> Result<BTreeMap<String, bool>, String> {
     let env = Env { lease: Lease::Inherited, ..north_mutants::cli::process_env() };
     match on_base(cwd, base, names, &env, &|tree| apply(tree, patch), out) {
         Ok(Base::Verdicts(verdicts)) => Ok(verdicts.into_iter().map(|(name, verdict)| (name, verdict == Verdict::Passes)).collect()),

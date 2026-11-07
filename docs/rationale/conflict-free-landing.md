@@ -412,7 +412,7 @@ Each box is about one lane.
     owns their `Fixture`.
 - **C3, drivers on every lander git call (25 min).**
   - Follows: docs-6-regenerate.
-  - Files: candidate.rs (`output`, `ensure`), crates/north-landing/src/landing/merge_set.rs
+  - Files: candidate.rs (`output`, `ensure`), crates/north-landing-gates/src/landing/merge_set.rs
     (`DRIVERS`, skipping unknown kinds), harness/merge-sets.toml (`generator`), merge_continue.rs.
   - Done when:
     1. Fixture `set_driver_without_shared_config`: in a repository whose .git/config has no `merge.*`

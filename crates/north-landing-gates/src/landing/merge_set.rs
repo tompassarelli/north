@@ -33,7 +33,7 @@ enum Change {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Identity {
+pub enum Identity {
     Line,
     FirstWord,
 }
@@ -48,7 +48,7 @@ fn doubled_first_words(entries: &[Entry]) -> BTreeSet<&str> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum Kind {
+pub enum Kind {
     Lines(Identity),
     Block { start: String, end: String, sorted: bool },
     TomlArray(Vec<String>),
@@ -56,9 +56,9 @@ pub(crate) enum Kind {
 }
 
 #[derive(Debug)]
-pub(crate) struct Rule {
-    pub(crate) path: String,
-    pub(crate) kind: Kind,
+pub struct Rule {
+    pub path: String,
+    pub kind: Kind,
 }
 
 pub fn run_drivers_with(program: &Path) {
@@ -363,7 +363,7 @@ fn touches(paths: &[String], prefixes: &[String]) -> bool {
     paths.iter().any(|path| prefixes.iter().any(|prefix| path.starts_with(prefix.as_str())))
 }
 
-pub(crate) fn generator_moved(rules: &[Rule], ahead: &[String], pick: &[String]) -> Option<String> {
+pub fn generator_moved(rules: &[Rule], ahead: &[String], pick: &[String]) -> Option<String> {
     rules.iter().find_map(|rule| {
         let Kind::Regenerate { sources, generator, .. } = &rule.kind else { return None };
         let regenerated = pick.contains(&rule.path) || touches(pick, sources);
@@ -371,7 +371,7 @@ pub(crate) fn generator_moved(rules: &[Rule], ahead: &[String], pick: &[String])
     })
 }
 
-pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
+pub fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
     let text = fs::read_to_string(config).map_err(|error| format!("{}: {error}", config.display()))?;
     let document = text.parse::<toml_edit::DocumentMut>().map_err(|error| format!("{}: {error}", config.display()))?;
     let mut rules = Vec::new();
@@ -446,7 +446,7 @@ pub fn drive(config: &Path, base: &Path, ours: &Path, theirs: &Path, path: &str)
     }
 }
 
-pub(crate) fn repo_config() -> PathBuf {
+pub fn repo_config() -> PathBuf {
     let top = Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok().filter(|output| output.status.success());
     top.map_or_else(|| PathBuf::from(DEFAULT_CONFIG), |output| Path::new(String::from_utf8_lossy(&output.stdout).trim()).join(DEFAULT_CONFIG))
 }
@@ -484,7 +484,7 @@ pub fn run(arguments: &[String]) -> u8 {
 
 #[path = "merge_set_block.rs"]
 mod block;
-pub(crate) use block::sort_block;
+pub use block::sort_block;
 
 #[cfg(test)]
 #[path = "merge_set_tests.rs"]

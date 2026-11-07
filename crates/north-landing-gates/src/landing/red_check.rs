@@ -57,7 +57,7 @@ impl Failure {
     }
 }
 
-pub(crate) fn log_text(line: &str) -> &str {
+pub fn log_text(line: &str) -> &str {
     let line = line.rsplit('\t').next().unwrap_or(line);
     match line.split_once(' ') {
         Some((stamp, rest)) if stamp.len() >= 20 && stamp.as_bytes()[4] == b'-' && stamp.ends_with('Z') => rest,

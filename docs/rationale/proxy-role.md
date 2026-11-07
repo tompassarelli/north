@@ -436,7 +436,7 @@ push access to South and the Firn timers are host configuration.
    a `Box:` matching no unticked box is refused, one matching passes, and `north cloud land` keeps both
    trailers.
 5. **B1 one writer for issue bodies.** feature, module, rust, local-test; 45 min. Files: a new
-   `issue_body` module beside `crates/north-landing/src/issue_box_lint.rs`, a durable outbox under the
+   `issue_body` module beside `crates/north-landing-gates/src/issue_box_lint.rs`, a durable outbox under the
    land queue directory. Needs: nothing; the self-detectors and experiments-judge lanes switch to it in
    whichever lands second. Done when: `cargo test -p north-landing issue_body` passes the lost-race
    retry, the verify-after-write, and a fake `gh` that hangs while the landing completes and the outbox

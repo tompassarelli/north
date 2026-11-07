@@ -116,7 +116,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
     applied with `set-property --runtime` is cached past a reboot; `gaming.json` has two writers; the game reserve is
     written non-atomically; `K/mode` is a second "away" that resets at boot. Shapes: lifecycle-bools, unit-intent.
 18. **Test-case quarantine** (36: 12 x 3). A flaky entry leaves only through `landed_naming`
-    (`crates/north-landing/src/landing/judge.rs:79`), which nothing calls, so after 24 h every lane selecting that test
+    (`crates/north-landing-gates/src/landing/judge.rs:79`), which nothing calls, so after 24 h every lane selecting that test
     file is held (`landing/base_relative.rs:108`). Shapes: status-string.
 19. **Host disk episode and watchdog caps** (32: 16 x 2). `host-disk.episode` written only if its page succeeded
     (`crates/north-runtime/src/offload_cache/mod.rs:307-325`); overload caps recorded even when `systemctl` failed and

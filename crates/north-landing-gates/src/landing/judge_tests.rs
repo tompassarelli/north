@@ -1,5 +1,5 @@
 use super::*;
-use crate::landing::land_test_runner::Case;
+use crate::landing::results::Case;
 use proptest::prelude::*;
 
 const BASE_TREE: &str = "1111111111111111111111111111111111111111";
