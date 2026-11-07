@@ -35,6 +35,11 @@ impl Fleet {
         self
     }
 
+    pub fn reading_admission(mut self, admission: PathBuf) -> Self {
+        self.admission = admission;
+        self
+    }
+
     pub fn hosted_as(mut self, host: &str) -> Self {
         self.host = host.into();
         self

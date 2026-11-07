@@ -2,6 +2,7 @@ pub mod ask_once;
 pub mod audience;
 pub mod attachments;
 pub mod books;
+pub mod builds;
 pub mod claims;
 pub mod detached;
 pub mod digest_report;

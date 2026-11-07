@@ -45,17 +45,24 @@ impl Fleet {
         row.validate()?;
         match verb {
             ControlVerb::Forget => self.forget_for(&row.to, self.ordered_by(row.sender.session(), Halt::Ordered)).map(|()| HandedIn::Delivered),
+            ControlVerb::Stop if let Some(refusal) = self.stop_refusal(&row.to)? => {
+                eprintln!("north fleet: {refusal}");
+                self.journaled(row, || Ok(()))
+            }
             ControlVerb::Interrupt if !self.running(&self.record(&row.to)?) => self.journaled(row, || Ok(())),
             verb => self.journaled(row, || self.run_control(verb, &row.to, row.sender.session())),
         }
     }
 
     /// Runs `verb` on `name` as `caller` ordered it, so a stop or interrupt a proxy ordered records the proxy as its cause.
-    fn run_control(&self, verb: ControlVerb, name: &str, caller: Option<&str>) -> NorthResult<()> {
+    pub(super) fn run_control(&self, verb: ControlVerb, name: &str, caller: Option<&str>) -> NorthResult<()> {
         let why = self.ordered_by(caller, Halt::Ordered);
         match verb {
             ControlVerb::Forget => self.forget_for(name, why),
-            ControlVerb::Stop => self.halt(name, why),
+            ControlVerb::Stop => match self.stop_refusal(name)? {
+                Some(refusal) => Err(NorthError::Refused(refusal)),
+                None => self.halt(name, why),
+            },
             ControlVerb::Interrupt => self.interrupt_for(name, why),
             ControlVerb::Revive => {
                 let cut_short = self.left_mid_turn(name)?;

@@ -5,6 +5,7 @@ use north_base::platform::attribution::{self, Cause, Harness};
 
 use crate::error::NorthResult;
 
+use super::super::builds;
 use super::super::claims;
 use super::super::forget::{self, Forgotten};
 use super::super::host::Host;
@@ -53,6 +54,16 @@ impl Halt {
 impl Fleet {
     pub fn stop(&self, name: &str) -> NorthResult<()> {
         self.halt(name, Halt::Ordered)
+    }
+
+    /// Why a stop ordered on `name` waits: a build it started is still queued or running in capacity admission, and its result wakes the session. `forget` ends the session regardless.
+    pub(super) fn stop_refusal(&self, name: &str) -> NorthResult<Option<String>> {
+        if self.record(name)?.stopped {
+            return Ok(None);
+        }
+        let held = builds::held(&self.admission, &self.proc, name);
+        let listed: Vec<&str> = held.iter().map(|standing| standing.label()).collect();
+        Ok((!held.is_empty()).then(|| format!("fleet stop {name}: its own builds are still in capacity admission ({}), and their result wakes it; stop it once they have run, or forget it", listed.join(", "))))
     }
 
     /// Stops `name`; a turn the stop cuts short records `why` as its cause.
@@ -134,5 +145,57 @@ impl Fleet {
     pub(super) fn ordered_by(&self, caller: Option<&str>, otherwise: Halt) -> Halt {
         let proxy = caller.is_some_and(|name| name == PROXY || self.record(name).is_ok_and(|record| record.role() == Role::Proxy));
         if proxy { Halt::ByProxy } else { otherwise }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::fixtures::{fleet, live};
+    use super::super::HandedIn;
+    use super::*;
+    use crate::error::NorthError;
+    use crate::fleet::sender::Sender;
+    use crate::fleet::store::RowKind;
+
+    const REPORT: &str = "Not done: Clippy and the lease_lifecycle test run are queued in admission; I will finish when they report.\nStop: capacity";
+
+    fn started(pid: u32) -> String {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+        stat[stat.rfind(')').unwrap() + 2..].split(' ').nth(19).unwrap().to_owned()
+    }
+
+    fn build(admission: &std::path::Path, directory: &str, file: &str, owner: &str) -> PathBuf {
+        fs::create_dir_all(admission.join(directory)).unwrap();
+        let path = admission.join(directory).join(file);
+        let entry = serde_json::json!({"owner": owner, "wrapperPid": std::process::id(), "wrapperStart": started(std::process::id())});
+        fs::write(&path, entry.to_string()).unwrap();
+        path
+    }
+
+    // KEEP(bug): the gex45-n757-leases turn end of 2026-11-07 04:14 UTC was stopped 27 s after it ended on `Stop: capacity` with its clippy and test builds queued in admission; regression of north#772
+    #[test]
+    fn a_stop_ordered_on_a_session_whose_own_builds_wait_in_admission_is_held_and_runs_once_they_have() {
+        let home = tempfile::tempdir().unwrap();
+        let admission = home.path().join("agent-capacity-v1");
+        let fleet = fleet(home.path()).reading_admission(admission.clone());
+        let worker = live(&fleet, "n757-leases");
+        let stream = serde_json::json!({"type": "assistant", "session_id": "n757-leases", "message": {"content": [{"type": "text", "text": REPORT}]}});
+        fs::write(fleet.root.join("n757-leases/g1/stream.jsonl"), format!("{stream}\n")).unwrap();
+        let clippy = build(&admission, "queue", "001-clippy.json", "gate:n757-leases");
+        let tests = build(&admission, "leases", "lease-tests.json", "gate:n757-leases");
+        build(&admission, "queue", "002-other.json", "gate:another-session");
+
+        let Err(NorthError::Refused(why)) = fleet.run_control(ControlVerb::Stop, "n757-leases", None) else { panic!("a stop cut off the builds its session waits for") };
+        let row = fleet.new_row(RowKind::Control, "n757-leases", "stop", &Sender::Tom).unwrap();
+
+        assert!(why.contains("queued in admission, running under an admission lease"), "{why}");
+        assert_eq!(fleet.apply_control(&row).unwrap(), HandedIn::Delivered);
+        assert!(!fleet.record("n757-leases").unwrap().stopped, "a stop row held the session too");
+        assert!(worker.frames.lock().unwrap().is_empty(), "the held stop still closed the session's turn");
+
+        fs::remove_file(clippy).unwrap();
+        fs::remove_file(tests).unwrap();
+        fleet.run_control(ControlVerb::Stop, "n757-leases", None).unwrap();
+        assert!(fleet.record("n757-leases").unwrap().stopped, "the stop never ran once the builds had");
     }
 }

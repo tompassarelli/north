@@ -102,6 +102,7 @@ pub struct Fleet {
     registrar: Arc<dyn Registrar>,
     leases: Arc<dyn JobLeases>,
     proc: PathBuf,
+    admission: PathBuf,
     usage: Arc<dyn UsageSink>,
 }
 
@@ -114,7 +115,7 @@ impl Fleet {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), usage: Arc::new(NoUsage) };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage) };
         fleet.adopt_journals()?;
         Ok(fleet)
     }
