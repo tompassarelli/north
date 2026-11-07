@@ -17,3 +17,11 @@ pub fn root() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").filter(|home| !home.is_empty()).map(|home| PathBuf::from(home).join(ROOT_DEFAULT)))
 }
+
+/// The shell function `slot_held LOCK`: whether a job holds the offload slot whose lock is `LOCK`. It tests the shared lock every holder keeps
+/// on the slot's `.busy` file and never the `.lock` itself, because a test that took the `.lock` for an instant would fail a job's `flock -n` take of the slot in that instant.
+pub const SLOT_HELD_SH: &str = r#"slot_held() {
+  busy=${1%.lock}.busy
+  [ -e "$busy" ] && ! (exec 7<"$busy"; flock -n 7) 2>/dev/null
+}
+"#;

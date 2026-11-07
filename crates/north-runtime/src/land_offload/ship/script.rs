@@ -19,13 +19,10 @@ cap=$host_cap
 pub(super) const JOBS: &str = r#"slot_lock() {
   if [ "$2" -eq 0 ]; then echo "$root/$1.lock"; else echo "$root/$1-$2.lock"; fi
 }
-held() {
-  [ -e "$1" ] && ! (exec 7>>"$1"; flock -n 7) 2>/dev/null
-}
-slot_jobs() {
+@SLOT_HELD@slot_jobs() {
   count=0 j=0
   while [ "$j" -lt @LAND_SLOTS@ ]; do
-    ! held "$(slot_lock "$1" "$j")" || count=$((count + 1))
+    ! slot_held "$(slot_lock "$1" "$j")" || count=$((count + 1))
     j=$((j + 1))
   done
   echo "$count"
@@ -34,7 +31,7 @@ slot_holders() {
   j=0
   while [ "$j" -lt @LAND_SLOTS@ ]; do
     lock=$(slot_lock "$1" "$j")
-    ! held "$lock" || printf "%s %s;" "${lock##*/}" "$(cat "${lock%.lock}.holder" 2>/dev/null || echo "with no holder line")"
+    ! slot_held "$lock" || printf "%s %s;" "${lock##*/}" "$(cat "${lock%.lock}.holder" 2>/dev/null || echo "with no holder line")"
     j=$((j + 1))
   done
 }
@@ -42,7 +39,7 @@ host_jobs() {
   count=0
   for lock in "$root"/*.lock; do
     case ${lock##*/} in *@BACKGROUND_SUFFIX@.lock | @WARM_LOCK@) continue ;; esac
-    ! held "$lock" || count=$((count + 1))
+    ! slot_held "$lock" || count=$((count + 1))
   done
   echo "$count"
 }
@@ -95,7 +92,7 @@ case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=1 ;; esac
 [ -z "$red_fix" ] || rank=0
 [ -z "@BACKGROUND@" ] || rank=3
 ticket=$queue/$rank-$(date +%s%N)-$$@$name
-[ -n "$nested" ] || { exec 8>"$ticket"; flock -n 8; }
+[ -n "$nested" ] || { exec 8>"$ticket"; flock 8; }
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 @JOBS@@CAP@served=$root/served
 mkdir -p "$served"
@@ -119,8 +116,8 @@ first_in_line() {
   done
   return 1
 }
-started=$(date +%s)
-noted=0
+started=$(date +%s%N)
+noted=0 polled=
 while :; do
   if [ "$lander_slot" = 1 ]; then
     exec 9>"$root/$reserved.lock"
@@ -134,13 +131,18 @@ while :; do
       exec 9>&-
     done
   fi
-  waited=$(( $(date +%s) - started ))
+  waited=$(( ($(date +%s%N) - started) / 1000000000 ))
   [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: queued behind other jobs for @LOCK_WAIT@ s ($name runs $cap at once in @SLOTS@ slots, the host $host_cap)" >&2; exit @SLOTS_BUSY@; }
   [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); echo "offload: waiting for a slot for ${waited}s, in order; $name runs $(slot_jobs "$name") of $cap jobs at once, the host $(host_jobs) of $host_cap; $(ls "$queue" | grep -c .) queued; held by: $(slot_holders "$name")" >&2; }
+  polled=1
   sleep @POLL@
 done
-waited=$(( $(date +%s) - started ))
-[ "$waited" -eq 0 ] || echo "@WAITED@${waited}s in line for $s" >&2
+if [ -n "$polled" ]; then
+  waited=$(( ($(date +%s%N) - started) / 1000000 ))
+  echo "@WAITED@$((waited / 1000)).$((waited % 1000 / 100))s in line for $s" >&2
+fi
+exec 4>>"$root/$s.busy"
+flock -s 4
 date +%s%N >"$served/$name"
 rm -f "$ticket"
 exec 8>&-
@@ -212,7 +214,7 @@ leased() {
   if command -v north >/dev/null 2>&1; then north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 rc=0
-leased bash -euo pipefail -c "$command" 6>&- 9>&- || rc=$?
+leased bash -euo pipefail -c "$command" 4>&- 6>&- 9>&- || rc=$?
 [ -z "${ran:-}" ] || printf "%s %s\n" "$ran" "$rc"
 exit "$rc"
 "#;
@@ -241,7 +243,7 @@ pub(super) fn run_part() -> String {
 }
 
 pub(crate) fn jobs_part() -> String {
-    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK)
+    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK).replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH)
 }
 
 pub(super) fn slot_part() -> String {

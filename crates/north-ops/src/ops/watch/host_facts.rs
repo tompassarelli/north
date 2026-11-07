@@ -8,14 +8,14 @@ use super::{SlotPool, WasteView};
 
 const STALE_LEASE_SECS: f64 = 3600.0;
 
-const SCRIPT: &str = r#"echo "cores $(nproc)"
+const SCRIPT: &str = r#"@SLOT_HELD@echo "cores $(nproc)"
 head -1 /proc/stat; sleep 1; head -1 /proc/stat
 grep -E '^(MemTotal|MemAvailable):' /proc/meminfo
 echo "reserve $(tr -d '\n' < "$HOME/.local/state/game-reserve/state.json" 2>/dev/null)"
 echo "seen $(cat "$HOME/.local/state/game-reserve/game-seen" 2>/dev/null)"
 for lock in "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}"/*.lock; do
   [ -e "$lock" ] || continue
-  if flock -n "$lock" true; then echo "slot $(basename "$lock" .lock) free"; else echo "slot $(basename "$lock" .lock) held"; fi
+  if slot_held "$lock"; then echo "slot $(basename "$lock" .lock) held"; else echo "slot $(basename "$lock" .lock) free"; fi
 done
 ps -wweo etimes=,args= | grep 'slots busy fo[r]' | awk '{print "offload", $1}'
 "#;
@@ -27,7 +27,7 @@ pub(super) fn read(destination: Option<&str>) -> Option<String> {
         None => command.args(["20", "bash", "-s"]),
     };
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
-    child.stdin.take()?.write_all(SCRIPT.as_bytes()).ok()?;
+    child.stdin.take()?.write_all(SCRIPT.replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH).as_bytes()).ok()?;
     let output = child.wait_with_output().ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }

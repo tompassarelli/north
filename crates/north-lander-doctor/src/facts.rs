@@ -291,15 +291,15 @@ pub fn green_since(ledger: &Path, since: u64) -> bool {
     })
 }
 
-pub const PROBE: &str = r#"set -u
-root=${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}
+const PROBE: &str = r#"set -u
+@SLOT_HELD@root=${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}
 now=$(date +%s)
 df -Pk "$HOME" | awk 'NR == 2 { print "disk", $3, $4 }'
 for h in "$root"/*.holder; do
   [ -f "$h" ] || continue
   base=${h%.holder}
   case $base in *.background) continue ;; esac
-  if (exec 7>>"$base.lock"; flock -n 7) 2>/dev/null; then state=free; else state=locked; fi
+  if slot_held "$base.lock"; then state=locked; else state=free; fi
   pgid=$(cat "$base.pgid" 2>/dev/null || true)
   echo "slot ${base##*/} $((now - $(stat -c %Y "$h"))) ${pgid:--} $state"
 done
@@ -309,6 +309,11 @@ for g in "$HOME"/code/*/main/.git; do
   [ "$n" = 0 ] || echo "prunable $n ${g%/.git}"
 done
 "#;
+
+/// The probe script that reads a host's disk, held slots and prunable worktree entries.
+pub fn probe() -> String {
+    PROBE.replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH)
+}
 
 pub fn parse_probe(text: &str) -> Result<Probe, String> {
     let mut probe = Probe::default();
@@ -355,7 +360,7 @@ pub fn shell(place: &Place, script: &str, arguments: &[&str]) -> Result<String, 
 }
 
 pub fn place_facts(place: Place) -> PlaceFacts {
-    let probe = shell(&place, PROBE, &[]).and_then(|text| parse_probe(&text));
+    let probe = shell(&place, &probe(), &[]).and_then(|text| parse_probe(&text));
     PlaceFacts { place, probe }
 }
 

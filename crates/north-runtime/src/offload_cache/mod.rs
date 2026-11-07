@@ -7,14 +7,15 @@
 //! so a large disk keeps the same headroom as a small one. The lease reaper starts it every 30 s on each build host as its own unit, and a disk-floor
 //! admission defer runs it after the other reclaim sweeps before deciding again.
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
-use rustix::fs::{FlockOperation, flock, statvfs};
+use rustix::fs::statvfs;
 
 use crate::land_offload::ship::is_lander_slot;
+use crate::land_offload::slot_lock;
 use crate::platform::disk_budget::DiskBudget;
 use crate::platform::disk_ledger::{self, Kind, Ledger};
 use crate::platform::shared_target::{self, allocated_tree};
@@ -223,10 +224,7 @@ fn slots(root: &Path) -> Vec<Slot> {
 }
 
 fn remove_unlocked(slot: &Slot) -> bool {
-    let Ok(lock) = File::open(&slot.lock) else { return false };
-    if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err() {
-        return false;
-    }
+    let Some(_held) = slot_lock::take(&slot.lock) else { return false };
     let name = slot.path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
     let parent = slot.path.parent().unwrap_or(Path::new("/"));
     let companions: Vec<PathBuf> = COMPANION_DIRS.iter().map(|suffix| parent.join(format!("{name}.{suffix}"))).collect();

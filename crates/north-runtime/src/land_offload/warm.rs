@@ -17,6 +17,7 @@ use north_base::foundation::offload;
 use rustix::fs::{FlockOperation, flock};
 
 use super::ship::{SLOTS, is_lander_slot, slot_ports};
+use super::slot_lock;
 use crate::offload_cache::{Disk, Line, disk_of};
 
 pub(super) const LOCK: &str = "warm.lock";
@@ -52,7 +53,7 @@ fn too_busy(root: &Path) -> bool {
     let Ok(entries) = fs::read_dir(root) else { return false };
     let held_slots = entries.flatten().map(|entry| entry.path()).filter(|path| {
         let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        name.ends_with(".lock") && name != LOCK && !name.ends_with(".background.lock") && held(path)
+        name.ends_with(".lock") && name != LOCK && !name.ends_with(".background.lock") && slot_lock::held(path)
     });
     held_slots.count() > BUSY_SLOTS || checks_waiting(root)
 }
@@ -108,7 +109,7 @@ pub fn run() -> u8 {
         .collect();
     stale.sort_by_key(|(distance, _, _)| std::cmp::Reverse(*distance));
     for (_, slot, head) in stale {
-        let Some(_held) = take(&root.join(format!("{}.lock", slot.name))) else { continue };
+        let Some(_held) = slot_lock::take(&root.join(format!("{}.lock", slot.name))) else { continue };
         return warm(&root, &slot, &head);
     }
     0

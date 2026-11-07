@@ -120,7 +120,7 @@ struct SlotJob {
 
 impl SlotJob {
     fn hold(lock: &Path) -> Self {
-        let mut child = Command::new("bash").args(["-c", "exec 9>\"$1\"; flock 9; echo held; exec sleep 30", "slot-job"]).arg(lock).process_group(0).stdout(Stdio::piped()).spawn().unwrap();
+        let mut child = Command::new("bash").args(["-c", "exec 9>\"$1\"; flock 9; exec 4>>\"${1%.lock}.busy\"; flock -s 4; echo held; exec sleep 30", "slot-job"]).arg(lock).process_group(0).stdout(Stdio::piped()).spawn().unwrap();
         let mut said = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut said).unwrap();
         let job = Self { child };
@@ -155,7 +155,7 @@ fn a_slot_past_its_deadline_is_released_by_ending_the_process_group_its_slot_fil
     cure(&at(gex45(), Probe { slots: vec![held, fresh], ..roomy() }), &mut Book::default(), &hands, NOW);
     assert_eq!(*hands.applied.borrow(), vec![Remedy::Release { place: gex45(), slot: slot.to_owned(), pgid }]);
     assert_eq!(hands.incidents.borrow()[0].0, "lander-slot-overdue");
-    let release = || facts::shell(&here(), hands::RELEASE, &[slot, &pgid.to_string(), &root.path().to_string_lossy()]);
+    let release = || facts::shell(&here(), &hands::release(), &[slot, &pgid.to_string(), &root.path().to_string_lossy()]);
     assert_eq!(release().unwrap().trim(), format!("ended process group {pgid}"));
     assert!(!job.child.wait().unwrap().success(), "the job ended on a signal");
     assert!(release().is_err(), "a released slot is not released twice");
@@ -168,7 +168,7 @@ fn age_holder(root: &Path, slot: &str) {
 }
 
 fn probed(root: &Path) -> Probe {
-    let output = Command::new("bash").args(["-c", facts::PROBE]).env("NORTH_OFFLOAD_ROOT", root).env("HOME", root).output().unwrap();
+    let output = Command::new("bash").args(["-c", &facts::probe()]).env("NORTH_OFFLOAD_ROOT", root).env("HOME", root).output().unwrap();
     let probe = facts::parse_probe(&String::from_utf8_lossy(&output.stdout)).unwrap();
     Probe { free_percent: 60.0, free_gib: 300.0, ..probe }
 }

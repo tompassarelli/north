@@ -468,6 +468,52 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     assert_eq!(fs::read_to_string(&sized).unwrap(), "5 5", "30 cores and 64 GiB run their six slots at once with 5 cores each, every job under a lease that keeps the host admission headroom, not six 4-core jobs under a fifth held back as well");
 }
 
+#[test]
+fn a_lander_job_takes_its_reserved_slot_with_no_waited_line_while_another_job_tests_whether_that_slot_is_held_and_the_clock_turns_a_second_on_each_reading() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let root = home.path().join(".cache/land-offload");
+    fs::create_dir_all(&root).unwrap();
+    for left in ["code-p-main-5.lock", "code-p-main-5.busy"] {
+        fs::write(root.join(left), "").unwrap();
+    }
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let real = |program: &str| std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|dir| dir.join(program)).find(|candidate| candidate.is_file()).unwrap();
+    let flock = real("flock");
+    let clock = tempfile::tempdir().unwrap();
+    let readings = home.path().join("readings");
+    crate::foundation::shim::write_script(&clock.path().join("date"), &format!("case \"$1\" in +%s | +%s%N) ;; *) exec {} \"$@\" ;; esac\nn=$(cat {1} 2>/dev/null || echo 1000)\necho $((n + 1)) >{1}\n[ \"$1\" = +%s ] && echo $n || echo ${{n}}000000000\n", shell(&real("date")), shell(&readings)));
+    let (probing, release) = (home.path().join("probing"), home.path().join("release"));
+    let slow = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&slow.path().join("flock"), &format!("[ \"$1 $2\" = '-n 7' ] || exec {0} \"$@\"\n{0} -n 7 || exit 1\ntouch {1}\nwhile [ ! -e {2} ]; do sleep 0.05; done\n", shell(&flock), shell(&probing), shell(&release)));
+    let mut probe = Command::new("sh").args(["-c", &format!("root={}\n{}slot_jobs code-p-main", shell(&root), super::jobs_part())]).env("PATH", format!("{}:{path}", slow.path().display())).stdout(std::process::Stdio::null()).spawn().unwrap();
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || probing.exists()), "the probe never tested the lander's slot");
+    let seen = home.path().join("lander-seen");
+    let command = format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, seen.display());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let lander = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0", "", "", "", "1"], &[])
+        .env("HOME", home.path())
+        .env("PATH", format!("{}:{path}", clock.path().display()))
+        .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+        .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .env_remove(north_base::foundation::offload::SLOT_ENV)
+        .stdin(fs::File::open(&bundle).unwrap())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    fs::write(&release, "").unwrap();
+    let lander = lander.wait_with_output().unwrap();
+    assert!(probe.wait().unwrap().success());
+    let stderr = String::from_utf8_lossy(&lander.stderr);
+    assert!(lander.status.success(), "{stderr}");
+    assert!(!stderr.contains(super::WAITED), "neither a probe of the lander's reserved slot nor a second turning on the clock while it takes the slot reports the lander as waiting in line (north#815): {stderr}");
+    assert_eq!(fs::read_to_string(&seen).unwrap(), root.join("code-p-main-5").display().to_string());
+}
+
 fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, String) {
     let slot = tempfile::tempdir().unwrap();
     let script = format!("set -eu\nslot={} command={} limit=10 ran={}\n{}", shell(slot.path()), super::quote(command), super::quote(marker), run_part());

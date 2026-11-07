@@ -106,7 +106,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 11. **Job queue and job runs** (68: 34 x 2). A `taken` job has no lease or taker
     (`crates/north-threads/src/threads/jobs/queue.rs:178-224`); a crashed job's `job_runs.finished` stays NULL and
     JOB-START never meets a JOB-EXIT (`crates/north-ops/src/ops/job_run/records.rs`). Shapes: status-string.
-12. **Offload slots** (66: 33 x 2). `SLOT.{lock,holder,owner,pgid}`, queue tickets held by flock, the warmer's
+12. **Offload slots** (66: 33 x 2). `SLOT.{lock,busy,holder,owner,pgid}` (a holder keeps `.lock` exclusive and `.busy` shared, and probes test only `.busy`), queue tickets held by flock, the warmer's
     `warm.lock` and `.warmed`, build-offload claims whose liveness is `/proc/PID`
     (`crates/north-runtime/src/land_offload/ship/script.rs:97-155`, `build_offload/claims.rs:11-55`); a SIGKILL leaves
     `.owner` and `.pgid`, and a reused pid whose cmdline says "offload" can be killed. Shapes: lock-flag,

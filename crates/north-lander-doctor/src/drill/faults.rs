@@ -37,7 +37,7 @@ mkdir -p "$slot" && : > "$slot.lock" && head -c "$1" /dev/zero > "$slot/target"
 "#;
 const LANDER: &str = r#"while :; do touch "$1"; sleep 20; done"#;
 const WEDGED: &str = r#"touch "$1" && echo started >> "$1.starts" && exec sleep 3600"#;
-const HOLDS_SLOT: &str = r#"exec 9>>"$1.lock" && flock 9 && echo held && exec sleep 3600"#;
+const HOLDS_SLOT: &str = r#"exec 9>>"$1.lock" && flock 9 && exec 4>>"$1.busy" && flock -s 4 && echo held && exec sleep 3600"#;
 const FLAKY: &str = "#!/bin/sh\necho run >> \"$0.runs\"\n[ \"$(wc -l < \"$0.runs\")\" -gt 1 ]\n";
 
 fn checkout(lander: &Lander) -> PathBuf {
