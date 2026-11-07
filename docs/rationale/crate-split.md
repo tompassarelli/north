@@ -60,9 +60,9 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `north-base`, `north-capacity`, `north-fleet` and `north-threads`; `north-ops` (for `land_offload`) and the root package import `capacity` from it.
 - `north-runtime`: `runtime`, `land_offload`, `build_offload`, `laptop_runner`, `agent_contain`,
   `laptop_ntfy`, `timers`, `model_watch`, `job_watch`, `outside_watch`, `usage_web_read` and
-  `runtime_access`, moved out of `ops` (box 4-9). Depends on `north-ops` for `ops::pacing`, `ops::dispatch`
-  and `ops::laptop`, which the plan puts in `north-dispatch`; nothing in `north-ops` uses it. Its tests
-  reach `ops::laptop::Ctx::fixture` through `north-ops`'s `test-support` feature, a dev-dependency only.
+  `runtime_access`, moved out of `ops` (box 4-9). Depends on `north-dispatch` for `dispatch`, `pacing` and `laptop` (the last two re-exported from
+  `north-pacing`); nothing in `north-ops` uses it. Its tests reach `laptop::Ctx::fixture` through
+  `north-pacing`'s `test-support` feature, a dev-dependency only.
 - `north` (the root package): `src/main.rs`, `src/cli/` and the `verify-north` and `fake_claude`
   binaries, plus the integration tests. Depends on `north-core`, `north-capacity-host`, `north-guard`, `north-landing`,
   `north-ops`, `north-runtime` and `north-tui`.
