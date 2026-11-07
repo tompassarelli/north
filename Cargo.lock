@@ -921,6 +921,7 @@ dependencies = [
  "north-core",
  "north-coverage",
  "north-dispatch",
+ "north-frontier",
  "north-github-mirror",
  "north-goals",
  "north-graph-ground",
@@ -1110,6 +1111,14 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml_edit",
+]
+
+[[package]]
+name = "north-frontier"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

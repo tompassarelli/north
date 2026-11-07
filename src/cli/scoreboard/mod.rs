@@ -14,6 +14,7 @@ use crate::ledger::outcome::read::Places;
 
 mod audit;
 mod cause;
+mod frontier;
 mod landing;
 mod lanes;
 mod ready;
@@ -21,7 +22,7 @@ mod tom;
 mod weekly;
 mod workers;
 
-const USAGE: &str = "usage: north ledger scoreboard ([--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell])";
+const USAGE: &str = "usage: north ledger scoreboard ([--all] [--explain] | --weekly | --frontier | --record | --rework [--since 7d] | audit [--tell])";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -209,6 +210,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let recording = match arguments {
         [word, rest @ ..] if word == "audit" => return audit::run(rest),
         [flag] if flag == "--weekly" => false,
+        [flag] if flag == "--frontier" => return frontier::run(),
         [flag] if flag == "--record" => true,
         [] => return ready_table(arguments),
         [flag, ..] if flag == "--all" || flag == "--explain" => return ready_table(arguments),
