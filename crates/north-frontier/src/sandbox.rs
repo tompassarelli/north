@@ -22,7 +22,7 @@ pub struct Sandbox {
 
 const GH: &str = "#!/bin/sh\necho 'gh: GitHub is unreachable in this run; work from the brief and the checkout.' >&2\nexit 1\n";
 const SAFE_PUSH: &str = "#!/bin/sh\nset -e\ngit push --quiet origin HEAD:refs/heads/main\necho \"safe-push: landed $(git rev-parse HEAD) on origin/main\"\n";
-const LIVE_VERBS: &str = "fleet|gate|work|task|land|lane|cloud|dispatch|safe-push|capacity|nexus-run|runtime|agent-runtime-update|release|orders|laptop|private-desktop|agent-capture|convo|grounding|graph|ledger|digest|report|threads|usage|pace|agents";
+const LIVE_VERBS: &str = "fleet|gate|work|task|land|lane|cloud|dispatch|safe-push|capacity|nexus-run|runtime|release|orders|laptop|private-desktop|agent-capture|convo|grounding|graph|ledger|digest|report|threads|usage|pace|agents";
 const READ_ONLY: [&str; 10] = [".claude", ".agents", ".local/share/north", ".local/share/firn", ".local/share/south", ".local/lib", ".local/bin", ".local/state/north/runtimes", ".local/state/nix", ".local/state/home-manager"];
 const WRITABLE: [&str; 2] = [".cargo/registry", ".cargo/git"];
 const PASSTHROUGH: &str = "#!/bin/sh\nexec \"$@\"\n";

@@ -6,7 +6,7 @@ mod gcroots;
 mod git_maintenance;
 mod incident_retro;
 mod nexus_run;
-mod runtime_update;
+pub mod runtime_update;
 mod skill_prune;
 mod skill_review;
 mod skill_triggers;
@@ -23,7 +23,6 @@ use crate::runtime_access::RuntimeAccess;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Timer {
-    AgentRuntimeUpdate,
     CodexRuntimeGcroots,
     CrossProjectScan,
     EtaCalibration,
@@ -41,7 +40,6 @@ pub enum Timer {
 
 impl Timer {
     pub const NAMES: &[(&str, Self)] = &[
-        ("agent-runtime-update", Self::AgentRuntimeUpdate),
         ("codex-runtime-gcroots", Self::CodexRuntimeGcroots),
         ("cross-project-scan", Self::CrossProjectScan),
         ("eta-calibration", Self::EtaCalibration),
@@ -63,7 +61,6 @@ impl Timer {
 
     pub fn run(self, arguments: &[String], access: &RuntimeAccess) -> u8 {
         match self {
-            Self::AgentRuntimeUpdate => runtime_update::run(arguments),
             Self::CodexRuntimeGcroots => gcroots::run(arguments),
             Self::CrossProjectScan => cross_project::run(arguments, access),
             Self::EtaCalibration => eta_calibration::run(arguments),

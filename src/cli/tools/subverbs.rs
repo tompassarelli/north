@@ -88,7 +88,7 @@ const RUNTIME: &[(&str, Run)] = &[
 ];
 
 fn agent_runtime_update(arguments: &[String]) -> u8 {
-    crate::timers::Timer::AgentRuntimeUpdate.run(arguments, &super::super::agents::claude_access())
+    crate::timers::runtime_update::run(arguments)
 }
 
 pub(super) fn runtime(arguments: &[String]) -> u8 {
