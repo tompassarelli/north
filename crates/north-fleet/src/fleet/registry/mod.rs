@@ -187,13 +187,22 @@ impl Fleet {
     }
 
     pub fn interrupt(&self, name: &str) -> NorthResult<()> {
+        self.interrupt_for(name, Halt::Ordered)
+    }
+
+    /// Interrupts `name`'s turn; a turn it cuts short records `why` as its cause.
+    pub(super) fn interrupt_for(&self, name: &str, why: Halt) -> NorthResult<()> {
         let record = self.record(name)?;
         if record.adopted() {
             return Err(NorthError::Usage(format!("{name} is an interactive window; interrupt it there")));
         }
         let runtime = self.runtime(&record)?;
         let transcript = self.recent(runtime.as_ref(), &record)?;
-        Host::new(record.host_dir.clone()).send(&runtime.interrupt(&transcript)?)
+        Host::new(record.host_dir.clone()).send(&runtime.interrupt(&transcript)?)?;
+        if transcript.status == Status::Working {
+            why.record(name);
+        }
+        Ok(())
     }
 
     pub fn observe_landings(&self) -> NorthResult<()> {

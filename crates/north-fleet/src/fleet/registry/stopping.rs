@@ -8,9 +8,9 @@ use crate::error::NorthResult;
 use super::super::claims;
 use super::super::forget::{self, Forgotten};
 use super::super::host::Host;
-use super::super::model::{Ending, Status};
+use super::super::model::{Ending, Role, Status};
 use super::super::records::{ARCHIVE, write_record};
-use super::super::runtime::now_ms;
+use super::super::runtime::{PROXY, now_ms};
 use super::super::unaccepted::Unaccepted;
 use super::super::store::ControlVerb;
 use super::{Fleet, session_running};
@@ -27,9 +27,16 @@ pub enum Halt {
     /// A launch took the session's name over.
     TakenOver,
     Retired,
+    /// A proxy-role session ordered the stop, forget or relaunch.
+    ByProxy,
 }
 
 impl Halt {
+    pub(super) fn record(self, name: &str) {
+        let (cause, reason) = self.cause();
+        attribution::record(name, "fleet", cause, reason);
+    }
+
     fn cause(self) -> (Cause, &'static str) {
         match self {
             Self::Ordered => (Cause::Harness(Harness::Halted), "north fleet stop or forget ended the turn"),
@@ -38,6 +45,7 @@ impl Halt {
             Self::Interactive => (Cause::Tom, "opened in the interactive UI mid-turn"),
             Self::TakenOver => (Cause::Harness(Harness::Halted), "a launch took over its name mid-turn"),
             Self::Retired => (Cause::Harness(Harness::Halted), "retired mid-turn"),
+            Self::ByProxy => (Cause::Proxy, "a proxy session stopped it mid-turn"),
         }
     }
 }
@@ -80,8 +88,7 @@ impl Fleet {
         }
         claims::release_for(self.claims.as_ref(), &record);
         if mid_turn {
-            let (cause, reason) = why.cause();
-            attribution::record(name, "fleet", cause, reason);
+            why.record(name);
         }
         Ok(())
     }
@@ -97,7 +104,11 @@ impl Fleet {
     }
 
     pub fn forget(&self, name: &str) -> NorthResult<()> {
-        self.archive(name, Halt::Ordered)?;
+        self.forget_for(name, Halt::Ordered)
+    }
+
+    pub(super) fn forget_for(&self, name: &str, why: Halt) -> NorthResult<()> {
+        self.archive(name, why)?;
         self.uncache_session(name)
     }
 
@@ -109,5 +120,13 @@ impl Fleet {
         let archived = archive.join(format!("{name}-{}", now_ms()));
         fs::rename(self.root.join(name), &archived)?;
         Ok(archived)
+    }
+}
+
+impl Fleet {
+    /// How a stop ordered by `caller` reads: by the proxy when `caller` is a proxy-role session, else `otherwise`.
+    pub(super) fn ordered_by(&self, caller: Option<&str>, otherwise: Halt) -> Halt {
+        let proxy = caller.is_some_and(|name| name == PROXY || self.record(name).is_ok_and(|record| record.role() == Role::Proxy));
+        if proxy { Halt::ByProxy } else { otherwise }
     }
 }

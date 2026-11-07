@@ -171,12 +171,15 @@ fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overri
                "tier": "high", "actual_min": 20, "started": "2026-10-28T08:20:00Z", "ended": "2026-10-28T08:40:00Z", "outcome": "not done", "report": report, "stop": stop})
     };
     let head: String = format!("Not done: {}", "the lane holds three files. ".repeat(30)).chars().take(600).collect();
-    ledger.ingest(&[worker("long", &head, Some("Stop: landing")), worker("cut", "Not done: clippy is clean, so the lane goes next.", None)]);
+    ledger.ingest(&[worker("long", &head, Some("Stop: landing")), worker("cut", "Not done: clippy is clean, so the lane goes next.", None), worker("told", "Not done: the proxy asked me to stop here.", None)]);
     let context = Context { database: &ledger.path, actor: "tester".into(), no_native: None, outside: &ledger.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
-    let argv: Vec<String> = ["cause", "record", "--session", "w-cut", "--source", "fleet", "--cause", "halted"].map(str::to_owned).to_vec();
-    assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
+    for (session, cause) in [("w-cut", "halted"), ("w-told", "proxy")] {
+        let argv: Vec<String> = ["cause", "record", "--session", session, "--source", "fleet", "--cause", cause].map(str::to_owned).to_vec();
+        assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
+    }
     let reading = losses(&Connection::open(&ledger.path).unwrap(), 0).unwrap();
     let classes: Vec<(Harness, usize)> = reading.losses.iter().map(|loss| (loss.harness, loss.runs)).collect();
     assert_eq!(classes, vec![(Harness::LandingRefusal, 1), (Harness::Halted, 1)]);
+    assert_eq!(reading.proxy.0, 1, "a run the proxy cut short is the proxy's, apart from the harness classes");
     assert_eq!(reading.unclaimed_usd, 0.0, "{reading:?}");
 }

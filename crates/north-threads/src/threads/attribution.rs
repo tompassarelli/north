@@ -104,6 +104,7 @@ pub fn recorded_column(db: &Connection) -> &'static str {
 }
 
 const DAY_S: i64 = 86_400;
+const VERDICT_S: i64 = 3 * 3_600;
 const TOP: usize = 5;
 
 /// One harness class's finished worker runs over a window and the API-equivalent dollars they spent.
@@ -118,6 +119,8 @@ pub struct Loss {
 #[derive(Debug, PartialEq)]
 pub struct Reading {
     pub losses: Vec<Loss>,
+    /// The runs a proxy-role session stopped, relaunched or interrupted, and their dollars, apart from the harness classes.
+    pub proxy: (usize, f64),
     pub unclaimed_usd: f64,
     pub total_usd: f64,
 }
@@ -132,34 +135,41 @@ pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
     let mut statement = db.prepare(&format!("SELECT outcome, {}, coalesce(compactions, 0), coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", report_column(db), recorded_column(db), worker_where()))?;
     let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u32>(2)?, row.get::<_, f64>(3)?, row.get::<_, Option<String>>(4)?)))?;
     let mut by: BTreeMap<Harness, (usize, f64)> = BTreeMap::new();
-    let (mut unclaimed_usd, mut total_usd) = (0.0, 0.0);
+    let (mut unclaimed_usd, mut total_usd, mut proxy) = (0.0, 0.0, (0, 0.0));
     for (outcome, report, compactions, usd, recorded) in rows.filter_map(Result::ok) {
         let verdict = judge(&outcome, &report, compactions, recorded.as_deref().and_then(Cause::parse));
         total_usd += usd;
         if verdict.basis == Basis::Unclaimed {
             unclaimed_usd += usd;
         }
-        if let Cause::Harness(harness) = verdict.cause {
-            let held = by.entry(harness).or_default();
-            held.0 += 1;
-            held.1 += usd;
+        match verdict.cause {
+            Cause::Harness(harness) => {
+                let held = by.entry(harness).or_default();
+                held.0 += 1;
+                held.1 += usd;
+            }
+            Cause::Proxy => {
+                proxy.0 += 1;
+                proxy.1 += usd;
+            }
+            Cause::Worker | Cause::Tom => {}
         }
     }
     let mut losses: Vec<Loss> = by.into_iter().map(|(harness, (runs, usd))| Loss { harness, runs, usd }).collect();
     losses.sort_by(|left, right| right.usd.total_cmp(&left.usd).then(right.runs.cmp(&left.runs)));
-    Ok(Reading { losses, unclaimed_usd, total_usd })
+    Ok(Reading { losses, proxy, unclaimed_usd, total_usd })
 }
 
-/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, and the share of usage no record or rule attributes.
+/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, the runs a proxy session cut short, and the share of usage no record or rule attributes over the last 3 h, the window the readiness bars are judged on, and the last 24 h.
 pub fn pareto_line(ledger: &Path, now: i64) -> String {
-    let read = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).and_then(|db| losses(&db, now - DAY_S));
+    let read = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).and_then(|db| Ok((losses(&db, now - DAY_S)?, losses(&db, now - VERDICT_S)?)));
     match read {
-        Ok(found) => {
-            let unattributed = format!("unattributed {:.1}% of 24 h usage", found.unclaimed_share() * 100.0);
-            if found.losses.is_empty() {
+        Ok((day, recent)) => {
+            let unattributed = format!("proxy-caused {} runs ${:.2}; unattributed {:.1}% of 3 h usage, {:.1}% of 24 h", day.proxy.0, day.proxy.1, recent.unclaimed_share() * 100.0, day.unclaimed_share() * 100.0);
+            if day.losses.is_empty() {
                 return format!("harness losses 24 h: none; {unattributed}");
             }
-            let classes = found.losses.iter().take(TOP).map(|loss| format!("{} {} runs ${:.2}", loss.harness.label(), loss.runs, loss.usd)).collect::<Vec<_>>().join(", ");
+            let classes = day.losses.iter().take(TOP).map(|loss| format!("{} {} runs ${:.2}", loss.harness.label(), loss.runs, loss.usd)).collect::<Vec<_>>().join(", ");
             format!("harness losses 24 h, costliest first: {classes}; {unattributed}")
         }
         Err(why) => format!("harness losses 24 h: unread: {why}"),

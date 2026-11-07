@@ -3,6 +3,7 @@ use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{ControlVerb, FleetRow, RowKind, cached_sessions};
 
+use super::stopping::Halt;
 use super::{Fleet, HandedIn};
 
 pub enum Controlled {
@@ -13,7 +14,7 @@ pub enum Controlled {
 impl Fleet {
     pub fn control(&self, verb: ControlVerb, name: &str) -> NorthResult<Controlled> {
         if self.session_dir(name)?.exists() {
-            return self.run_control(verb, name).map(|()| Controlled::Here);
+            return self.run_control(verb, name, self.caller().as_deref()).map(|()| Controlled::Here);
         }
         let known = cached_sessions(&self.root)?.is_some_and(|sessions| sessions.iter().any(|session| session.name == name));
         if !known {
@@ -42,17 +43,19 @@ impl Fleet {
         let verb = ControlVerb::parse(&row.text)?;
         row.validate()?;
         match verb {
-            ControlVerb::Forget => self.forget(&row.to).map(|()| HandedIn::Delivered),
+            ControlVerb::Forget => self.forget_for(&row.to, self.ordered_by(row.sender.session(), Halt::Ordered)).map(|()| HandedIn::Delivered),
             ControlVerb::Interrupt if !self.running(&self.record(&row.to)?) => self.journaled(row, || Ok(())),
-            verb => self.journaled(row, || self.run_control(verb, &row.to)),
+            verb => self.journaled(row, || self.run_control(verb, &row.to, row.sender.session())),
         }
     }
 
-    fn run_control(&self, verb: ControlVerb, name: &str) -> NorthResult<()> {
+    /// Runs `verb` on `name` as `caller` ordered it, so a stop or interrupt a proxy ordered records the proxy as its cause.
+    fn run_control(&self, verb: ControlVerb, name: &str, caller: Option<&str>) -> NorthResult<()> {
+        let why = self.ordered_by(caller, Halt::Ordered);
         match verb {
-            ControlVerb::Forget => self.forget(name),
-            ControlVerb::Stop => self.stop(name),
-            ControlVerb::Interrupt => self.interrupt(name),
+            ControlVerb::Forget => self.forget_for(name, why),
+            ControlVerb::Stop => self.halt(name, why),
+            ControlVerb::Interrupt => self.interrupt_for(name, why),
             ControlVerb::Revive => self.revive(name, None).map(drop),
         }
     }

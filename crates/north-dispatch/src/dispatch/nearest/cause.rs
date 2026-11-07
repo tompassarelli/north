@@ -23,6 +23,7 @@ pub fn cause(outcome: &str, succeeded: bool, attributed: attribution::Cause) -> 
     match (attributed, outcome) {
         (attribution::Cause::Harness(harness), _) => Some(Cause::Harness(harness.label())),
         (attribution::Cause::Tom, _) => Some(Cause::Harness("decision")),
+        (attribution::Cause::Proxy, _) => Some(Cause::Harness("proxy")),
         (attribution::Cause::Worker, "done") => Some(Cause::Worker("reworked")),
         (attribution::Cause::Worker, "unclear" | "handoff") => None,
         (attribution::Cause::Worker, _) => Some(Cause::Worker("missed")),

@@ -49,6 +49,9 @@ pub enum Cause {
     Harness(Harness),
     /// Halted by Tom or stopped on his decision: neither side failed.
     Tom,
+    /// A proxy-role session stopped, relaunched or interrupted the worker mid-turn: the staffing side, apart from the
+    /// worker and the harness.
+    Proxy,
 }
 
 impl Cause {
@@ -57,6 +60,7 @@ impl Cause {
             Self::Worker => "worker",
             Self::Harness(harness) => harness.label(),
             Self::Tom => "tom",
+            Self::Proxy => "proxy",
         }
     }
 
@@ -64,6 +68,7 @@ impl Cause {
         match label {
             "worker" => Some(Self::Worker),
             "tom" => Some(Self::Tom),
+            "proxy" => Some(Self::Proxy),
             other => Harness::ALL.into_iter().find(|harness| harness.label() == other).map(Self::Harness),
         }
     }

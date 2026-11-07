@@ -43,7 +43,7 @@ impl Fleet {
         let mut changed = SessionRecord { model: model.map(str::to_owned).or_else(|| record.model.clone()), ..record.clone() };
         changed.effort = efforts::revived(&changed, runtime.as_ref(), false, effort)?;
         self.refuse_beside_interactive(&record)?;
-        self.halt(name, Halt::Relaunched)?;
+        self.halt(name, self.ordered_by(self.caller().as_deref(), Halt::Relaunched))?;
         let _start = self.start_lock(name)?;
         let mut stopped = self.record(name)?;
         (stopped.model, stopped.effort) = (changed.model, changed.effort);

@@ -8,6 +8,7 @@ A worker run can fail because of the worker or because of the harness that staff
 
 - **worker**: every Done, `Stop: reasoning` or `Stop: leash` (the worker ran out of approach or budget, whatever else the report mentions), and any failure no rule below claims.
 - **tom**: halted or paused by Tom, `Stop: decision` or `Blocked:`. Neither side failed.
+- **proxy**: a proxy-role session stopped, forgot, relaunched or interrupted the worker mid-turn; only the fleet's record names it, and `north ledger flow` counts it apart from the harness classes, so its fixes aim at the proxy rather than at workers.
 - **harness**, the first class whose rule the report matches, in this order:
   - placement: `Stop: host`, or the report says this host or machine cannot run, push, land or reach what the box needs.
   - access: a GitHub, ssh, token or credential call failed, expired or could not decrypt.
@@ -32,7 +33,7 @@ Each boundary of the harness that touches a session writes its own cause for tha
 
 The worker's own `Stop:` line is the fallback: the ingest keeps each report's last `Stop:` line in `runs.stop`, because the ledger keeps only a report's first 600 characters and a long report's closing line fell outside them, and the rules read it after the kept head.
 
-`north ledger flow` prints, beside the costliest harness classes, the share of the last 24 h of usage whose failed runs have neither a record nor a matching phrase rule ("unattributed"). A rule that reads the wrong side shows up as a class whose count moves the wrong way on `north ledger flow`, and the phrase rules are tuned against reports the ledger holds. Runs recorded before the ingest kept a fleet name stay on the phrase rules.
+`north ledger flow` prints, beside the costliest harness classes, the share of the last 3 h of usage (the window the readiness bars are judged on) and of the last 24 h whose failed runs have neither a record nor a matching phrase rule ("unattributed"). A rule that reads the wrong side shows up as a class whose count moves the wrong way on `north ledger flow`, and the phrase rules are tuned against reports the ledger holds. Runs recorded before the ingest kept a fleet name stay on the phrase rules.
 
 ## Where it is read
 
