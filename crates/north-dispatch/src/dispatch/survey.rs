@@ -17,6 +17,8 @@ use crate::ledger::ClosedReport;
 use crate::ledger::closed::ArmBox;
 use crate::fleet::roster::{Roster, Standing};
 use crate::pacing::placement::{self, gate};
+use crate::pacing::placement::case::{grants_left, keyed_here};
+use north_strategy_types::placement::GrantSource;
 use crate::platform::process::run_within;
 use crate::spend::{self, Rules, View};
 use serde_json::Value;
@@ -145,21 +147,23 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
     let basis = Basis::new(cfg, at);
     let sampled = usage["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
     let mut found: Vec<Account> = sampled.map(|(name, windows)| account(name, windows, &basis, signed_in(cfg, roster, name, here), at, notes)).collect();
-    found.extend(grants(cfg, roster, at));
+    found.extend(grants(cfg, roster, here, grants_left(at)));
     found
 }
 
-/// Each API grant with credit left as an account on the hosts that hold its key, ranked by its deadline.
-fn grants(cfg: &DocumentMut, roster: &Roster, at: f64) -> Vec<Account> {
+/// Each API grant in `sources` as an account on the hosts the policy gives its key, ranked by its deadline;
+/// this host counts only when its own roster holds the key, so a dispatcher with no key still places on the hosts that do.
+pub(super) fn grants(cfg: &DocumentMut, roster: &Roster, here: &str, sources: Vec<GrantSource>) -> Vec<Account> {
     let orgs = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs"));
-    crate::pacing::placement::case::grant_sources(roster, at)
+    sources
         .into_iter()
-        .map(|source| {
+        .filter_map(|source| {
             let name = source.account.trim_start_matches("claude:api:");
             let keys = orgs.and_then(|orgs| orgs.get(name)).and_then(|org| org.get("keys")).and_then(Item::as_table_like);
-            let hosts = keys.into_iter().flat_map(|keys| keys.iter().map(|(host, _)| host.to_owned())).collect();
+            let here_keyed = keyed_here(roster, &source.account);
+            let hosts: Vec<String> = keys.into_iter().flat_map(|keys| keys.iter().map(|(host, _)| host.to_owned())).filter(|host| host != here || here_keyed).collect();
             let room = Room { five_hour: 100.0, week: 100.0, week_reset_h: source.deadline_h };
-            Account { name: source.account, hosts, plan: PlanSize { five_hour: 1.0, week: 1.0 }, room, grant: Some(Rank::grant(source.deadline_h, source.urgent)) }
+            (!hosts.is_empty()).then(|| Account { name: source.account, hosts, plan: PlanSize { five_hour: 1.0, week: 1.0 }, room, grant: Some(Rank::grant(source.deadline_h, source.urgent)) })
         })
         .collect()
 }

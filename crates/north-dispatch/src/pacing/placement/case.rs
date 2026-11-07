@@ -237,14 +237,23 @@ pub fn replayed_target(case: &Case) -> Option<north_strategy_types::placement::T
 
 /// The API grants this host can launch on (its roster lists `api:NAME`) that are unexpired, unmarked and have credit left.
 pub fn grant_sources(roster: &Roster, at: f64) -> Vec<GrantSource> {
+    grants_left(at).into_iter().filter(|source| keyed_here(roster, &source.account)).collect()
+}
+
+/// Whether this host's roster holds a key for the API grant account `account` (`claude:api:NAME`).
+pub fn keyed_here(roster: &Roster, account: &str) -> bool {
+    let claude = crate::fleet::model::ProviderName::new("claude");
+    matches!(roster.standing(&claude, account.trim_start_matches("claude:")), crate::fleet::roster::Standing::Listed(_))
+}
+
+/// Every API grant with credit left and no exhausted mark, wherever its keys are held.
+pub fn grants_left(at: f64) -> Vec<GrantSource> {
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), std::path::PathBuf::from);
     let now = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at);
-    let claude = crate::fleet::model::ProviderName::new("claude");
     crate::credit::sources(&crate::platform::orchestration::path(), &state, now)
         .into_iter()
         .filter(|source| !source.exhausted && source.left > 0.0)
-        .filter(|source| matches!(roster.standing(&claude, &format!("api:{}", source.name)), crate::fleet::roster::Standing::Listed(_)))
         .map(|source| {
             let now_s = now.unix_seconds();
             GrantSource { account: format!("claude:api:{}", source.name), left_usd: source.left, deadline_h: source.deadline_h(now_s), urgent: !source.drains(now_s), line: source.line(now_s) }
