@@ -44,6 +44,27 @@ fn a_staged_runtime_replaces_a_treeless_one_whole_and_a_complete_one_stays() {
     assert!(!runtimes(home).join(format!("{TARGET}.staging")).exists());
 }
 
+// KEEP(bug): on 2026-11-07 a runtime shipped to nexus moved the directory nexus's own follow was part-way through filling, so the follow died on `No such file or directory` and held that sha back for an hour (north#822)
+#[test]
+fn a_shipped_install_waits_for_whoever_is_writing_the_runtime_directory() {
+    use rustix::fs::{FlockOperation, flock};
+    let home = tempfile::tempdir().unwrap();
+    let home = home.path();
+    let live = runtimes(home).join(TARGET);
+    fs::create_dir_all(&live).unwrap();
+    fs::write(live.join("north"), "half made\n").unwrap();
+    staged(home, true);
+    let writing = fs::File::create(runtimes(home).join(format!("{TARGET}.lock"))).unwrap();
+    flock(&writing, FlockOperation::LockExclusive).unwrap();
+    let mut install = Command::new("sh").arg("-c").arg(install_script(TARGET)).current_dir(home).spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(install.try_wait().unwrap().is_none(), "the install went ahead while the directory was being written");
+    assert_eq!(fs::read_to_string(live.join("north")).unwrap(), "half made\n");
+    drop(writing);
+    assert!(install.wait().unwrap().success());
+    assert!(live.join(TREE).is_dir() && fs::read_to_string(live.join("north")).unwrap() == "staged\n");
+}
+
 fn whole(home: &Path, sha: &str) {
     let directory = runtimes(home).join(sha);
     fs::create_dir_all(directory.join(TREE)).unwrap();

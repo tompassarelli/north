@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
 const PINNED_LOCK_WAIT: Duration = Duration::from_secs(10 * 60);
 const ROLLBACK_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
+const WRITE_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 
 const PASSES: usize = 5;
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
@@ -190,8 +191,11 @@ fn catch_up(layout: &Layout, checkout: &Path, main: &str, previous: Option<&Path
         return Ok(None);
     };
     let runtime = layout.runtime(&newest.sha);
-    if !usable(&runtime) && !pull::pull_from(&newest.host, &newest.sha, &runtime) {
-        return Ok(None);
+    if !usable(&runtime) {
+        let _writing = writing(layout, &newest.sha)?;
+        if !usable(&runtime) && !pull::pull_from(&newest.host, &newest.sha, &runtime) {
+            return Ok(None);
+        }
     }
     println!("north runtime: {} is not built anywhere yet; catching up to {}, promoted on {}", layout::short(main), layout::short(&newest.sha), newest.host);
     advance(layout, checkout, &newest.sha, previous)?;
@@ -216,7 +220,10 @@ fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
 
 fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {
     if !runtime.join(TREE).is_dir() {
-        export_tree(checkout, target, runtime)?;
+        let _writing = writing(layout, target)?;
+        if !runtime.join(TREE).is_dir() {
+            export_tree(checkout, target, runtime)?;
+        }
     }
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
@@ -251,10 +258,19 @@ pub(super) fn main_commit(checkout: &Path) -> Result<String, Failure> {
 
 fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Failure> {
     let runtime = layout.runtime(target);
+    if usable(&runtime) {
+        return Ok(runtime);
+    }
+    let _writing = writing(layout, target)?;
     if !usable(&runtime) && !reused(layout, checkout, target, &runtime) {
         build(layout, checkout, target, &runtime)?;
     }
     Ok(runtime)
+}
+
+/// Whoever writes `runtimes/SHA` holds its lock, and the install of a runtime shipped from another host takes the same one (deploy::install_script), so a shipped copy never moves a directory a reuse, build, pull or tree export is part-way through filling.
+fn writing(layout: &Layout, target: &str) -> Result<File, Failure> {
+    named_lock_waiting(layout, &layout::writing_lock(target), remote::limit(WRITE_LOCK_WAIT), "north runtime promote")
 }
 
 fn usable(runtime: &Path) -> bool {
@@ -444,6 +460,7 @@ pub(crate) fn collect(layout: &Layout, target: &str, previous: Option<&Path>) ->
         let Some(_unleased) = layout::unleased(&doomed)? else {
             continue;
         };
+        let _ = fs::remove_file(layout.state.join(layout::writing_lock(name)));
         process::run("chmod", None, &[OsStr::new("-R"), "u+w".as_ref(), doomed.as_os_str()])?;
         fs::remove_dir_all(&doomed)?;
     }

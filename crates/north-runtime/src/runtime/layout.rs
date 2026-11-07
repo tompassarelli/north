@@ -60,6 +60,10 @@ pub fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
+pub fn writing_lock(sha: &str) -> String {
+    format!("runtimes/{sha}.lock")
+}
+
 pub fn short(sha: &str) -> &str {
     sha.get(..8).unwrap_or(sha)
 }

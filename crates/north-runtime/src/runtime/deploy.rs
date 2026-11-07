@@ -15,6 +15,7 @@ const LOCK_WAIT: Duration = Duration::from_secs(30 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);
 const COPY: Duration = Duration::from_secs(10 * 60);
 const PROBE: Duration = Duration::from_secs(20);
+const INSTALL_LOCK_WAIT: u64 = 15;
 const PROMOTE: Duration = Duration::from_secs(15 * 60);
 
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
@@ -134,7 +135,7 @@ fn prepare_script(target: &str, references: &BTreeSet<String>) -> String {
 
 /// Moves the staged runtime into place only whole, so `runtimes/SHA` never holds a north without its tree: the offloaded land checks resolve their harness tables from it.
 pub(super) fn install_script(target: &str) -> String {
-    format!("set -e; t=.local/state/north/runtimes/{target}; if [ -d \"$t/{TREE}\" ] && [ -x \"$t/north\" ]; then rm -rf \"$t.staging\"; exit 0; fi; rm -rf \"$t.old\"; if [ -e \"$t\" ]; then mv \"$t\" \"$t.old\"; fi; mv \"$t.staging\" \"$t\"; rm -rf \"$t.old\"")
+    format!("set -e; t=.local/state/north/runtimes/{target}; exec 9>>\"$t.lock\"; flock -w {INSTALL_LOCK_WAIT} 9; if [ -d \"$t/{TREE}\" ] && [ -x \"$t/north\" ]; then rm -rf \"$t.staging\"; exit 0; fi; rm -rf \"$t.old\"; if [ -e \"$t\" ]; then mv \"$t\" \"$t.old\"; fi; mv \"$t.staging\" \"$t\"; rm -rf \"$t.old\"")
 }
 
 fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
