@@ -152,3 +152,14 @@ fn a_turn_that_ends_while_its_background_command_runs_scores_idle_north_725_d035
     lines.push(text("assistant", 59, "Reading the poll output next."));
     assert_eq!(transcript(&lines), "unclear", "once its command has ended, a turn with no report is unclear again");
 }
+
+#[test]
+fn a_not_done_report_written_while_a_background_command_still_runs_scores_idle_gex45_n757_leases() {
+    let at = |n: u32| format!("2026-11-07T11:{n:02}:00Z");
+    let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let started = json!({"type": "user", "timestamp": at(12), "sessionId": "s", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "u1", "content": "Command running in background with ID: bclippy7."}]}});
+    let lines = vec![text("user", 5, "Item: north#757"), started, text("assistant", 14, "Clippy and the `lease_lifecycle` test run are queued in admission, and their end will notify me. Not done: still unlanded. Stop: capacity")];
+    let transcript = super::row::Transcript { lines: &lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) };
+
+    assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "idle");
+}

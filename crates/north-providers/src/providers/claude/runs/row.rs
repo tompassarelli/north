@@ -107,26 +107,36 @@ fn background(line: &Value, running: &mut BTreeSet<String>) {
     }
 }
 
-fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
+/// The transcript cut at each human line, each segment marked when it is an aside north will follow with another turn
+/// (cut short by an interrupt or a delivered message, opened by one, or ended while a background command ran), and
+/// whether a background command still runs at its end.
+fn segments(lines: &[Value]) -> (Vec<(bool, Vec<&Value>)>, bool) {
     let mut turns: Vec<(bool, Vec<&Value>)> = vec![(false, Vec::new())];
     let mut running: BTreeSet<String> = BTreeSet::new();
     for line in lines {
-        if human(line) {
-            let said = texts(line);
-            let delivered = DELIVERED.iter().any(|opening| said.starts_with(opening));
-            if (delivered || !running.is_empty() || said.starts_with(INTERRUPTED)) && let Some((aside, _)) = turns.last_mut() {
-                *aside = true;
-            }
-            background(line, &mut running);
-            turns.push((delivered, Vec::new()));
-        } else if let Some((_, turn)) = turns.last_mut() {
-            background(line, &mut running);
-            turn.push(line);
+        let said = human(line).then(|| texts(line));
+        let delivered = said.as_deref().is_some_and(|said| DELIVERED.iter().any(|opening| said.starts_with(opening)));
+        if let Some(said) = &said {
+            mark_aside(&mut turns, delivered || !running.is_empty() || said.starts_with(INTERRUPTED));
+        }
+        background(line, &mut running);
+        match said {
+            Some(_) => turns.push((delivered, Vec::new())),
+            None => turns.last_mut().map_or((), |(_, turn)| turn.push(line)),
         }
     }
-    if let Some((aside, _)) = turns.last_mut().filter(|_| !running.is_empty()) {
-        *aside = true;
+    mark_aside(&mut turns, !running.is_empty());
+    (turns, !running.is_empty())
+}
+
+fn mark_aside(turns: &mut [(bool, Vec<&Value>)], aside: bool) {
+    if aside && let Some((marked, _)) = turns.last_mut() {
+        *marked = true;
     }
+}
+
+fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
+    let (turns, waiting) = segments(lines);
     let reports: Vec<(String, &'static str)> = turns
         .iter()
         .filter_map(|(aside, turn)| {
@@ -145,7 +155,8 @@ fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
         _ => 2,
     };
     let best = reports.iter().map(rank).max()?;
-    reports.into_iter().rev().find(|turn| rank(turn) == best)
+    let (report, outcome) = reports.into_iter().rev().find(|turn| rank(turn) == best)?;
+    Some((report, if waiting && outcome != "done" { "idle" } else { outcome }))
 }
 
 pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
