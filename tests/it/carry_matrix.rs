@@ -97,6 +97,8 @@ impl Matrix {
             .env("SAFE_PUSH_LAND_BASE", &self.base)
             .env("FAKE_REMOTE_HOMES", self.host.path("remotes"))
             .env("NORTH_OFFLOAD_TARGET_FLOOR_MIB", "0")
+            .env("AGENT_CAPACITY_SETTLE_SECONDS", "0")
+            .env("AGENT_CAPACITY_CORES", "96")
             .env_remove("NORTH_DEV_SHELL")
             .env_remove("IN_NIX_SHELL")
             .env_remove("DEPBOX")
@@ -152,14 +154,14 @@ fn carry_matrix_every_entry_runs_the_dev_shell_cargo_sees_the_landing_base_and_e
             None => (output.status.code() != Some(127)).then(|| format!("{entry} [{MISSING}]: exit {:?}, not 127; stderr {}", output.status.code(), String::from_utf8_lossy(&output.stderr).trim())),
         }
     };
-    let run_entries = |entries: &[&str]| -> Vec<String> {
-        std::thread::scope(|scope| {
-            let runs: Vec<_> = entries.iter().flat_map(|entry| probes.iter().map(move |(probe, expected)| (*entry, *probe, *expected))).map(|(entry, probe, expected)| scope.spawn(move || check(entry, probe, expected))).collect();
-            runs.into_iter().filter_map(|run| run.join().unwrap()).collect()
-        })
-    };
-    let (sandboxed, others): (Vec<&str>, Vec<&str>) = ENTRIES.iter().partition(|entry| **entry == "depbox run");
-    let mut wrong = run_entries(&others);
-    wrong.extend(run_entries(&sandboxed));
+    let wrong: Vec<String> = std::thread::scope(|scope| {
+        let check = &check;
+        let spawn = |entry: &'static str| probes.iter().map(move |&(probe, expected)| scope.spawn(move || check(entry, probe, expected))).collect::<Vec<_>>();
+        let mut runs = spawn("offload run");
+        let prepared = matrix.north(&["capacity", "dev-shell", "run", "--prepare"], &[]);
+        assert!(prepared.status.success(), "dev-shell run --prepare: {}", String::from_utf8_lossy(&prepared.stderr));
+        runs.extend(ENTRIES.into_iter().filter(|entry| *entry != "offload run").flat_map(spawn));
+        runs.into_iter().filter_map(|run| run.join().unwrap()).collect()
+    });
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
