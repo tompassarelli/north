@@ -20,7 +20,7 @@ Commands:
   check provenance audit [--repo REPO] [--db DB] [--event EVENT]  Audit grounding events
   check provenance inventory [--repo REPO] [--rev REV] [--stubs]  Count the hooks, policy lines, tiers and bars no record names
   work review PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
-  ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per failed run on each open "main is red" issue
+  ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per new failure on each open "main is red" issue
   red-main-notify                               Tell each open "main is red" issue's culprit lane session and the proxy, once per culprit commit
   main-red RUN_ID                               Confirm a failed main CI run once, then ask the lander to revert its culprit (GH_REPO names the repository)
   language-gate --repo DIR --base REV --head REV  Check language policy

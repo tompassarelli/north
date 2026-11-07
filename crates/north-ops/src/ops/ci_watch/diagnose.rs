@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use north_github_mirror::read;
 use north_github_mirror::store::Mirror;
@@ -192,11 +193,27 @@ pub fn parse_judgement(raw: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
-pub fn comment(run: &Run, e: &Extraction, cause: &str) -> String {
+pub fn failure_key(workflow: &str, steps: &[String]) -> String {
+    let digest = Sha256::digest(format!("{workflow}\n{}", steps.join("\n")));
+    digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn failure_marker(key: &str) -> String {
+    format!("<!-- ci-diagnose-failure:{key} -->")
+}
+
+fn latest_failure_key(comments: &[String]) -> Option<&str> {
+    let tag = failure_marker("");
+    let tag = tag.trim_end_matches(" -->");
+    comments.iter().rev().find_map(|c| c.split_once(tag).and_then(|(_, rest)| rest.split_once(" -->")).map(|(key, _)| key))
+}
+
+pub fn comment(run: &Run, key: &str, e: &Extraction, cause: &str) -> String {
     let culprit = e.culprit.as_ref().map_or("none named".to_owned(), |c| format!("`{c}`"));
     format!(
-        "{}\n**CI diagnosis** for [{} run {}]({})\n\nFailing step: {}\nCulprit location: {culprit}\n\n```\n{}\n```\n\n{cause}",
+        "{}{}\n**CI diagnosis** for [{} run {}]({})\n\nFailing step: {}\nCulprit location: {culprit}\n\n```\n{}\n```\n\n{cause}",
         marker(run.database_id),
+        failure_marker(key),
         run.workflow_name,
         run.database_id,
         run.url,
@@ -206,7 +223,10 @@ pub fn comment(run: &Run, e: &Extraction, cause: &str) -> String {
 }
 
 pub fn diagnose_run(io: &dyn Io, repo: &str, picked: &Picked) -> Result<String, String> {
-    let condensed = condense(&io.log(repo, picked.failed.database_id)?);
+    diagnose_condensed(io, repo, picked, &condense(&io.log(repo, picked.failed.database_id)?))
+}
+
+fn diagnose_condensed(io: &dyn Io, repo: &str, picked: &Picked, condensed: &Condensed) -> Result<String, String> {
     let extraction = parse_extraction(&io.claude(Model::Haiku, &stage1_prompt(&condensed.text))?, &condensed.steps, &condensed.text)?;
     let compare = match &picked.base {
         Some(base) => Some(io.compare(repo, &base.head_sha, &picked.failed.head_sha)?),
@@ -214,17 +234,22 @@ pub fn diagnose_run(io: &dyn Io, repo: &str, picked: &Picked) -> Result<String, 
     };
     let stat = diff_stat(compare.as_ref());
     let cause = parse_judgement(&io.claude(Model::Opus, &stage2_prompt(&extraction, &stat))?)?;
-    Ok(comment(&picked.failed, &extraction, &cause))
+    Ok(comment(&picked.failed, &failure_key(&picked.failed.workflow_name, &condensed.steps), &extraction, &cause))
 }
 
 fn diagnose_repo(io: &dyn Io, repo: &str) -> Result<Option<String>, String> {
     let Some(issue) = io.issues(repo)?.into_iter().find(|i| i.title == TITLE) else { return Ok(None) };
     let Some(picked) = pick_run(&io.runs(repo)?) else { return Ok(None) };
     let seen = marker(picked.failed.database_id);
-    if io.comments(repo, issue.number)?.iter().any(|c| c.contains(&seen)) {
+    let comments = io.comments(repo, issue.number)?;
+    if comments.iter().any(|c| c.contains(&seen)) {
         return Ok(None);
     }
-    let body = diagnose_run(io, repo, &picked)?;
+    let condensed = condense(&io.log(repo, picked.failed.database_id)?);
+    if latest_failure_key(&comments) == Some(failure_key(&picked.failed.workflow_name, &condensed.steps).as_str()) {
+        return Ok(None);
+    }
+    let body = diagnose_condensed(io, repo, &picked, &condensed)?;
     io.post(repo, issue.number, &body)?;
     Ok(Some(format!("{repo}#{} run {}", issue.number, picked.failed.database_id)))
 }
@@ -313,6 +338,10 @@ impl Io for Shell {
     }
 }
 
+#[cfg(test)]
+#[path = "diagnose_tests.rs"]
+mod tests;
+
 fn dry_run(repo: &str, id: u64) -> Result<String, String> {
     let runs = Shell.runs(repo)?;
     let failed = match runs.iter().find(|r| r.database_id == id) {
@@ -337,7 +366,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         [flag] if flag == "-h" || flag == "--help" => {
             println!("{USAGE}");
-            println!("Comments once per failed run on each open \"main is red\" issue in north, firn and makgora: Haiku extracts");
+            println!("Comments once per new failure (a run failing the same workflow steps as the last diagnosis posts nothing) on each open \"main is red\" issue in north, firn and makgora: Haiku extracts");
             println!("the failing step, errors and culprit from the failed log, Opus judges the cause. --dry-run prints without posting.");
             0
         }
