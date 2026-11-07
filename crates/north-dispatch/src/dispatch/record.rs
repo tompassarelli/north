@@ -30,6 +30,9 @@ pub struct Record {
     pub tier: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
+    /// The one box of its item the launch staffs, when the issue lets several workers take its boxes at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_text: Option<String>,
     #[serde(default)]
     pub hand: bool,
     /// The effort arm it ran on, as its `Arm:` stamp.
@@ -74,7 +77,7 @@ pub fn append(directory: &Path, record: &Record) -> Result<(), String> {
 /// decide whether those tries count.
 pub fn contested(records: &[Record], at: f64) -> Vec<&Record> {
     let mut started: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
-    for record in records.iter().filter(|record| record.launched && !record.cloud && !record.hand && at - record.at < RETRY_WINDOW_S) {
+    for record in records.iter().filter(|record| record.launched && !record.cloud && !record.hand && record.box_text.is_none() && at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
             started.entry(item).or_default().push(record);
         }
@@ -88,7 +91,7 @@ pub fn contested(records: &[Record], at: f64) -> Vec<&Record> {
 /// its item no longer.
 pub fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, gone: &BTreeSet<String>) -> BTreeMap<IssueRef, String> {
     let mut tries: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
-    for record in records.iter().filter(|record| !record.hand && at - record.at < RETRY_WINDOW_S) {
+    for record in records.iter().filter(|record| !record.hand && record.box_text.is_none() && at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
             tries.entry(item).or_default().push(record);
         }
@@ -117,7 +120,7 @@ pub fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, go
 /// sessions dispatch holds them for, which may not show in any fleet list yet, less those in `gone`.
 pub fn launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BTreeMap<IssueRef, String> {
     let mut newest: BTreeMap<IssueRef, &Record> = BTreeMap::new();
-    for record in records.iter().filter(|record| !record.hand && !gone.contains(&record.name)) {
+    for record in records.iter().filter(|record| !record.hand && record.box_text.is_none() && !gone.contains(&record.name)) {
         if let Some(item) = IssueRef::parse(&record.item)
             && newest.get(&item).is_none_or(|seen| seen.at <= record.at)
         {
@@ -126,6 +129,19 @@ pub fn launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BTreeM
     }
     newest.into_iter().filter(|(_, last)| last.launched && at - last.at < hold(last)).map(|(item, last)| (item, format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0))).collect()
 }
+
+/// The boxes a dispatch launch staffed within its hold, whose sessions may not show in any fleet list yet, less those in `gone`: for each item the slug of each box with the launch that holds it.
+pub fn box_launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BoxHolds {
+    let mut held = BoxHolds::new();
+    for record in records.iter().filter(|record| record.launched && !record.hand && !gone.contains(&record.name) && at - record.at < hold(record)) {
+        let (Some(item), Some(slug)) = (IssueRef::parse(&record.item), record.box_text.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
+        held.entry(item).or_default().insert(slug, format!("north dispatch launch {} on {} {:.0} min ago", record.name, record.host, (at - record.at) / 60.0));
+    }
+    held
+}
+
+/// The boxes of each item a worker holds, by box slug, with the holder: what an issue's per-issue cap counts.
+pub type BoxHolds = BTreeMap<IssueRef, BTreeMap<String, String>>;
 
 /// Sessions dispatched to `host` in the last three hours, six for the cloud lane, whose issue is
 /// still open: the laptop and cloud lane counts, since no host here can list their sessions.

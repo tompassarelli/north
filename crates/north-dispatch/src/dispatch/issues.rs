@@ -134,6 +134,17 @@ impl Issue {
         self.takeable(at).filter(move |line| !wanted.is_empty() && line.contains(wanted))
     }
 
+    /// How many workers may take this issue's boxes at once: its `Workers: N` line, else one, which staffs the issue whole.
+    pub fn workers(&self) -> usize {
+        super::facets::declared(self, "Workers").and_then(|count| count.split_whitespace().next()?.parse().ok()).filter(|count| *count > 0).unwrap_or(1)
+    }
+
+    /// The first takeable box no worker in `held` has, as the text of its line without the checkbox.
+    pub fn free_box(&self, held: &BTreeSet<String>, at: f64) -> Option<String> {
+        self.takeable(at).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).find(|text| crate::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug)))
+            .map(str::to_owned)
+    }
+
     /// The needs the boxes `lines` declare with their own `Needs:` lines; a box with none declares none, whatever its prose mentions.
     pub fn needs_in<'a>(&self, lines: impl Iterator<Item = &'a str>) -> Vec<String> {
         let mut found: Vec<String> = lines.flat_map(|line| crate::pacing::placement::needs::declared(line).unwrap_or_default()).collect();
@@ -315,6 +326,8 @@ pub fn predecessors(issue: &Issue) -> Result<Vec<IssueRef>, String> {
 pub struct World<'a> {
     pub open: &'a BTreeSet<IssueRef>,
     pub holds: &'a BTreeMap<IssueRef, String>,
+    /// The boxes workers hold, by box slug, on issues that let several workers take their boxes at once.
+    pub box_holds: &'a super::record::BoxHolds,
     /// The fleet sessions every reached registry lists as running or parked on a wait.
     pub live: &'a BTreeSet<String>,
     pub planned: &'a BTreeMap<IssueRef, BTreeSet<IssueRef>>,
@@ -377,6 +390,15 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     }
     if let Some(holder) = world.holds.get(&reference) {
         return Err(format!("held by {holder}"));
+    }
+    if let Some(boxes) = world.box_holds.get(&reference) {
+        let cap = issue.workers();
+        if boxes.len() >= cap {
+            return Err(format!("{} workers hold its boxes, which is its cap of {cap}", boxes.len()));
+        }
+        if issue.free_box(&boxes.keys().cloned().collect(), world.at).is_none() {
+            return Err("every box a worker could take already has one".into());
+        }
     }
     if super::stops::awaits_decision(issue) {
         return Err("last worker stopped for a decision".into());

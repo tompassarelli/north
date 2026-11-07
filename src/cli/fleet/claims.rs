@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process;
-use crate::fleet::claims::{Claims, Rows};
+use crate::fleet::claims::{Claims, Rows, claim_key, split_key};
 use crate::threads::client;
 use crate::fleet::registry::Fleet;
 use crate::threads::catalog::CATALOG;
@@ -20,15 +20,25 @@ fn canonical(item: &str) -> String {
     CATALOG.parse_ref(item).map_or_else(|_| item.to_owned(), |(repo, number)| format!("{repo}#{number}"))
 }
 
+/// The `threads` words that name the claim key `key`: its issue in the spelling `threads claim` records, then `--box TEXT` when it covers one box.
+fn named(key: &str) -> Vec<String> {
+    let (item, box_text) = split_key(key);
+    let mut words = vec![canonical(item)];
+    words.extend(box_text.into_iter().flat_map(|text| ["--box".to_owned(), text.to_owned()]));
+    words
+}
+
 /// A host outlives runtime updates, and Linux then reports its replaced binary with a " (deleted)" suffix.
 fn running_north() -> NorthResult<std::path::PathBuf> {
     let exe = std::env::current_exe()?;
     Ok(exe.to_str().and_then(|path| path.strip_suffix(" (deleted)")).map_or(exe.clone(), std::path::PathBuf::from))
 }
 
-/// The ledger's line when the claim moved to `session` from an earlier owner; a fresh or renewed claim says only that `session` owns the item.
-fn moved(said: &str, item: &str, session: &str) -> Option<String> {
-    (said != format!("{session} owns {}", canonical(item))).then(|| said.to_owned())
+/// The ledger's line when the claim moved to `session` from an earlier owner; a fresh or renewed claim says only that `session` owns the issue, or one box of it.
+fn moved(said: &str, key: &str, session: &str) -> Option<String> {
+    let rest = said.strip_prefix(&format!("{session} owns {}", canonical(split_key(key).0)));
+    let plain = rest.is_some_and(|rest| rest.is_empty() || (rest.starts_with(" box ") && !rest.contains([';', ','])));
+    (!plain).then(|| said.to_owned())
 }
 
 /// A verb that only reads leaves the sweep to the mutating verbs, because the hooks that call `fleet list` run on every prompt.
@@ -152,25 +162,34 @@ impl ThreadsCli {
 }
 
 impl Claims for ThreadsCli {
-    fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
-        match self.write(&["claim", item, "--by", session]) {
+    fn hold(&self, key: &str, session: &str) -> NorthResult<Option<String>> {
+        let named = named(key);
+        let words: Vec<&str> = ["claim"].into_iter().chain(named.iter().map(String::as_str)).chain(["--by", session]).collect();
+        match self.write(&words) {
             Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
-            other => other.map(|said| said.and_then(|said| moved(said.trim(), item, session))),
+            other => other.map(|said| said.and_then(|said| moved(said.trim(), key, session))),
         }
     }
 
-    fn release(&self, item: &str, session: &str) -> NorthResult<()> {
-        self.write(&["release", &canonical(item), "--by", session, "--held-by", session]).map(drop)
+    fn release(&self, key: &str, session: &str) -> NorthResult<()> {
+        let named = named(key);
+        let words: Vec<&str> = ["release"].into_iter().chain(named.iter().map(String::as_str)).chain(["--by", session, "--held-by", session]).collect();
+        self.write(&words).map(drop)
     }
 
     fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
         let words: Vec<String> = match rows {
-            Rows::Items(items) => items.iter().map(|item| canonical(item)).collect(),
+            Rows::Items(items) => items.iter().map(|item| canonical(split_key(item).0)).collect(),
             Rows::Owners(owners) => owners.iter().flat_map(|owner| ["--owner".to_owned(), owner.clone()]).collect(),
         };
         let args: Vec<&str> = std::iter::once("holder").chain(words.iter().map(String::as_str)).collect();
         let rows: Value = serde_json::from_str(&self.threads(&args)?)?;
-        Ok(rows.as_array().into_iter().flatten().filter_map(|row| Some((row["item"].as_str()?.to_owned(), row["owner"].as_str()?.to_owned()))).collect())
+        Ok(rows
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| Some((claim_key(row["item"].as_str()?, row["box"].as_str()), row["owner"].as_str()?.to_owned())))
+            .collect())
     }
 }
 

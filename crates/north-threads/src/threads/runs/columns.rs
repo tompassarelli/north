@@ -3,7 +3,8 @@ use rusqlite::Connection;
 
 use crate::threads::verb::Failure;
 
-const ADDED: [(&str, &str); 5] = [
+const ADDED: [(&str, &str); 6] = [
+    ("box", "TEXT"),
     ("fleet_name", "TEXT"),
     ("stop", "TEXT"),
     ("budget_usd", "REAL"),

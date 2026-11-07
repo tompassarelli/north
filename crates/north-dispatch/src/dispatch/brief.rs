@@ -10,10 +10,12 @@ pub const HAIKU_WAIT: &str = " Run any command that may take over a minute in th
 pub const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
 
 /// The brief for one ready issue; its first block, before the blank line, is what placement and
-/// routing read.
-pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds) -> String {
+/// routing read. `box_text` names the one box of an issue that lets several workers take its boxes at once on a `Box:` line, which the launch claims alone.
+pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds, box_text: Option<&str>) -> String {
     let reference = issue.reference();
-    let mut head = vec![format!("Item: {reference} {}", issue.title), format!("Repository: {OWNER}/{}", issue.repo)];
+    let mut head = vec![format!("Item: {reference} {}", issue.title)];
+    head.extend(box_text.map(|text| format!("Box: {text}")));
+    head.push(format!("Repository: {OWNER}/{}", issue.repo));
     head.extend(FACETS.iter().map(|(key, _)| format!("{key}: {}", facet(issue, key))));
     head.extend(declared(issue, "Class").map(|class| format!("Class: {class}")));
     head.extend(crate::router::brief::lands_before_native(&facet(issue, "Verify"), &facet(issue, "Category")).then(|| "Lands-before: native".to_owned()));
@@ -38,14 +40,16 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds)
     head.push(format!("Files: as {reference} names them"));
     format!(
         "{}\n\n{launched_by} staffed this box because a worker slot was free and {reference} was ready: open, unticked, unheld and unblocked. \
-         Read it with `gh issue view {} -R {OWNER}/{}` and work its unticked Done-when boxes; each box's evidence is an observation outside you. \
-         Claim it with `threads claim {reference}` first, and stop with `Not done:` if someone else holds it. \
+         Read it with `gh issue view {} -R {OWNER}/{}` and work {}; each box's evidence is an observation outside you. \
+         Claim it with `threads claim {reference}{}` first, and stop with `Not done:` if someone else holds it. \
          Load the skills the issue's work needs, edit in a worktree, land through safe-push, tick each box with its evidence and close the issue with the SHA on origin/main. \
          File a new issue only for a real blocker (a `Blocks: REPO#N` body line links it) or an outcome independent of {reference}; add the pieces of your own task as boxes on {reference}, and the filing guard refuses a split of it and a title matching an open issue. \
          End with Done:, Not done: or Split:, and Stop: with its reason: `Stop: host NAME` when only another host or need (laptop, native) can finish the box, `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, after adding `(not before YYYY-MM-DDTHH:MMZ)` to each box that waits so dispatch and `north graph ready` hold it.{}{}",
         head.join("\n"),
         issue.number,
         issue.repo,
+        if box_text.is_some() { "only its Box: box, because other workers take its other boxes at once, and tick that box with its evidence (close the issue only when you tick its last box)" } else { "its unticked Done-when boxes" },
+        if box_text.is_some() { " --box <the text of your Box: line>" } else { "" },
         if route.tier == Tier::Haiku { HAIKU_WAIT } else { "" },
         cleanup_orders(issue, &reference),
     )

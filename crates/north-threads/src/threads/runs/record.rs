@@ -14,6 +14,7 @@ use crate::platform::pyjson::Value;
 use crate::platform::run_roles;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::Moved as ClaimMoved;
+use crate::threads::claims::{box_slug, key};
 use crate::threads::verb::{Context, Failure, event_as};
 
 const ROLES: [&str; 5] = ["worker", "parent", "proxy", "routine", "probe"];
@@ -73,6 +74,11 @@ impl Run {
     /// The issue the commit this run landed on origin/main names in its subject.
     fn landed_item(&self) -> Option<String> {
         self.r.get("landed_ref").and_then(issue_ref)
+    }
+
+    /// The box of its item the run works: its fleet session's `--box`, else the brief's `Box:` line.
+    fn box_text(&self) -> Option<String> {
+        self.worker().then(|| self.r.get("box").and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned).or_else(|| self.f.box_text.clone())).flatten()
     }
 
     /// A worker's Item; any other run is attributed only through its landed commit.
@@ -167,6 +173,9 @@ impl Ingest<'_> {
     fn attributed(&self, run: &Run) -> Result<(), Failure> {
         if let Some(name) = run.r.get("fleet_name").and_then(Value::as_str) {
             self.db.execute("UPDATE runs SET fleet_name = coalesce(fleet_name, ?) WHERE agent = ?", params![name, run.agent()?])?;
+        }
+        if let Some(text) = run.box_text() {
+            self.db.execute("UPDATE runs SET box = coalesce(box, ?) WHERE agent = ?", params![text, run.agent()?])?;
         }
         if run.r.has("stop") {
             self.db.execute("UPDATE runs SET stop = ? WHERE agent = ?", params![run.r.get("stop").and_then(Value::as_str), run.agent()?])?;
@@ -342,21 +351,22 @@ impl Ingest<'_> {
     fn record(&mut self, run: &Run) -> Result<(), Failure> {
         let item = run.attributed();
         let follows = run.either(run.f.follows.as_deref(), "follows");
-        let claim: Option<String> = match &item {
-            Some(item) => self.db.query_row("SELECT owner FROM claims WHERE item = ?", [item], |row| row.get(0)).optional()?,
+        let held = item.as_deref().map(|item| key(item, run.box_text().as_deref().and_then(box_slug).as_deref()));
+        let claim: Option<String> = match &held {
+            Some(held) => self.db.query_row("SELECT owner FROM claims WHERE item = ?", [held], |row| row.get(0)).optional()?,
             None => None,
         };
         let mine = claim.as_deref().is_some_and(|owner| run.id == *owner);
         if run.status == "running" && run.worker() {
-            if let Some(item) = item.as_deref().filter(|_| !mine) {
-                self.hold(item, run, claim.as_deref(), &follows)?;
+            if let (Some(item), Some(held)) = (item.as_deref(), held.as_deref().filter(|_| !mine)) {
+                self.hold(item, held, run, claim.as_deref(), &follows)?;
             }
             return self.created(run, item.as_deref(), &follows);
         }
-        if let Some(item) = item.as_deref().filter(|_| mine) {
-            self.db.execute("DELETE FROM claims WHERE item = ?", [item])?;
+        if let (Some(item), Some(held)) = (item.as_deref(), held.as_deref().filter(|_| mine)) {
+            self.db.execute("DELETE FROM claims WHERE item = ?", [held])?;
             self.event(item, "release", run, Value::object([("why", run.status.clone())]))?;
-            self.tally.claims.push(ClaimMoved::released(item, format!("released by {}: its run {}", run.id.as_str().unwrap_or_default(), run.status.as_str().unwrap_or_default())));
+            self.tally.claims.push(ClaimMoved::released(held, format!("released by {}: its run {}", run.id.as_str().unwrap_or_default(), run.status.as_str().unwrap_or_default())));
         }
         if run.status != "finished" && run.worker() {
             return Ok(());
@@ -365,17 +375,17 @@ impl Ingest<'_> {
     }
 
     /// A running worker holds its brief's issue; taking it from someone else is a handoff.
-    fn hold(&mut self, item: &str, run: &Run, claim: Option<&str>, follows: &Value) -> Result<(), Failure> {
+    fn hold(&mut self, item: &str, held: &str, run: &Run, claim: Option<&str>, follows: &Value) -> Result<(), Failure> {
         let r = &run.r;
         let prev = claim.map_or_else(|| follows.clone(), Value::from);
         let since = bind(Some(&r.or("started", Value::from(self.context.now.iso()))))?;
         if claim.is_some() {
-            self.db.execute("UPDATE claims SET owner = ?, since = ?, eta_min = ? WHERE item = ?", params![run.agent()?, since, r.rounded("eta_min")?, item])?;
-            self.tally.claims.push(ClaimMoved::held(item, format!("taken by {} for its running run", run.id.as_str().unwrap_or_default())));
+            self.db.execute("UPDATE claims SET owner = ?, since = ?, eta_min = ? WHERE item = ?", params![run.agent()?, since, r.rounded("eta_min")?, held])?;
+            self.tally.claims.push(ClaimMoved::held(held, format!("taken by {} for its running run", run.id.as_str().unwrap_or_default())));
         } else {
-            self.db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", params![item, run.agent()?, since, r.rounded("eta_min")?])?;
+            self.db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", params![held, run.agent()?, since, r.rounded("eta_min")?])?;
             self.event(item, "claim", run, Value::object([("eta_min", r.get_or("eta_min", Value::Null))]))?;
-            self.tally.claims.push(ClaimMoved::held(item, format!("claimed by {} for its running run", run.id.as_str().unwrap_or_default())));
+            self.tally.claims.push(ClaimMoved::held(held, format!("claimed by {} for its running run", run.id.as_str().unwrap_or_default())));
         }
         if truthy(&prev) && prev != run.id {
             self.event(item, "handoff", run, Value::object([("from", prev), ("to", run.id.clone())]))?;

@@ -198,6 +198,7 @@ impl LaunchForm {
             idle_exit_minutes: None,
             parent: self.parent.clone(),
             task_ref: None,
+            claim_box: None,
             placement: None,
             machine: None,
             capacity_need: None,

@@ -141,6 +141,7 @@ impl Start {
             detail: self.overridden.as_ref().map_or_else(|| self.route.why.clone(), |reason| format!("tier override: {reason}")),
             tier: (!overridden).then(|| self.route.tier.name().to_owned()),
             category: Some(self.route.category.clone()),
+            box_text: None,
             hand: true,
             effort_arm: self.route.stamp().filter(|_| !overridden).map(str::to_owned),
             effort: self.route.effort.filter(|_| !overridden).map(|effort| effort.name().to_owned()),

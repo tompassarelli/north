@@ -124,6 +124,7 @@ fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would
             idle_exit_minutes: None,
             parent: Some("proxy".into()),
             task_ref: Some("north#636".into()),
+            claim_box: None,
             placement: None,
             machine: None,
             capacity_need: None,

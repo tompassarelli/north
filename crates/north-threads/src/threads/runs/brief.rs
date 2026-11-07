@@ -15,6 +15,7 @@ static ITEM: LazyLock<Regex> = LazyLock::new(|| field("Item"));
 static FOLLOWS: LazyLock<Regex> = LazyLock::new(|| field("Follows"));
 static ARM: LazyLock<Regex> = LazyLock::new(|| field("Arm"));
 static CATEGORY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bCategory:[ \t]*([A-Za-z-]+)").expect("category pattern"));
+static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[#\s]*Box:[ \t]*(\S[^\n]*?)\s*$").expect("box pattern"));
 static LENS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bLens:[ \t]*([^.;,\n`<>]+)").expect("lens pattern"));
 static FACET: LazyLock<Vec<Regex>> = LazyLock::new(|| FACETS.iter().map(|(name, _)| Regex::new(&format!(r"\b{name}:[ \t]*([A-Za-z-]+)")).expect("facet pattern")).collect());
 
@@ -22,6 +23,8 @@ static FACET: LazyLock<Vec<Regex>> = LazyLock::new(|| FACETS.iter().map(|(name, 
 #[derive(Default)]
 pub struct Fields {
     pub item: Option<String>,
+    /// The brief's own `Box:` line, the one box of its item the run works.
+    pub box_text: Option<String>,
     pub follows: Option<String>,
     pub arm: Option<String>,
     pub category: Option<String>,
@@ -37,6 +40,7 @@ impl Fields {
         let facets = std::array::from_fn(|index| first(&FACET[index]).map(|text| text.to_lowercase()).filter(|text| FACETS[index].1.contains(&text.as_str())));
         Self {
             item: named(&ITEM),
+            box_text: first(&BOX),
             follows: named(&FOLLOWS),
             arm: named(&ARM),
             category: first(&CATEGORY).map(|text| text.trim().to_lowercase()),

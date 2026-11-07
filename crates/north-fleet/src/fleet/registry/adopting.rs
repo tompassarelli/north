@@ -40,6 +40,7 @@ impl Fleet {
             idle_exit_minutes: None,
             parent: None,
             task_ref: None,
+            claim_box: None,
             placement: Some(format!("adopted window, process {}", inbox.pid)),
             machine: None,
             capacity_need: None,

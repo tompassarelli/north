@@ -23,6 +23,8 @@ static SESSION_ITEMS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|makgo
 pub struct Session {
     pub name: String,
     pub items: Vec<IssueRef>,
+    /// The one box of its first item it works, when it holds that box and not the whole issue.
+    pub claim_box: Option<String>,
     /// The machine it runs on, when the registry that launched it names one.
     pub machine: Option<String>,
     /// Whether it is taking a turn now, which is what a host slot and the working target count; an idle session or a parked one waiting on a registered run holds its items and no slot.
@@ -94,7 +96,7 @@ pub fn running_sessions(listing: &Value) -> Vec<Session> {
             };
             let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
-            Session { machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" }
+            Session { claim_box: session["box"].as_str().map(str::to_owned), machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" }
         })
         .collect()
 }
@@ -153,11 +155,22 @@ pub fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap
         if let Some(machine) = session.machine.as_ref().filter(|machine| session.working && *machine != registry) {
             *elsewhere.entry(machine.clone()).or_insert(0) += 1;
         }
-        for item in &session.items {
+        let whole = if session.claim_box.is_some() { session.items.get(1..).unwrap_or_default() } else { &session.items[..] };
+        for item in whole {
             holds.insert(item.clone(), format!("fleet session {} on {registry}", session.name));
         }
     }
     (elsewhere, holds)
+}
+
+/// The boxes the running sessions work, by item and box slug, which an issue's per-issue cap counts.
+pub fn box_tally(sessions: &[(Session, String)]) -> record::BoxHolds {
+    let mut held = record::BoxHolds::new();
+    for (session, registry) in sessions {
+        let (Some(item), Some(slug)) = (session.items.first(), session.claim_box.as_deref().and_then(crate::threads::claims::box_slug)) else { continue };
+        held.entry(item.clone()).or_default().insert(slug, format!("fleet session {} on {registry}", session.name));
+    }
+    held
 }
 
 /// The first of `items` a running session or a fresh dispatch launch holds, with its holder.

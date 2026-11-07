@@ -12,8 +12,26 @@ pub enum Rows<'a> {
     Owners(&'a BTreeSet<String>),
 }
 
+/// What a claim key carries between an issue and the text of the box it covers, as `north#9@the box`; a key without it covers the whole issue.
+const BOX_MARK: char = '@';
+
+/// The key a launch's claim on `task` has: the task alone, or the box of it `box_text` names.
+pub fn claim_key(task: &str, box_text: Option<&str>) -> String {
+    box_text.map_or_else(|| task.to_owned(), |text| format!("{task}{BOX_MARK}{text}"))
+}
+
+/// The issue and the box text a claim key names.
+pub fn split_key(key: &str) -> (&str, Option<&str>) {
+    key.split_once(BOX_MARK).map_or((key, None), |(task, text)| (task, Some(text)))
+}
+
+/// The keys of the claims a launch of `tasks` makes: the box applies to the first task, whose issue it is a box of.
+pub fn claim_keys(tasks: &[String], box_text: Option<&str>) -> Vec<String> {
+    tasks.iter().enumerate().map(|(index, task)| claim_key(task, box_text.filter(|_| index == 0))).collect()
+}
+
 pub trait Claims: Send + Sync {
-    /// Claims `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`, and Some says from whom and why.
+    /// Claims the claim key `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`, and Some says from whom and why.
     fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>>;
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
@@ -45,16 +63,16 @@ pub fn own_tasks(claims: &dyn Claims, tasks: &[String], ancestors: &BTreeSet<Str
     if ancestors.is_empty() || tasks.is_empty() {
         return tasks.to_vec();
     }
-    let above: BTreeSet<String> = claims.holders(Rows::Items(tasks)).unwrap_or_default().into_iter().filter(|(_, owner)| ancestors.contains(owner)).map(|(item, _)| item).collect();
-    tasks.iter().filter(|task| !above.contains(*task)).cloned().collect()
+    let issues: Vec<String> = tasks.iter().map(|task| split_key(task).0.to_owned()).collect();
+    let above: BTreeSet<String> = claims.holders(Rows::Items(&issues)).unwrap_or_default().into_iter().filter(|(_, owner)| ancestors.contains(owner)).map(|(key, _)| split_key(&key).0.to_owned()).collect();
+    tasks.iter().filter(|task| !above.contains(split_key(task).0)).cloned().collect()
 }
 
 pub fn hold_for(claims: &dyn Claims, record: &SessionRecord, ancestors: &BTreeSet<String>) {
     if record.verification {
         return;
     }
-    let tasks: Vec<String> = record.tasks().map(str::to_owned).collect();
-    for task in own_tasks(claims, &tasks, ancestors) {
+    for task in own_tasks(claims, &record.claim_keys(), ancestors) {
         if let Err(error) = claims.hold(&task, &record.name) {
             eprintln!("north fleet: {} does not hold {task}: {}", record.name, error.user_message());
         }
@@ -90,8 +108,8 @@ pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
     if record.verification {
         return;
     }
-    for task in record.tasks() {
-        if let Err(error) = claims.release(task, &record.name) {
+    for task in record.claim_keys() {
+        if let Err(error) = claims.release(&task, &record.name) {
             eprintln!("north fleet: {} did not release {task}: {}", record.name, error.user_message());
         }
     }
@@ -122,7 +140,7 @@ impl Claims for Held {
             }
         }
         held.retain(|(item, owner)| match rows {
-            Rows::Items(items) => items.contains(item),
+            Rows::Items(items) => items.iter().any(|issue| issue == split_key(item).0),
             Rows::Owners(owners) => owners.contains(owner),
         });
         Ok(held)
@@ -176,5 +194,18 @@ mod tests {
         }
         assert_eq!(claims.holders(Rows::Items(&tasks)).unwrap(), [("north#757".to_owned(), "n-state-machines".to_owned())]);
         assert_eq!(own_tasks(&claims, &tasks, &BTreeSet::from(["proxy".to_owned()])), tasks, "a launch outside the lead's tree still claims, so the live holder refuses it");
+    }
+
+    #[test]
+    fn a_launch_claims_the_box_it_names_on_its_first_task_and_a_lead_holding_the_whole_issue_covers_it() {
+        let tasks = ["north#782".to_owned(), "north#9".to_owned()];
+        let keys = claim_keys(&tasks, Some("the staffing replays"));
+        assert_eq!(keys, ["north#782@the staffing replays", "north#9"]);
+        assert_eq!(split_key(&keys[0]), ("north#782", Some("the staffing replays")));
+        let claims = Held::default();
+        claims.hold("north#782", "n-lead").unwrap();
+        let lead = BTreeSet::from(["n-lead".to_owned()]);
+        assert_eq!(own_tasks(&claims, &keys, &lead), ["north#9"], "the lead's whole claim covers the box its child works");
+        assert_eq!(own_tasks(&claims, &keys, &BTreeSet::new()), keys);
     }
 }

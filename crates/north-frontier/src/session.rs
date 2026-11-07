@@ -71,6 +71,7 @@ fn request(task: &Task, name: &str, tree: &Path, brief: &str) -> Result<LaunchRe
         idle_exit_minutes: None,
         parent: None,
         task_ref: Some(task.issue.clone()),
+        claim_box: None,
         placement: None,
         machine: None,
         capacity_need: None,

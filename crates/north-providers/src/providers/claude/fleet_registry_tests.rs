@@ -204,6 +204,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
         idle_exit_minutes: None,
         parent: None,
         task_ref: None,
+        claim_box: None,
         placement: None,
         machine: None,
         capacity_need: None,

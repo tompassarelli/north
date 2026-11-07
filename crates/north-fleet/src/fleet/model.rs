@@ -78,6 +78,9 @@ pub struct LaunchRequest {
     pub idle_exit_minutes: Option<u64>,
     pub parent: Option<String>,
     pub task_ref: Option<String>,
+    /// The box of the task this launch works alone, from `--box`, which its claim covers instead of the whole issue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_box: Option<String>,
     /// Why the launch overrode placement (`local: REASON`, `pin: REASON`), shown in `fleet list`.
     pub placement: Option<String>,
     pub machine: Option<Machine>,
@@ -153,6 +156,11 @@ impl LaunchRequest {
         super::silent::eta_minutes(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::silent::eta_minutes(&brief)))
     }
 
+    /// The box this launch claims: `--box`, else the brief's own `Box:` line, never the Item line [`box_name`] falls back to.
+    pub fn claimed_box(&self) -> Option<String> {
+        self.claim_box.clone().or_else(|| boxed(&self.prompt)).or_else(|| self.named_brief().and_then(|brief| boxed(&brief)))
+    }
+
     /// The box the brief names, in the prompt or else in the brief it points at: see [`box_name`].
     pub fn box_name(&self) -> Option<String> {
         box_name(&self.prompt).or_else(|| self.named_brief().and_then(|brief| box_name(&brief)))
@@ -215,13 +223,19 @@ pub fn item_issues(text: &str) -> Vec<String> {
     found
 }
 
+/// The text after `label` on the first line of `text` that starts with it, ignoring leading `#` and spaces.
+fn named_line<'a>(text: &'a str, label: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| line.trim_start_matches(|c: char| c == '#' || c.is_whitespace()).strip_prefix(label).map(str::trim))
+}
+
+/// The brief's own non-empty `Box:` line.
+pub fn boxed(text: &str) -> Option<String> {
+    named_line(text, "Box:").filter(|name| !name.is_empty()).map(str::to_owned)
+}
+
 /// The brief's `Box:` line, else its first `Item:` line when that names more than its issues; None for a bare `Item: repo#N`.
 pub fn box_name(text: &str) -> Option<String> {
-    let named = |label: &str| text.lines().find_map(|line| line.trim_start_matches(|c: char| c == '#' || c.is_whitespace()).strip_prefix(label).map(str::trim));
-    if let Some(name) = named("Box:").filter(|name| !name.is_empty()) {
-        return Some(name.to_owned());
-    }
-    named("Item:").filter(|item| item.split_whitespace().any(|word| issue_word(word).is_none())).map(str::to_owned)
+    boxed(text).or_else(|| named_line(text, "Item:").filter(|item| item.split_whitespace().any(|word| issue_word(word).is_none())).map(str::to_owned))
 }
 
 pub fn first_item_issue(text: &str) -> Option<String> {
@@ -284,6 +298,9 @@ pub struct SessionRecord {
     pub budget: Option<super::budget::Stated>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub box_name: Option<String>,
+    /// The box of its task its claim covers instead of the whole issue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_box: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adopted_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -332,6 +349,7 @@ impl SessionRecord {
             prompt_sender: None,
             budget: request.budget(),
             box_name: request.box_name(),
+            claim_box: request.claimed_box(),
             adopted_ms: None,
             revived_mid_task_ms: None,
             phase: None,
@@ -371,6 +389,12 @@ impl SessionRecord {
         self.task_ref.iter().chain(&self.extra_tasks).map(String::as_str)
     }
 
+    /// The keys of the claims this session holds: each task, the first as the box its launch named.
+    pub fn claim_keys(&self) -> Vec<String> {
+        let tasks: Vec<String> = self.tasks().map(str::to_owned).collect();
+        super::claims::claim_keys(&tasks, self.claim_box.as_deref())
+    }
+
     /// The oldest message to this session's name it takes: its own start, or the start of the session it took the name over from.
     pub fn addressed_since(&self) -> u64 {
         self.addressed_since_ms.unwrap_or(self.created_ms)
@@ -392,6 +416,7 @@ impl SessionRecord {
             idle_exit_minutes: self.idle_exit_minutes,
             parent: self.parent.clone(),
             task_ref: self.task_ref.clone(),
+            claim_box: self.claim_box.clone(),
             placement: self.placement.clone(),
             machine: self.machine.clone(),
             capacity_need: self.capacity_need.clone(),

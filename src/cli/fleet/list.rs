@@ -149,6 +149,7 @@ pub(super) fn session_json(record: &SessionRecord, status: Status, waits: &Waits
         "effort": record.effort.map(Effort::label),
         "conversation": record.conversation,
         "task_ref": record.task_ref,
+        "box": record.claim_box,
         "tasks": record.tasks().collect::<Vec<_>>(),
         "created_ms": record.created_ms,
         "host_pid": record.host_pid,

@@ -6,12 +6,12 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde_json::json;
 
-use super::{Claim, Issue, Standing};
+use super::{Claim, Issue, Standing, key, split_key};
 use crate::foundation::clock::Timestamp;
 
 const BUSY: Duration = Duration::from_secs(60);
 const CLAIMS: &str = "SELECT c.item, c.owner, c.since, c.eta_min, \
-    (SELECT max(e.ts) FROM events e WHERE e.item = c.item AND e.actor = c.owner) FROM claims c";
+    (SELECT max(e.ts) FROM events e WHERE e.item = CASE WHEN instr(c.item, '@') > 0 THEN substr(c.item, 1, instr(c.item, '@') - 1) ELSE c.item END AND e.actor = c.owner) FROM claims c";
 
 /// What `take` did with an item's claim row.
 #[derive(Debug, PartialEq)]
@@ -38,8 +38,10 @@ fn seconds(text: &str) -> Option<i64> {
 fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Claim> {
     let since: String = row.get(2)?;
     let seen: Option<String> = row.get(4)?;
+    let (item, slug) = split_key(&row.get::<_, String>(0)?);
     Ok(Claim {
-        item: row.get(0)?,
+        item,
+        slug,
         owner: row.get(1)?,
         since: seconds(&since).unwrap_or(0),
         eta_min: row.get(3)?,
@@ -54,14 +56,16 @@ pub fn claims(db: &Connection) -> Result<Vec<Claim>, String> {
     rows.collect::<rusqlite::Result<_>>().map_err(|error| error.to_string())
 }
 
-/// The (item, owner) rows on `items` and those `owners` hold, one lookup per item on the claims key or per owner, each row once.
+/// The (claims key, owner) rows on `items`, whole or by box, and those `owners` hold, one lookup per item on the claims key or per owner, each row once.
 pub fn holders(db: &Connection, items: &[String], owners: &[String]) -> Result<Vec<(String, String)>, String> {
     let failed = |error: rusqlite::Error| error.to_string();
     let pair = |row: &rusqlite::Row<'_>| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?));
     let mut found = BTreeSet::new();
-    let mut by_item = db.prepare("SELECT item, owner FROM claims WHERE item = ?1").map_err(failed)?;
+    let mut by_item = db.prepare("SELECT item, owner FROM claims WHERE item = ?1 OR substr(item, 1, length(?1) + 1) = ?1 || '@'").map_err(failed)?;
     for item in items {
-        found.extend(by_item.query_row([item], pair).optional().map_err(failed)?);
+        for row in by_item.query_map([item], pair).map_err(failed)? {
+            found.insert(row.map_err(failed)?);
+        }
     }
     let mut by_owner = db.prepare("SELECT item, owner FROM claims WHERE owner = ?1").map_err(failed)?;
     for owner in owners {
@@ -71,7 +75,6 @@ pub fn holders(db: &Connection, items: &[String], owners: &[String]) -> Result<V
     }
     Ok(found.into_iter().collect())
 }
-
 /// A native item's standing from the ledger's own item table.
 pub fn native(db: &Connection, ns: &str, number: u64) -> Issue {
     let Ok(number) = i64::try_from(number) else { return Issue::Missing };
@@ -85,45 +88,55 @@ pub fn native(db: &Connection, ns: &str, number: u64) -> Issue {
         Err(_) => Issue::Unread,
     }
 }
-
 fn event(db: &Connection, at: &str, item: &str, kind: &str, actor: &str, data: &serde_json::Value) -> rusqlite::Result<usize> {
     db.execute("INSERT INTO events(ts, item, kind, actor, data) VALUES (?1, ?2, ?3, ?4, ?5)", params![at, item, kind, actor, data.to_string()])
 }
 
-/// Claims `item` for `by` in one immediate transaction: a new claim, a renewal of `by`'s own, a
-/// replacement of a void claim, a takeover of a stale one, or a refusal by a live one.
-pub fn take(db: &mut Connection, item: &str, by: &str, eta_min: Option<i64>, issue: Issue, alive: Option<&BTreeSet<String>>, now: i64) -> Result<Taken, String> {
+/// Claims the whole issue `item`, or its box `slug`, named as `(item, slug)`, for `by` in one immediate transaction, and returns what it did with the claims key it wrote or refused: a new claim, a renewal of `by`'s own, a
+/// replacement of a void claim, a takeover of a stale one, or a refusal by a live one. A box claim refuses beside a live claim on the
+/// whole issue and a whole claim beside a live claim on any box, while two boxes of one issue never refuse each other; a whole claim by
+/// a session that already holds a box of the issue renews that box.
+pub fn take(db: &mut Connection, (item, slug): (&str, Option<&str>), by: &str, eta_min: Option<i64>, issue: Issue, alive: Option<&BTreeSet<String>>, now: i64) -> Result<(Taken, String), String> {
     let at = Timestamp::from_unix_seconds(now).iso();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
-    let held = tx.query_row(&format!("{CLAIMS} WHERE c.item = ?1"), [item], row).optional().map_err(|error| error.to_string())?;
-    let taken = match held {
-        None => Taken::Fresh,
-        Some(claim) if claim.owner == by => Taken::Renewed,
-        Some(claim) => match claim.standing(issue, alive, now) {
-            Standing::Live => Taken::Refused(claim),
-            Standing::Void(why) => Taken::Voided { previous: claim, why },
-            Standing::Stale { idle_since } => Taken::Takeover { previous: claim, idle_since },
+    let mut statement = tx.prepare(&format!("{CLAIMS} WHERE c.item = ?1 OR substr(c.item, 1, length(?1) + 1) = ?1 || '@'")).map_err(|error| error.to_string())?;
+    let on_issue: Vec<Claim> = statement.query_map([item], row).map_err(|error| error.to_string())?.collect::<rusqlite::Result<_>>().map_err(|error| error.to_string())?;
+    drop(statement);
+    let own_box = on_issue.iter().find(|claim| claim.owner == by && claim.slug.is_some()).filter(|_| slug.is_none());
+    let target = own_box.map_or_else(|| key(item, slug), Claim::key);
+    let whole = slug.is_none() && own_box.is_none();
+    let held = on_issue.iter().find(|claim| claim.key() == target);
+    let beside = on_issue.iter().filter(|claim| claim.owner != by && claim.key() != target && (whole || claim.slug.is_none())).find(|claim| matches!(claim.standing(issue, alive, now), Standing::Live));
+    let taken = match (held, beside) {
+        (_, Some(claim)) => Taken::Refused(claim.clone()),
+        (None, None) => Taken::Fresh,
+        (Some(claim), None) if claim.owner == by => Taken::Renewed,
+        (Some(claim), None) => match claim.standing(issue, alive, now) {
+            Standing::Live => Taken::Refused(claim.clone()),
+            Standing::Void(why) => Taken::Voided { previous: claim.clone(), why },
+            Standing::Stale { idle_since } => Taken::Takeover { previous: claim.clone(), idle_since },
         },
     };
+    let boxed = json!(slug);
     let written = match &taken {
         Taken::Refused(_) => Ok(0),
         Taken::Fresh => tx
-            .execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?1, ?2, ?3, ?4)", params![item, by, at, eta_min])
-            .and_then(|_| event(&tx, &at, item, "claim", by, &json!({"eta_min": eta_min}))),
+            .execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?1, ?2, ?3, ?4)", params![target, by, at, eta_min])
+            .and_then(|_| event(&tx, &at, item, "claim", by, &json!({"eta_min": eta_min, "box": boxed}))),
         Taken::Renewed => tx
-            .execute("UPDATE claims SET since = ?2, eta_min = COALESCE(?3, eta_min) WHERE item = ?1", params![item, at, eta_min])
-            .and_then(|_| event(&tx, &at, item, "claim", by, &json!({"eta_min": eta_min}))),
+            .execute("UPDATE claims SET since = ?2, eta_min = COALESCE(?3, eta_min) WHERE item = ?1", params![target, at, eta_min])
+            .and_then(|_| event(&tx, &at, item, "claim", by, &json!({"eta_min": eta_min, "box": boxed}))),
         Taken::Voided { previous, why } => tx
-            .execute("UPDATE claims SET owner = ?2, since = ?3, eta_min = ?4 WHERE item = ?1", params![item, by, at, eta_min])
-            .and_then(|_| event(&tx, &at, item, "claim", by, &json!({"eta_min": eta_min, "void": previous.owner, "why": why}))),
+            .execute("UPDATE claims SET owner = ?2, since = ?3, eta_min = ?4 WHERE item = ?1", params![target, by, at, eta_min])
+            .and_then(|_| event(&tx, &at, item, "claim", by, &json!({"eta_min": eta_min, "box": boxed, "void": previous.owner, "why": why}))),
         Taken::Takeover { previous, idle_since } => {
             let idle = Timestamp::from_unix_seconds(*idle_since).iso();
-            tx.execute("UPDATE claims SET owner = ?2, since = ?3, eta_min = ?4 WHERE item = ?1", params![item, by, at, eta_min]).and_then(|_| {
-                event(&tx, &at, item, "handoff", by, &json!({"from": previous.owner, "to": by, "takeover": format!("stale: no owner event since {idle}")}))
+            tx.execute("UPDATE claims SET owner = ?2, since = ?3, eta_min = ?4 WHERE item = ?1", params![target, by, at, eta_min]).and_then(|_| {
+                event(&tx, &at, item, "handoff", by, &json!({"from": previous.owner, "to": by, "box": boxed, "takeover": format!("stale: no owner event since {idle}")}))
             })
         }
     };
     written.map_err(|error| error.to_string())?;
     tx.commit().map_err(|error| error.to_string())?;
-    Ok(taken)
+    Ok((taken, target))
 }

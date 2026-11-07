@@ -8,7 +8,7 @@ use serde_json::json;
 use super::issues::Issues;
 use super::ledger::{self, Taken};
 use super::lifecycle::{self, Moved};
-use super::{Claim, Issue, OVERDUE_RATIO, Standing};
+use super::{Claim, Issue, OVERDUE_RATIO, Standing, box_slug, split_key};
 use crate::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
@@ -40,10 +40,11 @@ struct Args {
     json: bool,
     all: bool,
     owners: Vec<String>,
+    box_text: Option<String>,
 }
 
 fn args(argv: &[String]) -> Result<Args, String> {
-    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false, all: false, owners: Vec::new() };
+    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false, all: false, owners: Vec::new(), box_text: None };
     let mut rest = argv.iter();
     while let Some(arg) = rest.next() {
         let (flag, inline) = arg.split_once('=').map_or((arg.as_str(), None), |(flag, value)| (flag, Some(value.to_owned())));
@@ -52,6 +53,7 @@ fn args(argv: &[String]) -> Result<Args, String> {
             "--by" => parsed.by = Some(value()?),
             "--eta" => parsed.eta = Some(value()?),
             "--owner" => parsed.owners.push(value()?),
+            "--box" => parsed.box_text = Some(value()?),
             "--json" if inline.is_none() => parsed.json = true,
             "--all" if inline.is_none() => parsed.all = true,
             _ if arg.starts_with('-') => return Err(format!("unknown option {arg}")),
@@ -90,7 +92,7 @@ fn github_items<'a>(items: impl Iterator<Item = &'a str>) -> BTreeSet<(String, u
 }
 
 fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
-    let [id] = parsed.positional.as_slice() else { return Err("usage: threads claim REPO#N [--by NAME] [--eta MINUTES]".into()) };
+    let [id] = parsed.positional.as_slice() else { return Err("usage: threads claim REPO#N [--box TEXT] [--by NAME] [--eta MINUTES]".into()) };
     let (repo, number) = CATALOG.parse_ref(id)?;
     if let Some(reason) = context.no_native.filter(|_| CATALOG.is_native(&repo)) {
         return Err(format!("native items are not readable here: {reason}"));
@@ -98,25 +100,28 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let eta = parsed.eta.as_deref().map(|eta| eta.parse::<i64>().ok().filter(|eta| *eta > 0).ok_or_else(|| format!("--eta {eta} is not a whole number of minutes"))).transpose()?;
     let by = parsed.by.clone().unwrap_or_else(|| context.actor.clone());
     let item = format!("{repo}#{number}");
+    let slug = parsed.box_text.as_deref().map(|text| box_slug(text).ok_or_else(|| format!("--box {text} names no word of a box"))).transpose()?;
     let mut db = ledger::open(context.database, true)?;
     let github = context.issues.read(&github_items(std::iter::once(item.as_str())));
     let issue = issue_of(&db, &item, &github);
-    let taken = ledger::take(&mut db, &item, &by, eta, issue, context.alive.as_ref(), context.now)?;
+    let (taken, held) = ledger::take(&mut db, (&item, slug.as_deref()), &by, eta, issue, context.alive.as_ref(), context.now)?;
     drop(db);
+    let (_, claimed) = split_key(&held);
+    let shown = claimed.map_or_else(|| item.clone(), |slug| format!("{item} box {slug}"));
     let (printed, cause) = match taken {
-        Taken::Fresh => (format!("{by} owns {item}\n"), format!("claimed by {by}")),
-        Taken::Renewed => (format!("{by} owns {item}\n"), format!("renewed by {by}")),
+        Taken::Fresh => (format!("{by} owns {shown}\n"), format!("claimed by {by}")),
+        Taken::Renewed => (format!("{by} owns {shown}\n"), format!("renewed by {by}")),
         Taken::Voided { previous, why } => (
-            format!("{by} owns {item}; the claim by {} was void because {why}\n", previous.owner),
+            format!("{by} owns {shown}; the claim by {} was void because {why}\n", previous.owner),
             format!("taken by {by}: the claim by {} was void because {why}", previous.owner),
         ),
         Taken::Takeover { previous, idle_since } => {
             let idle = Timestamp::from_unix_seconds(idle_since).iso();
-            (format!("{by} owns {item}, taken over from {}: stale, no owner event since {idle}\n", previous.owner), format!("taken over by {by} from {}: stale, no owner event since {idle}", previous.owner))
+            (format!("{by} owns {shown}, taken over from {}: stale, no owner event since {idle}\n", previous.owner), format!("taken over by {by} from {}: stale, no owner event since {idle}", previous.owner))
         }
-        Taken::Refused(holder) => return Err(format!("{item} {OWNED} {}", holder.owner)),
+        Taken::Refused(holder) => return Err(format!("{shown} {OWNED} {}", holder.owner)),
     };
-    lifecycle::record(context.database, &[Moved::held(&item, cause)], Timestamp::from_unix_seconds(context.now))?;
+    lifecycle::record(context.database, &[Moved::held(&held, cause)], Timestamp::from_unix_seconds(context.now))?;
     Ok(printed)
 }
 
@@ -129,7 +134,7 @@ pub fn standing_claims(context: &Context) -> Result<Vec<(Claim, Standing)>, Stri
 fn every_claim(context: &Context) -> Result<Vec<(Claim, Standing)>, String> {
     let db = ledger::open(context.database, false)?;
     let all = ledger::claims(&db)?;
-    let present: BTreeSet<String> = all.iter().map(|claim| claim.item.clone()).collect();
+    let present: BTreeSet<String> = all.iter().map(Claim::key).collect();
     let claims: Vec<Claim> = all.into_iter().filter(|claim| context.no_native.is_none() || CATALOG.parse_ref(&claim.item).is_ok_and(|(repo, _)| !CATALOG.is_native(&repo))).collect();
     let github = context.issues.read(&github_items(claims.iter().map(|claim| claim.item.as_str())));
     let standings: Vec<(Claim, Standing)> = claims
@@ -147,7 +152,7 @@ fn every_claim(context: &Context) -> Result<Vec<(Claim, Standing)>, String> {
 
 /// The claim rows on the named items and those the `--owner`s hold, as JSON `{item, owner}` rows, whatever their standing.
 fn holder(parsed: &Args, context: &Context) -> Result<String, String> {
-    if (parsed.positional.is_empty() && parsed.owners.is_empty()) || parsed.by.is_some() || parsed.eta.is_some() || parsed.json || parsed.all {
+    if (parsed.positional.is_empty() && parsed.owners.is_empty()) || parsed.by.is_some() || parsed.eta.is_some() || parsed.json || parsed.all || parsed.box_text.is_some() {
         return Err("usage: threads holder [REPO#N ...] [--owner NAME ...]".into());
     }
     let items = parsed.positional.iter().map(|id| CATALOG.parse_ref(id).map(|(repo, number)| format!("{repo}#{number}"))).collect::<Result<Vec<_>, _>>()?;
@@ -157,14 +162,17 @@ fn holder(parsed: &Args, context: &Context) -> Result<String, String> {
     let db = ledger::open(context.database, false)?;
     let rows: Vec<_> = ledger::holders(&db, &items, &parsed.owners)?
         .into_iter()
-        .filter(|(item, _)| context.no_native.is_none() || CATALOG.parse_ref(item).is_ok_and(|(repo, _)| !CATALOG.is_native(&repo)))
-        .map(|(item, owner)| json!({"item": item, "owner": owner}))
+        .filter(|(key, _)| context.no_native.is_none() || CATALOG.parse_ref(&split_key(key).0).is_ok_and(|(repo, _)| !CATALOG.is_native(&repo)))
+        .map(|(key, owner)| {
+            let (item, slug) = split_key(&key);
+            json!({"item": item, "box": slug, "owner": owner})
+        })
         .collect();
     Ok(format!("{}\n", serde_json::Value::Array(rows)))
 }
 
 fn list(parsed: &Args, context: &Context) -> Result<String, String> {
-    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() || !parsed.owners.is_empty() || (parsed.all && !parsed.json) {
+    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() || parsed.box_text.is_some() || !parsed.owners.is_empty() || (parsed.all && !parsed.json) {
         return Err("usage: threads list [--json [--all]]".into());
     }
     let claims = if parsed.all { every_claim(context)? } else { standing_claims(context)? };
@@ -173,12 +181,12 @@ fn list(parsed: &Args, context: &Context) -> Result<String, String> {
         let rows: Vec<_> = claims
             .iter()
             .map(|(claim, standing)| {
-                json!({"item": claim.item, "owner": claim.owner, "since": Timestamp::from_unix_seconds(claim.since).iso(), "clock_min": clock(claim), "eta_min": claim.eta_min, "standing": standing.label()})
+                json!({"item": claim.item, "owner": claim.owner, "box": claim.slug, "since": Timestamp::from_unix_seconds(claim.since).iso(), "clock_min": clock(claim), "eta_min": claim.eta_min, "standing": standing.label()})
             })
             .collect();
         return Ok(format!("{}\n", serde_json::Value::Array(rows)));
     }
-    let mut rows = vec![["item", "owner", "clock", "eta", "flag"].map(str::to_owned)];
+    let mut rows = vec![["item", "owner", "clock", "eta", "flag", "box"].map(str::to_owned)];
     for (claim, standing) in &claims {
         let flag = match (standing, claim.eta_min) {
             (Standing::Stale { .. }, _) => "STALE",
@@ -186,8 +194,8 @@ fn list(parsed: &Args, context: &Context) -> Result<String, String> {
             _ => "-",
         };
         let eta = claim.eta_min.map_or_else(|| "-".to_owned(), |eta| format!("{eta}m"));
-        rows.push([claim.item.clone(), claim.owner.clone(), format!("{}m", clock(claim)), eta, flag.to_owned()]);
+        rows.push([claim.item.clone(), claim.owner.clone(), format!("{}m", clock(claim)), eta, flag.to_owned(), claim.slug.clone().unwrap_or_else(|| "-".to_owned())]);
     }
-    let widths: Vec<usize> = (0..5).map(|column| rows.iter().map(|row| row[column].len()).max().unwrap_or(0)).collect();
+    let widths: Vec<usize> = (0..6).map(|column| rows.iter().map(|row| row[column].len()).max().unwrap_or(0)).collect();
     Ok(rows.iter().map(|row| format!("{}\n", row.iter().zip(&widths).map(|(cell, width)| format!("{cell:<width$}")).collect::<Vec<_>>().join("  ").trim_end())).collect())
 }

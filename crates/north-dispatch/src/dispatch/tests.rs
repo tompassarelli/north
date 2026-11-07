@@ -93,6 +93,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         issues,
         open,
         holds: BTreeMap::new(),
+        box_holds: BTreeMap::new(),
         live: BTreeSet::new(),
         listed: BTreeSet::new(),
         cloud,
@@ -156,7 +157,7 @@ fn an_issue_whose_every_open_box_names_a_live_owner_or_whose_planning_box_adds_a
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
     let live: BTreeSet<String> = ["n-land-first", "n-cull-it", "n-cull-landing", "lead-88"].map(str::to_owned).into();
-    let world = super::issues::World { open: &open, holds: &holds, live: &live, planned: &planned, backlog: None, at: 0.0 };
+    let world = super::issues::World { open: &open, holds: &holds, box_holds: &BTreeMap::new(), live: &live, planned: &planned, backlog: None, at: 0.0 };
     let ready = |body: &str| super::issues::readiness(&issue("north", 633, body, &[]), &world);
     assert_eq!(ready("- [x] done (owner: n-fast-land)\n- [ ] cores first (owner: n-land-first)"), Err("every open box has a live owner: n-land-first".into()));
     assert_eq!(ready("- [ ] cull north (owners: n-cull-it, -landing)\n  - [ ] code: delete it. Owner: lead-88."), Err("every open box has a live owner: lead-88, n-cull-it, n-cull-landing".into()));
@@ -228,4 +229,25 @@ fn a_run_that_began_before_the_proxy_paused_dispatch_launches_and_revives_nothin
     let lines = super::revive(&survey, &revival, false, || Some("paused".to_owned()));
     assert_eq!(lines.len(), 1);
     assert!(lines[0].starts_with("skip revive n-state-machines on gex45 claude:a") && lines[0].ends_with("dispatch was paused while this run was working: paused"), "{lines:?}");
+}
+
+/// north#782 had three boxes and one worker at a time: its claim covered the whole issue, so dispatch held the issue while any worker held it.
+#[test]
+fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_one_that_does_not_is_staffed_whole() {
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let body = "Workers: 3\n- [ ] the loss is classified\n- [ ] the run row names its box\n- [ ] the staffing replays\n- [ ] the docs say so";
+    let surveyed = |body: &str, held: &[&str]| {
+        let mut survey = survey(vec![issue("makgora", 782, body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        survey.box_holds.insert(super::issues::IssueRef::new("makgora", 782), held.iter().map(|slug| ((*slug).to_owned(), "a worker".to_owned())).collect());
+        survey
+    };
+    let boxes = |survey: &Survey| decide(survey, "test").launches.iter().map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect::<Vec<_>>();
+    assert_eq!(boxes(&surveyed(body, &[])), [Some("the loss is classified".to_owned()), Some("the run row names its box".to_owned()), Some("the staffing replays".to_owned())]);
+    assert_eq!(boxes(&surveyed(body, &["the-loss-is-classified"])), [Some("the run row names its box".to_owned()), Some("the staffing replays".to_owned())], "a box a worker holds is not staffed again, and the cap counts it");
+    let full = decide(&surveyed(body, &["the-loss-is-classified", "the-run-row-names-its-box", "the-staffing-replays"]), "test");
+    assert!(full.launches.is_empty());
+    assert!(full.skipped.iter().any(|(_, why)| why.contains("3 workers hold its boxes, which is its cap of 3")), "{:?}", full.skipped);
+    assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &[])), [None], "an issue with no Workers: line is staffed whole by one launch");
+    assert!(decide(&surveyed("- [ ] a\n- [ ] b", &["a"]), "test").launches.is_empty(), "a box worker holds the issue against a whole-issue launch when the cap is one");
 }

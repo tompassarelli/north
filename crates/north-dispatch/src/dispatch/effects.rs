@@ -80,6 +80,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         detail: result.clone().unwrap_or_else(|why| why),
         tier: Some(launch.route.tier.name().to_owned()),
         category: Some(launch.route.category.clone()),
+        box_text: super::facets::declared_in(&launch.brief, "Box").map(str::to_owned),
         hand: false,
         effort_arm: launch.route.stamp().map(str::to_owned),
         effort: launch.route.effort.map(|effort| effort.name().to_owned()),

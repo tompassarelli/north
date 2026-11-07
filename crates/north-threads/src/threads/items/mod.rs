@@ -11,6 +11,7 @@ use super::verb::{Args, Context, Failure, Outcome, event, immediate, item_ref, o
 use crate::platform::pyjson::Value;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::{self, Moved};
+use crate::threads::claims::{box_slug, key};
 
 pub const VERBS: [&str; 8] = ["release", "need", "unneed", "new", "note", "close", "reopen", "block"];
 
@@ -39,34 +40,37 @@ fn item(text: &str, context: &Context) -> Result<String, Failure> {
 }
 
 fn release(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &["--to", "--held-by"], &[])?;
-    let [id] = args.positional.as_slice() else { return Err(usage("release REPO#N [--to NAME] [--held-by NAME]")) };
+    let args = Args::parse(argv, &["--to", "--held-by", "--box"], &[])?;
+    let [id] = args.positional.as_slice() else { return Err(usage("release REPO#N [--box TEXT] [--to NAME] [--held-by NAME]")) };
     let item = item(id, context)?;
+    let slug = args.get("--box").map(|text| box_slug(text).ok_or_else(|| Failure::Usage(format!("--box {text} names no word of a box")))).transpose()?;
+    let held = key(&item, slug.as_deref());
+    let shown = slug.as_deref().map_or_else(|| item.clone(), |slug| format!("{item} box {slug}"));
     let by = context.by(&args);
     let mut db = open(context.database, true)?;
     let tx = immediate(&mut db)?;
-    let owner: Option<String> = tx.query_row("SELECT owner FROM claims WHERE item = ?1", [&item], |row| row.get(0)).optional()?;
+    let owner: Option<String> = tx.query_row("SELECT owner FROM claims WHERE item = ?1", [&held], |row| row.get(0)).optional()?;
     let guard = args.get("--held-by");
-    let Some(owner) = owner else { return if guard.is_some() { Ok(String::new()) } else { Err(Failure::Refused(format!("{item} has no owner"))) } };
+    let Some(owner) = owner else { return if guard.is_some() { Ok(String::new()) } else { Err(Failure::Refused(format!("{shown} has no owner"))) } };
     if guard.is_some_and(|holder| holder != owner) {
         return Ok(String::new());
     }
     let printed = match args.get("--to").filter(|to| !to.is_empty()) {
         Some(to) => {
-            tx.execute("UPDATE claims SET owner = ?1, since = ?2 WHERE item = ?3", params![to, context.now.iso(), item])?;
+            tx.execute("UPDATE claims SET owner = ?1, since = ?2 WHERE item = ?3", params![to, context.now.iso(), held])?;
             event(&tx, Some(&item), "handoff", &by, Value::object([("from", owner.as_str().into()), ("to", to.into())]), context.now)?;
-            format!("{item} handed from {owner} to {to}\n")
+            format!("{shown} handed from {owner} to {to}\n")
         }
         None => {
-            tx.execute("DELETE FROM claims WHERE item = ?1", [&item])?;
+            tx.execute("DELETE FROM claims WHERE item = ?1", [&held])?;
             event(&tx, Some(&item), "release", &by, Value::object([("owner", owner.as_str().into())]), context.now)?;
-            format!("{item} released by {owner}\n")
+            format!("{shown} released by {owner}\n")
         }
     };
     tx.commit()?;
     let moved = match args.get("--to").filter(|to| !to.is_empty()) {
-        Some(to) => Moved::held(&item, format!("handed from {owner} to {to} by {by}")),
-        None => Moved::released(&item, format!("released by {by}, who held it for {owner}")),
+        Some(to) => Moved::held(&held, format!("handed from {owner} to {to} by {by}")),
+        None => Moved::released(&held, format!("released by {by}, who held it for {owner}")),
     };
     lifecycle::record(context.database, &[moved], context.now)?;
     Ok(printed)

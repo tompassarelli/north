@@ -219,3 +219,24 @@ fn a_run_ingested_on_another_host_takes_the_landing_the_lander_hosts_push_log_na
         vec![vec![Value::Text("first".into()), Value::Integer(0), Value::Text(String::new())], vec![Value::Text("second".into()), Value::Integer(1), Value::Text("abc1234".into())]]
     );
 }
+
+/// Two workers on two boxes of north#782 were one claim in the ledger, so the second ingest took the issue from the first.
+#[test]
+fn two_running_workers_on_two_boxes_of_one_issue_hold_one_claim_each_and_their_run_rows_name_the_issue_and_the_box() {
+    let ledger = ledger();
+    let worker = |id: &str, status: &str, box_text: Option<&str>| {
+        let brief = format!("Item: makgora#782\n{}Category: feature\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n", box_text.map(|text| format!("Box: {text}\n")).unwrap_or_default());
+        json!({"id": id, "role": "worker", "status": status, "tier": "sonnet", "started": "2026-10-28T08:00:00Z", "ended": "2026-10-28T08:30:00Z", "actual_min": 30, "outcome": "done", "report": "Done:", "eta_min": 60, "brief": brief})
+    };
+    ledger.ingest(&[worker("w1", "running", Some("the loss is classified")), worker("w2", "running", Some("the staffing replays"))]);
+    assert_eq!(
+        ledger.rows("SELECT item, owner FROM claims ORDER BY item"),
+        [["makgora#782@the-loss-is-classified", "w1"], ["makgora#782@the-staffing-replays", "w2"]].map(|row| row.map(|text| Value::Text(text.to_owned())).to_vec())
+    );
+    ledger.ingest(&[worker("w1", "finished", Some("the loss is classified")), worker("w2", "finished", Some("the staffing replays"))]);
+    assert!(ledger.rows("SELECT item FROM claims").is_empty());
+    assert_eq!(
+        ledger.rows("SELECT agent, item, box FROM runs WHERE item = 'makgora#782' ORDER BY agent"),
+        [["w1", "makgora#782", "the loss is classified"], ["w2", "makgora#782", "the staffing replays"]].map(|row| row.map(|text| Value::Text(text.to_owned())).to_vec())
+    );
+}

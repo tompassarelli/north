@@ -24,6 +24,7 @@ struct LaunchFlags {
     idle_exit_minutes: Option<u64>,
     parent: Option<String>,
     task_ref: Option<String>,
+    claim_box: Option<String>,
     role: Option<Role>,
     overrides: Overrides,
     wait: Option<bool>,
@@ -45,6 +46,7 @@ impl LaunchFlags {
             "--idle-exit" => self.idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
             "--parent" => self.parent = Some(value),
             "--task" => self.task_ref = Some(value),
+            "--box" => self.claim_box = Some(value),
             "--role" => self.role = Some(Role::parse(&value)?),
             _ if self.overrides.set(flag, &value) => {}
             _ => return Err(usage()),
@@ -87,6 +89,7 @@ impl LaunchFlags {
             idle_exit_minutes: self.idle_exit_minutes,
             parent,
             task_ref: self.task_ref,
+            claim_box: self.claim_box,
             placement: None,
             machine,
             capacity_need: None,

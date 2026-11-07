@@ -20,6 +20,7 @@ fn request() -> LaunchRequest {
         idle_exit_minutes: None,
         parent: None,
         task_ref: None,
+        claim_box: None,
         placement: None,
         machine: None,
         capacity_need: None,

@@ -102,3 +102,28 @@ fn github_answers_a_missing_issue_beside_the_found_ones_and_an_unread_reply_void
     assert_eq!(found.values().copied().collect::<Vec<_>>(), [Issue::Closed, Issue::Missing, Issue::Open { opened: at("2026-10-01T00:00:00Z") }]);
     assert!(issues::answers(&items, &Value::Null).values().all(|issue| *issue == Issue::Unread));
 }
+
+/// On 2026-11-07 the proxy split north#782 into north#783 and north#784 to staff three workers on it, and n-loss-lead launched without --task to get past "already owned".
+#[test]
+fn three_workers_claim_three_boxes_of_one_issue_while_a_second_claim_on_one_box_or_on_the_whole_issue_is_refused() {
+    let ledger = ledger(&[(782, Issue::Open { opened: at("2026-10-26T08:00:00Z") })]);
+    let boxes = ["- [ ] the loss is classified", "- [ ] the run row names its box", "- [ ] the staffing replays"];
+    for (worker, text) in ["n-loss", "n-run-row", "n-replay"].into_iter().zip(boxes) {
+        let (code, out, err) = ledger.run(&["claim", "makgora#782", "--box", text, "--by", worker]);
+        assert_eq!((code, err.as_str()), (0, ""), "{worker}");
+        assert!(out.starts_with(&format!("{worker} owns makgora#782 box ")), "{out}");
+    }
+    let (code, _, err) = ledger.run(&["claim", "makgora#782", "--box", "The loss is classified", "--by", "n-late"]);
+    assert_eq!(code, 1);
+    assert_eq!(err, "NorthThreads: makgora#782 box the-loss-is-classified is already owned by n-loss\n");
+    let (code, _, err) = ledger.run(&["claim", "makgora#782", "--by", "n-late"]);
+    assert_eq!((code, err.as_str()), (1, "NorthThreads: makgora#782 is already owned by n-loss\n"), "the whole issue is refused beside live box claims");
+    let (code, out, _) = ledger.run(&["claim", "makgora#782", "--by", "n-run-row"]);
+    assert_eq!((code, out.as_str()), (0, "n-run-row owns makgora#782 box the-run-row-names-its-box\n"), "a worker holding a box that claims the issue renews its box");
+    assert!(ledger.dispatch_holds().is_empty(), "box claims hold boxes, not the issue");
+    let (_, listing, _) = ledger.run(&["list", "--json"]);
+    let boxed = super::survey::claim_box_rows(&serde_json::from_str::<Value>(&listing).unwrap(), "nexus", &Default::default());
+    assert_eq!(boxed.iter().map(|(_, slug, _)| slug.as_str()).collect::<Vec<_>>(), ["the-loss-is-classified", "the-run-row-names-its-box", "the-staffing-replays"]);
+    ledger.db().execute("DELETE FROM claims", []).unwrap();
+    assert_eq!(ledger.run(&["claim", "makgora#782", "--by", "n-late"]).0, 0, "the whole issue is claimable once every box claim is gone");
+}

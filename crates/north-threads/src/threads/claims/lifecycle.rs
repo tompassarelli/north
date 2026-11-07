@@ -99,7 +99,7 @@ pub fn settle(database: &Path, rows: &[(Claim, Standing)], present: &BTreeSet<St
     let store = Store::open(database).map_err(fail)?;
     let mut moves = Vec::new();
     for (claim, standing) in rows {
-        let current = store.current::<Claiming>(&claim.item).map_err(fail)?.map(|record| record.state);
+        let current = store.current::<Claiming>(&claim.key()).map_err(fail)?.map(|record| record.state);
         let since = Timestamp::from_unix_seconds(claim.since).iso();
         let (wanted, cause) = match standing {
             Standing::Void(why) => (Phase::Void, format!("{why}; the claim by {} since {since}", claim.owner)),
@@ -107,8 +107,8 @@ pub fn settle(database: &Path, rows: &[(Claim, Standing)], present: &BTreeSet<St
         };
         match current {
             Some(phase) if phase == wanted => {}
-            None => moves.push(Moved { item: claim.item.clone(), to: wanted, cause: format!("adopted from the claims row owned by {} since {since}: {cause}", claim.owner) }),
-            Some(_) => moves.push(Moved { item: claim.item.clone(), to: wanted, cause }),
+            None => moves.push(Moved { item: claim.key(), to: wanted, cause: format!("adopted from the claims row owned by {} since {since}: {cause}", claim.owner) }),
+            Some(_) => moves.push(Moved { item: claim.key(), to: wanted, cause }),
         }
     }
     for record in store.instances::<Claiming>().map_err(fail)? {

@@ -40,6 +40,8 @@ pub struct Survey {
     pub issues: Vec<Issue>,
     pub open: BTreeSet<IssueRef>,
     pub holds: BTreeMap<IssueRef, String>,
+    /// The boxes workers hold on issues that let several take their boxes at once, by box slug; they hold a box, not the issue.
+    pub box_holds: record::BoxHolds,
     /// The fleet sessions every reached registry lists as running or parked on a wait, which own the boxes their names are on.
     pub live: BTreeSet<String>,
     /// Every session name a reached registry lists, parked or stopped included.
@@ -216,8 +218,21 @@ pub fn claim_rows(listing: &Value, host: &str, stopped: &BTreeSet<String>) -> Ve
         .into_iter()
         .flatten()
         .filter(|row| row["standing"] == "live")
+        .filter(|row| row["box"].is_null())
         .filter(|row| !row["owner"].as_str().is_some_and(|owner| stopped.contains(owner)))
         .filter_map(|row| Some((IssueRef::parse(row["item"].as_str()?)?, format!("threads claim by {} on {host}", row["owner"].as_str()?))))
+        .collect()
+}
+
+/// The boxes `threads list --json` shows live claims on, by item and box slug, less those a stopped fleet session made.
+pub fn claim_box_rows(listing: &Value, host: &str, stopped: &BTreeSet<String>) -> Vec<(IssueRef, String, String)> {
+    listing
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["standing"] == "live")
+        .filter(|row| !row["owner"].as_str().is_some_and(|owner| stopped.contains(owner)))
+        .filter_map(|row| Some((IssueRef::parse(row["item"].as_str()?)?, row["box"].as_str()?.to_owned(), format!("threads claim by {} on {host}", row["owner"].as_str()?))))
         .collect()
 }
 
@@ -381,11 +396,20 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let records = record::read(&record::directory());
     let stopped_sessions = fleets::exited_names(&fleet_lists);
     holds.extend(claim_lists.iter().flat_map(|(host, listing)| claim_rows(listing, host, &stopped_sessions)));
+    let mut box_holds = fleets::box_tally(&sessions);
+    for (item, slug, why) in claim_lists.iter().flat_map(|(host, listing)| claim_box_rows(listing, host, &stopped_sessions)) {
+        box_holds.entry(item).or_default().entry(slug).or_insert(why);
+    }
     let copies = fleets::copy_times(&record::directory(), "fleet", laptop.as_deref());
     let forgotten = fleets::forgotten(&fleet_lists, &copies, &records, at);
     let listed = fleets::listed(&fleet_lists);
     let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref()), &mut notes);
     holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &records, at)));
+    for (item, boxes) in record::box_launching(&records, at, &fleets::gone(&fleet_lists, &copies, &records, at)) {
+        for (slug, why) in boxes {
+            box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
+        }
+    }
     let mut held: Vec<(IssueRef, String)> = gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)).collect();
     held.sort();
     held.dedup();
@@ -429,7 +453,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         Vec::new()
     });
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, at })
 }
 
 pub(super) mod github;

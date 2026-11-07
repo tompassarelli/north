@@ -2,6 +2,7 @@
 //! resident sessions, which accounts the out-rule keeps out and the staffed repositories' open issues,
 //! launches each ready box it can place through `north fleet launch`, records the launch, and tells
 //! Tom in one line when ready work and free slots coexist and nothing could launch.
+use std::collections::BTreeSet;
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use crate::pacing::placement::{self, gate};
@@ -137,7 +138,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut holds = survey.holds.clone();
     holds.extend(revival.holds.clone());
     outcome.revival = revival;
-    let world = issues::World { open: &survey.open, holds: &holds, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
+    let world = issues::World { open: &survey.open, holds: &holds, box_holds: &survey.box_holds, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let mut claims = hotspots::Claims::default();
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Err(why) = screen::admitted(survey, issue, &world) {
@@ -145,26 +146,45 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         outcome.ready.push(issue.reference());
-        if let Some((file, holder)) = claims.conflict(issue) {
-            outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
-            continue;
-        }
-        let (route, brief) = match screen::written(survey, issue, launched_by) {
-            Ok(written) => written,
-            Err(why) => {
-                outcome.skipped.push((issue.reference(), format!("ready, not placed: {why}")));
-                continue;
+        let cap = issue.workers();
+        let mut taken: BTreeSet<String> = survey.box_holds.get(&issue.reference()).map(|held| held.keys().cloned().collect()).unwrap_or_default();
+        let mut staffed = taken.len();
+        let mut launched_here = false;
+        loop {
+            let box_text = if cap > 1 { issue.free_box(&taken, survey.at) } else { None };
+            if cap > 1 && box_text.is_none() {
+                break;
             }
-        };
-        let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
-        let ready = Ready { item: issue.reference(), brief, code_only, route };
-        match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
-            Ok(mut launch) => {
-                screen::arm(survey, &mut launch);
-                claims.take(issue);
-                outcome.launches.push(launch);
+            if !launched_here && let Some((file, holder)) = claims.conflict(issue) {
+                outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
+                break;
             }
-            Err(why) => outcome.skipped.push((ready.item, format!("ready, not placed: {why}"))),
+            let (route, brief) = match screen::written(survey, issue, launched_by, box_text.as_deref()) {
+                Ok(written) => written,
+                Err(why) => {
+                    outcome.skipped.push((issue.reference(), format!("ready, not placed: {why}")));
+                    break;
+                }
+            };
+            let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
+            let ready = Ready { item: issue.reference(), brief, code_only, route };
+            match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
+                Ok(mut launch) => {
+                    screen::arm(survey, &mut launch);
+                    claims.take(issue);
+                    outcome.launches.push(launch);
+                }
+                Err(why) => {
+                    outcome.skipped.push((ready.item, format!("ready, not placed: {why}")));
+                    break;
+                }
+            }
+            staffed += 1;
+            launched_here = true;
+            taken.extend(box_text.as_deref().and_then(crate::threads::claims::box_slug));
+            if cap == 1 || staffed >= cap {
+                break;
+            }
         }
     }
     outcome

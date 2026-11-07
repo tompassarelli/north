@@ -16,7 +16,7 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
         ],
         "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
     });
-    let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, hand: false, effort_arm: None, effort: None };
+    let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
     let ran = launch("makgora#587", "sc-587-d0740", 10.0, true);
     let stop = super::stops::stop(&session("Not done: the two-take limit is reached.\nStop: decision (take three or drop the box)"), &ran);
     assert_eq!(stop.decision, Some(1000.0));
@@ -25,7 +25,7 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
 
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
-    let world = World { open: &open, holds: &holds, live: &BTreeSet::new(), planned: &planned, backlog: None, at: 0.0 };
+    let world = World { open: &open, holds: &holds, box_holds: &BTreeMap::new(), live: &BTreeSet::new(), planned: &planned, backlog: None, at: 0.0 };
     let box_at = |touched: f64| Issue { stop: stop.clone(), touched, ..issue("makgora", 587, "- [ ] a", &[]) };
     assert_eq!(issues::readiness(&box_at(900.0), &world), Err("last worker stopped for a decision".into()));
     assert_eq!(issues::readiness(&box_at(1000.0), &world), Err("last worker stopped for a decision".into()), "the worker's own comment lands at or before its report");
@@ -47,13 +47,13 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     let moved = Issue { stop: elsewhere, ..issue("north", 636, "- [ ] the window moves to the account with headroom", &[]) };
     assert_eq!(issues::readiness(&moved, &world(0.0)), Ok(()), "a host stop is no reason to wait");
     let route = super::tier::Route { tier: super::tier::Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, follows: None, why: String::new() };
-    let brief = super::brief::brief(&moved, "dispatch", &route, &super::grounds::Grounds::default());
+    let brief = super::brief::brief(&moved, "dispatch", &route, &super::grounds::Grounds::default(), None);
     assert!(brief.lines().any(|line| line == "Needs: laptop"), "{brief}");
     let cfg: toml_edit::DocumentMut = "[hosts.gex45]\nserves = [\"native\"]\n[hosts.whiterabbit]\nserves = [\"laptop\", \"native\"]\n".parse().unwrap();
     assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "gex45", &brief).as_deref(), Some("laptop"), "the host that could not do it is refused");
     assert_eq!(crate::pacing::placement::gate::lacks(&cfg, "whiterabbit", &brief), None);
     let declared = Issue { body: format!("Needs: native\n{}", moved.body), ..moved };
-    assert!(super::brief::brief(&declared, "dispatch", &route, &super::grounds::Grounds::default()).lines().any(|line| line == "Needs: native, laptop"), "the issue's own need stays");
+    assert!(super::brief::brief(&declared, "dispatch", &route, &super::grounds::Grounds::default(), None).lines().any(|line| line == "Needs: native, laptop"), "the issue's own need stays");
 
     let fleet = tempfile::tempdir().unwrap();
     let archived = fleet.path().join(".archive/north-714-d2130-1794000770958");
@@ -84,7 +84,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     let placed = |number: u64, body: &str| {
         let mut issue = issue("north", number, body, &[]);
         issue.needs = super::host_needs::of(&issue, &[], d0216);
-        let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default());
+        let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default(), None);
         hosts.iter().filter(|host| *host != "nexus" && crate::pacing::placement::gate::lacks(&cfg, host, &brief).is_none()).cloned().collect::<Vec<_>>()
     };
     assert_eq!(placed(733, "- [ ] On the laptop (owner: a laptop-placed session; gex45 has no shell there), exercise a proxy take-over: `niri msg -j windows` shows a ghostty window titled `north proxy`"), ["gex45", "ccx33", "whiterabbit"], "a box with no Needs: line is placed on every host, whatever its prose names (north#787)");
@@ -122,7 +122,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     let route = climbed(&stuck);
     assert_eq!((route.tier, route.effort, route.follows.as_deref()), (Tier::Opus, Some(Effort::Medium), Some("n705-d0900 (sonnet-high)")), "{}", route.why);
     let grounds = super::grounds::Grounds::default().carrying(stuck.stop.climb.as_ref().map(|climb| climb.report.as_str()));
-    assert!(super::brief::brief(&stuck, "dispatch", &route, &grounds).contains("Prior report: Not done: both parser rewrites"), "the failed report rides along");
+    assert!(super::brief::brief(&stuck, "dispatch", &route, &grounds, None).contains("Prior report: Not done: both parser rewrites"), "the failed report rides along");
     assert_eq!(climbed(&failed(reasoning, &on("worker", Some("high")))).effort, Some(Effort::Xhigh));
     for kind in ["leash", "landing", "capacity", "client"] {
         assert_eq!(failed(&format!("Not done: the box is unfinished.\nStop: {kind}"), &on("sonnet-high", None)).stop.climb, None, "Stop: {kind} never escalates");
@@ -143,7 +143,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     let route = climbed(&stalled);
     assert_eq!((route.tier, route.effort), (Tier::Opus, Some(Effort::Medium)), "{}", route.why);
     assert!(route.why.contains("lane n705-verify, refused twice by its own landing checks without fewer errors (3, then 3)"), "{}", route.why);
-    assert!(super::brief::brief(&stalled, "dispatch", &route, &super::grounds::Grounds::default().carrying(stalled.stop.climb.as_ref().map(|climb| climb.report.as_str()))).contains("Prior report: Not done: the lane still fails"), "the failed report rides along");
+    assert!(super::brief::brief(&stalled, "dispatch", &route, &super::grounds::Grounds::default().carrying(stalled.stop.climb.as_ref().map(|climb| climb.report.as_str())), None).contains("Prior report: Not done: the lane still fails"), "the failed report rides along");
     assert_eq!(verified(vec![refused(3), refused(2)]).stop.climb, None, "fewer errors keep the rung");
     assert_eq!(verified(vec![refused(3)]).stop.climb, None, "one refusal is no evidence");
     assert_eq!(verified(vec![refused(3), refused(3), lander(Notice::Landed { branch: "n705-verify".into(), sha: "def".into() })]).stop.climb, None, "a landing after clears it");
@@ -157,7 +157,7 @@ fn north_725_d0411_is_held_off_gex45_by_the_host_stops_of_both_earlier_launches_
         "entries": said.iter().map(|text| serde_json::json!({"kind": "assistant", "text": text})).collect::<Vec<_>>(),
         "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
     });
-    let launch = |name: &str, at: f64| record::Record { at, item: "north#725".into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: false, effort_arm: None, effort: None };
+    let launch = |name: &str, at: f64| record::Record { at, item: "north#725".into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
     let body = "- [ ] the issue holds the per-host byte table with under 5% unaccounted.\n- [ ] gex45 sits under its low watermark after one cleanup pass (df output), and a replay of the 99d4ba44d1 condition trims caches before any land slot.\n- [x] the change is on origin/main";
     let d0306 = session(&["Not done: the ledger fix landed, but two of the three Done-when boxes on north#725 are still open. ccx33 and the laptop were not measured.\n\nStop: host ccx33"]);
     let d0352 = session(&[
@@ -180,7 +180,7 @@ fn north_725_d0411_is_held_off_gex45_by_the_host_stops_of_both_earlier_launches_
     let issue = pass(&[launch("north-725-d0306", d0306_at), launch("north-725-d0352", d0352_at)], d0411_at);
     assert_eq!(issue.stop.host.as_deref(), Some("laptop"), "north-725-d0352's report is the Not done message, not its later reply to the lander");
     let route = super::tier::Route { tier: Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, follows: None, why: String::new() };
-    let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default());
+    let brief = super::brief::brief(&issue, "dispatch", &route, &super::grounds::Grounds::default(), None);
     assert!(brief.lines().any(|line| line == "Needs: ccx33, laptop"), "north-725-d0306's Stop: host ccx33 still holds, though a later launch ran since:\n{brief}");
     let cfg: toml_edit::DocumentMut = r#"
 [hosts.gex45]
@@ -205,7 +205,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
 
 #[test]
 fn a_hand_launch_on_north_759_reads_the_nexus_stop_of_n_claim_reland_and_gex45_is_refused_while_an_item_with_no_need_places_as_before() {
-    let ran = record::Record { at: 1_794_040_000.0, item: "north#759".into(), host: "gex45".into(), account: "claude:c".into(), name: "n-claim-reland".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: true, effort_arm: None, effort: None };
+    let ran = record::Record { at: 1_794_040_000.0, item: "north#759".into(), host: "gex45".into(), account: "claude:c".into(), name: "n-claim-reland".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: true, effort_arm: None, effort: None };
     let reported = serde_json::json!({
         "entries": [{"kind": "assistant", "text": "Not done: the claim reland needs the ledger on nexus.\n\nStop: host nexus"}],
         "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
@@ -254,8 +254,8 @@ fn north_751_at_12_02_pm_is_held_until_its_1_h_cell_can_be_read_an_hour_after_th
     let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
     let body = "- [x] Sessions the proxy names and places itself pass the same box-needs placement, fixed by 745f9b42a\n- [x] A run ending on the API's \"Credit balance is too low\" counts as capacity, fixed by 3a3a29687\n- [ ] the 10 min and 1 h cells reach 1% or less, quoted with their n; the capacity losses left are sessions stopped while their own build waited in admission, worked on in north#772";
     let held = Issue { landed: at("2026-11-07T04:45Z"), touched: at("2026-11-07T05:03Z"), ..issue("north", 751, body, &[]) };
-    let (open, holds, planned, live) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new());
-    let world = |written: &str| World { open: &open, holds: &holds, live: &live, planned: &planned, backlog: None, at: at(written) };
+    let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
+    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
     assert_eq!(held.cited_shas(), ["745f9b42a", "3a3a29687"]);
     assert_eq!(
         issues::readiness(&held, &world("2026-11-07T05:02Z")),
@@ -305,15 +305,15 @@ serves = ["laptop"]
 #[test]
 fn north_722_waited_twice_on_one_stop_and_a_box_due_by_a_date_or_after_landings_is_held_beside_a_plain_one() {
     let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
-    let launch = |name: &str, started: &str| record::Record { at: at(started), item: "north#722".into(), host: "cpx62".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: false, effort_arm: None, effort: None };
+    let launch = |name: &str, started: &str| record::Record { at: at(started), item: "north#722".into(), host: "cpx62".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
     let waited = serde_json::json!({
         "entries": [{"kind": "assistant", "text": "Not done: the debt box reads after the landings.\nStop: wait until 2026-11-07T10:00Z"}],
         "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
     });
     let body = "- [ ] the after-landing debt is under 5 boxes";
     let directory = tempfile::tempdir().unwrap();
-    let (open, holds, planned, live) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new());
-    let world = |written: &str| World { open: &open, holds: &holds, live: &live, planned: &planned, backlog: None, at: at(written) };
+    let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
+    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
     let pass = |records: &[record::Record], readable: bool, now: &str| {
         let mut boxes = [issue("north", 722, body, &[])];
         let show = |_: &record::Record| if readable { Ok(waited.clone()) } else { Err::<serde_json::Value, String>("no session".into()) };
@@ -365,12 +365,12 @@ fn a_box_is_placed_on_its_own_needs_line_and_its_prose_never_holds_it_north_787(
 fn the_relaunch_after_north_733s_stop_host_laptop_follows_the_stopped_run_and_starts_from_its_report() {
     let report = "Not done: the code for north#733 is already on origin/main, but nobody has watched a take-over live.\nStop: host laptop";
     let session = serde_json::json!({"entries": [{"kind": "assistant", "text": report}, {"kind": "turn", "text": "success"}], "turns": [{"exit": "completed", "ended_ms": 1_000_000}]});
-    let ran = record::Record { at: 10.0, item: "north#733".into(), host: "gex45".into(), account: "claude:c".into(), name: "north-733-d0215".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, hand: false, effort_arm: None, effort: None };
+    let ran = record::Record { at: 10.0, item: "north#733".into(), host: "gex45".into(), account: "claude:c".into(), name: "north-733-d0215".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
     let stopped = Issue { stop: super::stops::stop(&session, &ran), ..issue("north", 733, "- [ ] a take-over is watched live", &[]) };
 
     let route = super::tier::route(&stopped, &super::tier::History::default(), &BTreeMap::new()).unwrap();
     let grounds = super::grounds::Grounds::default().carrying(stopped.stop.relay.as_ref().map(|relay| relay.report.as_str()));
-    let brief = super::brief::brief(&stopped, "dispatch", &route, &grounds);
+    let brief = super::brief::brief(&stopped, "dispatch", &route, &grounds, None);
 
     assert!(brief.lines().any(|line| line == "Follows: north-733-d0215 (Stop: host laptop)"), "{brief}");
     assert!(brief.lines().any(|line| line == "Needs: laptop"), "{brief}");

@@ -19,9 +19,36 @@ pub static OVERDUE_RATIO: LazyLock<f64> = LazyLock::new(|| {
 /// How long past its ETA, with nothing from its owner, a claim holds before anyone may take it.
 pub const STALE_AFTER_S: i64 = 24 * 3600;
 
+/// What joins an issue to the box one claim covers in the claims table's `item` column.
+const BOX_MARK: char = '@';
+
+/// The longest box slug a claim keeps.
+const SLUG_LEN: usize = 48;
+
+/// A box's text as a claim names it: lowercase words of letters and digits joined by `-`, so one box written with another checkbox, spacing or case is one claim; None when the text holds no word.
+pub fn box_slug(text: &str) -> Option<String> {
+    let trimmed = text.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]");
+    let words: Vec<String> = trimmed.split(|c: char| !c.is_alphanumeric()).filter(|word| !word.is_empty()).map(str::to_lowercase).collect();
+    let slug: String = words.join("-").chars().take(SLUG_LEN).collect();
+    let slug = slug.trim_end_matches('-').to_owned();
+    (!slug.is_empty()).then_some(slug)
+}
+
+/// The claims table's key for `item` held whole, or for the box `slug` of it.
+pub fn key(item: &str, slug: Option<&str>) -> String {
+    slug.map_or_else(|| item.to_owned(), |slug| format!("{item}{BOX_MARK}{slug}"))
+}
+
+/// The issue and the box slug a claims table key names.
+pub fn split_key(key: &str) -> (String, Option<String>) {
+    key.split_once(BOX_MARK).map_or_else(|| (key.to_owned(), None), |(item, slug)| (item.to_owned(), Some(slug.to_owned())))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Claim {
     pub item: String,
+    /// The box of `item` this claim covers, or None when it covers the whole issue.
+    pub slug: Option<String>,
     pub owner: String,
     pub since: i64,
     pub eta_min: Option<i64>,
@@ -66,6 +93,11 @@ impl Standing {
 }
 
 impl Claim {
+    /// The key this claim has in the claims table, and the instance its lifecycle record follows.
+    pub fn key(&self) -> String {
+        key(&self.item, self.slug.as_deref())
+    }
+
     /// `alive` is the owners of the sessions alive now, or `None` when no fleet could be read, so only the issue and ETA rules apply.
     pub fn standing(&self, issue: Issue, alive: Option<&BTreeSet<String>>, now: i64) -> Standing {
         match issue {

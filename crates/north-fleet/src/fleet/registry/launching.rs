@@ -41,7 +41,7 @@ impl Fleet {
         };
         self.refuse_on_window(conversation.as_deref())?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
-        let tasks = request.tasks();
+        let tasks = super::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref());
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
         record.account = account.recorded_label();
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
