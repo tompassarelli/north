@@ -160,3 +160,20 @@ fn concurrent_writers_wait_their_turn_instead_of_failing() {
     assert_eq!(Ledger::open(&path).unwrap().runs().unwrap().len(), 80);
 }
 
+
+#[test]
+fn a_closed_cell_costs_the_sum_of_the_runs_it_counts_and_names_the_earliest_of_them() {
+    use super::outcome::replay_tests;
+    let db = replay_tests::ledger();
+    let runs = replay_tests::spend_runs(&db, &replay_tests::judged(&db));
+    let prices = crate::router::pricing::PriceTable::load().unwrap();
+    let closed = ["north#9", "north#12", "north#13"].map(str::to_owned).into_iter().collect();
+    let report = super::summarize(&runs, &closed, "2026-11-01T00:00:00Z", &prices);
+    let cell = report.cells.iter().find(|cell| cell.tier == "opus-medium" && cell.category == "feature").unwrap();
+    let counted: Vec<String> = cell.boxes_dearest_first().into_iter().flat_map(|closed| closed.runs.into_iter().map(|run| run.agent)).collect();
+    let priced: f64 = runs.iter().filter(|run| counted.contains(&run.agent)).map(|run| prices.run_usd(run.model.as_deref(), &run.tier, run.input, run.cache_read, run.output)).sum();
+    assert_eq!((cell.closed, counted.len()), (3, 3));
+    assert!((cell.usd - priced).abs() < 1e-9, "cell {} against its runs {priced}", cell.usd);
+    assert_eq!(cell.runs_since(), Some("2026-10-25T13:00:00Z"));
+    assert!(report.dashboard("7d").starts_with("cost/closed, boxes closed in 7d, each priced at API-equivalent rates over all its runs, the earliest started 2026-10-25:"), "{}", report.dashboard("7d"));
+}

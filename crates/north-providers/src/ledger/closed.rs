@@ -129,6 +129,10 @@ impl Cell {
         boxes.sort_by(|a, b| b.usd.total_cmp(&a.usd));
         boxes
     }
+
+    pub fn runs_since(&self) -> Option<&str> {
+        self.boxes.iter().flat_map(|closed| closed.runs.iter().map(|run| run.started.as_str())).filter(|started| !started.is_empty()).min()
+    }
 }
 
 /// What a closed-box cell says about its next box: the median and p90 cost of a closed box and the p75 wall
@@ -192,6 +196,10 @@ impl SpendRun {
 pub fn checker_verified(body: &str) -> bool {
     let ticked: Vec<&str> = body.lines().map(str::trim_start).filter(|line| line.starts_with("- [x]") || line.starts_with("- [X]")).collect();
     !ticked.is_empty() && ticked.iter().all(|line| line.contains("Evidence: `") && line.contains(" exited 0 on "))
+}
+
+fn day(started: Option<&str>) -> &str {
+    started.map_or("-", |started| started.get(..10).unwrap_or(started))
 }
 
 pub fn tier_label(tier: &str) -> String {
@@ -352,22 +360,31 @@ impl ClosedReport {
         format!("runs/closed {window}: {}", if parts.is_empty() { "-".to_owned() } else { parts.join(" | ") })
     }
 
+    pub fn runs_since(&self) -> Option<&str> {
+        self.cells.iter().filter_map(Cell::runs_since).min()
+    }
+
+    fn reach(&self, window: &str) -> String {
+        format!("boxes closed in {window}, each priced at API-equivalent rates over all its runs, the earliest started {}", day(self.runs_since()))
+    }
+
     pub fn dashboard(&self, window: &str) -> String {
         let money = |usd: Option<f64>| usd.map_or_else(|| "-".to_owned(), |usd| format!("${usd:.2}"));
-        let mut parts = vec![format!("all {} ({})", money(self.per_closed(self.spend_usd)), self.closed)];
+        let mut parts = vec![format!("window spend {} ({})", money(self.per_closed(self.spend_usd)), self.closed)];
         parts.extend(self.cells.iter().map(|cell| format!("{} {} {} ({})", cell.tier, cell.category, money(Some(cell.usd_per_closed())), cell.closed)));
         parts.push(format!("leads {}/closed", money(self.per_closed(self.leads_usd))));
-        format!("cost/closed {window}: {}", parts.join(" | "))
+        format!("cost/closed, {}: {}", self.reach(window), parts.join(" | "))
     }
 
     pub fn json(&self, window: &str) -> Value {
         json!({
             "since": window,
+            "runs_since": self.runs_since(),
             "closed": self.closed,
             "all_usd_per_closed": self.per_closed(self.spend_usd),
             "leads_usd_per_closed": self.per_closed(self.leads_usd),
             "cells": self.cells.iter().map(|cell| json!({
-                "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "unclosed_usd": cell.unclosed_usd, "reworked": cell.reworked, "usd_per_closed": cell.usd_per_closed(),
+                "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "unclosed_usd": cell.unclosed_usd, "reworked": cell.reworked, "usd_per_closed": cell.usd_per_closed(), "runs_since": cell.runs_since(),
                 "boxes": cell.boxes.iter().map(|closed| json!({"item": closed.item, "usd": closed.usd, "runs": closed.runs.iter().map(|run| json!({"agent": run.agent, "tier": run.tier, "category": run.category, "started": run.started, "usd": run.usd})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "runs_per_closed": self.runs_per_closed().iter().map(|(category, runs, closed)| json!({"category": category, "runs": runs, "closed": closed, "runs_per_closed": *runs as f64 / *closed as f64})).collect::<Vec<_>>(),
@@ -383,9 +400,9 @@ impl ClosedReport {
     }
 
     pub fn print_table(&self) {
-        println!("tier\tcategory\tclosed\tusd\tunclosed_usd\tusd_per_closed");
+        println!("tier\tcategory\tclosed\tusd\tunclosed_usd\tusd_per_closed\truns_since");
         for cell in &self.cells {
-            println!("{}\t{}\t{}\t{:.2}\t{:.2}\t{:.2}", cell.tier, cell.category, cell.closed, cell.usd, cell.unclosed_usd, cell.usd_per_closed());
+            println!("{}\t{}\t{}\t{:.2}\t{:.2}\t{:.2}\t{}", cell.tier, cell.category, cell.closed, cell.usd, cell.unclosed_usd, cell.usd_per_closed(), day(cell.runs_since()));
         }
     }
 }
