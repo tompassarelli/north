@@ -7,6 +7,14 @@ pub type Pace = fn(&Value) -> Result<Value, String>;
 pub type PickTier = fn(&str) -> Result<Tier, String>;
 pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
+pub type ReadStreakOf = fn(&str, &Value) -> ReadStreak;
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ReadStreak {
+    pub calls: usize,
+    pub subject: String,
+    pub shapes: Vec<(String, usize)>,
+}
 
 #[derive(Clone, Copy)]
 pub struct Host {
@@ -14,6 +22,7 @@ pub struct Host {
     pub picked_tier: PickTier,
     pub recorded_decisions: RecordedDecisions,
     pub account_home: AccountHome,
+    pub read_streak: ReadStreakOf,
 }
 
 static INSTALLED: OnceLock<Host> = OnceLock::new();
@@ -40,4 +49,8 @@ pub fn recorded_decisions(paragraph: &str, now: f64) -> Vec<String> {
 
 pub fn account_home(provider: &str, label: &str) -> Option<PathBuf> {
     installed().ok().and_then(|host| (host.account_home)(provider, label))
+}
+
+pub fn read_streak(transcript: &str, hook: &Value) -> Option<ReadStreak> {
+    installed().ok().map(|host| (host.read_streak)(transcript, hook))
 }

@@ -215,7 +215,7 @@ impl HookKind {
             Self::PreAsk => &[crate::guard::question_box::evaluate],
             Self::SpawnCapacity => &[crate::guard::spawn_capacity::admission],
             Self::NativeSpawn => &[crate::guard::proxy_role::evaluate, crate::guard::spawn_capacity::evaluate],
-            Self::PostTool => &[crate::guard::worker_lease::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate],
+            Self::PostTool => &[crate::guard::worker_lease::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::proxy_streak::evaluate],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
             Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::recommend_acts::evaluate, crate::guard::correction_capture::evaluate],
             Self::RecommendActs => &[crate::guard::recommend_acts::evaluate],
@@ -257,6 +257,9 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
                 return Some(permission_decision("deny", Some(reason)));
             }
             Verdict::Deny(reason) if matches!(event, "Stop" | "SubagentStop") => blocks.push(reason),
+            Verdict::Deny(reason) if event == "PostToolUse" => {
+                return Some(Value::object([("decision", "block".into()), ("reason", reason.clone().into()), ("continue", Value::Bool(false)), ("stopReason", reason.into())]));
+            }
             Verdict::Deny(reason) => {
                 return Some(Value::object([(
                     "hookSpecificOutput",

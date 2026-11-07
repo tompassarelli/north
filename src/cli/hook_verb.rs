@@ -35,7 +35,7 @@ pub(super) fn run(arguments: Vec<String>) -> ExitCode {
             {
                 return ExitCode::SUCCESS;
             }
-            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home });
+            guard::host::install(guard::host::Host { pace: crate::pacing::answer, picked_tier: crate::dispatch::picked_tier, recorded_decisions: grounding::bearing::records, account_home: fleet::account_home, read_streak });
             let started = std::time::Instant::now();
             match foundation::hook_deadline::within(started + GUARD_DEADLINE, move || hook::run(&arguments)) {
                 Some(outcome) => reported(outcome),
@@ -69,3 +69,15 @@ pub(super) fn grounded_session(conversation: &str) -> bool {
     let entrypoint = std::env::var("CLAUDE_CODE_ENTRYPOINT").ok();
     crate::fleet::audience::grounded(&crate::fleet::audience::fleet_dir(), named.as_deref(), conversation, entrypoint.as_deref())
 }
+
+fn read_streak(transcript: &str, hook: &serde_json::Value) -> guard::host::ReadStreak {
+    let text = |key: &str| hook.get(key).and_then(serde_json::Value::as_str).unwrap_or_default();
+    let input = hook.get("tool_input").unwrap_or(&serde_json::Value::Null);
+    let call = crate::proxy::Call { id: text("tool_use_id"), tool: text("tool_name"), input };
+    let streak = crate::proxy::read_streaks(transcript, &super::verbs::VERB_KINDS, Some(call)).pop().unwrap_or_default();
+    guard::host::ReadStreak { calls: streak.calls(), shapes: streak.top_shapes(3), subject: streak.subject }
+}
+
+#[cfg(test)]
+#[path = "hook_verb_tests.rs"]
+mod tests;
