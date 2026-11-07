@@ -47,13 +47,13 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 - Live code, `north advisor-report`: `crates/north-ops/src/ops/advisor_report/` (mod.rs 292, stats.rs 107,
   tests.rs 95), `src/cli/tools.rs:60`, `src/cli/help.txt:60`, and the two priors only it reads,
   `noninferiority_margin` and `plan_per_list_claude` (`harness/defaults.toml:263-275`). No command, hook, timer
-  or land check calls it, and no gex45 session ran it in 14 days. `crates/north-ops/src/ops/policy_replay/events.rs:8`
-  and `crates/north-ops/src/ops/policy_replay/rows.rs:7` import `float_sum` through it; it is a re-export of
+  or land check calls it, and no gex45 session ran it in 14 days. `crates/north-convo/src/policy_replay/events.rs:8`
+  and `crates/north-convo/src/policy_replay/rows.rs:7` import `float_sum` through it; it is a re-export of
   `crate::platform::pystats::float_sum`, so they import that instead.
-- Live code, the arm inside `north policy-replay`: the `--advisor` flag (`crates/north-ops/src/ops/policy_replay/cli.rs:9`,
-  `:49`, `:125-127`), advisor parsing (`crates/north-ops/src/ops/policy_replay/events.rs:70-144`), the advisor
-  fields and their null-scoring (`crates/north-ops/src/ops/policy_replay/run.rs:203-204`, `:215-216`, `:235-236`, `:253`,
-  `:265-291`), the tests at `crates/north-ops/src/ops/policy_replay/tests.rs:140-183` and
+- Live code, the arm inside `north policy-replay`: the `--advisor` flag (`crates/north-convo/src/policy_replay/cli.rs:9`,
+  `:49`, `:125-127`), advisor parsing (`crates/north-convo/src/policy_replay/events.rs:70-144`), the advisor
+  fields and their null-scoring (`crates/north-convo/src/policy_replay/run.rs:203-204`, `:215-216`, `:235-236`, `:253`,
+  `:265-291`), the tests at `crates/north-convo/src/policy_replay/tests.rs:140-183` and
   `tests/it/policy_replay_run.rs:151-200`, and the fixtures `harness/scripts/policy-replay.advisor.jsonl` and
   `harness/scripts/fixtures/haiku-opus-advisor.*`. Every sweep trial runs through `run_one`, so the parsing runs on
   each sweep. `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` stays, set on every trial, so a replay never measures an
@@ -187,7 +187,7 @@ arm loses. Each box is at most 45 minutes, lands alone through safe-push, and le
    `rg -n 'advisor_report|noninferiority_margin|plan_per_list_claude' crates src harness` prints nothing.
 3. Advisor arm in policy-replay. Delete the `--advisor` flag, `AdvisorUsage` and its parsing, the advisor row
    fields and scoring, their tests and the advisor fixtures; set `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` on every
-   trial. Done when: `rg -n -i advisor crates/north-ops/src/ops/policy_replay tests/it` prints only that env line.
+   trial. Done when: `rg -n -i advisor crates/north-convo/src/policy_replay tests/it` prints only that env line.
 4. Planner band. Delete `crates/north-core/src/ledger/planner/`, `north ledger planner-band`,
    `recommend --planner` in Rust and in `bin/threads`, and their checks in `bin/threads.test.sh`; drop the
    trade-off paragraph from tier-routing.md. Done when: `rg -n 'planner-band|--planner|ledger::planner' crates src bin`

@@ -110,7 +110,7 @@ pub fn session_files(roots: &[PathBuf], since: Duration, session: Option<&str>) 
     let cutoff = SystemTime::now().checked_sub(since).unwrap_or(SystemTime::UNIX_EPOCH);
     let mut out = Vec::new();
     for root in roots {
-        let files = crate::ops::convo::discover::claude_session_files(root)?;
+        let files = crate::convo::discover::claude_session_files(root)?;
         for disk in &files {
             let logical = logical_path(disk);
             if disk != &logical && files.contains(&logical) {

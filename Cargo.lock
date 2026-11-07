@@ -918,6 +918,7 @@ dependencies = [
  "fancy-regex",
  "north-capacity-host",
  "north-climb",
+ "north-convo",
  "north-core",
  "north-coverage",
  "north-dispatch",
@@ -1035,6 +1036,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-convo"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "north-base",
+ "north-fleet",
+ "north-threads",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-core"
 version = "0.1.0"
 dependencies = [
@@ -1130,7 +1151,13 @@ name = "north-flow"
 version = "0.1.0"
 dependencies = [
  "north-base",
- "north-ops",
+ "north-capacity-host",
+ "north-dispatch",
+ "north-fleet",
+ "north-health",
+ "north-pace",
+ "north-providers",
+ "north-threads",
  "regex",
  "rusqlite",
  "rustix 0.38.44",

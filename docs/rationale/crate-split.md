@@ -134,11 +134,11 @@ twice, so it was not built.
 
 north-ops was 25768 non-test lines against its 25000 cap (north#743). Reading each module's `ops::`, `super::` and
 `crate::` paths showed two clusters nothing left in the crate reaches. `flow` and `detectors` name each other, and
-`agents`, `experiments`, `tempo` and `tool_mine` reach `flow`, so those six left together as `north-flow`
-(`north split move-module --from north-ops`), taking north-ops to 18652 lines. `north-flow` re-exports north-ops'
-modules, so the `crate::ops::flow` paths inside the moved files became `crate::flow`; no module of north-ops
-reaches `north-flow`. `convo`, `context_audit` and `policy_replay` leave next as `north-convo`, which brings
-north-ops under 60% of its cap.
+`agents`, `experiments`, `tempo` and `tool_mine` reach `flow`, so those six left together as `north-flow` (7124 lines);
+`convo`, `context_audit` and `policy_replay` left as `north-convo` (6085 lines), taking north-ops to 12571 lines, half
+its cap. Both used `north-ops` only to reach what it re-exports, so each re-exports those names from the crates that own
+them and lists no dependency on north-ops: two crates above north-ops would have given it three dependents, which makes it
+a hub with a 10000-line cap. The `crate::ops::flow` paths inside the moved files became `crate::flow`.
 
 ## north-guard
 

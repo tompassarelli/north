@@ -6,7 +6,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::ops::convo::lines::{Source, scan_lines};
+use crate::convo::lines::{Source, scan_lines};
 
 const LINE_CAP: usize = 64 << 20;
 const CHUNK: usize = 1 << 20;

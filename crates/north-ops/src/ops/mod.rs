@@ -1,7 +1,5 @@
 pub mod credentials;
 pub mod citation_check;
-pub mod context_audit;
-pub mod convo;
 pub mod docs;
 pub mod features_index;
 pub mod incident_mine;
@@ -16,7 +14,6 @@ pub mod review_items;
 pub mod retention;
 pub mod rationale_index;
 pub mod report;
-pub mod policy_replay;
 pub mod watch;
 pub mod command;
 pub mod agent_capture;
