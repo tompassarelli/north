@@ -172,7 +172,7 @@ fn north_725_d0411_is_held_off_gex45_by_the_host_stops_of_both_earlier_launches_
         let launches = super::stops::last_launches(records);
         let learned = super::host_needs::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap();
         let [mut issue] = boxes;
-        issue.needs.extend(super::host_needs::holding(&learned, &issue, at));
+        issue.needs = super::host_needs::of(&issue, &[], &learned, at);
         issue
     };
     let (d0306_at, d0352_at, d0411_at) = (1_794_027_996.0, 1_794_030_733.0, 1_794_033_106.0);
@@ -200,7 +200,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     assert_eq!(lacks("gex45").as_deref(), Some("laptop"), "north-725-d0411 went to gex45 and stopped on Stop: host laptop");
     assert_eq!((lacks("ccx33").as_deref(), lacks("cpx62").as_deref(), lacks("whiterabbit")), (Some("laptop"), Some("laptop"), None));
     let ticked = Issue { body: body.replace("- [ ] the issue holds", "- [x] the issue holds").replace("- [ ] gex45 sits", "- [x] gex45 sits"), ..issue };
-    assert!(super::host_needs::holding(&super::host_needs::read(directory.path()), &ticked, d0411_at).is_empty(), "a need goes once every box it was learned for is ticked");
+    assert!(super::host_needs::of(&ticked, &[], &super::host_needs::read(directory.path()), d0411_at).is_empty(), "a need goes once every box it was learned for is ticked");
 }
 
 #[test]
@@ -344,4 +344,24 @@ fn north_722_waited_twice_on_one_stop_and_a_box_due_by_a_date_or_after_landings_
     assert_eq!(held("- [ ] the debt is read after the next 10 landings", 10), Ok(()), "ten landings have cited the issue since its last report");
     assert_eq!(held("- [ ] the cache keeps the newest row", 0), Ok(()), "a box with no due phrase is ready");
     assert_eq!(held("- [ ] the debt is read after the next 10 landings\n- [ ] the cache keeps the newest row", 3), Ok(()), "a ready box beside a held one is takeable");
+}
+
+#[test]
+fn a_box_is_placed_on_its_own_needs_line_and_an_issue_with_one_box_needing_nothing_is_placed_north_787() {
+    let at = 1_794_041_000.0;
+    let hosts: Vec<String> = ["gex45", "ccx33", "whiterabbit"].map(str::to_owned).to_vec();
+    let needs = |body: &str, learned: &[super::host_needs::Learned]| super::host_needs::of(&issue("north", 787, body, &[]), &hosts, learned, at);
+    let prose = "- [ ] the laptop rebuild picks the landing up, read on ccx33";
+    assert_eq!(needs(prose, &[]), ["ccx33", "laptop"], "a box with no Needs: line is read from its prose");
+    assert!(needs(&format!("{prose} Needs: none"), &[]).is_empty(), "Needs: none declares a box that only mentions them");
+    assert_eq!(needs(&format!("{prose} Needs: gex45, native-client"), &[]), ["gex45", "native"], "its own line replaces its prose");
+    assert_eq!(needs("- [ ] watch the laptop timer Needs: laptop", &[]), ["laptop"], "a box that truly needs the laptop stays held");
+    let mixed = format!("{prose}\n- [ ] a test pins the order in the crate");
+    assert!(needs(&mixed, &[]).is_empty(), "a box that needs nothing places the issue, the worker taking what it can");
+    assert_eq!(needs(&format!("{prose}\n- [ ] the laptop's timer runs it"), &[]), ["laptop"], "only the need every box shares holds");
+    let learned = [super::host_needs::Learned { item: "north#787".into(), need: "nexus".into(), session: "n-x".into(), at, boxes: vec![mixed.lines().nth(1).unwrap().to_owned()] }];
+    assert_eq!(needs(&mixed, &learned), ["nexus"], "a learned Stop: host still holds the issue");
+    let whole = issue("north", 787, &mixed, &[]);
+    assert!(super::host_needs::of_box(&whole, "a test pins the order", &hosts, &[], at).is_empty());
+    assert_eq!(super::host_needs::of_box(&whole, "the laptop rebuild", &hosts, &[], at), ["ccx33", "laptop"], "a hand launch on a box reads that box alone");
 }

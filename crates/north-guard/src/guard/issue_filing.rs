@@ -396,6 +396,7 @@ fn shape(write: &GhWrite, body: &str) -> Vec<String> {
     }
     match category(body, &write.labels) {
         None => reasons.push(NO_CATEGORY.to_owned()),
+        Some(category) if let Err(why) = crate::router::brief::known_category(&category) => reasons.push(format!("No. {why}, and north dispatch places no box under another word.")),
         Some(category) if BUG_CATEGORIES.contains(&category.as_str()) && !CLASS.is_match(body) => reasons.push(NO_CLASS.to_owned()),
         Some(_) => {}
     }

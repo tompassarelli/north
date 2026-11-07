@@ -52,37 +52,35 @@ pub fn learn(directory: &Path, issues: &[Issue], session_of: impl Fn(&Issue) -> 
     Ok(known)
 }
 
-/// The needs learned for `issue` whose boxes it still holds unticked.
-pub fn holding(learned: &[Learned], issue: &Issue, at: f64) -> Vec<String> {
+/// The needs a launch of `issue` is placed on: those a worker's `Stop: host` learned for boxes still unticked, and those every takeable box shares, each box
+/// read as its own `Needs:` line says, else as its prose names them. One box that needs nothing places the launch, because a worker takes the boxes it can and
+/// reports `Stop: host` for the rest, which a held launch would lose. Dispatch's survey and a hand launch's `north fleet launch` both read them here.
+pub fn of(issue: &Issue, hosts: &[String], learned: &[Learned], at: f64) -> Vec<String> {
+    placed(issue, issue.takeable(at), hosts, learned)
+}
+
+fn placed<'a>(issue: &Issue, lines: impl Iterator<Item = &'a str>, hosts: &[String], learned: &[Learned]) -> Vec<String> {
     let item = issue.reference().to_string();
-    let open: Vec<&str> = issue.takeable(at).map(str::trim).collect();
-    let mut needs: Vec<String> = learned.iter().filter(|seen| seen.item == item && seen.boxes.iter().any(|line| open.contains(&line.as_str()))).map(|seen| seen.need.clone()).collect();
+    let lines: Vec<&str> = lines.collect();
+    let mut needs: Vec<String> = learned.iter().filter(|seen| seen.item == item && seen.boxes.iter().any(|boxed| lines.iter().any(|line| line.trim() == boxed))).map(|seen| seen.need.clone()).collect();
+    let mut shared: Option<Vec<String>> = None;
+    for line in &lines {
+        let own = issue.needs_in(std::iter::once(*line), hosts);
+        shared = Some(shared.map_or(own.clone(), |before| before.into_iter().filter(|need| own.contains(need)).collect()));
+    }
+    needs.extend(shared.unwrap_or_default());
     needs.sort();
     needs.dedup();
     needs
 }
 
-/// The needs a launch of `issue` is placed on: those its takeable boxes name and those a worker's `Stop: host` learned for
-/// boxes still unticked. Dispatch's survey and a hand launch's `north fleet launch` both read them here.
-pub fn of(issue: &Issue, hosts: &[String], learned: &[Learned], at: f64) -> Vec<String> {
-    let mut needs = issue.box_needs(hosts, at);
-    needs.extend(holding(learned, issue, at));
-    needs
-}
-
-/// The needs a launch for the one box whose text holds `box_text` is placed on: that box's own needs and those a `Stop: host`
-/// learned for it. A box that matches no takeable box reads the whole issue, as `of` does.
+/// The needs a launch for the one box whose text holds `box_text` is placed on: that box's own, read as `of` reads each box. A box that matches no takeable box reads the whole issue, as `of` does.
 pub fn of_box(issue: &Issue, box_text: &str, hosts: &[String], learned: &[Learned], at: f64) -> Vec<String> {
     let lines: Vec<&str> = issue.takeable_box(box_text, at).collect();
     if lines.is_empty() {
         return of(issue, hosts, learned, at);
     }
-    let item = issue.reference().to_string();
-    let mut needs = issue.needs_in(lines.iter().copied(), hosts);
-    needs.extend(learned.iter().filter(|seen| seen.item == item && seen.boxes.iter().any(|line| lines.contains(&line.as_str()))).map(|seen| seen.need.clone()));
-    needs.sort();
-    needs.dedup();
-    needs
+    placed(issue, lines.into_iter(), hosts, learned)
 }
 
 /// The needs a hand launch on `item` is placed on, read the way dispatch reads them: the item's takeable boxes in `body`, and

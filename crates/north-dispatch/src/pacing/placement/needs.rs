@@ -18,6 +18,7 @@ static FLEET_TICK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:thro
 static HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:on|from) ([a-z][\w-]*)\b|\b([a-z][\w-]*)'s\b").expect("host pattern"));
 static EVERY_HOST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:all|every|each)(?: (?:two|three|four|five|six))? hosts?\b").expect("every-host pattern"));
 static REPOSITORY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b([a-z][\w-]*)'s\b|\bcode/([a-z][\w-]*)|\bbun ([a-z][\w-]*)\b").expect("repository pattern"));
+static DECLARED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bNeeds:\s*([a-z][\w:.-]*(?:\s*,\s*[a-z][\w:.-]*)*)").expect("declared needs pattern"));
 
 pub fn words(text: &str, key: &str) -> Vec<String> {
     field(text, key)
@@ -40,6 +41,15 @@ pub fn with_needs(text: &str, extra: &[String]) -> String {
         }
     }
     format!("Needs: {}\n{text}", merged.join(", "))
+}
+
+/// The needs a box line declares for itself with `Needs: a, b` (`none` for a box that needs nothing beyond its repository), which replace what its prose would name.
+pub fn declared(line: &str) -> Option<Vec<String>> {
+    let listed = DECLARED.captures(line)?[1].to_lowercase();
+    let mut needs: Vec<String> = listed.split(',').map(|word| word.trim()).filter(|word| *word != "none").map(|word| SYNONYMS.iter().find(|(name, _)| *name == word).map_or(word, |(_, need)| need).to_owned()).collect();
+    needs.sort();
+    needs.dedup();
+    Some(needs)
 }
 
 pub(super) fn is_local_need(word: &str) -> bool {

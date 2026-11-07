@@ -14,6 +14,16 @@ pub const FACETS: [(&str, &[&str]); 4] = [
 pub const CATEGORIES: [&str; 13] =
     ["mechanical", "docs-policy", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning", "native-check", "research", "planning", "review"];
 
+pub const ART: [&str; 3] = ["anim", "animation", "art"];
+
+/// Refuses a category outside the brief vocabulary and the art words, naming the valid list.
+pub fn known_category(category: &str) -> Result<(), String> {
+    if CATEGORIES.contains(&category) || ART.contains(&category) {
+        return Ok(());
+    }
+    Err(format!("`Category: {category}` is no category; use one of {}, or {}", CATEGORIES.join(", "), ART.join(", ")))
+}
+
 static FIELD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([A-Za-z][A-Za-z ]*?):[ \t]*(.*)$").unwrap());
 static WORD: LazyLock<Regex> =

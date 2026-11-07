@@ -11,7 +11,7 @@ use super::issues::Issue;
 use super::record::Record;
 use super::shares::{Shares, arm_outcomes, experiment_arms};
 use crate::ledger::closed::{ArmBox, ClosedReport};
-use crate::router::brief::CATEGORIES;
+pub use crate::router::brief::{ART, known_category as known};
 use crate::router::settle::{self, Outcome};
 use crate::router::policy::ARM_RUNS;
 pub use crate::router::tier::Tier;
@@ -27,15 +27,6 @@ pub const PLANNED: [&str; 2] = ["planning", "review"];
 /// The auto-compact windows a local Claude box on no tier or effort arm launches with, one equal seeded
 /// share each at the start, stamped `Arm: context-NNNk` (docs/rationale/context-economics.md).
 pub const CONTEXT_WINDOWS: [u64; 4] = [200_000, 300_000, 400_000, 500_000];
-const ART: [&str; 3] = ["anim", "animation", "art"];
-
-/// Refuses a category outside the brief vocabulary and the art words, naming the valid list.
-pub fn known(category: &str) -> Result<(), String> {
-    if CATEGORIES.contains(&category) || ART.contains(&category) {
-        return Ok(());
-    }
-    Err(format!("`Category: {category}` is no category; use one of {}, or {}", CATEGORIES.join(", "), ART.join(", ")))
-}
 
 /// Categories whose ledger evidence dispatch and the tune tick read: every category but mechanical
 /// work, which never runs on Opus.

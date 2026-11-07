@@ -70,3 +70,14 @@ fn an_issue_a_worker_files_as_its_own_item_is_claimed_even_when_it_names_what_it
     assert_eq!(filer.claimed, [(("tompassarelli/north".to_owned(), 769), "n-host-death".to_owned())], "dispatch staffed north-769-d0416 beside n-host-death, which filed north#769 as its item");
     assert!(FILE_IT_FIRST.is_match("Item: new north issue, file it first (bug, priority:now): a fleet session host exits mid-task"));
 }
+
+#[test]
+fn a_create_with_a_category_dispatch_cannot_read_is_refused_naming_the_valid_ones_north_787() {
+    let write = GhWrite { creates_issue: true, ..GhWrite::default() };
+    let harness = shape(&write, "Category: harness\n\n## Done when\n- [ ] the gate holds");
+    assert_eq!(harness.len(), 1, "{harness:?}");
+    assert!(harness[0].contains("`Category: harness` is no category") && harness[0].contains("bug-known-cause"), "{harness:?}");
+    assert!(shape(&write, "Category: tooling\n\n## Done when\n- [ ] the gate holds").is_empty());
+    let labelled = GhWrite { labels: vec!["category:harness".into()], ..write };
+    assert_eq!(shape(&labelled, "## Done when\n- [ ] the gate holds").len(), 1);
+}

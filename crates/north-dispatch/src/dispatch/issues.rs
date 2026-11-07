@@ -128,7 +128,7 @@ impl Issue {
         self.product_lines().any(|line| north_graph_ground::due_landings(line).is_some())
     }
 
-    /// The needs its takeable boxes name (`needs::in_box`): the laptop, a host of `hosts`, or another repository's checkout.
+    /// The needs its takeable boxes declare with `Needs:` or, for a box with none, name in prose (`needs::in_box`): the laptop, a host of `hosts`, or another repository's checkout.
     pub fn box_needs(&self, hosts: &[String], at: f64) -> Vec<String> {
         self.needs_in(self.takeable(at), hosts)
     }
@@ -141,7 +141,7 @@ impl Issue {
 
     pub fn needs_in<'a>(&self, lines: impl Iterator<Item = &'a str>, hosts: &[String]) -> Vec<String> {
         let repos = &crate::threads::catalog::CATALOG.repos;
-        let mut found: Vec<String> = lines.flat_map(|line| crate::pacing::placement::needs::in_box(line, &self.repo, hosts, repos)).collect();
+        let mut found: Vec<String> = lines.flat_map(|line| crate::pacing::placement::needs::declared(line).unwrap_or_else(|| crate::pacing::placement::needs::in_box(line, &self.repo, hosts, repos))).collect();
         found.sort();
         found.dedup();
         found
