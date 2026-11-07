@@ -43,10 +43,15 @@ fn outside(sandbox: &Sandbox, tree: &Path) -> PathBuf {
     tree.strip_prefix(super::home().join("code")).map_or_else(|_| tree.to_owned(), |rest| sandbox.code.join(rest))
 }
 
-/// Strings in the transcript that show the arm reached past its sandbox toward the answer.
+/// The init event is skipped: it names the run directory, which ends in the landed sha's first ten characters.
 fn leaks(sandbox: &Sandbox, task: &Task) -> Vec<String> {
     let stream = fs::read_to_string(sandbox.root.join("stream.jsonl")).unwrap_or_default();
-    [(&task.landed[..10], "the landed sha"), ("github.com/tompassarelli", "the public repository"), ("api.github.com", "the GitHub API")].into_iter().filter(|(needle, _)| stream.contains(needle)).map(|(_, what)| what.to_owned()).collect()
+    reached(&stream, &task.landed)
+}
+
+pub(crate) fn reached(stream: &str, landed: &str) -> Vec<String> {
+    let seen: String = stream.lines().filter(|line| !line.starts_with(r#"{"type":"system","subtype":"init""#)).collect::<Vec<_>>().join("\n");
+    [(&landed[..10], "the landed sha"), ("github.com/tompassarelli", "the public repository"), ("api.github.com", "the GitHub API")].into_iter().filter(|(needle, _)| seen.contains(needle)).map(|(_, what)| what.to_owned()).collect()
 }
 
 pub fn grade(task: &Task, sandbox: &Sandbox, source: &Path, oracle: &Oracle) -> Result<Grade, NorthError> {
