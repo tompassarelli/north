@@ -61,7 +61,6 @@ fails when they differ.
 ## Skills
 
 - [`astro`](skills/astro/SKILL.md)
-- [`babashka-development`](skills/babashka-development/SKILL.md)
 - [`debugging`](skills/debugging/SKILL.md)
 - [`effect-development`](skills/effect-development/SKILL.md)
 - [`external-code`](skills/external-code/SKILL.md)

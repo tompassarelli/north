@@ -8,9 +8,8 @@
   },
   "units": [
     {"id":"agent-machinery","kind":"module","source":"catalog.json","members":["agent-practice"]},
-    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","debugging","effect-development","external-code","planning","program-craftsmanship","rust-development","verification"]},
-    {"id":"babashka-development","kind":"skill","source":"skills/babashka-development/SKILL.md"},
-    {"id":"debugging","kind":"skill","source":"skills/debugging/SKILL.md"},
+    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["debugging","effect-development","external-code","planning","program-craftsmanship","rust-development","verification"]},
+        {"id":"debugging","kind":"skill","source":"skills/debugging/SKILL.md"},
     {"id":"external-code","kind":"skill","source":"skills/external-code/SKILL.md"},
     {"id":"effect-development","kind":"skill","source":"skills/effect-development/SKILL.md"},
     {"id":"planning","kind":"skill","source":"skills/planning/SKILL.md"},

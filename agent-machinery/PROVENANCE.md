@@ -11,7 +11,7 @@ standalone repository and North-v1 copy are migration inputs only.
 Portable deltas that had accumulated in North-v1 through
 `north@fced2d40016e63eb84fa1c99be6659c6b284dae5` were reconciled during the
 same consolidation. They add the current delivery doctrine, verification and
-skill-maintenance procedures, and catalogued Babashka, competitive-loop,
+skill-maintenance procedures, and catalogued competitive-loop,
 skill-importing, Three.js, and web-development skills. North-v1-specific
 runtime and provider machinery was not imported.
 

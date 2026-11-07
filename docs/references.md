@@ -362,7 +362,6 @@ Skills that cite many sources keep them beside the skill, so they are not repeat
   Lua and TypeScriptToLua performance.
 - [harness/skills/warcraft-modding/references/api-gotchas.md](../harness/skills/warcraft-modding/references/api-gotchas.md),
   [harness/skills/makgora/references/animation-library.md](../harness/skills/makgora/references/animation-library.md),
-  [agent-machinery/skills/babashka-development/references/](../agent-machinery/skills/babashka-development/references/)
   and [harness/skills/repo-safety/references/project-layout.md](../harness/skills/repo-safety/references/project-layout.md):
   domain references.
 - [harness/model-catalog.toml](../harness/model-catalog.toml): prices and benchmark scores the routing reads.
