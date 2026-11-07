@@ -142,7 +142,7 @@ fn drive(arm: &Attempt, sandbox: &Sandbox, install: &Install, home: &Path, child
     cli(arm, sandbox, install, home, &["project", "add", &here])?;
     let launched = cli(arm, sandbox, install, home, &["thread", "start", &here, arm.brief, "--provider", PROVIDER, "--model", &arm.task.model, "--json"])?;
     let thread = serde_json::from_str::<Value>(&launched).ok().and_then(|reply| reply["threadId"].as_str().map(str::to_owned)).ok_or_else(|| refusal(format!("t3 thread start printed no thread id: {launched}")))?;
-    let mut stream = Stream { reader: BufReader::new(File::open(sandbox.root.join("stream.jsonl")).map_err(NorthError::Io)?), results: Vec::new(), first_event: None, last_event: started };
+    let mut stream = Stream { reader: BufReader::new(File::open(sandbox.root.join("stream.jsonl")).map_err(NorthError::Io)?), results: Vec::new(), first_event: None, last_event: started, waited: Duration::ZERO };
     let mut interventions = 0;
     let mut answered = 0;
     let ended = loop {
@@ -166,6 +166,7 @@ fn drive(arm: &Attempt, sandbox: &Sandbox, install: &Install, home: &Path, child
         let capped = stream.results.last().is_some_and(|result| result["subtype"].as_str().is_some_and(|kind| kind.contains("budget")));
         if !capped && interventions < MAX_INTERVENTIONS && (asks(&last) || !changed(sandbox, &arm.task.base)) {
             interventions += 1;
+            stream.waited += stream.last_event.elapsed();
             cli(arm, sandbox, install, home, &["thread", "send", &thread, CONTINUATION])?;
             continue;
         }

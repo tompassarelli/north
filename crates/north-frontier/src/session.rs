@@ -145,7 +145,8 @@ pub(crate) fn refused_for_credit(result: &Value) -> bool {
 pub(crate) fn asks(text: &str) -> bool {
     let last = text.lines().rev().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
     let first = text.trim_start();
-    last.ends_with('?') || first.starts_with("Not done:") || first.starts_with("Blocked:")
+    let another_machine = text.lines().map(str::trim).filter_map(|line| line.strip_prefix("Stop:")).any(|stop| ["client", "host"].iter().any(|named| stop.trim_start().starts_with(named)));
+    last.ends_with('?') || ((first.starts_with("Not done:") || first.starts_with("Blocked:")) && !another_machine)
 }
 
 pub(crate) struct Stream {
@@ -153,6 +154,7 @@ pub(crate) struct Stream {
     pub(crate) results: Vec<Value>,
     pub(crate) first_event: Option<Instant>,
     pub(crate) last_event: Instant,
+    pub(crate) waited: Duration,
 }
 
 impl Stream {
@@ -202,7 +204,7 @@ pub fn run(arm: &Attempt, sandbox: &Sandbox) -> Result<(RunRecord, Spent), North
     let mut child = process::spawn(&mut command).map_err(NorthError::Io)?;
     let mut stdin = child.stdin.take().ok_or_else(|| refusal("claude took no stdin"))?;
     send(&mut stdin, arm.brief)?;
-    let mut stream = Stream { reader: BufReader::new(File::open(&stream_path).map_err(NorthError::Io)?), results: Vec::new(), first_event: None, last_event: started };
+    let mut stream = Stream { reader: BufReader::new(File::open(&stream_path).map_err(NorthError::Io)?), results: Vec::new(), first_event: None, last_event: started, waited: Duration::ZERO };
     let (ended, interventions) = supervise(arm, sandbox, &mut child, stdin, &mut stream, started)?;
     stream.drain();
     if stream.results.is_empty() && ended == "exited" {
@@ -242,6 +244,7 @@ fn supervise(arm: &Attempt, sandbox: &Sandbox, child: &mut std::process::Child, 
         let capped = stream.results.last().is_some_and(|result| result["subtype"].as_str().is_some_and(|kind| kind.contains("budget")));
         if !capped && interventions < MAX_INTERVENTIONS && (asks(&last) || !changed(sandbox, &arm.task.base)) {
             interventions += 1;
+            stream.waited += stream.last_event.elapsed();
             send(&mut stdin, CONTINUATION)?;
             continue;
         }
@@ -253,7 +256,7 @@ fn supervise(arm: &Attempt, sandbox: &Sandbox, child: &mut std::process::Child, 
 }
 
 pub(crate) fn record(arm: &Attempt, conversation: String, stream: &Stream, ended: String, interventions: u32) -> Result<RunRecord, NorthError> {
-    let wall_s = stream.first_event.map_or(0.0, |first| stream.last_event.duration_since(first).as_secs_f64());
+    let wall_s = stream.first_event.map_or(0.0, |first| stream.last_event.duration_since(first).saturating_sub(stream.waited).as_secs_f64());
     let last = stream.results.last().cloned().unwrap_or(Value::Null);
     let harness = match arm.harness {
         Arm::North => fs::read_link(home().join(".claude/CLAUDE.md")).map_or_else(|_| "unknown".into(), |path| path.display().to_string()),

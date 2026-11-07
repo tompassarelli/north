@@ -75,3 +75,13 @@ fn an_arm_that_ran_on_a_pool_key_is_charged_to_that_orgs_account_in_the_ledger()
     rows.sort();
     assert_eq!(rows, [("api:proton".into(), "claude-haiku-5-5".into(), 1, 2, 0, 0), ("api:proton".into(), "claude-sonnet-5-5".into(), 15, 25, 350, 45)]);
 }
+
+// KEEP(bug): north-633's north arm landed its change and reported `Not done:` with `Stop: host laptop` because the live check needs the laptop, and the runner answered it as a question, charging north an intervention and an idle wait no continuation could shorten (north#855)
+#[test]
+fn a_stop_on_another_machine_is_not_a_question_and_a_decision_still_is() {
+    let laptop = "Not done: the trace recorder is landed as 907ad9aa on origin/main, but nothing has produced a real trace yet.\n\nStop: host laptop";
+    let client = "Blocked: the fix is landed; the replay needs a native client.\nStop: client";
+    let decision = "Not done: two designs fit the brief.\nStop: decision";
+    assert!(!crate::session::asks(laptop) && !crate::session::asks(client));
+    assert!(crate::session::asks(decision) && crate::session::asks("Done: landed. Should I also port the bash twin?"));
+}
