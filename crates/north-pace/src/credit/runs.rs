@@ -16,7 +16,7 @@ const DAY_MS: i64 = 86_400_000;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finished {
     pub session: String,
-    pub account: String,
+    pub account: Option<String>,
     pub model: Option<String>,
     pub started_ms: i64,
     pub ended_ms: i64,
@@ -132,7 +132,7 @@ pub fn api_runs(ledger: &Path, prices: &PriceTable, since_ms: i64) -> Result<Vec
     let snapshots = stored(ledger);
     let mut seen: HashSet<(&str, i64)> = HashSet::new();
     let runs = local.iter().chain(snapshots.iter().flat_map(|snapshot| &snapshot.finished));
-    Ok(runs.filter(|run| run.account.starts_with("api:") && run.started_ms >= since_ms && seen.insert((&run.session, run.started_ms))).map(|run| (run.started_ms, usd(prices, run.model.as_deref(), run.tokens))).collect())
+    Ok(runs.filter(|run| api_account(run).is_some() && run.started_ms >= since_ms && seen.insert((&run.session, run.started_ms))).map(|run| (run.started_ms, usd(prices, run.model.as_deref(), run.tokens))).collect())
 }
 
 /// The ledger's api runs and last day of runs, and every stored snapshot's.
@@ -154,8 +154,8 @@ pub fn merge(local: Vec<Finished>, snapshots: Vec<Snapshot>, prices: &PriceTable
             if run.started_ms >= now_ms - DAY_MS {
                 last_day_usd += usd(prices, run.model.as_deref(), run.tokens);
             }
-            if run.account.starts_with("api:") {
-                charges.push((&run.account, run.started_ms, run.model.as_deref(), run.tokens));
+            if let Some(account) = api_account(run) {
+                charges.push((account, run.started_ms, run.model.as_deref(), run.tokens));
             }
         }
     }
@@ -170,6 +170,10 @@ pub fn merge(local: Vec<Finished>, snapshots: Vec<Snapshot>, prices: &PriceTable
         orgs.entry(account.strip_prefix("api:").unwrap_or(account).to_owned()).or_default().push((Timestamp::from_unix_millis(at_ms).iso_date(), usd(prices, model, tokens)));
     }
     Reading { orgs, hosts: snapshots.iter().map(|snapshot| (snapshot.host.clone(), snapshot.read_ms)).collect(), last_day_usd }
+}
+
+fn api_account(run: &Finished) -> Option<&str> {
+    run.account.as_deref().filter(|account| account.starts_with("api:"))
 }
 
 fn usd(prices: &PriceTable, model: Option<&str>, tokens: TokenUse) -> f64 {
