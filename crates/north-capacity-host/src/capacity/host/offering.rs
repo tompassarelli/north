@@ -77,8 +77,9 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     let need = env("AGENT_CAPACITY_NEED").filter(|need| !need.is_empty());
     let agent = agent_session();
     let offloaded_already = env(build_offload::REMOTE_MARK).is_some();
+    let artifact = crate::capacity::gate::builds_artifact(&command);
     let work = tokio::task::spawn_blocking(move || {
-        let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, agent, offloaded_already };
+        let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, agent, offloaded_already, artifact };
         let announce = |target: &str| {
             print_to(&Obj::new().put("decision", "OFFLOADED").put("reason", build_offload::REASON).put("host", target).put("class", class.as_str()).put("owner", owner.as_str()), true);
             match &ticket {

@@ -70,6 +70,7 @@ pub struct Candidate<'a> {
     pub deferred: bool,
     pub agent: bool,
     pub offloaded_already: bool,
+    pub artifact: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -117,6 +118,11 @@ impl Declined {
             Self::Refused { class, .. } => matches!(class.as_str(), "absolute path" | "laptop redirect"),
             _ => true,
         }
+    }
+
+    /// The decline for a build whose files the caller runs: a build host's slot keeps them, so the build stays on this host, which does not make it lack a host.
+    pub fn artifact() -> Self {
+        Self::refused("artifact", "the build writes files the caller runs, and a build host's slot keeps them; it stays on this host".to_owned())
     }
 
     pub fn refused(class: &str, detail: String) -> Self {
@@ -213,7 +219,7 @@ pub fn route(candidate: &Candidate, rooms: impl FnOnce() -> Vec<(String, Room)>)
     if rooms.is_empty() {
         return Route::Local;
     }
-    most_free(rooms).map_or_else(Route::Declined, |host| Route::Offload { host })
+    most_free(rooms).map_or_else(Route::Declined, |host| if candidate.artifact { Route::Declined(Declined::artifact()) } else { Route::Offload { host } })
 }
 
 /// Files whose extension marks a private or game asset, which never leave the laptop in a lane's uncommitted diff.

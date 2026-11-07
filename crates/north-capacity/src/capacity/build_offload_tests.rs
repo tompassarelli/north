@@ -15,7 +15,7 @@ fn capacity_a_lane_with_a_private_asset_or_an_oversized_diff_stays_on_this_host(
 }
 
 fn candidate<'a>(class: &'a str, agent: bool, deferred: bool) -> Candidate<'a> {
-    Candidate { class, landing: false, need: None, deferred, agent, offloaded_already: false }
+    Candidate { class, landing: false, need: None, deferred, agent, offloaded_already: false, artifact: false }
 }
 
 // KEEP(contract): a fleet session's cargo check and clippy (moderate) are offered to build hosts like its builds, while another shell's admitted moderate build stays local; north#634
@@ -82,3 +82,19 @@ fn capacity_a_fixable_command_is_kept_off_the_laptop() {
     assert!(!Declined::refused("private asset", String::new()).lacks_host() && !Declined::refused("oversized diff", String::new()).lacks_host());
 }
 
+
+// KEEP(bug): a build whose output the caller runs was offloaded from gex45 and its binary was deleted with the offload slot (north-730-d0351, 2026-11-07); it stays on the caller's host without lacking a build host, so it queues in local admission instead of being refused; north#773
+#[test]
+fn capacity_a_build_that_writes_the_callers_artifact_is_not_offloaded_and_does_not_count_as_lacking_a_host() {
+    let free = || vec![("laptop".to_owned(), Room::Free { free_cpus: 8.0 })];
+    let build = Candidate { artifact: true, ..candidate("heavy", true, true) };
+    let declined = match route(&build, free) {
+        Route::Declined(declined) => declined,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(declined.reason(), "refused: artifact");
+    assert!(!declined.lacks_host());
+    assert_eq!(route(&candidate("heavy", true, true), free), Route::Offload { host: "laptop".to_owned() });
+    let none = || vec![("laptop".to_owned(), Room::Unreachable)];
+    assert!(matches!(route(&build, none), Route::Declined(declined) if declined.lacks_host() && declined.reason() == "unreachable"), "with no host in reach the build reports the lack as any other");
+}

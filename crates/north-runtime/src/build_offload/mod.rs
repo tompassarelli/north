@@ -80,6 +80,9 @@ pub fn hand_over(candidate: &Candidate, job: &Job, peer: std::os::unix::net::Uni
     if let Some(refused) = refusal(candidate) {
         return Err(Some(refused));
     }
+    if candidate.artifact {
+        return Err(Some(Declined::artifact()));
+    }
     let Prepared { lane, command, sink } = prepare(job)?;
     remote::hand_over(peer, &lane, &Job { command: &command, ..*job }, sink, announce)
 }

@@ -233,20 +233,40 @@ fn script(source: &str, depth: usize, visit: &mut dyn FnMut(Option<&[String]>)) 
     shell::segments(&tokens).iter().for_each(|segment| leaves(segment, depth, visit));
 }
 
-fn cargo(args: &[String]) -> Option<Class> {
+fn cargo_subcommand(args: &[String]) -> Option<&str> {
     let mut words = args.iter();
-    let subcommand = loop {
+    loop {
         let word = words.next()?;
         if matches!(word.as_str(), "-C" | "--manifest-path" | "--config" | "-Z" | "--color") {
             words.next();
         } else if !word.starts_with('-') && !word.starts_with('+') {
-            break word.as_str();
+            return Some(word.as_str());
         }
-    };
-    match subcommand {
+    }
+}
+
+fn cargo(args: &[String]) -> Option<Class> {
+    match cargo_subcommand(args)? {
         "build" | "b" | "test" | "t" | "bench" | "run" | "r" | "install" | "rustc" | "doc" | "d" | "nextest" | "llvm-cov" => Some(Class::Heavy),
         "check" | "c" | "clippy" | "fix" => Some(Class::Moderate),
         _ => None,
+    }
+}
+
+/// Whether the command, through every wrapper it names, runs a build whose purpose is a file the caller then uses: a cargo `build`, `rustc` or `install`, or a `bun build` writing an output or an executable. A build host's slot keeps those files, so the build stays on the caller's host; `check`, `clippy`, `test` (even `--no-run`) and `run` leave nothing the caller needs.
+pub fn builds_artifact(words: &[String]) -> bool {
+    let mut found = false;
+    leaves(words, 0, &mut |leaf| found |= leaf.is_some_and(|leaf| !stays(leaf) && makes_file(leaf)));
+    found
+}
+
+fn makes_file(leaf: &[String]) -> bool {
+    let (name, args) = leaf.split_first().map_or(("", &[][..]), |(name, args)| (shell::basename(name), args));
+    match name {
+        "cargo" => matches!(cargo_subcommand(args), Some("build" | "b" | "rustc" | "install")),
+        "rustc" => args.iter().any(|word| word.ends_with(".rs")),
+        "bun" => args.iter().find(|word| !word.starts_with('-')).is_some_and(|word| word == "build") && args.iter().any(|word| word.split('=').next().is_some_and(|flag| matches!(flag, "--outdir" | "--outfile" | "--compile"))),
+        _ => false,
     }
 }
 
