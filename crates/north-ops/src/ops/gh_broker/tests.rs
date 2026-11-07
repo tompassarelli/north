@@ -17,6 +17,7 @@ const ETAG: &str = "\"v1\"";
 
 #[derive(Default)]
 struct Ledger {
+    arrived: AtomicUsize,
     calls: AtomicUsize,
     charged: AtomicUsize,
     seen: Mutex<Vec<String>>,
@@ -26,7 +27,10 @@ struct Ledger {
 fn reply(request: &Request, held: &AtomicBool) -> Response {
     let header = |name: &str, value: String| (name.to_owned(), value);
     match request.target.as_str() {
-        ISSUES if request.header("if-none-match") == Some(ETAG) => Response { status: 304, headers: vec![header("ETag", ETAG.into())], body: Vec::new() },
+        ISSUES if request.header("if-none-match") == Some(ETAG) => {
+            north_base::platform::wait::until(Duration::from_secs(60), || !held.load(Ordering::SeqCst));
+            Response { status: 304, headers: vec![header("ETag", ETAG.into())], body: Vec::new() }
+        }
         ISSUES | "/repos/o/r/pulls" => {
             north_base::platform::wait::until(Duration::from_secs(60), || !held.load(Ordering::SeqCst));
             Response { status: 200, headers: vec![header("ETag", ETAG.into())], body: format!("[{{\"from\":\"{}\"}}]", request.target).into_bytes() }
@@ -54,6 +58,7 @@ fn fake_github() -> (String, Arc<Ledger>) {
             let ledger = Arc::clone(&counted);
             std::thread::spawn(move || {
                 let request = read_request(&stream).unwrap();
+                ledger.arrived.fetch_add(1, Ordering::SeqCst);
                 let response = reply(&request, &ledger.held);
                 ledger.calls.fetch_add(1, Ordering::SeqCst);
                 if response.status != 304 {
@@ -146,6 +151,20 @@ fn a_repeat_read_is_answered_from_an_etag_304_costing_no_rate_limit() {
     let fresh = Harness::start(Duration::ZERO);
     let kept = fresh.send_with("token mirror", Some(ETAG), "GET", ISSUES, "");
     assert_eq!((kept.status, fresh.github.charged.load(Ordering::SeqCst)), (304, 0), "a caller's own ETag still revalidates when the broker holds no copy");
+}
+
+#[test]
+fn a_write_clearing_the_cache_mid_revalidation_never_hands_the_caller_a_304() {
+    let broker = Arc::new(Harness::start(Duration::ZERO));
+    broker.get(ISSUES);
+    broker.github.held.store(true, Ordering::SeqCst);
+    let reader = { let broker = Arc::clone(&broker); std::thread::spawn(move || broker.get(ISSUES)) };
+    assert!(north_base::platform::wait::until(Duration::from_secs(60), || broker.github.arrived.load(Ordering::SeqCst) == 2), "the revalidation reached GitHub");
+    assert_eq!(broker.send("POST", "/repos/o/r/issues/1/comments", "{}").status, 201);
+    broker.github.held.store(false, Ordering::SeqCst);
+    let answer = reader.join().unwrap();
+    assert_eq!((answer.status, answer.body.as_slice()), (200, b"[{\"from\":\"/repos/o/r/issues\"}]".as_slice()));
+    assert_eq!(broker.github.seen.lock().unwrap().last().unwrap(), &format!("GET {ISSUES} -"), "the broker refetched without a condition");
 }
 
 #[test]

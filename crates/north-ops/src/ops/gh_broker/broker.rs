@@ -114,15 +114,21 @@ impl Broker {
             }
             state = self.settled.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
-        let etag = state.cache.get(&key).and_then(|entry| entry.etag.clone()).or_else(|| request.header("if-none-match").map(str::to_owned));
+        let cached_etag = state.cache.get(&key).and_then(|entry| entry.etag.clone());
+        let etag = cached_etag.clone().or_else(|| request.header("if-none-match").map(str::to_owned));
         drop(state);
         let claim = Claim { broker: self, key };
-        let (response, shared) = match etag {
+        let (mut response, mut shared) = match etag {
             Some(etag) => (self.upstream.send(request, Some(&etag)), false),
             None => self.batcher.send(bucket, request, |merged| self.upstream.send(merged, None)),
         };
-        let upstream = if shared { Source::Batched } else { Source::Upstream };
         let mut state = self.lock();
+        if response.status == 304 && cached_etag.is_some() && !state.cache.contains_key(&key) {
+            drop(state);
+            (response, shared) = (self.upstream.send(request, None), false);
+            state = self.lock();
+        }
+        let upstream = if shared { Source::Batched } else { Source::Upstream };
         let now = Instant::now();
         let outcome = if self.hold(&mut state, bucket, &response, now) {
             (response, upstream)
