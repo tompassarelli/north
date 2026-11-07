@@ -35,12 +35,11 @@ fn speculate_red_after_green() {
     let output = speculate_serve(&mut fixture, std::slice::from_ref(&bad));
     assert!(output.status.success());
     let checks = fixture.checks();
-    assert_eq!(checks.len(), 3, "the green candidate, the red one speculated on it, then the red lane rebuilt on main: {checks:?}");
+    assert_eq!(checks.len(), 2, "the green candidate and the red one speculated on it; the red lane alone on the landed main is decided without a rebuild: {checks:?}");
     assert_eq!(checks[0].1, fixture.base);
     assert_eq!(checks[1].1, checks[0].0, "the red candidate was speculated on the green one");
-    assert_eq!(checks[2].1, checks[0].0, "the red lane is rebuilt on the main the green candidate landed");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.lines().any(|line| line.starts_with(&format!("north land: speculative candidate {} was not green (", checks[1].0))), "the red speculative candidate is discarded: {stdout}");
+    assert!(stdout.lines().any(|line| line == format!("north land: lane-b is the culprit: refused alone on the landed {}", checks[0].0)), "the lone red lane is refused on the landed main: {stdout}");
     let culprit = json_names(&fixture.queue().join("done")).into_iter().find(|name| name.ends_with("-lane-b.json")).unwrap();
     assert!(fixture.verdict(&fixture.queue().join(culprit)).unwrap().starts_with("failed "));
     assert_eq!(fixture.subjects(), ["change from a"]);

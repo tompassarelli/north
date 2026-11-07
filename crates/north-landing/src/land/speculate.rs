@@ -7,7 +7,8 @@ use super::candidate::{self, Pick, git};
 use super::checks::{self, Started, Verdict};
 use super::lander::Lander;
 use super::queue::{self, Lane, Ticket, lane};
-use super::records;
+use super::bisect;
+use super::records::{self, Candidate, Decision};
 use super::serve::Pushed;
 use super::watch::{LandedLane, Watch};
 use super::telemetry::Stages;
@@ -178,6 +179,13 @@ fn push(lander: &Lander, watch: &mut Watch, mut next: Next, landed: &str) -> Res
         return Ok(None);
     }
     let verdict = next.settle(lander, watch);
+    if let (Verdict::Refused(detail), [(path, ticket)]) = (&verdict, next.tickets.as_slice()) {
+        let refusal = format!("failed {detail}");
+        println!("north land: {} is the culprit: refused alone on the landed {landed}", ticket.branch);
+        records::write(lander, path, ticket, &Candidate { head: &next.head, batch_size: 1, stages: &next.stages }, &Decision::Refused { verdict: &refusal });
+        bisect::decide(path, ticket, refusal, Some(&next.log), landed)?;
+        return Ok(None);
+    }
     if verdict != Verdict::Green {
         println!("north land: speculative candidate {} was not green ({verdict:?}); discarded, its lanes are rebuilt on main", next.head);
         return Ok(None);
