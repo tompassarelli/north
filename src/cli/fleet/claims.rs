@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process;
 use crate::fleet::claims::{Claims, Rows};
+use crate::threads::client;
 use crate::fleet::registry::Fleet;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::verbs::OWNED;
@@ -93,23 +94,27 @@ const LEDGER_LIMIT: Duration = Duration::from_secs(2);
 /// How long the background claims sweep waits on one threads ledger call: no verb waits on it, so it outlasts the threads client's own 20 s ssh bound.
 const SWEEP_LIMIT: Duration = Duration::from_secs(30);
 
+type Spooler = Box<dyn Fn(&[&str]) -> NorthResult<bool> + Send + Sync>;
+
 pub struct ThreadsCli {
     program: Option<PathBuf>,
     limit: Duration,
+    spool: Spooler,
 }
 
 impl ThreadsCli {
     pub fn new() -> Self {
-        Self { program: None, limit: LEDGER_LIMIT }
+        Self { program: None, limit: LEDGER_LIMIT, spool: Box::new(client::spool_write) }
     }
 
     /// The ledger adapter for the verb `arguments` name: the background claims sweep waits longer on each call than a verb someone is waiting on.
     pub fn for_verb(arguments: &[String]) -> Self {
         let limit = if arguments.first().is_some_and(|verb| verb == SWEEP_VERB) { SWEEP_LIMIT } else { LEDGER_LIMIT };
-        Self { program: None, limit }
+        Self { program: None, limit, spool: Box::new(client::spool_write) }
     }
 
-    fn threads(&self, args: &[&str]) -> NorthResult<String> {
+    /// The ledger's answer, or None when it did not answer within the bound.
+    fn answer(&self, args: &[&str]) -> NorthResult<Option<String>> {
         let program = match &self.program {
             Some(program) => program.clone(),
             None => running_north()?,
@@ -117,25 +122,45 @@ impl ThreadsCli {
         let mut command = Command::new(program);
         command.arg("threads").args(args);
         let Some(output) = process::run_group_within(command, self.limit) else {
-            return Err(NorthError::State(format!("the threads ledger did not answer `threads {}` within {} s", args.join(" "), self.limit.as_secs())));
+            return Ok(None);
         };
         if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+            return Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned()));
         }
         Err(NorthError::Refused(String::from_utf8_lossy(&output.stderr).trim().to_owned()))
+    }
+
+    fn unanswered(&self, args: &[&str]) -> NorthError {
+        NorthError::State(format!("the threads ledger did not answer `threads {}` within {} s", args.join(" "), self.limit.as_secs()))
+    }
+
+    fn threads(&self, args: &[&str]) -> NorthResult<String> {
+        self.answer(args)?.ok_or_else(|| self.unanswered(args))
+    }
+
+    /// A write the ledger does not answer within the bound is queued in the threads spool, which sends it once the ledger host answers; None says it was queued, not answered.
+    fn write(&self, args: &[&str]) -> NorthResult<Option<String>> {
+        let Some(said) = self.answer(args)? else {
+            if (self.spool)(args)? {
+                eprintln!("north fleet: {}; it is queued and lands once the ledger answers", self.unanswered(args).user_message());
+                return Ok(None);
+            }
+            return Err(self.unanswered(args));
+        };
+        Ok(Some(said))
     }
 }
 
 impl Claims for ThreadsCli {
     fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
-        match self.threads(&["claim", item, "--by", session]) {
+        match self.write(&["claim", item, "--by", session]) {
             Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
-            other => other.map(|said| moved(said.trim(), item, session)),
+            other => other.map(|said| said.and_then(|said| moved(said.trim(), item, session))),
         }
     }
 
     fn release(&self, item: &str, session: &str) -> NorthResult<()> {
-        self.threads(&["release", &canonical(item), "--by", session, "--held-by", session]).map(drop)
+        self.write(&["release", &canonical(item), "--by", session, "--held-by", session]).map(drop)
     }
 
     fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
@@ -146,5 +171,42 @@ impl Claims for ThreadsCli {
         let args: Vec<&str> = std::iter::once("holder").chain(words.iter().map(String::as_str)).collect();
         let rows: Value = serde_json::from_str(&self.threads(&args)?)?;
         Ok(rows.as_array().into_iter().flatten().filter_map(|row| Some((row["item"].as_str()?.to_owned(), row["owner"].as_str()?.to_owned()))).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::Instant;
+
+    use super::*;
+
+    fn ledger(script: &str, spooled: &Arc<Mutex<Vec<Vec<String>>>>) -> (tempfile::TempDir, ThreadsCli) {
+        let directory = tempfile::tempdir().unwrap();
+        let program = directory.path().join("north");
+        north_core::foundation::shim::write_executable(&program, format!("#!/bin/sh\n{script}\n"));
+        let queue = Arc::clone(spooled);
+        let spool: Spooler = Box::new(move |args| {
+            queue.lock().unwrap().push(args.iter().map(|arg| (*arg).to_owned()).collect());
+            Ok(true)
+        });
+        (directory, ThreadsCli { program: Some(program), limit: Duration::from_millis(300), spool })
+    }
+
+    /// On 2026-11-07 from cpx62 every launch's claim on a loaded nexus passed the 2 s bound and was dropped, so dispatch staffed the item beside its owner.
+    #[test]
+    fn a_claim_or_release_past_the_bound_is_spooled_while_a_refusal_in_time_still_refuses() {
+        let spooled = Arc::new(Mutex::new(Vec::new()));
+        let (_slow, slow) = ledger("sleep 30", &spooled);
+        let begun = Instant::now();
+        assert_eq!(slow.hold("north#7", "cpx62-worker").unwrap(), None);
+        slow.release("north#7", "cpx62-worker").unwrap();
+        assert!(begun.elapsed() < Duration::from_secs(10), "{:?}", begun.elapsed());
+        let words: Vec<Vec<String>> = spooled.lock().unwrap().clone();
+        assert_eq!(words, [vec!["claim", "north#7", "--by", "cpx62-worker"], vec!["release", "north#7", "--by", "cpx62-worker", "--held-by", "cpx62-worker"]]);
+
+        let (_refusing, refusing) = ledger("echo 'north#7 is already owned by alice' >&2; exit 1", &spooled);
+        assert!(matches!(refusing.hold("north#7", "cpx62-worker"), Err(NorthError::Refused(_))));
+        assert_eq!(spooled.lock().unwrap().len(), 2, "a refusal that arrives in time is not queued");
     }
 }

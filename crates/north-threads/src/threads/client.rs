@@ -120,6 +120,21 @@ pub fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
     Ok(true)
 }
 
+/// Queues `words` as a write for the ledger host and starts a detached send, so a caller that stopped waiting on the ledger still has its write land once the host answers; false when this host holds the ledger itself and has no spool to queue it in.
+pub fn spool_write(words: &[&str]) -> NorthResult<bool> {
+    let Some(client) = ambient_client(unread_fleet()) else { return Ok(false) };
+    if client.var("THREADS_DB").is_some() || !client.remote.exists() {
+        return Ok(false);
+    }
+    let argv: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
+    client.spool_argv(&argv, "the caller's bound passed before the ledger host answered")?;
+    if let Some(program) = &client.background {
+        let dest = fs::read_to_string(&client.remote)?;
+        detach(program, &[SPOOL_FLUSH.as_ref(), dest.trim().as_ref()]);
+    }
+    Ok(true)
+}
+
 /// The threads ledger this host reads: `THREADS_DB`, else the mirrored snapshot on a remote client, else the local database.
 pub fn threads_database() -> PathBuf {
     if let Some(path) = std::env::var_os("THREADS_DB") {
