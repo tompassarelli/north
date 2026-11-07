@@ -21,6 +21,9 @@ pub struct Arm {
 pub struct Generation {
     pub dir: PathBuf,
     texts: BTreeMap<String, String>,
+    skills: PathBuf,
+    agents: Option<PathBuf>,
+    revision: Option<(String, tempfile::TempDir)>,
 }
 
 fn refusal(message: String) -> NorthError {
@@ -28,7 +31,11 @@ fn refusal(message: String) -> NorthError {
 }
 
 fn generations_root() -> PathBuf {
-    std::env::var_os("NORTH_AGENT_GENERATIONS").map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north-data/agents"), PathBuf::from)
+    if let Some(root) = std::env::var_os("NORTH_AGENT_GENERATIONS") {
+        return PathBuf::from(root);
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    Some(home.join("code/north-data/agents")).filter(|root| root.is_dir()).unwrap_or_else(|| home.join(".local/state/north/agents"))
 }
 
 pub fn parse(spec: &str) -> Arm {
@@ -79,10 +86,13 @@ impl Generation {
         let mut texts = BTreeMap::from([("CLAUDE.md".to_owned(), instructions)]);
         let skills = dir.join("skills/shared");
         walk(&skills, &skills, &mut texts);
-        Ok(Self { dir, texts })
+        Ok(Self { dir, texts, skills, agents: None, revision: None })
     }
 
     pub fn name(&self) -> String {
+        if let Some((label, _)) = &self.revision {
+            return label.clone();
+        }
         self.dir.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
     }
 
@@ -141,6 +151,9 @@ fn own(case: &Case) -> Result<PathBuf, NorthError> {
 }
 
 pub fn generation(spec: &str, case: &Case) -> Result<Generation, NorthError> {
+    if let Some((repo, rev)) = spec.split_once('@') {
+        return Generation::load(own(case)?)?.at_revision(repo, rev);
+    }
     let dir = match spec {
         OWN => own(case)?,
         CURRENT => fs::canonicalize(generations_root().join(CURRENT)).map_err(NorthError::Io)?,
@@ -187,8 +200,8 @@ pub fn config_dir(root: &Path, case: &Case, generation: &Generation, transcript:
     fs::create_dir_all(&project).map_err(NorthError::Io)?;
     fs::write(project.join(format!("{}.jsonl", case.session)), transcript).map_err(NorthError::Io)?;
     fs::write(root.join("CLAUDE.md"), &generation.texts["CLAUDE.md"]).map_err(NorthError::Io)?;
-    std::os::unix::fs::symlink(generation.dir.join("skills/shared"), root.join("skills")).map_err(NorthError::Io)?;
-    let agents = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude/agents");
+    std::os::unix::fs::symlink(&generation.skills, root.join("skills")).map_err(NorthError::Io)?;
+    let agents = generation.agents.clone().unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude/agents"));
     if agents.exists() {
         std::os::unix::fs::symlink(fs::canonicalize(agents).map_err(NorthError::Io)?, root.join("agents")).map_err(NorthError::Io)?;
     }
@@ -208,4 +221,84 @@ pub fn hold(input: &str) -> Option<String> {
     }
     let reason = "Replay: this call was recorded and not executed, because this conversation replays a past turn to measure its harness text. Do not retry it, work around it or mention that it was not run; finish the turn exactly as you would have if it had run.";
     Some(json!({ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason } }).to_string())
+}
+
+fn repo_root(repo: &str) -> Result<PathBuf, NorthError> {
+    let configured = std::env::var("NORTH_REPO_ROOTS").ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    if let Some(path) = configured.as_ref().and_then(|roots| roots[repo].as_str()) {
+        return Ok(PathBuf::from(path));
+    }
+    if repo == "north" {
+        return crate::platform::harness::harness_root().map_err(refusal);
+    }
+    Ok(PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code").join(repo).join("main"))
+}
+
+fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>, NorthError> {
+    let output = std::process::Command::new("git").arg("-C").arg(root).args(args).output().map_err(NorthError::Io)?;
+    if !output.status.success() {
+        return Err(refusal(format!("git {} in {}: {}", args.join(" "), root.display(), String::from_utf8_lossy(&output.stderr).trim())));
+    }
+    Ok(output.stdout)
+}
+
+fn extract(root: &Path, sha: &str, source: &str, into: &Path) -> Result<bool, NorthError> {
+    let listed = git(root, &["ls-tree", "-r", "-z", "--name-only", sha, "--", source])?;
+    let files: Vec<String> = listed.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).into_owned()).collect();
+    for file in &files {
+        let rel = Path::new(file).strip_prefix(source).map_err(|_| refusal(format!("{file} is outside {source}")))?;
+        let target = if rel.as_os_str().is_empty() { into.to_path_buf() } else { into.join(rel) };
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(NorthError::Io)?;
+        }
+        fs::write(&target, git(root, &["show", &format!("{sha}:{file}")])?).map_err(NorthError::Io)?;
+    }
+    Ok(!files.is_empty())
+}
+
+fn copy_tree(from: &Path, to: &Path) -> Result<(), NorthError> {
+    fs::create_dir_all(to).map_err(NorthError::Io)?;
+    for entry in fs::read_dir(from).map_err(NorthError::Io)?.flatten() {
+        let (path, target) = (entry.path(), to.join(entry.file_name()));
+        if path.is_dir() { copy_tree(&path, &target)? } else { fs::copy(&path, &target).map(drop).map_err(NorthError::Io)? }
+    }
+    Ok(())
+}
+
+fn owned_by<'a>(entry: &'a Value, repo: &str) -> Option<&'a str> {
+    let targets_shared = entry["targets"].as_array().is_some_and(|targets| targets.iter().any(|target| target == "shared"));
+    (targets_shared && entry["owner"]["repo"] == repo).then(|| entry["owner"]["path"].as_str())?
+}
+
+impl Generation {
+    pub fn at_revision(self, repo: &str, rev: &str) -> Result<Self, NorthError> {
+        let root = repo_root(repo)?;
+        let sha = String::from_utf8_lossy(&git(&root, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?).trim().to_owned();
+        let activation: Value = fs::read_to_string(self.dir.join("activation.json")).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or(Value::Null);
+        let scratch = tempfile::Builder::new().prefix("policy-replay-arm-").tempdir().map_err(NorthError::Io)?;
+        let skills = scratch.path().join("skills");
+        copy_tree(&self.skills, &skills)?;
+        let units = activation["units"].as_array().into_iter().flatten();
+        for distribution in units.flat_map(|unit| unit["distributions"].as_array().into_iter().flatten()).filter(|entry| entry["type"] == "skill") {
+            let (Some(source), Some(adapter)) = (owned_by(distribution, repo), distribution["adapterId"].as_str()) else {
+                continue;
+            };
+            let target = skills.join(adapter);
+            let _ = fs::remove_dir_all(&target);
+            extract(&root, &sha, source, &target)?;
+        }
+        let mut texts = BTreeMap::new();
+        walk(&skills, &skills, &mut texts);
+        let mut instructions = self.texts["CLAUDE.md"].clone();
+        if let Some(source) = activation["baselines"].as_array().into_iter().flatten().find_map(|baseline| owned_by(baseline, repo)) {
+            let body = String::from_utf8_lossy(&git(&root, &["show", &format!("{sha}:{source}")])?).into_owned();
+            let marker = instructions.lines().next().filter(|line| line.starts_with("<!--")).map(|line| format!("{line}\n"));
+            instructions = marker.unwrap_or_default() + &body;
+        }
+        texts.insert("CLAUDE.md".to_owned(), instructions);
+        let agents = scratch.path().join("agents");
+        let agents = (repo == "north" && extract(&root, &sha, "harness/claude/agents", &agents)?).then_some(agents).or(self.agents);
+        let label = format!("{repo}@{}", &sha[..sha.len().min(10)]);
+        Ok(Self { dir: self.dir, texts, skills, agents, revision: Some((label, scratch)) })
+    }
 }

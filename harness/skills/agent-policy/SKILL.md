@@ -24,7 +24,14 @@ the existing owner rather than a new rule, because duplicates conflict.
 Fix a repeated correction at the highest level that works: architecture, then
 types, lint, test and prose last, because each lower level is enforced less
 reliably. Prove the fix by replaying a real past mistake against it, because an
-enforcer that never fired on a real case may not fire at all. Once an enforcer
+enforcer that never fired on a real case may not fire at all. A lane that fixes an
+agent behavior through harness text (a skill, `CLAUDE.md` or an agent definition)
+adds its case under `harness/cases/`, cut at a turn that loaded the text it
+changes, and its report shows `north policy-replay case harness/cases/NAME.toml
+--arm base=north@origin/main --arm lane=north@HEAD` failing on the base text and
+passing on the lane's, because text a replay never saw fail may change nothing.
+A judged case decides only at the 90% level; on an inconclusive replay the text
+stays as it is. Once an enforcer
 holds the rule, delete the prose, because it then only costs context.
 [enforcers.md](references/enforcers.md) lists the rules a hook or gate already
 holds; add a row when you add an enforcer.

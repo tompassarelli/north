@@ -13,6 +13,7 @@ mod land_scan;
 mod land_scan_incident_test;
 mod land_serve;
 mod lane_gc_journeys;
+mod policy_replay_case;
 mod policy_replay_login;
 mod release;
 mod runtime_update;

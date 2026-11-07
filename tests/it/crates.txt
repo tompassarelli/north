@@ -23,7 +23,8 @@ land_scan_incident_test north-landing
 land_serve north-landing
 landing_targets north-landing
 lane_gc_journeys north-guard
-policy_replay_login north-ops
+policy_replay_case north-convo
+policy_replay_login north-convo
 release north-landing north-safe-push north
 run_bounded north-ops north-capacity-host
 runtime_update north-runtime

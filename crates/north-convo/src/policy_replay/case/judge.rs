@@ -18,7 +18,7 @@ fn tail(text: &str, chars: usize) -> String {
 }
 
 fn prompt(case: &Case, calls: &[Value], answer: &str) -> String {
-    let calls = calls.iter().map(|call| format!("- {} {}", call["name"].as_str().unwrap_or("?"), call["input"])).collect::<Vec<_>>().join("\n");
+    let calls = calls.iter().map(|call| format!("- {} {}", call["name"].as_str().unwrap_or("?"), tail(call["input"].as_str().unwrap_or(""), 400))).collect::<Vec<_>>().join("\n");
     format!(
         "You grade one replayed turn of an agent conversation. In the original conversation the user corrected the agent's reply to a prompt. The class of that correction: {paraphrase}\n\n\
          The prompt that opened the turn (its last 3000 characters):\n<prompt>\n{prompt}\n</prompt>\n\n\

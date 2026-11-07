@@ -138,42 +138,63 @@ pub fn resolve(id: &str) -> Result<Case, NorthError> {
             cursor = transcript.parent(index);
         };
         let Some(prompt) = prompt else { continue };
-        let mut chain = Vec::new();
-        let mut cursor = transcript.parent(prompt);
-        while let Some(index) = cursor {
-            chain.push(transcript.lines[index].clone());
-            cursor = transcript.parent(index);
-        }
-        chain.reverse();
-        let chain = without_goal(chain);
-        let reply = turn
-            .iter()
-            .rev()
-            .map(|&index| &transcript.lines[index])
-            .filter(|record| record["type"] == "assistant")
-            .map(assistant_text)
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let model = turn.iter().map(|&index| &transcript.lines[index]).find_map(|record| record["message"]["model"].as_str()).unwrap_or("opus").to_owned();
-        let prompt_record = &transcript.lines[prompt];
-        return Ok(Case {
-            id: id.to_owned(),
-            paraphrase: corrections::paraphrase(&class),
-            class,
-            session: session.to_owned(),
-            project: path.parent().and_then(Path::file_name).map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
-            cwd: PathBuf::from(prompt_record["cwd"].as_str().unwrap_or("/")),
-            chain,
-            prompt: text_of(prompt_record).unwrap_or_default(),
-            reply,
-            correction: typed(&transcript.lines[corrected]).unwrap_or_default(),
-            model,
-            effort: effort_before(&transcript.lines, prompt).unwrap_or_else(|| "high".to_owned()),
-            cut_at: prompt_record["timestamp"].as_str().unwrap_or(at).to_owned(),
-        });
+        turn.reverse();
+        let paraphrase = corrections::paraphrase(&class);
+        return Ok(build(Named { id, class, paraphrase, session }, &path, &transcript, prompt, &turn, Some(corrected)));
     }
     Err(refusal(format!("no transcript of session {session} holds the correction of {id} at {at} with a prompt before it")))
+}
+
+pub struct Named<'a> {
+    pub id: &'a str,
+    pub class: String,
+    pub paraphrase: String,
+    pub session: &'a str,
+}
+
+pub fn resolve_prompt(named: Named, message: &str) -> Result<Case, NorthError> {
+    for path in transcripts(named.session) {
+        let transcript = Transcript::read(&path)?;
+        let Some(&prompt) = transcript.by_uuid.get(message) else {
+            continue;
+        };
+        if !is_prompt(&transcript.lines[prompt]) {
+            return Err(refusal(format!("{}: message {message} of session {} is not a typed prompt", named.id, named.session)));
+        }
+        let next = (prompt + 1..transcript.lines.len()).find(|&index| typed(&transcript.lines[index]).is_some());
+        let turn: Vec<usize> = (prompt + 1..next.unwrap_or(transcript.lines.len())).collect();
+        return Ok(build(named, &path, &transcript, prompt, &turn, next));
+    }
+    Err(refusal(format!("{}: no transcript of session {} holds message {message}", named.id, named.session)))
+}
+
+fn build(named: Named, path: &Path, transcript: &Transcript, prompt: usize, turn: &[usize], corrected: Option<usize>) -> Case {
+    let mut chain = Vec::new();
+    let mut cursor = transcript.parent(prompt);
+    while let Some(index) = cursor {
+        chain.push(transcript.lines[index].clone());
+        cursor = transcript.parent(index);
+    }
+    chain.reverse();
+    let records = || turn.iter().map(|&index| &transcript.lines[index]);
+    let reply = records().filter(|record| record["type"] == "assistant").map(assistant_text).filter(|text| !text.is_empty()).collect::<Vec<_>>().join("\n\n");
+    let model = records().find_map(|record| record["message"]["model"].as_str()).unwrap_or("opus").to_owned();
+    let prompt_record = &transcript.lines[prompt];
+    Case {
+        id: named.id.to_owned(),
+        class: named.class,
+        paraphrase: named.paraphrase,
+        session: named.session.to_owned(),
+        project: path.parent().and_then(Path::file_name).map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+        cwd: PathBuf::from(prompt_record["cwd"].as_str().unwrap_or("/")),
+        chain: without_goal(chain),
+        prompt: text_of(prompt_record).unwrap_or_default(),
+        reply,
+        correction: corrected.and_then(|index| typed(&transcript.lines[index])).unwrap_or_default(),
+        model,
+        effort: effort_before(&transcript.lines, prompt).unwrap_or_else(|| "high".to_owned()),
+        cut_at: prompt_record["timestamp"].as_str().unwrap_or_default().to_owned(),
+    }
 }
 
 fn without_goal(chain: Vec<Value>) -> Vec<Value> {

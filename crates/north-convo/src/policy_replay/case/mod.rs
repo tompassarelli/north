@@ -1,6 +1,8 @@
 mod arm;
 mod judge;
 mod source;
+mod spec;
+mod verdict;
 
 use std::fs;
 use std::io::{Read, Write};
@@ -14,6 +16,7 @@ use serde_json::{Value, json};
 
 use self::arm::{Arm, Generation};
 use self::source::Case;
+use self::spec::Spec;
 use super::events::{parse_events, tool_calls, usage};
 use super::group::reap;
 use super::json::Json;
@@ -22,9 +25,12 @@ use crate::error::NorthError;
 use crate::fleet::install;
 use crate::foundation::clock::Timestamp;
 
-const USAGE: &str = "usage: north policy-replay case CORRECTION_ID... [--arm NAME=GENERATION]... [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N]
-  GENERATION is own (the agent generation the session ran under), current, or a gen-* directory under north-data/agents.
-  The first arm is the base; each case runs 2 samples per arm and a third when they disagree.";
+const USAGE: &str = "usage: north policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N]
+  CASE is a correction id from the grounding ledger or a case file (harness/cases/*.toml).
+  GENERATION is own (the agent generation the session ran under), current, a gen-* directory, or REPO@REV: the session's
+  own generation with the skills, CLAUDE.md and agent definitions that REPO (north or south) holds at revision REV.
+  The first arm is the base. Each case runs --samples per arm (default 2, and a third when the two disagree); with two
+  arms a judged case prints kept or regressed only when the arms differ at the 90% level, else inconclusive.";
 
 struct Options {
     ids: Vec<String>,
@@ -34,15 +40,17 @@ struct Options {
     judge: String,
     max_turns: u32,
     budget: f64,
+    samples: usize,
 }
 
 fn parse(arguments: &[String]) -> Result<Options, String> {
-    let mut options = Options { ids: Vec::new(), arms: Vec::new(), jobs: 3, out: None, judge: "claude-sonnet-5-5".into(), max_turns: 40, budget: 10.0 };
+    let mut options = Options { ids: Vec::new(), arms: Vec::new(), jobs: 3, out: None, judge: "claude-sonnet-5-5".into(), max_turns: 40, budget: 10.0, samples: 2 };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         let mut value = |flag: &str| rest.next().cloned().ok_or_else(|| format!("{flag} needs a value"));
         match argument.as_str() {
             "--arm" => options.arms.push(arm::parse(&value("--arm")?)),
+            "--samples" => options.samples = value("--samples")?.parse().map_err(|_| "--samples needs a whole number")?,
             "--jobs" => options.jobs = value("--jobs")?.parse().map_err(|_| "--jobs needs a whole number")?,
             "--out" => options.out = Some(PathBuf::from(value("--out")?)),
             "--judge-model" => options.judge = value("--judge-model")?,
@@ -55,7 +63,7 @@ fn parse(arguments: &[String]) -> Result<Options, String> {
         }
     }
     if options.ids.is_empty() {
-        return Err("name at least one correction id from the grounding ledger".into());
+        return Err("name at least one correction id or case file".into());
     }
     if options.arms.is_empty() {
         options.arms.push(arm::parse("own"));
@@ -65,6 +73,7 @@ fn parse(arguments: &[String]) -> Result<Options, String> {
 
 struct Prepared {
     case: Case,
+    spec: Spec,
     arms: Vec<(String, Generation, String, usize)>,
 }
 
@@ -79,8 +88,7 @@ fn child_env() -> Vec<(String, String)> {
 }
 
 fn prepare(id: &str, arms: &[Arm]) -> Result<Prepared, NorthError> {
-    let case = source::resolve(id)?;
-    let base = arm::generation(&arms[0].spec, &case)?;
+    let (case, spec) = spec::load(id)?;
     let own = arm::generation("own", &case)?;
     let mut prepared = Vec::new();
     for arm in arms {
@@ -92,8 +100,8 @@ fn prepare(id: &str, arms: &[Arm]) -> Result<Prepared, NorthError> {
         }
         prepared.push((arm.name.clone(), generation, transcript, count));
     }
-    eprintln!("policy-replay case: {id} {} cut at {} in {} (base {})", case.class, case.cut_at, case.session, base.name());
-    Ok(Prepared { case, arms: prepared })
+    eprintln!("policy-replay case: {id} {} {} cut at {} in {} (base {})", spec.kind.word(), case.class, case.cut_at, case.session, prepared[0].1.name());
+    Ok(Prepared { case, spec, arms: prepared })
 }
 
 fn sample(prepared: &Prepared, job: &Job, options: &Options, env: &[(String, String)]) -> Result<Value, NorthError> {
@@ -111,18 +119,22 @@ fn sample(prepared: &Prepared, job: &Job, options: &Options, env: &[(String, Str
     let mut run = run_tagged(command, 1800.0)?;
     let evs = parse_events(&run.stdout);
     let leftover = reap(&run.tag, &mut run.child);
-    let calls: Vec<Value> = tool_calls(&evs).iter().map(|call| json!({ "name": call.text("name"), "input": tail(&call.field("input").dumps(), 400) })).collect();
+    let calls: Vec<Value> = tool_calls(&evs).iter().map(|call| json!({ "name": call.text("name"), "input": call.field("input").dumps() })).collect();
     let answer = replay_text(&evs);
     let used = usage(&evs);
     let mut row = json!({
-        "case": case.id, "class": case.class, "session": case.session, "cut_at": case.cut_at,
+        "case": case.id, "kind": prepared.spec.kind.word(), "class": case.class, "session": case.session, "cut_at": case.cut_at,
         "arm": name, "generation": generation.name(), "substitutions": count, "sample": job.sample,
-        "model": case.model, "effort": case.effort, "judge_model": options.judge,
+        "model": case.model, "effort": case.effort, "detector": if prepared.spec.detector.deterministic() { "pattern".to_owned() } else { options.judge.clone() },
         "tool_calls": calls, "final_text": answer, "leftover_processes": leftover,
     });
     match &used {
         Some(used) if used.subtype.as_deref() == Some("success") || !answer.is_empty() => {
-            let grade = judge::grade(case, &calls, &answer, &options.judge, env)?;
+            let lines: Vec<String> = calls.iter().map(|call| format!("{} {}", call["name"].as_str().unwrap_or(""), call["input"].as_str().unwrap_or(""))).chain([answer.clone()]).collect();
+            let grade = match prepared.spec.detector.repeats(&lines) {
+                Some(repeats) => judge::Grade { repeats: Some(repeats), line: "pattern detector".into(), usd: 0.0 },
+                None => judge::grade(case, &calls, &answer, &options.judge, env)?,
+            };
             row["repeats"] = json!(grade.repeats);
             row["judge"] = json!(grade.line);
             row["usd"] = json!(used.cost_api_usd_comparison + grade.usd);
@@ -206,6 +218,7 @@ fn report(prepared: &[Prepared], rows: &[Value]) -> (Vec<String>, usize) {
         let id = &entry.case.id;
         let mut parts = Vec::new();
         let mut states = Vec::new();
+        let mut counts = Vec::new();
         for (name, generation, _, count) in &entry.arms {
             let (repeats, of) = graded(rows, id, name);
             let state = reproduces(repeats, of);
@@ -216,20 +229,23 @@ fn report(prepared: &[Prepared], rows: &[Value]) -> (Vec<String>, usize) {
             };
             parts.push(format!("{name} ({}, {count} substitutions) {repeats}/{of} {word}", generation.name()));
             states.push(state);
+            counts.push((repeats, of));
         }
         if states.first().copied().flatten() == Some(true) {
             reproduced += 1;
         }
-        let verdict = match (states.first().copied().flatten(), states.get(1).copied().flatten()) {
-            (Some(true), None) if states.len() == 1 => "reproduced".to_owned(),
-            (Some(false), None) if states.len() == 1 => "not reproduced".to_owned(),
-            (Some(true), Some(false)) => "fixed".to_owned(),
-            (Some(true), Some(true)) => "still fails".to_owned(),
-            (Some(false), Some(true)) => "regressed".to_owned(),
-            (Some(false), Some(false)) => "not reproduced on base".to_owned(),
+        let verdict = match (states.first().copied().flatten(), counts.split_first()) {
+            (Some(true), Some((_, []))) => "reproduced".to_owned(),
+            (Some(false), Some((_, []))) => "not reproduced".to_owned(),
+            (_, Some((&base, lanes))) if !lanes.is_empty() => lanes
+                .iter()
+                .zip(&entry.arms[1..])
+                .map(|(&lane, (name, ..))| format!("{name} {}", verdict::decide(base, lane, entry.spec.detector.deterministic()).map_or_else(|| "ungraded".to_owned(), |verdict| verdict.line())))
+                .collect::<Vec<_>>()
+                .join("; "),
             _ => "ungraded".to_owned(),
         };
-        lines.push(format!("{id} {}: {} -> {verdict}", entry.case.class, parts.join("; ")));
+        lines.push(format!("{id} {} {}: {} -> {verdict}", entry.spec.kind.word(), entry.case.class, parts.join("; ")));
     }
     (lines, reproduced)
 }
@@ -254,13 +270,13 @@ fn replayed(options: &Options) -> Result<u8, NorthError> {
             Err(error) => return Err(error),
         }
     }
-    let first: Vec<Job> = (0..prepared.len()).flat_map(|case| (0..options.arms.len()).flat_map(move |arm| (0..2).map(move |sample| Job { case, arm, sample }))).collect();
+    let first: Vec<Job> = (0..prepared.len()).flat_map(|case| (0..options.arms.len()).flat_map(move |arm| (0..options.samples).map(move |sample| Job { case, arm, sample }))).collect();
     let mut rows = run_jobs(&prepared, &first, options, &out)?;
     let split: Vec<Job> = (0..prepared.len())
         .flat_map(|case| (0..options.arms.len()).map(move |arm| (case, arm)))
         .filter(|&(case, arm)| {
             let (repeats, of) = graded(&rows, &prepared[case].case.id, &prepared[case].arms[arm].0);
-            of < 2 || (repeats == 1 && of == 2)
+            options.samples == 2 && (of < 2 || (repeats == 1 && of == 2))
         })
         .map(|(case, arm)| Job { case, arm, sample: 2 })
         .collect();
