@@ -175,10 +175,6 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    Landed design: the cap counts characters, not bytes, and only `--check` enforces it, so the
    merge driver can still regenerate `docs/features.md` mid-rebase; the entries that grew past it
    after 3a to 3c landed were cut in the same lane.
-   Replaced on 2026-11-07 (north#729): the whole-entry cap refused whichever lane crossed it (21
-   lander refusals in the week to 2026-11-07, and 8a94c7153 reached main past it). The index now
-   shows each entry's first sentence, clipped at 600 characters, so the cap sits on what a reader
-   scans; the body is uncapped and the generator prints each overage when it writes.
 4. **Flags exist (25 min).** A cited `north SUB ... --flag` must occur as the string literal
    `"--flag"` somewhere in `src/` or `crates/`. The review probe found one miss in forty cited flags
    (`--durable-harness-paths`); fix the doc. Done when: `north check citations --root .` exits 0; a

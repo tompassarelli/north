@@ -358,7 +358,7 @@ fn render_features(fixture: &Fixture, message: &str) -> String {
 }
 
 #[test]
-fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runtime_older_than_its_checker() {
+fn a_features_entry_over_its_cap_is_refused_even_on_a_runtime_older_than_its_checker() {
     let command = features_check();
     let fixture = Fixture::new(&[("land.check-local", "true"), ("land.check", &format!("docs/features/ :: {command}"))]);
     live_runtime(&fixture);
@@ -376,20 +376,22 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
     assert!(fixture.trace().contains("live docs features-index --check"), "the covering live runtime did not run the checker: {}", fixture.trace());
 
     fs::write(section.join("long.md"), format!("- {}\n", "x".repeat(1_300))).unwrap();
-    let over = render_features(&fixture, "a long entry");
+    let over = render_features(&fixture, "over the cap");
     let output = head_north(&fixture, &command, true);
     assert_eq!(output.status.code(), Some(1), "a --no-build check on a runtime that does not cover its checker passed without running: {}", text(&output));
     assert!(text(&output).contains("head-north: refused, no live runtime covers the checker code"), "{}", text(&output));
 
     fs::write(fixture.path("trace"), "").unwrap();
     let landed = fixture.command_between(&clean, &over).output().unwrap();
-    assert_eq!(landed.status.code(), Some(0), "the covering live runtime refused an entry only its body made long: {}", text(&landed));
+    assert_eq!(landed.status.code(), Some(1), "the covering live runtime let an over-cap entry through: {}", text(&landed));
+    assert!(text(&landed).contains("over the 1200-character entry cap"), "{}", text(&landed));
     assert!(fixture.trace().contains("live docs features-index --check"), "{}", fixture.trace());
 
     north_from_the_tree(&fixture);
     fs::write(fixture.path("trace"), "").unwrap();
     let landed = fixture.command_between(&clean, &over).env("STUB_UNCOVERED", "1").output().unwrap();
-    assert_eq!(landed.status.code(), Some(0), "a lane whose checker is newer than the live runtime failed its check before the push: {}", text(&landed));
+    assert_eq!(landed.status.code(), Some(1), "a lane whose checker is newer than the live runtime skipped the check before the push: {}", text(&landed));
+    assert!(text(&landed).contains("over the 1200-character entry cap"), "{}", text(&landed));
     assert!(text(&landed).contains("the live runtime does not cover the checker code of 1 land check(s)"), "{}", text(&landed));
     let trace = fixture.trace();
     assert!(trace.contains("tree docs features-index --check") && !trace.contains("live docs features-index"), "the check did not run on north built from the lane's tree: {trace}");
