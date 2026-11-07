@@ -403,3 +403,32 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
     assert!(trace.contains("tree docs features-index --check") && !trace.contains("live docs features-index"), "the check did not run on north built from the lane's tree: {trace}");
     assert!(!trace.contains("unleased"), "a check ran on a runtime it held no lease on: {trace}");
 }
+
+const HEAD_NORTH_SHIM: &str = "[ \"$1\" = --code ] && shift 2\n[ \"$1\" = --build ] && exit 0\n[ \"$1\" = --no-build ] && shift\nexec \"$REAL_NORTH\" \"$@\"\n";
+
+#[test]
+fn north_land_check_refuses_a_lane_that_grows_a_skill_past_its_byte_limit() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
+    let repo = &fixture.repo;
+    fs::write(repo.join(".safe-push"), include_str!("../../.safe-push")).unwrap();
+    git(repo, &["config", "--file", ".safe-push", "--remove-section", "landing"]);
+    git(repo, &["config", "--file", ".safe-push", "--unset", "land.runner"]);
+    let skill = repo.join("harness/skills/demo/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    fs::write(&skill, "---\nname: demo\ndescription: Demo skill.\n---\n\n# Demo\n\nRoute to references.\n").unwrap();
+    fs::create_dir_all(repo.join("bin")).unwrap();
+    script(&repo.join("bin/head-north"), HEAD_NORTH_SHIM);
+    git(repo, &["add", ".safe-push", "harness", "bin"]);
+    git(repo, &["commit", "-qm", "skill"]);
+    let base = git(repo, &["rev-parse", "HEAD"]);
+    let mut grown = fs::read_to_string(&skill).unwrap();
+    grown.push_str(&"- Another rule the skill body grew by.\n".repeat(170));
+    let bytes = grown.len();
+    fs::write(&skill, grown).unwrap();
+    git(repo, &["commit", "-qam", "grow the skill"]);
+    let head = git(repo, &["rev-parse", "HEAD"]);
+    let output = fixture.command_between(&base, &head).output().unwrap();
+    let report = text(&output);
+    assert_eq!(output.status.code(), Some(1), "{report}");
+    assert!(report.contains(&format!("demo: SKILL.md is {bytes} bytes; policy keeps each SKILL.md at most 6144")), "{report}");
+}
