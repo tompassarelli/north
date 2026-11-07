@@ -367,7 +367,7 @@ may_use = ["crate-roots", "foundation", "platform"]
 name = "goals"
 paths = ["crates/north-goals/src/**"]
 responsibility = "Each project's goals as named checks: the oracle commands, the bound and class judged on each measured value, and the red-goal line the fleet tick tells the proxy."
-may_use = ["crate-roots", "platform"]
+may_use = ["crate-roots", "foundation", "platform"]
 
 [[module]]
 name = "mutants"
