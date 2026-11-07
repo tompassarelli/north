@@ -125,6 +125,7 @@ pub struct Watch {
     pending: Pending,
     hosts: Hosts,
     pub jobs: Jobs,
+    draining: bool,
 }
 
 fn journal(lander: &Lander) -> PathBuf {
@@ -207,6 +208,15 @@ impl Watch {
         self.journaled() + self.jobs.running().len()
     }
 
+    pub fn drain(&mut self) {
+        self.draining = true;
+    }
+
+    pub fn adoptable(&self, lander: &Lander) -> bool {
+        let recorded = post_land::adoptable(&lander.queue);
+        self.searching.is_empty() && self.running.iter().all(|running| recorded.iter().any(|(_, record)| record.head == running.batch.head))
+    }
+
     pub fn follow(&mut self, lander: &Lander, base: &str, head: &str, lanes: Vec<LandedLane>) {
         if self.running.iter().any(|running| running.batch.covers(head)) || self.searching.iter().any(|searching| searching.batch.covers(head)) || self.pending.covers(head) {
             return;
@@ -234,7 +244,7 @@ impl Watch {
     }
 
     fn start_next(&mut self, lander: &Lander) {
-        if self.pending.batches.is_empty() {
+        if self.draining || self.pending.batches.is_empty() {
             return;
         }
         let limit = after_runs(lander);

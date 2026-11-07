@@ -26,6 +26,7 @@ const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_millis(250);
 const DISCOVERY: Duration = Duration::from_secs(30);
+const HANDOVER: Duration = Duration::from_secs(900);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Round {
@@ -166,10 +167,22 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
+    let mut retiring: Option<Instant> = None;
     loop {
         if retire.load(Ordering::Relaxed) {
+            let since = *retiring.get_or_insert_with(|| {
+                watch.drain();
+                Instant::now()
+            });
+            if !watch.adoptable(lander) && since.elapsed() < HANDOVER {
+                lander.heartbeat.enter(Step::Between);
+                watch.settle(lander);
+                std::thread::sleep(TICK);
+                continue;
+            }
             if watch.journaled() > 0 {
-                println!("north land: the live runtime changed; exiting now; the restarted lander adopts each after-landing runner still alive and reruns the rest of the {} journaled batch(es) as one run where they follow each other on main", watch.journaled());
+                let handed = if watch.adoptable(lander) { "with every after-landing run in flight held by a runner the restarted lander adopts" } else { "at the handover bound, with a culprit search or a runner-less after-landing step still in flight that the restarted lander reruns" };
+                println!("north land: the live runtime changed; exiting after {} s {handed}; it resumes the rest of the {} journaled batch(es) as one run where they follow each other on main", since.elapsed().as_secs(), watch.journaled());
             }
             return 0;
         }
