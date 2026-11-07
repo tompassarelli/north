@@ -48,6 +48,13 @@ pub fn profiles(cfg: &Value, host: &str) -> Vec<Profile> {
         .collect()
 }
 
+/// Every Claude config directory a launch on `host` runs in: the plan profiles and the API-key accounts, which bill differently but load the same harness.
+fn launchable(cfg: &Value, host: &str) -> Vec<(String, PathBuf)> {
+    let planned = profiles(cfg, host).into_iter().filter_map(|profile| Some((profile.label, profile.path?)));
+    let keyed = cfg["accounts"]["claude"]["api_keys"].as_object().into_iter().flatten().filter_map(|(label, hosts)| Some((label.clone(), expand(hosts.get(host)?.get("path")?.as_str()?))));
+    planned.chain(keyed).collect()
+}
+
 pub fn label_of(cfg: &Value, uuid: &str) -> Option<String> {
     cfg["accounts"]["claude"]["labels"][short_hash(uuid)].as_str().map(str::to_owned)
 }
@@ -82,14 +89,16 @@ pub fn sync(cfg: &Value, host: &str, home: &Path) -> Result<Vec<String>, String>
     let source_config: Value = fs::read_to_string(home.join(".claude.json")).ok().map_or(Ok(json!({})), |text| serde_json::from_str(&text)).map_err(|error| error.to_string())?;
     let trusted: Vec<&String> = source_config["projects"].as_object().into_iter().flatten().filter(|(_, data)| data["hasTrustDialogAccepted"] == json!(true)).map(|(project, _)| project).collect();
     let mut said = Vec::new();
-    for profile in profiles(cfg, host) {
-        let Some(directory) = profile.path.filter(|directory| *directory != source) else { continue };
+    for (label, directory) in launchable(cfg, host) {
+        if directory == source {
+            continue;
+        }
         fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
         trust(&directory, &trusted)?;
         for name in PROJECTED {
             project(&source, &directory, name)?;
         }
-        said.push(format!("Claude profile {}: harness projected to {}", profile.label, directory.display()));
+        said.push(format!("Claude profile {}: harness projected to {}", label, directory.display()));
     }
     Ok(said)
 }

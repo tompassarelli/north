@@ -170,3 +170,14 @@ fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_reads_zero_use
     let unseen = window("2026-10-28T09:30:00Z");
     assert_eq!((unseen["used_pct"].as_f64(), unseen["as_of"].as_str()), (Some(30.0), Some("2026-10-28T09:00:00Z")), "{unseen}");
 }
+
+#[test]
+fn an_api_key_account_profile_gets_the_shared_harness_so_its_workers_run_under_the_same_hooks() {
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join(".claude")).unwrap();
+    fs::write(home.path().join(".claude/settings.json"), "{}").unwrap();
+    let keyed = home.path().join("profiles/claude-api");
+    let cfg = serde_json::json!({"accounts": {"claude": {"api_keys": {"api": {"laptop": {"path": keyed.to_str().unwrap()}}}}}});
+    super::profiles::sync(&cfg, "laptop", home.path()).unwrap();
+    assert_eq!(fs::read_link(keyed.join("settings.json")).unwrap(), home.path().join(".claude/settings.json"));
+}
