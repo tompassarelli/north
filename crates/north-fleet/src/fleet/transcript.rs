@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::model::SessionRecord;
+use crate::foundation::clock::Timestamp;
 
 pub const WINDOW_SIZE: u64 = 1 << 20;
 const SESSION_STREAMS: &str = "session-streams";
@@ -74,6 +75,26 @@ pub fn session_stream_path(host_dir: &Path, name: &str) -> PathBuf {
 pub fn last_written(record: &SessionRecord) -> Option<std::time::SystemTime> {
     let modified = |path: &Path| fs::metadata(path).and_then(|meta| meta.modified()).ok();
     modified(&session_stream_path(&record.host_dir, &record.name)).or_else(|| modified(&stream_path(&record.host_dir)))
+}
+
+/// When the session's last transcript event happened, read from the event's own timestamp so a stream file written later does not move it; the file write time when no event in the tail carries one.
+pub fn last_event_at(record: &SessionRecord) -> Option<std::time::SystemTime> {
+    last_event_timestamp(&stream_path(&record.host_dir)).or_else(|| last_written(record))
+}
+
+fn last_event_timestamp(path: &Path) -> Option<std::time::SystemTime> {
+    let mut file = File::open(path).ok()?;
+    let offset = file.metadata().ok()?.len().saturating_sub(WINDOW_SIZE);
+    let window = read_window(&mut file, offset, WINDOW_SIZE).ok()?;
+    let lines = window.split(|byte| *byte == b'\n').skip(usize::from(offset > 0));
+    let millis = lines
+        .filter_map(|line| {
+            let frame = serde_json::from_slice::<Value>(line).ok()?;
+            let at = Timestamp::parse_rfc3339(frame.get("timestamp")?.as_str()?)?;
+            u64::try_from(at.unix_millis()).ok()
+        })
+        .last()?;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(millis))
 }
 
 pub fn current_session_stream_index(host_dir: &Path, name: &str) -> Option<u64> {

@@ -6,12 +6,12 @@ use crate::error::NorthResult;
 use crate::fleet::model::{Delivery, Phase, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::sender::Sender;
-use crate::fleet::transcript::last_written;
+use crate::fleet::transcript::last_event_at;
 
 pub use north_resume::{Admission, Held, Landing, OPENERS, REVIVED, Settlement, Waking, landing};
 
 pub fn ended_ms(record: &SessionRecord) -> Option<u64> {
-    let ended = last_written(record)?.duration_since(UNIX_EPOCH).ok()?;
+    let ended = last_event_at(record)?.duration_since(UNIX_EPOCH).ok()?;
     u64::try_from(ended.as_millis()).ok()
 }
 

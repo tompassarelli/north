@@ -111,6 +111,26 @@ fn a_session_stopped_on_its_queued_lane_is_woken_once_when_the_lander_decides_it
     assert!(waker.revived.lock().unwrap().is_empty(), "a session whose host runs needs no revive");
 }
 
+#[test]
+fn a_session_that_stopped_before_the_lander_decided_is_woken_though_its_stream_index_is_built_after() {
+    let (home, state) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+    let worker = live(&fleet, "north-790-late");
+    let stopped = now_ms() - 10 * MINUTE;
+    let stream = fleet.root.join("north-790-late/g1/stream.jsonl");
+    let event = serde_json::json!({"type": "assistant", "session_id": "north-790-late", "timestamp": north_base::foundation::clock::Timestamp::from_unix_millis(i64::try_from(stopped).unwrap()).iso(), "message": {"content": [{"type": "text", "text": "Stop: landing"}]}});
+    std::fs::write(&stream, format!("{event}\n{}\n", serde_json::json!({"type": "result", "subtype": "success", "session_id": "north-790-late"}))).unwrap();
+    let lane = queued(state.path(), "north-790-late", "guards", stopped - MINUTE);
+    decided(&lane, "landed abc1234 on origin/main");
+    fleet.follow_recent("north-790-late").unwrap();
+    let held = Held { lanes: lanes_by_session(&queues(state.path())).unwrap(), ..Held::default() };
+
+    let woken = resume(&fleet, &held, &Recorded::default());
+
+    assert_eq!(woken, ["resumed north-790-late: the lander decided its lane"]);
+    assert_eq!(worker.frames.lock().unwrap().len(), 1);
+}
+
 /// The 2026-11-07 stops that only needed a slot or a time: a worker whose build queued 900 s behind capacity and a worker
 /// parked on a registered job, each woken once when the record that ends its stop appears, never by a wait that settled before the stop.
 #[test]
