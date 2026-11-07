@@ -50,3 +50,21 @@ fn two_hosts_seeing_one_github_event_alarm_only_from_the_lander_host() {
     assert_eq!(keys, ["gh:wisp:api-error", "land:north:runtime-not-live:abc"]);
     assert!(other.is_empty(), "{other:?}");
 }
+
+fn iso(unix: u64) -> String {
+    let (days, rest) = (unix / 86_400, unix % 86_400);
+    let date = time::Date::from_julian_day(i32::try_from(days).unwrap() + 2_440_588).unwrap();
+    format!("{date}T{:02}:{:02}:{:02}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+}
+
+#[test]
+fn a_possible_red_main_alert_clears_once_a_later_main_commit_passes_the_cargo_run_and_not_before() {
+    use crate::watch::facts::{RepoFacts, Run};
+    let failed = |lane: &str, ago: u64| Event { time: (NOW - ago) as f64, repo: "north".into(), lane: lane.into(), stage: "land check".into(), status: "failed".into(), tests: vec!["agent_text_reads".into()], ..Event::default() };
+    let cargo = |conclusion: &str, ago: u64| Run { name: "Cargo".into(), head_branch: "main".into(), event: "push".into(), status: "completed".into(), conclusion: Some(conclusion.into()), created_at: iso(NOW - ago), ..Run::default() };
+    let watch = |runs: Vec<Run>| WatchContext { now: NOW, events: vec![failed("lane-a", 1500), failed("lane-b", 1200)], repos: vec![RepoFacts { name: "north".into(), runs, ..RepoFacts::default() }], ..WatchContext::default() };
+    let keys = |context: &WatchContext| shared_failures(context).into_iter().map(|alert| alert.key).collect::<Vec<_>>();
+    assert_eq!(keys(&watch(vec![])), ["land:north:possible-red-main:agent_text_reads"]);
+    assert_eq!(keys(&watch(vec![cargo("success", 1800), cargo("failure", 600)])), ["land:north:possible-red-main:agent_text_reads"], "a pass before the failures or a red run after them does not clear it");
+    assert!(keys(&watch(vec![cargo("failure", 900), cargo("success", 300)])).is_empty(), "a later main passing Cargo clears it on the next tick");
+}

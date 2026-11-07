@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use north_base::platform::harness::default_number;
+use north_base::platform::watch_named::run_time as at;
 
-use super::facts::Event;
+use super::facts::{Event, Run};
 use super::{Alert, Severity, WatchContext};
 
 pub const STALL_SECONDS: f64 = 120.0;
@@ -13,6 +14,7 @@ const MIN_SAMPLES: usize = 5;
 const RECENT: f64 = 3600.0;
 const PUSH_ERROR_WINDOW: f64 = 900.0;
 const SETTLE_FRESH: u64 = 1800;
+const TEST_WORKFLOW: &str = "Cargo";
 
 pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
     let mut alerts = Vec::new();
@@ -101,13 +103,23 @@ fn shared_failures(context: &WatchContext) -> Vec<Alert> {
                 }
             }
         }
+        let passed_since = |time: f64| main_passed_since(context, repo, time);
         for (test, events) in lanes.into_iter().filter(|(_, events)| events.len() >= 2) {
+            if passed_since(events.iter().map(|event| event.time).fold(f64::MIN, f64::max)) {
+                continue;
+            }
             let names: Vec<&str> = events.iter().map(|event| event.lane.as_str()).collect();
             let summary = format!("{repo}: possible red main: {test} failed the land checks of {} lanes ({})", names.len(), names.join(", "));
             alerts.push(alert(format!("land:{repo}:possible-red-main:{test}"), Severity::Page, events[0], summary, events[1].time));
         }
     }
     alerts
+}
+
+fn main_passed_since(context: &WatchContext, repo: &str, time: f64) -> bool {
+    let passing = |run: &&Run| run.name == TEST_WORKFLOW && run.head_branch == "main" && run.event == "push" && run.status == "completed" && run.conclusion.as_deref() == Some("success");
+    let created = |run: &Run| at(&run.created_at).map(|created| created as f64);
+    context.repos.iter().filter(|facts| facts.name == repo).flat_map(|facts| facts.runs.iter()).filter(passing).any(|run| created(run).is_some_and(|created| created > time))
 }
 
 fn runtime(context: &WatchContext) -> Vec<Alert> {
