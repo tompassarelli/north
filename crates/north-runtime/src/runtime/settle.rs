@@ -35,13 +35,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         eprintln!("north runtime settle: {}: {}", host::name(), failure.message);
     }
     let checkout = update::checkout();
-    let destinations = land_offload::other_destinations();
-    let here = layout.live_sha();
-    let mut hosts = vec![Shell::Here(host::name())];
-    hosts.extend(destinations.iter().cloned().map(Shell::Ssh));
-    if let Some(here) = &here {
-        ship_behind(&hosts[1..], here, &layout.runtime(here), &checkout);
-    }
+    let hosts = hosts_with_runtime_shipped(layout, &checkout);
     let landing = due_landing(layout, &checkout)?;
     let live = |runtime: &str| landing.as_ref().is_none_or(|landing| runtime == landing.sha || ancestor(&checkout, &landing.sha, runtime));
     let mut records = Vec::new();
@@ -86,6 +80,15 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         true => Ok(()),
         false => Err(failed(1, format!("not live and healthy everywhere: {}", failing.join(" | ")))),
     }
+}
+
+fn hosts_with_runtime_shipped(layout: &Layout, checkout: &Path) -> Vec<Shell> {
+    let mut hosts = vec![Shell::Here(host::name())];
+    hosts.extend(land_offload::other_destinations().iter().cloned().map(Shell::Ssh));
+    if let Some(here) = layout.live_sha() {
+        ship_behind(&hosts[1..], &here, &layout.runtime(&here), checkout);
+    }
+    hosts
 }
 
 fn ship_behind(hosts: &[Shell], here: &str, runtime: &Path, checkout: &Path) {

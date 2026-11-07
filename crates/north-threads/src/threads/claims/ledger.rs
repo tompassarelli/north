@@ -92,6 +92,19 @@ fn event(db: &Connection, at: &str, item: &str, kind: &str, actor: &str, data: &
     db.execute("INSERT INTO events(ts, item, kind, actor, data) VALUES (?1, ?2, ?3, ?4, ?5)", params![at, item, kind, actor, data.to_string()])
 }
 
+fn decide((held, beside): (Option<&Claim>, Option<&Claim>), by: &str, (issue, alive, now): (Issue, Option<&BTreeSet<String>>, i64)) -> Taken {
+    match (held, beside) {
+        (_, Some(claim)) => Taken::Refused(claim.clone()),
+        (None, None) => Taken::Fresh,
+        (Some(claim), None) if claim.owner == by => Taken::Renewed,
+        (Some(claim), None) => match claim.standing(issue, alive, now) {
+            Standing::Live => Taken::Refused(claim.clone()),
+            Standing::Void(why) => Taken::Voided { previous: claim.clone(), why },
+            Standing::Stale { idle_since } => Taken::Takeover { previous: claim.clone(), idle_since },
+        },
+    }
+}
+
 /// Claims the whole issue `item`, or its box `slug`, named as `(item, slug)`, for `by` in one immediate transaction, and returns what it did with the claims key it wrote or refused: a new claim, a renewal of `by`'s own, a
 /// replacement of a void claim, a takeover of a stale one, or a refusal by a live one. A box claim refuses beside a live claim on the
 /// whole issue and a whole claim beside a live claim on any box, while two boxes of one issue never refuse each other; a whole claim by
@@ -107,16 +120,7 @@ pub fn take(db: &mut Connection, (item, slug): (&str, Option<&str>), by: &str, e
     let whole = slug.is_none() && own_box.is_none();
     let held = on_issue.iter().find(|claim| claim.key() == target);
     let beside = on_issue.iter().filter(|claim| claim.owner != by && claim.key() != target && (whole || claim.slug.is_none())).find(|claim| matches!(claim.standing(issue, alive, now), Standing::Live));
-    let taken = match (held, beside) {
-        (_, Some(claim)) => Taken::Refused(claim.clone()),
-        (None, None) => Taken::Fresh,
-        (Some(claim), None) if claim.owner == by => Taken::Renewed,
-        (Some(claim), None) => match claim.standing(issue, alive, now) {
-            Standing::Live => Taken::Refused(claim.clone()),
-            Standing::Void(why) => Taken::Voided { previous: claim.clone(), why },
-            Standing::Stale { idle_since } => Taken::Takeover { previous: claim.clone(), idle_since },
-        },
-    };
+    let taken = decide((held, beside), by, (issue, alive, now));
     let boxed = json!(slug);
     let written = match &taken {
         Taken::Refused(_) => Ok(0),

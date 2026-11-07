@@ -77,6 +77,29 @@ fn report_declined(why: Option<Declined>, create: &Create, declines: &mut Declin
     }
 }
 
+async fn await_offer(mut work: tokio::task::JoinHandle<Result<u8, Option<Declined>>>, patience: Duration, offer: &AtomicU8, terminations: &mut Terminations, (root, ticket): (&Path, Option<&str>)) -> Option<Result<Result<u8, Option<Declined>>, tokio::task::JoinError>> {
+    let mut stalled = std::pin::pin!(tokio::time::sleep(patience));
+    let mut expired = false;
+    loop {
+        tokio::select! {
+            done = &mut work => break Some(done),
+            () = &mut stalled, if !expired => {
+                if offer.compare_exchange(OFFER_PENDING, OFFER_ABANDONED, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                    break None;
+                }
+                expired = true;
+            }
+            number = terminations.next() => {
+                if let Some(ticket) = ticket {
+                    dequeue(root, ticket);
+                    handover::forget(root, ticket);
+                }
+                std::process::exit(128 + number)
+            }
+        }
+    }
+}
+
 /// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path, printing why once per change of reason.
 pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminations: &mut Terminations, taker: Option<std::os::unix::net::UnixStream>) -> Option<u8> {
     let Waiting { root, ticket, request, create, command, began, declined } = waiting;
@@ -115,27 +138,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
             None => (host.build_offload)(&candidate, &job, &announce),
         }
     });
-    let mut work = work;
-    let mut stalled = std::pin::pin!(tokio::time::sleep(patience));
-    let mut expired = false;
-    let finished = loop {
-        tokio::select! {
-            done = &mut work => break Some(done),
-            () = &mut stalled, if !expired => {
-                if offer.compare_exchange(OFFER_PENDING, OFFER_ABANDONED, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                    break None;
-                }
-                expired = true;
-            }
-            number = terminations.next() => {
-                if let Some(ticket) = &waiting_ticket {
-                    dequeue(&waiting_root, ticket);
-                    handover::forget(&waiting_root, ticket);
-                }
-                std::process::exit(128 + number)
-            }
-        }
-    };
+    let finished = await_offer(work, patience, &offer, terminations, (&waiting_root, waiting_ticket.as_deref())).await;
     let Some(done) = finished else {
         if handed && let Some(ticket) = &waiting_ticket {
             handover::restore(&waiting_root, ticket);

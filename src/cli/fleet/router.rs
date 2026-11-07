@@ -129,15 +129,21 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["ask", name, rest @ ..] => ask::run(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
-        ["relaunch", name, rest @ ..] => relaunch::run(&fleet, name, rest),
-        ["interactive", name] => interactive::run(&fleet, name, false),
-        ["interactive", name, interactive::AFTER_TURN] => interactive::run(&fleet, name, true),
-        ["digest", rest @ ..] => digest::run(&fleet, rest),
-        ["forget", name, "--force", reason] => forget(&fleet, name, Some(reason)),
-        [SWEEP_VERB] => claims::sweep(&fleet),
-        [verb, name] => session_verb(&fleet, verb, name),
-        ["revive", name, rest @ ..] => revive::revive_with(&fleet, name, rest),
-        ["show", name, flag] => show::run(&fleet, name, flag),
+        _ => dispatch_session(&fleet, &words),
+    }
+}
+
+fn dispatch_session(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
+    match words {
+        ["relaunch", name, rest @ ..] => relaunch::run(fleet, name, rest),
+        ["interactive", name] => interactive::run(fleet, name, false),
+        ["interactive", name, interactive::AFTER_TURN] => interactive::run(fleet, name, true),
+        ["digest", rest @ ..] => digest::run(fleet, rest),
+        ["forget", name, "--force", reason] => forget(fleet, name, Some(reason)),
+        [SWEEP_VERB] => claims::sweep(fleet),
+        [verb, name] => session_verb(fleet, verb, name),
+        ["revive", name, rest @ ..] => revive::revive_with(fleet, name, rest),
+        ["show", name, flag] => show::run(fleet, name, flag),
         _ => Err(usage()),
     }
 }

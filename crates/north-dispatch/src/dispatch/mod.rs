@@ -286,19 +286,26 @@ fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     started.into_iter().filter_map(|(_, failure)| failure).collect()
 }
 
-pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
-    let dry_run = match arguments {
-        [] => false,
-        [flag] if flag == "--dry-run" => true,
-        [verb, rest @ ..] if verb == "route-replay" => return nearest::replay(rest),
-        [verb, rest @ ..] if verb == "pause" => return pause::pause(rest),
-        [verb] if verb == "resume" => return pause::resume(),
-        [verb, item] if verb == "needs" => return host_needs::serve(item),
-        [verb, session, need, item @ ..] if verb == "need" && item.len() < 2 => return host_needs::serve_need(session, need, item.first().map(String::as_str)),
+fn mode(arguments: &[String]) -> Result<bool, u8> {
+    match arguments {
+        [] => Ok(false),
+        [flag] if flag == "--dry-run" => Ok(true),
+        [verb, rest @ ..] if verb == "route-replay" => Err(nearest::replay(rest)),
+        [verb, rest @ ..] if verb == "pause" => Err(pause::pause(rest)),
+        [verb] if verb == "resume" => Err(pause::resume()),
+        [verb, item] if verb == "needs" => Err(host_needs::serve(item)),
+        [verb, session, need, item @ ..] if verb == "need" && item.len() < 2 => Err(host_needs::serve_need(session, need, item.first().map(String::as_str))),
         _ => {
             eprintln!("{USAGE}");
-            return 2;
+            Err(2)
         }
+    }
+}
+
+pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
+    let dry_run = match mode(arguments) {
+        Ok(dry_run) => dry_run,
+        Err(code) => return code,
     };
     if dry_run && let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &crate::platform::host::name())) {
         return home::dry_run_there(&crate::platform::host::name(), &host, &ssh);

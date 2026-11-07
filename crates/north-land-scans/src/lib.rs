@@ -71,6 +71,50 @@ fn dep_gate(directory: &Path, range: &str) -> u8 {
     }
 }
 
+fn unrecognized(arguments: &[String]) -> u8 {
+    outgoing::run(arguments).unwrap_or_else(|| {
+        eprintln!("{USAGE}");
+        64
+    })
+}
+
+fn ranged(directory: &Path, name: &str, range: &str) -> Option<u8> {
+    let mut out = std::io::stdout();
+    Some(match name {
+        "run-time-data" => north_base::run_time_data::run(directory, range),
+        "dep-gate" => dep_gate(directory, range),
+        "doc-links" => doc_links::scan(directory, range, &mut out),
+        "docs-owners" => docs_owners::scan(directory, range, &north_github_mirror::store::Mirror::local(), &mut out),
+        "detector-proof" => detector_proof::run(directory, range),
+        "gate-shadow" => gate_shadow::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
+        "tool-removal" => {
+            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+            tool_removal::scan(directory, &home, range, &mut out)
+        }
+        _ => return ranged_checks(directory, name, range),
+    })
+}
+
+fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
+    let mut out = std::io::stdout();
+    Some(match name {
+        "test-integrity" => match test_integrity::scan(directory, range, &mut out) {
+            0 => incident_guard::scan(directory, range, &mut out),
+            refused => refused,
+        },
+        "incident-test" => incident_guard::scan(directory, range, &mut out),
+        "test-admission" => test_admission::scan(directory, range, &north_base::platform::records_mirror::state_home(), &mut out),
+        "policy-sweep" => match policy::scan(directory, range, &mut out) {
+            0 => rule_owners::scan(directory, range, &mut out),
+            refused => refused,
+        },
+        "strategy-replay" => strategy_replay::scan(directory, range, &mut out),
+        "shell-hook" => shell_hook::scan(directory, range, &mut out),
+        "generated-rewrite" => generated::scan(directory, range, &mut std::io::stderr()),
+        _ => return None,
+    })
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let directory = PathBuf::from(".");
     match arguments {
@@ -79,60 +123,13 @@ pub fn run(arguments: &[String]) -> u8 {
         [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),
         [name, rest @ ..] if name == "nix-entry" => nix_entry::run(&directory, rest),
         [name, rest @ ..] if name == "safe-push-verbs" => safe_push_verbs::run(&directory, rest),
-        [name, range] if name == "run-time-data" => north_base::run_time_data::run(&directory, range),
-        [name, range] if name == "dep-gate" => dep_gate(&directory, range),
-        [name, range] if name == "doc-links" => doc_links::scan(&directory, range, &mut std::io::stdout()),
-        [name, range] if name == "docs-owners" => {
-            docs_owners::scan(&directory, range, &north_github_mirror::store::Mirror::local(), &mut std::io::stdout())
-        }
-        [name, range] if name == "detector-proof" => detector_proof::run(&directory, range),
-        [name, range] if name == "gate-shadow" => gate_shadow::scan(&directory, range, &north_base::platform::records_mirror::state_home(), &mut std::io::stdout()),
-        [name, range] if name == "tool-removal" => {
-            let home = std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_default();
-            tool_removal::scan(&directory, &home, range, &mut std::io::stdout())
-        }
-        [name, range] if name == "test-integrity" => {
-            let mut out = std::io::stdout();
-            match test_integrity::scan(&directory, range, &mut out) {
-                0 => incident_guard::scan(&directory, range, &mut out),
-                refused => refused,
-            }
-        }
-        [name, range] if name == "incident-test" => {
-            incident_guard::scan(&directory, range, &mut std::io::stdout())
-        }
-        [name, kills, rest @ ..] if name == "test-admission" && kills == "kills" => {
-            test_admission::kills(&directory, rest, &mut std::io::stdout())
-        }
-        [name, run, range] if name == "test-admission" && run == "run" => {
-            test_admission::fail_to_pass(&directory, range, &mut std::io::stdout())
-        }
-        [name, range] if name == "test-admission" => {
-            test_admission::scan(&directory, range, &north_base::platform::records_mirror::state_home(), &mut std::io::stdout())
-        }
-        [name, range] if name == "policy-sweep" => {
-            let mut out = std::io::stdout();
-            match policy::scan(&directory, range, &mut out) {
-                0 => rule_owners::scan(&directory, range, &mut out),
-                refused => refused,
-            }
-        }
-        [name, range] if name == "strategy-replay" => strategy_replay::scan(&directory, range, &mut std::io::stdout()),
-        [name, range] if name == "shell-hook" => {
-            shell_hook::scan(&directory, range, &mut std::io::stdout())
-        }
-        [name, range] if name == "generated-rewrite" => {
-            generated::scan(&directory, range, &mut std::io::stderr())
-        }
+        [name, kills, rest @ ..] if name == "test-admission" && kills == "kills" => test_admission::kills(&directory, rest, &mut std::io::stdout()),
+        [name, run, range] if name == "test-admission" && run == "run" => test_admission::fail_to_pass(&directory, range, &mut std::io::stdout()),
+        [name, range] => ranged(&directory, name, range).unwrap_or_else(|| unrecognized(arguments)),
         [flag] if flag == "-h" || flag == "--help" => {
             println!("{USAGE}");
             0
         }
-        _ => outgoing::run(arguments).unwrap_or_else(|| {
-            eprintln!("{USAGE}");
-            64
-        }),
+        _ => unrecognized(arguments),
     }
 }

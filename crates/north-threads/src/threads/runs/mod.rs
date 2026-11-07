@@ -87,6 +87,18 @@ fn run_ids(argv: &[String], context: &Context) -> Outcome {
     Ok(shown)
 }
 
+fn counted(count: usize, label: &str) -> String {
+    if count > 0 { format!(", {count} {label}") } else { String::new() }
+}
+
+fn recorded_line(tally: &Tally, context: &Context) -> String {
+    let unpriced = tally.unpriced.iter().cloned().collect::<Vec<_>>().join(", ");
+    let unpriced = if unpriced.is_empty() { unpriced } else { format!("; token weight for models without a list price: {unpriced}") };
+    let (backfilled, hooks) = (counted(tally.backfilled, "backfilled"), counted(tally.hooks, "hook verdicts"));
+    let (concerns, admissions) = (counted(tally.concerns, "concern samples"), counted(tally.admissions, "capacity admissions"));
+    format!("NorthThreads: {} runs recorded{backfilled}{hooks}{concerns}{admissions} in {}{unpriced}", tally.added, context.database.display())
+}
+
 /// Records every row in one transaction, then the usage readouts and the run costs they price; prints
 /// what it recorded to `err`. It makes no network call, because the caller holds the exclusive ingest lock.
 fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dyn Write) -> Outcome {
@@ -133,12 +145,6 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     if inputs_changed && db.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage'", [], |_| Ok(())).optional()?.is_some() {
         costs::allocate(&mut db, &context.outside.prices()?, &tally.touched)?;
     }
-    let backfilled = if tally.backfilled > 0 { format!(", {} backfilled", tally.backfilled) } else { String::new() };
-    let hooks = if tally.hooks > 0 { format!(", {} hook verdicts", tally.hooks) } else { String::new() };
-    let concerns = if tally.concerns > 0 { format!(", {} concern samples", tally.concerns) } else { String::new() };
-    let admissions = if tally.admissions > 0 { format!(", {} capacity admissions", tally.admissions) } else { String::new() };
-    let unpriced = tally.unpriced.into_iter().collect::<Vec<_>>().join(", ");
-    let unpriced = if unpriced.is_empty() { unpriced } else { format!("; token weight for models without a list price: {unpriced}") };
-    writeln!(err, "NorthThreads: {} runs recorded{backfilled}{hooks}{concerns}{admissions} in {}{unpriced}", tally.added, context.database.display()).map_err(|error| Failure::Refused(error.to_string()))?;
+    writeln!(err, "{}", recorded_line(&tally, context)).map_err(|error| Failure::Refused(error.to_string()))?;
     Ok(String::new())
 }

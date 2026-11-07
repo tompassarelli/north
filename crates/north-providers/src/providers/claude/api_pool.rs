@@ -234,11 +234,7 @@ fn settle(
             continue;
         }
         let marked = if failed { marks::mark(&dir, &org.id, &record.name, today, until(org)) } else { Ok(false) };
-        match &marked {
-            Ok(true) => lines.push(format!("api:{} marked exhausted: {}'s last turn ended on a credit balance too low", org.name, record.name)),
-            Ok(false) => {}
-            Err(error) => lines.push(format!("api:{} ran out of credit but its exhausted mark was not written: {error}", org.name)),
-        }
+        lines.extend(marked_line(org, &record.name, &marked));
         let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org)) {
             Some(to) => Some((to, None)),
             None if failed => subscription(&record, &machine),
@@ -251,6 +247,14 @@ fn settle(
         }
     }
     lines
+}
+
+fn marked_line<E: std::fmt::Display>(org: &Org, session: &str, marked: &Result<bool, E>) -> Option<String> {
+    match marked {
+        Ok(true) => Some(format!("api:{} marked exhausted: {session}'s last turn ended on a credit balance too low", org.name)),
+        Ok(false) => None,
+        Err(error) => Some(format!("api:{} ran out of credit but its exhausted mark was not written: {error}", org.name)),
+    }
 }
 
 fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str), (failed, resumes): (bool, Option<u64>)) -> String {
