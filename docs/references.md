@@ -112,7 +112,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 - <a id="t3code"></a>**T3 Code** (T3 Tools Inc., Theo Browne and contributors, MIT), https://github.com/pingdotgg/t3code, read at
   `32a0531` on 2026-11-07. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
-  Informed: [rationale/watch/2026-11-07-t3code.md](rationale/watch/2026-11-07-t3code.md), north#714, north#715 and north#716.
+  Informed: [rationale/watch/2026-11-07-t3code.md](rationale/watch/2026-11-07-t3code.md), north#714, north#715 and north#716; the second read, [rationale/watch/2026-11-08-t3code-gemini.md](rationale/watch/2026-11-08-t3code-gemini.md), checked Gemini's review against main and led to north#862 to north#866.
   Outcome: adopted as ideas, no code copied. Three mechanisms were kept:
   - behavior evals of harness text built from real failures (north#714);
   - stay-quiet controls and a measured false-refusal rate for refusing guards (north#715), after 24 of 30 sampled
