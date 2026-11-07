@@ -190,7 +190,7 @@ pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
     Ok(Reading { losses, proxy, unclaimed_usd, total_usd })
 }
 
-/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, the runs a proxy session cut short, and the share of usage no record or rule attributes over the last 3 h, the window the readiness bars are judged on, and the last 24 h.
+/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, the runs a proxy session cut short, and the share of usage no record or rule attributes over the last 3 h and the last 24 h.
 pub fn pareto_line(ledger: &Path, now: i64) -> String {
     let read = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).and_then(|db| Ok((losses(&db, now - DAY_S)?, losses(&db, now - VERDICT_S)?)));
     match read {

@@ -108,70 +108,70 @@ class = "contract"
 
 [[goal]]
 name = "ready-landing-p90"
-source = "north#641: the harness is ready for production work when a lane's queue-to-main p90 is at most 60 s, over the newest 3 h"
+source = "north#641: the harness is ready for production work when a lane's queue-to-main p90 is at most 60 s, over the newest 1 h"
 unit = "s"
 max = 60
 class = "ready"
 
 [[goal]]
 name = "ready-verification-p50"
-source = "north#641: the after-push verification median is at most 60 s, over the newest 3 h"
+source = "north#641: the after-push verification median is at most 60 s, over the newest 1 h"
 unit = "s"
 max = 60
 class = "ready"
 
 [[goal]]
 name = "ready-verification-p90"
-source = "north#641: the after-push verification p90 is at most 5 min, over the newest 3 h"
+source = "north#641: the after-push verification p90 is at most 5 min, over the newest 1 h"
 unit = "s"
 max = 300
 class = "ready"
 
 [[goal]]
 name = "ready-rework"
-source = "north#641: at most 5% of the newest 3 h's worker landings are reverted or fixed forward within 48 h"
+source = "north#641: at most 5% of the newest 1 h's worker landings are reverted or fixed forward within 48 h"
 unit = "%"
 max = 5
 class = "ready"
 
 [[goal]]
 name = "ready-first-try"
-source = "north#641: at least 70% of worker first attempts report Done with no follow-up run, over the newest 3 h; reviewers, splits and boxes deferred to a dated check that has not missed are left out"
+source = "north#641: at least 70% of worker first attempts report Done with no follow-up run, over the newest 1 h; reviewers, splits and boxes deferred to a dated check that has not missed are left out"
 unit = "%"
 min = 70
 class = "ready"
 
 [[goal]]
 name = "ready-harness-loss"
-source = "north#706: at most 0.1% of worker first attempts over the newest 3 h end in a failure the harness caused (placement, landing refusal, false revert, capacity, compaction, waits, duplicate or gate refusal), by the shared attribution of each run's report; the bar was 10% until 2026-11-07, when Tom asked that it state the real target of 1%, then 0.1% the same day"
+source = "north#706: at most 0.1% of worker first attempts over the newest 1 h end in a failure the harness caused (placement, landing refusal, false revert, capacity, compaction, waits, duplicate or gate refusal), by the shared attribution of each run's report; the bar was 10% until 2026-11-07, when Tom asked that it state the real target of 1%, then 0.1% the same day"
 unit = "%"
 max = 0.1
 class = "ready"
 
 [[goal]]
 name = "ready-ask-to-landing"
-source = "north#641: the median from Tom's ask to its first landed commit is at most 1 h, over the newest 3 h"
+source = "north#641: the median from Tom's ask to its first landed commit is at most 1 h, over the newest 1 h"
 unit = "s"
 max = 3600
 class = "ready"
 
 [[goal]]
 name = "ready-corrections"
-source = "north#641: Tom corrects the fleet at most 0.05 times per active hour, over the newest 3 h"
+source = "north#641: Tom corrects the fleet at most 0.05 times per active hour, over the newest 1 h"
 unit = "per h"
 max = 0.05
 class = "ready"
 
 [[goal]]
 name = "ready-priority-now"
-source = "north#641: at most 5 priority:now issues stay open, over the newest 3 h"
+source = "north#641: at most 5 priority:now issues stay open, over the newest 1 h"
 unit = "issues"
 max = 5
 class = "ready"
 
 [[goal]]
 name = "ready-idle-account"
-source = "north#641: no Claude account sits idle for more than 30 min while priority:now work waits, over the newest 3 h"
+source = "north#641: no Claude account sits idle for more than 30 min while priority:now work waits, over the newest 1 h"
 unit = "min"
 max = 30
 class = "ready"
@@ -196,14 +196,14 @@ revisit = "launches refused by placement, counting each launch by its last place
 
 [[goal]]
 name = "ready-usage-per-landing"
-source = "north#793: model usage spent per worker first try that landed over the newest 3 h, in points (percent of an account's weekly window summed across accounts, plus api list-price dollars), is at most 4 by the ledger's usage readouts, runs and api spend, so the fleet gets more landed work for the usage it spends; Tom asked for a second standing goal on 2026-11-07"
+source = "north#793: model usage spent per worker first try that landed over the newest 1 h, in points (percent of an account's weekly window summed across accounts, plus api list-price dollars), is at most 4 by the ledger's usage readouts, runs and api spend, so the fleet gets more landed work for the usage it spends; Tom asked for a second standing goal on 2026-11-07"
 unit = "points"
 max = 4
 class = "ready"
 
 [[goal]]
 name = "ready-stranded-usage"
-source = "north#793: no usage resets or expires unspent while ready work waits, over the newest 3 h: the share of a weekly window left at its reset, api credit at its grant's expiry and api credit left on unexpired grants, counted while a priority:now issue was open"
+source = "north#793: no usage resets or expires unspent while ready work waits, over the newest 1 h: the share of a weekly window left at its reset, api credit at its grant's expiry and api credit left on unexpired grants, counted while a priority:now issue was open"
 unit = "points"
 max = 0
 class = "ready"
