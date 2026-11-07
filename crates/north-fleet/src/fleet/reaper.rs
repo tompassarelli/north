@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
+use north_base::platform::attribution::awaits_lander;
 use regex::Regex;
 use serde::Serialize;
 use toml_edit::DocumentMut;
@@ -25,7 +26,6 @@ pub const BUDGET: Duration = Duration::from_secs(5);
 
 static DEFAULTS: LazyLock<&DocumentMut> = LazyLock::new(|| north_base::platform::harness::document(north_base::platform::harness::DEFAULTS));
 static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*Stop:").expect("stop line pattern"));
-static LANDING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\W*Stop:\s*landing\b").expect("landing stop pattern"));
 static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^0-9A-Za-z_#/.-])([0-9a-f]{7,40})(?:$|[^0-9A-Za-z_-])").expect("sha pattern"));
 
 pub fn stale_after() -> Duration {
@@ -97,7 +97,7 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
 }
 
 fn finishes(report: &str) -> bool {
-    opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split")) && STOP.is_match(report) && !LANDING.is_match(report)
+    opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split")) && STOP.is_match(report) && !awaits_lander(report)
 }
 
 fn opens(report: &str, word: &str) -> bool {
@@ -187,7 +187,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let verdict = verdict(&seen, stale);
             if verdict == Verdict::Keep {
                 let background = seen.background.then(|| "its CLI still runs a background task".to_owned());
-                let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| seen.report.as_ref().filter(|report| LANDING.is_match(&report.text)).map(|_| "its Stop: landing waits for the lander's verdict".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
+                let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| seen.report.as_ref().filter(|report| awaits_lander(&report.text)).map(|_| "its Stop: landing waits for the lander's verdict".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
                 reaped.kept.push(Retired { name: record.name.clone(), why });
                 continue;
             }

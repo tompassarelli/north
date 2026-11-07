@@ -20,7 +20,8 @@ fn pattern(text: &str) -> Regex {
 
 static WORKER: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?im)^\W*stop:\s*(reasoning|leash)\b"));
 static COMPACTED: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?i)\bcompacted\b|\bcontext limit\b"));
-static TOM: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?im)halted by tom|\btom paused\b|^\W*stop:\s*decision\b|^\W*blocked:"));
+static TOM: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?im)halted by tom|\btom paused\b|^\W*stop:\s*decision\b"));
+static BLOCKED: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?i)^\W*blocked:"));
 static RULES: LazyLock<Vec<(Harness, Regex)>> = LazyLock::new(|| {
     vec![
         (Harness::Placement, pattern(r"(?im)^\W*stop:\s*host\b|\b(isn't|is not|not) on this host\b|\bthis (host|machine|session)\b[^.\n]{0,60}\b(can't|cannot|has no|lacks)\b|\b(can't|cannot|couldn't)\b[^.\n]{0,80}\b(from|on) (here|this (host|machine))\b|\bdispatch (put|placed|sent) this session\b|\b(checked|run|measured) on the laptop\b|\b(can't|cannot) reach\b|\bunreachable\b|\bno route to\b|\bnative capture\b|\bclient pair\b|\bcan't (be )?(push|pushed|land|landed|run|reach)\w*( it)? (from|on) \w+")),
@@ -54,7 +55,7 @@ pub struct Verdict {
 
 /// The cause of a finished run's outcome. A Done run is the worker's; a failure takes the cause a boundary recorded for
 /// its session, else the first harness class its report matches, else compaction when it says it compacted or
-/// compacted and ended with no standard opener. A Split, or any other report without a standard opener, is the worker's
+/// compacted and ended with no standard opener, else Tom's for a `Blocked:` opener no harness rule claims. A Split, or any other report without a standard opener, is the worker's
 /// own call; the rest is the worker's by default.
 pub fn judge(outcome: &str, report: &str, compactions: u32, recorded: Option<Cause>) -> Verdict {
     let by = |cause, basis| Verdict { cause, basis };
@@ -75,6 +76,9 @@ pub fn judge(outcome: &str, report: &str, compactions: u32, recorded: Option<Cau
     }
     if (compactions > 0 && !has_opener(report)) || COMPACTED.is_match(report) {
         return by(Cause::Harness(Harness::Compaction), Basis::Report);
+    }
+    if BLOCKED.is_match(report) {
+        return by(Cause::Tom, Basis::Report);
     }
     if outcome == "split" || !has_opener(report) {
         return by(Cause::Worker, Basis::Report);
@@ -101,6 +105,11 @@ pub fn recorded_column(db: &Connection) -> &'static str {
     } else {
         "NULL"
     }
+}
+
+/// The SQL expression for a run's fleet session name, empty in a ledger that records none.
+pub fn fleet_column(db: &Connection) -> &'static str {
+    if db.query_row("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'fleet_name'", [], |_| Ok(())).is_ok() { "coalesce(runs.fleet_name, '')" } else { "''" }
 }
 
 const DAY_S: i64 = 86_400;
@@ -175,3 +184,4 @@ pub fn pareto_line(ledger: &Path, now: i64) -> String {
         Err(why) => format!("harness losses 24 h: unread: {why}"),
     }
 }
+

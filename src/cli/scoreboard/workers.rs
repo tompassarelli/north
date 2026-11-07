@@ -8,11 +8,13 @@ use rusqlite::Connection;
 use super::{Better, Figure, Measure, Window};
 use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::attention::references;
+use crate::platform::attribution::awaits_lander;
 use crate::platform::run_roles::worker_where;
+use crate::platform::{land_queue, records_mirror};
 use crate::providers::claude::runs::outcome::waits_on_time;
-use crate::threads::attribution::{Cause, attribute, recorded_column, report_column};
+use crate::threads::attribution::{Cause, attribute, fleet_column, recorded_column, report_column};
 
-const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running and deferred runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
+const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred and lander-queued runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
 
 pub struct Attempt {
@@ -39,27 +41,36 @@ pub fn missed_checks(mirror: &Mirror) -> BTreeSet<String> {
     missed
 }
 
-pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>) -> rusqlite::Result<Vec<Attempt>> {
+pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, queued: &BTreeSet<String>) -> rusqlite::Result<Vec<Attempt>> {
     let mut statement = db.prepare("SELECT DISTINCT follows FROM runs WHERE coalesce(follows, '') != ''")?;
     let followed: HashSet<String> = statement.query_map([], |row| row.get(0))?.filter_map(Result::ok).collect();
     let mut statement = db.prepare(&format!(
-        "SELECT agent, category, ended, outcome, coalesce(item, ''), {}, coalesce(compactions, 0), {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
+        "SELECT agent, category, ended, outcome, coalesce(item, ''), {}, coalesce(compactions, 0), {}, {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
         report_column(db),
         recorded_column(db),
+        fleet_column(db),
         worker_where()
     ))?;
-    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, u32>(6)?, row.get::<_, Option<String>>(7)?)))?;
+    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, u32>(6)?, row.get::<_, Option<String>>(7)?, row.get::<_, String>(8)?)))?;
     Ok(rows
         .filter_map(Result::ok)
-        .filter_map(|(agent, category, ended, outcome, item, report, compactions, recorded)| {
+        .filter_map(|(agent, category, ended, outcome, item, report, compactions, recorded, session)| {
             let ended = Timestamp::parse(&ended).ok()?.unix_seconds();
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
             if outcome != "done" && waits_on_time(&report) && !checked_miss() {
                 return None;
             }
+            if outcome != "done" && awaits_lander(&report) && queued.contains(&session) {
+                return None;
+            }
             Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()) })
         })
         .collect())
+}
+
+/// The fleet sessions whose lane waits undecided in this host's lander queues, whose `Stop: landing` first tries are pending.
+pub fn queued_sessions() -> BTreeSet<String> {
+    land_queue::queued_sessions(&records_mirror::state_home())
 }
 
 /// The repositories an item names, by `repo#N`.
@@ -68,7 +79,7 @@ pub fn repos(item: &str) -> BTreeSet<String> {
 }
 
 pub fn first_try(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Vec<Measure>> {
-    let attempts = attempts(db, weeks[1].start, &missed_checks(&Mirror::local()))?;
+    let attempts = attempts(db, weeks[1].start, &missed_checks(&Mirror::local()), &queued_sessions())?;
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for attempt in attempts.iter().filter(|attempt| weeks[0].holds(attempt.ended)) {
         *counts.entry(attempt.category.as_str()).or_default() += 1;
@@ -84,3 +95,7 @@ pub fn first_try(db: &Connection, weeks: [Window; 2]) -> rusqlite::Result<Vec<Me
         .map(|category| Measure { name: format!("worker first-try success, {category}"), better: Better::Higher, source: SOURCE, weeks: weeks.map(|window| figure(category, window)) })
         .collect())
 }
+
+#[cfg(test)]
+#[path = "workers_tests.rs"]
+mod tests;

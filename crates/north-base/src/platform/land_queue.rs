@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -27,6 +28,18 @@ pub fn slug(branch: &str) -> String {
 
 pub fn directory(state_home: &Path, origin: &str) -> PathBuf {
     state_home.join("north/land-queue").join(key(origin))
+}
+
+/// The fleet sessions whose lane waits undecided in any repository's queue under `state_home`: a ticket the lander has
+/// neither moved to `done/` nor withdrawn.
+pub fn queued_sessions(state_home: &Path) -> BTreeSet<String> {
+    let queues = fs::read_dir(state_home.join("north/land-queue")).into_iter().flatten().flatten().map(|queue| queue.path());
+    queues
+        .flat_map(|queue| fs::read_dir(&queue).into_iter().flatten().flatten().map(move |ticket| (queue.clone(), ticket.path())))
+        .filter(|(queue, ticket)| ticket.extension().is_some_and(|extension| extension == "json") && ticket.is_file() && !ticket.file_name().is_some_and(|name| queue.join("withdrawn").join(name).is_file()))
+        .map(|(_, ticket)| ticket)
+        .filter_map(|ticket| serde_json::from_str::<serde_json::Value>(&fs::read_to_string(ticket).ok()?).ok()?["session"].as_str().map(str::to_owned))
+        .collect()
 }
 
 /// Seconds since a ticket was queued, read from its `queued_at` field, else the file's mtime; never from the file-name id, which jump-the-queue tickets set deliberately old.

@@ -183,3 +183,13 @@ fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overri
     assert_eq!(reading.proxy.0, 1, "a run the proxy cut short is the proxy's, apart from the harness classes");
     assert_eq!(reading.unclaimed_usd, 0.0, "{reading:?}");
 }
+
+/// north-730-d0235 opened `Blocked:` on ccx33 and ended `Stop: host gex45`, and the ready bar read it as Tom's on
+/// 2026-11-07, hiding a placement loss (north#751): a harness Stop line outranks the opener, and a Blocked report on
+/// Tom's decision stays his.
+#[test]
+fn a_blocked_report_that_stops_on_a_host_is_placement() {
+    let read = |report: &str| crate::threads::attribution::attribute("escalated", report, 0, None);
+    assert_eq!(read("Blocked: I'm on ccx33, and the runner lane lives on gex45.\nStop: host gex45"), crate::threads::attribution::Cause::Harness(Harness::Placement));
+    assert_eq!(read("Blocked: the pilot spends money.\nStop: decision"), crate::threads::attribution::Cause::Tom);
+}

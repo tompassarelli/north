@@ -9,6 +9,7 @@ use crate::foundation::clock::Timestamp;
 fn show(unit: &str, value: f64) -> String {
     match unit {
         "s" => duration(value),
+        "%" if value > 0.0 && value < 1.0 => format!("{value:.1}%"),
         "%" => format!("{value:.0}%"),
         "per h" => format!("{value:.2}/h"),
         "min" => format!("{value:.0} min"),
@@ -78,4 +79,14 @@ pub(super) fn render(repos: &[Repo], goals: &Goals, now: i64, view: View) -> Str
         let _ = writeln!(out, "sources: landings ledger, land-queue spans, worker ledger, Tom's transcripts, GitHub mirror, pace-control history");
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    /// The 0.1% harness-loss ceiling goals.toml set on 2026-11-07 printed as `<= 0%` (north#751).
+    #[test]
+    fn a_percent_below_one_keeps_its_decimal() {
+        assert_eq!(super::show("%", 0.1), "0.1%");
+        assert_eq!(super::show("%", 28.0), "28%");
+    }
 }
