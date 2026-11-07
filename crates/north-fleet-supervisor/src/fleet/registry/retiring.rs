@@ -41,18 +41,27 @@ impl Fleet {
         self.retired_session(name).map(|(_, record)| record)
     }
 
-    /// The names archived at or after `since_ms`, from the stamp each archive directory carries.
-    pub fn retired_names_since(&self, since_ms: u64) -> Vec<String> {
-        let names: std::collections::BTreeSet<String> = fs::read_dir(self.root.join(ARCHIVE))
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|entry| {
-                let file = entry.file_name().to_string_lossy().into_owned();
-                let (name, stamp) = file.rsplit_once('-')?;
-                (stamp.parse::<u64>().ok()? >= since_ms).then(|| name.to_owned())
-            })
-            .collect();
+    /// The names archived at or after `since_ms`, from the stamp each archive directory carries, and the newest archived
+    /// session of each task whatever its age, since dispatch reads the last launch of each open issue however old.
+    pub fn retired_names_read(&self, since_ms: u64) -> Vec<String> {
+        let mut newest: std::collections::BTreeMap<String, (u64, String)> = std::collections::BTreeMap::new();
+        let mut names = std::collections::BTreeSet::new();
+        for entry in fs::read_dir(self.root.join(ARCHIVE)).into_iter().flatten().flatten() {
+            let file = entry.file_name().to_string_lossy().into_owned();
+            let Some((name, stamp)) = file.rsplit_once('-').and_then(|(name, stamp)| Some((name, stamp.parse::<u64>().ok()?))) else { continue };
+            if stamp >= since_ms {
+                names.insert(name.to_owned());
+            }
+            let Some(record) = fs::read_to_string(entry.path().join("session.json")).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok()) else { continue };
+            let created = record["created_ms"].as_u64().unwrap_or(0);
+            let tasks = record["task_ref"].as_str().into_iter().chain(record["extra_tasks"].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str));
+            for task in tasks {
+                if newest.get(task).is_none_or(|(seen, _)| *seen < created) {
+                    newest.insert(task.to_owned(), (created, name.to_owned()));
+                }
+            }
+        }
+        names.extend(newest.into_values().map(|(_, name)| name));
         names.into_iter().collect()
     }
 

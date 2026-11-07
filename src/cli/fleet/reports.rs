@@ -1,4 +1,4 @@
-//! `north fleet reports --json`: the entries dispatch reads of this registry's sessions retired in the last two days, in the shape of
+//! `north fleet reports --json`: the entries dispatch reads of this registry's sessions retired in the last two days and of the newest of each task, in the shape of
 //! `show --json`, which the laptop mirrors to the host that runs dispatch, since no host there
 //! reaches the laptop's archive. A retired session's transcript no longer changes, so each is read once and kept beside it.
 use std::fs;
@@ -21,7 +21,7 @@ pub(super) fn run(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
         return Err(usage());
     }
     let mut found = Map::new();
-    for name in fleet.retired_names_since(now_ms().saturating_sub(KEPT_MS)) {
+    for name in fleet.retired_names_read(now_ms().saturating_sub(KEPT_MS)) {
         if let Some(report) = report(fleet, &name) {
             found.insert(name, report);
         }

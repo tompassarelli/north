@@ -79,3 +79,18 @@ fn a_session_launched_without_a_task_holds_the_issue_it_files_in_its_record_nort
     let record = read_record(&dir).unwrap();
     assert_eq!(record.tasks().collect::<Vec<_>>(), ["north#815", "north#816"], "dispatch staffed north-815-d1556 beside the session that filed north#815");
 }
+
+#[test]
+fn the_reports_mirror_names_the_newest_retired_session_of_each_task_however_old_north_706() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path());
+    for (name, task, created) in [("wisp-188-d1646", "wisp#188", 1), ("wisp-188-d1700", "wisp#188", 2), ("wisp-87-d0221", "wisp#87", 1)] {
+        let dir = mid_turn(&fleet, name);
+        let record = json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": created, "host_pid": null, "conversation": name, "host_dir": dir, "stream_offset": 0, "task_ref": task});
+        std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
+        fleet.forget(name).unwrap();
+    }
+
+    assert_eq!(fleet.retired_names_read(u64::MAX), ["wisp-188-d1700", "wisp-87-d0221"], "dispatch noted wisp-188-d1646 report unread days after it retired");
+    assert_eq!(fleet.retired_names_read(0).len(), 3, "everything archived since the cut-off is named too");
+}
