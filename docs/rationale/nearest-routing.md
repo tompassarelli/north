@@ -142,7 +142,7 @@ keeps two jobs: the planning and review effort arms, and a check that the brief 
 
 ## The replay
 
-`north dispatch route-replay --days 14` walks the first-assignment boxes of the last 14 days in launch order. For
+`north fleet dispatch route-replay --days 14` walks the first-assignment boxes of the last 14 days in launch order. For
 each it uses only runs that finished before that launch, on other items, and reads its 40 nearest finished boxes: the
 first 20 pick the rung, the next 20 score it, so the pick is never judged on the evidence that chose it. The old rule
 is the facet cell's pick for every box, computed over the same earlier runs; the rungs boxes really ran on (the cell,
@@ -166,7 +166,7 @@ left out of the dollar figures rather than counted as free.
 ### Result, 2026-11-07
 
 Run on a copy of the threads snapshot and the fact graph taken at 3:11 AM laptop time on 2026-11-07, over the 903
-first-assignment boxes of the 14 days before it (`north dispatch route-replay --days 14`).
+first-assignment boxes of the 14 days before it (`north fleet dispatch route-replay --days 14`).
 
 Where the usage went, by the cause of each of the 3,814 runs that ended in the window (shares of API-equivalent usage;
 the absolute figures are in south's harness decisions):

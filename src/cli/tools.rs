@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
-use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, ops, ops_watch, runner, runtime};
+use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, ops, runner, runtime};
 pub(super) use self::subverbs::ledger_runner;
 use crate::timers::{self, Timer};
 use crate::{
@@ -25,21 +25,15 @@ const UNIFORM: &[(&str, Run)] = &[
     ("merge-driver", merge_set::run),
     ("after-landing", after_landing::run),
     ("bin-references", bin_references::run),
-    ("watch", ops_watch),
     ("safe-push", super::remote_land::safe_push),
     ("follows-release", follows_release::run),
     ("job-run", crate::ops::job_run::run),
     ("cloud", super::cloud::run),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
-    ("strategy", super::strategy::run),
     ("pin-retire", crate::lanes::pin_retire),
-    ("mutant", |arguments| north_mutants::cli::run(arguments, &super::mutant_issues::MirrorIssues, crate::land::scans::test_admission::contract_tests)),
-    ("coverage", north_coverage::run),
     ("graph", graph),
-    ("agents", super::agents::run),
     ("resident-cap", crate::resident_cap::run),
     ("docs", crate::ops::docs::run),
-    ("usage", super::agents::usage),
     ("convo", crate::convo::run),
     ("incident-mine", crate::ops::incident_mine::run),
     ("tool-mine", crate::tool_mine::run),
@@ -54,7 +48,6 @@ const UNIFORM: &[(&str, Run)] = &[
         _ => super::fleet::proxy(arguments),
     }),
     ("ops", ops),
-    ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
     ("private-check", crate::ops::private_check::run),
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),
@@ -71,7 +64,6 @@ const UNIFORM: &[(&str, Run)] = &[
 
 const DIRECT: &[(&str, Run)] = &[
     ("nexus-ram", crate::ops::nexus_ram::run),
-    ("laptop", crate::laptop::run),
     ("laptop-runner", crate::laptop_runner::run),
     ("laptop-ntfy", crate::laptop_ntfy::run),
     ("agent-contain", crate::agent_contain::run),
@@ -93,28 +85,30 @@ pub(super) enum Tool {
     Capacity,
     SessionUnit,
     Dispatch,
-    Report,
+    Fleet(&'static str),
+    Laptop,
     Config,
     Work,
     Test,
     Timer(Timer),
 }
 
+const FLEET: &[(&str, Run)] = &[("report", crate::ops::report::run), ("usage", super::agents::usage)];
+
 const OPERATIONS: &[(&str, Tool)] = &[
     ("test", Tool::Test),
     ("wisp", Tool::Wisp),
-    ("pace", Tool::Pace),
     ("capacity", Tool::Capacity),
     ("session-unit", Tool::SessionUnit),
-    ("dispatch", Tool::Dispatch),
 ];
 
 impl Tool {
     pub(super) fn fleet_verb(verb: &str) -> Option<Self> {
         match verb {
-            "report" => Some(Self::Report),
-            "dispatch" | "pace" | "usage" | "laptop" => Self::named(verb),
-            _ => None,
+            "dispatch" => Some(Self::Dispatch),
+            "pace" => Some(Self::Pace),
+            "laptop" => Some(Self::Laptop),
+            _ => named(FLEET, verb).map(Self::Fleet),
         }
     }
 
@@ -137,7 +131,11 @@ impl Tool {
                 crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
             }),
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
-            Self::Report => super::in_runtime(async move { Ok(ExitCode::from(crate::ops::report::run(arguments))) }),
+            Self::Fleet(name) => {
+                let run = runner(FLEET, name);
+                super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
+            }
+            Self::Laptop => ExitCode::from(crate::laptop::run(arguments)),
             Self::Config => super::in_runtime(async move { Ok(ExitCode::from(config(arguments))) }),
             Self::Work => super::in_runtime(async move { Ok(ExitCode::from(work(arguments))) }),
             Self::Test => match arguments.split_first() {

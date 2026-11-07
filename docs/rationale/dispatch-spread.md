@@ -1,6 +1,6 @@
 # Dispatch spread: one run bounded by pace, sessions, builds and disk on every host
 
-At 12:05 PM on 2026-11-06 (laptop time) one `north dispatch` run launched 17 boxes, all on gex45,
+At 12:05 PM on 2026-11-06 (laptop time) one `north fleet dispatch` run launched 17 boxes, all on gex45,
 several times what its pace bound allowed. Within 15 minutes 9 to 12 builds waited in gex45's capacity admission,
 which ran 4 at a time, its root disk was 99% full, and the laptop sat at load 8 (north#259). Three
 gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
@@ -21,7 +21,7 @@ gaps let it happen, each closed in `crates/north-dispatch/src/dispatch`:
   `north fleet launch` placement alike. A fixed 85%-used line refused the 936 GiB array at 123 GiB free while the
   reaper, at 94 GiB, slept (north#634); one line means a refused host is always one the reaper is reclaiming.
 
-`north dispatch --dry-run` prints each host's line with its refusal or the builds its queue still takes, and a
+`north fleet dispatch --dry-run` prints each host's line with its refusal or the builds its queue still takes, and a
 `skip ITEM: ready, not placed: ...` line naming the bound that stopped each box: the account's `allowed_workers`, the
 host's free slots, its admission queue, or its saturation reading.
 

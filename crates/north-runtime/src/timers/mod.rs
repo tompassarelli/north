@@ -46,7 +46,6 @@ impl Timer {
         ("git-maintenance-nightly", Self::GitMaintenanceNightly),
         ("incident-retro", Self::IncidentRetro),
         ("job-watch", Self::JobWatch),
-        ("model-watch", Self::ModelWatch),
         ("outside-watch", Self::OutsideWatch),
         ("skill-prune", Self::SkillPrune),
         ("skill-review-queue", Self::SkillReviewQueue),

@@ -21,7 +21,7 @@ Method: a jq extract of every `tool_use` with its full input, classified by an o
 rule list over the tool name and the command text (the same classifier box P2 makes code). Kinds, in
 the order the rules try them:
 
-- delegate: `Agent`, `north fleet launch|revive`, `north dispatch`, `threads queue follow`, `north cloud launch`
+- delegate: `Agent`, `north fleet launch|revive`, `north fleet dispatch`, `threads queue follow`, `north cloud launch`
 - child message: `SendMessage`, `ListAgents`, `north fleet send|ask`
 - Tom-facing: `north gate`, `date '+%I:%M %p'` (clock times for Tom)
 - briefing: `north brief`, a brief file or heredoc starting `Item:`

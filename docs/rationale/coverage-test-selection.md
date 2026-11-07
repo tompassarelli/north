@@ -8,9 +8,9 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
 
 ## Method
 
-- Record: `north coverage record` builds the workspace tests on a check host with
+- Record: `north test coverage record` builds the workspace tests on a check host with
   `-C instrument-coverage` and LLVM codegen. Dev builds use Cranelift, which cannot instrument. It
-  runs the same suite as the after-push nextest line, with `north coverage exec` as the cargo
+  runs the same suite as the after-push nextest line, with `north test coverage exec` as the cargo
   target runner. nextest calls the runner as `BINARY --exact TEST --nocapture`, so the runner gives
   each test its own `LLVM_PROFILE_FILE`. The pattern is pooled with `%4m`, so the north processes a
   test spawns merge into one file per binary. After the test it reduces the profile to the names
@@ -57,14 +57,14 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
     `run_time_readers_tests`. They build the `north` integration and binary targets, which take
     minutes, not seconds. The full suite after the push still runs them.
 - Miss: when the after-push run is red and its prefix search names a culprit lane, the lander runs
-  `north coverage miss BASE TIP --log LOG` on that lane's own landed range. A test that failed
+  `north test coverage miss BASE TIP --log LOG` on that lane's own landed range. A test that failed
   in that log but that the selection did not run is a miss; the verb names each one and starts
-  `north coverage refresh` in the background, so the next selection reads a map with that reach.
+  `north test coverage refresh` in the background, so the next selection reads a map with that reach.
   A selection that ran nothing (an untraced input, an old map, over 400 tests) is not judged. One
   refresh runs at a time, whether nightly or after a miss.
 - Record: the lander appends one `landed` line per landed lane tip, naming its candidate log, to
-  `logs/coverage-record.tsv` in its queue, and `north coverage miss` appends a `judged` line with
-  the tip's miss count. `north coverage agreement --landings N` reads the newest N landings: of
+  `logs/coverage-record.tsv` in its queue, and `north test coverage miss` appends a `judged` line with
+  the tip's miss count. `north test coverage agreement --landings N` reads the newest N landings: of
   those whose candidate ran the coverage check, the share that ran a selection instead of standing
   down, and the misses among them. It exits 0 only when that share is at least half and no test
   was missed (north#686).

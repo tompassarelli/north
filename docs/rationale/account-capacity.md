@@ -72,7 +72,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   1. `:83` op `grant_for` looks for a proxy grant in `pace-control.json`.
   2. `C/guard/spawn_capacity/usage.rs:5` `verdict` reads `usage-gate.json[provider]`, requiring a reading newer than
      `min(usage_stale_min x 60, 120)` = 120 s (`:41`) and, when paced, a fresh control (`:44-55`); otherwise it runs
-     `agents usage --gate claude` (45 s, `world.rs:138`), which samples through `north pace gate`. Refresh
+     `agents usage --gate claude` (45 s, `world.rs:138`), which samples through `north fleet pace gate`. Refresh
      unavailable: "Hold: claude usage refresh unavailable; needs a reading <=120s old" (`:10`); still stale:
      "... remains stale after refresh" (`:13`).
   3. `:86` a gate-file `refusal` denies: the money refusal written at `C/usage/gate.rs:99-106` from
@@ -89,7 +89,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   for every account, ignoring per-account state.
 - Denials are logged to `spawn-gate-denials.jsonl` (`C/guard/spawn_capacity/logs.rs`).
 
-### 1.3 `north dispatch`
+### 1.3 `north fleet dispatch`
 
 - `C/ops/dispatch/survey.rs:150` `accounts`: reads `pace-control.json` and `usage-gate.json` controls (only `claude:`
   names get a sample), `gate::verdict` (`:160`), plan size (`P/placement/room.rs:65`), `room` and the five-hour burn
@@ -134,7 +134,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
 
 ### 1.4 The pace controller (`C/pace`, `P/sampling.rs`, `bin/pace-control`)
 
-- `bin/pace-control` (3 lines) runs `north pace sample`; nixos-config `modules/pace-enforcement/default.nix:29-49`
+- `bin/pace-control` (3 lines) runs `north fleet pace sample`; nixos-config `modules/pace-enforcement/default.nix:29-49`
   runs it every minute on the laptop and gex45 (`OnCalendar=*:*:00`, `TimeoutStartSec=110s`; also named in
   `hosts/whiterabbit/configuration.nix:66`, `tags.json:114` and the `update-notify.test.sh:36` fixture).
 - `P/sampling.rs:304` `sample`: reads due adapters, records rows in the threads `usage` table, measures, publishes.
@@ -166,7 +166,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
 - `C/usage/gate.rs:45` writes `usage-gate.json` (`:109` per-window projection `used + burn x reset_in`; `:127`
   `quota_ceiling = min(plan_stop, 100 - target_left)`; `:99-107` per-account money refusal whose text at `:15` tells
   the lead to "wait for the window to reset").
-- `P/mod.rs:63` `north pace gate PROVIDER` (exit 3 when refused); `src/cli/agents.rs:28` `agents pace`, `:51`
+- `P/mod.rs:63` `north fleet pace gate PROVIDER` (exit 3 when refused); `src/cli/agents.rs:28` `agents pace`, `:51`
   `agents usage --gate P`.
 
 ### 1.5 Grants and reservations
@@ -174,7 +174,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
 - `P/grants.rs:7` `find`, `:29` `workers`, `:70` `terms`, `:102` `registered_lead`, `:143` `store_grant`, `:194`
   `confirm` (logs `grant-admission`, and `grant-late-confirm` after `grant_reservation_hold_s` = 30 s), `:383`
   `expired`: once per key, sends `GRANT-EXPIRED-HOLDING` to the lead through `north fleet send` (a session nudge).
-- `P/command.rs:62` `north pace grant claude:L MAX --until --for --reason [--task --uses]`.
+- `P/command.rs:62` `north fleet pace grant claude:L MAX --until --for --reason [--task --uses]`.
 - `P/reservation.rs:107` `reserve` under `pace-control.lock` (6 s wait, "Hold: ... stayed locked"); `:79`
   `reserve_pooled` ("Hold: ... no account reading", else the admission refusal, else `workers += 1` in
   `usage-gate.json`); `:40` `reserve_grant` (`max_workers`, `uses`, pending reservations younger than
@@ -192,10 +192,10 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   pace-control.json" with each account's windows and `allowed_workers N[ held]` (called from
   `C/grounding/compose.rs:357,378`). With the controller marking every account `held`, every lead that asks about
   usage reads "held", which is how leads come to hold on projections the written rule forbids.
-- `north usage --verbose` / `agents usage` (`C/usage/detail.rs`, the default view until 2026-11-06): per account `{windows} | {resets} | {burn}{plan}`;
+- `north fleet usage --verbose` / `agents usage` (`C/usage/detail.rs`, the default view until 2026-11-06): per account `{windows} | {resets} | {burn}{plan}`;
   `:41` each window; `C/usage/burn.rs:18-48` the burn column, including the projection "burn X%/h, empty in
   {duration} ({time})"; `C/usage/mod.rs:152-161` JSON with `stale` past `usage_stale_min`.
-- `C/usage/fast.rs:8-24` `north usage --fast` and `C/router/route.rs:143` allow fast mode only while every window
+- `C/usage/fast.rs:8-24` `north fleet usage --fast` and `C/router/route.rs:143` allow fast mode only while every window
   keeps more than `fast_floor` = 10 points of headroom.
 - `C/router/route.rs:47` `launch_refusal` calls the exhaustion rule; `:100` and `C/router/choose.rs:285-287` say "at
   or over pace"; `C/router/ctx.rs:114-126` per window headroom and burn, `:145-156` rollover after a reset,
@@ -628,7 +628,7 @@ nothing new built, and Gemini's five-hour and weekly rows map to the same window
 - The Agent-tool spawn gate: `place` with `pin` = the lead's billed account (an in-process worker spends the lead's
   account) and `owner` from the session (`Tom` when the session is not a fleet session); a refusal names the account
   `north fleet launch` would use.
-- `north dispatch`: each box goes through `north fleet launch`; dispatch decides nothing about usage.
+- `north fleet dispatch`: each box goes through `north fleet launch`; dispatch decides nothing about usage.
 - `agents plan --place`, revive, rebooted, the fleet-session timer, the account probe, model-watch and the
   cross-project timer (`C/ops/timers/cross_project.rs:99-168`) call `place`.
 - The router picks the tier from the ledger with no pace input: a tier is open when `place` would place it.
@@ -636,7 +636,7 @@ nothing new built, and Gemini's five-hour and weekly rows map to the same window
 
 ### 3.5 What Tom is shown
 
-`north usage` (`C/usage/table.rs`, since 2026-11-06, when Tom found the one-line-per-account detail unreadable)
+`north fleet usage` (`C/usage/table.rs`, since 2026-11-06)
 prints one aligned row per Claude account, one line per other provider and the week's cost:
 
 ```
@@ -650,7 +650,7 @@ This week    $TOTAL: $FIXED fixed, $METERED metered (by host)
 ```
 
 A 5-hour window whose reset has passed shows `—`; a stale reading says how old it is; deleted hosts, expired
-credits and deprecated providers are left out. `north usage --verbose` keeps every window, billing and burn detail.
+credits and deprecated providers are left out. `north fleet usage --verbose` keeps every window, billing and burn detail.
 The earlier plan for this view, which the table keeps except for its outlook column: each account shows week used
 and its reset, five-hour used and its reset, or its named state (`not read`, `reading N min old`, `signed out`); then
 active warnings and trips, one line each. Nothing else: no burn, projection, "empty in", pace line, target, band or
@@ -705,8 +705,8 @@ Parts of files:
 - `C/grounding/live.rs`: the controller readout, replaced by 3.5's lines.
 - `C/health.rs:92-102` check `pace`; the `usage` check stays at `FRESH_FOR`.
 - `C/usage/refresh/mod.rs:43-55`: the `pace-control.lock` and gate rewrite after a refresh.
-- CLI: `north pace` (all subcommands), `agents pace`, `agents usage --gate`, `north usage --write-pace-gate`,
-  `north usage --fast`'s headroom rule.
+- CLI: `north fleet pace` (all subcommands), `agents pace`, `agents usage --gate`, `north fleet usage --write-pace-gate`,
+  `north fleet usage --fast`'s headroom rule.
 - `north ledger flow` has no account pace or projection line (1.6); nothing to delete there.
 - `harness/defaults.toml`: `placement_drain_margin`, `reservation_fallback_points`, `usage_stale_min`,
   `money_ceiling`, `plan_stop`, `fast_floor`, `pace_target_left_claude`, `pace_band`, `pace_state_dwell_min`,
@@ -746,7 +746,7 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    ingests the rest under the session's account.
    Done when: on gex45 a running Claude worker produces `source = stream` rows within a minute
    (`sqlite3 -readonly ~/.local/state/threads/threads.db "select max(ts) from usage where source like '%stream%'"`).
-4b. **One-minute reader.** `north usage sample` (header reads for token accounts, `-status` and `extra_usage`
+4b. **One-minute reader.** `north fleet usage sample` (header reads for token accounts, `-status` and `extra_usage`
    `is_enabled` recorded, CLI reads for the rest); nixos-config gains its one-minute timer on every host that holds a
    Claude login, landing after this north change.
    The sample writes the same `window`, `status` and `limit` rows from the response headers (`-status`, and a
@@ -761,7 +761,7 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    date; `rates_of` reads an account's own rate at 20 or more hours and the pooled one below that (3.2's `Rate`).
    Done when: `calibration` holds a five-hour and a week rate per account, each with its n.
 5. **Shell and log.** `usage::world()`, the decision lock, launch records (registry for fleet launches, the hook
-   file for Agent-tool spawns), `usage/decisions.jsonl`, and `north usage decide --dry-run BRIEF`.
+   file for Agent-tool spawns), `usage/decisions.jsonl`, and `north fleet usage decide --dry-run BRIEF`.
    Done when: a test runs two real decisions against a fixture registry under the lock and the second lists the
    first in flight; `--dry-run` prints `explain`'s line.
    The shell is `usage/shell/`: `Shell::world` reads the usage table (header, CLI, stream and web rows by their source text),
@@ -804,15 +804,15 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
    go.
    Done when: router tests pass with a fixture whose accounts sit at 60% week, "at or over pace" by the old line, and
    their tiers still open; `rg -i 'under pace|usage credits|money_ceiling' crates/north-core/src/router` is empty.
-12. **Readouts and alerts.** `north usage` and the grounding readout print 3.5; the alerts of 3.6; `burn.rs`, the burn
+12. **Readouts and alerts.** `north fleet usage` and the grounding readout print 3.5; the alerts of 3.6; `burn.rs`, the burn
    column, `--gate`, `--write-pace-gate` and the fast floor go.
-   Done when: `north usage` on gex45 prints the provider line and one line per account as in 3.5; the usage tests pin
+   Done when: `north fleet usage` on gex45 prints the provider line and one line per account as in 3.5; the usage tests pin
    the format and assert no "empty in" or "burn".
 13a. **Timer first.** nixos-config drops `pace-enforcement` (module, `configuration.nix:66`, `tags.json:114`, the
    `update-notify.test.sh:36` fixture), landing before any north deletion.
    Done when: `systemctl --user list-timers` on the laptop and gex45 shows no `pace-enforcement`.
 13b. **Delete the controller.** `C/pace/`, `P/sampling.rs`, `readout.rs`, `process.rs`, `command.rs`, `storage.rs`,
-   `gate_order.rs`, `bin/pace-control`, `north pace`, `agents pace`, the health `pace` check and the phone notice;
+   `gate_order.rs`, `bin/pace-control`, `north fleet pace`, `agents pace`, the health `pace` check and the phone notice;
    `limits.rs`'s survivors move to `C/defaults.rs`.
    Done when: `rg -l 'pace::|pace-control' crates src harness bin` is empty; `north health` passes on both hosts.
 13c. **Delete grants, reservations and legacy placement.** `grants.rs`, `reservation.rs`, `placement/{launch,survey,
@@ -821,7 +821,7 @@ updates the integration tests (`tests/it/*`, 1.11) it breaks in the same change.
 14. **Operator file, docs and skills.** `orchestration.toml` gains `[usage.reserve]` and loses the pace keys;
    `rules.toml:747` and `routines/pace-enforcement.md` change; the feature docs and section 6's text land; retired
    state files move to `retired/`.
-   Done when: `north usage` shows the reserve read from south main; `rg -i 'pace line|projection|burn cap|grant'
+   Done when: `north fleet usage` shows the reserve read from south main; `rg -i 'pace line|projection|burn cap|grant'
    docs/features harness/skills` returns no usage rule.
 
 Order: 1, 2 and 3 first (pure, no callers); 4a, 4b, 4c, 5 and 6 need 1 to 3 and not each other; 7 and 8 need
@@ -834,7 +834,7 @@ Order: 1, 2 and 3 first (pure, no callers); 4a, 4b, 4c, 5 and 6 need 1 to 3 and 
   reserve, then an account whose five-hour window fits the box, soonest weekly reset first. Never choose an account by
   hand and never hold a launch on a projection, pace line or burn; a placement warning is information, not a hold."
 - `references/tiers.md:5`: drop the headroom sentence; account and fast mode come from placement.
-- `references/cloud.md:12`: "placement decides the account (`north usage decide --dry-run` explains it)"; `:20` "the
+- `references/cloud.md:12`: "placement decides the account (`north fleet usage decide --dry-run` explains it)"; `:20` "the
   account placement picks"; the lane rule itself is unchanged.
 - `references/run-and-land.md:15` and `references/brief.md` (briefing and ETA): the Budget line states the box's E
   (p50 and p90); the breaker warns at 2x p90 and trips at 4x; a tripped worker finishes its step, commits and reports
@@ -853,7 +853,7 @@ Order: 1, 2 and 3 first (pure, no callers); 4a, 4b, 4c, 5 and 6 need 1 to 3 and 
 An Opus-high planner reviewed the revised doc against the code at 7c2a76350, the threads `usage` and `runs` tables,
 `ledger.db`, nixos-config and south (2026-11-04). 19 findings; all accepted except where noted.
 
-1. Box 13 deleted the only per-minute reader, leaving token-only d unread: box 4b adds `north usage sample` on a
+1. Box 13 deleted the only per-minute reader, leaving token-only d unread: box 4b adds `north fleet usage sample` on a
    one-minute timer before any deletion; 2.4 now rests on it.
 2. Staleness was checked before exhaustion while the provider drops the five-hour window once the week is out:
    `state` now checks week, scope and five-hour exhaustion first; a missing five-hour window beside a fresh week is

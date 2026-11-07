@@ -105,7 +105,7 @@ cut, which is a finding: an adopted rule left with no trace of its removal.
   with at least 10 closed issues, run from 1.4 (bug-known-cause, Opus high) to 9.3 (research, Opus medium); feature
   work, the largest, takes 1.9 on Sonnet (101 closed) and 3.3 on Opus medium (107 closed).
 - Incidents: south `agents/incidents.jsonl` has 541 rows and its newest is dated 2026-10-14. `north incident-mine`
-  appears in none of the 54 entries of `north agents routines`. Run again on 2026-11-04 with `--days 7 --chunks 6
+  appears in none of the 54 entries of `north config agents routines`. Run again on 2026-11-04 with `--days 7 --chunks 6
   --per-thread 3`, it mined 1,254 candidates in about 20 s (623 flagged as Tom pushback, 456 Not done, 111 reverts,
   33 blocked, 23 admission, 6 relayed corrections, 2 fix chains), and nothing classifies them.
 - Context, `north context audit --since 7d`: 1,149 sessions; startup policy 2,975 tokens a session; total injected
@@ -130,7 +130,7 @@ cut, which is a finding: an adopted rule left with no trace of its removal.
 | - | Fresh context for every subagent, never a fork (`7739eae`) | Measured: 0.5% of subagent launches are forks | Fleet sessions are fresh | Leave out |
 | - | A ratchet that takes one exception off a list a day (`software-factory`) | Measured: Python files fell from 66 to 25 in 15 days without one | Code-enforced expiry and no-widening in `language_gate.rs` | Leave out (live, stronger) |
 | - | Coding standards on the reviewer, mechanical rules as checks (`retro`) | Measured: `enforcers.md` lists 34 edit-time hook rows and 16 safe-push gates | `agent-policy` fixes a correction at the highest level and deletes the prose once an enforcer holds it | Leave out (convergent) |
-| - | Prove a forced mutation landed (`diagnosing-bugs` `f3fc563`) | Reasoned: small | `north mutant record` makes mutants on scratch copies and `mutant verify` reruns each kill claim | Leave out (convergent) |
+| - | Prove a forced mutation landed (`diagnosing-bugs` `f3fc563`) | Reasoned: small | `north test mutant record` makes mutants on scratch copies and `mutant verify` reruns each kill claim | Leave out (convergent) |
 | - | Dated, commit-cited claims; an observed-failure bar for new rules; rejected ideas kept with their reasons (`chief-of-staff`, `SCOPE.md`) | Reasoned | Watch and rationale records date and cite; `agent-policy` takes a demonstrated lesson and replays a real past mistake | Leave out (convergent) |
 
 ## Experiments

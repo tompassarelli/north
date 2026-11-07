@@ -29,7 +29,7 @@ the boxes. It implements nothing. Owner: north#621.
   3. The **candidate verdict**, `safe-push --check-candidate --base SHA`: the lander's checker
      (`land/serve.rs` `checker: safe-push`), classes green, refused, transient, deferred, red-main.
   4. **Process plumbing**: argv0 mode dispatch, output-log claiming, stage timing (`stages.tsv`),
-     events (`events.jsonl`, plus `north watch --once` on a refusal), the terminal receipt, signal
+     events (`events.jsonl`, plus `north ops watch --once` on a refusal), the terminal receipt, signal
      cancellation and child processes, and runtime-skew probes (`north X --help` before each call).
 
 Why it is that way: safe-push predates the Rust tree and was ported mode by mode, each mode moving behind
@@ -100,7 +100,7 @@ a repository with no committed host still lands per lane today. That includes th
    `~/.local/state/north/current/tree/bin/safe-push` to `runtimes/<sha>/north`. The kernel passes the
    caller's argv[0] through every symlink. On 2026-11-06, a binary reached through two hops was named
    `safe-push` when run from PATH and by the link's path when run by absolute path, and its
-   `/proc/PID/cmdline` contained `safe-push` both times, which `north watch`'s liveness match reads. The
+   `/proc/PID/cmdline` contained `safe-push` both times, which `north ops watch`'s liveness match reads. The
    after-landing gates find north as the canonical safe-push's directory joined with `north`
    (`land/after/gates.rs` `tools`). After the swap, that is `runtimes/<sha>/north` itself. nixos-config
    needs no change. local-bin-links.sh links symlinks (`[ -x "$src" ]` follows them) and drops a

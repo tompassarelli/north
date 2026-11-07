@@ -158,7 +158,7 @@ override `note`, the refusal kind (saturated, exhausted, final), `need`, and the
 prints. Despite its name, `src/cli/fleet/admission.rs` is placement's wait loop, not capacity admission.
 It stays in the kernel: each retry is a placement call with its own record, `follows` set to the
 previous attempt's id, and its 60 s poll and 2-minute limit stay kernel parameters. `gate::live` has a
-second caller, `north dispatch` placement at `crates/north-dispatch/src/pacing/placement.rs:312`, which
+second caller, `north fleet dispatch` placement at `crates/north-dispatch/src/pacing/placement.rs:312`, which
 records the same case kind.
 
 Size: the record for this box, built from today's real `usage-gate.json` and the saturation cache, is
@@ -297,7 +297,7 @@ the decision still stands, and the failure is counted in the next line's envelop
 
 **Rotation**: the hour in the path is the rotation. A retention task under `crates/north-ops/src/ops/retention`
 compresses each closed hour to `HH.jsonl.zst` and deletes days older than 14. A host's log stays local,
-and replay runs on the host that holds the log: `north strategy replay --host gex45` runs there over ssh
+and replay runs on the host that holds the log: `north ops strategy replay --host gex45` runs there over ssh
 and prints back only the summary. The first day's measured admission size decides the sampling rule under
 [Admission record](#admission-record).
 
@@ -310,7 +310,7 @@ and prints back only the summary. The first day's measured admission size decide
    playtest hold. The live code then decides from the `Case`. Log in `src/cli/fleet/placement.rs` `check`,
    after `settle`, with the `Placed` or `Refusal` as the decision. Each retry of the placement wait loop
    in `src/cli/fleet/admission.rs` is its own line, with `follows` naming the previous attempt. Log
-   `north dispatch` placement's call of `gate::live` (`crates/north-dispatch/src/pacing/placement.rs:312`)
+   `north fleet dispatch` placement's call of `gate::live` (`crates/north-dispatch/src/pacing/placement.rs:312`)
    too.
 2. Admission. In `crates/north-capacity/src/capacity/enrich.rs` `admit_enriched`, gather the enrichment
    inputs listed under [Admission record](#admission-record) into the `Facts` before `admission::admit`
@@ -323,7 +323,7 @@ and prints back only the summary. The first day's measured admission size decide
    after `candidate::build` and at both halving sites, and log `land.judge` after `bisect::judge`. Log one
    line per step in `culprit.rs` `wave_size` and `sheriff.rs` `find`.
 
-**Its own check**: a `north strategy log check --since 1h` that parses every line of every kind back
+**Its own check**: a `north ops strategy log check --since 1h` that parses every line of every kind back
 into its types and reports lines that do not parse. A gather that misses an input today shows up the
 day the first module is replayed against `live`, in the shadow box. This box cannot see it yet, and its
 done-when should not claim to.
@@ -337,7 +337,7 @@ turns it off), and `.cargo/config.toml` points it into `target/` so tests never 
 parts differ from the brief above. `AGENT_CAPACITY_SETTLE_SECONDS` stays until the admission strategy
 module exists to own the settle window as a parameter, because two capacity-host journeys shorten it to
 run in seconds; each admission line records the window it used (`settle_seconds`). Retention is
-`north strategy log retain` (zstd on closed hours, days past 14 deleted), which an hourly user timer from
+`north ops strategy log retain` (zstd on closed hours, days past 14 deleted), which an hourly user timer from
 firn's `north-runtime-follow` module runs on every host that installs north, rather than a step of
 `north retain`, which archives to one host, while this log stays on the host that decided. Placement's `gather`
 parses the model catalog and the harness defaults before the timer starts, so a launch process's one
@@ -346,14 +346,14 @@ placement no longer spends most of its `decide_us` parsing them (north#666).
 ## Replay
 
 ```
-north strategy replay DECISION [--since 7d] [--host HOST] [--new REF] [--old REF] [--show N]
+north ops strategy replay DECISION [--since 7d] [--host HOST] [--new REF] [--old REF] [--show N]
 ```
 
 `DECISION` is `placement` or `admission`. `--new` defaults to the working tree's strategy and `--old` to
 `origin/main`'s. Replay streams the log, runs the old and new strategy over each record, and prints:
 
 ```
-north strategy replay placement --since 7d
+north ops strategy replay placement --since 7d
 records: 1,412 (2026-10-30 9:14 AM .. 2026-11-06 5:02 AM), hosts whiterabbit, gex45
 old 3f2a1c0 (origin/main)   new 9b04e7d (working tree)
 determinism: old reproduces 1,412 of 1,412 recorded decisions, each decided twice
@@ -369,7 +369,7 @@ Truth rests on two checks that test different things.
 - **Against live** proves the case is complete. This is the check that matters. A pure strategy can
   only read its case, so a strategy rerun on its own records always agrees with itself and cannot reveal
   a missing input. What can be wrong is the gather: an input the live code read that the case left out.
-  Only the live code's decisions can expose that. `north strategy replay DECISION --against live --since 48h`
+  Only the live code's decisions can expose that. `north ops strategy replay DECISION --against live --since 48h`
   runs the module on cases the live code decided and counts every disagreement (north#643's
   shadow-agreement box). One disagreement blocks the switch to the module and names the record. After the
   switch nothing live is left to compare with. So any later change to the gather, or any new input the
@@ -386,9 +386,9 @@ Truth rests on two checks that test different things.
   have been different too, and replay does not pretend to know them. The goal checks of north#641 are
   judged over these per-decision diffs, and replay reports nothing about the paths history would have taken.
 
-**Goal checks each kind moves** (`Kind::moves` in north-strategy-types; `north strategy replay` prints each
+**Goal checks each kind moves** (`Kind::moves` in north-strategy-types; `north ops strategy replay` prints each
 kind's line `moves goals: ...`, and a test holds every name to a goal of `goals.toml`). Placement moves
-`launch-refusals-per-hour`, whose oracle `north strategy refusals --since 3h` counts the launches whose last logged
+`launch-refusals-per-hour`, whose oracle `north ops strategy refusals --since 3h` counts the launches whose last logged
 placement refused them, as a rate. Admission moves `laptop-load-15m` and `launch-refusals-per-hour`, and every lander
 kind moves `landing-p90`, `landing-projected` and `verification-p50`. The fleet tick reads these goals every
 10 minutes and tells the proxy of any red one, so a migrated decision that turns its goal red is heard within a tick.
@@ -404,7 +404,7 @@ applies, and replay prints the resolution it ran at.
 
 ## Replay against declared invariants (built 2026-11-06)
 
-`north strategy replay [--since 24h] [--invariants] [--budget]` is the first replay that ships. It runs
+`north ops strategy replay [--since 24h] [--invariants] [--budget]` is the first replay that ships. It runs
 the decisions the binary links over the logged cases and judges the replayed answers, not only their
 equality with the logged ones. It needs no strategy crate yet: `north-replay` calls the decide
 functions where they live through three seams (`capacity::replay::reason`, `land::judge_case::judge`,
@@ -495,7 +495,7 @@ That file is linked into north today exactly as `north-strategy` will be. The ed
 on gex45 from a warm lane target:
 
 - incremental `cargo build --bin north`: 29.3 s
-- `north strategy replay --since 7d` over gex45's own log: 0.68 s for 22,745 admission cases
+- `north ops strategy replay --since 7d` over gex45's own log: 0.68 s for 22,745 admission cases
 - in all 29.9 s on gex45, and 55 s seen from the laptop, which adds capacity admission and the offload
   sync
 - the diff named the change: `same 22722, changed 23`, `23 RUN -> DEFER_CPU_PRESSURE`, with the first

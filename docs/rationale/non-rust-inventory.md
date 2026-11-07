@@ -31,10 +31,10 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | bin/gh | 19 | stay | 19-line PATH shim: finds the real gh and runs it through `north gh-session` in a fleet session; glue |
 | bin/ssh | 15 | stay | 15-line PATH shim: finds the real ssh and runs it through `north ssh-session` in a fleet session; glue |
 | bin/land-shell | 11 | stay | workflow-free 10-line wrapper that runs a land-check command inside depbox (and nix develop with --dev); used by .safe-push, bin/head-north and red_check.rs; glue |
-| bin/mutant | 3 | stay | 3-line exec of `north mutant`; three skills document the bare `mutant record` command; delete when nixos-config provides the wrapper |
+| bin/mutant | 3 | stay | 3-line exec of `north test mutant`; three skills document the bare `mutant record` command; delete when nixos-config provides the wrapper |
 | bin/nix | 14 | stay | same admission shadow for nix |
 | bin/north | 15 | stay | launcher: execs the promoted runtime (selected outside the Nix closure); cannot be Rust |
-| bin/pace-control | 3 | stay | 3-line exec of `north pace sample`; nixos-config modules/pace-enforcement/default.nix:39 names ${northBin}/pace-control, so the nixos-config change lands before deletion |
+| bin/pace-control | 3 | stay | 3-line exec of `north fleet pace sample`; nixos-config modules/pace-enforcement/default.nix:39 names ${northBin}/pace-control, so the nixos-config change lands before deletion |
 | bin/safe-push | 2452 | port: landing-train B18 (north#76, north#88 land-check loop box) | a planner is decomposing it; do not edit |
 | bin/safe-push.test.sh | 2844 | port: landing-train B18 (north#76) | shell tests of the shell landing path; they move to cargo test with the train loop |
 | bin/supply-alert | 7 | stay | 7-line glue: one ssh exec to the nexus alert host; callers in Rust (supply_chain.rs, lane gc) and the nixos-config supply-chain-scan unit |

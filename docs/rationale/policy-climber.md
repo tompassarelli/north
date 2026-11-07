@@ -29,7 +29,7 @@ decisions, runs the survivor as a bounded live arm, and keeps it or reverts it b
    `ARM_RUNS`, `ARM_WINDOW` or a `replay_*` bar, and the generator box runs it on every generated diff. The refusal is made
    before the candidate is scored, so a generator cannot buy a better score by moving the thing that scores it.
 4. **Replay.** The candidate is applied to every logged placement case it reaches and the window is decided again with
-   `north strategy replay`'s machinery (`north_replay::replay` with a patched placement decider), beside a replay of the current
+   `north ops strategy replay`'s machinery (`north_replay::replay` with a patched placement decider), beside a replay of the current
    policy. The score is what the candidate adds: outcome shifts past `replay_outcome_shift_ratio` and breached invariants
    (provider limit, offload-slot time, landing p90) that the current policy does not already show. A candidate that adds any is
    dropped and archived as refused.

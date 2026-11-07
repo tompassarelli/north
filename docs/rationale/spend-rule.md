@@ -120,7 +120,7 @@ refusal leaves the follower waiting for the next release pass rather than failin
 - `gate_order.rs` and the `place_spawn` account order: **deleted**.
 - `pace::answer` ops (`advance`, `fresh`, `refusal`, `interval`, `target_for`): **deleted**.
 
-`north-pace`, `router` (`north agents plan`):
+`north-pace`, `router` (`north config agents plan`):
 - Pace lines (`under pace` and `at or over pace`, `enforce_from`, `pace_band`, `pace_target_left_claude`,
   drain grants, the `under_pace` op field) and the `pace_warning` they produce: **deleted**. The router picks
   among the accounts spend admits, in room order.
@@ -134,7 +134,7 @@ refusal leaves the follower waiting for the next release pass rather than failin
 - `usage-gate.json`: `controls`, `projections`, `projected_pct`, `quota_ceiling` and `burn_pct_h` are
   **deleted**. It keeps the money refusals and each account's sampled windows (used percent, reset, read
   time) under a `windows` key, which are spend's readings.
-- `decide::{place, free, rank, explain}` and `north usage decide --dry-run` (a second placement with its own
+- `decide::{place, free, rank, explain}` and `north fleet usage decide --dry-run` (a second placement with its own
   reserve tiers): **deleted**. The world types and `assess`, which hand a session over once its account
   reaches the provider's limit, are **kept**; `hand_over_target` picks its account as **Handover** says.
 - Spend breaker: its start refusal for a tripped workstream (`place`'s trip check and the `tripped:` line in
@@ -145,7 +145,7 @@ refusal leaves the follower waiting for the next release pass rather than failin
 - `sampling.rs`: `update_controls`, the controller, phone notices and grant retention are **deleted**.
   Reading, recording and cadence are **kept**. Its per-account history line becomes the account's spend
   verdict and active sessions, which the scoreboard's idle stretch reads.
-- `grants.rs` (`north pace grant`, `grant_for`, `confirm`, `expired_grant_hold`): **deleted**.
+- `grants.rs` (`north fleet pace grant`, `grant_for`, `confirm`, `expired_grant_hold`): **deleted**.
 - `reservation.rs` (spawn reservations and their TTL): **deleted**.
 - `placement/gate.rs` `Verdict.available` and `exhausted` (the exhaustion rule with burn cap): **replaced**
   by `spend`. `roomiest_here` reads spend's provider limit only.
@@ -210,6 +210,6 @@ The provider already enforces running out. North needs only to keep a little cap
 
 ## Tier defaults (north#702, 2026-11-07)
 
-Usage is the binding constraint, so a launch starts at the cheapest tier its category allows and escalation goes through worker-high or worker-xhigh after a failed attempt. `north dispatch` and `north fleet launch` both take the tier from `dispatch::tier::route_for`: Haiku for mechanical work (its retry on Sonnet), Opus for debugging-unknown-cause, netcode-determinism, performance, planning and review, and sonnet-high for art and every other category. The Sonnet-against-Opus arm draw, north tune's `route CATEGORY` cells and the flow alert on alternating tier arms are deleted. Both paths refuse a `Category:` outside the brief vocabulary and name the valid list, because unknown words fell through to Opus. When a dispatched worker reports `Not done:` with `Stop: reasoning`, or the lander refused one of its lanes twice for the lane's own failing checks without fewer errors and nothing landed after, `dispatch::tier::route` relaunches the box one rung up the ladder of docs/rationale/nearest-routing.md section 5 with `Follows:` naming the session and its report as the first `Prior report:`; other stops keep the rung.
+Usage is the binding constraint, so a launch starts at the cheapest tier its category allows and escalation goes through worker-high or worker-xhigh after a failed attempt. `north fleet dispatch` and `north fleet launch` both take the tier from `dispatch::tier::route_for`: Haiku for mechanical work (its retry on Sonnet), Opus for debugging-unknown-cause, netcode-determinism, performance, planning and review, and sonnet-high for art and every other category. The Sonnet-against-Opus arm draw, north tune's `route CATEGORY` cells and the flow alert on alternating tier arms are deleted. Both paths refuse a `Category:` outside the brief vocabulary and name the valid list, because unknown words fell through to Opus. When a dispatched worker reports `Not done:` with `Stop: reasoning`, or the lander refused one of its lanes twice for the lane's own failing checks without fewer errors and nothing landed after, `dispatch::tier::route` relaunches the box one rung up the ladder of docs/rationale/nearest-routing.md section 5 with `Follows:` naming the session and its report as the first `Prior report:`; other stops keep the rung.
 
 The before counts by category and tier, and the ledger cost per closed box behind this choice, are private usage figures kept in south (agents/decisions/tier-defaults-2026-11-07.md). The ledger holds no per-run share of a five-hour window, so finished boxes per percent of a window is not readable from it yet.

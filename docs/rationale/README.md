@@ -16,7 +16,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Coverage test selection: the tests a change reaches, before the push](coverage-test-selection.md): North lands first and verifies after the push, so a failing test costs a revert.
 - [Crate split: why a leaf edit rebuilt 141k lines](crate-split.md): Owner: north#722
 - [Credentials registry: no agent work depends on a human sign-in](credentials-registry.md): Decided 2026-11-06 under north#522.
-- [Dispatch spread: one run bounded by pace, sessions, builds and disk on every host](dispatch-spread.md): At 12:05 PM on 2026-11-06 (laptop time) one `north dispatch` run launched 17 boxes, all on gex45, several times what its pace bound allowed.
+- [Dispatch spread: one run bounded by pace, sessions, builds and disk on every host](dispatch-spread.md): At 12:05 PM on 2026-11-06 (laptop time) one `north fleet dispatch` run launched 17 boxes, all on gex45, several times what its pace bound allowed.
 - [Docs architecture](docs-architecture.md): Owner: north#523
 - [Estimation audit, 2026-11-05: what north predicts about work, and whether it learns](estimation-audit-2026-11-05.md): Tom asked on 2026-11-05 for an audit of the estimates north makes about work: which model and effort can do which category, how long a box takes, what it costs, what CPU and memory a command needs, how long a check may run, when a goal finishes, and how much account room a launch needs.
 - [Failing-first rationale](failing-first.md): Cold-path reasoning behind the rule that a bug fix lands with a test seen failing on the code before the fix, and a refactor declares `Behavior: unchanged` with its changed tests passing on the old code.

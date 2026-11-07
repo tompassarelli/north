@@ -544,7 +544,7 @@ owner = "tompassarelli/north#634"
 [[check]]
 id = "n643-placement-and-admission-run-as"
 box = "Placement and admission run as pure strategy over recorded inputs"
-command = "north strategy replay --since 7d --budget"
+command = "north ops strategy replay --since 7d --budget"
 review = "2026-11-13"
 owner = "tompassarelli/north#643"
 
@@ -559,7 +559,7 @@ owner = "tompassarelli/north#636"
 [[check]]
 id = "n634-the-pre-push-coverage-selection"
 box = "The pre-push coverage selection runs before most Rust landings instead of standing down"
-command = "north coverage agreement --landings 20"
+command = "north test coverage agreement --landings 20"
 review = "2026-11-10"
 owner = "tompassarelli/north#634"
 

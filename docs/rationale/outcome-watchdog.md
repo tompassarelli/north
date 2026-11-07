@@ -12,7 +12,7 @@ deploy restarted the dispatch timer the proxy had stopped. Each writer reported 
 - `snapshot`: the laptop's ledger snapshot age (pulled every 15 minutes) and its last pull failure.
 - `policy`: each host's held-generation record (`agents-sync-unpublished`) with the gate's refusal line.
 - `hooks`: every config directory a launch on each host runs in registers hooks in its settings.json.
-- `dispatch`: the dispatch timer's state against the pause the proxy records with `north dispatch pause --reason`;
+- `dispatch`: the dispatch timer's state against the pause the proxy records with `north fleet dispatch pause --reason`;
   a paused dispatch also launches nothing, whatever the timer does.
 - `landing`: how long the oldest origin/main commit missing from each host's runtime has been on main.
 - `host-probes`: each host answered `north health facts` over ssh.

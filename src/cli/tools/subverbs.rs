@@ -124,7 +124,7 @@ fn ops_github(arguments: &[String]) -> u8 {
     }
 }
 
-pub(super) fn ops_watch(arguments: &[String]) -> u8 {
+fn ops_watch(arguments: &[String]) -> u8 {
     match crate::watch::run(arguments) {
         0 => crate::ops::watch::run(&["--once".to_owned()]),
         refused => refused,

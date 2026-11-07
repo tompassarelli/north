@@ -78,8 +78,8 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 ### Handoff experiment arms
 
 - Measurement: the bar (north#252) was "keep whichever wins on cost per Done without losing Done rate". On
-  2026-10-31 `north dispatch --dry-run` on Nexus printed no-handoff winning on sonnet-high ($2.92 against $7.68
-  per closed box) and handoff-150k winning on worker ($4.07 against $4.93). On gex45 since 2026-10-21 the arms
+  2026-10-31 `north fleet dispatch --dry-run` on Nexus printed no-handoff winning on sonnet-high
+  and handoff-150k winning on worker by cost per closed box. On gex45 since 2026-10-21 the arms
   close the same share: handoff-150k 27 done of 118 runs, no-handoff 23 of 109. On the worker tier's feature
   cell the kept arm closes fewer boxes (handoff-150k 11% of 9, no-handoff 28% of 7), and the wake-paths count
   for 2026-10-28 to 2026-11-04 found 0 handoff-nudge wakes while 23 handoff-150k runs passed 150k.
@@ -89,7 +89,7 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
   so the Done-rate half of the bar is not enforced), `crates/north-dispatch/src/dispatch/mod.rs:179-181`,
   `crates/north-core/src/fleet/handoff.rs` (63), `crates/north-core/src/fleet/watch.rs:221-256`,
   `crates/north-core/src/fleet/registry/launching.rs:66`, and `handoff_arm_ctx` (`harness/defaults.toml:101-105`,
-  read at `crates/north-core/src/pace/limits.rs:40`). `north dispatch` runs it every 5 minutes on Nexus (south
+  read at `crates/north-core/src/pace/limits.rs:40`). `north fleet dispatch` runs it every 5 minutes on Nexus (south
   `modules/north-dispatch.nix`).
 - Lines: about 220.
 - Verdict: re-measure. Bar: on each tier with 30 launches per arm, handoff-150k stays only if its cost per closed
@@ -194,7 +194,7 @@ arm loses. Each box is at most 45 minutes, lands alone through safe-push, and le
    prints nothing.
 5. Handoff Done-rate term. `Arms::winner` keeps handoff-150k on a tier only when its cost per closed box is lower
    and its Done rate is no more than 10 points below no-handoff, with a test for each side. Done when: that test
-   passes on origin/main and `north dispatch --dry-run` on Nexus prints the winner per tier with both rates.
+   passes on origin/main and `north fleet dispatch --dry-run` on Nexus prints the winner per tier with both rates.
 6. Handoff nudge, not before 2026-11-18 and only when no tier keeps handoff-150k under box 5. Superseded on 2026-11-06 by
    [context-economics.md](context-economics.md): on the 30-day closed-box report handoff-150k cost $13.85 per kept box
    against no-handoff's $9.23 with a like kept share, so dispatch stopped assigning either and draws the context arms
