@@ -34,8 +34,8 @@ transcripts and live token totals, and presents open decisions, usage and
 landings in its digest. A bare `north` follows the same path as `north fleet`.
 
 Run `nix develop -c cargo check --locked --offline` to check the Rust
-interfaces. `verify-north` drives the fleet screen and CLI against the installed
-build, including the headless session path.
+interfaces. `verify-north` walks the spine against the installed build: a worker takes a
+brief, its commit lands through the lander, and the ledger records the run.
 
 Each fleet session owns a `north-session-<uuid>.scope` in the user systemd
 manager, including its provider host and process descendants. Codex sessions

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::Path;
 
 use rustix::process::{Pid, Signal, kill_process};
 
@@ -95,4 +96,14 @@ fn arguments(pid: u32) -> Vec<String> {
     fs::read(format!("/proc/{pid}/cmdline"))
         .map(|bytes| bytes.split(|byte| *byte == 0).filter(|word| !word.is_empty()).map(|word| String::from_utf8_lossy(word).into_owned()).collect())
         .unwrap_or_default()
+}
+
+pub fn within(root: &Path) -> Vec<Process> {
+    let marker = root.to_string_lossy();
+    every()
+        .into_iter()
+        .filter(|(pid, stat)| !stat.zombie && *pid != std::process::id())
+        .filter(|(pid, _)| arguments(*pid).iter().any(|word| word.contains(marker.as_ref())) || fs::read_link(format!("/proc/{pid}/cwd")).is_ok_and(|cwd| cwd.starts_with(root)))
+        .map(|(pid, stat)| Process { pid, start: stat.start })
+        .collect()
 }

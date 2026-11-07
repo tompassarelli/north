@@ -20,11 +20,6 @@ fn placed_account(listing: &str) -> Result<String, String> {
     account.map(str::to_owned).ok_or_else(|| format!("placement launches no Claude session here: {target}"))
 }
 
-pub struct Account {
-    pub provider: String,
-    pub label: String,
-}
-
 pub struct North {
     program: PathBuf,
     directory: PathBuf,
@@ -40,26 +35,25 @@ impl North {
         &self.program
     }
 
-    pub fn directory(&self) -> &Path {
-        &self.directory
-    }
-
     pub fn run(&self, arguments: &[&str], timeout: Duration) -> Result<String, String> {
-        let mut command = Command::new(&self.program);
-        command.args(arguments).current_dir(&self.directory).env("NORTH_FLEET_TEST", "1");
-        exec::operator_environment(&mut command);
-        exec::stdout(command, timeout, self.notes.as_ref())
+        self.run_with(arguments, &[], timeout)
     }
 
-    pub fn accounts(&self) -> Result<Vec<Account>, String> {
-        let listing = self.run(&["fleet", "accounts"], QUERY_WAIT)?;
-        Ok(listing
-            .lines()
-            .filter_map(|line| {
-                let mut fields = line.split('\t');
-                Some(Account { provider: fields.next()?.to_owned(), label: fields.next()?.to_owned() })
-            })
-            .collect())
+    pub fn run_with(&self, arguments: &[&str], variables: &[(&str, &Path)], timeout: Duration) -> Result<String, String> {
+        exec::stdout(self.command(arguments, variables), timeout, self.notes.as_ref())
+    }
+
+    pub fn output_with(&self, arguments: &[&str], variables: &[(&str, &Path)], timeout: Duration) -> Result<String, String> {
+        let output = exec::output(self.command(arguments, variables), timeout, self.notes.as_ref())?;
+        Ok(format!("exit {}: {}{}", output.status.code().unwrap_or(-1), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    }
+
+    fn command(&self, arguments: &[&str], variables: &[(&str, &Path)]) -> Command {
+        let mut command = Command::new(&self.program);
+        exec::operator_environment(&mut command);
+        command.args(arguments).current_dir(&self.directory).env("NORTH_FLEET_TEST", "1");
+        command.envs(variables.iter().copied());
+        command
     }
 
     pub fn placed_claude_account(&self) -> Result<String, String> {
@@ -78,11 +72,6 @@ impl North {
 
     pub fn transcript(&self, name: &str) -> Result<Transcript, String> {
         Ok(Transcript::parse(&self.json(&["fleet", "show", name, "--json"])?))
-    }
-
-
-    pub fn tasks(&self) -> Result<Vec<Value>, String> {
-        Ok(self.json(&["ledger", "summary", "--json"])?["tasks"].as_array().cloned().unwrap_or_default())
     }
 
     pub fn forget(&self, name: &str) -> Result<(), String> {

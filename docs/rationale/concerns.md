@@ -188,8 +188,6 @@ T3's short hold before announcing "done" is not needed: north announces the repo
 
 **Read models and ports.** north-concerns owns the read models (`view::concerns`, `view::decisions`, `view::pinned`) and the ports they read through: `History` (the samples), `Gates` (the gate digest north-fleet already reads), `Issues` (the GitHub mirror), `Workers` (fleet sessions by item) and `Lanes`. The root crate wires the adapters, and the TUI's desk gains `concerns()`, `decisions()`, `pinned()` and `pin()`. north-concerns stays on north-base alone; north-tui gains a dependency on it for the read model types.
 
-`verify-north` drives the four views over its PTY journey: it plants a red concern (a scratch concerns.toml whose oracle prints past its bound) and an open gate, presses 1 to 4, and checks that Decisions lists the gate and Concerns shows the planted concern red.
-
 ## The first standing concern: detection rate
 
 `incidents-detector-first` is a climb with `direction = "up"` and `window = "7d"`: the share of the last 7 days' incidents first noticed by a detector rather than by Tom or by no one (7 days to 2026-11-06: detector 3 of 128, Tom 9, no one 116). Its oracle is `north ledger incident report --days 7 --metric detector-share`. Today's report counts every non-human noticer as a detector; the metric splits the `noticed_by` values into detector, Tom (`tom`, `proxy`) and no one (rows recorded after the fact by a sweep or an import), and the lane that adds it reproduces 3 of 128 on that week before it lands. Its target is 50 %, a draft, as targets.md asks for a new target; its owner is north#709 until a detection issue takes it; `worst` is left out until a week of history says where a floor would sit.

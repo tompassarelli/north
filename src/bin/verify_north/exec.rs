@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use super::notes::{Note, Notes};
 use super::processes::Process;
 
-const AGENT_VARIABLES: [&str; 2] = ["CLAUDE", "CODEX_HOME"];
+const AGENT_VARIABLES: [&str; 3] = ["CLAUDE", "CODEX_HOME", "NORTH_FLEET_"];
 
 pub fn operator_environment(command: &mut Command) {
     for (key, _) in std::env::vars_os() {

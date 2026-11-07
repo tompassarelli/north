@@ -1,4 +1,6 @@
+use std::fs;
 use std::io;
+use std::path::Path;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
@@ -8,7 +10,8 @@ use super::exec;
 use super::notes::{Manifest, Notes};
 use super::processes::{self, Process};
 use super::report;
-use super::terminal::Terminal;
+use super::journey;
+use super::scratch;
 
 pub const ARGUMENT: &str = "--janitor";
 const SETTLE: Duration = Duration::from_secs(20);
@@ -41,7 +44,7 @@ pub fn serve() -> ExitCode {
     let manifest = Manifest::read(io::stdin().lock());
     let started = Instant::now();
     let outcome = sweep(&manifest);
-    report::step("7", "cleanup: forget sessions, quit the TUI, kill its terminal, no processes left", &outcome, started.elapsed());
+    report::step("5", "cleanup: forget the worker, remove the scratch repository and its landing queue, no processes left", &outcome, started.elapsed());
     if outcome.is_ok() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
 
@@ -54,8 +57,8 @@ fn sweep(manifest: &Manifest) -> Result<String, String> {
     let mut watched: Vec<Process> = manifest.watched.iter().copied().collect();
     watched.extend(processes::descendants(&watched));
     let mut problems = forget_all(manifest);
-    for socket in &manifest.terminals {
-        Terminal::attach(socket).close();
+    if let Some(root) = &manifest.scratch {
+        watched.extend(processes::within(root));
     }
     let left = settle(&watched, SETTLE);
     if !left.is_empty() {
@@ -65,6 +68,8 @@ fn sweep(manifest: &Manifest) -> Result<String, String> {
             process.terminate();
         }
     }
+    problems.extend(manifest.queue.as_deref().and_then(|queue| remove(queue, queue.parent() == Some(journey::landing_queues().as_path()))));
+    problems.extend(manifest.scratch.as_deref().and_then(|root| remove(root, scratch::removable(root))));
     if problems.is_empty() {
         Ok(format!("{} sessions forgotten, {} processes gone", manifest.sessions.len(), watched.len()))
     } else {
@@ -91,4 +96,11 @@ fn forget_all(manifest: &Manifest) -> Vec<String> {
 fn settle(processes: &[Process], limit: Duration) -> Vec<Process> {
     exec::poll_until(limit, POLL, || processes.iter().all(|process| !process.alive()));
     processes.iter().copied().filter(|process| process.alive()).collect()
+}
+
+fn remove(path: &Path, owned: bool) -> Option<String> {
+    if !owned {
+        return Some(format!("refused to remove {}: not a directory verify-north creates", path.display()));
+    }
+    fs::remove_dir_all(path).err().filter(|error| error.kind() != io::ErrorKind::NotFound).map(|error| format!("remove {}: {error}", path.display()))
 }

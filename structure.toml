@@ -638,7 +638,7 @@ may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers"
 [[module]]
 name = "verify"
 paths = ["src/bin/verify_north/**"]
-responsibility = "verify-north: build north, then launch, drive, observe and clean up the real fleet TUI and CLI through tmux."
+responsibility = "verify-north: build north, then walk the spine (brief, worker, landed commit, ledger row) on a scratch repository and clean up."
 may_use = ["lifecycle"]
 
 [[module]]

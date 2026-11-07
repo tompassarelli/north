@@ -22,12 +22,6 @@ pub fn checkout(directory: &Path) -> Result<PathBuf, String> {
     }
 }
 
-pub fn head(directory: &Path) -> Result<String, String> {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(directory).args(["rev-parse", "HEAD"]);
-    Ok(exec::stdout(command, QUERY_WAIT, None)?.trim().to_owned())
-}
-
 pub fn installed(program: &str) -> Result<PathBuf, String> {
     let path = Path::new(program);
     if path.components().count() > 1 {

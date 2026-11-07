@@ -1,7 +1,7 @@
 use serde_json::Value;
 
-const REPLY_MARK: &str = "• ";
 const SHOWN_CHARS: usize = 160;
+const WORKING: &str = "working";
 
 pub struct Entry {
     pub kind: String,
@@ -10,6 +10,7 @@ pub struct Entry {
 
 pub struct Transcript {
     pub status: String,
+    pub conversation: String,
     pub entries: Vec<Entry>,
 }
 
@@ -24,17 +25,17 @@ impl Transcript {
                 text: entry["text"].as_str().unwrap_or_default().to_owned(),
             })
             .collect();
-        Self { status: session["status"].as_str().unwrap_or_default().to_owned(), entries }
+        let text = |key: &str| session[key].as_str().unwrap_or_default().to_owned();
+        Self { status: text("status"), conversation: text("conversation"), entries }
     }
 
-    pub fn after(&self, marker: &str) -> Option<&[Entry]> {
-        let asked = self.entries.iter().rposition(|entry| entry.kind == "user" && entry.text.contains(marker))?;
-        Some(&self.entries[asked + 1..])
+    pub fn settled(&self) -> bool {
+        let answered = self.entries.iter().rev().find(|entry| entry.kind == "user" || entry.kind == "assistant").is_some_and(|entry| entry.kind == "assistant");
+        self.status != WORKING && answered
     }
 
-    pub fn reply_after(&self, marker: &str) -> Option<String> {
-        let replies: Vec<&str> = self.after(marker)?.iter().filter(|entry| entry.kind == "assistant").map(|entry| entry.text.as_str()).collect();
-        (!replies.is_empty()).then(|| replies.join("\n"))
+    pub fn report(&self) -> Option<String> {
+        self.entries.iter().rev().find(|entry| entry.kind == "assistant").map(|entry| entry.text.clone())
     }
 
     pub fn state(&self) -> String {
@@ -42,14 +43,6 @@ impl Transcript {
         let last = last.map_or_else(|| "no entries".to_owned(), |entry| format!("last {} entry {:?}", entry.kind, shorten(&entry.text)));
         format!("status {}, {last}", self.status)
     }
-}
-
-pub fn holds_number(text: &str, number: &str) -> bool {
-    text.split(|character: char| !character.is_ascii_digit()).any(|token| token == number)
-}
-
-pub fn screen_shows_reply(screen: &str, number: &str) -> bool {
-    screen.lines().filter_map(|line| line.split_once(REPLY_MARK)).any(|(_, reply)| holds_number(reply, number))
 }
 
 pub fn shorten(text: &str) -> String {
