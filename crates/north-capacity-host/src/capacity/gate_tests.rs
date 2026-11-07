@@ -67,14 +67,14 @@ fn a_fleet_sessions_cargo_fix_help_and_version_are_not_offloaded() {
     }
 }
 
-// KEEP(bug): north-730-d0351's cargo build of the frontier runner was offloaded twice from gex45 to the laptop and the binary never came back, so a build whose file the caller runs is not offloaded, while check, clippy, test and run builds stay offloadable; north#773
+// KEEP(bug): north-730-d0351's cargo build of the frontier runner was offloaded twice from gex45 to the laptop and the binary never came back, so a build whose file the caller runs is not offloaded, while check, clippy, test and run builds stay offloadable; north#773; head-north's cargo test --no-run of north for strategy-replay was offloaded from the laptop to gex45 the same way and its cp of target/debug/north failed on 2026-11-08, north#634
 #[test]
 fn a_build_that_writes_a_file_the_caller_runs_is_an_artifact_build_and_checks_tests_and_runs_are_not() {
     let words = |text: &str| crate::shell::words(text).unwrap();
-    for artifact in ["cargo build --release -p north-frontier", "cargo b --locked", "cargo +nightly build -p north-frontier --bin runner", "cargo install --path crates/x", "cargo rustc --release", "rustc src/main.rs -o main", "depbox run -- nix develop -c cargo build --release -p north-frontier", "bash -c 'cd x && cargo build'", "bun build src/a.ts --outdir dist", "bun build a.ts --compile --outfile=a"] {
+    for artifact in ["cargo build --release -p north-frontier", "cargo b --locked", "cargo +nightly build -p north-frontier --bin runner", "cargo install --path crates/x", "cargo rustc --release", "rustc src/main.rs -o main", "depbox run -- nix develop -c cargo build --release -p north-frontier", "bash -c 'cd x && cargo build'", "bun build src/a.ts --outdir dist", "bun build a.ts --compile --outfile=a", "cargo test -q --no-run --locked --offline -p north --test it", "depbox run -- north capacity dev-shell run -- env GIT_CONFIG_NOSYSTEM=1 cargo test -q --no-run --locked --offline -p north --test it"] {
         assert!(super::gate::builds_artifact(&words(artifact)), "{artifact}");
     }
-    for offloadable in ["cargo check", "cargo clippy --all-targets", "cargo test", "cargo test --no-run", "cargo nextest run", "cargo run -p north-frontier", "cargo doc", "cargo build --help", "cargo fix", "rustc -vV", "cargo-nextest nextest run", "bun build a.ts", "bun test"] {
+    for offloadable in ["cargo check", "cargo clippy --all-targets", "cargo test", "cargo nextest run", "cargo run -p north-frontier", "cargo doc", "cargo build --help", "cargo fix", "rustc -vV", "cargo-nextest nextest run", "bun build a.ts", "bun test"] {
         assert!(!super::gate::builds_artifact(&words(offloadable)), "{offloadable}");
     }
 }

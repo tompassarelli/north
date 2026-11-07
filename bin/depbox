@@ -17,7 +17,7 @@ if [ "$#" -lt 3 ] || [ "$2" != -- ] || { [ "$mode" != fetch ] && [ "$mode" != ru
 fi
 shift 2
 net=() cache_dirs=()
-[ "$mode" = fetch ] || { net=(--unshare-net); cache_dirs=(.cache/sccache); }
+[ "$mode" = fetch ] || { net=(--unshare-net); cache_dirs=(.cache/sccache .cache/north/head-north); }
 command -v north >/dev/null || { printf 'depbox: north not found on PATH; it names the variables the sandbox carries\n' >&2; exit 1; }
 into=sandbox; [ "$mode" = fetch ] && into=fetch
 carried=$(north capacity carry --list --into "$into") || { printf 'depbox: north capacity carry --list failed; the runtime north is older than this repo\n' >&2; exit 1; }
