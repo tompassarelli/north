@@ -447,3 +447,20 @@ fn a_replay_that_reaches_no_verdict_holds_nothing_queues_no_revert_and_the_next_
     assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
     assert!(!unreached.exists(), "a promotion that settled left its no-verdict record");
 }
+
+// KEEP(bug): on 2026-11-07 at 8:37 PM north-798 replayed failed on the candidate and again on the held runtime b96d3b9e, which held the lander link on it for 39 minutes while later landings sat undeployed (north#634)
+#[test]
+fn a_candidate_replaying_a_round_as_the_held_runtime_does_again_moves_the_lander_link_to_it() {
+    let chain = Chain::new();
+    chain.runtime(&chain.held, "echo 'replay: verdict failed'");
+    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
+    chain.runtime(&candidate, "echo 'replay: verdict failed'");
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(promoted.status, "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
+    assert!(chain.reverts().is_empty(), "{stdout}");
+    assert!(!chain.state.join("north/lander-held").exists(), "{stdout}");
+    assert!(chain.told().contains(&format!("the lander link follows {}", &candidate[..9])) && chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
+}
