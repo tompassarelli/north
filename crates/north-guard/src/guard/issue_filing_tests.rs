@@ -1,8 +1,8 @@
 use super::*;
 
 struct Filer {
-    brief: String,
-    claimed: Vec<Ref>,
+    worker: Option<String>,
+    claimed: Vec<(Ref, String)>,
 }
 
 impl Filed for Filer {
@@ -14,12 +14,12 @@ impl Filed for Filer {
         Ok(false)
     }
 
-    fn brief(&mut self) -> Option<String> {
-        Some(self.brief.clone())
+    fn worker(&mut self) -> Option<String> {
+        self.worker.clone()
     }
 
-    fn claim(&mut self, new: &Ref) -> Result<String, String> {
-        self.claimed.push(new.clone());
+    fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String> {
+        self.claimed.push((new.clone(), by.to_owned()));
         Ok(format!("owns {}#{}", new.0, new.1))
     }
 }
@@ -36,20 +36,23 @@ fn filed(number: u64, body: &str) -> HookInput {
 }
 
 #[test]
-fn an_issue_a_worker_files_for_its_own_brief_is_claimed_for_it_and_a_blocker_is_not() {
+fn an_issue_a_fleet_worker_files_is_claimed_for_it_and_a_blocker_or_a_proxy_filing_is_not() {
     let replay = [
-        (737, "api_pool::open draws the grant with credit left that expires first"),
-        (739, "the firn follow timer ships each landing to every host it serves"),
-        (736, "remote-serve refuses an ssh command outside its allowlist"),
+        (736, "n-remote-guard", "Category: tooling\n\n## Done when\n- [ ] remote-serve refuses an ssh command outside its allowlist"),
+        (737, "n-grant-order", "Defect: api_pool::open draws a later grant first\nCategory: bug-known-cause\nClass: ranking\n\n## Done when\n- [ ] the grant with credit left that expires first is drawn first"),
+        (738, "n-record-mirror", "Category: tooling\n\n## Done when\n- [ ] the fleet record mirror reaches nexus"),
+        (739, "n-firn-follow", "Category: tooling\n\n## Done when\n- [ ] the follow timer ships each landing to every host"),
     ];
-    for (number, done_when) in replay {
-        let brief = format!("Item: new north issue, file it first\nDone when: {done_when}\n");
-        let mut filer = Filer { brief: brief.clone(), claimed: Vec::new() };
-        let verdict = link_with(&filed(number, &format!("Category: tooling\n\n## Done when\n- [ ] {done_when}")), &mut filer);
-        assert_eq!(filer.claimed, [("tompassarelli/north".to_owned(), number)], "north#{number} was staffed beside the session that filed it");
+    for (number, session, body) in replay {
+        let mut filer = Filer { worker: Some(session.to_owned()), claimed: Vec::new() };
+        let verdict = link_with(&filed(number, body), &mut filer);
+        assert_eq!(filer.claimed, [(("tompassarelli/north".to_owned(), number), session.to_owned())], "north#{number} was staffed beside {session}, which filed it");
         assert!(matches!(verdict, Verdict::Advise(note) if note.contains("not staff it again")), "north#{number}");
-        let mut blocker = Filer { brief, claimed: Vec::new() };
-        link_with(&filed(number + 100, &format!("Blocks: north#{number}\nCategory: tooling\n\n## Done when\n- [ ] {done_when}")), &mut blocker);
-        assert!(blocker.claimed.is_empty(), "a blocker north#{number} files stays for dispatch");
+        let mut blocker = Filer { worker: Some(session.to_owned()), claimed: Vec::new() };
+        link_with(&filed(number + 100, &format!("Blocks: north#{number}\n{body}")), &mut blocker);
+        assert!(blocker.claimed.is_empty(), "a blocker {session} files stays for dispatch");
+        let mut proxy = Filer { worker: None, claimed: Vec::new() };
+        link_with(&filed(number, body), &mut proxy);
+        assert!(proxy.claimed.is_empty(), "an issue the proxy files stays for dispatch");
     }
 }

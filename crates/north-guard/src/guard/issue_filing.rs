@@ -130,12 +130,13 @@ pub fn link(input: &HookInput) -> Verdict {
 
 pub(super) type Ref = (String, u64);
 
-/// What the hook does after an issue is filed: link what it blocks, append its clean-up group, and claim it for the fleet session it records the brief of.
+/// What the hook does after an issue is filed: link what it blocks, append its clean-up group, and claim it for the fleet worker that filed it unless it blocks another issue.
 pub(super) trait Filed {
     fn connect(&mut self, new: &Ref, blocked: &Ref) -> Option<()>;
     fn tidy(&mut self, new: &Ref) -> Result<bool, String>;
-    fn brief(&mut self) -> Option<String>;
-    fn claim(&mut self, new: &Ref) -> Result<String, String>;
+    /// The fleet worker session filing, never the proxy, which files issues for dispatch to staff.
+    fn worker(&mut self) -> Option<String>;
+    fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String>;
 }
 
 impl Filed for Live {
@@ -159,14 +160,15 @@ impl Filed for Live {
         super::issue_cleanup::append(new)
     }
 
-    fn brief(&mut self) -> Option<String> {
-        self.worker_brief()
+    fn worker(&mut self) -> Option<String> {
+        let role = std::env::var(crate::fleet::runtime::ROLE_ENV).unwrap_or_default();
+        self.fleet_session.clone().filter(|_| role != crate::fleet::runtime::PROXY)
     }
 
-    fn claim(&mut self, new: &Ref) -> Result<String, String> {
+    fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String> {
         let north = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("north"));
         let ran = std::process::Command::new(north)
-            .args(["threads", "claim", &format!("{}#{}", new.0, new.1)])
+            .args(["threads", "claim", &format!("{}#{}", new.0, new.1), "--by", by])
             .stdin(std::process::Stdio::null())
             .output()
             .map_err(|error| error.to_string())?;
@@ -212,10 +214,10 @@ pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
         Ok(false) => {}
         Err(why) => notes.push(format!("Could not append the Clean-up group to {}#{}: {why}", new.0, new.1)),
     }
-    if !BLOCKS.is_match(&body) && world.brief().is_some_and(|brief| records_brief(&brief, &body)) {
-        notes.push(match world.claim(&new) {
-            Ok(said) => format!("{said}: an issue you file for your own brief is claimed for you, so north dispatch does not staff it again."),
-            Err(why) => format!("Could not claim {}#{} for you ({why}); claim it with `north threads claim {}#{}` before north dispatch staffs it again.", new.0, new.1, new.0, new.1),
+    if let Some(worker) = world.worker().filter(|_| !BLOCKS.is_match(&body)) {
+        notes.push(match world.claim(&new, &worker) {
+            Ok(said) => format!("{said}: an issue a fleet worker files is claimed for it, so north dispatch does not staff it again."),
+            Err(why) => format!("Could not claim {}#{} for you ({why}); claim it with `north threads claim {}#{} --by {worker}` before north dispatch staffs it again.", new.0, new.1, new.0, new.1),
         });
     }
     if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join(" ")) }
