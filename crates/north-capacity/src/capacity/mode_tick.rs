@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::agent_load::{self, Host};
 use super::game_reserve;
-use super::mode::{Effects, Limits, Observation, State, cpu_split, enforced_split, now, read, record, state_dir, step, write};
+use super::mode::{Effects, Heat, Limits, Observation, State, cpu_split, enforced_split, now, read, record, state_dir, step, write};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Power {
@@ -11,12 +11,20 @@ pub struct Power {
     pub cpu_celsius: Option<f64>,
 }
 
-pub fn agent_quota_percent(effects: Effects, power: Power, relief: Option<u32>, previous: Option<u32>, limits: &Limits) -> u32 {
+pub fn heat_step(state: &State, celsius: Option<f64>, now: u64, limits: &Limits) -> (Vec<Heat>, bool) {
+    let Some(celsius) = celsius else {
+        return (Vec::new(), false);
+    };
+    let mut window = state.heat.iter().copied().filter(|sample| now.saturating_sub(sample.at) < limits.heat_average_seconds).collect::<Vec<_>>();
+    window.push(Heat { at: now, celsius });
+    let average = window.iter().map(|sample| sample.celsius).sum::<f64>() / window.len() as f64;
+    let hot = average >= limits.hot_celsius || (state.hot && average >= limits.cool_celsius);
+    (window, hot)
+}
+
+pub fn agent_quota_percent(effects: Effects, battery: Option<u8>, hot: bool, relief: Option<u32>, limits: &Limits) -> u32 {
     let mode_quota = if effects.build_host { limits.build_host_quota_percent } else { limits.agent_quota_percent };
-    let cooling = previous.is_some_and(|quota| quota <= limits.hot_quota_percent);
-    let hot = power.cpu_celsius.is_some_and(|celsius| celsius >= limits.hot_celsius || (cooling && celsius >= limits.cool_celsius));
-    let battery = power.battery.map(|_| limits.battery_quota_percent);
-    [battery, hot.then_some(limits.hot_quota_percent), relief].into_iter().flatten().fold(mode_quota, u32::min)
+    [battery.map(|_| limits.battery_quota_percent), hot.then_some(limits.hot_quota_percent), relief].into_iter().flatten().fold(mode_quota, u32::min)
 }
 
 pub fn confined_agent_cpus(host: &Host) -> Option<u32> {
@@ -78,7 +86,10 @@ pub fn tick_in(host: &Host, seat_idle: Option<bool>, power: Power, mut reserve: 
     let effects = limits.effects(state.mode);
     let relief = state.relief.filter(|relief| relief.until > now).map(|relief| relief.percent);
     state.relief = state.relief.filter(|relief| relief.until > now);
-    let quota = agent_quota_percent(effects, power, relief, state.agent_quota_percent, &limits);
+    let (heat, hot) = heat_step(&previous, power.cpu_celsius, now, &limits);
+    state.heat = heat;
+    state.hot = hot;
+    let quota = agent_quota_percent(effects, power.battery, hot, relief, &limits);
     if state.agent_quota_percent != Some(quota) {
         match game_reserve::set_agent_quota(&reserve, quota) {
             Ok(()) => {

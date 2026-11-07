@@ -13,10 +13,9 @@ use super::zone::Window;
 
 const WRONG: &str = "observe wants gaming/sleeping booleans, idle boolean or null and battery discharging percent or null";
 const CLEAR_SECONDS: i64 = 600;
-const ACTIVE_SECONDS: i64 = 300;
 const OBSERVATION_FRESH_SECONDS: i64 = 120;
 const AUTO_REASONS: [&str; 4] = ["gaming", "sleep", "battery", "drained (battery)"];
-const AUTO_DRAINED: [&str; 3] = ["drained (active)", "drained (battery)", "drained (window)"];
+const AUTO_DRAINED: [&str; 2] = ["drained (battery)", "drained (window)"];
 
 static IDLE_REOPEN_SECONDS: LazyLock<i64> = LazyLock::new(|| {
     crate::platform::harness::table(crate::platform::harness::DEFAULTS)
@@ -29,8 +28,6 @@ static IDLE_REOPEN_SECONDS: LazyLock<i64> = LazyLock::new(|| {
 #[derive(Default, Deserialize, Serialize)]
 struct Observations {
     at: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    active: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     idle: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,7 +45,6 @@ struct Frame {
     state: State,
     at: i64,
     auto: bool,
-    edge: Option<(i64, &'static str)>,
     in_window: bool,
 }
 
@@ -99,7 +95,6 @@ impl Ctx {
         let carry = |active: bool, before: &Option<String>| active.then(|| before.clone().unwrap_or_else(|| now.clone()));
         let mut seen = Observations {
             at: now.clone(),
-            active: carry(sample.idle == Some(false), &previous.active),
             idle: carry(sample.idle == Some(true), &previous.idle),
             clear: None,
         };
@@ -121,15 +116,12 @@ impl Ctx {
             return Ok(state);
         }
         let edge = Window::read(&self.window).last_edge(at)?;
-        let frame = Frame { state, at, auto, edge, in_window: edge.is_some_and(|(_, target)| target == "available") };
+        let frame = Frame { state, at, auto, in_window: edge.is_some_and(|(_, target)| target == "available") };
         if let Some(hold) = hold_for(&frame.state, sample) {
             return self.held(&frame, hold);
         }
         if auto && AUTO_REASONS.contains(&frame.state.reason.as_str()) {
             return self.cleared(&frame, sample, seen);
-        }
-        if let Some(settled) = self.active(&frame, seen)? {
-            return Ok(settled);
         }
         if let Some(idle) = seen.idle.as_ref().filter(|_| auto && !sample.discharging && frame.state.state != "available")
             && at - parse(idle)? >= *IDLE_REOPEN_SECONDS
@@ -137,23 +129,6 @@ impl Ctx {
             return self.write("available", at, "idle", "laptop-auto", None, None);
         }
         Ok(frame.state)
-    }
-
-    fn active(&self, frame: &Frame, seen: &Observations) -> Result<Option<State>, Die> {
-        let Some(active) = seen.active.as_ref().filter(|_| frame.in_window || frame.auto) else {
-            return Ok(None);
-        };
-        if frame.state.until.as_deref().is_some_and(|until| until > iso(frame.at).as_str()) {
-            return Ok(None);
-        }
-        let floor = frame.edge.map_or(frame.at - 86_400, |(edge, _)| edge);
-        if frame.at - parse(active)?.max(floor) < ACTIVE_SECONDS {
-            return Ok(None);
-        }
-        if frame.state.state == "available" {
-            return self.write("draining", frame.at, "active", "laptop-auto", None, Some(GRACE_DRAIN)).map(Some);
-        }
-        Ok(Some(frame.state.clone()))
     }
 
     fn held(&self, frame: &Frame, hold: &str) -> Result<State, Die> {

@@ -134,6 +134,13 @@ fn set_agent_slices(settings: &Settings, cpus: &str, memory_max: &str) -> Result
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
 }
 
+pub fn applied_agent_quota(settings: &Settings) -> Option<String> {
+    let text = fs::read_to_string(settings.cgroup.join(AGENT_SLICE).join("cpu.max")).ok()?;
+    let mut fields = text.split_whitespace();
+    let (quota, period) = (fields.next()?, fields.next()?.parse::<u64>().ok().filter(|period| *period > 0)?);
+    Some(quota.parse::<u64>().map_or_else(|_| "unlimited".to_owned(), |quota| format!("{}%", quota * 100 / period)))
+}
+
 pub fn set_agent_quota(settings: &Settings, percent: u32) -> Result<(), String> {
     systemctl(settings, &["set-property".to_owned(), "--runtime".to_owned(), AGENT_SLICE.to_owned(), format!("CPUQuota={percent}%")])
 }

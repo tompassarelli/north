@@ -187,7 +187,7 @@ impl Placement {
     }
 }
 
-/// A reserved host or a laptop on battery takes no land check; one that offloads builds, or is away and so a full build host, competes with the others for room; any other, such as a laptop whose seat is in use, takes one only when no build host answers.
+/// A reserved host or a laptop on battery takes no land check; one that offloads builds, or is a build host on mains in any mode but a playtest lease, competes with the others for room; any other, such as a laptop under a playtest lease, takes one only when no build host answers.
 fn standing(reserved: bool, on_battery: bool, builds: bool) -> room::Standing {
     if reserved || on_battery {
         room::Standing::Reserved

@@ -526,7 +526,7 @@ consumers = ["crates/north-pace/src/router/ctx.rs"]
 value = 1800
 allowed = { min = 0, max = 604800 }
 unit = "seconds of continuous idle before reopening background laptop capacity"
-source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe's existing 1800-second idle reopening threshold"
+source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe existing 1800-second idle reopening threshold; the seat in use no longer drains an open laptop (Tom, 2026-11-08), so this reopens only after a window close or a battery, gaming or sleep hold"
 fallback = "without continuous idle evidence background capacity remains closed"
 consumers = ["crates/north-dispatch/src/laptop/observe.rs"]
 
@@ -1014,7 +1014,7 @@ consumers = ["crates/north-ops/src/ops/watch/waste.rs"]
 [capacity_mode_table]
 value = ["away:build-host", "desktop:build-host", "play:reserve,hold"]
 allowed = { min_len = 1 }
-unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve) and runs heavy and batch work confined to the agent CPUs, pausing heavy batch while the CPU split is not enforced, hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; build-host raises agent.slice CPUQuota to capacity_build_host_agent_cpu_quota_percent and makes this laptop a host that leases its own builds and, while away on mains power, a build host for land checks (at the desk it takes one only when no build host answers, and on battery none); away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
+unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve) and runs heavy and batch work confined to the agent CPUs, pausing heavy batch while the CPU split is not enforced, hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; build-host raises agent.slice CPUQuota to capacity_build_host_agent_cpu_quota_percent and makes this laptop a host that leases its own builds and, on mains power, a build host for land checks beside the other build hosts (on battery none); away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
 source = "tom: the machine must be quiet while he plays or tests a game so lag is never the computer's load, light use needs only a core or two, and agents take the whole laptop while he is away (2026-11-04); the idle laptop beside a saturated build host while he played showed pausing heavy work wasted the agent CPUs the split already keeps off the game (2026-11-05); Tom set on 2026-11-07 that the reduced bound is for playtesting, not for being at the desk, so desktop is a build host like away"
 fallback = "a mode missing from the table applies nothing"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
@@ -1084,26 +1084,34 @@ fallback = "none: the mode tick always sets the quota"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_hot_agent_cpu_quota_percent]
-value = 600
+value = 1200
 allowed = { min = 100, max = 25600 }
-unit = "agent.slice CPUQuota in percent of one CPU while the CPU sensor (k10temp, coretemp or zenpower temp1) reads at least capacity_hot_cpu_celsius, held until it falls below capacity_cool_cpu_celsius"
-source = "measured: the 2026-11-08 run at load 87 held the CPU at 81 to 90 C on battery (north#834)"
+unit = "agent.slice CPUQuota in percent of one CPU while the CPU temperature average is at or above capacity_hot_cpu_celsius, held until it falls below capacity_cool_cpu_celsius: half the 24-thread laptop"
+source = "measured: on 2026-11-08 k10temp Tctl (the die reading, with no Tdie offset on the Ryzen AI 9 HX 370, Tjmax 100 C) swung 77 to 100 C within seconds under rustc, so an instant reading clamped agent.slice to 600% for 21175 s while the part throttles itself at its limit; the owner asked for the highest gear without damage (north#834)"
 fallback = "none: the mode tick always sets the quota"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_hot_cpu_celsius]
-value = 90.0
+value = 98.0
 allowed = { min = 40.0, max = 110.0 }
-unit = "CPU temperature in degrees Celsius at or above which the mode tick drops agent.slice to capacity_hot_agent_cpu_quota_percent"
-source = "measured: k10temp read 90.6 C on the laptop at load 33 to 55 on 2026-11-08, a few degrees under the part's throttle point (north#834)"
+unit = "CPU temperature in degrees Celsius, averaged over capacity_hot_average_sec, at or above which the mode tick drops agent.slice to capacity_hot_agent_cpu_quota_percent"
+source = "measured: Tjmax of the Ryzen AI 9 HX 370 is 100 C and Tctl swings 77 to 100 C within seconds under rustc, so only a 60 s average at 98 C or more is sustained heat (north#834, 2026-11-08)"
 fallback = "with no CPU sensor the hot quota never applies"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 
 [capacity_cool_cpu_celsius]
-value = 80.0
+value = 90.0
 allowed = { min = 30.0, max = 110.0 }
-unit = "CPU temperature in degrees Celsius below which a hot agent.slice quota lifts, so the quota does not flap at capacity_hot_cpu_celsius"
-source = "north#834: ten degrees of hysteresis under the hot threshold"
+unit = "CPU temperature in degrees Celsius, averaged over capacity_hot_average_sec, below which a hot agent.slice quota lifts, so the quota does not flap at capacity_hot_cpu_celsius"
+source = "north#834 (2026-11-08): eight degrees of hysteresis under the hot threshold, the owner's lift point"
+fallback = "with no CPU sensor the hot quota never applies"
+consumers = ["crates/north-capacity/src/capacity/mode.rs"]
+
+[capacity_hot_average_sec]
+value = 60
+allowed = { min = 1, max = 3600 }
+unit = "seconds of CPU temperature readings, one per mode tick, averaged for the hot quota"
+source = "north#834 (2026-11-08): the owner set a 60 s average because an instant Tctl read swings 23 C within seconds"
 fallback = "with no CPU sensor the hot quota never applies"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 

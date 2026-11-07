@@ -92,6 +92,16 @@ pub struct State {
     pub agent_quota_percent: Option<u32>,
     #[serde(default)]
     pub relief: Option<Relief>,
+    #[serde(default)]
+    pub heat: Vec<Heat>,
+    #[serde(default)]
+    pub hot: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Heat {
+    pub at: u64,
+    pub celsius: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +127,7 @@ pub struct Limits {
     pub hot_quota_percent: u32,
     pub hot_celsius: f64,
     pub cool_celsius: f64,
+    pub heat_average_seconds: u64,
     pub build_host_fresh_seconds: u64,
     pub table: Vec<String>,
 }
@@ -141,6 +152,7 @@ impl Limits {
             hot_quota_percent: cpus("capacity_hot_agent_cpu_quota_percent"),
             hot_celsius: number("capacity_hot_cpu_celsius"),
             cool_celsius: number("capacity_cool_cpu_celsius"),
+            heat_average_seconds: whole("capacity_hot_average_sec"),
             build_host_fresh_seconds: whole("capacity_build_host_fresh_sec"),
             table: strings("capacity_mode_table"),
         }
@@ -311,12 +323,8 @@ pub fn builds_here_at(state: &State, limits: &Limits, now: u64) -> bool {
     limits.effects(state.mode).build_host && now.saturating_sub(state.ticked) <= limits.build_host_fresh_seconds
 }
 
-pub fn takes_land_checks_at(state: &State, limits: &Limits, now: u64) -> bool {
-    state.mode == Mode::Away && builds_here_at(state, limits, now)
-}
-
 pub fn takes_land_checks() -> bool {
-    takes_land_checks_at(&read(&state_dir()), &Limits::bundled(), now())
+    builds_here_at(&read(&state_dir()), &Limits::bundled(), now())
 }
 
 pub fn leases_own_builds_at(checking: bool, state: &State, limits: &Limits, now: u64) -> bool {
@@ -356,8 +364,12 @@ pub fn status_line(state: &State, limits: &Limits, split: Option<&game_reserve::
     if applied.is_empty() {
         applied.push("no reservation; agents run at their slice weights");
     }
-    if let Some(quota) = state.agent_quota_percent {
-        line.push_str(&format!("; agent.slice CPUQuota {quota}%"));
+    let applied_quota = game_reserve::applied_agent_quota(&game_reserve::Settings::from_env()).or_else(|| state.agent_quota_percent.map(|quota| format!("{quota}%")));
+    if let Some(quota) = applied_quota {
+        line.push_str(&format!("; agent.slice CPUQuota {quota} (cpu.max)"));
+    }
+    if state.hot {
+        line.push_str("; heat cap on");
     }
     if let Some(relief) = &state.relief {
         line.push_str(&format!("; relieved to at most {}% until {}", relief.percent, clock(relief.until)));

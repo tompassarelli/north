@@ -40,13 +40,13 @@ fn windowed_root(args: &[&str]) -> (tempfile::TempDir, String) {
     (root, stub)
 }
 
+// KEEP(bug): at 3:14 AM on 2026-11-08 laptop-auto drained the laptop 300 s into Tom typing, against his direction that agents may use it while he types; north#834
 #[test]
-fn an_open_with_an_unexpired_until_is_not_drained_by_an_active_seat_and_drains_after_it() {
+fn an_open_laptop_is_never_drained_by_a_seat_in_use() {
     let (root, stub) = windowed_root(&["open", "until", "06:00", "away"]);
     let held = observe_active(root.path(), &stub, 1, 20);
     assert_eq!(held["state"], "available");
-    assert_eq!(held["until"], "2026-10-13T22:00:00Z");
-    let drained = observe_active(root.path(), &stub, 120, 10);
-    assert_eq!(drained["state"], "draining");
-    assert_eq!(drained["reason"], "active");
+    let still = observe_active(root.path(), &stub, 120, 30);
+    assert_eq!(still["state"], "available");
+    assert_eq!(still["reason"], held["reason"]);
 }
