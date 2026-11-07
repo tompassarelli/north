@@ -45,12 +45,14 @@ mod properties {
             let declared = resource_class(kind, cores).expect("declared class");
             let charged = charged_resources(kind, cores, &run_cores, &run_memory).expect("charged");
             let nearest = |values: &[f64]| { let mut sorted = values.to_vec(); sorted.sort_by(f64::total_cmp); sorted[(sorted.len() as f64 * 0.9).ceil() as usize - 1] };
-            let measured = run_cores.len() >= 3;
+            let positive = |values: &[f64]| values.iter().copied().filter(|value| *value > 0.0).collect::<Vec<f64>>();
+            let (counted_cores, counted_memory) = (positive(&run_cores), positive(&run_memory));
+            let measured = counted_cores.len() >= 3 && counted_memory.len() >= 3;
             let expected = match kind {
-                "tom" | "critical" if measured => Resources { cpus: declared.cpus, memory_mib: (nearest(&run_memory) * memory_margin()).min(declared.memory_mib) },
+                "tom" | "critical" if measured => Resources { cpus: declared.cpus, memory_mib: (nearest(&counted_memory) * memory_margin()).min(declared.memory_mib) },
                 "moderate" | "heavy" | "native" | "gpu" if measured => {
-                    let cpus = nearest(&run_cores).max(1.0).min(declared.cpus * 1.5);
-                    Resources { cpus: if kind == "heavy" { cpus.max(declared.cpus) } else { cpus }, memory_mib: nearest(&run_memory) * memory_margin() }
+                    let cpus = nearest(&counted_cores).max(1.0).min(declared.cpus * 1.5);
+                    Resources { cpus: if kind == "heavy" { cpus.max(declared.cpus) } else { cpus }, memory_mib: nearest(&counted_memory) * memory_margin() }
                 }
                 _ => declared,
             };
