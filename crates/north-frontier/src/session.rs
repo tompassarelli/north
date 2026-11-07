@@ -10,6 +10,7 @@ use north_claude_stream::encode_user_message;
 use north_fleet::fleet::model::{Account, ApiKey, Effort, LaunchRequest, ProviderName, Role};
 use north_fleet::fleet::prompt::{PromptInputs, PromptMode, StandingOrders, render};
 use north_fleet::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Opening, Runtime, new_uuid};
+use north_providers::providers::claude::api_pool;
 use north_providers::providers::claude::fleet::Claude;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -122,6 +123,12 @@ pub fn changed(sandbox: &Sandbox, base: &str) -> bool {
     sandbox.pushed(base).is_some() || sandbox.worktrees().iter().any(|tree| sandbox.touched(tree, base))
 }
 
+pub const CREDIT: &str = "credit refused";
+
+pub(crate) fn refused_for_credit(result: &Value) -> bool {
+    result["is_error"] == true && result["result"].as_str().is_some_and(api_pool::low_credit)
+}
+
 fn asks(text: &str) -> bool {
     let last = text.lines().rev().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
     let first = text.trim_start();
@@ -204,6 +211,10 @@ fn supervise(arm: &Attempt, sandbox: &Sandbox, child: &mut std::process::Child, 
         if Instant::now() >= deadline {
             process::kill(child);
             break "wall cap".to_owned();
+        }
+        if stream.results.iter().any(refused_for_credit) {
+            process::kill(child);
+            break CREDIT.to_owned();
         }
         let idle = stream.results.len() > answered && stream.last_event.elapsed() >= arm.limits.idle;
         if !idle {

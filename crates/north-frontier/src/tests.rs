@@ -41,3 +41,12 @@ fn the_task_id_in_a_printed_path_is_not_a_leak() {
     assert!(crate::grade::reached(path, landed).is_empty());
     assert_eq!(crate::grade::reached("git show 4082956297aaa", landed), ["the landed sha"]);
 }
+
+// KEEP(bug): both arms of north-636 sat idle for twenty minutes each after the API refused their first turn for credit, and the pass spent its time on runs with no work in them (north#730)
+#[test]
+fn a_credit_refusal_ends_the_arm_and_a_finished_turn_does_not() {
+    let refusal = serde_json::json!({"type": "result", "is_error": true, "api_error_status": 400, "result": "Credit balance is too low"});
+    let done = serde_json::json!({"type": "result", "is_error": false, "result": "Done: landed"});
+    assert!(crate::session::refused_for_credit(&refusal));
+    assert!(!crate::session::refused_for_credit(&done));
+}

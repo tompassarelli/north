@@ -87,21 +87,46 @@ pub fn today() -> String {
     Timestamp::now().iso_date()
 }
 
+fn pool(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec<Org> {
+    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    declared(&document, &crate::credit::open_grants(policy, &state_root.join("ledger.db"), &today()), home, here)
+}
+
+fn readable(file: &Path) -> bool {
+    std::fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+}
+
 /// One line per pool entry on `here`, then the entry a launch on the pooled account takes: what `north fleet accounts --api` prints.
 pub fn listing(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec<String> {
-    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
-    let orgs = declared(&document, &crate::credit::open_grants(policy, &state_root.join("ledger.db"), &today()), home, here);
+    let orgs = pool(policy, home, state_root, here);
     let marks = state_root.join("api-exhausted");
     let mut lines: Vec<String> = orgs.iter().map(|org| format!("{} keys={} exhausted={}", org.line(), org.keys.len(), exhausted(&marks, org))).collect();
-    let chosen = open(&orgs, &today(), |org| exhausted(&marks, org), |file| std::fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() > 0));
+    let chosen = open(&orgs, &today(), |org| exhausted(&marks, org), readable);
     lines.push(chosen.map_or_else(|| "api launches on: no open entry".to_owned(), |(org, _)| format!("api launches on: {}", org.name)));
     lines
+}
+
+/// The entry and key a run outside the fleet takes: the one the pool opens next, leaving out the organizations in `skipped`.
+pub fn next_key(policy: &Path, home: &Path, state_root: &Path, here: &str, skipped: &[String]) -> Option<(String, ApiKey)> {
+    let orgs = pool(policy, home, state_root, here);
+    let marks = state_root.join("api-exhausted");
+    open(&orgs, &today(), |org| skipped.contains(&org.id) || exhausted(&marks, org), readable).map(|(org, key)| (org.id.clone(), key))
+}
+
+/// Marks organization `id` exhausted on `session`'s report that the API refused a turn for a credit balance too low.
+pub fn mark_ran_out(policy: &Path, state_root: &Path, id: &str, session: &str) -> std::io::Result<bool> {
+    marks::mark(&state_root.join("api-exhausted"), id, session, &today(), crate::credit::next_credits(policy).get(id).map(String::as_str))
+}
+
+/// Whether an API error message is the low-credit refusal.
+pub fn low_credit(message: &str) -> bool {
+    message.to_lowercase().contains(LOW_CREDIT)
 }
 
 /// Whether a transcript's newest ended turn ended on the API's low-credit error, even when a message delivered since has started another turn.
 pub fn ran_out(entries: &[Entry]) -> bool {
     let Some(end) = entries.iter().rposition(|entry| entry.kind == EntryKind::TurnEnd) else { return false };
-    end.checked_sub(1).and_then(|error| entries.get(error)).is_some_and(|error| error.kind == EntryKind::Error && error.text.to_lowercase().contains(LOW_CREDIT))
+    end.checked_sub(1).and_then(|error| entries.get(error)).is_some_and(|error| error.kind == EntryKind::Error && low_credit(&error.text))
 }
 
 /// The transcript of `conversation` in the host stream at `stream` from byte `since` on: the turns a session ran on the account it moved onto there.

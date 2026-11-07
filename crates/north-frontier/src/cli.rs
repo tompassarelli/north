@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use north_base::error::NorthError;
+use north_fleet::fleet::model::ApiKey;
+use north_providers::providers::claude::api_pool;
 
 use super::grade::{Grade, grade};
 use super::sandbox::{Sandbox, git_text};
@@ -108,7 +110,7 @@ fn schedule(tasks: &[Task], arms: &[Arm]) -> Vec<(Task, Arm)> {
 
 fn run(flags: &Flags) -> Result<String, NorthError> {
     let tasks = flags.tasks()?;
-    let (out, briefs, key) = (flags.path("out")?, flags.path("briefs")?, flags.path("key")?);
+    let (out, briefs) = (flags.path("out")?, flags.path("briefs")?);
     let arms: Vec<Arm> = match flags.all("arm") {
         named if named.is_empty() => vec![Arm::North, Arm::Plain],
         named => named.iter().map(|name| Arm::parse(name).ok_or_else(|| refusal(format!("no arm named {name}")))).collect::<Result<_, _>>()?,
@@ -125,7 +127,7 @@ fn run(flags: &Flags) -> Result<String, NorthError> {
         for _ in 0..jobs.max(1) {
             scope.spawn(|| {
                 while let Some((task, harness)) = queue.get(next.fetch_add(1, Ordering::SeqCst)) {
-                    let line = job(task, *harness, sample, &out, &briefs, &key, &source, &limits, stop);
+                    let line = job(task, *harness, sample, &out, &briefs, &source, &limits, stop);
                     eprintln!("{line}");
                     let _ = writeln!(log.lock().unwrap_or_else(std::sync::PoisonError::into_inner), "{line}");
                 }
@@ -138,7 +140,7 @@ fn run(flags: &Flags) -> Result<String, NorthError> {
 }
 
 #[allow(clippy::too_many_arguments, reason = "one job's inputs, all owned by the run loop")]
-fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, key: &Path, source: &Path, limits: &Limits, stop: f64) -> String {
+fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source: &Path, limits: &Limits, stop: f64) -> String {
     let root = run_dir(out, task, harness, sample);
     if session::record_path(&root).exists() {
         return format!("{} {}: already run", task.id, harness.label());
@@ -146,22 +148,45 @@ fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, key: &
     if spent(out) >= stop {
         return format!("{} {}: not started, spend reached ${stop:.2}", task.id, harness.label());
     }
-    if root.exists() {
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        if let Err(error) = fs::rename(&root, root.with_extension(format!("failed-{stamp}"))) {
-            return format!("{} {}: an unfinished run is in the way: {error}", task.id, harness.label());
-        }
-    }
     let result = super::task::brief(briefs, task).and_then(|brief: String| {
-        let sandbox = Sandbox::build(&root, task, source, harness)?;
-        let record = session::run(&Attempt { task, harness, sample, key, brief: &brief, limits }, &sandbox)?;
-        fs::write(session::record_path(&root), serde_json::to_string_pretty(&record).map_err(NorthError::Json)?).map_err(NorthError::Io)?;
-        Ok(record)
+        let mut refused = Vec::new();
+        loop {
+            set_aside(&root)?;
+            let (org, key) = pool_key(&refused)?;
+            let sandbox = Sandbox::build(&root, task, source, harness)?;
+            let record = session::run(&Attempt { task, harness, sample, key: &key.file, brief: &brief, limits }, &sandbox)?;
+            if record.ended == session::CREDIT {
+                let _ = api_pool::mark_ran_out(&north_base::platform::orchestration::path(), &state_root(), &org, &record.session);
+                if !refused.is_empty() {
+                    return Err(refusal("the API refused the run for credit on two orgs in a row"));
+                }
+                refused.push(org);
+                continue;
+            }
+            fs::write(session::record_path(&root), serde_json::to_string_pretty(&record).map_err(NorthError::Json)?).map_err(NorthError::Io)?;
+            return Ok(record);
+        }
     });
     match result {
         Ok(record) => format!("{} {}: {} in {:.0} min, ${:.2}, {} interventions", task.id, harness.label(), record.ended, record.wall_s / 60.0, record.cost_usd, record.interventions),
         Err(error) => format!("{} {}: failed: {error}", task.id, harness.label()),
     }
+}
+
+fn state_root() -> PathBuf {
+    home().join(".local/state/north")
+}
+
+fn pool_key(refused: &[String]) -> Result<(String, ApiKey), NorthError> {
+    api_pool::next_key(&north_base::platform::orchestration::path(), &home(), &state_root(), &north_base::platform::host::name(), refused).ok_or_else(|| refusal("no api org in the pool has credit left"))
+}
+
+fn set_aside(root: &Path) -> Result<(), NorthError> {
+    if !root.exists() {
+        return Ok(());
+    }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    fs::rename(root, root.with_extension(format!("failed-{stamp}"))).map_err(|error| refusal(format!("an unfinished run is in the way: {error}")))
 }
 
 fn arm_dirs(out: &Path, task: &Task) -> Vec<(Arm, PathBuf)> {
