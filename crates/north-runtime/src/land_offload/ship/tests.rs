@@ -482,6 +482,8 @@ fn a_lander_job_takes_its_reserved_slot_with_no_waited_line_while_another_job_te
     let real = |program: &str| std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|dir| dir.join(program)).find(|candidate| candidate.is_file()).unwrap();
     let flock = real("flock");
     let clock = tempfile::tempdir().unwrap();
+    let calls = home.path().join("lander-flock-calls");
+    crate::foundation::shim::write_script(&clock.path().join("flock"), &format!("echo \"$*\" >>{}\nexec {} \"$@\"\n", shell(&calls), shell(&flock)));
     let readings = home.path().join("readings");
     crate::foundation::shim::write_script(&clock.path().join("date"), &format!("case \"$1\" in +%s | +%s%N) ;; *) exec {} \"$@\" ;; esac\nn=$(cat {1} 2>/dev/null || echo 1000)\necho $((n + 1)) >{1}\n[ \"$1\" = +%s ] && echo $n || echo ${{n}}000000000\n", shell(&real("date")), shell(&readings)));
     let (probing, release) = (home.path().join("probing"), home.path().join("release"));
@@ -504,7 +506,8 @@ fn a_lander_job_takes_its_reserved_slot_with_no_waited_line_while_another_job_te
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let decided = || fs::read_to_string(&calls).is_ok_and(|calls| calls.lines().any(|call| call == "-s 4") || calls.lines().filter(|call| *call == "-n 9").count() > 1);
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), decided), "the lander neither took its slot nor tried it a second time: {:?}", fs::read_to_string(&calls));
     fs::write(&release, "").unwrap();
     let lander = lander.wait_with_output().unwrap();
     assert!(probe.wait().unwrap().success());
