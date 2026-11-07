@@ -15,6 +15,7 @@ pub static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted
 pub static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 const RUNNING_SECONDS: i64 = 7200;
 pub const TRANSCRIPT_ORIGIN: &str = "claude.transcript";
+const INTERRUPTED: &str = "[Request interrupted";
 
 pub(super) struct Transcript<'a> {
     pub lines: &'a [Value],
@@ -93,23 +94,31 @@ fn human(record: &Value) -> bool {
         }
 }
 
-fn turn_report(lines: &[Value]) -> Option<(String, bool)> {
-    let mut turns: Vec<Vec<&Value>> = vec![Vec::new()];
+fn turn_report(lines: &[Value]) -> Option<(String, &'static str)> {
+    let mut turns: Vec<(bool, Vec<&Value>)> = vec![(false, Vec::new())];
     for line in lines {
         if human(line) {
-            turns.push(Vec::new());
-        } else if let Some(turn) = turns.last_mut() {
+            if texts(line).starts_with(INTERRUPTED) && let Some((cut, _)) = turns.last_mut() {
+                *cut = true;
+            }
+            turns.push((false, Vec::new()));
+        } else if let Some((_, turn)) = turns.last_mut() {
             turn.push(line);
         }
     }
-    let reports: Vec<(String, bool)> = turns
+    let reports: Vec<(String, &'static str)> = turns
         .iter()
-        .filter_map(|turn| {
+        .filter_map(|(cut, turn)| {
             let assistant: Vec<&Value> = turn.iter().copied().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
-            Some((report(&assistant)?, quiet_run(turn.iter().copied())))
+            let report = report(&assistant)?;
+            let outcome = match outcome::classify(&report, quiet_run(turn.iter().copied())) {
+                "unclear" if *cut => "idle",
+                outcome => outcome,
+            };
+            Some((report, outcome))
         })
         .collect();
-    let rank = |(report, quiet): &(String, bool)| match outcome::classify(report, *quiet) {
+    let rank = |(_, outcome): &(String, &str)| match *outcome {
         "idle" => 0,
         "unclear" => 1,
         _ => 2,
@@ -150,7 +159,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
             return Some(row);
         }
     }
-    let (report, quiet) = turn_report(lines)?;
+    let (report, outcome) = turn_report(lines)?;
     let head = prefix(&report, 600);
     let usage = &last_usage["message"]["usage"];
     row.insert("status".into(), json!(if done || transcript.role == "worker" { "finished" } else { "active" }));
@@ -159,7 +168,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     activity::insert(&mut row, &activity::measure(lines), seconds(ended)? - seconds(started.as_str()?)?);
     row.insert("tokens".into(), json!(tokens(&assistant)));
     row.insert("peak_ctx".into(), json!(int(&usage["input_tokens"]) + int(&usage["cache_read_input_tokens"]) + int(&usage["cache_creation_input_tokens"])));
-    row.insert("outcome".into(), json!(outcome::classify(&report, quiet)));
+    row.insert("outcome".into(), json!(outcome));
     row.insert("flaws".into(), FLAWS.captures(&report).map_or(Value::Null, |found| number(found[1].parse().unwrap_or(0.0))));
     row.insert("backfill".into(), json!(transcript.backfill));
     row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 600)));

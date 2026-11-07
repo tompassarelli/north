@@ -107,3 +107,19 @@ fn the_runs_of_a_worker_on_the_api_account_are_read_from_its_declared_config_dir
     let options = super::Options { session: None, since: String::new(), settled: Default::default(), recorded: Default::default() };
     assert_eq!(super::unread(&profiles, &roots, &options), vec![profiles.join("claude-z")]);
 }
+
+#[test]
+fn a_turn_north_interrupts_mid_work_scores_idle_so_the_turn_after_it_decides_the_run() {
+    let at = |n: u32| format!("2026-11-07T10:{n:02}:00Z");
+    let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
+    let lines = vec![
+        text("user", 1, "Item: north#757"),
+        text("assistant", 2, "Writing the lifecycle module (state.rs, then the tests)."),
+        text("user", 30, "[Request interrupted by user]"),
+        text("user", 31, "[from proxy] a message mid-work"),
+        text("assistant", 32, "Noted, carrying on."),
+    ];
+    let transcript = super::row::Transcript { lines: &lines, id: "t", role: "worker", tier: "sonnet", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) };
+
+    assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "idle");
+}

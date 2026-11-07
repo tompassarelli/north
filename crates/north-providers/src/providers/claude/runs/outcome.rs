@@ -47,6 +47,7 @@ const OPEN_PROSE: &str = r"\b(still not met|not met\b|left open|remains? open|st
 const FAILED: &[&str] = &[r"\b(fail(ed|s|ure)?|refused|error)\b"];
 const WAITING: &[&str] = &[
     r"^\W*(waiting|still (running|deferred|waiting|queued)|i.ll (wait|pick|act|replace|start|score|run))",
+    r"\bi.ll (report|notify)\b[^.\n]{0,60}\bonce\b|\bgoing to the (lander )?queue\b",
     r"\b(will (report|notify)|is queued|are queued|holding the push|waiting (on|for|up to))\b",
 ];
 
@@ -136,6 +137,13 @@ mod tests {
             "not done" | "unclear" | "escalated" if waits_on_time(&labelled.report) => "deferred",
             outcome => outcome,
         }
+    }
+
+    #[test]
+    fn a_turn_ending_on_an_announced_wait_for_the_lander_is_idle_not_unclear() {
+        let wait = "The north#755 lane is going to the queue. I'll report its sha once the lander lands it.";
+        assert_eq!(classify(wait, false), "idle");
+        assert_eq!(classify("Done: landed as abc1234 on main.\n\nI'll report nothing more once it lands.", false), "done");
     }
 
     #[test]
