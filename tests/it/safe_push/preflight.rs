@@ -102,7 +102,7 @@ fn fails_into_a_state_log_with_events_and_north_watch(fixture: &Fixture) -> Stri
     for wanted in [r#""stage":"land check","status":"failed","detail":""#, &format!("log: {log}\""), r#""stage":"exit","status":"refused""#] {
         assert!(events.contains(wanted), "no event {wanted}: {events}");
     }
-    assert!(north_core::platform::wait::until(Duration::from_secs(5), || fs::read_to_string(&watch_calls).is_ok_and(|calls| calls.lines().any(|call| call == "watch --once"))), "a failed landing did not start north watch at once");
+    assert!(north_core::platform::wait::until(Duration::from_secs(5), || fs::read_to_string(&watch_calls).is_ok_and(|calls| calls.lines().any(|call| call == "ops watch --once"))), "a failed landing did not start north ops watch at once");
     log
 }
 

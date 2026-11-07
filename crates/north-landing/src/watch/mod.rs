@@ -14,7 +14,7 @@ pub mod sink;
 
 pub use facts::{Event, RepoFacts, Run, StageSample};
 
-const USAGE: &str = "usage: north watch --once [--quiet]";
+const USAGE: &str = "usage: north ops watch --once [--quiet]";
 pub const HEARTBEAT: &str = "north/watch/heartbeat";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -79,15 +79,15 @@ pub fn run(arguments: &[String]) -> u8 {
     let state = state_home();
     let dir = state.join("north/watch");
     if let Err(error) = fs::create_dir_all(&dir) {
-        eprintln!("north watch: cannot create {}: {error}", dir.display());
+        eprintln!("north ops watch: cannot create {}: {error}", dir.display());
         return 1;
     }
     let Ok(lock) = File::create(dir.join("lock")) else {
-        eprintln!("north watch: cannot open its lock");
+        eprintln!("north ops watch: cannot open its lock");
         return 1;
     };
     if flock(&lock, FlockOperation::LockExclusive).is_err() {
-        eprintln!("north watch: cannot take its lock");
+        eprintln!("north ops watch: cannot take its lock");
         return 1;
     }
     let context = facts::gather(&state);
@@ -97,7 +97,7 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("{line}");
     }
     if !quiet {
-        println!("north watch: {} open alert(s) at {}", alerts.len(), context.now);
+        println!("north ops watch: {} open alert(s) at {}", alerts.len(), context.now);
     }
     let _ = fs::write(state.join(HEARTBEAT), format!("{}\n", context.now));
     0

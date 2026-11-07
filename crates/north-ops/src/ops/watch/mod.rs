@@ -156,7 +156,7 @@ pub fn pass(context: &WatchContext) -> Vec<Alert> {
     PROBES.iter().flat_map(|probe| probe(context)).collect()
 }
 
-const USAGE: &str = "usage: north watch --once: run every work probe once and print one line per alert";
+const USAGE: &str = "usage: north ops watch --once: run every work probe once and print one line per alert";
 
 pub fn run(arguments: &[String]) -> u8 {
     if arguments != ["--once"] {

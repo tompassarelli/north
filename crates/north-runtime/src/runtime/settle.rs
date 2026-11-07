@@ -204,7 +204,7 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) -> bool {
         }
         delivered
     });
-    println!("north runtime settle: {text}; north watch raises it to the proxy and the landing lane's lead");
+    println!("north runtime settle: {text}; north ops watch raises it to the proxy and the landing lane's lead");
     delivered
 }
 

@@ -347,7 +347,7 @@ sites = [
   "crates/north-base/src/platform/signin.rs",
 ]
 signal = "expiry of each machine credential, and the human sessions the registry finds"
-updated_by = "north credentials renew"
+updated_by = "north ops credentials renew"
 cadence_hours = 24
 record = "north/credentials/check.json"
 host = "lander"

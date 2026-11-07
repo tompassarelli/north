@@ -97,3 +97,30 @@ pub(super) fn runtime(arguments: &[String]) -> u8 {
         _ => crate::runtime::run(arguments),
     }
 }
+
+const OPS: &[(&str, Run)] = &[
+    ("credentials", crate::ops::credentials::run),
+    ("github", ops_github),
+    ("watch", ops_watch),
+];
+
+pub(super) fn ops(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if let Some(run) = runner(OPS, verb) => run(rest),
+        _ => crate::ops::command::run(arguments),
+    }
+}
+
+fn ops_github(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if verb == "token" => crate::platform::github_app::run(rest),
+        _ => crate::ops::gh_broker::github(arguments),
+    }
+}
+
+pub(super) fn ops_watch(arguments: &[String]) -> u8 {
+    match crate::watch::run(arguments) {
+        0 => crate::ops::watch::run(&["--once".to_owned()]),
+        refused => refused,
+    }
+}

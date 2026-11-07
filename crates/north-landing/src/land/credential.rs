@@ -38,7 +38,7 @@ fn configured(worktree: &Path, base: &str) -> Result<Credential, String> {
 
 pub fn mint_program() -> Vec<String> {
     let north = std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.display().to_string());
-    vec![north, "gh-app-token".to_owned()]
+    vec![north, "ops".to_owned(), "github".to_owned(), "token".to_owned()]
 }
 
 pub fn mint(program: &[String], app: &str) -> Result<String, String> {

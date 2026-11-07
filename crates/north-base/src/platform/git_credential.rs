@@ -6,7 +6,7 @@ use crate::foundation::clock::Timestamp;
 const USAGE: &str = "usage: north git-credential get|store|erase
 
 The git credential helper agent sessions push to GitHub through: for https://github.com it answers
-get with an installation token of the Socrates Agent App (north gh-app-token), so GitHub's tag
+get with an installation token of the Socrates Agent App (north ops github token), so GitHub's tag
 rulesets, which only the admin role and that App's v* release path bypass, bind agent pushes.
 A host the laptop pushes that token to (gex45 and ccx33 hold no App key) answers with the pushed
 token while it is fresh; a host that cannot mint answers with the same App's token the session

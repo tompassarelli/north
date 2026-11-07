@@ -48,7 +48,7 @@ pub fn emit(shell: &Shell, event: &Event) {
     {
         shell
             .processes
-            .spawn_detached(watcher, &["watch", "--once"]);
+            .spawn_detached(watcher, &["ops", "watch", "--once"]);
     }
 }
 

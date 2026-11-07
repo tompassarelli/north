@@ -6,7 +6,7 @@ use crate::platform::gh_broker_route::Place;
 use crate::platform::gh_session::{self, Spend};
 use crate::platform::github_app::{self, AGENT_APP, Host, Request};
 
-const USAGE: &str = "usage: north github budget
+const USAGE: &str = "usage: north ops github budget
 
 Print what is left of each GitHub token's hourly limit (the user's own login and the Socrates Agent
 App installation fleet sessions use), every fleet session's spend against its fair share

@@ -17,7 +17,7 @@ fn no_brief_plan_or_gate_needs_a_human_sign_in_under_the_shipped_phrase_lists() 
     use north_core::fleet::gates::GateRequest;
     use north_core::platform::signin::brief_refusal as signin_refusal;
 
-    let brief = |box_line: &str| format!("Item: north#9 Mirror access\nBox: {box_line}\nCategory: feature\nDone when: `north credentials check` exits 0\nFiles: crates/north-ops/src/ops/wc3_login_field/mod.rs\n\nGoal: a sign-in named here, after the header, is not scanned.");
+    let brief = |box_line: &str| format!("Item: north#9 Mirror access\nBox: {box_line}\nCategory: feature\nDone when: `north ops credentials check` exits 0\nFiles: crates/north-ops/src/ops/wc3_login_field/mod.rs\n\nGoal: a sign-in named here, after the header, is not scanned.");
     for needs in ["Sign in to GitHub in the browser and create a personal access token", "Confirm the passkey prompt, then run the check", "Unlock the keyring and type the password", "Log in as Tom on the Hive Workshop"] {
         let why = signin_refusal(&brief(needs)).unwrap_or_else(|| panic!("{needs} launched"));
         assert!(why.contains("machine path"), "{why}");

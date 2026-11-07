@@ -1504,9 +1504,9 @@ consumers = ["crates/north-replay/src/bounds.rs"]
 [credential_expiry_notice_days]
 value = 30
 allowed = { min = 1, max = 365 }
-unit = "days before a credential's expiry that north credentials renew runs a machine renewal and batches the credentials that need a person into one notice"
+unit = "days before a credential's expiry that north ops credentials renew runs a machine renewal and batches the credentials that need a person into one notice"
 source = "tom: sign-in requests do not scale while he sleeps, so anything that needs him is told once, 30 days ahead, in one batch (north#522, 2026-11-06)"
-fallback = "a credential with no expiry date is never renewed or announced, and north credentials check still fails it when it is a human session"
+fallback = "a credential with no expiry date is never renewed or announced, and north ops credentials check still fails it when it is a human session"
 consumers = ["crates/north-ops/src/ops/credentials/mod.rs"]
 
 [human_signin_phrases]
@@ -1534,10 +1534,10 @@ fallback = "a session the fleet tick does not retire stays addressable until the
 consumers = ["crates/north-fleet-supervisor/src/fleet/reaper.rs"]
 
 [help_visible_ceiling]
-value = 54
+value = 48
 allowed = { min = 1, max = 200 }
 unit = "top-level entries north --help may list; each lane that folds a hyphenated family under its domain noun lowers it to the new count"
-source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land, 60 once citation-check, issue-box-lint, goals check, experiments, provenance and doctor nix folded under north check, 55 once flow, tempo, scoreboard, worker-ledger and incident folded under north ledger, 54 once agent-runtime-update, claude-runtime-update and agy-runtime-update folded under north runtime; the issue's target is 24 (north#703)"
+source = "measured: src/cli/help.txt listed 70 visible commands after the help cut of 2026-11-07, 66 once the lane family folded under north lane, 65 once land-abandon folded under north land, 60 once citation-check, issue-box-lint, goals check, experiments, provenance and doctor nix folded under north check, 55 once flow, tempo, scoreboard, worker-ledger and incident folded under north ledger, 54 once agent-runtime-update, claude-runtime-update and agy-runtime-update folded under north runtime, 48 once watch, credentials, github budget and gh-app-token folded under north ops; the issue's target is 24 (north#703)"
 fallback = "none: agent-config-check refuses a help.txt over it"
 consumers = ["crates/north-core/src/agent_config_check/help_surface.rs"]
 

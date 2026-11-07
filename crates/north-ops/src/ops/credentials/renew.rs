@@ -46,7 +46,7 @@ pub fn notice(ask: &[&Credential], window_days: u64) -> Option<String> {
         return None;
     }
     let listed: Vec<String> = ask.iter().map(|credential| format!("{} ({})", credential.name, credential.expires.map_or_else(|| "?".into(), day))).collect();
-    Some(format!("Credentials that need a person within {window_days} days: {}. `north credentials check` names the renewal path of each.", listed.join(", ")))
+    Some(format!("Credentials that need a person within {window_days} days: {}. `north ops credentials check` names the renewal path of each.", listed.join(", ")))
 }
 
 fn previous(record: &Path) -> (Option<String>, u64) {

@@ -74,7 +74,7 @@ fn emit_appends_the_bash_lines_and_nudges_the_watcher_only_for_refused_and_faile
         vec![
             (
                 PathBuf::from("/run/north"),
-                vec!["watch".to_owned(), "--once".to_owned()]
+                vec!["ops".to_owned(), "watch".to_owned(), "--once".to_owned()]
             );
             2
         ]

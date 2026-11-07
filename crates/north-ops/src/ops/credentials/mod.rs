@@ -15,7 +15,7 @@ pub use model::{Credential, Kind, Renewal};
 
 use north_base::platform::harness::{self, DEFAULTS};
 
-const USAGE: &str = "Usage: north credentials check [--json] | north credentials renew [--dry-run] | north credentials import-cookies SITE [--from CHROME_PROFILE]";
+const USAGE: &str = "Usage: north ops credentials check [--json] | north ops credentials renew [--dry-run] | north ops credentials import-cookies SITE [--from CHROME_PROFILE]";
 const DAY: u64 = 86_400;
 const NOTICE_KEY: &str = "credential_expiry_notice_days";
 const ALERT_WITHIN: Duration = Duration::from_secs(30);
@@ -69,7 +69,7 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 fn gathered(world: &World) -> Option<Vec<Credential>> {
-    registry::gather(world).map_err(|error| eprintln!("north credentials: {error}")).ok()
+    registry::gather(world).map_err(|error| eprintln!("north ops credentials: {error}")).ok()
 }
 
 fn check(world: &World, json: bool) -> u8 {
@@ -124,7 +124,7 @@ fn import_cookies(world: &World, site: &str, from: &Path) -> u8 {
             0
         }
         Err(error) => {
-            eprintln!("north credentials: {error}");
+            eprintln!("north ops credentials: {error}");
             1
         }
     }

@@ -22,9 +22,9 @@ stays above a reserve of 1000 units. Under the reserve the sessions that spent m
 average of the live sessions) are refused first, with exit 75 and a message naming the token's remaining quota and the spend.
 Spend is counted per rolling hour in ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. Outside a fleet session (no NORTH_FLEET_SESSION)
 REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its fair share (400 units an hour) tells that session once.
-A hook (a gh call under north hook) may spend 10% of the fair share, so one hook cannot starve its session; north github budget
+A hook (a gh call under north hook) may spend 10% of the fair share, so one hook cannot starve its session; north ops github budget
 breaks each session's spend down by hook, tick or command, the north verb behind it and the endpoint,
-and a refused call tells the proxy at most once an hour per session (north github budget lists every session's spend and the top callers).";
+and a refused call tells the proxy at most once an hour per session (north ops github budget lists every session's spend and the top callers).";
 
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 const FAIR_SHARE: u32 = 400;
@@ -142,10 +142,10 @@ fn budget_notices(session: &str, ledger: &Path, before: u32, units: u32, budget:
             return Vec::new();
         }
         let _ = marker.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(&marker, now.to_string()));
-        return vec![(PROXY.to_owned(), format!("north gh-session: session {session} was refused a gh call because the shared GitHub token is under its reserve (it has spent {before} units this hour against a fair share of {budget}, the call costs {units}); its gh calls stay refused while the token is short and the session is among the top spenders (north github budget lists the callers)"))];
+        return vec![(PROXY.to_owned(), format!("north gh-session: session {session} was refused a gh call because the shared GitHub token is under its reserve (it has spent {before} units this hour against a fair share of {budget}, the call costs {units}); its gh calls stay refused while the token is short and the session is among the top spenders (north ops github budget lists the callers)"))];
     }
     alarm_crossed(before, units, budget)
-        .map(|percent| (session.to_owned(), format!("north gh-session: you reached {percent}% of your GitHub fair share ({} of {budget} units this hour); your gh calls are refused first if the shared token runs short (north github budget lists the callers)", before + units)))
+        .map(|percent| (session.to_owned(), format!("north gh-session: you reached {percent}% of your GitHub fair share ({} of {budget} units this hour); your gh calls are refused first if the shared token runs short (north ops github budget lists the callers)", before + units)))
         .into_iter()
         .collect()
 }

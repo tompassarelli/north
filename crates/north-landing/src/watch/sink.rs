@@ -41,7 +41,7 @@ impl Fleet {
     }
 
     pub fn notify(&self, text: &str) {
-        let _ = Command::new("notify-send").args(["--urgency=critical", "north watch", text]).status();
+        let _ = Command::new("notify-send").args(["--urgency=critical", "north ops watch", text]).status();
     }
 
     pub fn lead_of(&self, session: &str) -> Option<String> {
@@ -87,7 +87,7 @@ pub fn deliver(path: &Path, alerts: &[Alert], unavailable: &[String], now: u64, 
         let Some(incident) = incidents.remove(&key) else { continue };
         let minutes = now.saturating_sub(incident.since) / 60;
         if incident.severity > Severity::Info {
-            send_all(&recipients(incident.owner.as_deref(), outbox), &format!("north watch: cleared after {minutes} min: {}", incident.summary), outbox, &mut lines);
+            send_all(&recipients(incident.owner.as_deref(), outbox), &format!("north ops watch: cleared after {minutes} min: {}", incident.summary), outbox, &mut lines);
         }
     }
     if let Ok(text) = serde_json::to_string_pretty(&incidents) {
@@ -102,7 +102,7 @@ fn step(incidents: &mut BTreeMap<String, Incident>, alert: &Alert, now: u64, out
     let incident = match entry {
         std::collections::btree_map::Entry::Vacant(vacant) => {
             if alert.severity > Severity::Info {
-                send_all(&to, &format!("north watch: {}", alert.summary), outbox, lines);
+                send_all(&to, &format!("north ops watch: {}", alert.summary), outbox, lines);
             } else {
                 lines.push(format!("info: {}", alert.summary));
             }
@@ -115,7 +115,7 @@ fn step(incidents: &mut BTreeMap<String, Incident>, alert: &Alert, now: u64, out
             incident.owner = alert.owner.clone().or(incident.owner.take());
             if alert.severity > Severity::Info && now.saturating_sub(incident.last_sent) >= REPEAT_SECONDS {
                 let minutes = now.saturating_sub(incident.since) / 60;
-                send_all(&to, &format!("north watch: still, {minutes} min: {}", alert.summary), outbox, lines);
+                send_all(&to, &format!("north ops watch: still, {minutes} min: {}", alert.summary), outbox, lines);
                 incident.last_sent = now;
             }
             incident

@@ -82,8 +82,8 @@ fn announce(places: &Places, now: f64, options: &Options) {
         return;
     }
     match watch_silent(places, now, WATCH_SILENT_SECONDS) {
-        Some(Some(age)) => println!("landing watch: silent: north watch last finished a pass {age:.0} s ago (timer north-watch, every 30 s)"),
-        Some(None) => println!("landing watch: silent: north watch has never finished a pass on this host"),
+        Some(Some(age)) => println!("landing watch: silent: north ops watch last finished a pass {age:.0} s ago (timer north-watch, every 30 s)"),
+        Some(None) => println!("landing watch: silent: north ops watch has never finished a pass on this host"),
         None => {}
     }
 }

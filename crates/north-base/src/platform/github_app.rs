@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use super::process;
 use crate::foundation::clock::Timestamp;
 
-const USAGE: &str = "usage: north gh-app-token [--app socrates|lander] [--repos NAME,NAME [--permissions JSON]]
+const USAGE: &str = "usage: north ops github token [--app socrates|lander] [--repos NAME,NAME [--permissions JSON]]
 
 Print an installation access token for the Socrates Agent GitHub App, or with --app lander for the
 north-lander App (secrets/nexus/north-lander.yaml, field pem, cached apart from the default).

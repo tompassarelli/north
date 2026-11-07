@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
-use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, runner, runtime};
+use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, ops, ops_watch, runner, runtime};
 pub(super) use self::subverbs::ledger_runner;
 use crate::timers::{self, Timer};
 use crate::{
@@ -26,7 +26,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("merge-driver", merge_set::run),
     ("after-landing", after_landing::run),
     ("bin-references", bin_references::run),
-    ("watch", crate::ops::watch::run),
+    ("watch", ops_watch),
     ("safe-push", super::remote_land::safe_push),
     ("release", north_safe_push::entry::release),
     ("follows-release", follows_release::run),
@@ -49,7 +49,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("convo", crate::convo::run),
     ("warcraft-close", crate::ops::warcraft_close::run),
     ("wc3-login-field", crate::ops::wc3_login_field::run),
-    ("credentials", crate::ops::credentials::run),
     ("agent-capture", crate::ops::agent_capture::run),
     ("incident-mine", crate::ops::incident_mine::run),
     ("tool-mine", crate::tool_mine::run),
@@ -62,14 +61,11 @@ const UNIFORM: &[(&str, Run)] = &[
         Some("calls") => crate::proxy::run(arguments, &super::verbs::VERB_KINDS),
         _ => super::fleet::proxy(arguments),
     }),
-    ("ops", crate::ops::command::run),
+    ("ops", ops),
     ("private-check", crate::ops::private_check::run),
     ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
-    ("watch", crate::watch::run),
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),
-    ("gh-app-token", crate::platform::github_app::run),
-    ("github", crate::ops::gh_broker::github),
     ("github-mirror", crate::github_mirror::sync::run),
     ("gh-session", crate::platform::gh_session::run),
     ("ssh-session", crate::platform::ssh_session::run),
