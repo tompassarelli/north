@@ -223,7 +223,7 @@ impl Upkeep {
 }
 
 fn upkeep(fleet: &Fleet) -> NorthResult<String> {
-    let undelivered = fleet.default_overdue_gates()?.into_iter().find_map(|(_, outcome)| outcome.err());
+    let undelivered = fleet.sweep_gates()?.into_iter().find_map(|(_, outcome)| outcome.err());
     fleet.observe_landings()?;
     undelivered.map_or(Ok(()), Err)?;
     Ok(crate::platform::wisp_payoff::collect(None).map(|report| report.summary()).unwrap_or_else(|error| format!("Wisp payoff unavailable: {error}")))

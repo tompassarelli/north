@@ -1,5 +1,8 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::ask_once;
+use north_base::lifecycle::State;
+
+use crate::fleet::gate_lifecycle::GatePhase;
 use crate::foundation::clock::Timestamp;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -130,16 +133,23 @@ pub struct Gate {
     pub id: i64,
     pub request: GateRequest,
     pub opened_ms: u64,
+    pub phase: GatePhase,
     pub closure: Option<Closure>,
 }
 
 impl Gate {
+    /// A gate as a book without lifecycle records holds it: its phase follows from whether it has closed.
+    pub fn new(id: i64, request: GateRequest, opened_ms: u64, closure: Option<Closure>) -> Self {
+        let phase = closure.as_ref().map_or_else(|| GatePhase::opened(&request), |closure| GatePhase::settled(&closure.by));
+        Self { id, request, opened_ms, phase, closure }
+    }
+
     pub fn default_at_ms(&self) -> Option<u64> {
         self.request.has_default().then(|| self.opened_ms.saturating_add(self.request.default_after_ms))
     }
 
     pub fn is_open(&self) -> bool {
-        self.closure.is_none()
+        self.phase.is_open()
     }
 
     pub fn for_tom(&self) -> bool {
@@ -162,7 +172,10 @@ pub trait GateBook: Send + Sync {
     fn open_gate(&self, request: &GateRequest, opened_ms: u64) -> NorthResult<i64>;
     fn gate(&self, id: i64) -> NorthResult<Option<Gate>>;
     fn gates(&self, closed_since_ms: u64) -> NorthResult<Vec<Gate>>;
+    /// Closes an open gate with `closure` and starts delivering its answer; false when another closer got there first.
     fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool>;
+    /// Moves a gate to `to` for `cause`; false when its phase or a live holder refuses the move.
+    fn move_gate(&self, id: i64, to: GatePhase, cause: &str, at_ms: u64) -> NorthResult<bool>;
 }
 
 pub fn open(book: &dyn GateBook, request: &GateRequest, parent: Option<&str>, host: Option<&str>, now_ms: u64, notify: impl FnOnce(&str, &str)) -> NorthResult<i64> {
@@ -268,17 +281,40 @@ fn named_option(gate: &Gate, text: &str) -> Option<usize> {
 
 fn settle_as(book: &dyn GateBook, id: i64, decision: Decision, by: Answerer, note: Option<&str>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
     let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
-    if let Some(closure) = &gate.closure {
-        return Err(already_answered(id, closure));
+    if !gate.is_open() {
+        return Err(already_answered(&gate));
     }
     let answer = noted_answer(&gate, &decision, note)?;
     let closure = Closure { answer, by, closed_ms: now_ms };
     if !book.close_gate(id, &closure)? {
-        let closed = book.gate(id)?.and_then(|gate| gate.closure).ok_or_else(|| NorthError::State(format!("gate {id} closed without an answer")))?;
-        return Err(already_answered(id, &closed));
+        let closed = book.gate(id)?.ok_or_else(|| NorthError::State(format!("gate {id} closed without an answer")))?;
+        return Err(already_answered(&closed));
     }
-    deliver(&gate.request.session, &message(&gate, &closure))?;
+    hand_over(book, &gate, &closure, now_ms, deliver)?;
     Ok(closure)
+}
+
+/// Delivers a closed gate's answer to its asking session and settles it; a failed delivery leaves it `Undelivered` for the next sweep.
+fn hand_over(book: &dyn GateBook, gate: &Gate, closure: &Closure, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<()> {
+    match deliver(&gate.request.session, &message(gate, closure)) {
+        Ok(()) => book.move_gate(gate.id, GatePhase::settled(&closure.by), &format!("answer delivered to {}", gate.request.session), now_ms).map(drop),
+        Err(error) => {
+            book.move_gate(gate.id, GatePhase::Undelivered, &format!("delivery to {} failed: {}", gate.request.session, error.user_message()), now_ms)?;
+            Err(error)
+        }
+    }
+}
+
+/// Delivers again the answer of each gate whose first delivery failed or whose closer died, as the sweep after every fleet command.
+pub fn redeliver(book: &dyn GateBook, now_ms: u64, deliver: impl Fn(&str, &str) -> NorthResult<()>) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
+    let mut sent = Vec::new();
+    for gate in book.gates(now_ms)?.into_iter().filter(|gate| gate.phase == GatePhase::Undelivered) {
+        let Some(closure) = gate.closure.clone() else { continue };
+        if book.move_gate(gate.id, GatePhase::Delivering, "delivering the answer again", now_ms)? {
+            sent.push((gate.id, hand_over(book, &gate, &closure, now_ms, &deliver).map(|()| closure)));
+        }
+    }
+    Ok(sent)
 }
 
 fn noted_answer(gate: &Gate, decision: &Decision, note: Option<&str>) -> NorthResult<String> {
@@ -293,8 +329,11 @@ pub fn closed_by_answer(gate: &Gate, by: &Answerer, number: usize, note: Option<
     gate.closure.as_ref().is_some_and(|closure| &closure.by == by && noted_answer(gate, &Decision::Option(number), note).is_ok_and(|answer| answer == closure.answer))
 }
 
-fn already_answered(id: i64, closure: &Closure) -> NorthError {
-    NorthError::GateAnswered { id, answer: closure.answer.clone(), by: closure.by.label().to_owned() }
+fn already_answered(gate: &Gate) -> NorthError {
+    match &gate.closure {
+        Some(closure) => NorthError::GateAnswered { id: gate.id, answer: closure.answer.clone(), by: closure.by.label().to_owned() },
+        None => NorthError::GateAnswered { id: gate.id, answer: "(being recorded)".into(), by: gate.phase.name().into() },
+    }
 }
 
 /// An open gate's hold on launches: the issue it decides, the one box of it when it names one, and its label.
@@ -371,7 +410,7 @@ mod tests {
         fn open_gate(&self, request: &GateRequest, opened_ms: u64) -> NorthResult<i64> {
             let mut gates = self.0.lock().unwrap();
             let id = i64::try_from(gates.len()).unwrap() + 1;
-            gates.push(Gate { id, request: request.clone(), opened_ms, closure: None });
+            gates.push(Gate::new(id, request.clone(), opened_ms, None));
             Ok(id)
         }
 
@@ -381,13 +420,23 @@ mod tests {
 
         fn gates(&self, closed_since_ms: u64) -> NorthResult<Vec<Gate>> {
             let gates = self.0.lock().unwrap();
-            Ok(gates.iter().filter(|gate| gate.closure.as_ref().is_none_or(|closure| closure.closed_ms >= closed_since_ms)).cloned().collect())
+            Ok(gates.iter().filter(|gate| !gate.phase.is_settled() || gate.closure.as_ref().is_some_and(|closure| closure.closed_ms >= closed_since_ms)).cloned().collect())
         }
 
         fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool> {
             let mut gates = self.0.lock().unwrap();
-            let gate = gates.iter_mut().find(|gate| gate.id == id && gate.closure.is_none());
-            Ok(gate.map(|gate| gate.closure = Some(closure.clone())).is_some())
+            let gate = gates.iter_mut().find(|gate| gate.id == id && gate.is_open());
+            Ok(gate
+                .map(|gate| {
+                    gate.closure = Some(closure.clone());
+                    gate.phase = GatePhase::Delivering;
+                })
+                .is_some())
+        }
+
+        fn move_gate(&self, id: i64, to: GatePhase, _cause: &str, _at_ms: u64) -> NorthResult<bool> {
+            let mut gates = self.0.lock().unwrap();
+            Ok(gates.iter_mut().find(|gate| gate.id == id).map(|gate| gate.phase = to).is_some())
         }
     }
 
@@ -438,6 +487,10 @@ mod tests {
 
         fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool> {
             self.0.close_gate(id, closure)
+        }
+
+        fn move_gate(&self, id: i64, to: GatePhase, cause: &str, at_ms: u64) -> NorthResult<bool> {
+            self.0.move_gate(id, to, cause, at_ms)
         }
     }
 

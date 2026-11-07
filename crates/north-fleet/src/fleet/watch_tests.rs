@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::{Books, Landing, SessionSpend};
+use crate::fleet::gate_lifecycle::GatePhase;
 use crate::fleet::gates::{Closure, Gate, GateBook, GateRequest};
 use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::RunSink;
@@ -65,6 +66,10 @@ impl GateBook for Books0 {
     }
 
     fn close_gate(&self, _id: i64, _closure: &Closure) -> NorthResult<bool> {
+        Ok(false)
+    }
+
+    fn move_gate(&self, _id: i64, _to: GatePhase, _cause: &str, _at_ms: u64) -> NorthResult<bool> {
         Ok(false)
     }
 }

@@ -290,7 +290,7 @@ fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
         default: 2,
         default_after_ms: 60_000,
     };
-    Gate { id, request, opened_ms, closure: None }
+    Gate::new(id, request, opened_ms, None)
 }
 
 fn observe(desk: &DeskFake, screen: &mut Screen) {
