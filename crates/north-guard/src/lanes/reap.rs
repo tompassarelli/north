@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::live_process;
 use super::repo::{find_container, git_checked, git_ok, git_out, is_lander_tree};
 use super::verdict::{Facts, Verdict, retirement_verdict};
+use north_base::platform::land_queue;
 
 const MINIMUM_AGE_SECONDS: i64 = 7200;
 const DETACHED: &str = "(detached)";
@@ -59,6 +60,7 @@ pub(super) struct Sweep {
     pub(super) dry_run: bool,
     pub(super) now: SystemTime,
     pub(super) proc_root: PathBuf,
+    pub(super) queues: PathBuf,
 }
 
 struct Lane<'a> {
@@ -93,8 +95,8 @@ pub fn run(arguments: &[String]) -> u8 {
             }
         }
     }
-    let sweep = Sweep { dry_run, now: SystemTime::now(), proc_root: PathBuf::from("/proc") };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let sweep = Sweep { dry_run, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), queues: land_queue::queues(&home.join(".local/state")) };
     let containers = if all { Ok(all_containers(&home)) } else { current_container() };
     let (report, failure) = match containers {
         Ok(containers) => sweep.reap_containers(&containers),
@@ -209,6 +211,8 @@ impl Sweep {
             "locked"
         } else if live_process::has_cwd_inside(&self.proc_root, &lane.tree) {
             "live cwd"
+        } else if !land_queue::waiting_on(&self.queues, &land_queue::local_host(), &lane.tree).is_empty() {
+            "land ticket waiting"
         } else {
             return None;
         };

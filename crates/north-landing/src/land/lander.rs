@@ -109,6 +109,7 @@ impl Lander {
         let listing = ssh_with_input(host, &format!("{mirror}d={outbox}; [ -d \"$d\" ] || exit 0; for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done"), ledger_tail().as_bytes())?;
         let mut taken = Vec::new();
         let mut failures = Vec::new();
+        let mut withdrawn = Vec::new();
         for record in listing.split('\0').filter(|record| !record.trim().is_empty()) {
             let (name, json) = record.split_once('\n').unwrap_or((record, ""));
             if !plain(name) || !name.ends_with(".json") {
@@ -123,7 +124,11 @@ impl Lander {
                 }
             };
             if let Err(error) = self.fetch_lane(host, &ticket) {
-                failures.push(error);
+                if lane_gone(host, &ticket) {
+                    withdrawn.push((name.to_owned(), ticket));
+                } else {
+                    failures.push(error);
+                }
                 continue;
             }
             let path = self.queue.join(name);
@@ -133,7 +138,30 @@ impl Lander {
         if !taken.is_empty() {
             ssh(host, &format!("d={outbox}; mkdir -p \"$d/taken\" && cd \"$d\" && mv -f -- {} taken/", taken.join(" ")))?;
         }
+        if !withdrawn.is_empty() {
+            self.withdraw(host, &outbox, withdrawn)?;
+        }
         if failures.is_empty() { Ok(taken.len()) } else { Err(failures.join("; ")) }
+    }
+
+    fn withdraw(&self, host: &str, outbox: &str, withdrawn: Vec<(String, Ticket)>) -> Result<(), String> {
+        let mut told = Vec::new();
+        for (name, mut ticket) in withdrawn {
+            let reason = format!("its worktree {} is gone from {host}, so the lander cannot fetch {}", ticket.root.display(), ticket.head);
+            ticket.verdict = Some(format!("withdrawn by {OFFLOAD_OWNER}: {reason}"));
+            let path = self.queue.join(queue::WITHDRAWN).join(&name);
+            queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+            println!("north land: withdrew {name} from {host}'s outbox: {reason}");
+            told.push((name, ticket, reason));
+        }
+        let names: Vec<&str> = told.iter().map(|(name, _, _)| name.as_str()).collect();
+        ssh(host, &format!("d={outbox}; mkdir -p \"$d/{0}\" && cd \"$d\" && mv -f -- {1} {0}/", queue::WITHDRAWN, names.join(" ")))?;
+        for (_, ticket, reason) in told {
+            if let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) {
+                super::after::send(session, &format!("north land: {} ({}) was withdrawn from {host}'s outbox: {reason}; queue it again from a worktree on its branch", ticket.branch, ticket.head));
+            }
+        }
+        Ok(())
     }
 
     pub fn pull_remote(&self) -> Vec<String> {
@@ -157,4 +185,9 @@ fn ledger_tail() -> String {
     let rows = std::fs::read_to_string(super::post_land::ledger_path()).unwrap_or_default();
     let lines: Vec<&str> = rows.lines().collect();
     lines[lines.len().saturating_sub(500)..].iter().map(|line| format!("{line}\n")).collect()
+}
+
+fn lane_gone(host: &str, ticket: &Ticket) -> bool {
+    let root = ticket.root.to_string_lossy().replace('\'', "'\\''");
+    ssh(host, &format!("[ -e '{root}/.git' ] && echo present || echo gone")).is_ok_and(|answer| answer.trim() == "gone")
 }

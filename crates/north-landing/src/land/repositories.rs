@@ -80,9 +80,7 @@ pub fn discovered(state_home: &Path, host: &str) -> Discovery {
     discovery
 }
 
-pub fn local_host() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
-}
+pub use crate::platform::land_queue::local_host;
 
 #[cfg(test)]
 #[path = "repositories_tests.rs"]

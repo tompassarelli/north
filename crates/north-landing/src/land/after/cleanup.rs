@@ -7,6 +7,7 @@ use super::super::candidate::{git, output};
 use super::super::lander::Lander;
 use super::super::queue::{self, Ticket};
 use crate::landing::landed_tree;
+use crate::platform::land_queue;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -105,7 +106,7 @@ pub fn origin_branches(lander: &Lander, ticket: &Ticket, holder: &str) {
     }
 }
 
-fn judge(lander: &Lander, ticket: &Ticket, landed: &str) -> Result<PathBuf, String> {
+fn judge(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) -> Result<PathBuf, String> {
     let root = fs::canonicalize(&ticket.root).map_err(|_| "its worktree is not on this host".to_owned())?;
     if !lane_layout(lander, &root) {
         return Err("it is not a lane worktree of this repository".to_owned());
@@ -124,6 +125,10 @@ fn judge(lander: &Lander, ticket: &Ticket, landed: &str) -> Result<PathBuf, Stri
     if ticket.keep_lane {
         return Err("--keep-lane".to_owned());
     }
+    let queues = lander.queue.parent().unwrap_or(&lander.queue);
+    if let Some(waiting) = land_queue::waiting_on(queues, &land_queue::local_host(), &root).into_iter().find(|other| other != path) {
+        return Err(format!("ticket {} still waits to land from it", waiting.display()));
+    }
     let status = output(&root, &["status", "--porcelain"])?;
     if !status.status.success() || !status.stdout.is_empty() {
         return Err("it has uncommitted or untracked files".to_owned());
@@ -134,8 +139,8 @@ fn judge(lander: &Lander, ticket: &Ticket, landed: &str) -> Result<PathBuf, Stri
     Ok(root)
 }
 
-pub fn clean(lander: &Lander, ticket: &Ticket, landed: &str) -> Outcome {
-    let root = match judge(lander, ticket, landed) {
+pub fn clean(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) -> Outcome {
+    let root = match judge(lander, path, ticket, landed) {
         Ok(root) => root,
         Err(reason) => return Outcome::Kept(reason),
     };
@@ -149,8 +154,8 @@ pub fn clean(lander: &Lander, ticket: &Ticket, landed: &str) -> Outcome {
     }
 }
 
-pub fn report(lander: &Lander, ticket: &Ticket, landed: &str) {
-    match clean(lander, ticket, landed) {
+pub fn report(lander: &Lander, path: &Path, ticket: &Ticket, landed: &str) {
+    match clean(lander, path, ticket, landed) {
         Outcome::Removed => println!("north land: lane {} landed; removed its worktree {} and branch", ticket.branch, ticket.root.display()),
         Outcome::Kept(reason) => println!("north land: lane {} landed; kept {}: {reason}", ticket.branch, ticket.root.display()),
     }

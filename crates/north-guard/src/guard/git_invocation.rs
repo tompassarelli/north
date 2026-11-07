@@ -31,6 +31,11 @@ pub fn bash_command(input: &HookInput) -> Option<String> {
 }
 
 pub fn argument_spans<'a>(text: &'a str, invocation: &Regex) -> Vec<&'a str> {
+    invocations(text, invocation).into_iter().map(|(_, arguments)| arguments).collect()
+}
+
+/// Each invocation's own text, through its subcommand, beside the arguments that follow it.
+pub fn invocations<'a>(text: &'a str, invocation: &Regex) -> Vec<(&'a str, &'a str)> {
     let mut spans = Vec::new();
     let mut cursor = 0;
     while let Some(hit) = invocation.find_at(text, cursor) {
@@ -41,7 +46,7 @@ pub fn argument_spans<'a>(text: &'a str, invocation: &Regex) -> Vec<&'a str> {
             continue;
         }
         cursor += arguments.len();
-        spans.push(arguments);
+        spans.push((hit.as_str(), arguments));
     }
     spans
 }

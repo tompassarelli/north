@@ -13,6 +13,7 @@ use super::strays::modified_within;
 use super::state::{LocalStale, Owned};
 use super::super::verdict::{Facts, Verdict, retirement_verdict};
 use north_base::foundation::clock::Timestamp;
+use north_base::platform::land_queue;
 
 const BASES: [&str; 3] = ["refs/remotes/origin/main", "refs/remotes/origin/HEAD", "refs/heads/main"];
 const HOUR_MS: f64 = 3_600_000.0;
@@ -303,7 +304,9 @@ impl Gc {
     }
 
     fn retire_worktree(&mut self, sweep: &mut Container, lane: &Worktree, live: &[PathBuf], basis: &str) -> bool {
-        let reason = if lane.landed.how != "ancestor" {
+        let reason = if let Some(ticket) = land_queue::waiting_on(&land_queue::queues(&self.home.join(".local/state")), &land_queue::local_host(), &lane.path).first() {
+            format!("land ticket {} still waits", ticket.display())
+        } else if lane.landed.how != "ancestor" {
             self.held(lane, live)
         } else if lane.locked {
             "locked".into()

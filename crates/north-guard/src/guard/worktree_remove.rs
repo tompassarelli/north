@@ -1,0 +1,52 @@
+use super::git_invocation::{bash_command, invocation, invocations, words};
+use crate::hook::{HookInput, Verdict};
+use north_base::platform::land_queue;
+use north_base::platform::records_mirror::state_home;
+use regex::Regex;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
+static WORKTREE: LazyLock<Regex> = LazyLock::new(|| invocation("worktree", true));
+
+pub fn evaluate(input: &HookInput) -> Verdict {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
+        return Verdict::Allow;
+    }
+    decide(input, &land_queue::queues(&state_home()), &land_queue::local_host())
+}
+
+pub(super) fn decide(input: &HookInput, queues: &Path, host: &str) -> Verdict {
+    let Some(command) = bash_command(input) else {
+        return Verdict::Allow;
+    };
+    let cwd = PathBuf::from(input.cwd().unwrap_or_default());
+    for (call, arguments) in invocations(&command, &WORKTREE) {
+        let arguments: Vec<&str> = words(arguments).collect();
+        if arguments.first() != Some(&"remove") {
+            continue;
+        }
+        let directory = directory_options(call).into_iter().fold(cwd.clone(), |directory, option| directory.join(home(option)));
+        for lane in arguments[1..].iter().filter(|word| !word.starts_with('-')).map(|word| directory.join(home(word))) {
+            if let Some(ticket) = land_queue::waiting_on(queues, host, &lane).first() {
+                return Verdict::Deny(format!(
+                    "No. Land ticket {} still waits to land from {}, and the lander fetches it from that worktree. Leave it: the lander or north lane gc removes it once every ticket for it is decided.",
+                    ticket.display(),
+                    lane.display()
+                ));
+            }
+        }
+    }
+    Verdict::Allow
+}
+
+fn directory_options(call: &str) -> Vec<&str> {
+    let words: Vec<&str> = words(call).collect();
+    words.windows(2).filter(|pair| pair[0] == "-C").map(|pair| pair[1]).collect()
+}
+
+fn home(word: &str) -> PathBuf {
+    match word.strip_prefix("~/").or_else(|| word.strip_prefix("$HOME/")) {
+        Some(rest) => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(rest),
+        None => PathBuf::from(word),
+    }
+}

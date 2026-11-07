@@ -177,6 +177,7 @@ impl HookKind {
                 crate::guard::blind_stage::evaluate,
                 crate::guard::reviewer_cli::evaluate,
                 crate::guard::git_stash::evaluate,
+                crate::guard::worktree_remove::evaluate,
                 crate::guard::masked_pipeline::evaluate,
                 crate::guard::node_modules_write::evaluate,
                 crate::guard::native_evidence::evaluate,

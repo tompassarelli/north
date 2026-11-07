@@ -89,5 +89,5 @@ A landing on origin's default branch runs follows-release, which starts each
 queued Follows box (threads queue follow) whose predecessor is now on it.
 
 A clean lane landed with --to main is removed afterwards (git worktree remove,
-then git branch -d), and its same-named origin branch is deleted when main
-holds all of it.
+then git branch -d) unless another land ticket for it still waits, and its
+same-named origin branch is deleted when main holds all of it.

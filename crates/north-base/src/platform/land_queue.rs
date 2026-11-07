@@ -27,13 +27,44 @@ pub fn slug(branch: &str) -> String {
 }
 
 pub fn directory(state_home: &Path, origin: &str) -> PathBuf {
-    state_home.join("north/land-queue").join(key(origin))
+    queues(state_home).join(key(origin))
+}
+
+/// The directory holding every repository's landing queue on this host, one per repository key.
+pub fn queues(state_home: &Path) -> PathBuf {
+    state_home.join("north/land-queue")
+}
+
+/// The host name a ticket records as the host its worktree lives on.
+pub fn local_host() -> String {
+    fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
+}
+
+/// The undecided tickets whose lane is the worktree at `root` on `host`, in any queue under `queues` or its outbox:
+/// ticket files no lander has yet decided, withdrawn or taken from the outbox, so the worktree must stay until each is.
+/// Every host lays its lanes out alike, so a ticket from another host never holds a worktree here.
+pub fn waiting_on(queues: &Path, host: &str, root: &Path) -> Vec<PathBuf> {
+    let canonical = fs::canonicalize(root).ok();
+    let names_root = |named: &Path| named == root || canonical.is_some() && fs::canonicalize(named).ok() == canonical;
+    let lane_of = |ticket: &Path| {
+        let ticket = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(ticket).ok()?).ok()?;
+        ticket["host"].as_str().is_none_or(|named| named == host).then(|| ticket["root"].as_str().map(PathBuf::from)).flatten()
+    };
+    fs::read_dir(queues)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .flat_map(|queue| [queue.path(), queue.path().join("outbox")])
+        .flat_map(|directory| fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| entry.path()))
+        .filter(|ticket| ticket.extension().is_some_and(|extension| extension == "json") && ticket.is_file())
+        .filter(|ticket| lane_of(ticket).is_some_and(|named| names_root(&named)))
+        .collect()
 }
 
 /// The fleet sessions whose lane waits undecided in any repository's queue under `state_home`: a ticket the lander has
 /// neither moved to `done/` nor withdrawn.
 pub fn queued_sessions(state_home: &Path) -> BTreeSet<String> {
-    let queues = fs::read_dir(state_home.join("north/land-queue")).into_iter().flatten().flatten().map(|queue| queue.path());
+    let queues = fs::read_dir(queues(state_home)).into_iter().flatten().flatten().map(|queue| queue.path());
     queues
         .flat_map(|queue| fs::read_dir(&queue).into_iter().flatten().flatten().map(move |ticket| (queue.clone(), ticket.path())))
         .filter(|(queue, ticket)| ticket.extension().is_some_and(|extension| extension == "json") && ticket.is_file() && !ticket.file_name().is_some_and(|name| queue.join("withdrawn").join(name).is_file()))

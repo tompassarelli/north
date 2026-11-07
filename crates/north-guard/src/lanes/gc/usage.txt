@@ -12,7 +12,8 @@ when it is finished, and never backs it up or pushes a tag:
     when each of its commits has a commit on origin/main with its subject or its author and
     author date, and the deletion names those commits.
 A worktree under worktrees/ must also have no uncommitted or untracked files, no process with
-its cwd or an open file inside, no live Fleet session, no lock, and no touch within
+its cwd or an open file inside, no live Fleet session, no lock, no undecided land ticket in a
+queue or outbox on this host naming it, and no touch within
 --idle-hours (default 3); it is removed with git worktree remove, then its branch. A local
 branch with no worktree passes the same idle check and, when superseded, the liveness checks
 (live claim, pushed under 24h, open PR, active Actions, autoland). Origin branches are
