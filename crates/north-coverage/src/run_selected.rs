@@ -211,6 +211,9 @@ pub fn north() -> std::ffi::OsString {
 
 pub fn host() -> String {
     let here = north_base::platform::host::name();
+    if std::env::var_os(north_base::foundation::offload::SLOT_ENV).is_some_and(|slot| !slot.is_empty()) {
+        return here;
+    }
     let listed = git(Path::new("."), &["config", "--file", ".safe-push", "--get", "landing.remote-hosts"]).unwrap_or_default();
     if listed.split_whitespace().any(|host| host == here) {
         return here;

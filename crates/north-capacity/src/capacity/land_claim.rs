@@ -8,9 +8,6 @@ use super::admission::{Class, default_mib};
 pub const FILE: &str = "land-check-waiting";
 pub const REASON: &str = "land check waiting";
 
-/// Set by an offload slot for the command it runs, so that command's leases do not yield the slot they hold to a waiting land check.
-pub const OFFLOAD_SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
-
 /// Whether a lease of `class` yields to a waiting land check; one asked from inside an offload slot never does, since yielding would keep the slot from the land check.
 pub fn yields(class: Class, holds_offload_slot: bool) -> bool {
     !holds_offload_slot && matches!(class, Class::Heavy | Class::Moderate | Class::Exclusive)

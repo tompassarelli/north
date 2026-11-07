@@ -234,7 +234,7 @@ impl SlotClass {
 }
 
 pub(super) fn run_part() -> String {
-    RUN.replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+    RUN.replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", crate::runtime::layout::LEASE)
         .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
@@ -245,7 +245,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", crate::capacity::land_claim::OFFLOAD_SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {

@@ -63,10 +63,10 @@ impl Next {
         self.poll().is_some_and(|verdict| *verdict != Verdict::Green)
     }
 
-    fn settle(&mut self) -> Verdict {
-        if let Some(check) = self.check.take() {
-            self.verdict = Some(check.wait());
-            self.stages.checked(&self.head);
+    fn settle(&mut self, lander: &Lander, watch: &mut Watch) -> Verdict {
+        while self.check.is_some() && self.poll().is_none() {
+            watch.settle(lander);
+            std::thread::sleep(POLL);
         }
         self.verdict.clone().unwrap_or_else(|| Verdict::Transient(format!("speculative candidate {} has no check", self.head)))
     }
@@ -128,7 +128,7 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tips, tickets, stages, log, check: Some(check), verdict: None }))
 }
 
-pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>, red_fix: bool) -> (Verdict, Vec<Next>) {
+pub fn check(lander: &Lander, watch: &mut Watch, head: &str, base: &str, log: &Path, taken: Option<&Taken>, red_fix: bool) -> (Verdict, Vec<Next>) {
     let mut started = match checks::start(&checks::Launch { red_fix, ..checks::Launch::of(lander) }, &lander.worktree, base, log, false) {
         Ok(started) => started,
         Err(verdict) => return (verdict, Vec::new()),
@@ -156,6 +156,7 @@ pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<
                 Err(error) => println!("north land: no speculative candidate: {error}"),
             }
         }
+        watch.settle(lander);
         std::thread::sleep(POLL);
     }
 }
@@ -176,7 +177,7 @@ fn push(lander: &Lander, watch: &mut Watch, mut next: Next, landed: &str) -> Res
         println!("north land: speculative candidate {} was built on {}, not on the landed {landed}; discarded", next.head, next.base);
         return Ok(None);
     }
-    let verdict = next.settle();
+    let verdict = next.settle(lander, watch);
     if verdict != Verdict::Green {
         println!("north land: speculative candidate {} was not green ({verdict:?}); discarded, its lanes are rebuilt on main", next.head);
         return Ok(None);

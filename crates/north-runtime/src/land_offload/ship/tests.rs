@@ -427,7 +427,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
             .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
             .env_remove("NORTH_OFFLOAD_ROOT")
-            .env_remove(crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+            .env_remove(north_base::foundation::offload::SLOT_ENV)
             .stdin(fs::File::open(&bundle).unwrap())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
@@ -436,9 +436,9 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     };
     let holder = job("mkdir -p target && echo built >target/marker && sleep 2".to_owned(), "");
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let queued = job(format!("cat target/marker >>{} && printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", home.path().join("marker").display(), crate::capacity::land_claim::OFFLOAD_SLOT_ENV, seen.display()), "");
+    let queued = job(format!("cat target/marker >>{} && printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", home.path().join("marker").display(), north_base::foundation::offload::SLOT_ENV, seen.display()), "");
     let lander_seen = home.path().join("lander-seen");
-    let lander = job(format!("printf '%s' \"${}\" >{}", crate::capacity::land_claim::OFFLOAD_SLOT_ENV, lander_seen.display()), "1").wait_with_output().unwrap();
+    let lander = job(format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, lander_seen.display()), "1").wait_with_output().unwrap();
     assert!(lander.status.success(), "{}", String::from_utf8_lossy(&lander.stderr));
     assert!(!String::from_utf8_lossy(&lander.stderr).contains(super::WAITED), "a lander job takes its reserved slot without waiting behind the job cap");
     assert_eq!(fs::read_to_string(&lander_seen).unwrap(), home.path().join(".cache/land-offload/code-p-main-5").display().to_string());
@@ -532,7 +532,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let inner = home.path().join("inner.sh");
     fs::write(&inner, &script).unwrap();
-    let nested = |head: &str, ran: &Path| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = crate::capacity::land_claim::OFFLOAD_SLOT_ENV);
+    let nested = |head: &str, ran: &Path| format!("setsid -w sh -c \"$(cat {inner})\" offload code/p/main '' {head} 30 code-p-main 'printf %s \"${slot_env}\" >{ran}' refs/land-offload/job '' '' '' 0 <{bundle}", inner = inner.display(), ran = ran.display(), bundle = bundle.display(), slot_env = north_base::foundation::offload::SLOT_ENV);
     let ran = home.path().join("inner-ran");
     let ran_elsewhere = home.path().join("inner-ran-elsewhere");
     let command = format!("{} && {}", nested(&head, &ran), nested(&other, &ran_elsewhere));
@@ -542,7 +542,7 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
         .env("HOME", home.path())
         .env("PATH", &path)
         .env("NORTH_OFFLOAD_MAX_JOBS", "1")
-        .env_remove(crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+        .env_remove(north_base::foundation::offload::SLOT_ENV)
         .env_remove("NORTH_OFFLOAD_ROOT")
         .stdin(fs::File::open(&bundle).unwrap())
         .stdout(fs::File::create(home.path().join("outer.out")).unwrap())
@@ -578,7 +578,7 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
             .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", runtime, "0"])
             .env("HOME", home.path())
             .env("PATH", &path)
-            .env_remove(crate::capacity::land_claim::OFFLOAD_SLOT_ENV)
+            .env_remove(north_base::foundation::offload::SLOT_ENV)
             .env_remove("NORTH_OFFLOAD_ROOT")
             .stdin(fs::File::open(&bundle).unwrap())
             .output()

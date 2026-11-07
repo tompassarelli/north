@@ -195,7 +195,7 @@ impl Lander {
             };
             return self.settle(watch, pass, attempt, batch, checked, judgement);
         }
-        let (verdict, mut checked) = match self.check(pass, attempt, &lanes)? {
+        let (verdict, mut checked) = match self.check(watch, pass, attempt, &lanes)? {
             ControlFlow::Continue(checked) => checked,
             ControlFlow::Break(round) => return Ok(Flow::Done(round)),
         };
@@ -210,7 +210,7 @@ impl Lander {
         self.settle(watch, pass, attempt, batch, checked, judgement)
     }
 
-    fn check(&self, pass: &Pass, attempt: &Attempt, included: &[Entry]) -> Result<ControlFlow<Round, (Verdict, Checked)>, String> {
+    fn check(&self, watch: &mut Watch, pass: &Pass, attempt: &Attempt, included: &[Entry]) -> Result<ControlFlow<Round, (Verdict, Checked)>, String> {
         let built = attempt.built;
         let identity = self.identity()?;
         println!("north land: candidate {} carries {} lanes onto main@{}; checking it", built.head, built.included(), attempt.base);
@@ -218,7 +218,7 @@ impl Lander {
         let mut stages = Stages::start();
         let taken = (pass.limit == usize::MAX && !pass.red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(attempt.tickets, included));
         self.heartbeat.enter(Step::Check);
-        let (verdict, stacked) = speculate::check(self, &built.head, attempt.base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()));
+        let (verdict, stacked) = speculate::check(self, watch, &built.head, attempt.base, &log, taken.as_ref(), included.iter().any(|(_, ticket)| ticket.red_fix.is_some()));
         stages.checked(&built.head);
         if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
             pause::resume(&self.queue);

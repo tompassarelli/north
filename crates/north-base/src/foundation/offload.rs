@@ -6,6 +6,7 @@ pub const ROOT_DEFAULT: &str = ".cache/land-offload";
 pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub const RED_FIX_ENV: &str = "NORTH_LAND_RED_FIX";
 pub const LANDER_SLOT_ENV: &str = "NORTH_OFFLOAD_LANDER_SLOT";
+pub const SLOT_ENV: &str = "NORTH_OFFLOAD_SLOT";
 
 pub fn root() -> Option<PathBuf> {
     env::var_os(ROOT_ENV)

@@ -38,3 +38,15 @@ fn a_run_without_a_verdict_waits_again_absorbing_later_landings_and_reruns_after
     assert!(rerun.covers("b") && rerun.covers("c"));
     assert!(pending.next(30.0).is_none());
 }
+
+#[test]
+fn a_run_waiting_out_its_rerun_delay_does_not_hold_back_a_later_run_that_is_ready() {
+    let mut pending = Pending::default();
+    pending.add(batch("c", "d"));
+    let mut failed = batch("a", "b");
+    failed.retry_at = 30.0;
+    pending.retry(failed);
+    assert_eq!(pending.next(10.0).map(|batch| batch.head), Some("d".to_owned()));
+    assert!(pending.next(10.0).is_none(), "no rerun before the delay");
+    assert_eq!(pending.next(30.0).map(|batch| batch.head), Some("b".to_owned()));
+}

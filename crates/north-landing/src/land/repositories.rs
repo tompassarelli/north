@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::candidate::git;
+use super::hold;
 use super::queue::{self, Ticket};
 
 const RECENT: usize = 50;
@@ -70,7 +71,7 @@ pub fn discovered(state_home: &Path, host: &str) -> Discovery {
     for queue in queues {
         match map(&queue, host) {
             Mapping::Checkout(checkout) => discovery.checkouts.push(checkout),
-            Mapping::Unmapped(reason) if queue::pending(&queue).is_ok_and(|pending| !pending.is_empty()) => discovery.unserved.push(reason),
+            Mapping::Unmapped(reason) if !hold::held(&queue) && queue::pending(&queue).is_ok_and(|pending| !pending.is_empty()) => discovery.unserved.push(reason),
             Mapping::Unmapped(_) => {}
         }
     }
@@ -82,3 +83,7 @@ pub fn discovered(state_home: &Path, host: &str) -> Discovery {
 pub fn local_host() -> String {
     std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
 }
+
+#[cfg(test)]
+#[path = "repositories_tests.rs"]
+mod tests;

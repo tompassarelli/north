@@ -114,7 +114,8 @@ impl Pending {
     }
 
     fn next(&mut self, now: f64) -> Option<Batch> {
-        self.batches.first().is_some_and(|batch| batch.retry_at <= now).then(|| self.batches.remove(0))
+        let ready = self.batches.iter().position(|batch| batch.retry_at <= now)?;
+        Some(self.batches.remove(ready))
     }
 }
 
