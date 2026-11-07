@@ -62,9 +62,6 @@ account letters and logins, hosts, plans, prices and credit, his installs and
 devices, private repository names, and session, environment or artifact IDs.
 A fact pushed to north stays readable in its history after it moves.
 
-Size global policy, AGENTS.md files and skills by measurement, not line caps:
-`agents sync` fails a change only when replay conformance drops or it adds
-startup tokens with no measured gain against south:agents/operating-point.toml.
 Put command detail in CLI help, `help TOPIC` or indexed docs.
 
 ## Validation

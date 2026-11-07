@@ -38,12 +38,9 @@ a rule when its numbers move.
 - Token cost: `north:harness/model-catalog.toml` holds sourced list API prices
   and context thresholds. `agents plan` prints these comparisons separately
   from Tom's subscription value and from measured run outcomes.
-- Escalate to the next tier `agents plan` prints only after `Stop: reasoning`:
-  a wrong cause or two failed fixes.
 
 ## Planner effort
 
-- Launch a planner with `Category: planning` and a reviewer with `Category: review` and no `--effort`: routing runs it at Opus high, and at xhigh on a seeded 50% draw stamped `Arm: effort-xhigh`, until the ledger settles the cheaper arm (gate 163, 2026-11-06; category does not predict effort need, docs/rationale/tier-routing.md).
 - Staff it for a plan, not code, when an issue gets its second Not done, a
   category's last 10 runs fall below 40% closed, or the change is
   architectural.
@@ -63,22 +60,15 @@ a rule when its numbers move.
   Investigate an unevidenced finding from Opus max or xhigh. Have a stronger model check an unevidenced finding from a smaller
   model (Haiku or Sonnet) once before anyone acts on it or
   dismisses it.
-- Reviewers are Claude only (Tom's standing order, 2026-10-16): use Opus at a
-  different tier from the author's, or Sonnet for an Opus author.
 
 ## Compute routing (agreed with Tom 2026-10-10)
 
-- A cloud run costs only the plan usage a local worker would, machine
-  included. Send code-only Mak'gora and Wisp items to cloud workers ([cloud.md](cloud.md))
-  first: 4 cores per run, no cap on runs.
 - Send parallel batch work (balance and CPU fields, suites, soaks) to GitHub
   runners through `github`: the hosted runners and the `farm-big` runners on
   the host south:agents/orchestration.toml names for them.
 - Run always-on Warcraft clients, the offline LAN pool and GPU work on the
   hosts south:agents/orchestration.toml names for them. Keep signed-in
   clients local unless you move them deliberately.
-- Rent no CPU provider for batch work: the farm covers it, and renting is a
-  cost Tom decides.
 - Run a job longer than the 45-minute leash (renders, long captures) yourself
   under a capacity lease, then staff a short worker to use its output.
 
@@ -89,8 +79,7 @@ a rule when its numbers move.
   lands it, and a Haiku worker ticks its boxes after landing.
 - Lander host (a repository whose committed `.safe-push` sets `landing.queue = lander`, on the host named by `landing.lander-host`): `safe-push --to main` queues the lane and writes only a ticket, and the worker reports `Done: queued <branch>`. The lander's fleet "landed" message is the landing, so the worker ends its turn instead of waiting. Any other host is refused, naming the setting to add.
 - Elsewhere: a lead runs `safe-push` in the foreground with a 10-minute
-  timeout. A worker runs it in the background, because worker-wait-guard
-  refuses a foreground landing, and reports once it exits. If the landing takes
+  timeout. A worker runs it in the background and reports once it exits. If the landing takes
   longer than 10 minutes, report the exact lane so the parent lands it.
 - While main is red, staff its fix first and keep queuing lanes behind it.
   Never cancel an Autoland run: a cancelled bisect half strands its lanes.

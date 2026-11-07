@@ -31,22 +31,7 @@ because a wrapper that pretends to be `PreToolUse` sees the wrong payload.
 - Deny only a decoded dangerous operation and name a sanctioned alternative,
   because an agent can only retry from a legal next move. Guards allow or deny;
   they never ask the owner.
-- A PreToolUse allow does not skip Claude Code's own dangerous-rm dialog;
-  the `north-hook` tripwire guard answers it on `PermissionRequest:Bash`.
 
-
-## Skill by file
-
-`agent-machinery/file-skills.toml` maps edited file kinds to the skill that
-governs them (`.rs`, `Cargo.toml`, `rust-toolchain.toml` to
-`rust-development`; `.ts` where the nearest `package.json` or `node_modules`
-has `effect` to `effect-development`; `.nix` to `nix-development`). The
-`file_skill` check in `north-hook` advises the skill body on a session's first
-matching `PreToolUse` edit and never again that session, and flags a Cargo
-workspace root without `[profile.dev]` once with the compile-times reference's
-dev-profile lines. It never refuses an edit, because the skill is context, not
-a boundary. Add a language by adding a row; the embedded table is the only
-place file kinds are mapped.
 
 ## Identity and activity inputs
 

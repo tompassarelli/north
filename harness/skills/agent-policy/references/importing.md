@@ -19,10 +19,6 @@ instructions, Git internals, plugin manifests and provider-specific policy
 unless the destination needs them, because an external skill cannot grant
 permissions, override local policy or silently install its tools.
 
-Make the directory slug and frontmatter `name` identical, using lowercase
-letters, digits and hyphens, because the catalog validator matches them.
-Optional metadata belongs only where used.
-
 Record the exact source, license, adapted scope and required notices in
 `agent-machinery/NOTICE` and `agent-machinery/PROVENANCE.md`, and keep any
 license file whose terms require it, because attribution is a license

@@ -4,7 +4,7 @@ Rules for Warcraft clients, private desktops, native evidence runs, GPU work and
 
 ## Native sessions
 
-- Use `session --class native --new-clients N --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops (one scope per client, two per pair), because they must outlive a batch deadline. `native-launch-guard` refuses wine, proton, steam-run or a game .exe started outside one.
+- Use `session --class native --new-clients N --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops (one scope per client, two per pair), because they must outlive a batch deadline.
 - Keep native sessions foreground until command exit, Ctrl-C or explicit stop, because a detached tree escapes its scope.
 - Declare `--new-clients N` on a native `run`, `session` or `probe`: 1 for a clone or one client (the default), 2 for a pair start, 0 for a run on clients already up, because admission defers only when live Warcraft clients plus N exceed the host's client cap: its measured `warcraft_clients` (else four when attended) as a ceiling, lowered to the live clients plus those free BAR1 (`bar1_client_mib` each after `bar1_margin_mib`) and free VRAM (`vram_client_mib` each after `vram_margin_mib`) from the same `nvidia-smi -q -d MEMORY` still fit (north#259).
 - Declare `--new-desktops N` beside it for the private desktops the request starts (2 for a pair whose clients each get a desktop), because admission defers while live BAR1 Free is below the declared desktops and clients at their measured MiB plus a margin.
@@ -21,8 +21,6 @@ Rules for Warcraft clients, private desktops, native evidence runs, GPU work and
 
 ## GPU
 
-- Expect any request except agent and tom (the build Tom is waiting to play, which never waits on the GPU) that starts GPU work or names a native, private or gpu need to defer with DEFER_GPU_BUSY while Tom is present and the laptop GPU is at least 85% busy with no gpu lease running, naming `offload` when another host serves the need, because admission counts CPU and memory but an agent window admitted as `--class heavy` once held the 890M at 100% and made his desktop choppy.
-- gpu is admitted on GPU occupancy, not behind CPU-heavy tickets.
 - Size a gpu `run` or `session` that runs a whole native game for a performance measurement with `--memory-gib G --cpus N` from its measured resident peak plus headroom and its busy threads, because the default 1 CPU/2 GiB scope throttled a four-fighter Mak'gora benchmark with hundreds of memory-pressure events and seconds of CPU quota stall a minute while players run unthrottled (wisp#230, 2026-11-04).
 
 ## Gaming and game reserve

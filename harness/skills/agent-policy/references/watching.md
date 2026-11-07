@@ -8,16 +8,7 @@ each has a cited entry in docs/references.md.
 
 ## When a source comes due
 
-A source is due once 30 days have passed since its `last_reviewed`, or sooner once
-its `path` has 10 or more commits past `last_commit`. It stays due until step 7
-moves `last_reviewed`. The daily watch-review timer (`watch-review.timer` on the
-laptop, running `north watch-review`) checks every source in the follow list and launches
-one fleet session for each due source that has no live session, with fleet
-placement choosing the account. That session is how the lead learns a source is
-due; a failed run alerts the proxy. A screened repository held back for a later look
-gets a `[[recheck]]` entry (id, repo, recheck date at most 60 days out, reason) instead
-of a source. On that date the timer launches one session to answer the reason, which
-follows, skips or rechecks it again, and removes the entry.
+The daily `north watch-review` timer launches one fleet session per due source and per held `[[recheck]]` entry; that session runs the cycle below.
 
 ## One cycle per source
 

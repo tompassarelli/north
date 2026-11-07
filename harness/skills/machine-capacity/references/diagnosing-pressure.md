@@ -10,9 +10,7 @@ What a DEFER means, where a build went, and who holds the machine. Exact thresho
 
 ## Why heavy work waits
 
-- Expect a heavy admission to start while CPU pressure (PSI some avg10) sits under a target band and memory has room, not while a job count has room: heavy and moderate leases other than landing checks run in the idle-weighted `agent-batch.slice` (`CPUWeight=idle`, so cgroup `cpu.idle=1`, and no CPUQuota; MemoryHigh stays), so declared CPUs reserve nothing: the next queued build starts, one per `admit_settle_seconds` (30 s) so the next reading includes the last, until the high mark (unattended 40, attended 25, game reserve 20%) where it waits (DEFER_RUN_QUEUE, which names an `offload` host), or until `admit_batch_jobs_per_core` (0.5) times the cores of those leases run (DEFER_BATCH_JOBS); each 30-second laptop-auto tick freezes the batch slice when app, session, game or game-reserve slice CPU some avg10 reaches the attended (or game) high mark and thaws it under the low mark (10, or 5%); memory counts the declared MiB of heavy leases younger than `admit_memory_ramp_seconds` against what is available, while a build's resident set is still growing (the laptop held 7 to 12 builds for up to 35 minutes at PSI 1 to 4% under the old counts, 2026-10-31).
-- Exclusive admission defers as DEFER_RUN_QUEUE at `run_queue_psi_attended` (40%) or `run_queue_psi_unattended` (60%); facts stated without a pressure reading (fixtures, stdin) defer heavy and exclusive on the 1-minute load average once system CPU some avg10 is under 1%, else the higher of the 1- and 5-minute load averages, past the thread count, and a live host that cannot read pressure fails admission. Tickets held by DEFER_RUN_QUEUE hold no place for moderate work, and critical, tom, runtime, native, agent and moderate ignore it.
-- Expect a heavy run to be charged at least its declared 6 CPUs, so at most three heavy builds share the 20-CPU line.
+- Heavy admission waits on CPU pressure against a target band, not on a job count, and a DEFER names its reason; the thresholds are in [admission details](admission-details.md#queue-and-spawn-gate).
 - Builds on a `lease_builds` host wait for a lease through the `cargo`, `bun` and `nix` shims and `depbox`, so `nix develop --command cargo build` started over ssh waits too; `north capacity gate` states the rest.
 
 ## Offload
@@ -28,7 +26,4 @@ What a DEFER means, where a build went, and who holds the machine. Exact thresho
 
 ## Desktop and profiles
 
-- Attended batch stays within cores minus four and 20% RAM available, and defers while protected-slice CPU some avg10 is at least 10%, because the desktop must stay responsive. Unattended stays within all cores and an 8 GiB available-memory floor, never above a quarter of RAM on small hosts.
-- Cap leased memory at 75% RAM in both profiles, so the kernel never has to reclaim from interactive work.
 - Weight Tom's desktop slice above agent work while attended: every profile change and every admitted run sets app.slice and session.slice (the compositor) to CPUWeight and IOWeight 1000 (100 and 300 unattended) and agent.slice to 20 (`slice_weight_app_attended`, `slice_weight_app_unattended`, `slice_weight_session_unattended`, `slice_weight_agent`), a 50 to 1 share under contention, because unleased bursts (betterleaks at 400%, a pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed his browser while a stale runtime drop-in of 2026-10-29 had left both slices at 100; hosts with a fixture subslice leave the real slices alone.
-- Respect the spawn gate when committed batch CPUs reach the aggregate limit or protected CPU pressure exceeds 20; queue, use the farm or use cloud workers, because adding local workers then slows everything.
