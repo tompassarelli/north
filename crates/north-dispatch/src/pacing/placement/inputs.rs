@@ -10,6 +10,10 @@ use toml_edit::DocumentMut;
 pub fn config() -> Result<DocumentMut, String> {
     sampling::config()
 }
+/// The worker turn the ledger prices on an account (`claude:LABEL`), as the spend rule charges it.
+pub fn worker_turns(at: f64) -> impl Fn(&str) -> Option<crate::spend::Turn> {
+    sampling::worker_turns(at)
+}
 pub fn cloud_credit(cfg: &DocumentMut, at: f64) -> (bool, String) {
     credit(cfg, at)
 }

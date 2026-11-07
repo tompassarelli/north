@@ -35,7 +35,7 @@ pub use verbs::{VERBS, eta_pred_scale, run};
 pub use box_eta::{box_durations, box_run};
 pub use boxes::{BoxRun, box_chains, box_duration, box_groups, moment};
 pub use forward::walk_forward_eta;
-pub use rates::{ACCOUNT_RATE_HOURS, rates_of};
+pub use rates::{ACCOUNT_RATE_HOURS, TURN_MIN_RUNS, TurnCost, rates_of};
 pub use read::{Raw, box_rows, calibration_runs, calibration_runs_with, escalated, escalated_with, raw_runs};
 pub use recommend::{recommend, recommend_usd};
 

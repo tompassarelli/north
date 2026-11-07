@@ -4,9 +4,13 @@ use std::collections::BTreeMap;
 use rusqlite::Connection;
 
 use super::forward::{Figure, Row};
+use super::quantile;
+use super::read::raw_runs;
+use crate::spend::Turn;
 use crate::usage::decide::world::{Rate, Rates};
 
 pub const ACCOUNT_RATE_HOURS: usize = 20;
+pub const TURN_MIN_RUNS: usize = 20;
 const POOLED: &str = "pooled";
 const WINDOWS: [(&str, &str); 2] = [("five_hour", "session"), ("week", "weekly_all")];
 
@@ -109,4 +113,24 @@ pub fn rates_of(db: &Connection, account: &str) -> rusqlite::Result<Option<Rates
         (Some(five_hour), Some(week)) => Some(Rates { five_hour, week }),
         _ => None,
     })
+}
+
+/// The p90 API-equivalent dollars of one worker run in the ledger since `since`, which prices a worker turn on any account.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TurnCost {
+    pub p90_usd: f64,
+    pub runs: usize,
+}
+
+impl TurnCost {
+    /// None under `TURN_MIN_RUNS` priced runs, too few for a p90.
+    pub fn read(db: &Connection, since: &str) -> rusqlite::Result<Option<Self>> {
+        let costs: Vec<f64> = raw_runs(db, "outcome != 'running' AND ended >= ?1", &[&since])?.into_iter().filter_map(|run| run.api_usd).collect();
+        Ok(if costs.len() < TURN_MIN_RUNS { None } else { quantile(&costs, 0.9).map(|p90_usd| Self { p90_usd, runs: costs.len() }) })
+    }
+
+    /// The turn on `account` (its label, such as `a`): this cost at the account's measured points per dollar. None without a measured rate.
+    pub fn on(&self, db: &Connection, account: &str) -> rusqlite::Result<Option<Turn>> {
+        Ok(rates_of(db, account)?.map(|rates| Turn::measured(self.p90_usd, self.runs, rates.five_hour.points_per_usd(), rates.week.points_per_usd())))
+    }
 }

@@ -20,7 +20,7 @@ use crate::pacing::placement::{self, gate};
 use crate::pacing::placement::case::{grants_left, keyed_here};
 use north_strategy_types::placement::GrantSource;
 use crate::platform::process::run_within;
-use crate::spend::{self, Rules, View};
+use crate::spend::{self, Rules, Size, View};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
@@ -174,7 +174,8 @@ pub(super) fn grants(cfg: &DocumentMut, roster: &Roster, here: &str, sources: Ve
 /// it, and the worker sessions active in `sessions`.
 fn spend_view(cfg: &DocumentMut, roster: &Roster, here: &str, rules: &Rules, sessions: &[(Session, String)], at: f64) -> View {
     let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
-    spend::view(&placement::pace_directory(), rules, fleets::active_workers(sessions), at, |name| spend::plan_week(cfg, catalog, name), |name| !signed_in(cfg, roster, name, here).is_empty(), spend::keyed(cfg))
+    let turn = placement::worker_turns(at);
+    spend::view(&placement::pace_directory(), rules, fleets::active_workers(sessions), at, |name| Size { plan_week: spend::plan_week(cfg, catalog, name), turn: turn(name) }, |name| !signed_in(cfg, roster, name, here).is_empty(), spend::keyed(cfg))
 }
 
 /// The spend view as a dispatch survey reads it, for `north fleet launch`: every reached host's

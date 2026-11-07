@@ -9,7 +9,7 @@ pub mod tripwire;
 
 use std::fmt;
 
-pub use read::{TRIPS, keyed, plan_week, view};
+pub use read::{Size, TRIPS, keyed, plan_week, view};
 pub use tripwire::Trip;
 
 /// The rule's knobs, from harness/defaults.toml.
@@ -55,6 +55,26 @@ impl Window {
     }
 }
 
+/// What one worker turn takes from an account's windows at p90, in percent of each window, and where the figure came from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Turn {
+    pub five_hour: f64,
+    pub week: f64,
+    pub basis: String,
+}
+
+impl Turn {
+    /// The turn priced from the ledger: the p90 API-equivalent dollars of `runs` worker runs at the account's measured points per dollar.
+    pub fn measured(p90_usd: f64, runs: usize, five_hour_points_per_usd: f64, week_points_per_usd: f64) -> Self {
+        Self { five_hour: p90_usd * five_hour_points_per_usd, week: p90_usd * week_points_per_usd, basis: format!("p90 ${p90_usd:.2} of {runs} worker runs") }
+    }
+
+    /// The turn assumed when the ledger gives none: `Rules::charge` Max 5x week points of the account's week.
+    fn assumed(rules: &Rules, plan_week: f64) -> Self {
+        Self { five_hour: 0.0, week: rules.charge / plan_week.max(f64::MIN_POSITIVE), basis: format!("assumed {:.1} week points, no measured p90", rules.charge) }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Account {
     /// `provider:label`.
@@ -65,6 +85,7 @@ pub struct Account {
     pub week: Option<Window>,
     /// Whether its week counts toward the pool: a host is signed in to it and its reading is fresh.
     pub counted: bool,
+    pub turn: Option<Turn>,
 }
 
 impl Account {
@@ -78,6 +99,16 @@ impl Account {
             return Some(Refusal { rule: Rule::Unread, line: format!("{} has no five-hour and week usage reading", self.name) });
         };
         [("five-hour", five_hour), ("week", week)].into_iter().find(|(_, window)| window.used(at) >= 100.0).map(|(kind, _)| Refusal { rule: Rule::ProviderLimit, line: format!("{} is at its provider's {kind} limit", self.name) })
+    }
+
+    /// Why one more worker turn at p90 cannot finish inside the account's five-hour and week windows.
+    fn cover(&self, rules: &Rules, at: f64) -> Option<Refusal> {
+        let (Some(five_hour), Some(week)) = (self.five_hour, self.week) else { return None };
+        let turn = self.turn.clone().unwrap_or_else(|| Turn::assumed(rules, self.plan_week));
+        [("five-hour", five_hour, turn.five_hour), ("week", week, turn.week)].into_iter().find(|(_, window, need)| window.used(at) + need >= 100.0).map(|(kind, window, need)| Refusal {
+            rule: Rule::Turn,
+            line: format!("{} has {:.1}% of its {kind} window left and one worker turn takes {need:.1}% at p90 ({})", self.name, (100.0 - window.used(at)).max(0.0), turn.basis),
+        })
     }
 }
 
@@ -115,6 +146,7 @@ pub enum Rule {
     Cap,
     Tripwire,
     ProviderLimit,
+    Turn,
     Unread,
 }
 
@@ -125,6 +157,7 @@ impl fmt::Display for Rule {
             Self::Cap => "spend cap",
             Self::Tripwire => "spend tripwire",
             Self::ProviderLimit => "provider limit",
+            Self::Turn => "worker turn",
             Self::Unread => "no usage reading",
         })
     }
@@ -171,6 +204,11 @@ impl View {
         }
         let chosen = self.account(account).ok_or_else(|| Refusal { rule: Rule::Unread, line: format!("{account} has no usage reading") })?;
         if let Some(refusal) = chosen.limit(self.at) {
+            return Err(refusal);
+        }
+        if starter == Starter::Worker
+            && let Some(refusal) = chosen.cover(rules, self.at)
+        {
             return Err(refusal);
         }
         match self.trips.iter().find(|trip| trip.account == account).filter(|_| starter != Starter::Reserved) {

@@ -6,19 +6,25 @@ use std::path::Path;
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item};
 
-use super::{Account, Rules, Trip, View, Window};
+use super::{Account, Rules, Trip, Turn, View, Window};
 use crate::foundation::clock::rfc3339_seconds;
 
 /// The current trips, relative to the agents state directory.
 pub const TRIPS: &str = "spend/trips.json";
 
+/// What the caller knows of an account beyond its sampled windows: its week in Max 5x weeks and the
+/// worker turn the ledger prices for it.
+pub struct Size {
+    pub plan_week: f64,
+    pub turn: Option<Turn>,
+}
+
 /// The view at `at` with `working` worker sessions across the fleet, read from the agents state
-/// directory `agents`; `plan_week` sizes an account's week in Max 5x weeks and `signed_in` says
-/// whether some host is signed in to it.
-pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, plan_week: impl Fn(&str) -> f64, signed_in: impl Fn(&str) -> bool, keyed: Vec<String>) -> View {
+/// directory `agents`; `size` sizes an account and `signed_in` says whether some host is signed in to it.
+pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, size: impl Fn(&str) -> Size, signed_in: impl Fn(&str) -> bool, keyed: Vec<String>) -> View {
     let gate = read(&agents.join("usage-gate.json"));
     let sampled = gate["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
-    let accounts = sampled.map(|(name, windows)| account(rules, name, plan_week(name), windows, at, signed_in(name))).collect();
+    let accounts = sampled.map(|(name, windows)| account(rules, name, size(name), windows, at, signed_in(name))).collect();
     View { at, accounts, working, trips: trips(&read(&agents.join(TRIPS)), rules, at), keyed }
 }
 
@@ -34,12 +40,12 @@ fn read(path: &Path) -> Value {
     std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or(Value::Null)
 }
 
-fn account(rules: &Rules, name: &str, plan_week: f64, windows: &Value, at: f64, signed_in: bool) -> Account {
+fn account(rules: &Rules, name: &str, size: Size, windows: &Value, at: f64, signed_in: bool) -> Account {
     let found = |wanted: &str| windows.as_array()?.iter().find(|window| window["window"] == wanted);
     let window = |wanted: &str| found(wanted).and_then(|window| Some(Window { used_pct: window["used_pct"].as_f64()?, resets_at: window["resets_at"].as_str().and_then(rfc3339_seconds) }));
     let read_at = found("week").and_then(|week| week["as_of"].as_str()).and_then(rfc3339_seconds);
     let fresh = read_at.is_some_and(|read_at| at - read_at <= rules.reading_max_h * 3600.0);
-    Account { name: name.to_owned(), plan_week, five_hour: window("5h"), week: window("week"), counted: signed_in && fresh }
+    Account { name: name.to_owned(), plan_week: size.plan_week, turn: size.turn, five_hour: window("5h"), week: window("week"), counted: signed_in && fresh }
 }
 
 /// The `provider:label` names of the accounts the policy bills by API key (`[accounts.claude.api_keys]`).

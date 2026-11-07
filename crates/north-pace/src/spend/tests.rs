@@ -1,5 +1,5 @@
 use super::tripwire::{self, Burst, Sample, Spender};
-use super::{Account, Placed, Rule, Rules, Starter, View, Window};
+use super::{Account, Placed, Rule, Rules, Starter, Turn, View, Window};
 
 const NOW: f64 = 1_800_000_000.0;
 const HOUR: f64 = 3600.0;
@@ -9,7 +9,7 @@ fn rules() -> Rules {
 }
 
 fn account(name: &str, five_hour: f64, week: f64) -> Account {
-    Account { name: name.into(), plan_week: 1.0, five_hour: Some(Window { used_pct: five_hour, resets_at: Some(NOW + 4.0 * HOUR) }), week: Some(Window { used_pct: week, resets_at: Some(NOW + 100.0 * HOUR) }), counted: true }
+    Account { name: name.into(), plan_week: 1.0, five_hour: Some(Window { used_pct: five_hour, resets_at: Some(NOW + 4.0 * HOUR) }), week: Some(Window { used_pct: week, resets_at: Some(NOW + 100.0 * HOUR) }), counted: true, turn: None }
 }
 
 /// Tom revised rule 1 on 2026-11-07: one reserve pooled across accounts, so one account may be drained
@@ -47,4 +47,23 @@ fn the_tripwire_fires_on_a_planted_burst_and_names_the_top_spender() {
     assert_eq!(view.admit(&rules(), "claude:c", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Tripwire));
     let calm = [Sample { at: NOW - 14.0 * 60.0, used_pct: 20.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 45.0, resets_at: Some(NOW + HOUR) }];
     assert_eq!(tripwire::trip(&rules(), "claude:c", &calm, &[], 1.0, NOW), None);
+}
+
+/// The 2026-11-07 3:15 PM failure: a worker started on an account with 1% of its week left and died mid-turn on the weekly limit.
+#[test]
+fn a_worker_is_refused_an_account_whose_windows_cannot_cover_one_turn_at_p90_and_names_the_account_and_window() {
+    let turn = Turn::measured(8.0, 66, 0.2, 0.5);
+    let mut view = View { at: NOW, accounts: vec![account("claude:a", 10.0, 99.0), account("claude:b", 10.0, 50.0)], working: 0, trips: Vec::new(), keyed: Vec::new() };
+    view.accounts.iter_mut().for_each(|account| account.turn = Some(turn.clone()));
+    let refused = view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).unwrap_err();
+    assert_eq!(refused.rule, Rule::Turn);
+    assert_eq!(refused.line, "claude:a has 1.0% of its week window left and one worker turn takes 4.0% at p90 (p90 $8.00 of 66 worker runs)");
+    assert_eq!(view.admit(&rules(), "claude:b", Starter::Worker, Placed::default()), Ok(()));
+    assert_eq!(view.admit(&rules(), "claude:a", Starter::Reserved, Placed::default()), Ok(()), "the proxy is handed to the account in room order and starts no worker turn");
+    view.accounts[1] = Account { turn: Some(turn), ..account("claude:b", 99.0, 50.0) };
+    let refused = view.admit(&rules(), "claude:b", Starter::Worker, Placed::default()).unwrap_err();
+    assert!(refused.line.starts_with("claude:b has 1.0% of its five-hour window left and one worker turn takes 1.6%"), "{refused}");
+    view.accounts[0].turn = None;
+    let refused = view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).unwrap_err();
+    assert!(refused.line.ends_with("(assumed 1.0 week points, no measured p90)"), "{refused}");
 }

@@ -10,7 +10,7 @@ fate.
 
 One module, `north_pace::spend`, holds the rule. Dispatch, `north fleet launch`, the spawn hook and
 follows-release call it, and nothing else may refuse a worker on usage grounds. A refusal names the rule that
-fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no usage reading`.
+fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit`, `worker turn` or `no usage reading`.
 
 1. **Pooled reserve.** One reserve covers all accounts together. The pool is the sum, over the accounts
    spend counts, of each account's unspent share of its week (all of it once the week has reset), scaled by
@@ -43,7 +43,19 @@ fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no u
    of them can tune the thresholds.
 
 The provider's own limit is not a north rule. An account at the end of either window cannot run anything, so
-placement skips it and the refusal names `provider limit`. Besides the reserve, that is the only usage stop.
+placement skips it and the refusal names `provider limit`.
+
+**Turn cover.** A worker that starts on an account whose window ends mid-turn dies there (2026-11-07 3:15 PM:
+two launches on an account at 99% of its week, both lost to the weekly limit; north#259). A worker therefore
+also needs the account's five-hour and week windows to cover one more worker turn at its p90: the p90
+API-equivalent dollars of a worker run in the ledger over the last 7 days (at least 20 priced runs), times the
+account's measured points per dollar for that window (`calibration` rate rows). An account whose used percent
+plus that turn reaches 100 takes no worker; the refusal names the account, the window, the percent left and
+the turn and its basis, as `worker turn`, and placement takes the next account in rank order or holds the box
+until a window resets. Without a ledger p90 or a measured rate the week is charged `spend_worker_charge`
+points and the five-hour window nothing. The proxy, routines and Tom's sessions, and Agent-tool subagents,
+start no worker turn and meet only the provider limit. Besides the reserve, the two window checks are the
+only usage stops.
 The money refusal and its ceiling stay; they are cost policy, not pacing.
 
 Nothing else refuses: no burn projection, no week spread over the hours to reset, no pace line, no hold,
