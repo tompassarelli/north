@@ -5,9 +5,9 @@ use serde_json::{Value, json};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Entry, EntryKind, Status, Transcript};
 use crate::fleet::registry::{Fleet, urgent_text};
-use crate::fleet::turns::Turn;
 
 use super::list;
+use super::turn_json::turn_json;
 use super::usage::usage;
 
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
@@ -33,18 +33,6 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     session["turns"] = transcript.turns.iter().map(turn_json).collect();
     println!("{session}");
     Ok(())
-}
-
-pub(super) fn turn_json(turn: &Turn) -> Value {
-    json!({
-        "exit": turn.exit.label(),
-        "ended_ms": turn.ended_ms,
-        "turns": turn.turns,
-        "tokens_in": turn.tokens.input,
-        "tokens_out": turn.tokens.output,
-        "tokens_cache_read": turn.tokens.cache_read,
-        "tokens_cache_write": turn.tokens.cache_write,
-    })
 }
 
 pub(super) fn show(fleet: &Fleet, name: &str, follow: bool) -> NorthResult<()> {

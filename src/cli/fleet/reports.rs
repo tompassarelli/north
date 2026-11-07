@@ -9,7 +9,7 @@ use crate::error::NorthResult;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 
-use super::show::turn_json;
+use super::turn_json::turn_json;
 use super::usage::usage;
 
 const KEPT_MS: u64 = 48 * 60 * 60 * 1000;

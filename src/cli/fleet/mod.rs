@@ -35,6 +35,7 @@ mod spool;
 mod tick;
 mod tier;
 mod tree;
+mod turn_json;
 pub(super) mod usage;
 mod window_move;
 mod view;

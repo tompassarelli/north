@@ -28,7 +28,6 @@ use super::gated;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
 use super::ranked;
-use super::reports;
 use super::one_proxy;
 use super::launch::{LaunchParts, launch_parts};
 use super::list;
@@ -114,9 +113,8 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         [] => tui::fleet::run(fleet),
-        [verb @ ("list" | "stranded" | "rebooted"), rest @ ..] => list::list(&fleet, verb, rest),
+        [verb @ ("list" | "stranded" | "rebooted" | "reports"), rest @ ..] => list::list(&fleet, verb, rest),
         ["tree"] => tree::tree(&fleet),
-        ["reports", rest @ ..] => reports::run(&fleet, rest),
         ["spend", rest @ ..] => spend::run(&fleet, rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["need", rest @ ..] => need::run(rest),
