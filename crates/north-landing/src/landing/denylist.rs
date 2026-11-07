@@ -319,6 +319,8 @@ pub fn prose_range(root: &Path, base: &str, head: &str, ref_name: Option<&str>) 
     let mut segments: Vec<String> = git(root, &["log", "--format=%B%x00", &range, "--"])?.split('\0').map(str::to_owned).collect();
     let mut diff = vec!["log", "-p", "-U0", "--no-merges", "--no-renames", "--format=", range.as_str(), "--"];
     diff.extend(PROSE_PATHS);
+    let generated: Vec<String> = super::merge_set::read_rules(&root.join(super::merge_set::DEFAULT_CONFIG)).unwrap_or_default().into_iter().filter(|rule| matches!(rule.kind, super::merge_set::Kind::Regenerate { .. })).map(|rule| format!(":(exclude){}", rule.path)).collect();
+    diff.extend(generated.iter().map(String::as_str));
     let mut added: BTreeMap<String, String> = BTreeMap::new();
     let (mut file, mut header) = (String::new(), false);
     for line in git(root, &diff)?.lines() {

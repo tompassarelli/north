@@ -174,4 +174,9 @@ fn a_public_destination_runs_the_deny_list_scan_and_the_private_kind_judge_and_n
     let keyed: Vec<_> = environment.iter().copied().chain([("ANTHROPIC_API_KEY", Path::new("planted"))]).collect();
     fixture.run_with(&["--dry-run"], &keyed).expect(false, &["ANTHROPIC_API_KEY is set", "NOT pushed"]);
     fixture.run_with(&["--dry-run"], &environment).expect(true, &[]);
+
+    shim::write_script(&fixture.bin.join("claude"), "if grep -q walnut-lantern; then echo 'fixture-kind | walnut-lantern'; else echo NONE; fi\n");
+    fixture.commit("harness/merge-sets.toml", "[[set]]\npath = \"index.md\"\nkind = \"regenerate\"\ncommand = \"true\"\nsources = [\"notes/\"]\n", "declare a generated index");
+    fixture.commit("index.md", "the walnut-lantern plan, as its source already says\n", "regenerate the index");
+    fixture.run_with(&["--dry-run"], &environment).expect(true, &[]);
 }
