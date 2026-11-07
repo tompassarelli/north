@@ -76,8 +76,11 @@ impl Waker for Recorded {
 }
 
 fn stopped_at(fleet: &Fleet, name: &str, ago: Duration) {
-    let stream = fleet.root.join(name).join("g1/stream.jsonl");
-    File::options().write(true).open(stream).unwrap().set_modified(SystemTime::now() - ago).unwrap();
+    fleet.follow_recent(name).unwrap();
+    let host = fleet.root.join(name).join("g1");
+    for stream in [host.join("stream.jsonl"), host.join("session-streams").join(format!("{name}.jsonl"))] {
+        File::options().write(true).open(stream).unwrap().set_modified(SystemTime::now() - ago).unwrap();
+    }
 }
 
 #[test]
