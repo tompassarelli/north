@@ -42,7 +42,7 @@ fn route(arguments: &[String], host: &Host) -> Option<u8> {
         Some("calibration") => host::calibration_command(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | mode status|tick|hold [--minutes N] [PHRASE]|extend|release | gaming on|off|status | game-reserve on [--auto]|off|playing|status | offload choose|cost|free|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | exec [--dev-shell DIRECTORY] -- COMMAND... | sandbox --lane DIR -- COMMAND... | carry --list [--into sandbox|fetch|offload] | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog sample|report|replay|rest-check|step | model [KEY] | calibration [--since 24h] | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | mode status|tick|hold [--minutes N] [PHRASE]|extend|release | gaming on|off|status | game-reserve on [--auto]|off|playing|status | offload choose|cost|free|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | exec [--dev-shell DIRECTORY] -- COMMAND... | sandbox --lane DIR -- COMMAND... | carry --list [--into sandbox|fetch|offload] | warcraft-clients | warcraft-limit | disk-share SHARE | disk | unleased | watchdog sample|report|replay|rest-check|step | model [KEY] | calibration [--since 24h] | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
             2
         }
     };
@@ -67,6 +67,9 @@ pub fn run(arguments: &[String], host: Host) -> u8 {
     }
     if let [verb, share] = arguments && verb == "disk-share" {
         return disk_share(share);
+    }
+    if arguments == ["disk"] {
+        return disk_account();
     }
     if let Some(status) = route(arguments, &host) {
         return status;
@@ -96,6 +99,18 @@ fn disk_share(name: &str) -> u8 {
     };
     if let Some(gib) = crate::platform::disk_budget::DiskBudget::local().gib(share) {
         println!("{gib}");
+    }
+    0
+}
+
+/// `north capacity disk`: every store of this host's disk ledger with its kind, bytes, budget and trim, the home's unregistered folders, and the used bytes no store explains.
+fn disk_account() -> u8 {
+    let Some(account) = crate::platform::disk_ledger::local() else {
+        eprintln!("north capacity: cannot read the root disk under HOME");
+        return 1;
+    };
+    for line in account.lines() {
+        println!("{line}");
     }
     0
 }

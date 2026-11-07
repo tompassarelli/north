@@ -622,11 +622,19 @@ source = "measured: the 80% line was set when the GPU host had a 468 GiB disk, 9
 fallback = "none: the reaper always applies it"
 consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-runtime/src/offload_cache/mod.rs", "crates/north-capacity/src/capacity/saturation.rs"]
 
-[host_disk_incident_free_gib]
-value = 70
+[disk_low_watermark_free_gib]
+value = 400
 allowed = { min = 0, max = 65536 }
-unit = "GiB free on a build host's root disk under which the lease reaper records one host-disk incident per episode; a disk too small to spare it records under 15% free instead"
-source = "measured: the 85% incident line on the GPU host's former 468 GiB disk left 70 GiB free; kept as headroom so the 936 GiB disk raises no incident with 140 GiB free (north#634)"
+unit = "GiB free a build host's cleanup pass runs down to: once the root disk passes its high watermark the lease reaper trims the regenerable caches harness/disk-ledger.toml lists for its own passes (build-offload slots, the shared cargo targets, wisp window builds, sccache), least recently used first and past their caps, in one pass until the disk is back over this line or nothing regenerable is left; a disk too small to spare it uses 40% free instead, so the 936 GiB host cleans from 87% used to about 60%"
+source = "measured: on 2026-11-07 the 936 GiB build host fell from 164 to 147 GiB free at the top of each hour over a day (about 17 GiB a day net) with swings of 100 to 190 GiB from transient jobs, so 40% free leaves about two weeks of net growth before the 13% high watermark; wide hysteresis replaced trimming just back over one line on 2026-11-07 (north#725)"
+fallback = "none: the reaper always applies it"
+consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-runtime/src/offload_cache/mod.rs"]
+
+[disk_high_watermark_free_gib]
+value = 130
+allowed = { min = 0, max = 65536 }
+unit = "GiB free on a build host's root disk under which the lease reaper starts one cleanup pass down to the low watermark, records one host-disk incident for the episode and pages the proxy once with what the pass trimmed and the three largest stores of the disk ledger; the episode closes once the disk is back over this line, so the next pass waits for the next crossing; a disk too small to spare it uses 13% free instead"
+source = "measured: the former incident line (70 GiB free) sat under the eviction line (94 GiB free), so the incident came after land slots were gone; 130 GiB or 13% starts the cleanup at 87% used on the 936 GiB host, 36 GiB before its eviction line (north#725)"
 fallback = "none: the reaper always applies it"
 consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-runtime/src/offload_cache/mod.rs"]
 

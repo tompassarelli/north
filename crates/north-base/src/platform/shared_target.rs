@@ -62,8 +62,8 @@ pub fn run_sweep(cache: &Path, cap: u64) -> u8 {
 }
 
 /// Trims the shared cargo targets under `cache` as one store held to `cap`: while together they pass it, the least recently built target
-/// loses idle build output first, only as much as the store is over.
-pub fn sweep_store(cache: &Path, now: SystemTime, cap: u64) -> io::Result<Vec<(PathBuf, u64)>> {
+/// loses idle build output first, only as much as the store is over. `cap` turns the bytes the store holds into the bytes it may keep.
+pub fn sweep_store(cache: &Path, now: SystemTime, cap: impl FnOnce(u64) -> u64) -> io::Result<Vec<(PathBuf, u64)>> {
     let mut targets = Vec::new();
     for target in shared_targets(cache) {
         let (mut bytes, mut built) = (0, SystemTime::UNIX_EPOCH);
@@ -77,6 +77,7 @@ pub fn sweep_store(cache: &Path, now: SystemTime, cap: u64) -> io::Result<Vec<(P
     }
     targets.sort_by_key(|(built, _, _)| *built);
     let mut held: u64 = targets.iter().map(|(_, bytes, _)| bytes).sum();
+    let cap = cap(held);
     let mut trimmed = Vec::new();
     for (_, bytes, target) in targets {
         if held <= cap {

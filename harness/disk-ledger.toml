@@ -1,0 +1,152 @@
+# Every store north or a project writes on a host's root disk, in the order the lease reaper takes from the ones it trims.
+# path is under the home unless absolute; one `*` in a segment matches any run of characters there.
+# kind is cache (regenerable: the cleanup pass that passing the high watermark starts trims it least recently used first down to the low
+# watermark), warm (regenerable but a cold rebuild to lose: trimmed only under the eviction line), lane (work in progress: north lane gc retires it once landed or abandoned)
+# or state (not regenerable: north never deletes it and only reports its size).
+# trim names what keeps the store in bounds: build-slots, cargo-targets, compiler-cache, oldest-entries and land-slots are the lease
+# reaper's own passes; any other text names the command or project that does. A store nested in another is counted only in itself.
+# A store's budget is its name in the host's [hosts.NAME.disk_budget_gib] in orchestration.toml.
+
+[[store]]
+name = "build_offload"
+path = ".cache/build-offload"
+kind = "cache"
+trim = "build-slots"
+
+[[store]]
+name = "cargo_target"
+path = ".cache/cargo-target*"
+kind = "cache"
+trim = "cargo-targets"
+
+[[store]]
+name = "wisp_window"
+path = ".cache/wisp/window"
+kind = "cache"
+trim = "oldest-entries"
+
+[[store]]
+name = "sccache"
+path = ".cache/sccache"
+kind = "cache"
+trim = "compiler-cache"
+
+[[store]]
+name = "land_offload"
+path = ".cache/land-offload"
+kind = "warm"
+trim = "land-slots"
+
+[[store]]
+name = "mutant_cargo"
+path = ".cache/north/mutant-cargo"
+kind = "cache"
+trim = "north lane reclaim"
+
+[[store]]
+name = "north_cache"
+path = ".cache/north"
+kind = "cache"
+trim = "north lane reclaim and north land clean"
+
+[[store]]
+name = "map_store"
+path = ".cache/wisp/maps"
+kind = "cache"
+trim = "wisp map reuse"
+
+[[store]]
+name = "wisp_cache"
+path = ".cache/wisp"
+kind = "cache"
+trim = "wisp"
+
+[[store]]
+name = "home_cache"
+path = ".cache"
+kind = "cache"
+trim = "the tool that owns each folder"
+
+[[store]]
+name = "nix_store"
+path = "/nix"
+kind = "cache"
+trim = "nix-gc.timer"
+
+[[store]]
+name = "tmp"
+path = "/tmp"
+kind = "cache"
+trim = "north lane reclaim"
+
+[[store]]
+name = "worktrees"
+path = "code/*/worktrees"
+kind = "lane"
+trim = "north lane gc"
+
+[[store]]
+name = "checkouts"
+path = "code"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "makgora_evidence"
+path = ".local/state/makgora/evidence"
+kind = "cache"
+trim = "north lane reclaim"
+
+[[store]]
+name = "capture_batches"
+path = ".local/state/makgora/capture-queue"
+kind = "cache"
+trim = "north lane reclaim"
+
+[[store]]
+name = "makgora_state"
+path = ".local/state/makgora"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "makgora_build_inputs"
+path = ".local/share/makgora-*"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "wisp_share"
+path = ".local/share/wisp"
+kind = "state"
+trim = "north lane reclaim takes idle LAN pair copies"
+
+[[store]]
+name = "wc3"
+path = ".local/share/wc3"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "north_state"
+path = ".local/state/north"
+kind = "state"
+trim = "north retain"
+
+[[store]]
+name = "local_state"
+path = ".local/state"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "local_share"
+path = ".local/share"
+kind = "state"
+trim = "none"
+
+[[store]]
+name = "system"
+path = "/var"
+kind = "state"
+trim = "journald and the system's own retention"

@@ -10,11 +10,6 @@ use crate::platform::disk_budget::{DiskBudget, Share};
 
 const DEFAULT_CAP_BYTES: u64 = 10 << 30;
 
-/// The store the build hosts' lanes set as `SCCACHE_DIR`, sccache's own default under the home's cache.
-pub fn root(home: &Path) -> PathBuf {
-    home.join(".cache/sccache")
-}
-
 /// The host's `sccache` disk budget, else the `SCCACHE_CACHE_SIZE` sccache itself trims to, else sccache's 10 GiB default.
 pub fn cap_bytes(budget: &DiskBudget) -> u64 {
     budget.bytes(Share::CompilerCache).or_else(|| env::var("SCCACHE_CACHE_SIZE").ok().and_then(|size| parse_size(&size))).unwrap_or(DEFAULT_CAP_BYTES)
@@ -33,11 +28,12 @@ pub fn parse_size(text: &str) -> Option<u64> {
     digits.parse::<u64>().ok()?.checked_mul(1 << shift)
 }
 
-/// Removes the oldest entries under `root` until it holds at most `cap` bytes; the bytes freed.
-pub fn trim(root: &Path, cap: u64) -> u64 {
+/// Removes the oldest entries under `root` until it holds at most the bytes `cap` allows of what it holds; the bytes freed.
+pub fn trim(root: &Path, cap: impl FnOnce(u64) -> u64) -> u64 {
     let mut entries = Vec::new();
     collect(root, &mut entries);
     let mut held: u64 = entries.iter().map(|(_, bytes, _)| bytes).sum();
+    let cap = cap(held);
     if held <= cap {
         return 0;
     }

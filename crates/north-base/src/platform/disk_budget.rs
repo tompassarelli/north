@@ -49,7 +49,12 @@ impl DiskBudget {
     }
 
     pub fn gib(&self, share: Share) -> Option<f64> {
-        let value = self.policy.as_ref()?.get("hosts")?.get(&self.host)?.get("disk_budget_gib")?.get(share.key())?;
+        self.named_gib(share.key())
+    }
+
+    /// The budget of the store `harness/disk-ledger.toml` names `name`, which for a `Share` is its key.
+    pub fn named_gib(&self, name: &str) -> Option<f64> {
+        let value = self.policy.as_ref()?.get("hosts")?.get(&self.host)?.get("disk_budget_gib")?.get(name)?;
         value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).filter(|gib| *gib > 0.0)
     }
 
