@@ -97,7 +97,7 @@ impl Environment {
             capacity: text("SAFE_PUSH_LAND_CAPACITY"),
             offload_host: text("SAFE_PUSH_LAND_OFFLOAD_HOST"),
             timeout: text("SAFE_PUSH_LAND_CHECK_TIMEOUT").parse().ok(),
-            runner: std::env::var("SAFE_PUSH_LAND_RUNNER").ok(),
+            runner: std::env::var("SAFE_PUSH_LAND_RUNNER").ok().filter(|runner| !runner.is_empty()),
             off_host: std::env::var(OFF_HOST_ENV).is_ok_and(|value| value == "1"),
         }
     }

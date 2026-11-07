@@ -209,6 +209,14 @@ fn land_publish() {
         let trace = fixture.trace();
         assert!(trace.contains("capacity offload choose --any --count 2 --taken buildbox --taken buildbox\n"), "the 1:51 AM run of 2026-11-07 spread clippy and nextest onto ccx33 beside the head-north checks pinned there, counting none of them: {trace}");
     }
+
+    {
+        let fixture = Fixture::new(&[("land.runner", "buildbox"), ("land.check", "file.txt :: true clippy")]);
+        let output = fixture.command().env("SAFE_PUSH_LAND_RUNNER", "").output().unwrap();
+        assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+        let trace = fixture.trace();
+        assert!(trace.contains("--host buildbox"), "on 2026-11-07 the lander unit's empty SAFE_PUSH_LAND_RUNNER overrode runner = build-host and every candidate check compiled on the laptop: {trace}");
+    }
 }
 
 fn hung_log(fixture: &Fixture) -> String {
