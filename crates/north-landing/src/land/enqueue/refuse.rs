@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::land::candidate::git;
+use crate::land::candidate::{git, output};
 use crate::land::lane_gates::{self, Judging, Lane};
 use crate::land::scans::git::merge_base;
-use crate::landing::stale_revert;
+use crate::landing::{merge_set, stale_revert};
 use crate::watch::facts::slug_of;
 
 pub(super) fn refuse_archived(origin: &str) -> Result<(), String> {
@@ -40,6 +40,30 @@ pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home:
     let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()) };
     let Some((failed, text)) = lane_gates::failed(&lane, Judging::Recorded) else { return Ok(()) };
     Err(format!("{} refused it here, as the lander would after its queue wait:\n{}", failed.join(", "), String::from_utf8_lossy(&text).trim_end()))
+}
+
+fn driver_merged<'a>(root: &Path, paths: &[&'a str]) -> Result<Vec<&'a str>, String> {
+    let mut arguments = vec!["check-attr", "merge", "--"];
+    arguments.extend(paths);
+    let attributes = git(root, &arguments)?;
+    let driven: Vec<&str> = attributes.lines().filter_map(|line| line.rsplit_once(": merge: ")).filter(|(_, driver)| merge_set::DRIVERS.iter().any(|known| known.name == *driver)).map(|(path, _)| path).collect();
+    Ok(paths.iter().copied().filter(|path| driven.contains(path)).collect())
+}
+
+pub(super) fn refuse_conflict(root: &Path, base: &str, destination: &str) -> Result<(), String> {
+    let merged = output(root, &["merge-tree", "--write-tree", "--name-only", "--no-messages", base, "HEAD"])?;
+    if merged.status.code() != Some(1) {
+        return Ok(());
+    }
+    let listing = String::from_utf8_lossy(&merged.stdout);
+    let conflicted: Vec<&str> = listing.lines().skip(1).take_while(|line| !line.is_empty()).collect();
+    let merged_by_driver = driver_merged(root, &conflicted)?;
+    let left: Vec<&str> = conflicted.into_iter().filter(|path| !merged_by_driver.contains(path)).collect();
+    if left.is_empty() {
+        return Ok(());
+    }
+    let short = &base[..base.len().min(9)];
+    Err(format!("it conflicts with origin/{destination} at {short} on {}, which the lander would send back as a conflict after its queue wait; rebase onto origin/{destination}, resolve those files and run safe-push again", left.join(", ")))
 }
 
 pub(super) fn refuse_unfetchable(root: &Path, base: &str, head: &str) -> Result<(), String> {

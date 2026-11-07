@@ -13,7 +13,7 @@ use super::queue::{self, RedFix, Ticket};
 use super::repositories;
 use super::setting;
 mod refuse;
-use refuse::{refuse_archived, refuse_lane_gates, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
+use refuse::{refuse_archived, refuse_conflict, refuse_lane_gates, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
 use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
@@ -187,6 +187,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     git(&root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
+    refuse_conflict(&root, &base, &destination)?;
     refuse_static_gates(&root, &base, "HEAD")?;
     super::divergence::refuse_malformed(&git(&root, &["log", "--format=%B", &format!("{base}..HEAD")])?)?;
     let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };

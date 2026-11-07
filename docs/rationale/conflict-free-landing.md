@@ -481,6 +481,42 @@ Each box is about one lane.
     1. Step 9 (e) of landing-train.md links this note.
     2. Its "In-flight lanes" section names this note as the owner of conflict semantics.
 
+## Evidence and the enqueue rule, 2026-11-07 (north#697)
+
+The laptop lander's `done/` records for 2026-10-31 to 2026-11-06 hold 2,225 decisions and 349
+conflict verdicts over 344 distinct heads. The most-conflicted files across the week were:
+
+- `docs/features.md`: 95, a set file listed beside a real conflict (alone in only 5).
+- `crates/north-landing/src/land/mod.rs`: 36, from the usage line and match arms that later moved
+  into the `commands.rs` set table.
+- `tests/it/land_serve.rs` and `tests/it/land_enqueue.rs`: 21 and 14, since split into directories.
+
+The set drivers and the deferral above landed at 9:47 PM on 2026-11-05 (laptop clock). Before then the lander
+sent back 271 of 981 decisions as conflicts (27.6%); after it, 78 of 1,244 (6.3%; 2026-11-06 alone,
+58 of 944). The 78 left no hot file: no path appears more than 3 times. 56 hold modify/modify hunks
+and 11 add/add only, 52 collided with a lane of another issue, and 9 with a sibling of the same
+issue.
+
+Each was rebuilt against main as pushed at the ticket's `queued_at` (main's history taken from
+the `landed` records' times), merging the whole lane with `git merge-tree --write-tree` (never
+`--quiet`, which exits 0 on a conflict under git 2.54) and setting set-driven paths aside:
+
+- 48 already conflicted with origin's main when they were queued, so the queue wait, often a
+  build-host check run, was spent on a lane that could not land.
+- 26 became conflicts while they waited, as a lane ahead of them landed.
+- 1 was clean against main, and 3 heads are gone.
+
+Before the drivers the split was the other way: 33 at enqueue and 155 during the wait.
+
+The largest remaining class is therefore one enqueue already has the facts for: it fetches
+origin's main into `base` and never asked whether the lane merges onto it. `north land enqueue` now
+runs that merge first, before the gates, and refuses a lane whose conflicted paths are not all
+merged by a north driver, naming the files, so the worker rebases in the same turn instead of
+learning it from a send-back after the wait. A replay over the 747 lanes that landed after the
+drivers shows none of them conflicting with main at their own `queued_at`, so the rule refuses no
+lane that would have landed. The 26 wait-time conflicts are what the reservation (C4) and the
+staffing overlap (C7) exist for.
+
 ## Review disposition (2026-11-05)
 
 Two reviews of the first draft (1885e3e30): review-conflict-scn, which ran scenarios against the

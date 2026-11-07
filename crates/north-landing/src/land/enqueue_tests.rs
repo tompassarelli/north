@@ -89,7 +89,7 @@ impl Lane {
 }
 
 #[test]
-fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_and_a_test_over_the_budget_or_a_revert_of_newer_main_is_refused_before_it_queues() {
+fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_keeps_it_as_it_is_and_a_test_over_the_budget_a_revert_of_newer_main_or_a_conflict_with_it_is_refused_before_it_queues() {
     let lane = Lane::new();
     lane.commit("add the first lane line", &["Refs: #7", "Lane-note: first"]);
     lane.commit("add the second lane line", &["Refs: #7", "Lane-note: second"]);
@@ -154,4 +154,15 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     commit(&lane.repo, "lane squashed onto main without a rebase");
     let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
     assert!(refused.contains("undoes recent commits on main") && refused.contains(&newer[..9]), "{refused}");
+
+    let lane = Lane::new();
+    lane.commit("the lane adds its own line", &[]);
+    run(&lane.repo, &["switch", "-q", "main"]);
+    lane.commit("main adds a different line", &[]);
+    run(&lane.repo, &["push", "-q", "origin", "main"]);
+    run(&lane.repo, &["switch", "-q", "lane"]);
+    let refused = lane.try_enqueue(super::Shape::OneCommit { message: None }).unwrap_err();
+    assert!(refused.contains("conflicts with origin/main") && refused.contains("on content.txt"), "{refused}");
+    let queue = super::queue::directory(&lane.dir.path().join("state"), &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
+    assert!(fs::read_dir(&queue).map_or(true, |mut entries| entries.next().is_none()), "a conflicting lane left a ticket in {}", queue.display());
 }
