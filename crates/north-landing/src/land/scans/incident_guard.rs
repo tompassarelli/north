@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use regex::Regex;
 
-use super::test_file::is_test_file;
+use crate::test_file::is_test_file;
 use super::{Range, git};
 use crate::platform::land_queue::{ROUND, slug};
 use crate::watch::facts::slug_of;

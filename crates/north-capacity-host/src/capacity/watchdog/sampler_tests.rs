@@ -15,8 +15,8 @@ fn termination_signals_only_a_process_whose_start_time_still_matches() {
     let mut child = Command::new("sleep").arg("30").spawn().unwrap();
     let pid = i64::from(child.id());
     terminate(&[Term { pid, start: "0".into() }]);
-    std::thread::sleep(Duration::from_millis(200));
-    assert!(child.try_wait().unwrap().is_none(), "a recycled pid with another start time is left alone");
+    let pending = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap().lines().filter_map(|line| line.strip_prefix("ShdPnd:")).map(|mask| u64::from_str_radix(mask.trim(), 16).unwrap()).next().unwrap();
+    assert!(child.try_wait().unwrap().is_none() && pending & (1 << 14) == 0, "a recycled pid with another start time is left alone");
     terminate(&[Term { pid, start: start_of(child.id()) }]);
     let deadline = Instant::now() + Duration::from_secs(5);
     while child.try_wait().unwrap().is_none() {

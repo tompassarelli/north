@@ -2,6 +2,7 @@
 //! links, prints each decision kind's outcome counts beside the logged ones, and checks the declared
 //! invariants over the replayed decisions (docs/rationale/strategy-kernel.md, Replay).
 use std::path::Path;
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use north_base::platform::decision_log;
@@ -25,11 +26,21 @@ const DEFAULT_SINCE: f64 = 86400.0;
 /// Decides a request on its logged snapshot object, answering the reason and whether the snapshot held a land check's claim.
 pub type AdmissionDecider = dyn Fn(&str, &admission::Request) -> Option<(admission::Reason, bool)> + Sync;
 
+/// Seconds on a monotonic clock; replay times each decision call and the whole replay against it, and a test drives its own.
+pub type Clock = dyn Fn() -> f64 + Sync;
+
+/// The clock the running binary times with.
+pub fn monotonic() -> f64 {
+    static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    START.elapsed().as_secs_f64()
+}
+
 /// The decisions replay runs again, each over a logged case.
 pub struct Deciders<'a> {
     pub admission: &'a AdmissionDecider,
     pub judge: &'a (dyn Fn(&land::JudgeCase) -> land::Judgement + Sync),
     pub placement: &'a (dyn Fn(&placement::Case) -> Option<placement::Target> + Sync),
+    pub clock: &'a Clock,
 }
 
 impl Deciders<'static> {
@@ -39,6 +50,7 @@ impl Deciders<'static> {
             admission: &north_capacity::capacity::replay::decide,
             judge: &north_landing::land::judge_case::judge,
             placement: &north_dispatch::pacing::placement::case::replayed_target,
+            clock: &monotonic,
         }
     }
 }
@@ -109,9 +121,9 @@ pub fn run_with(deciders: &Deciders, bounds: &Bounds, arguments: &[String]) -> u
 /// Replays `options.since` seconds of the log under `root` up to `now`, prints the report and the refusals, and returns the exit code.
 pub fn execute(root: &Path, now: f64, deciders: &Deciders, bounds: &Bounds, options: &Options) -> u8 {
     let resident = memory_mebibytes("VmRSS");
-    let started = Instant::now();
+    let started = (deciders.clock)();
     let replayed = replay(root, now - options.since, now, deciders, bounds);
-    let seconds = started.elapsed().as_secs_f64();
+    let seconds = (deciders.clock)() - started;
     let grown = (memory_mebibytes("VmHWM") - resident).max(0.0);
     print_report(&replayed, options.invariants, (now - options.since, now), seconds, grown);
     let mut refusals = replayed.refusals(bounds, options.invariants);

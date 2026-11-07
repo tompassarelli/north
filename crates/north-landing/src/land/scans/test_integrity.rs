@@ -6,7 +6,7 @@ use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 use serde_json::Value;
 
-use super::test_file::is_test_file;
+use crate::test_file::is_test_file;
 use super::{Range, git, host_paths};
 
 static MUTANT_MARKER: LazyLock<BytesRegex> =

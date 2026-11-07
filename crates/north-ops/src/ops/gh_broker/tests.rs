@@ -19,17 +19,39 @@ const ETAG: &str = "\"v1\"";
 struct Ledger {
     calls: AtomicUsize,
     charged: AtomicUsize,
+    arrived: AtomicUsize,
     seen: Mutex<Vec<String>>,
+    held: Mutex<bool>,
+    wake: std::sync::Condvar,
+}
+
+impl Ledger {
+    fn hold(&self) {
+        *self.held.lock().unwrap() = true;
+    }
+
+    fn release(&self) {
+        *self.held.lock().unwrap() = false;
+        self.wake.notify_all();
+    }
+
+    fn arrive(&self) {
+        self.arrived.fetch_add(1, Ordering::SeqCst);
+        drop(self.wake.wait_while(self.held.lock().unwrap(), |held| *held).unwrap());
+    }
+
+    fn until_arrived(&self, calls: usize) {
+        while self.arrived.load(Ordering::SeqCst) < calls {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
 }
 
 fn reply(request: &Request) -> Response {
     let header = |name: &str, value: String| (name.to_owned(), value);
     match request.target.as_str() {
         ISSUES if request.header("if-none-match") == Some(ETAG) => Response { status: 304, headers: vec![header("ETag", ETAG.into())], body: Vec::new() },
-        ISSUES | "/repos/o/r/pulls" => {
-            std::thread::sleep(Duration::from_millis(300));
-            Response { status: 200, headers: vec![header("ETag", ETAG.into())], body: format!("[{{\"from\":\"{}\"}}]", request.target).into_bytes() }
-        }
+        ISSUES | "/repos/o/r/pulls" => Response { status: 200, headers: vec![header("ETag", ETAG.into())], body: format!("[{{\"from\":\"{}\"}}]", request.target).into_bytes() },
         "/graphql" => Response { status: 200, headers: Vec::new(), body: b"{\"data\":{}}".to_vec() },
         "/repos/o/uninstalled" if request.header("authorization").is_some_and(|token| token.contains("ghs_")) => Response { status: 404, headers: Vec::new(), body: Vec::new() },
         "/whoami" | "/repos/o/uninstalled" => Response { status: 200, headers: Vec::new(), body: request.header("authorization").unwrap_or("").as_bytes().to_vec() },
@@ -53,6 +75,7 @@ fn fake_github() -> (String, Arc<Ledger>) {
             let ledger = Arc::clone(&counted);
             std::thread::spawn(move || {
                 let request = read_request(&stream).unwrap();
+                ledger.arrive();
                 let response = reply(&request);
                 ledger.calls.fetch_add(1, Ordering::SeqCst);
                 if response.status != 304 {
@@ -117,7 +140,10 @@ fn source(response: &Response) -> &str {
 #[test]
 fn two_sessions_identical_reads_cost_one_github_call() {
     let broker = Arc::new(Harness::start(Duration::from_secs(20)));
+    broker.github.hold();
     let sessions: Vec<_> = (0..2).map(|_| { let broker = Arc::clone(&broker); std::thread::spawn(move || broker.get(ISSUES)) }).collect();
+    broker.github.until_arrived(1);
+    broker.github.release();
     let answers: Vec<Response> = sessions.into_iter().map(|session| session.join().unwrap()).collect();
     for answer in &answers {
         assert_eq!((answer.status, answer.body.as_slice()), (200, b"[{\"from\":\"/repos/o/r/issues\"}]".as_slice()));
@@ -239,6 +265,7 @@ fn the_brokers_gh_config_edits_keep_the_login_and_release_only_its_own_line_whil
 fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
     let mut broker = Harness::start(Duration::from_secs(20));
     let socket = broker.socket.clone();
+    broker.github.hold();
     let held = {
         let socket = socket.clone();
         std::thread::spawn(move || {
@@ -248,12 +275,11 @@ fn a_draining_broker_answers_the_call_it_holds_then_stops_accepting() {
             read_response(&stream).unwrap()
         })
     };
-    while broker.activity.idle_for().is_some() {
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    broker.github.until_arrived(1);
     broker.activity.drain(&socket);
     broker.served.take().unwrap().join().unwrap();
     assert!(!held.is_finished(), "the held call is still running when the server loop has stopped");
+    broker.github.release();
     assert!(broker.activity.finish_open_calls(Duration::from_secs(5)));
     assert_eq!(held.join().unwrap().status, 200, "the call in flight when the drain began is answered, not cut");
 }

@@ -9,7 +9,7 @@ use regex::bytes::Regex as BytesRegex;
 use crate::platform::push_ledger;
 use super::test_integrity::{in_vendored, vendored_trees};
 use super::incident_guard;
-use super::test_file::is_test_file;
+use crate::test_file::is_test_file;
 use super::{Range, git};
 use crate::landing::fails_first;
 use north_base::foundation::exit::NO_VERDICT;

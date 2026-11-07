@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -39,10 +39,7 @@ fn one_hung_account_read_ends_on_its_deadline_while_the_others_read() {
         std::fs::write(&file, format!("{token}\n")).unwrap();
         Account { provider: ProviderName::new("claude"), label: label.into(), home: home.path().into(), token_file: Some(file), api: None }
     };
-    let started = Instant::now();
     let reads = read_all_from(&endpoint, Duration::from_millis(300), &[account("a", "slow-token"), account("b", "fast-token"), account("c", "fast-token")]);
-    let elapsed = started.elapsed();
-    assert!(elapsed < Duration::from_secs(5), "the run took {elapsed:?}");
     let read = |label: &str| reads.iter().find(|(read, _)| read == label).unwrap().1.clone();
     assert!(read("a").unwrap_err().contains("2 attempts"));
     assert_eq!(hung.load(Ordering::SeqCst), 2);
@@ -64,8 +61,9 @@ fn answer(mut stream: std::net::TcpStream, hung: &AtomicUsize) {
     }
     if String::from_utf8_lossy(&request).contains("Bearer slow-token") {
         hung.fetch_add(1, Ordering::SeqCst);
-        std::thread::sleep(Duration::from_secs(60));
-        return;
+        loop {
+            std::thread::park();
+        }
     }
     let text = String::from_utf8_lossy(&request).to_lowercase();
     let length = text.lines().find_map(|line| line.strip_prefix("content-length:")).and_then(|length| length.trim().parse().ok()).unwrap_or(0);

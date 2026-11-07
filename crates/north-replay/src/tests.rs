@@ -112,7 +112,7 @@ fn deciders<'a>(
     judge: &'a (dyn Fn(&land::JudgeCase) -> Judgement + Sync),
     placement: &'a (dyn Fn(&placement::Case) -> Option<placement::Target> + Sync),
 ) -> Deciders<'a> {
-    Deciders { admission, judge, placement }
+    Deciders { admission, judge, placement, clock: &monotonic }
 }
 
 fn quiet_admission(_: &str, _: &admission::Request) -> Option<(Reason, bool)> {
@@ -300,16 +300,21 @@ fn assert_a_strategy_whose_slowest_call_passes_10_ms_is_refused_naming_its_kind_
     let root = tempfile::tempdir().unwrap();
     log_admission(root.path(), 3, false, |_| Reason::Run);
     let options = Options { since: 86_400.0, invariants: false, budget: true };
+    thread_local! {
+        static MILLISECONDS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+    let clock = || f64::from(MILLISECONDS.get()) / 1000.0;
     let sleeps = |_: &str, _: &admission::Request| {
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        MILLISECONDS.set(MILLISECONDS.get() + 30);
         Some((Reason::Run, false))
     };
-    let replayed = replay(root.path(), NOW - 86_400.0, NOW, &deciders(&sleeps, &same_judgement, &unplaced), &bounds());
+    let driven = Deciders { clock: &clock, ..deciders(&sleeps, &same_judgement, &unplaced) };
+    let replayed = replay(root.path(), NOW - 86_400.0, NOW, &driven, &bounds());
     let slow = replayed.slow_calls(&bounds());
     assert_eq!(slow.len(), 1);
     assert!(slow[0].starts_with("admission call took 3") && slow[0].ends_with("over the 10 ms of replay_call_milliseconds"), "{slow:?}");
-    assert_eq!(execute(root.path(), NOW, &deciders(&sleeps, &same_judgement, &unplaced), &bounds(), &options), 1);
-    assert_eq!(execute(root.path(), NOW, &deciders(&quiet_admission, &same_judgement, &unplaced), &bounds(), &options), 0);
+    assert_eq!(execute(root.path(), NOW, &driven, &bounds(), &options), 1);
+    assert_eq!(execute(root.path(), NOW, &Deciders { clock: &clock, ..deciders(&quiet_admission, &same_judgement, &unplaced) }, &bounds(), &options), 0);
 }
 
 fn refused_decision() -> placement::Decision {

@@ -71,7 +71,9 @@ fn run(directory: &Path, arguments: &[&str]) -> String {
 }
 
 fn micros() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros()
+    static START: std::sync::LazyLock<u128> = std::sync::LazyLock::new(|| SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros());
+    static TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    *START + u128::from(TICKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
 }
 
 struct Lane {
@@ -146,7 +148,6 @@ impl World {
     }
 
     fn enqueue(&self, lander: &Lander, ticket: &Ticket) -> Lane {
-        std::thread::sleep(Duration::from_millis(2));
         let name = queue::file_name(micros(), &ticket.branch);
         queue::write(&lander.queue.join(&name), ticket).unwrap();
         Lane { name, subject: run(&ticket.root, &["log", "-1", "--format=%s", &ticket.head]) }
@@ -385,21 +386,22 @@ fn chaos_remote_runner_lost_mid_check_holds_then_lands() {
 }
 
 
-const STALL: Duration = Duration::from_secs(300);
+fn hang() -> ! {
+    loop {
+        std::thread::park();
+    }
+}
 
 fn stalled_patrol(_: &Lander) -> Result<(), String> {
-    std::thread::sleep(STALL);
-    Ok(())
+    hang()
 }
 
 fn stalled_recovery(_: &Lander, _: &Path) -> Result<Option<after::Recovered>, String> {
-    std::thread::sleep(STALL);
-    Ok(None)
+    hang()
 }
 
 fn stalled_pull(_: &Lander) -> Vec<String> {
-    std::thread::sleep(STALL);
-    Vec::new()
+    hang()
 }
 
 fn stalled_chores(world: &World) {

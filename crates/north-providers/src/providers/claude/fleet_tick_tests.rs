@@ -415,13 +415,17 @@ fn a_working_session_whose_five_hour_window_is_spent_is_parked_by_the_tick_and_r
     assert!(waits.of("worker").is_empty(), "the wait is released once the session is told");
 }
 
-const HANG: Duration = Duration::from_secs(30);
+fn hang() -> ! {
+    loop {
+        std::thread::park();
+    }
+}
 
 struct Sleepy;
 
 impl WaitProbes for Sleepy {
     fn placement(&self) -> Option<Box<dyn FnOnce() + Send>> {
-        Some(Box::new(|| std::thread::sleep(HANG)))
+        Some(Box::new(|| hang()))
     }
 
     fn jobs(&self) -> Vec<ProbeJob> {
@@ -431,10 +435,7 @@ impl WaitProbes for Sleepy {
             ProbeJob {
                 name: "probes.slow",
                 own: None,
-                run: Box::new(move |_| {
-                    std::thread::sleep(HANG);
-                    said("slow ran")
-                }),
+                run: Box::new(move |_| hang()),
             },
             ProbeJob { name: "probes.after", own: None, run: Box::new(move |_| said("after ran")) },
             ProbeJob { name: "probes.own", own: Some(Duration::from_secs(5)), run: Box::new(move |_| said("own ran")) },
@@ -446,13 +447,11 @@ struct HungLedger;
 
 impl LedgerHost for HungLedger {
     fn exchange(&mut self, _: &Exchange) -> NorthResult<Exchanged> {
-        std::thread::sleep(HANG);
-        Err(NorthError::Refused("ssh nexus: hung".into()))
+        hang()
     }
 
     fn settle(&mut self, _: &[WaitKey]) -> NorthResult<()> {
-        std::thread::sleep(HANG);
-        Err(NorthError::Refused("ssh nexus: hung".into()))
+        hang()
     }
 }
 
@@ -460,8 +459,7 @@ struct HungTake;
 
 impl FarSpools for HungTake {
     fn take(&self, ssh: &str) -> NorthResult<Pull> {
-        std::thread::sleep(HANG);
-        Nobody.take(ssh)
+        hang()
     }
 
     fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {

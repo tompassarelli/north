@@ -35,7 +35,7 @@ pub fn replay(change: &Change, root: &Path, since: f64, now: f64) -> Score {
         }
         (linked.placement)(&case)
     };
-    let candidate = Deciders { admission: linked.admission, judge: linked.judge, placement: &patched };
+    let candidate = Deciders { admission: linked.admission, judge: linked.judge, placement: &patched, clock: linked.clock };
     let replayed = north_replay::replay(root, now - since, now, &candidate, &bounds);
     let refused_by_candidate = replayed.refusals(&bounds, true).into_iter().filter(|refusal| !current.contains(refusal)).collect();
     let placement = replayed.counts.iter().find(|counts| counts.kind == "placement").map_or_else(|| "placement: no cases".to_owned(), |counts| counts.line());

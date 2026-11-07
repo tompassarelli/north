@@ -18,7 +18,6 @@ pub mod strategy_purity;
 pub mod strategy_replay;
 pub mod stale_revert;
 pub mod test_admission;
-mod test_file;
 pub mod test_integrity;
 pub mod tool_removal;
 
@@ -60,6 +59,11 @@ fn dep_gate(directory: &Path, range: &str) -> u8 {
     }
 }
 
+fn wall_clock(directory: &Path, range: &str, out: &mut impl std::io::Write) -> u8 {
+    let Some(Range { base, head }) = Range::parse(range) else { return 0 };
+    crate::wall_clock_gate::scan(directory, &git::merge_base(directory, base, head), head, out)
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let directory = PathBuf::from(".");
     match arguments {
@@ -86,7 +90,10 @@ pub fn run(arguments: &[String]) -> u8 {
         [name, range] if name == "test-integrity" => {
             let mut out = std::io::stdout();
             match test_integrity::scan(&directory, range, &mut out) {
-                0 => incident_guard::scan(&directory, range, &mut out),
+                0 => match incident_guard::scan(&directory, range, &mut out) {
+                    0 => wall_clock(&directory, range, &mut out),
+                    refused => refused,
+                },
                 refused => refused,
             }
         }

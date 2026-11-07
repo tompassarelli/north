@@ -114,13 +114,12 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strange
 }
 
 #[test]
-fn readers_never_meet_a_lock_while_a_writer_holds_a_write_transaction_for_two_seconds() {
+fn readers_never_meet_a_lock_while_a_writer_holds_a_write_transaction() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     drop(ledger(&directory));
     let holder = Connection::open(&path).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE; INSERT INTO events(session, kind, payload, recorded_ms) VALUES('s', 'k', '{}', 1)").unwrap();
-    let started = std::time::Instant::now();
     let readers: Vec<_> = (0..24)
         .map(|_| {
             let path = path.clone();
@@ -131,12 +130,10 @@ fn readers_never_meet_a_lock_while_a_writer_holds_a_write_transaction_for_two_se
             })
         })
         .collect();
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    holder.execute_batch("COMMIT").unwrap();
     for reader in readers {
         reader.join().unwrap().unwrap();
     }
-    assert!(started.elapsed() >= std::time::Duration::from_secs(2));
+    holder.execute_batch("COMMIT").unwrap();
 }
 
 #[test]
