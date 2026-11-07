@@ -2,7 +2,7 @@
 //! resident sessions, which accounts the out-rule keeps out and the staffed repositories' open issues,
 //! launches each ready box it can place through `north fleet launch`, records the launch, and tells
 //! Tom in one line when ready work and free slots coexist and nothing could launch.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use crate::pacing::placement::{self, gate};
@@ -134,6 +134,21 @@ fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
     ranked.into_iter().map(|(_, _, candidate)| candidate).collect()
 }
 
+/// The boxes of `issue` that may be staffed now, each running box's paths already held in `claims`; a bare issue is one box with no text.
+fn open_boxes(issue: &Issue, running: &BTreeMap<String, String>, tried: &BTreeMap<String, String>, at: f64, claims: &mut hotspots::Claims) -> Vec<Option<String>> {
+    for text in issue.takeable(at) {
+        if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
+            claims.take(&hotspots::paths(issue, Some(text)), holder);
+        }
+    }
+    let taken: BTreeSet<String> = running.keys().chain(tried.keys()).cloned().collect();
+    let mut boxes: Vec<Option<String>> = issue.free_boxes(&taken, at).map(|text| Some(text.to_owned())).collect();
+    if issue.takeable(at).next().is_none() {
+        boxes.push(None);
+    }
+    boxes
+}
+
 /// Every ready box placed on a free slot, or skipped with its reason.
 pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
@@ -156,18 +171,10 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let none = std::collections::BTreeMap::new();
         let running = survey.box_holds.get(&reference).unwrap_or(&none);
         let tried = survey.box_tries.get(&reference).unwrap_or(&none);
-        for text in issue.takeable(survey.at) {
-            if let Some(holder) = crate::threads::claims::box_slug(text).and_then(|slug| running.get(&slug)) {
-                claims.take(&hotspots::paths(issue, Some(text)), holder);
-            }
-        }
-        let taken: BTreeSet<String> = running.keys().chain(tried.keys()).cloned().collect();
-        let mut boxes: Vec<Option<&str>> = issue.free_boxes(&taken, survey.at).map(Some).collect();
-        if issue.takeable(survey.at).next().is_none() {
-            boxes.push(None);
-        }
+        let boxes = open_boxes(issue, running, tried, survey.at, &mut claims);
         let mut staffed = running.len();
-        for box_text in boxes {
+        for box_text in &boxes {
+            let box_text = box_text.as_deref();
             if issue.worker_cap().is_some_and(|cap| staffed >= cap) {
                 break;
             }
@@ -206,16 +213,6 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
 /// The open issues dispatch skipped because they have no Done-when box.
 pub fn boxless<'a>(survey: &'a Survey, outcome: &Outcome) -> Vec<&'a Issue> {
     outcome.skipped.iter().filter(|(_, why)| why == issues::NEEDS_BOX).filter_map(|(item, _)| survey.issues.iter().find(|issue| issue.reference() == *item)).collect()
-}
-
-/// The one line Tom gets when ready work and free slots coexist and nothing launched.
-pub fn alert(outcome: &Outcome, failures: &[String], here: &str) -> Option<String> {
-    let launched = outcome.launches.len() - failures.len().min(outcome.launches.len());
-    if outcome.ready.is_empty() || outcome.free == 0 || launched > 0 {
-        return None;
-    }
-    let why = failures.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
-    Some(format!("north fleet dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready.len(), outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
 }
 
 /// The lines reviving `revival` prints, in its order.
@@ -327,7 +324,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let failures = execute(&survey, &outcome, dry_run);
-    if let Some(line) = alert(&outcome, &failures, &survey.here) {
+    if let Some(line) = report::alert(&outcome, &failures, &survey.here) {
         effects::tell_tom(&line, dry_run, placement::now());
     }
     0

@@ -13,6 +13,16 @@ shape = "status-string"
 path = "crates/north-providers/src/providers/claude/window_inbox.rs"
 reason = "the status of a Claude Code window is read from the session file Claude Code writes, an external format with no north lifecycle behind it"
 
+[[implicit_state.allow]]
+shape = "status-string"
+path = "src/cli/scoreboard/workers.rs"
+reason = "the run outcome is the text column the ledger's runs table stores, read here as rows and never held as state"
+
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-base/src/platform/land_notice.rs"
+reason = "the verdict is a line parsed from the lander's report text, an external format"
+
 [crate_lines]
 default = 25000
 hub = 10000
