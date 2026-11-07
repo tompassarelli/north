@@ -56,8 +56,11 @@ fn a_shipped_install_waits_for_whoever_is_writing_the_runtime_directory() {
     staged(home, true);
     let writing = fs::File::create(runtimes(home).join(format!("{TARGET}.lock"))).unwrap();
     flock(&writing, FlockOperation::LockExclusive).unwrap();
-    let mut install = Command::new("sh").arg("-c").arg(install_script(TARGET)).current_dir(home).spawn().unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    let shims = home.join("shims");
+    fs::create_dir_all(&shims).unwrap();
+    write_executable(&shims.join("flock"), format!("#!/bin/sh\ntouch asked\nPATH='{}' exec flock \"$@\"\n", std::env::var("PATH").unwrap()));
+    let mut install = Command::new("sh").arg("-c").arg(install_script(TARGET)).env("PATH", format!("{}:{}", shims.display(), std::env::var("PATH").unwrap())).current_dir(home).spawn().unwrap();
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(10), || home.join("asked").exists()), "the install never asked for the runtime directory's lock");
     assert!(install.try_wait().unwrap().is_none(), "the install went ahead while the directory was being written");
     assert_eq!(fs::read_to_string(live.join("north")).unwrap(), "half made\n");
     drop(writing);
