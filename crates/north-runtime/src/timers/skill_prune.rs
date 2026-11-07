@@ -43,10 +43,9 @@ fn fail(error: &str) -> u8 {
 
 fn print_usage(paths: &Paths) {
     let report = paths.handoffs.join("skill-prune.md");
-    let lessons = paths.handoffs.join("codex-lessons.md");
     println!("usage: skill-prune [--measure]");
     println!("Weekly: one Claude Opus medium session prunes the shared SKILL.md bodies toward the 60-line playbook target and");
-    println!("shrinks duplicated or stale rules, folds {}, lands each repository through safe-push, and writes the", lessons.display());
+    println!("shrinks duplicated or stale rules, lands each repository through safe-push, and writes the");
     println!("counts to {}.", report.display());
     println!("--measure prints every shared skill's body lines (domain skills marked) and the total beside the operating point");
     println!("in {} (informational, no cap).", paths.operator.join("operating-point.toml").display());
@@ -129,25 +128,19 @@ fn measure(operator: &Path) -> Result<String, String> {
     Ok(table.join("\n"))
 }
 
-fn brief(handoffs: &Path, lessons: &Path) -> String {
+fn brief(handoffs: &Path) -> String {
     let handoffs = handoffs.display();
-    let lessons = lessons.display();
     format!(
         "You are the weekly skill prune. Read north:harness/skills/agent-policy/SKILL.md and the verification and repo-safety skills first.
 1. Measure: run `north skill-prune --measure`. It lists every shared SKILL.md body, marks domain skills (metadata.kind: domain, exempt from the 60-line playbook target) and totals the bodies beside the operating point.
 2. Prune each playbook body toward 60 lines, a reported target that fails nothing (agent-config-check fails only over 500), and keep shrinking wherever a rule is duplicated, detailed or no longer true. Move detail into the skill's references/notes.md. Merge duplicated rules, keeping the copy in the owning skill. Delete a rule only after checking it against the current code and CLI help. Lose no live rule: under a dated heading in {handoffs}/skill-prune-moves.md, write each removed or moved line and where it went.
-3. Fold {lessons}: a lesson that held in two or more independent runs (its `also` entries name other boxes from separate incidents) goes into the skill line it names; a lesson that did not hold is dropped; one with no second run 14 days after its date moves out marked `expired`, and a lead that sees it again moves it back with its `also` entry, which counts as its second run; a tool defect or a privacy, safety or data-loss slip still pending is filed as an issue for its owning lead. Move each folded, dropped or filed line, marked with where it went, to codex-lessons-folded.md beside it.
-4. Edit each repository in its own lane: `git -C ~/code/REPO/main worktree add -b skill-prune-DATE ~/code/REPO/worktrees/skill-prune-DATE origin/main`. Commit there, land with `safe-push --to main`, then run `agents sync`.
-5. End with one line per landed repository and its SHA.
-Write policy prose as clear, complete, well-made sentences. Change nothing outside skills, their references, the hooks that restate a moved rule and the two lessons files."
+3. Edit each repository in its own lane: `git -C ~/code/REPO/main worktree add -b skill-prune-DATE ~/code/REPO/worktrees/skill-prune-DATE origin/main`. Commit there, land with `safe-push --to main`, then run `agents sync`.
+4. End with one line per landed repository and its SHA.
+Write policy prose as clear, complete, well-made sentences. Change nothing outside skills, their references and the hooks that restate a moved rule."
     )
 }
 
-fn newline_count(path: &Path) -> usize {
-    fs::read(path).map_or(0, |bytes| bytes.iter().filter(|byte| **byte == b'\n').count())
-}
-
-fn session(handoffs: &Path, lessons: &Path) -> String {
+fn session(handoffs: &Path) -> String {
     let name = format!("skill-prune-{}", date("+%Y%m%d"));
     let mut launch = Command::new(north_program());
     launch.args(["fleet", "launch", "--provider", "claude"]);
@@ -156,7 +149,7 @@ fn session(handoffs: &Path, lessons: &Path) -> String {
     }
     let launched = launch
         .args(["--parent", "none", "--model", "claude-opus-5-5", "--tier-reason", "skill and policy prose goes to Opus, never a cheaper tier", "--name", &name])
-        .arg(brief(handoffs, lessons))
+        .arg(brief(handoffs))
         .stderr(Stdio::inherit())
         .output();
     let id = launched.ok().filter(|output| output.status.success()).map(|output| text(&output).trim_end_matches('\n').to_owned()).unwrap_or_default();
@@ -173,16 +166,13 @@ fn session(handoffs: &Path, lessons: &Path) -> String {
 
 fn prune(paths: &Paths) -> Result<std::path::PathBuf, String> {
     let report = paths.handoffs.join("skill-prune.md");
-    let lessons = paths.handoffs.join("codex-lessons.md");
     fs::create_dir_all(&paths.handoffs).map_err(|error| error.to_string())?;
     let before = measure(&paths.operator)?;
-    let lessons_before = newline_count(&lessons);
-    let out = session(&paths.handoffs, &lessons);
+    let out = session(&paths.handoffs);
     let after = measure(&paths.operator)?;
-    let lessons_after = newline_count(&lessons);
     let stamp = date("-Iminutes");
     let body = format!(
-        "# Skill prune {stamp}\n\n## Bodies before\n\n```\n{before}\n```\n\n## Bodies after\n\n```\n{after}\n```\n\ncodex-lessons.md: {lessons_before} lines before, {lessons_after} after.\n\n## Session\n\n{out}\n"
+        "# Skill prune {stamp}\n\n## Bodies before\n\n```\n{before}\n```\n\n## Bodies after\n\n```\n{after}\n```\n\n## Session\n\n{out}\n"
     );
     fs::write(&report, body).map_err(|error| format!("{}: {error}", report.display()))?;
     Ok(report)
