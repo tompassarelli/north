@@ -12,6 +12,7 @@ use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
 use super::repositories;
 use super::setting;
+mod arguments;
 mod refuse;
 use refuse::{refuse_archived, refuse_conflict, refuse_lane_gates, refuse_stale_revert, refuse_static_gates, refuse_unfetchable};
 use super::scans::outgoing;
@@ -249,52 +250,17 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("Done: not queued, this runs inside a lander check and the lander lands its candidate itself");
         return 0;
     }
-    if let [flag] = arguments
-        && (flag == "-h" || flag == "--help")
-    {
-        println!("{USAGE}");
-        return 0;
-    }
-    let (repo, rest) = match arguments {
-        [flag, dir, rest @ ..] if flag == "--repo" => (Path::new(dir), rest),
-        rest => (Path::new("."), rest),
+    let parsed = match arguments::parse(arguments) {
+        Ok(parsed) => parsed,
+        Err(code) => return code,
     };
-    let (supplied, rest) = match rest {
-        [flag, file, rest @ ..] if flag == "--message" => match fs::read_to_string(file) {
-            Ok(text) if !text.trim().is_empty() => (Some(text), rest),
-            Ok(_) => {
-                eprintln!("safe-push: ✗ --message {file} is empty; NOT queued.");
-                return 1;
-            }
-            Err(error) => {
-                eprintln!("safe-push: ✗ cannot read --message {file}: {error}; NOT queued.");
-                return 1;
-            }
-        },
-        rest => (None, rest),
-    };
-    let (several_commits, rest) = match rest {
-        [flag, reason, rest @ ..] if flag == "--several-commits" && supplied.is_none() && !reason.trim().is_empty() => (Some(reason.as_str()), rest),
-        rest => (None, rest),
-    };
-    let shape = match several_commits {
-        Some(reason) => Shape::SeveralCommits { reason },
-        None => Shape::OneCommit { message: supplied.as_deref() },
-    };
-    let (keep_lane, rest) = match rest {
-        [flag, rest @ ..] if flag == "--keep-lane" => (true, rest),
-        rest => (false, rest),
-    };
-    if !rest.is_empty() {
-        eprintln!("{USAGE}");
-        return 64;
-    }
+    let repo = parsed.repo;
     let host = repositories::local_host();
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
     let sources = Denylist::from_env();
     let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), south: &sources.south, denylist: sources.config.as_deref() };
-    match enqueue(repo, shape, keep_lane, &environment) {
+    match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment) {
         Ok(queued) => {
             match &queued.squash {
                 Squash::Kept(reason) => println!("safe-push: lane not squashed: {reason}"),
