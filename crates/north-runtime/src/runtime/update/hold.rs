@@ -1,34 +1,14 @@
-use super::super::layout::{Layout, is_sha};
-use std::fs;
+use super::super::failure::Failure;
+use super::super::layout::Layout;
+use super::super::lifecycle::{self, Promoting, Promotion};
+use north_base::foundation::clock::Timestamp;
 use std::time::Duration;
 
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Cause {
-    Build,
-    Promote,
-    Rollback,
-}
-
-impl Cause {
-    fn word(self) -> &'static str {
-        match self {
-            Cause::Build => "build",
-            Cause::Promote => "promote",
-            Cause::Rollback => "rollback",
-        }
-    }
-
-    fn parse(word: &str) -> Option<Self> {
-        [Cause::Build, Cause::Promote, Cause::Rollback].into_iter().find(|cause| cause.word() == word)
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub(in super::super) struct Hold {
-    sha: String,
-    cause: Cause,
+    state: Promotion,
     reason: String,
 }
 
@@ -40,56 +20,28 @@ pub(in super::super) enum Verdict {
 }
 
 impl Hold {
-    fn parse(line: &str) -> Option<Self> {
-        let mut words = line.trim().splitn(3, ' ');
-        let sha = words.next().filter(|sha| is_sha(sha))?.to_owned();
-        let cause = words.next().and_then(Cause::parse)?;
-        Some(Hold { sha, cause, reason: words.next().unwrap_or("").trim().to_owned() })
-    }
-
-    fn line(&self) -> String {
-        format!("{} {} {}", self.sha, self.cause.word(), self.reason).trim_end().to_owned()
+    fn word(&self) -> &'static str {
+        match self.state {
+            Promotion::BuildFailed => "build",
+            Promotion::RolledBack => "rollback",
+            _ => "promote",
+        }
     }
 }
 
-fn recent(layout: &Layout) -> Vec<Hold> {
-    let fresh = fs::metadata(layout.failed())
-        .and_then(|metadata| metadata.modified())
-        .is_ok_and(|at| at.elapsed().is_ok_and(|age| age < RETRY_AFTER));
-    if !fresh {
-        return Vec::new();
+pub(in super::super) fn verdict(layout: &Layout, target: &str, shipped: bool) -> Result<Verdict, Failure> {
+    let Some(record) = lifecycle::record_of::<Promoting>(layout, target)? else {
+        return Ok(Verdict::Clear);
+    };
+    let lapsed = Timestamp::now().unix_millis() - record.since.unix_millis() >= i64::try_from(RETRY_AFTER.as_millis()).unwrap_or(i64::MAX);
+    if !record.state.holds_back() || lapsed {
+        return Ok(Verdict::Clear);
     }
-    let causes: Vec<Hold> = fs::read_to_string(layout.failure_causes()).unwrap_or_default().lines().filter_map(Hold::parse).collect();
-    fs::read_to_string(layout.failed())
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|sha| is_sha(sha))
-        .map(|sha| {
-            let known = causes.iter().rev().find(|hold| hold.sha == sha);
-            known.map_or_else(
-                || Hold { sha: sha.to_owned(), cause: Cause::Promote, reason: String::new() },
-                |hold| Hold { sha: sha.to_owned(), cause: hold.cause, reason: hold.reason.clone() },
-            )
-        })
-        .collect()
-}
-
-pub(super) fn record(layout: &Layout, sha: &str, cause: Cause, reason: &str) -> std::io::Result<()> {
-    let reason = reason.lines().map(str::trim).filter(|line| !line.is_empty()).collect::<Vec<_>>().join("; ");
-    let mut holds = recent(layout);
-    holds.retain(|hold| hold.sha != sha);
-    holds.push(Hold { sha: sha.to_owned(), cause, reason });
-    fs::write(layout.failure_causes(), holds.iter().map(Hold::line).collect::<Vec<_>>().join("\n") + "\n")?;
-    fs::write(layout.failed(), holds.iter().map(|hold| hold.sha.as_str()).collect::<Vec<_>>().join("\n"))
-}
-
-pub(in super::super) fn verdict(layout: &Layout, target: &str, shipped: bool) -> Verdict {
-    match recent(layout).into_iter().find(|hold| hold.sha == target) {
-        None => Verdict::Clear,
-        Some(hold) if shipped && hold.cause == Cause::Build => Verdict::Waived(hold),
-        Some(hold) => Verdict::Held(hold),
-    }
+    let hold = Hold { state: record.state, reason: record.cause };
+    Ok(match shipped && hold.state == Promotion::BuildFailed {
+        true => Verdict::Waived(hold),
+        false => Verdict::Held(hold),
+    })
 }
 
 impl Verdict {
@@ -105,8 +57,8 @@ impl Verdict {
 impl std::fmt::Display for Hold {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.reason.is_empty() {
-            true => write!(out, "{} failed", self.cause.word()),
-            false => write!(out, "{} failed: {}", self.cause.word(), self.reason),
+            true => write!(out, "{} failed", self.word()),
+            false => write!(out, "{} failed: {}", self.word(), self.reason),
         }
     }
 }
@@ -117,19 +69,20 @@ mod tests {
 
     const SHIPPED: &str = "2edb782700000000000000000000000000000000";
 
-    fn host() -> (tempfile::TempDir, Layout) {
-        let dir = tempfile::tempdir().unwrap();
-        let layout = Layout { state: dir.path().to_path_buf() };
-        (dir, layout)
-    }
-
     #[test]
     fn a_rolled_back_or_failed_promotion_holds_even_a_shipped_runtime() {
-        let (_dir, layout) = host();
-        for cause in [Cause::Rollback, Cause::Promote] {
-            record(&layout, SHIPPED, cause, "failed step health check\nexit status 1").unwrap();
-            let Verdict::Held(held) = verdict(&layout, SHIPPED, true) else { panic!("a runtime that failed after it was built stays held") };
-            assert_eq!((held.cause, held.reason.as_str()), (cause, "failed step health check; exit status 1"));
-        }
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout { state: dir.path().to_path_buf() };
+        let reason = "failed step health check; exit status 1";
+        lifecycle::move_to::<Promoting>(&layout, SHIPPED, Promotion::Installing, "shipped").unwrap();
+        lifecycle::move_to::<Promoting>(&layout, SHIPPED, Promotion::InstallFailed, reason).unwrap();
+        let Verdict::Held(held) = verdict(&layout, SHIPPED, true).unwrap() else { panic!("a runtime that failed after it was built stays held") };
+        assert_eq!((held.state, held.reason.as_str()), (Promotion::InstallFailed, reason));
+
+        lifecycle::move_to::<Promoting>(&layout, SHIPPED, Promotion::Installing, "retried").unwrap();
+        lifecycle::move_to::<Promoting>(&layout, SHIPPED, Promotion::Live, "passed").unwrap();
+        lifecycle::move_to::<Promoting>(&layout, SHIPPED, Promotion::RolledBack, reason).unwrap();
+        let Verdict::Held(held) = verdict(&layout, SHIPPED, true).unwrap() else { panic!("a rolled-back runtime stays held") };
+        assert_eq!(held.state, Promotion::RolledBack);
     }
 }

@@ -1,7 +1,6 @@
 use super::super::bounded;
 use super::super::failure::{Failure, code, failed};
 use super::super::layout::{self, Layout};
-use super::super::live;
 use super::super::remote;
 use north_base::agents_sync::{POLICY_HELD, UNPUBLISHED};
 use std::fs;
@@ -22,7 +21,6 @@ pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
     let _ = fs::remove_file(&staged);
     symlink(link, &staged)?;
     fs::rename(&staged, layout.current())?;
-    live::note_swap(layout, link);
     Ok(())
 }
 
@@ -36,7 +34,7 @@ pub(super) fn republish_if_unpublished(layout: &Layout, target: &str) {
         return;
     }
     let steps = vec![(AGENTS_SYNC, agents_sync(&layout.runtime(target).join("north")))];
-    if let Ok(synced) = settle(layout, None, target, steps, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}"))) {
+    if let Ok(synced) = settle(layout, Some(&layout::link(target)), target, steps, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}"))) {
         print!("{synced}");
     }
 }
@@ -53,15 +51,19 @@ pub(super) fn settle(layout: &Layout, previous: Option<&Path>, target: &str, ste
         publication_notice(layout, target, unpublished.map(|status| (status, logged.as_str())), notify);
         return Ok(logged.lines().map(|line| crate::foundation::redact::redact(line) + "\n").collect());
     };
-    if let Some(previous) = previous {
-        swap(layout, previous)?;
+    match previous {
+        Some(previous) => swap(layout, previous)?,
+        None => match fs::remove_file(layout.current()) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        },
     }
     let logged = fs::read_to_string(log.path()).unwrap_or_default();
     for line in log_tail(&logged) {
         eprintln!("north runtime update: {step} log: {line}");
     }
     let (_, kept) = log.keep().map_err(|error| failed(1, error.to_string()))?;
-    let was = previous.map_or_else(|| "<none>".to_owned(), |link| link.display().to_string());
+    let was = previous.map_or_else(|| "no runtime (current removed; this was the first install)".to_owned(), |link| link.display().to_string());
     let message = format!(
         "failed step {step} on {target}; rolled back to {was}; exit status {status}; local log: {}",
         kept.display()

@@ -3,6 +3,8 @@ use super::cargo_build::{self, BuildLog};
 use super::host_facts;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
+use super::lifecycle::{self, Promoting, Promotion};
+use super::live;
 use super::peers;
 use super::pull;
 use super::remote;
@@ -31,7 +33,7 @@ pub(super) const DEPLOY_LOCK: &str = "runtime-deploy.lock";
 pub(super) mod hold;
 mod sync;
 
-use hold::{Cause, Verdict};
+use hold::Verdict;
 use sync::{republish_if_unpublished, swap, sync};
 pub(super) use sync::alert_proxy;
 
@@ -98,12 +100,16 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     if current.as_deref() != Some(layout::link(failed_sha).as_path()) {
         return Err(failed(1, format!("current is not {}; nothing to roll back", layout::short(failed_sha))));
     }
-    let previous = fs::read_to_string(layout.previous()).map(|sha| sha.trim().to_owned()).ok().filter(|sha| layout::is_sha(sha) && sha != failed_sha);
-    let Some(previous) = previous.filter(|sha| layout::has_programs(&layout.runtime(sha))) else {
+    if !lifecycle::confirm_current(layout, failed_sha)? {
+        return Err(failed(1, format!("{} never finished its promotion; nothing to roll back", layout::short(failed_sha))));
+    }
+    let Some(previous) = lifecycle::previous(layout, failed_sha, |sha| layout::has_programs(&layout.runtime(sha)))? else {
         return Err(failed(1, format!("no previous runtime to roll {} back to", layout::short(failed_sha))));
     };
     swap(layout, &layout::link(&previous))?;
-    hold::record(layout, failed_sha, Cause::Rollback, "rolled back on this host after promotion")?;
+    live::note_swap(layout, &layout::link(&previous));
+    lifecycle::move_to::<Promoting>(layout, failed_sha, Promotion::RolledBack, "rolled back on this host after promotion")?;
+    lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
     println!("north runtime rolled back to {}", layout::short(&previous));
     Ok(layout::short(&previous).to_owned())
 }
@@ -134,38 +140,44 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
     let checkout = checkout();
     let target = main_commit(&checkout)?;
     let previous = fs::read_link(layout.current()).ok();
-    if previous.as_deref() == Some(layout::link(&target).as_path()) {
+    let linked = previous.as_deref() == Some(layout::link(&target).as_path());
+    if linked && lifecycle::confirm_current(layout, &target)? {
         println!("north runtime current: {}", layout::short(&target));
         republish_if_unpublished(layout, &target);
         return Ok(Pass::Settled);
     }
-    match advance(layout, &checkout, &target, previous.as_deref()) {
-        Err(deferred) if deferred.code == DEFERRED => catch_up(layout, &checkout, &target, previous.as_deref())?.ok_or(deferred),
+    let fallback = match linked {
+        true => lifecycle::previous(layout, &target, |sha| layout::has_programs(&layout.runtime(sha)))?.map(|sha| layout::link(&sha)),
+        false => previous,
+    };
+    match advance(layout, &checkout, &target, fallback.as_deref()) {
+        Err(deferred) if deferred.code == DEFERRED => catch_up(layout, &checkout, &target, fallback.as_deref())?.ok_or(deferred),
         advanced => advanced,
     }
 }
 
 fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<Pass, Failure> {
     let short = layout::short(target);
-    let was = previous.and_then(layout::linked_sha).unwrap_or("none");
-    let verdict = hold::verdict(layout, target, usable(&layout.runtime(target)));
-    if let Some(notice) = verdict.notice(short, was) {
+    let was = previous.and_then(layout::linked_sha);
+    if let Some(was) = was {
+        lifecycle::confirm_current(layout, was)?;
+    }
+    let verdict = hold::verdict(layout, target, usable(&layout.runtime(target)))?;
+    if let Some(notice) = verdict.notice(short, was.unwrap_or("none")) {
         println!("{notice}");
     }
     if let Verdict::Held(_) = verdict {
         return Ok(Pass::Settled);
     }
     let promoted = promote(layout, checkout, target, previous);
-    if let Err((cause, failure)) = &promoted
-        && failure.code != DEFERRED
-    {
-        hold::record(layout, target, *cause, &failure.message)?;
+    if let Err((stopped, failure)) = &promoted {
+        let stopped = if failure.code == DEFERRED { Promotion::Unfinished } else { *stopped };
+        lifecycle::move_to::<Promoting>(layout, target, stopped, &failure.message)?;
     }
     let synced = promoted.map_err(|(_, failure)| failure)?;
-    if let Some(was) = previous.and_then(layout::linked_sha) {
-        fs::write(layout.previous(), was)?;
-    }
-    println!("{synced}north runtime promoted: {short} (was {was})");
+    lifecycle::went_live(layout, target, was)?;
+    live::note_swap(layout, &layout::link(target));
+    println!("{synced}north runtime promoted: {short} (was {})", was.unwrap_or("none"));
     host_facts::record_after_promotion(layout, target);
     collect(layout, target, previous).map_err(|error| failed(1, format!("collecting old runtimes: {error}")))?;
     Ok(Pass::Promoted)
@@ -191,9 +203,16 @@ fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
     process::run("git", Some(checkout), &["merge-base", "--is-ancestor", earlier, later]).is_ok_and(|output| output.status.success())
 }
 
-fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<String, (Cause, Failure)> {
-    let runtime = built(layout, checkout, target).map_err(|failure| (Cause::Build, failure))?;
-    install(layout, checkout, target, &runtime, previous).map_err(|failure| (Cause::Promote, failure))
+fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<String, (Promotion, Failure)> {
+    let unfinished = |failure| (Promotion::Unfinished, failure);
+    let building = !usable(&layout.runtime(target));
+    if building {
+        lifecycle::move_to::<Promoting>(layout, target, Promotion::Building, "pulling a peer's build or building here").map_err(unfinished)?;
+    }
+    let runtime = built(layout, checkout, target).map_err(|failure| (Promotion::BuildFailed, failure))?;
+    let cause = if building { "built; swapping current to it and checking it" } else { "built elsewhere and shipped; swapping current to it and checking it" };
+    lifecycle::move_to::<Promoting>(layout, target, Promotion::Installing, cause).map_err(unfinished)?;
+    install(layout, checkout, target, &runtime, previous).map_err(|failure| (Promotion::InstallFailed, failure))
 }
 
 fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {

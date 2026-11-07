@@ -1,5 +1,7 @@
 use super::*;
+use super::lifecycle::{Promoting, Promotion};
 use std::cell::RefCell;
+use std::fs;
 use std::os::unix::fs::symlink;
 
 const PREVIOUS: &str = "1111111111111111111111111111111111111111";
@@ -46,7 +48,8 @@ impl Host {
             }
         }
         symlink(layout::link(PROMOTED), layout.current()).unwrap();
-        fs::write(layout.previous(), PREVIOUS).unwrap();
+        lifecycle::move_to::<Promoting>(&layout, PREVIOUS, Promotion::Superseded, "replaced by the promoted runtime").unwrap();
+        lifecycle::move_to::<Promoting>(&layout, PROMOTED, Promotion::Live, "passed its health check and agents sync").unwrap();
         Self { _dir: dir, layout }
     }
 
@@ -69,13 +72,13 @@ fn a_promoted_runtime_that_fails_the_canary_land_check_is_rolled_back_with_an_al
     let fleet = host.fleet(exited(127, "nix develop: exec loop\nbash: nix: command not found\n"));
     assert_eq!(check(&host.layout, "gex45", PROMOTED, &fleet), Verdict::RolledBack);
     assert_eq!(host.current(), layout::link(PREVIOUS));
-    assert_eq!(fs::read_to_string(host.layout.failed()).unwrap(), PROMOTED);
+    assert_eq!(lifecycle::state_of::<Promoting>(&host.layout, PROMOTED).unwrap(), Some(Promotion::RolledBack));
     let alarms = fleet.alarms.borrow();
     assert_eq!(alarms.len(), 1);
     assert!(alarms[0].contains("land check `true` on gex45 exited 127"), "{}", alarms[0]);
     assert!(alarms[0].contains("bash: nix: command not found"), "{}", alarms[0]);
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
-    assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true), update::hold::Verdict::Held(_)));
-    assert!(!host.layout.canaried().exists());
+    assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true).unwrap(), update::hold::Verdict::Held(_)));
+    assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("gex45/{PROMOTED}")).unwrap(), Some(Canary::RolledBack));
 }
 

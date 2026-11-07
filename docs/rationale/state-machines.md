@@ -51,6 +51,13 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    lapses and re-promotes the same failing main every hour (`update/hold.rs:55-93`); `runtime-settle-judged` is
    written before its alarm, so a failed reopen is never retried (`settle.rs:63-66`); the swap log turns a rolled-back
    runtime's commits live (`live.rs:64-75`). Shapes: link-read, mtime-read, phase-suffix (`SHA.staging`).
+   Converted (`crates/north-runtime/src/runtime/lifecycle.rs`): `runtime-promotion` keeps one record per runtime
+   (building, installing, live, superseded, build-failed, install-failed, rolled-back, unfinished) and replaces
+   `runtime-failed`, `runtime-failed-causes` and `runtime-previous`; `runtime-canary` keeps one per host and runtime
+   and replaces `runtime-canary`; `runtime-landing-judgement` replaces `runtime-settle-judged`, set only after its
+   alarm is delivered. The swap log now notes a runtime only once it is live, and a failed first install removes
+   `current`. Not converted: the `SHA.staging` copies shipped to other hosts (written over ssh by `deploy.rs`) and
+   the `agents-sync-unpublished` marker, which belongs to policy publication.
 6. **Fleet message delivery** (111: 37 x 3). Spool file, ledger event, `delivered/ID`, a `.handing` marker and a
    flock (`crates/north-fleet/src/fleet/registry/hand_in.rs:16-121`, `fleet/store/spool.rs`); a crash leaves
    `.handing`, resolved only by searching the stream; rows to a stopped session wait while a local send revives it

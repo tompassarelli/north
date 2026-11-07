@@ -2,6 +2,7 @@ use super::canary::{self, Verdict};
 use super::deploy;
 use super::failure::{Failure, failed};
 use super::layout::{self, Layout};
+use super::lifecycle::{self, Judge, Judgement};
 use super::live;
 use super::probe::{self, Shell};
 use super::update;
@@ -61,10 +62,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let report = json!({"checkedAt": now(), "landing": landing.as_ref().map(|landing| &landing.sha), "hosts": records});
     fs::write(layout.state.join("runtime-settle.json"), format!("{report:#}\n"))?;
     if let Some(landing) = landing.filter(|landing| !judged(layout, &landing.sha)) {
-        fs::write(layout.state.join("runtime-settle-judged"), &landing.sha)?;
-        if !broken.is_empty() {
-            alarm(&checkout, &landing, &broken);
-        }
+        judge(layout, &checkout, &landing, &broken);
     }
     match failing.is_empty() {
         true => Ok(()),
@@ -139,7 +137,21 @@ fn origin_head(checkout: &Path) -> Option<String> {
 }
 
 fn judged(layout: &Layout, sha: &str) -> bool {
-    fs::read_to_string(layout.state.join("runtime-settle-judged")).is_ok_and(|judged| judged.trim() == sha)
+    lifecycle::state_of::<Judge>(layout, sha).ok().flatten() == Some(Judgement::Judged)
+}
+
+fn judge(layout: &Layout, checkout: &Path, landing: &Landing, broken: &[String]) {
+    if let Err(failure) = lifecycle::move_to::<Judge>(layout, &landing.sha, Judgement::Judging, "judging the landing by every host's probe") {
+        println!("north runtime settle: {} not judged here: {}", layout::short(&landing.sha), failure.message);
+        return;
+    }
+    let (to, cause) = match broken.is_empty() || alarm(checkout, landing, broken) {
+        true => (Judgement::Judged, "judged; every alarm it needed was delivered"),
+        false => (Judgement::Unjudged, "its alarm did not reach the issue; retried on the next tick"),
+    };
+    if let Err(failure) = lifecycle::move_to::<Judge>(layout, &landing.sha, to, cause) {
+        eprintln!("north runtime settle: {}", failure.message);
+    }
 }
 
 fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
@@ -156,17 +168,20 @@ fn issue(subject: &str) -> Option<&str> {
     (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())).then_some(number)
 }
 
-fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) {
+fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) -> bool {
     let short = layout::short(&landing.sha);
     let text = format!("north landing {short} is not live and healthy on every host {}s after it landed: {}", probe::default_number("landing_live_deadline_sec"), failing.join(" | "));
-    if let Some(number) = issue(&landing.subject) {
+    let delivered = issue(&landing.subject).is_none_or(|number| {
         let reopened = Command::new("gh").current_dir(checkout).args(["issue", "reopen", number]).status();
         let commented = Command::new("gh").current_dir(checkout).args(["issue", "comment", number, "--body", &text]).status();
-        if !(reopened.is_ok_and(|status| status.success()) || commented.is_ok_and(|status| status.success())) {
+        let delivered = reopened.is_ok_and(|status| status.success()) || commented.is_ok_and(|status| status.success());
+        if !delivered {
             eprintln!("north runtime settle: could not reopen or comment on north#{number}");
         }
-    }
+        delivered
+    });
     println!("north runtime settle: {text}; north watch raises it to the proxy and the landing lane's lead");
+    delivered
 }
 
 #[cfg(test)]

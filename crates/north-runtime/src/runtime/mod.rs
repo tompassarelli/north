@@ -5,6 +5,7 @@ mod deploy;
 mod entry_links;
 mod failure;
 mod follow;
+mod lifecycle;
 mod health;
 mod host_facts;
 pub mod layout;

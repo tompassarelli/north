@@ -1,8 +1,8 @@
 use super::layout::{self, Layout};
+use super::lifecycle::{self, Canarying, Canary};
 use super::update;
 use crate::pacing::placement::{config, gate};
 use crate::platform::process;
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -10,7 +10,6 @@ use std::time::Duration;
 const CHECK: &str = "true";
 const BOUND: Duration = Duration::from_secs(5 * 60);
 const CHECK_SECONDS: u64 = 4 * 60;
-const KEPT: usize = 50;
 const TAIL_LINES: usize = 12;
 const TAIL_BYTES: usize = 1200;
 const UNREACHED: [u8; 4] = [255, 96, 97, 75];
@@ -36,17 +35,28 @@ pub(super) enum Verdict {
 }
 
 pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machine) -> Verdict {
-    if canaried(layout, host, sha) {
+    let instance = format!("{host}/{sha}");
+    if lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
         return Verdict::Skipped;
     }
     let short = layout::short(sha);
+    let finish = |state: Canary, cause: &str| {
+        if let Err(failure) = lifecycle::move_to::<Canarying>(layout, &instance, state, cause) {
+            eprintln!("north runtime canary: {host}: {short}: {}", failure.message);
+        }
+    };
+    if let Err(failure) = lifecycle::move_to::<Canarying>(layout, &instance, Canary::Judging, "running the land check offloaded to the host") {
+        println!("north runtime canary: {host}: {short} not judged here: {}", failure.message);
+        return Verdict::Skipped;
+    }
     let (code, log) = match machine.offload(sha) {
         Ran::Unrun(why) => {
             println!("north runtime canary: {host}: {short} not judged: {why}");
+            finish(Canary::Unjudged, &why);
             return Verdict::Unrun(why);
         }
         Ran::Exited { code: 0, .. } => {
-            record(layout, host, sha);
+            finish(Canary::Passed, &format!("the land check `{CHECK}` exited 0"));
             println!("north runtime canary: {host}: {short} passed the land check `{CHECK}`");
             return Verdict::Passed;
         }
@@ -55,27 +65,16 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
     let failure = format!("land check `{CHECK}` on {host} exited {code} for runtime {short}; log tail: {}", tail(&log));
     match machine.roll_back(sha) {
         Ok(previous) => {
+            finish(Canary::RolledBack, &failure);
             machine.alarm(&format!("north runtime canary: {failure}; {host} rolled back to {previous} and holds {short} back for an hour"));
             Verdict::RolledBack
         }
         Err(why) => {
-            record(layout, host, sha);
+            finish(Canary::Stuck, &format!("{failure}; could not roll back: {why}"));
             machine.alarm(&format!("north runtime canary: {failure}; {host} could not roll back: {why}"));
             Verdict::Stuck
         }
     }
-}
-
-fn canaried(layout: &Layout, host: &str, sha: &str) -> bool {
-    let wanted = format!("{host} {sha}");
-    fs::read_to_string(layout.canaried()).is_ok_and(|seen| seen.lines().any(|line| line == wanted))
-}
-
-fn record(layout: &Layout, host: &str, sha: &str) {
-    let mut lines: Vec<String> = fs::read_to_string(layout.canaried()).unwrap_or_default().lines().map(str::to_owned).collect();
-    lines.push(format!("{host} {sha}"));
-    let kept = &lines[lines.len().saturating_sub(KEPT)..];
-    let _ = fs::write(layout.canaried(), kept.iter().map(|line| format!("{line}\n")).collect::<String>());
 }
 
 pub(super) fn tail(log: &str) -> String {
