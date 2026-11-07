@@ -8,6 +8,7 @@ use super::burn::{self, Burn};
 use super::settings::Plan;
 use super::store::Row;
 use super::{Places, costs, detail, plain, py, settings, web};
+use crate::credit;
 use crate::foundation::clock::Timestamp;
 
 const NO_SNAPSHOT: &str = "No usage readings yet; run `north usage --refresh`.";
@@ -38,6 +39,7 @@ pub(super) fn render(view: &View) -> Result<(String, u8), String> {
             lines.push((label, other_line(view.now, mine)?));
         }
     }
+    lines.extend(credit_lines(view));
     if let Some(costs) = costs::read(view.places, view.now)? {
         lines.push(("This week".to_owned(), cost_line(&costs)));
     }
@@ -194,4 +196,37 @@ fn percent(used: f64) -> String {
 fn capitalized(text: &str) -> String {
     let mut characters = text.chars();
     characters.next().map_or_else(String::new, |first| first.to_uppercase().chain(characters).collect())
+}
+
+/// One line per API organization the policy pools: its soonest unexpired grant, what api sessions spent of it at list price, and what is left.
+fn credit_lines(view: &View) -> Vec<(String, String)> {
+    let policy: toml_edit::DocumentMut = std::fs::read_to_string(&view.places.policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let orgs = policy.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs")).and_then(toml_edit::Item::as_table_like);
+    let named: Vec<(String, String)> = orgs.into_iter().flat_map(|orgs| orgs.iter()).filter_map(|(name, org)| Some((name.to_owned(), org.get("id")?.as_str()?.to_owned()))).collect();
+    if named.is_empty() {
+        return Vec::new();
+    }
+    let grants = credit::grants(&view.places.policy);
+    let spends = crate::router::pricing::PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| credit::spends(&view.places.state.join("north/ledger.db"), &prices));
+    let today = view.now.iso_date();
+    named
+        .iter()
+        .filter(|(name, id)| named.iter().find(|(_, other)| other == id).is_some_and(|(first, _)| first == name))
+        .map(|(name, id)| {
+            let mine: Vec<(String, f64)> = match &spends {
+                Ok(spends) => named.iter().filter(|(_, other)| other == id).flat_map(|(other, _)| spends.get(other).cloned().unwrap_or_default()).collect(),
+                Err(_) => Vec::new(),
+            };
+            let line = match (credit::balance(grants.get(id).map_or(&[][..], Vec::as_slice), &mine, &today), &spends) {
+                (None, _) => "no unexpired grant in claude-accounts.toml".to_owned(),
+                (Some(_), Err(error)) => format!("spend unread: {error}"),
+                (Some(balance), Ok(_)) => {
+                    let later = balance.later.iter().map(|grant| format!("then ${:.2} to {}", grant.usd, grant.expires)).collect::<Vec<_>>();
+                    let head = format!("grant ${:.2} to {}: ${:.2} spent, ${:.2} left", balance.grant.usd, balance.grant.expires, balance.spent, balance.left);
+                    [head].into_iter().chain(later).collect::<Vec<_>>().join("; ")
+                }
+            };
+            (format!("API {name}"), line)
+        })
+        .collect()
 }

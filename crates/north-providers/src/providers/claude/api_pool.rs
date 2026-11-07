@@ -1,14 +1,18 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use toml_edit::{DocumentMut, Item};
 
-use crate::fleet::model::ApiKey;
+use crate::credit::Grant;
+use crate::fleet::limit::recent;
+use crate::fleet::model::{ApiKey, Entry, EntryKind};
+use crate::fleet::registry::Fleet;
+use crate::foundation::clock::Timestamp;
 
 const NEVER: &str = "9999-12-31";
+const LOW_CREDIT: &str = "credit balance is too low";
 
-/// One organization's entry in the pool of API keys: identified by its organization id, so two keys
+/// One orgs.iter().find(|org| org.name == name)anization's entry in the pool of API keys: identified by its organization id, so two keys
 /// that report the same id are one entry with one balance and one exhausted mark.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Org {
@@ -35,8 +39,8 @@ impl Org {
     }
 }
 
-/// The pool entries `[accounts.claude.api_orgs.NAME]` declares for `here`, entries sharing an id merged.
-pub fn declared(policy: &DocumentMut, home: &Path, here: &str) -> Vec<Org> {
+/// The pool entries `[accounts.claude.api_orgs.NAME]` declares for `here`, entries sharing an id merged, each dated by its organization's `grants`.
+pub fn declared(policy: &DocumentMut, grants: &BTreeMap<String, Vec<Grant>>, home: &Path, here: &str) -> Vec<Org> {
     let table = policy.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs")).and_then(Item::as_table_like);
     let strings = |item: Option<&Item>| -> Vec<String> { item.and_then(Item::as_array).into_iter().flatten().filter_map(|value| value.as_str().map(str::to_owned)).collect() };
     let mut merged: BTreeMap<String, Org> = BTreeMap::new();
@@ -44,8 +48,10 @@ pub fn declared(policy: &DocumentMut, home: &Path, here: &str) -> Vec<Org> {
         let Some(id) = entry.get("id").and_then(Item::as_str) else { continue };
         let org = merged.entry(id.to_owned()).or_insert_with(|| Org { name: name.to_owned(), id: id.to_owned(), ..Org::default() });
         org.emails.extend(strings(entry.get("emails")));
-        org.expires.extend(entry.get("grants").and_then(Item::as_array).into_iter().flatten().filter_map(|grant| grant.as_inline_table()?.get("expires")?.as_str().map(str::to_owned)));
         org.keys.extend(entry.get("keys").and_then(|keys| keys.get(here)).and_then(Item::as_array).into_iter().flatten().filter_map(|file| file.as_str().map(|path| expand(home, path))));
+    }
+    for org in merged.values_mut() {
+        org.expires = grants.get(&org.id).into_iter().flatten().map(|grant| grant.expires.clone()).collect();
     }
     merged.into_values().collect()
 }
@@ -68,25 +74,43 @@ pub fn exhausted(marks: &Path, org: &Org) -> bool {
 
 /// Today's UTC date as `YYYY-MM-DD`.
 pub fn today() -> String {
-    let days = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| (elapsed.as_secs() / 86_400) as i64);
-    let shifted = days + 719_468;
-    let era = shifted.div_euclid(146_097);
-    let day_of_era = shifted.rem_euclid(146_097);
-    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_index = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02}")
+    Timestamp::now().iso_date()
 }
 
 /// One line per pool entry on `here`, then the entry a launch on the pooled account takes: what `north fleet accounts --api` prints.
-pub fn listing(policy: &DocumentMut, home: &Path, state_root: &Path, here: &str) -> Vec<String> {
-    let orgs = declared(policy, home, here);
+pub fn listing(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec<String> {
+    let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let orgs = declared(&document, &crate::credit::grants(policy), home, here);
     let marks = state_root.join("api-exhausted");
     let mut lines: Vec<String> = orgs.iter().map(|org| format!("{} keys={} exhausted={}", org.line(), org.keys.len(), exhausted(&marks, org))).collect();
     let chosen = open(&orgs, &today(), |org| exhausted(&marks, org), |file| std::fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() > 0));
     lines.push(chosen.map_or_else(|| "api launches on: no open entry".to_owned(), |(org, _)| format!("api launches on: {}", org.name)));
+    lines
+}
+
+/// Marks exhausted the organization of each recent session on an `api:ORG` account whose last turn ended on the
+/// API's low-credit error, so the next launch on the pooled account takes the next entry; one line per new mark.
+pub fn mark_spent(fleet: &Fleet, policy: &Path, home: &Path) -> Vec<String> {
+    let orgs = super::accounts::declared(policy, home).orgs;
+    let marks = home.join(".local/state/north/api-exhausted");
+    let marks = marks.as_path();
+    let mut lines = Vec::new();
+    for record in fleet.sessions().unwrap_or_default().into_iter().filter(recent) {
+        let Some(org) = record.account.strip_prefix("api:").and_then(|name| orgs.iter().find(|org| org.name == name)) else { continue };
+        if exhausted(marks, org) {
+            continue;
+        }
+        let Ok(follower) = fleet.follow_recent(&record.name) else { continue };
+        let transcript = follower.transcript();
+        let tail: Vec<&Entry> = transcript.entries.iter().rev().take(2).collect();
+        let spent = matches!(tail.as_slice(), [end, error] if end.kind == EntryKind::TurnEnd && error.kind == EntryKind::Error && error.text.to_lowercase().contains(LOW_CREDIT));
+        if !spent {
+            continue;
+        }
+        match std::fs::create_dir_all(marks).and_then(|()| std::fs::write(marks.join(&org.id), format!("{} {}\n", record.name, today()))) {
+            Ok(()) => lines.push(format!("api:{} marked exhausted: {}'s last turn ended on a credit balance too low", org.name, record.name)),
+            Err(error) => eprintln!("north fleet: api:{} ran out of credit but its exhausted mark was not written: {error}", org.name),
+        }
+    }
     lines
 }

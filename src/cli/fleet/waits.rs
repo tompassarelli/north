@@ -96,6 +96,7 @@ impl WaitProbes for Probes {
         vec![
             ProbeJob { name: "probes.settle.waits", own: None, run: Box::new(|fleet| settle_waits(&fleet)) },
             ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
+            ProbeJob { name: "probes.settle.api_spent", own: None, run: Box::new(|fleet| said(api_spent(&fleet))) },
             ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.spend_trips", own: None, run: Box::new(|fleet| said(super::trips::watch(&fleet, now_ms()))) },
             ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
@@ -227,4 +228,9 @@ fn branch_state(branch: &str, cwd: &Path) -> Option<String> {
         "CLOSED" => Some("closed unmerged".to_owned()),
         _ => None,
     }
+}
+
+fn api_spent(fleet: &Fleet) -> Vec<String> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    crate::providers::claude::api_pool::mark_spent(fleet, &crate::platform::orchestration::path(), &home)
 }

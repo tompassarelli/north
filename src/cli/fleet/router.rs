@@ -173,7 +173,7 @@ fn forget(fleet: &Fleet, name: &str, force: Option<&str>) -> NorthResult<()> {
 
 fn api_pool_listing() -> NorthResult<()> {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    let policy = std::fs::read_to_string(crate::platform::orchestration::path()).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let policy = crate::platform::orchestration::path();
     for line in crate::providers::claude::api_pool::listing(&policy, &home, &home.join(".local/state/north"), &crate::platform::host::name()) {
         println!("{line}");
     }
