@@ -19,7 +19,8 @@ with what authority and budget, it's the workforce.
 
 - "Sonnet does agent things" means a Sonnet worker: model, harness and loop together.
 - An all-in-one agent product is a packaged harness with defaults and a persona.
-- A "software factory" is a workforce sold as a product.
+- A **software factory** is the workforce plus the harness plus the landing path: issues go in,
+  verified landed changes come out.
 
 ## NorthThread
 

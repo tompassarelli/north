@@ -1,12 +1,15 @@
 # North
 
-North is the harness that Socrates, Tom's agent workforce, runs on. Claude Code and Codex are the
-base harnesses; North adds what a workforce needs on top: staffing and routing of workers, a safe
-landing path to main, hooks that guard each tool call, shared skills and the policy checks that keep
-them honest. It also ships `north`, a terminal fleet screen for directing sessions and decisions.
+North is an autonomous software factory. It takes issues that carry runnable Done-when checks and
+turns model budget into verified changes landed on main: it staffs and routes workers across
+machines and accounts, lands each change through a checked tree and reverts what breaks main.
+Socrates, Tom's agent workforce, runs on it. Claude Code and Codex are the base harnesses; North
+adds the staffing, the routing and the landing path, plus hooks that guard each tool call, shared
+skills and the policy checks that keep them honest. It also ships `north`, a terminal fleet screen
+for directing sessions and decisions.
 
 It is built for Tom and the agents in Socrates. Anyone who directs coding agents can read it, try
-the `north` app, or borrow a command, hook or skill. The full harness expects Tom's machines and his
+the `north` app, or borrow a command, hook or skill. The full factory expects Tom's machines and his
 private policy repository, South, so it does not install elsewhere as is.
 
 The words follow [docs/terms.md](docs/terms.md): a **model** is the weights, the **harness** turns a
