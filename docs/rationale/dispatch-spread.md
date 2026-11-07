@@ -38,7 +38,7 @@ on 2026-11-06:
 - gex45: limit 20, heavy leases of 4 to 6 cores, so 4 slots and `resident_cap` 8 (was 24, sized for memory at about
   400 MB a CLI, which memory never bound).
 - ccx33: limit 8, heavy leases of 3 cores, so 2 slots and `resident_cap` 6 (was 8, one CLI per core).
-- whiterabbit: limit 22 outside a playtest lease (2026-11-07: agent.slice holds 22 of 24 threads and that ceiling replaces the attended reserve), heavy leases of about 5 cores, so 4 slots and `resident_cap` 8 (was 7 at limit 14). Memory does not bind: eight sessions of about 400 MB a CLI plus a heavy lease of up to 5 GB each come to about 43 GB of its 94 GB. Under a playtest lease the limit drops to 16 (agent CPUs beside the game reserve) and admission queues the fourth build.
+- whiterabbit: limit 22 outside a playtest lease (2026-11-07: agent.slice holds 22 of 24 threads and that ceiling replaces the attended reserve), heavy leases of about 5 cores, so 4 slots; under a playtest lease the limit drops to 12. The laptop departs from slots plus `QUEUED_LIMIT`: its `resident_cap` is 12 (was 7 at limit 14) because its sessions spend most of their time in model turns, not builds, and builds already queue in its admission, so the session cap need not equal build slots; memory still does not bind, twelve sessions of about 400 MB a CLI plus a heavy lease of up to 5 GB each come to about 65 GB of its 94 GB (2026-11-07).
 
 Nexus keeps 6; it takes no dispatch boxes until it becomes a target. Interactive sessions count against the same cap
 through `north resident-cap gate`, so a lead on gex45 shares those 8 places with the workers it staffs.

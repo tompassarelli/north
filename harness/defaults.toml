@@ -1061,10 +1061,10 @@ fallback = "with no lease on the words do nothing"
 consumers = ["crates/north-guard/src/guard/quiet_phrase.rs"]
 
 [capacity_agent_cpu_quota_percent]
-value = 1800
+value = 1200
 allowed = { min = 100, max = 25600 }
-unit = "agent.slice CPUQuota in percent of one CPU (1000 = 10 CPUs) while a playtest lease is on; the laptop mode tick sets it, and it equals cpuQuotaPercent of nixos-config modules/agent-slice"
-source = "measured: agent builds that skipped capacity admission filled all 24 laptop threads (load 150-194 on 2026-11-05) and drew more than the charger supplies, so agents are capped at 18 of 24 threads (2026-11-05)"
+unit = "agent.slice CPUQuota in percent of one CPU (1000 = 10 CPUs) while a playtest lease is on, which is also the CPUs admission leases then; the laptop mode tick sets it, over the boot ceiling of 1800% that nixos-config modules/agent-slice holds until the first tick"
+source = "measured: agent builds that skipped capacity admission filled all 24 laptop threads (load 150-194 on 2026-11-05) and drew more than the charger supplies, so agents are capped at 18 of 24 threads (2026-11-05); Tom set the playtest bound to 12 CPUs on 2026-11-07, and outside a playtest lease the laptop is a build host at capacity_build_host_agent_cpu_quota_percent"
 fallback = "none: the mode tick always sets the quota"
 consumers = ["crates/north-capacity/src/capacity/mode.rs"]
 

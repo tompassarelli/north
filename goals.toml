@@ -32,10 +32,10 @@ pays = ["crates/north-landing/", "crates/north-safe-push/", "crates/north-capaci
 
 [[goal]]
 name = "laptop-load-15m"
-source = "AGENTS.md: builds and suites run under capacity admission; harness/defaults.toml: admission defers on run-queue load against the thread count. This max of 12 is the playtest bound, while a playtest lease is on; in every other mode (away, or at the desk with no playtest lease) the laptop is a build host whose admission fills to a 15-minute load of 22 of 24 threads (capacity_build_host_agent_cpu_quota_percent, capacity_mode_table). Tom set both bounds on 2026-11-07: 12 is for playtesting, not for being at the desk"
+source = "AGENTS.md: builds and suites run under capacity admission; harness/defaults.toml: admission defers on run-queue load against the thread count. The max of 22 is the bound in every mode: outside a playtest lease the laptop is a build host whose admission fills to a 15-minute load of 22 of 24 threads (capacity_build_host_agent_cpu_quota_percent, capacity_mode_table), and under a playtest lease the scheduler holds agent work to 12 CPUs (capacity_agent_cpu_quota_percent), so the goal alarms only on a real breach. Tom set both bounds on 2026-11-07: 12 is for playtesting, not for being at the desk"
 oracle = "cut -d' ' -f3 /proc/loadavg"
 unit = "load"
-max = 12
+max = 22
 class = "debt"
 ceiling = 24
 owner = "tompassarelli/north#641"

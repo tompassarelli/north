@@ -9,7 +9,7 @@ use super::game_reserve_tests::settings;
 use super::mode::{self, Limits, Mode};
 
 const BUILD_HOST_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=2200%";
-const PLAY_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=1800%";
+const PLAY_QUOTA: &str = "systemctl --user set-property --runtime agent.slice CPUQuota=1200%";
 
 fn host(root: &Path) -> Host {
     Host { proc: root.join("proc"), cgroup: root.join("cgroup"), capacity: root.join("capacity"), game_reserve: root.join("game-reserve.json"), systemctl: root.join("systemctl").display().to_string(), uid: 1000 }
