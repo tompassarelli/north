@@ -10,7 +10,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const JOURNAL: &str = "runtime-live.jsonl";
 const SEEN: &str = "runtime-live-seen.json";
 pub(super) const SWAPS_KEPT: usize = 200;
-const ACTIVE_S: i64 = 86_400;
 const ORIGIN_MAIN: &str = "refs/remotes/origin/main";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -108,20 +107,19 @@ fn on_main(committed: impl Iterator<Item = (String, i64)>, reached: &HashMap<Str
 
 pub fn everywhere(rows: &[Live]) -> Vec<(i64, f64)> {
     let rows: Vec<&Live> = rows.iter().filter(|row| row.exact).collect();
-    let newest = rows.iter().map(|row| row.live_at).max().unwrap_or(0);
     let mut last: HashMap<&str, i64> = HashMap::new();
     for row in &rows {
         let at = last.entry(row.host.as_str()).or_insert(row.live_at);
         *at = (*at).max(row.live_at);
     }
-    let hosts = last.values().filter(|at| **at >= newest - ACTIVE_S).count();
     let mut landings: HashMap<&str, (i64, i64, usize)> = HashMap::new();
     for row in &rows {
         let entry = landings.entry(row.sha.as_str()).or_insert((row.landed_at, row.live_at, 0));
         entry.1 = entry.1.max(row.live_at);
         entry.2 += 1;
     }
-    landings.into_values().filter(|(_, _, count)| *count >= hosts).map(|(landed_at, live_at, _)| (landed_at, (live_at - landed_at) as f64)).collect()
+    let serving = |landed_at: i64| last.values().filter(|at| **at >= landed_at).count();
+    landings.into_values().filter(|(landed_at, _, count)| *count >= serving(*landed_at)).map(|(landed_at, live_at, _)| (landed_at, (live_at - landed_at) as f64)).collect()
 }
 
 pub fn read(state: &Path) -> Vec<Live> {
@@ -155,5 +153,14 @@ mod tests {
         let row = |sha: &str, host: &str, live_at, exact| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at: 1_000, live_at, exact };
         let rows = [row("f640", "laptop", 1_030, true), row("f640", "gex45", 1_040, true), row("cf56", "laptop", 1_500, false), row("cf56", "gex45", 1_520, false)];
         assert_eq!(everywhere(&rows), [(1_000, 40.0)]);
+    }
+
+    #[test]
+    fn a_host_that_left_placement_stops_holding_every_later_landing_out_of_the_bar() {
+        let row = |sha: &str, host: &str, landed_at, live_at| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at, live_at, exact: true };
+        let rows = [row("260e", "laptop", 1_000, 1_020), row("260e", "gex45", 1_000, 1_040), row("260e", "ccx33", 1_000, 1_170), row("335b", "laptop", 40_000, 40_004), row("335b", "gex45", 40_000, 40_012)];
+        let mut landings = everywhere(&rows);
+        landings.sort_by_key(|(landed_at, _)| *landed_at);
+        assert_eq!(landings, [(1_000, 170.0), (40_000, 12.0)]);
     }
 }

@@ -144,7 +144,7 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     let shipped = format!(".local/state/north/runtimes/{target}/north");
     run_reporting(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)?;
     if let Some(relayed) = land_offload::deployment().relays_facts.into_iter().find(|relayed| relayed.destination == host) {
-        host_facts::relay(&runtime.join("north"), host, &relayed.host);
+        host_facts::relay(&Layout::from_env(), &runtime.join("north"), host, &relayed.host);
     }
     Ok(())
 }
