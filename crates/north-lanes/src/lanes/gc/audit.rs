@@ -7,7 +7,7 @@ use serde_json::Value;
 use regex::Regex;
 
 use super::audit_rows::{Facts, Row, fault, gc_problems, leftover_table, open_table, row};
-use super::evidence::{IssueState, cited_issues, issue_state, item_ref, origin_repo};
+use super::evidence::{IssueState, IssueLedger, cited_issues, item_ref, origin_repo};
 use super::exec::{api, command, git};
 use super::liveness::{open_pull_heads, pending_autoland};
 use super::remote::{active_runs, remote_branches};
@@ -280,9 +280,10 @@ pub fn run(arguments: &[String]) -> u8 {
             }
         }
     }
+    let mut ledger = IssueLedger::default();
     let mut states: HashMap<String, IssueState> = HashMap::new();
     for issue in rows.iter().filter(|row| !row.leftover).flat_map(|row| row.issues.iter()) {
-        states.entry(issue.clone()).or_insert_with(|| issue_state(&item_ref(issue)));
+        states.entry(issue.clone()).or_insert_with(|| ledger.state(&item_ref(issue)));
     }
     let faults: Vec<String> = rows.iter().filter_map(|row| fault(row, &states).map(|why| format!("{}:{} ({why})", row.repo, row.branch))).collect();
     if !faults.is_empty() {

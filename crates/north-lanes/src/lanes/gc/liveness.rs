@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::Gc;
 use super::evidence::{item_ref, named_issues, origin_repo};
-use super::exec::{api, command, git, real, text, truthy, verified};
+use super::exec::{api, command, git, real, text, verified};
 use north_github_mirror::read;
 use north_github_mirror::store::{self, Mirror};
 use north_base::foundation::clock::Timestamp;
@@ -27,11 +27,6 @@ impl Hosts {
     pub(super) fn peer(&self) -> (&'static str, &Trees) {
         if self.on_nexus { ("Laptop", &self.laptop) } else { ("Nexus", &self.nexus) }
     }
-}
-
-pub(super) struct GithubFacts {
-    prs: HashSet<String>,
-    runs: Vec<Value>,
 }
 
 fn alive_status(session: &Value) -> bool {
@@ -125,24 +120,6 @@ impl Gc {
         refs
     }
 
-    fn github_facts(&mut self, repo: &str) -> Result<&GithubFacts, String> {
-        if !self.github.contains_key(repo) {
-            let prs = open_pull_heads(repo)?;
-            let mut runs = Vec::new();
-            for status in store::RUN_STATUSES {
-                let listed = read::pages(&Mirror::local(), read::now(), repo, &store::runs_kind(status), || api(&format!("repos/tompassarelli/{repo}/actions/runs?status={status}&per_page=100")))?;
-                for page in pages(&listed)? {
-                    let Some(Value::Array(found)) = page.get("workflow_runs") else {
-                        return Err("Actions eligibility incomplete".into());
-                    };
-                    runs.extend(found.iter().cloned());
-                }
-            }
-            self.github.insert(repo.to_string(), GithubFacts { prs, runs });
-        }
-        Ok(&self.github[repo])
-    }
-
     pub(super) fn local_archive_guard(&mut self, main: &Path, name: &str, base: &str, branch: &str, tip: &str, path: Option<&Path>) -> String {
         self.archive_guard(main, name, base, branch, tip, path).unwrap_or_else(|_| "liveness unavailable".into())
     }
@@ -150,7 +127,7 @@ impl Gc {
     fn archive_guard(&mut self, main: &Path, name: &str, base: &str, branch: &str, tip: &str, path: Option<&Path>) -> Result<String, String> {
         let claims = self.live_claims()?;
         let origin = origin_repo(main);
-        if named_issues(main, &origin.clone().unwrap_or_else(|| name.to_string()), base, tip)?.iter().any(|item| claims.contains(item)) {
+        if named_issues(main, &origin.unwrap_or_else(|| name.to_string()), base, tip)?.iter().any(|item| claims.contains(item)) {
             return Ok("live holder session".into());
         }
         if let Some(path) = path
@@ -167,26 +144,7 @@ impl Gc {
                 return Ok(format!("{peer} {why}"));
             }
         }
-        let Some(repo) = origin else {
-            return Ok(String::new());
-        };
-        let Some(pushes) = self.pushed_refs(&repo) else {
-            return Ok("push activity unavailable".into());
-        };
-        if !branch.is_empty() && pushes.contains_key(&format!("refs/heads/{branch}")) {
-            return Ok("branch pushed under 24h".into());
-        }
-        if let Some(why) = autoland_hold(&repo, tip)? {
-            return Ok(why.into());
-        }
-        let facts = self.github_facts(&repo)?;
-        if !branch.is_empty() && facts.prs.contains(branch) {
-            return Ok("open PR".into());
-        }
-        let runs_here = |run: &Value| {
-            (!branch.is_empty() && run.get("head_branch").and_then(Value::as_str) == Some(branch)) || run.get("head_sha").and_then(Value::as_str) == Some(tip)
-        };
-        Ok(if facts.runs.iter().any(runs_here) { "active Actions".into() } else { String::new() })
+        Ok(String::new())
     }
 }
 
@@ -211,28 +169,6 @@ pub(super) fn pending_autoland(status: Option<&Value>) -> bool {
         .and_then(|status| status.get("contexts"))
         .and_then(Value::as_array)
         .is_some_and(|contexts| contexts.iter().any(|s| s.get("context").and_then(Value::as_str) == Some("autoland") && s.get("state").and_then(Value::as_str) == Some("PENDING")))
-}
-
-fn autoland_hold(repo: &str, tip: &str) -> Result<Option<&'static str>, String> {
-    let query = format!(
-        "{{repository(owner:\"tompassarelli\",name:{}){{object(oid:{}){{... on Commit{{oid status{{contexts{{context state}}}}}}}}}}}}",
-        serde_json::to_string(repo).unwrap_or_default(),
-        serde_json::to_string(tip).unwrap_or_default()
-    );
-    let response = command(&["gh", "api", "graphql", "-f", &format!("query={query}")]);
-    if !response.ok {
-        return Ok(Some("Autoland eligibility unavailable"));
-    }
-    let page: Value = serde_json::from_str(&response.out).map_err(|error| error.to_string())?;
-    let repository = page.get("data").and_then(|data| data.get("repository"));
-    if truthy(page.get("errors")) || !truthy(repository) || repository.and_then(|r| r.get("object")).is_none() {
-        return Ok(Some("Autoland eligibility incomplete"));
-    }
-    let object = repository.and_then(|r| r.get("object")).filter(|object| truthy(Some(object)));
-    if object.is_some_and(|object| !truthy(object.get("oid")) || object.get("status").is_none()) {
-        return Ok(Some("Autoland status incomplete"));
-    }
-    Ok(pending_autoland(object.and_then(|object| object.get("status"))).then_some("pending autoland"))
 }
 
 fn push_activity(repo: &str) -> Option<HashMap<String, i64>> {

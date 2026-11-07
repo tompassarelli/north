@@ -97,6 +97,15 @@ impl Rig {
         String::from_utf8_lossy(&output.stdout).into_owned() + &String::from_utf8_lossy(&output.stderr)
     }
 
+    fn stub_github(&self, open: &[u64]) {
+        let rows: Vec<String> = open.iter().map(|number| format!("{{\"number\":{number},\"repository\":{{\"name\":\"north\"}}}}")).collect();
+        self.stub("gh", &format!("printf '%s\\n' \"$*\" >>\"$LANE_GC_FIXTURE/gh-calls\"\ncase \"$1 $2\" in\n\"search issues\") echo '[{}]' ;;\n*) exit 1 ;;\nesac\n", rows.join(",")));
+    }
+
+    fn github_calls(&self) -> usize {
+        fs::read_to_string(self.root.join("gh-calls")).map_or(0, |calls| calls.lines().count())
+    }
+
     fn read(&self, name: &str) -> String {
         fs::read_to_string(self.root.join(name)).unwrap_or_default()
     }
@@ -161,7 +170,7 @@ impl Classified {
 
     fn build(root: &Path) {
         let rig = Rig::new(root, &root.join("home"));
-        rig.stub("gh", "case \"$*\" in\n\"issue view 5 -R tompassarelli/north --json state -q .state\") echo CLOSED ;;\n\"issue view 6 -R tompassarelli/north --json state -q .state\") echo OPEN ;;\n*) exit 1 ;;\nesac\n");
+        rig.stub_github(&[6]);
         let main = Self::project(&rig, "north");
         Self::lane(&rig, &main, "equiv", Some("equiv change"));
         write(&main.join("other.txt"), "other\n");
@@ -266,6 +275,7 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
 
     let out = fixture.run(&[]);
     assert!(fixture.gone("equiv") && fixture.gone("sup") && fixture.kept_intact(), "{out}");
+    assert_eq!(rig.github_calls(), 2, "one search per run: {}", rig.read("gh-calls"));
     let wip = rig.home.join("code/north/worktrees/wip");
     assert!(wip.join("new.txt").is_file() && fs::read_to_string(wip.join("README")).unwrap().contains("edited"));
 
@@ -289,4 +299,24 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     let alerts = rig.read("alerts");
     assert_eq!(alerts.lines().count(), 1, "{alerts}");
     assert!(alerts.starts_with("normal|scratch-parent: 26 owned unlanded lanes"), "{alerts}");
+}
+
+#[test]
+fn a_hundred_unlanded_lanes_cost_one_github_call() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let rig = Rig::new(root, &root.join("home"));
+    rig.stub_github(&(1..=100).collect::<Vec<u64>>());
+    let main = Classified::project(&rig, "north");
+    for number in 1..=100 {
+        rig.git(&main, &["checkout", "-q", "-b", &format!("lane-{number}")]);
+        write(&main.join(format!("lane-{number}.txt")), "lane\n");
+        rig.git(&main, &["add", "."]);
+        rig.git(&main, &["commit", "-qm", &format!("lane {number}\n\nRefs north#{number}")]);
+        rig.git(&main, &["checkout", "-q", "main"]);
+    }
+    rig.fleet(&[("north-parent", None, "north")]);
+    let out = rig.lane_gc("2099-01-01T00:00:00Z", &[], &["--dry-run"]);
+    assert!(out.contains("100 unlanded") || out.contains("kept"), "{out}");
+    assert_eq!(rig.github_calls(), 1, "{}", rig.read("gh-calls"));
 }

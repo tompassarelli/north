@@ -70,16 +70,6 @@ pub(super) fn api(endpoint: &str) -> Result<Value, String> {
     serde_json::from_str(&ran.out).map_err(|error| error.to_string())
 }
 
-pub(super) fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(_) => true,
-    }
-}
-
 pub(super) fn text(value: &Value) -> Option<&str> {
     value.as_str().filter(|text| !text.is_empty())
 }

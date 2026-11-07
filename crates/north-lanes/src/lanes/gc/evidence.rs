@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::LazyLock;
@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use north_github_mirror::read::{self, Seen};
 use north_github_mirror::store::Mirror;
 use regex::Regex;
+use serde_json::Value;
 
 use super::exec::{command, git};
 
@@ -128,19 +129,47 @@ impl IssueState {
     }
 }
 
-pub(super) fn issue_state(item: &str) -> IssueState {
-    let Some((repo, number)) = item.split_once('#') else {
-        return IssueState::Unknown;
-    };
-    if let Some(seen) = number.parse().ok().and_then(|number| read::issue_state(&Mirror::local(), read::now(), repo, number)) {
-        return if seen == Seen::Open { IssueState::Open } else { IssueState::Closed };
+const SEARCH_LIMIT: usize = 1000;
+
+#[derive(Default)]
+pub(super) struct IssueLedger {
+    states: HashMap<String, IssueState>,
+    open: Option<Option<HashSet<(String, u64)>>>,
+}
+
+impl IssueLedger {
+    pub(super) fn state(&mut self, item: &str) -> IssueState {
+        if let Some(state) = self.states.get(item) {
+            return *state;
+        }
+        let state = self.resolve(item);
+        self.states.insert(item.to_string(), state);
+        state
     }
-    let ran = command(&["gh", "issue", "view", number, "-R", &format!("tompassarelli/{repo}"), "--json", "state", "-q", ".state"]);
-    match (ran.ok, ran.out.as_str()) {
-        (true, "CLOSED") => IssueState::Closed,
-        (true, "OPEN") => IssueState::Open,
-        _ => IssueState::Unknown,
+
+    fn resolve(&mut self, item: &str) -> IssueState {
+        let Some((repo, number)) = item.split_once('#').and_then(|(repo, number)| Some((repo, number.parse::<u64>().ok()?))) else {
+            return IssueState::Unknown;
+        };
+        if let Some(seen) = read::issue_state(&Mirror::local(), read::now(), repo, number) {
+            return if seen == Seen::Open { IssueState::Open } else { IssueState::Closed };
+        }
+        match self.open.get_or_insert_with(open_issues) {
+            Some(open) if open.contains(&(repo.to_string(), number)) => IssueState::Open,
+            Some(open) if open.len() < SEARCH_LIMIT => IssueState::Closed,
+            _ => IssueState::Unknown,
+        }
     }
+}
+
+fn open_issues() -> Option<HashSet<(String, u64)>> {
+    let limit = SEARCH_LIMIT.to_string();
+    let ran = command(&["gh", "search", "issues", "--owner", "tompassarelli", "--state", "open", "--limit", &limit, "--json", "repository,number"]);
+    if !ran.ok {
+        return None;
+    }
+    let rows: Vec<Value> = serde_json::from_str(&ran.out).ok()?;
+    rows.iter().map(|row| Some((row["repository"]["name"].as_str()?.to_string(), row["number"].as_u64()?))).collect()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

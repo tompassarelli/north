@@ -30,8 +30,8 @@ use serde_json::Value;
 use super::live_process::open_paths;
 use north_base::foundation::clock::Timestamp;
 use north_base::platform::host;
-use evidence::{IssueState, origin_repo};
-use liveness::{GithubFacts, Hosts};
+use evidence::{IssueLedger, IssueState, origin_repo};
+use liveness::Hosts;
 use state::{StaleReport, write_atomically};
 
 pub use audit::run as repo;
@@ -72,9 +72,8 @@ pub(super) struct Gc {
     hosts: Hosts,
     fleet: Option<Vec<Value>>,
     claims: Option<HashSet<String>>,
-    issues: HashMap<String, IssueState>,
+    issues: IssueLedger,
     pushes: HashMap<String, Option<HashMap<String, i64>>>,
-    github: HashMap<String, GithubFacts>,
     open: HashMap<String, Vec<Value>>,
     remote_rows: Vec<String>,
 }
@@ -192,9 +191,8 @@ pub fn run(arguments: &[String]) -> u8 {
         hosts,
         fleet: None,
         claims: None,
-        issues: HashMap::new(),
+        issues: IssueLedger::default(),
         pushes: HashMap::new(),
-        github: HashMap::new(),
         open: HashMap::new(),
         remote_rows: Vec::new(),
     };
@@ -283,6 +281,6 @@ impl Gc {
     }
 
     fn issue_states(&mut self, items: &[String]) -> Vec<IssueState> {
-        items.iter().map(|item| *self.issues.entry(item.clone()).or_insert_with(|| evidence::issue_state(item))).collect()
+        items.iter().map(|item| self.issues.state(item)).collect()
     }
 }
