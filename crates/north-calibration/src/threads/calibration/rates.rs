@@ -118,11 +118,13 @@ pub fn calibrate_rates(db: &Connection, start: &str, end: &str) -> rusqlite::Res
     Ok(measure(&samples, &costs))
 }
 
-/// An account's rates from the newest `rate` rows: its own when measured over at least `ACCOUNT_RATE_HOURS` hours, else the pooled row, else None.
+/// An account's rates from the newest calibration that wrote a window's `rate` rows: its own row of that calibration when measured over at least `ACCOUNT_RATE_HOURS` hours, else that calibration's pooled row, else None; a row an earlier calibration wrote is never read.
 pub fn rates_of(db: &Connection, account: &str) -> rusqlite::Result<Option<Rates>> {
     let newest = |owner: &str, window: &str| -> rusqlite::Result<Option<(f64, usize)>> {
-        let mut statement = db.prepare("SELECT value, n FROM calibration WHERE kind = 'rate' AND cell = ?1 AND value IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT 1")?;
-        let mut found = statement.query_map([format!("{owner} {window}")], |row| Ok((row.get::<_, f64>(0)?, row.get::<_, i64>(1)? as usize)))?;
+        let mut statement = db.prepare(
+            "SELECT value, n FROM calibration WHERE kind = 'rate' AND cell = ?1 AND value IS NOT NULL AND at = (SELECT max(at) FROM calibration WHERE kind = 'rate' AND cell LIKE ?2) ORDER BY rowid DESC LIMIT 1",
+        )?;
+        let mut found = statement.query_map([format!("{owner} {window}"), format!("% {window}")], |row| Ok((row.get::<_, f64>(0)?, row.get::<_, i64>(1)? as usize)))?;
         found.next().transpose()
     };
     let pick = |window: &str| -> rusqlite::Result<Option<Rate>> {

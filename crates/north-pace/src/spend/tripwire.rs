@@ -33,6 +33,8 @@ pub struct Trip {
     pub account: String,
     pub line: String,
     pub at: f64,
+    #[serde(default)]
+    pub priced: Option<f64>,
 }
 
 /// How far the five-hour window rose in the last `minutes`: the latest reading less the earliest
@@ -68,13 +70,14 @@ pub fn trip(rules: &Rules, account: &str, samples: &[Sample], spenders: &[Spende
     let rose = rise(samples, now, rules.fleet_trip.minutes);
     let fleet = (rose > rules.fleet_trip.points).then(|| format!("{account} five-hour window rose {rose:.0} points in {:.0} min, over the {:.0}-point tripwire", rules.fleet_trip.minutes, rules.fleet_trip.points));
     let session = own.iter().map(|spender| (spender.session.as_str(), points(spender, rules.session_trip))).filter(|(_, spent)| *spent > rules.session_trip.points).max_by(|a, b| a.1.total_cmp(&b.1));
-    let session = session.map(|(name, spent)| format!("{name} spent {spent:.0} points of {account}'s five-hour window in {:.0} min, over the {:.0}-point session tripwire", rules.session_trip.minutes, rules.session_trip.points));
+    let session = session.map(|(name, spent)| format!("{name} spent {spent:.0} points of {account}'s five-hour window in {:.0} min, over the {:.0}-point session tripwire at {points_per_usd:.3} points per dollar", rules.session_trip.minutes, rules.session_trip.points));
+    let priced = fleet.is_none().then_some(points_per_usd);
     let why = fleet.or(session)?;
     let mut top: Vec<(&str, f64)> = own.iter().map(|spender| (spender.session.as_str(), points(spender, rules.fleet_trip))).filter(|(_, spent)| *spent > 0.0).collect();
     top.sort_by(|a, b| b.1.total_cmp(&a.1));
     let named: Vec<String> = top.iter().take(3).map(|(name, spent)| format!("{name} {spent:.0}")).collect();
     let line = if named.is_empty() { why } else { format!("{why}; top spenders in points: {}", named.join(", ")) };
-    Some(Trip { account: account.to_owned(), line, at: now })
+    Some(Trip { account: account.to_owned(), line, at: now, priced })
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -105,10 +108,13 @@ pub struct Judged {
     pub new: Vec<Trip>,
 }
 
-pub fn judge(previous: &[Trip], confirmed: Vec<Trip>, now: f64, span: f64) -> Judged {
+/// The trips in force: every confirmed trip, and each earlier trip within `span` that this tick did not confirm, unless
+/// a session trip priced at another rate than `price` gives its account now, so a recalibration lifts it at once.
+pub fn judge(previous: &[Trip], confirmed: Vec<Trip>, now: f64, span: f64, price: impl Fn(&str) -> f64) -> Judged {
     let live: Vec<&Trip> = previous.iter().filter(|trip| now - trip.at <= span).collect();
     let new = confirmed.iter().filter(|trip| !live.iter().any(|earlier| earlier.account == trip.account)).cloned().collect();
-    let kept: Vec<Trip> = live.into_iter().filter(|earlier| !confirmed.iter().any(|trip| trip.account == earlier.account)).cloned().collect();
+    let repriced = |earlier: &Trip| earlier.priced.is_some_and(|priced| (priced - price(&earlier.account)).abs() > 1e-9);
+    let kept: Vec<Trip> = live.into_iter().filter(|earlier| !confirmed.iter().any(|trip| trip.account == earlier.account) && !repriced(earlier)).cloned().collect();
     let mut current = confirmed;
     current.extend(kept);
     Judged { current, new }

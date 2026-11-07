@@ -47,7 +47,7 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
         })
         .collect();
     let previous: Vec<Trip> = serde_json::from_value(read_json::<Value>(&agents.join(TRIPS))["trips"].clone()).unwrap_or_default();
-    let judged = tripwire::judge(&previous, confirmed, now, span);
+    let judged = tripwire::judge(&previous, confirmed, now, span, |account| points_per_usd(&db, account));
     if let Err(why) = append(&agents.join(TRIP_LOG), &judged.new) {
         lines.push(format!("the spend tripwire's new trips were not logged: {why}"));
     }

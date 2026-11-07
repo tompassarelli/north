@@ -23,3 +23,19 @@ fn a_week_rate_is_points_per_api_dollar_with_a_run_spread_over_the_hours_it_ran_
     let costs = [Cost { account: "a".into(), started: "2026-11-07T10:30:00Z".into(), ended: "2026-11-07T11:30:00Z".into(), usd: 4.0 }];
     assert!((points_per_usd(&samples, &costs) - 1.0).abs() < 1e-9, "4 dollars over two half hours against rises of 2 and 2 points");
 }
+
+/// The 2026-11-08 2:05 AM recalibration on b: a per-account row from an earlier calibration must not outrank the newest one.
+#[test]
+fn an_account_row_from_an_earlier_calibration_yields_to_the_newest_calibrations_pooled_rate() {
+    let db = rusqlite::Connection::open_in_memory().expect("memory db");
+    db.execute_batch(
+        "CREATE TABLE calibration(at TEXT, kind TEXT, cell TEXT, n INTEGER, value REAL);
+         INSERT INTO calibration VALUES ('2026-11-07T18:15:46Z', 'rate', 'b five_hour', 40, 7.0), ('2026-11-07T18:15:46Z', 'rate', 'b week', 40, 0.4),
+                                        ('2026-11-07T18:15:46Z', 'rate', 'pooled five_hour', 99, 3.529), ('2026-11-07T18:15:46Z', 'rate', 'pooled week', 99, 0.3),
+                                        ('2026-11-07T19:05:21Z', 'rate', 'pooled five_hour', 135, 0.465), ('2026-11-07T19:05:21Z', 'rate', 'pooled week', 135, 0.2);",
+    )
+    .expect("rows");
+    let rates = super::rates::rates_of(&db, "b").expect("read").expect("rates");
+    assert_eq!(rates.five_hour.points_per_usd(), 0.465);
+    assert_eq!(rates.week.points_per_usd(), 0.2);
+}

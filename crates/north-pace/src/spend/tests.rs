@@ -67,3 +67,17 @@ fn a_worker_is_refused_an_account_whose_windows_cannot_cover_one_turn_at_p90_and
     let refused = view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).unwrap_err();
     assert!(refused.line.ends_with("(assumed 1.0 week points, no measured p90)"), "{refused}");
 }
+
+/// The 2026-11-08 failure: a session trip on b priced before the 2:05 AM recalibration held every b launch until 2:22 AM.
+#[test]
+fn a_session_trip_priced_before_a_recalibration_is_lifted_at_the_new_price_and_prints_its_price() {
+    let spenders = [Spender { session: "north-bars-lead".into(), account: "claude:b".into(), spent: vec![(NOW - 10.0 * 60.0, 10.0), (NOW, 13.4)] }];
+    let stale = tripwire::trip(&rules(), "claude:b", &[], &spenders, 3.529, NOW).expect("12 points at the stale rate trips");
+    assert!(stale.line.contains("at 3.529 points per dollar"), "{}", stale.line);
+    let later = NOW + 120.0;
+    assert_eq!(tripwire::trip(&rules(), "claude:b", &[], &spenders, 0.465, later), None);
+    let held = tripwire::judge(std::slice::from_ref(&stale), Vec::new(), later, 15.0 * 60.0, |_| 3.529);
+    assert_eq!(held.current, vec![stale.clone()], "an unconfirmed trip at the same price holds its window");
+    let lifted = tripwire::judge(&[stale], Vec::new(), later, 15.0 * 60.0, |_| 0.465);
+    assert!(lifted.current.is_empty(), "{:?}", lifted.current);
+}
