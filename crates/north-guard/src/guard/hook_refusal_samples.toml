@@ -1690,7 +1690,7 @@ command = "cd ~/code/north/worktrees/chrome-pwstore/lib/automation-chrome; sed -
 label = "false"
 
 [[sample.row]]
-command = "d=$(mktemp -d /tmp/gate-loop.XXXX); mkdir -p $d/stub $d/real; cp /nix/store/r1bs0fi1i5hzr6r5f2cch3n3qfana9mi-capacity-gate-shims/bin/bun $d/shim-bun 2"
+command = "d=$(mktemp -d /tmp/gate-loop.XXXX); mkdir -p $d/stub $d/real; cp /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-capacity-gate-shims/bin/bun $d/shim-bun 2"
 label = "false"
 
 [[sample.row]]
@@ -1742,7 +1742,7 @@ window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 20 of 608 distinct refused calls"
 
 [[sample.row]]
-command = "W=/nix/store/w85nwcsr1mcykmlg6ama5ns9xgwq6rra-sccache-lane; d=$(mktemp -d /tmp/n634-sccache.XXXX); mkdir $d/src; printf '[package]\\nname=\"probe\"\\nvers"
+command = "W=/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-sccache-lane; d=$(mktemp -d /tmp/n634-sccache.XXXX); mkdir $d/src; printf '[package]\\nname=\"probe\"\\nvers"
 label = "false"
 
 [[sample.row]]
@@ -2090,7 +2090,7 @@ window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 3 of 112 distinct refused calls"
 
 [[sample.row]]
-command = "A=/nix/store/5g5r97ir4sbiggbpgvwginy3dnqqh3r8-actionlint-1.7.12/bin/actionlint; cd ~/code/makgora/worktrees/makgora-m5 && $A -shellcheck= -pyflakes= -"
+command = "A=/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-actionlint-1.7.12/bin/actionlint; cd ~/code/makgora/worktrees/makgora-m5 && $A -shellcheck= -pyflakes= -"
 label = "true"
 
 [[sample.row]]
