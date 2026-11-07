@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use super::{Range, git};
 
 const DECIDES: [&str; 15] = [
-    "crates/north-dispatch/src/pacing/placement/",
+    "crates/north-pacing/src/pacing/placement/",
     "crates/north-capacity/src/capacity/",
     "crates/north-landing/src/land/bisect.rs",
     "crates/north-landing/src/land/checks.rs",

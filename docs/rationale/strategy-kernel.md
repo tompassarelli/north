@@ -112,7 +112,7 @@ pattern, applied by hand to one function each. Here it becomes the one shape eve
 ## Placement record
 
 Placement runs once per `north fleet launch` or `revive` of a Claude box (`src/cli/fleet/placement.rs`
-`placed` → `crates/north-dispatch/src/pacing/placement/gate.rs` `live` → `decide`). Every input it reads
+`placed` → `crates/north-pacing/src/pacing/placement/gate.rs` `live` → `decide`). Every input it reads
 today, the record field that holds it, and where it comes from:
 
 - `at`: one clock reading. Today the clock is read in four places: `PLACEMENT_NOW` or `storage::now()`
@@ -158,7 +158,7 @@ override `note`, the refusal kind (saturated, exhausted, final), `need`, and the
 prints. Despite its name, `src/cli/fleet/admission.rs` is placement's wait loop, not capacity admission.
 It stays in the kernel: each retry is a placement call with its own record, `follows` set to the
 previous attempt's id, and its 60 s poll and 2-minute limit stay kernel parameters. `gate::live` has a
-second caller, `north fleet dispatch` placement at `crates/north-dispatch/src/pacing/placement.rs:312`, which
+second caller, `north fleet dispatch` placement at `crates/north-pacing/src/pacing/placement.rs:312`, which
 records the same case kind.
 
 Size: the record for this box, built from today's real `usage-gate.json` and the saturation cache, is
@@ -303,14 +303,14 @@ and prints back only the summary. The first day's measured admission size decide
 
 **Call sites** (three areas):
 
-1. Placement. In `crates/north-dispatch/src/pacing/placement/gate.rs` `live`, move every read listed under
+1. Placement. In `crates/north-pacing/src/pacing/placement/gate.rs` `live`, move every read listed under
    [Placement record](#placement-record) into one `placement::Case` built before `decide`, with
    behavior unchanged. That includes `has_directory` (`src/cli/fleet/placement.rs`, folded into the
    per-machine probe in `hosts.rs` `script`), `here_saturation`, `here_cpu_refusal`, the battery and the
    playtest hold. The live code then decides from the `Case`. Log in `src/cli/fleet/placement.rs` `check`,
    after `settle`, with the `Placed` or `Refusal` as the decision. Each retry of the placement wait loop
    in `src/cli/fleet/admission.rs` is its own line, with `follows` naming the previous attempt. Log
-   `north fleet dispatch` placement's call of `gate::live` (`crates/north-dispatch/src/pacing/placement.rs:312`)
+   `north fleet dispatch` placement's call of `gate::live` (`crates/north-pacing/src/pacing/placement.rs:312`)
    too.
 2. Admission. In `crates/north-capacity/src/capacity/enrich.rs` `admit_enriched`, gather the enrichment
    inputs listed under [Admission record](#admission-record) into the `Facts` before `admission::admit`
@@ -329,7 +329,7 @@ day the first module is replayed against `live`, in the shadow box. This box can
 done-when should not claim to.
 
 **As built** (2026-11-06): `crates/north-strategy-types` holds the records; `north_base::platform::decision_log`
-writes them; placement gathers in `crates/north-dispatch/src/pacing/placement/case.rs` (`gather`, then
+writes them; placement gathers in `crates/north-pacing/src/pacing/placement/case.rs` (`gather`, then
 `decide` from the `Case` alone, with `gate::live` the two in a row); admission splits its facts in
 `crates/north-capacity/src/capacity/admission_record.rs`; the lander's lines come from
 `crates/north-landing/src/land/steps.rs` and `candidate.rs`. `NORTH_DECISION_LOG` moves the log (empty

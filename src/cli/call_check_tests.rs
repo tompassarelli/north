@@ -41,6 +41,6 @@ fn a_runtime_missing_a_command_a_host_unit_or_its_own_ssh_hop_still_calls_is_ref
 
     let without_observe: String = verb_help::reference().lines().filter(|line| !line.trim_start().starts_with("fleet laptop observe")).map(|line| format!("{line}\n")).collect();
     let dropped = checked(&without_observe);
-    assert!(dropped.iter().any(|line| line.starts_with("crates/north-dispatch/src/laptop/ctx.rs:") && line.contains("relays north fleet laptop observe from crates/north-capacity/src/capacity/laptop_auto.rs:")), "{dropped:#?}");
+    assert!(dropped.iter().any(|line| line.starts_with("crates/north-pacing/src/laptop/ctx.rs:") && line.contains("relays north fleet laptop observe from crates/north-capacity/src/capacity/laptop_auto.rs:")), "{dropped:#?}");
     assert!(dropped.iter().any(|line| line.contains("this runtime has no north fleet laptop observe; north fleet laptop takes open, close")), "{dropped:#?}");
 }

@@ -323,7 +323,7 @@ One model, one placement function, one enforcer per host.
 **anthropic-cloud, modelled honestly.** A cloud session (4 cores, 15 GB) has no separate charge: it counts toward
 the launching account's plan usage like a local session, so its builds are free compute and its tokens cost what a
 local worker's cost. Plan usage, not a credit, is what limits it,
-so today's rule (`place_anthropic_cloud` in `crates/north-dispatch/src/pacing/placement.rs`, which places the cloud
+so today's rule (`place_anthropic_cloud` in `crates/north-pacing/src/pacing/placement.rs`, which places the cloud
 only while `credit()` says the credit is usable, and harness/skills/workers/references/cloud.md) stops using cloud
 compute for the wrong reason. The corrected rule: a code-only box in a public repository may place on
 anthropic-cloud under any Claude account whose headroom admits a local session by the same 5h and weekly rules, when
@@ -382,7 +382,7 @@ misses from the per-lease server) in the offloaded run's record. Done when: the 
 gex45 carry `shipSeconds` and `cacheState`, and the laptop prints their median.
 
 **W1-4. Cloud placement by account headroom, not credit.** Category: bug-known-cause. Spec: measured. Scope:
-single-module. Surface: rust. Verify: local-test. Files: `crates/north-dispatch/src/pacing/placement.rs`
+single-module. Surface: rust. Verify: local-test. Files: `crates/north-pacing/src/pacing/placement.rs`
 (`place_anthropic_cloud`), its gate in `placement/gate.rs`, `harness/skills/workers/references/cloud.md` (Placement
 and Cloud credit lane sections), `[placement] cloud_credit` and `cloud_host` in south `agents/orchestration.toml`
 (read; the south edit is its own landing). Spec: anthropic-cloud is eligible for a code-only public box whenever
@@ -476,7 +476,7 @@ is after the reservation starts only if the reservation's memory stays free, tha
 pass a head whose memory it would take, and that nothing passes a head that has slipped `backfill_seconds`.
 
 **W2-5. Session wall record, then session placement.** Category: feature. Spec: measured. Scope: cross-module.
-Surface: rust. Verify: local-test. After: W1-4, W1-5, W2-2. Files: `crates/north-dispatch/src/pacing/placement.rs`,
+Surface: rust. Verify: local-test. After: W1-4, W1-5, W2-2. Files: `crates/north-pacing/src/pacing/placement.rs`,
 `placement/launch.rs`, the worker ledger. Spec: record each box's predicted compute (ledger facets), actual box
 wall, model time and placement in the ledger first; rank laptop, gex45, Nexus and anthropic-cloud (cloud including
 measured session start, clone and cold build per repository, and only accounts whose headroom W1-4 admits and whose

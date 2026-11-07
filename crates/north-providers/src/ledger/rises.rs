@@ -1,6 +1,6 @@
 //! Cells on a tier still staffed this week whose median cost of a closed box rose more than 25% week
 //! on week, together as the one rolling north issue a tick keeps for them.
-use crate::ledger::{ClosedBox, ClosedReport};
+use super::{ClosedBox, ClosedReport};
 
 /// The rise over the week before past which a cell gets an issue; it must hold with the week's dearest box dropped, so one dear box moves no median past it.
 pub const RISE: f64 = 0.25;

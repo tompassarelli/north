@@ -15,16 +15,18 @@ mod sampling_tests;
 pub mod spawn_gate;
 mod storage;
 
-pub use sampling::TokenUsage;
+pub use sampling::{FleetWorkers, TokenUsage, Workers};
 
 #[derive(Clone, Copy)]
 pub struct FleetFacts {
     pub roster: fn() -> NorthResult<Roster>,
     pub machine_load: fn() -> NorthResult<BTreeMap<String, i64>>,
+    pub workers: FleetWorkers,
 }
 
 pub fn run(arguments: &[String], fleet: FleetFacts, token_usage: TokenUsage) -> u8 {
     sampling::install_token_usage(token_usage);
+    sampling::install_fleet_workers(fleet.workers);
     if let [command, provider] = arguments
         && command == "gate" {
             return gate(provider);

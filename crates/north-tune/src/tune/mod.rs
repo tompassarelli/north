@@ -15,7 +15,8 @@
 //! closed-box rate and cost against matched boxes that did not load it, and flags the installed
 //! skills no run loaded and those whose boxes did worse. A failed read of the arms' evidence keeps the prior effort cells and fails the tick.
 use crate::foundation::clock::Timestamp;
-use crate::ledger::{self, ClosedReport, EstimatedRun};
+use crate::ledger::{self, ClosedReport, EstimatedRun, rises};
+use crate::dispatch::tuned::directory;
 use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
 use crate::threads::calibration::predictions::Brier;
 use crate::platform::github;
@@ -34,7 +35,6 @@ mod costs;
 mod coverage;
 mod dividends;
 mod estimates;
-pub(crate) mod rises;
 mod skills;
 #[cfg(test)]
 mod tests;
@@ -218,15 +218,6 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
         files.write(&tick)?;
     }
     Ok(tick)
-}
-
-pub fn directory() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".local/state/north/tune"))
-}
-
-pub fn cells_file() -> Result<PathBuf, String> {
-    Ok(directory()?.join("cells.json"))
 }
 
 /// The cells file dispatch's decisions are written to and the provenance file each change of them

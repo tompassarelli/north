@@ -152,6 +152,21 @@ its cap. Both used `north-ops` only to reach what it re-exports, so each re-expo
 them and lists no dependency on north-ops: two crates above north-ops would have given it three dependents, which makes it
 a hub with a 10000-line cap. The `crate::ops::flow` paths inside the moved files became `crate::flow`.
 
+## north-pacing and north-tune (2026-11-08)
+
+north-dispatch was 9574 non-test lines against its 10000 hub cap, and north#719 asked for at most 60% of it by deleting
+code outside north's spine (take a brief, run a worker, land the change, record the result) first. Nothing outside the spine was
+dead: `tune`, `loops`, `check` and `dividend` each back a live command (`north tune`, `north loops check`, `north ops check`, `north ops dividend`), so they moved instead. `check` and `dividend`
+are `north ops check` and `north ops dividend` and moved into north-ops under `ops/`. `tune` and `loops` reach `dispatch`
+and nothing in it reaches them, so they left as `north-tune` (1250 lines), whose only dependent is the root package; dispatch
+now owns the cells file path it reads (`dispatch::tuned::cells_file`), and the week-on-week cost rises behind
+`north tune`'s alarm issue moved to `ledger::rises` in north-providers beside the closed-box report they read, so
+dispatch's test that feeds that alarm body to `decide` needs no edge back up to north-tune. `pacing`, `laptop` and `resident_cap` sit below `dispatch`: placement is what
+dispatch, `north fleet launch`, the runtime and replay read, and only `pacing::sampling` named `dispatch` (its per-account
+worker counts), so the root package now hands it `dispatch::fleet_workers` through `pacing::FleetFacts` and the three
+modules left as `north-pacing` (3043 lines). north-dispatch re-exports them, so every `north_dispatch::pacing` and
+`crate::pacing` path is unchanged. north-dispatch fell to 4409 lines.
+
 ## north-guard
 
 `guard` and `hook` reference each other, so they left together, and `north-guard` sits above `north-core`

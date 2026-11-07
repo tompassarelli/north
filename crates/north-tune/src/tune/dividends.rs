@@ -70,9 +70,9 @@ pub fn definitions() -> Result<Vec<Dividend>, String> {
 }
 
 pub fn parse(text: &str) -> Result<Vec<Dividend>, String> {
-    let document: DocumentMut = text.parse().map_err(|error| format!("crates/north-dispatch/src/tune/dividends.toml: {error}"))?;
-    let tables = document.get("dividend").and_then(Item::as_array_of_tables).ok_or("crates/north-dispatch/src/tune/dividends.toml has no [[dividend]]")?;
-    tables.iter().map(|table| one(table).map_err(|why| format!("crates/north-dispatch/src/tune/dividends.toml: {why}"))).collect()
+    let document: DocumentMut = text.parse().map_err(|error| format!("crates/north-tune/src/tune/dividends.toml: {error}"))?;
+    let tables = document.get("dividend").and_then(Item::as_array_of_tables).ok_or("crates/north-tune/src/tune/dividends.toml has no [[dividend]]")?;
+    tables.iter().map(|table| one(table).map_err(|why| format!("crates/north-tune/src/tune/dividends.toml: {why}"))).collect()
 }
 
 fn one(table: &Table) -> Result<Dividend, String> {

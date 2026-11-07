@@ -1,4 +1,4 @@
-use crate::{check, dividend};
+use super::{check, dividend};
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {

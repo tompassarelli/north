@@ -57,7 +57,7 @@ fn the_scope_guard_refuses_every_guarded_path_and_every_defaults_key_that_the_ev
     assert_eq!(scope::refusals(&touches, Some((&before, &changed(&before, "laptop_idle_reopen_sec")))), Vec::<String>::new(), "a placement key in the same file stays open");
     assert_eq!(scope::refusals(&touches, None).len(), 1, "a defaults change with no contents is refused whole");
 
-    let refused = scope::refusals(&["crates/north-pace/src/router/settle.rs".to_owned(), "crates/north-dispatch/src/tune/cells.rs".to_owned(), "crates/north-dispatch/src/dispatch/tier.rs".to_owned()], None);
+    let refused = scope::refusals(&["crates/north-pace/src/router/settle.rs".to_owned(), "crates/north-tune/src/tune/cells.rs".to_owned(), "crates/north-dispatch/src/dispatch/tier.rs".to_owned()], None);
     assert_eq!(refused.len(), 2, "{refused:?}");
     assert!(!scope::diff_refusals("--- a/tier.rs\n+++ b/tier.rs\n-        self.arms.settled(Tier::Sonnet, Tier::Opus)\n+        self.arms.cheaper(Tier::Sonnet, Tier::Opus)\n").is_empty());
 }

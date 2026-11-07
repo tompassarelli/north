@@ -88,6 +88,7 @@ fn pace(arguments: &[String]) -> u8 {
         pacing::FleetFacts {
             roster: fleet::roster,
             machine_load: fleet::fleet_load,
+            workers: crate::dispatch::fleet_workers,
         },
         token_usage::read,
     )

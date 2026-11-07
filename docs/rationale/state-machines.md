@@ -193,7 +193,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
     named with their prefix and not `exited` as running (`crates/north-runtime/src/timers/incident_retro/mod.rs:71`,
     `timers/watch_review/mod.rs:144`); a session that dies leaves the week unclassified. Shapes: status-string.
 35. **Laptop availability** (none counted). Automatic versus manual is decided by comparing `by` and `reason`
-    strings (`crates/north-dispatch/src/laptop/tick.rs:80,95`); draining stays forever when the job queue is
+    strings (`crates/north-pacing/src/laptop/tick.rs:80,95`); draining stays forever when the job queue is
     unreadable. Shapes: status-string.
 36. **Rename-into-place leftovers** (none counted). Staging names nothing reaps after a crash: `.stage.*` and
     `.current.PID` (`crates/north-ops/src/ops/vendor_runtime/mod.rs:100-125`), `.incoming/PID`

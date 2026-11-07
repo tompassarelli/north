@@ -2,7 +2,7 @@ use super::tier::{Effort, Route};
 use crate::foundation::clock::Timestamp;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 pub const FRESH_HOURS: u64 = 36;
@@ -34,7 +34,7 @@ impl Tuned {
     }
 
     pub fn current() -> Self {
-        crate::tune::cells_file().map_or_else(|_| Self::default(), |path| Self::read(&path, SystemTime::now()))
+        cells_file().map_or_else(|_| Self::default(), |path| Self::read(&path, SystemTime::now()))
     }
 
     pub fn efforts(&self) -> BTreeMap<String, Effort> {
@@ -50,4 +50,13 @@ impl Tuned {
 
 pub fn current_efforts() -> BTreeMap<String, Effort> {
     Tuned::current().efforts()
+}
+
+pub fn directory() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or("HOME is not set")?;
+    Ok(PathBuf::from(home).join(".local/state/north/tune"))
+}
+
+pub fn cells_file() -> Result<PathBuf, String> {
+    Ok(directory()?.join("cells.json"))
 }

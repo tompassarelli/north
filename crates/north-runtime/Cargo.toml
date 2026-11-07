@@ -23,7 +23,7 @@ toml_edit.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-north-dispatch = { path = "../north-dispatch", features = ["test-support"] }
+north-pacing = { path = "../north-pacing", features = ["test-support"] }
 
 [lints]
 workspace = true

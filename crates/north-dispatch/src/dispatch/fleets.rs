@@ -326,3 +326,11 @@ pub fn every_fleet(cfg: &DocumentMut, here: &str, at: f64, limit: Duration) -> O
     let read = |host: &str| listings.iter().any(|(name, listing)| name == host && listing.is_array());
     (read(here) && hosts(cfg).iter().all(|host| read(host))).then_some(listings)
 }
+
+/// Each account's working sessions and the worker sessions working across every registry, read within ten seconds; none when a
+/// registry does not answer.
+pub fn workers(cfg: &DocumentMut, here: &str, at: f64) -> Option<crate::pacing::Workers> {
+    let fleet = every_fleet(cfg, here, at, Duration::from_secs(10))?;
+    let sessions: Vec<_> = fleet.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
+    Some(crate::pacing::Workers { by_account: working_by_account(&sessions), active: active_workers(&sessions) })
+}

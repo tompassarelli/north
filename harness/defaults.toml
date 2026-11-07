@@ -528,7 +528,7 @@ allowed = { min = 0, max = 604800 }
 unit = "seconds of continuous idle before reopening background laptop capacity"
 source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe existing 1800-second idle reopening threshold; the seat in use no longer drains an open laptop (Tom, 2026-11-08), so this reopens only after a window close or a battery, gaming or sleep hold"
 fallback = "without continuous idle evidence background capacity remains closed"
-consumers = ["crates/north-dispatch/src/laptop/observe.rs"]
+consumers = ["crates/north-pacing/src/laptop/observe.rs"]
 
 [bar1_desktop_mib]
 value = 1

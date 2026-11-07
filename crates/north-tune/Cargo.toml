@@ -1,0 +1,22 @@
+[package]
+name = "north-tune"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-dispatch = { path = "../north-dispatch" }
+north-pace = { path = "../north-pace" }
+north-providers = { path = "../north-providers" }
+north-calibration = { path = "../north-calibration" }
+serde_json.workspace = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true

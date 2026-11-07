@@ -1,7 +1,6 @@
 use super::{process, readout, storage};
 use crate::foundation::clock::rfc3339_seconds;
 use crate::spend::{self, Placed, Rules, Size, Starter, Turn};
-use crate::dispatch::fleets;
 use crate::platform::harness;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -26,7 +25,20 @@ pub(super) fn worker_turns(at: f64) -> impl Fn(&str) -> Option<Turn> {
 
 pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
 
-const FLEET_READ: std::time::Duration = std::time::Duration::from_secs(10);
+/// The sessions taking a turn on each account and the worker sessions taking a turn across every registry, as the spend cap counts
+/// them; dispatch reads them from every registry.
+pub struct Workers {
+    pub by_account: BTreeMap<String, i64>,
+    pub active: usize,
+}
+
+/// Reads `Workers` from every registry the orchestration config names, or none when one does not answer.
+pub type FleetWorkers = fn(&toml_edit::DocumentMut, &str, f64) -> Option<Workers>;
+static FLEET_WORKERS: std::sync::OnceLock<FleetWorkers> = std::sync::OnceLock::new();
+
+pub(super) fn install_fleet_workers(read: FleetWorkers) {
+    let _ = FLEET_WORKERS.set(read);
+}
 
 const ADAPTERS: [&str; 2] = ["claude", "gemini"];
 
@@ -213,18 +225,16 @@ pub(super) fn recent_history(state: &Value, fresh: &[Value], window: f64) -> Vec
         .collect()
 }
 
-pub(super) fn standings(directory: &std::path::Path, cfg: &toml_edit::DocumentMut, fleet: &[(String, Value)], at: f64) -> Vec<Value> {
-    let sessions: Vec<_> = fleet.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
-    let working = fleets::working_by_account(&sessions);
+pub(super) fn standings(directory: &std::path::Path, cfg: &toml_edit::DocumentMut, workers: &Workers, at: f64) -> Vec<Value> {
     let rules = Rules::configured();
     let catalog = harness::document(harness::MODEL_CATALOG);
     let turn = worker_turns(at);
-    let view = spend::view(directory, &rules, fleets::active_workers(&sessions), at, |name| Size { plan_week: spend::plan_week(cfg, catalog, name), turn: turn(name) }, |_| true, spend::keyed(cfg));
+    let view = spend::view(directory, &rules, workers.active, at, |name| Size { plan_week: spend::plan_week(cfg, catalog, name), turn: turn(name) }, |_| true, spend::keyed(cfg));
     view.accounts
         .iter()
         .map(|account| {
             let refusal = view.admit(&rules, &account.name, Starter::Worker, Placed::default()).err().map(|refusal| refusal.to_string());
-            json!({"at": at, "account": account.name, "admits": refusal.is_none(), "refusal": refusal, "workers": working.get(&account.name).copied().unwrap_or(0)})
+            json!({"at": at, "account": account.name, "admits": refusal.is_none(), "refusal": refusal, "workers": workers.by_account.get(&account.name).copied().unwrap_or(0)})
         })
         .collect()
 }
@@ -251,9 +261,9 @@ pub(super) fn sample(provider: Option<&str>) -> Result<Value, String> {
     }
     let cfg = config()?;
     let (mut state, gate) = measure(&directory, &db, &reads, at)?;
-    let fleet = fleets::every_fleet(&cfg, &here, at, FLEET_READ);
+    let workers = FLEET_WORKERS.get().and_then(|read| read(&cfg, &here, at));
     let _lock = storage::lock(&directory, "pace-control.lock", None)?;
-    for standing in fleet.as_deref().map(|fleet| standings(&directory, &cfg, fleet, storage::now())).unwrap_or_default() {
+    for standing in workers.as_ref().map(|workers| standings(&directory, &cfg, workers, storage::now())).unwrap_or_default() {
         storage::append(&directory.join("pace-control.jsonl"), &standing)?;
     }
     state["history"] = json!(recent_history(&state, &fresh, history_window(remote)));

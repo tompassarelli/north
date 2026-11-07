@@ -1,0 +1,37 @@
+[package]
+name = "north-pacing"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+north-capacity-host = { path = "../north-capacity-host" }
+north-fleet-supervisor = { path = "../north-fleet-supervisor" }
+north-pace = { path = "../north-pace" }
+north-providers = { path = "../north-providers" }
+north-calibration = { path = "../north-calibration" }
+north-strategy-types = { path = "../north-strategy-types" }
+regex.workspace = true
+rusqlite.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+time.workspace = true
+toml_edit.workspace = true
+
+[features]
+test-support = []
+
+[dev-dependencies]
+north-threads = { path = "../north-threads", features = ["test-support"] }
+proptest = { version = "1", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

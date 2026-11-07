@@ -16,24 +16,18 @@ north-graph-ground = { path = "../north-graph-ground" }
 north-base = { path = "../north-base" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }
+north-pacing = { path = "../north-pacing" }
 north-providers = { path = "../north-providers" }
 north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-strategy-types = { path = "../north-strategy-types" }
 regex.workspace = true
 rusqlite.workspace = true
-rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
-
-[features]
-test-support = []
-
-[dev-dependencies]
-proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true
