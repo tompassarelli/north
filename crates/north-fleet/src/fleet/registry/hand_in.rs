@@ -1,8 +1,8 @@
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::path::Path;
 
+use north_session_host::row_delivery::{Phase, RowDelivery, instance};
 use rustix::fs::{FlockOperation, flock};
 
 use crate::error::{NorthError, NorthResult};
@@ -13,9 +13,7 @@ use crate::fleet::unaccepted::Unaccepted;
 use super::Fleet;
 use super::senders::signed;
 
-const DELIVERED: &str = "delivered";
-const LOCK: &str = ".lock";
-const HANDING: &str = "handing";
+const LOCK: &str = ".delivery.lock";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum HandedIn {
@@ -31,74 +29,50 @@ impl Fleet {
         }
         self.record(&row.to)?;
         self.rebind_dead_proxy(&row.to)?;
-        let (journal, _lock) = self.journal_lock(&row.to)?;
-        let entry = journal.join(&row.id);
-        let handing = journal.join(format!("{}.{HANDING}", row.id));
-        if handing.exists() {
-            if self.took(row)? {
-                fs::remove_file(&handing)?;
+        let _lock = self.delivery_lock(&row.to)?;
+        let mut store = self.deliveries()?;
+        let handed_in = match store.current::<RowDelivery>(&instance(&row.to, &row.id))?.map(|record| record.state) {
+            Some(Phase::Delivered) => return Ok(HandedIn::Already),
+            Some(Phase::HandingIn | Phase::Interrupted) if self.took(&row.to, &row.id)? => {
+                self.advance(&mut store, &row.to, &row.id, Phase::Delivered, "the session's stream already holds the row")?;
                 return Ok(HandedIn::Already);
             }
-        } else if entry.exists() {
+            _ => self.advance(&mut store, &row.to, &row.id, Phase::HandingIn, "handing the row to the session")?,
+        };
+        if !handed_in {
             return Ok(HandedIn::Already);
         }
-        File::create(&handing)?;
-        File::create(&entry)?;
-        let handed = self.deliver(row);
-        if handed.is_err() && let Err(error) = fs::remove_file(&entry) {
-            eprintln!("north fleet: row {} was not delivered and its journal entry was not cleared: {error}", row.id);
+        if let Err(error) = self.deliver(row) {
+            self.advance(&mut store, &row.to, &row.id, Phase::Failed, &error.user_message())?;
+            return Err(error);
         }
-        if let Err(error) = fs::remove_file(&handing) {
-            eprintln!("north fleet: row {} hand-in marker was not cleared: {error}", row.id);
-        }
-        handed.map(|()| HandedIn::Delivered)
+        self.advance(&mut store, &row.to, &row.id, Phase::Delivered, "the session took the row")?;
+        Ok(HandedIn::Delivered)
     }
 
-    pub fn delivered(&self, name: &str) -> NorthResult<Vec<String>> {
-        Ok(journaled(&self.session_dir(name)?))
-    }
-
-    pub fn prune_delivered(&self, before: SystemTime) -> NorthResult<usize> {
-        let mut pruned = 0;
-        for record in self.sessions()? {
-            let journal = self.session_dir(&record.name)?.join(DELIVERED);
-            let Ok(entries) = fs::read_dir(&journal) else { continue };
-            for entry in entries.flatten() {
-                let stale = entry.metadata().and_then(|metadata| metadata.modified()).is_ok_and(|modified| modified < before);
-                if stale && !entry.file_name().to_string_lossy().contains('.') {
-                    fs::remove_file(entry.path())?;
-                    pruned += 1;
-                }
-            }
-        }
-        Ok(pruned)
-    }
-
-    fn took(&self, row: &FleetRow) -> NorthResult<bool> {
-        let record = self.record(&row.to)?;
-        let id = row.prompt_id();
-        Ok(Unaccepted::holds(&record.host_dir, &id) || streamed(&stream_path(&record.host_dir), &id)?)
+    pub(super) fn took(&self, session: &str, id: &str) -> NorthResult<bool> {
+        let record = self.record(session)?;
+        let prompt = FleetRow::prompt_id_for(id);
+        Ok(Unaccepted::holds(&record.host_dir, &prompt) || streamed(&stream_path(&record.host_dir), &prompt)?)
     }
 
     pub(super) fn journaled(&self, row: &FleetRow, apply: impl FnOnce() -> NorthResult<()>) -> NorthResult<HandedIn> {
         row.validate()?;
         self.record(&row.to)?;
-        let (journal, _lock) = self.journal_lock(&row.to)?;
-        let entry = journal.join(&row.id);
-        if entry.exists() {
+        let _lock = self.delivery_lock(&row.to)?;
+        let mut store = self.deliveries()?;
+        if store.current::<RowDelivery>(&instance(&row.to, &row.id))?.is_some() {
             return Ok(HandedIn::Already);
         }
         apply()?;
-        File::create(entry)?;
+        self.advance(&mut store, &row.to, &row.id, Phase::Delivered, "the row was applied")?;
         Ok(HandedIn::Delivered)
     }
 
-    fn journal_lock(&self, name: &str) -> NorthResult<(PathBuf, File)> {
-        let journal = self.session_dir(name)?.join(DELIVERED);
-        fs::create_dir_all(&journal)?;
-        let lock = OpenOptions::new().create(true).append(true).open(journal.join(LOCK))?;
+    fn delivery_lock(&self, name: &str) -> NorthResult<File> {
+        let lock = OpenOptions::new().create(true).append(true).open(self.session_dir(name)?.join(LOCK))?;
         flock(&lock, FlockOperation::LockExclusive).map_err(|error| NorthError::State(format!("{name} delivery lock: {error}")))?;
-        Ok((journal, lock))
+        Ok(lock)
     }
 
     fn deliver(&self, row: &FleetRow) -> NorthResult<()> {
@@ -108,24 +82,6 @@ impl Fleet {
         }
         self.prompt(&row.to, &row.prompt_id(), &signed(&signer, &row.text), row.delivery())
     }
-}
-
-/// Marks in `session_dir`'s journal every row the session archived at `predecessor` took, so a takeover never hands the new session a row the old one already answered.
-pub(super) fn inherit_journal(predecessor: &Path, session_dir: &Path) -> NorthResult<()> {
-    let journal = session_dir.join(DELIVERED);
-    fs::create_dir_all(&journal)?;
-    for id in journaled(predecessor) {
-        File::create(journal.join(id))?;
-    }
-    Ok(())
-}
-
-fn journaled(session_dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(session_dir.join(DELIVERED)) else { return Vec::new() };
-    let names: Vec<String> = entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
-    let marker = format!(".{HANDING}");
-    let handing: Vec<&str> = names.iter().filter_map(|name| name.strip_suffix(&marker)).collect();
-    names.iter().filter(|name| !name.contains('.') && !handing.contains(&name.as_str())).cloned().collect()
 }
 
 fn streamed(stream: &Path, id: &str) -> NorthResult<bool> {

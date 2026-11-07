@@ -38,6 +38,7 @@ mod first_turn;
 mod follower;
 mod gate_commands;
 mod gate_rows;
+mod delivery;
 mod hand_in;
 mod interactive;
 mod kept;
@@ -113,7 +114,9 @@ impl Fleet {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), usage: Arc::new(NoUsage) })
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), usage: Arc::new(NoUsage) };
+        fleet.adopt_journals()?;
+        Ok(fleet)
     }
 
     pub fn writing_usage(mut self, usage: Arc<dyn UsageSink>) -> Self {

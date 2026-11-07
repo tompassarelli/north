@@ -185,8 +185,8 @@ mod tests {
         let laptop = fleet(home.path());
         let worker = live(&laptop, "worker");
         let id = laptop.open_gate(&request("worker")).unwrap();
-        let journal = laptop.root.join("worker/delivered");
-        std::fs::write(&journal, "in the way").unwrap();
+        let socket = laptop.root.join("worker/host.sock");
+        std::fs::rename(&socket, laptop.root.join("worker/host.moved")).unwrap();
 
         laptop.answer_gate(id, 1, None, None, None).unwrap();
 
@@ -194,7 +194,7 @@ mod tests {
         assert!(worker.frames.lock().unwrap().is_empty());
         let pending = spooled(&laptop);
         assert_eq!((pending.kind, pending.to.as_str(), pending.urgent), (RowKind::Message, "worker", true));
-        std::fs::remove_file(&journal).unwrap();
+        std::fs::rename(laptop.root.join("worker/host.moved"), &socket).unwrap();
 
         assert_eq!(laptop.deliver_row(&pending).unwrap(), HandedIn::Delivered);
         assert_eq!(laptop.deliver_row(&pending).unwrap(), HandedIn::Already);

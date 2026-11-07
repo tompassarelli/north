@@ -99,6 +99,32 @@ impl Store {
         names.iter().filter_map(|name| self.current::<L>(name).transpose()).collect()
     }
 
+    /// Every instance of `L` whose name starts with `prefix`, oldest record first.
+    pub fn instances_under<L: Lifecycle>(&self, prefix: &str) -> NorthResult<Vec<Record<L::State>>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT instance, state, since_ms, due_ms, owner, cause, seq FROM lifecycle_states WHERE machine = ?1 AND substr(instance, 1, length(?2)) = ?2 ORDER BY since_ms")
+            .map_err(sql)?;
+        let rows = statement
+            .query_map([L::NAME, prefix], |row| Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get::<_, Option<String>>(4)?, row.get(5)?, row.get(6)?)))
+            .map_err(sql)?;
+        rows.map(|row| {
+            let (instance, state, since_ms, due_ms, owner, cause, seq) = row.map_err(sql)?;
+            typed::<L>(&instance, Row { state, since_ms, due_ms, owner: owner.map(|owner| serde_json::from_str(&owner)).transpose()?, cause, seq })
+        })
+        .collect()
+    }
+
+    /// Deletes the instances of `L` that no process holds and that have not moved since `before`, with their logged moves; returns how many.
+    pub fn forget<L: Lifecycle>(&mut self, before: Timestamp) -> NorthResult<usize> {
+        let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        let resting = "SELECT instance FROM lifecycle_states WHERE machine = ?1 AND owner IS NULL AND since_ms < ?2";
+        transaction.execute(&format!("DELETE FROM lifecycle_moves WHERE machine = ?1 AND instance IN ({resting})"), params![L::NAME, before.unix_millis()]).map_err(sql)?;
+        let forgotten = transaction.execute("DELETE FROM lifecycle_states WHERE machine = ?1 AND owner IS NULL AND since_ms < ?2", params![L::NAME, before.unix_millis()]).map_err(sql)?;
+        transaction.commit().map_err(sql)?;
+        Ok(forgotten)
+    }
+
     /// Moves `instance` to `to` for `cause`, the only way its record changes. A state held by a process that is
     /// gone first moves to the machine's orphan state, logged with the holder, so the log says what happened.
     pub fn transition<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp) -> NorthResult<Moved<L::State>> {

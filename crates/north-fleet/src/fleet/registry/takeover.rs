@@ -11,7 +11,6 @@ use super::super::store::{Addressee, Claim, FleetRow, RowKind};
 /// The session a takeover ended, and where its directory now lies.
 pub(super) struct Predecessor {
     record: SessionRecord,
-    pub(super) archived: PathBuf,
 }
 
 impl Predecessor {
@@ -34,7 +33,7 @@ impl Fleet {
         let record = self.record(name)?;
         let archived = self.archive(name, Halt::TakenOver)?;
         eprintln!("north fleet: {name} was held by conversation {}; it is stopped and archived at {}, and the name and its messages now go to the new session", record.conversation.as_deref().unwrap_or("none"), archived.display());
-        Ok(Some(Predecessor { record, archived }))
+        Ok(Some(Predecessor { record }))
     }
 
     pub fn fleet_proxy(&self) -> NorthResult<Option<SessionRecord>> {

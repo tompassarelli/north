@@ -62,6 +62,11 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    flock (`crates/north-fleet/src/fleet/registry/hand_in.rs:16-121`, `fleet/store/spool.rs`); a crash leaves
    `.handing`, resolved only by searching the stream; rows to a stopped session wait while a local send revives it
    (`fleet/store/exchange.rs:74`). Shapes: presence-flag.
+   **Converted (north#757):** the machine `row-delivery`, one instance per `SESSION/ROW` in the host `ledger.db`
+   (`crates/north-session-host/src/row_delivery.rs`, writers in `fleet/registry/hand_in.rs` and `delivery.rs`): `handing-in`
+   (held, 10 min), `delivered`, `interrupted` (a dead holder's `handing-in`, 15 min), `failed` (retried each tick, 1 h). The
+   journal directory and its `.handing` markers are adopted once at `Fleet::open` and removed; the spool file stays a
+   queue and the stopped-session filter stays a query.
 7. **Threads spool and mirrored-client mode** (88: 44 x 2). `~/.config/threads/remote` presence switches a host to
    snapshot reads and spooled writes (`crates/north-threads/src/threads/client.rs:118-125`); a refused write is
    renamed `.failed` and never retried, and health skips `.failed` (`client.rs:454`,

@@ -132,7 +132,11 @@ impl FleetRow {
     }
 
     pub fn prompt_id(&self) -> String {
-        let mut bytes: [u8; 16] = Sha256::digest(self.id.as_bytes())[..16].try_into().unwrap_or_default();
+        Self::prompt_id_for(&self.id)
+    }
+
+    pub fn prompt_id_for(id: &str) -> String {
+        let mut bytes: [u8; 16] = Sha256::digest(id.as_bytes())[..16].try_into().unwrap_or_default();
         bytes[6] = (bytes[6] & 0x0f) | 0x80;
         bytes[8] = (bytes[8] & 0x3f) | 0x80;
         let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();

@@ -11,7 +11,7 @@ use crate::fleet::runtime::{LiveWindow, PROXY, Runtime, WindowInbox, now_ms};
 use crate::fleet::store::{Claim, SessionRow, Slots};
 
 use super::takeover::Predecessor;
-use super::{Fleet, hand_in};
+use super::Fleet;
 
 impl Fleet {
     pub fn adopt(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<SessionRecord> {
@@ -55,9 +55,6 @@ impl Fleet {
         let predecessor = self.retire_for(name, Claim::TakeOver)?;
         record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
         fs::create_dir_all(&session_dir)?;
-        if let Some(predecessor) = &predecessor {
-            hand_in::inherit_journal(&predecessor.archived, &session_dir)?;
-        }
         write_record(&session_dir, &record)?;
         bar_hosts(&session_dir)?;
         Ok(record)

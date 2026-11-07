@@ -247,9 +247,9 @@ may_use = ["foundation", "crate-roots"]
 
 [[module]]
 name = "fleet"
-paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs", "crates/north-session-host/src/session_host.rs"]
+paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/*/src/claude_stream.rs", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
-may_use = ["domain", "platform", "foundation", "crate-roots"]
+may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "ledger"
@@ -279,7 +279,7 @@ may_use = ["platform", "foundation"]
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/land_model/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["lifecycle", "strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants"]
+may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle"]
 
 [[module]]
 name = "landing.safe_push.shell"

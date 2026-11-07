@@ -8,7 +8,7 @@ use crate::fleet::runtime::{Opening, Runtime, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
 use super::takeover::Predecessor;
-use super::{Fleet, efforts, hand_in, session_running};
+use super::{Fleet, efforts, session_running};
 
 impl Fleet {
     pub fn launch(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
@@ -58,9 +58,6 @@ impl Fleet {
     }
 
     fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, runtime: &dyn Runtime, predecessor: Option<&Predecessor>, conversation: Option<&str>) -> NorthResult<()> {
-        if let Some(predecessor) = predecessor {
-            hand_in::inherit_journal(&predecessor.archived, &self.session_dir(&request.name)?)?;
-        }
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
                 runtime.carry_conversation(&self.account(&predecessor.record().relaunch_request())?, account, kept)?;
