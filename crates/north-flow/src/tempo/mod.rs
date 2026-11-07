@@ -184,7 +184,7 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("{}", line(reading));
         }
         if options.record {
-            let code = crate::threads::client::run(&record_arguments(reading, now), Arc::new(crate::threads::outside::Unread));
+            let code = crate::threads::client::run(&record_arguments(reading, now), Arc::new(crate::threads::outside::Unread), &[]);
             if code != 0 {
                 eprintln!("north ledger tempo: recording the {}-minute reading into the ledger exited {code}", reading.window_minutes);
                 return code;

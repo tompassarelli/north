@@ -47,7 +47,7 @@ lines = 2
 kind = "verdict"
 
 [[read]]
-file = "crates/north-threads/src/threads/calibration/read.rs"
+file = "crates/north-calibration/src/threads/calibration/read.rs"
 lines = 1
 kind = "verdict"
 

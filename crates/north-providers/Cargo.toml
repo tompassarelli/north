@@ -10,6 +10,7 @@ publish = false
 north-claude-stream = { path = "../north-claude-stream" }
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
+north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 regex.workspace = true

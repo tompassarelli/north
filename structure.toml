@@ -84,7 +84,7 @@ may_use = ["north-base", "north-github-mirror"]
 [[crate_dag.crate]]
 name = "north-capacity-host"
 paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
-may_use = ["north-capacity", "north-fleet", "north-threads"]
+may_use = ["north-capacity", "north-fleet", "north-calibration"]
 
 [[crate_dag.crate]]
 name = "north-capacity"
@@ -177,6 +177,11 @@ paths = ["crates/*/src/pace.rs", "crates/*/src/pace/**", "crates/*/src/spend/**"
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-calibration"
+paths = ["crates/north-calibration/src/**"]
+may_use = ["north-threads"]
+
+[[crate_dag.crate]]
 name = "north-threads"
 paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**", "crates/*/src/work_items.rs", "crates/*/src/work_items/**"]
 may_use = ["north-pace"]
@@ -209,7 +214,7 @@ may_use = ["north-fleet", "north-resume", "north-session-host"]
 [[crate_dag.crate]]
 name = "north-providers"
 paths = ["crates/*/src/providers.rs", "crates/*/src/providers/**", "crates/*/src/codex.rs", "crates/*/src/codex/**", "crates/*/src/ledger.rs", "crates/*/src/ledger/**"]
-may_use = ["north-claude-stream", "north-fleet-supervisor", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration"]
 
 [[crate_dag.crate]]
 name = "north-core"
@@ -398,7 +403,7 @@ may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "cap
 
 [[module]]
 name = "threads"
-paths = ["crates/north-threads/src/threads/**", "crates/north-threads/src/work_items.rs"]
+paths = ["crates/north-threads/src/threads/**", "crates/north-threads/src/work_items.rs", "crates/north-calibration/src/threads/**"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
 may_use = ["domain", "foundation", "crate-roots", "lifecycle", "build_inputs", "platform.process", "platform", "platform.harness"]
 

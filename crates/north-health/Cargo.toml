@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
+north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 rusqlite.workspace = true
 serde.workspace = true

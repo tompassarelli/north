@@ -5,7 +5,7 @@ pub use north_fleet::fleet;
 pub use north_health::health;
 pub use north_pace::{router, usage};
 pub use north_providers::ledger;
-pub use north_threads::threads;
+pub use north_calibration::threads;
 
 pub mod agents;
 pub mod detectors;

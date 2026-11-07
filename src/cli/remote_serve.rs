@@ -114,7 +114,7 @@ impl Launch for Host {
         match words.as_slice() {
             ["threads", ..] | ["north", "threads", ..] => {
                 let skip = if words[0] == "north" { 2 } else { 1 };
-                i32::from(client::run_in(&plan.argv[skip..], env, self.fleet.clone()))
+                i32::from(client::run_in(&plan.argv[skip..], env, self.fleet.clone(), crate::cli::THREADS_FAMILIES))
             }
             ["north", ..] => spawn(self.exe.as_os_str(), &plan.argv[1..], &env),
             [program, ..] => spawn(program.as_ref(), &plan.argv[1..], &env),

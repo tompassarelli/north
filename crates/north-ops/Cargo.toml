@@ -13,6 +13,7 @@ north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-health = { path = "../north-health" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
+north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-dispatch = { path = "../north-dispatch" }
 north-github-mirror = { path = "../north-github-mirror" }

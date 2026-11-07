@@ -52,6 +52,9 @@ mod worker_ledger;
 use session::Session;
 use tools::Tool;
 
+/// The `north threads` verb families that live above north-threads, run beside the ones the ledger runs itself.
+pub(crate) const THREADS_FAMILIES: &[crate::threads::verb::Family] = &[crate::threads::calibration::FAMILY];
+
 #[derive(Debug, Eq, PartialEq)]
 enum Command {
     Fleet(Vec<String>),
@@ -185,7 +188,7 @@ fn dispatch(command: Command) -> ExitCode {
             }
         },
         Command::NixGc(arguments) => nix::gc(&arguments),
-        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry))),
+        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry), THREADS_FAMILIES)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
         Command::VerbHelp(path) => match verb_help::usage(&path) {

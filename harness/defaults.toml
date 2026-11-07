@@ -4,7 +4,7 @@ allowed = { min = 0, max = 100 }
 unit = "percent of runs that succeed (threads run_ok)"
 source = "measured: flat over {60,70,75,80,85,90}: picked-tier success among runs on the pick 60.1-63.0%, Wilson 95% intervals overlap, n=291-354 of 801 decisions; 80 is tied-best (63.0%, n=354, $0.11/success)"
 fallback = "a tier under min_runs runs is unsampled: recommend requires sampled measured costs when no tier passes; routing uses the orchestration.toml band"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs", "crates/north-pace/src/router/ctx.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs", "crates/north-pace/src/router/ctx.rs"]
 
 [min_runs]
 value = 5
@@ -12,7 +12,7 @@ allowed = { min = 1, max = 100000 }
 unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell; recommend reports insufficient evidence without a sampled priced tier"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [incumbent_margin]
 value = 15
@@ -20,7 +20,7 @@ allowed = { min = 0, max = 100 }
 unit = "success points a dearer challenger must gain over a cell's incumbent"
 source = "measured: flat over {0,5,10,15,20,30}: picked-tier success 59.3-63.2%, Wilson 95% intervals overlap, n=317-354 of 801 decisions; 10-20 tied-best at 62.9-63.2%"
 fallback = "with no incumbent the cheapest passing tier is picked"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [default_tier]
 value = "claude:opus-medium"
@@ -28,7 +28,7 @@ allowed = { prefix = "claude:" }
 unit = "tier key"
 source = "tom: south agents/orchestration.toml tiers.claude:opus-medium, hand-edited by Tom: 'The default Opus worker for the whole top range'"
 fallback = "defines the mode-allowed band baseline; recommend never selects an unsampled fallback"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [eta_min_samples]
 value = 3
@@ -36,7 +36,7 @@ allowed = { min = 1, max = 100000 }
 unit = "timed runs before recommend prints a cell's ETA"
 source = "measured: flat over {1,2,3,5,8}: walk-forward recommend_eta median |ln(actual/eta)| 1.04-1.05, p75 coverage 76-77%, n=1844-1847"
 fallback = "back off to the category cell; below it the ETA is n/a and the brief says (uncalibrated)"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [eta_coverage]
 value = 0.75
@@ -44,7 +44,7 @@ allowed = { min = 0.05, max = 0.99 }
 unit = "quantile of actual/predicted the calibrated ETA scale covers"
 source = "measured: flat over {0.5..0.8}: OVERDUE false alarms (done runs past 2x the scaled ETA) plus unfinished runs never flagged 840-852, 866 at 0.9, n=1902 walk-forward runs; live row threads calibrate kind eta_pred, 2026-10-12, n=1889, p75 0.96"
 fallback = "below calibration_thin_n runs or older than calibration_stale_days the ETA is unscaled and marked (uncalibrated)"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [calibration_thin_n]
 value = 100
@@ -52,7 +52,7 @@ allowed = { min = 1, max = 100000 }
 unit = "runs behind a calibration ratio row (eta, eta_pred, usd) before readers apply it"
 source = "measured: bootstrap 80% half-width of the walk-forward ratio p75 at sample size n, 7d to 2026-10-12: eta_pred 74% at 5, 41% at 20, 29% at 50, 20% at 100 (pool 1902); usd 75% at 5, 26% at 50, 18% at 100 (pool 318); 100 is the first n under 20% for both, was 5 (delta +95); tier rate rows keep the min_runs floor"
 fallback = "readers use the uncalibrated rule and print (uncalibrated: n < floor)"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [calibration_stale_days]
 value = 7
@@ -60,7 +60,7 @@ allowed = { min = 1, max = 365 }
 unit = "days before a calibration row is too old to apply"
 source = "tom: 2026-10-12 policy-lead-status.md item 20 (via tom-48): project shares are rolling 7-day $, the window every loop measures over"
 fallback = "readers use the uncalibrated rule and print (uncalibrated: older than 7 days)"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [calibrate_after_min]
 value = 55
@@ -236,7 +236,7 @@ allowed = { min = 1, max = 10080 }
 unit = "minutes between an item's runs that still chain them into one box"
 source = "measured: north defaults-measure box_chain_gap_min, snapshot 2026-10-12T08:13Z: 775 same-item gaps from the chain's latest end to the next run's staffing; per 10-minute bin 160, 47, 36 to 30m (57% within), then 15 per 10m to 60m and 3-5 per 10m to 120m (26% over 120m, waits on Tom or overnight); 30 closes the review-and-landing mode; box p75 50m at 10, 62m at 30, 77m at 60, 107m at 120, 566 chains at 30"
 fallback = "a longer gap starts a new chain, so idle waits on Tom or overnight never count as box time"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [box_calibration_n]
 value = 200
@@ -244,7 +244,7 @@ allowed = { min = 1, max = 100000 }
 unit = "box chains behind the box calibration ratio row before goal_eta applies it"
 source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
-consumers = ["crates/north-threads/src/threads/calibration/mod.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [spend_reserve]
 value = 10
@@ -983,7 +983,7 @@ unit = "percent of a repository's worker landings in the last 7 days reworked on
 source = "prior: one landing in five reworked is past the quality a retired landing gate was traded for (2026-11-04)"
 settles_when = { need = 100, count = "count_worker_runs", what = "judged first worker runs, so the per-repository weekly rework rate has a measured spread" }
 fallback = "with no landing found on main in 7 days the check passes"
-consumers = ["crates/north-threads/src/threads/calibration/rework.rs"]
+consumers = ["crates/north-calibration/src/threads/calibration/rework.rs"]
 
 [watch_waste_wait_seconds]
 value = 60

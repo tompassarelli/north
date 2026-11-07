@@ -916,6 +916,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
  "fancy-regex",
+ "north-calibration",
  "north-capacity-host",
  "north-check-environment",
  "north-climb",
@@ -983,6 +984,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-calibration"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-pace",
+ "north-threads",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
 name = "north-capacity"
 version = "0.1.0"
 dependencies = [
@@ -1005,6 +1021,7 @@ name = "north-capacity-host"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-calibration",
  "north-capacity",
  "north-fleet",
  "north-threads",
@@ -1133,6 +1150,7 @@ name = "north-dispatch"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-calibration",
  "north-capacity-host",
  "north-fleet-supervisor",
  "north-github-mirror",
@@ -1208,6 +1226,7 @@ name = "north-flow"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-calibration",
  "north-capacity-host",
  "north-dispatch",
  "north-fleet",
@@ -1305,6 +1324,7 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "north-base",
+ "north-calibration",
  "north-capacity",
  "north-code-health",
  "north-fleet-supervisor",
@@ -1331,6 +1351,7 @@ name = "north-health"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-calibration",
  "north-pace",
  "north-threads",
  "rusqlite",
@@ -1455,6 +1476,7 @@ dependencies = [
  "cbc",
  "fancy-regex",
  "north-base",
+ "north-calibration",
  "north-capacity-host",
  "north-dispatch",
  "north-fleet-supervisor",
@@ -1502,6 +1524,7 @@ name = "north-providers"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-calibration",
  "north-claude-stream",
  "north-fleet-supervisor",
  "north-pace",

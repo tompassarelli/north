@@ -7,7 +7,7 @@
 use super::cause::{Cause, cause};
 use super::pick::{FLOOR, Finished, Fit, Index, K, Rung, fits, pick};
 use super::shape::{Reach, Shape};
-use north_threads::threads::calibration::{Knobs, Raw, escalated, raw_runs, recommend, tier_key};
+use crate::threads::calibration::{Knobs, Raw, escalated, raw_runs, recommend, tier_key};
 use rusqlite::{Connection, OpenFlags};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

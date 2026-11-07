@@ -17,6 +17,7 @@ north-base = { path = "../north-base" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
+north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-strategy-types = { path = "../north-strategy-types" }
 regex.workspace = true

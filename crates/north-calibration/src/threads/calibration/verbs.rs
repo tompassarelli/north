@@ -13,22 +13,18 @@ use super::{Knobs, Pick, median, provider, scaled, tier_key, tier_rank};
 use crate::foundation::clock::Timestamp;
 use crate::router::brief::CATEGORIES;
 use crate::threads::runs::brief::Fields;
-use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, report};
+use crate::threads::verb::{Args, Context, Failure, Family, Outcome, immediate, open, report};
 
-const REVIEW: &str = "review";
+pub const VERBS: [&str; 5] = ["recommend", "eta-calibration", "calibrate", "summary", "record-priors"];
 
-pub const VERBS: [&str; 10] = ["recommend", "eta-calibration", "calibrate", "summary", "routing-compare", "box-eta", "annotate-runs", "recommend-runs", "calibration-runs", "record-priors"];
+/// The calibration verbs as a family the threads client runs.
+pub const FAMILY: Family = (&VERBS, run);
 
 /// Runs one verb, printing its result to `out` and a refusal to `err`; returns the exit code.
-pub fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+pub fn run(argv: &[String], context: &Context, _stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let result = match argv[0].as_str() {
         "summary" => return super::summary::run(&argv[1..], context, out, err),
-        "routing-compare" => return super::routing::run(context, out, err),
-        "box-eta" => super::box_eta::run(context, stdin),
         "eta-calibration" => super::eta_calibration::run(&argv[1..], context),
-        "annotate-runs" => super::feeds::annotate(stdin),
-        "recommend-runs" => super::feeds::recommend_cases(stdin),
-        "calibration-runs" => super::feeds::runs(context),
         "recommend" => recommend_verb(&argv[1..], context),
         "calibrate" => super::calibrate::run(&argv[1..], context),
         "record-priors" => super::calibrate::record_priors(&argv[1..], context),
@@ -94,22 +90,11 @@ fn recommend_verb(argv: &[String], context: &Context) -> Outcome {
     let args = Args::parse(argv, &["--since", "--launched"], &[])?;
     let [facets] = args.positional.as_slice() else { return Err(Failure::Usage("usage: threads recommend [--since DATE] [--launched TIER] FACETS".into())) };
     let fields = Fields::read(facets);
-    if fields.category.as_deref() == Some(REVIEW) {
-        return crate::threads::review_findings::recommend(context, args.get("--since").unwrap_or(""));
-    }
     if fields.known_category().is_none() {
         return Err(Failure::Refused(format!("recommend needs `Category: <one of {}>` in {}", CATEGORIES.join(", "), quoted(facets))));
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     recommend_with(&args, context, &fields, &mode::configuration(&home))
-}
-
-/// Whether a `recommend` call reads alone: one that names `--launched` or an Item without Follows records a prediction.
-pub fn recommend_records_nothing(argv: &[String]) -> bool {
-    let Ok(args) = Args::parse(argv, &["--since", "--launched"], &[]) else { return false };
-    let [facets] = args.positional.as_slice() else { return false };
-    let fields = Fields::read(facets);
-    args.get("--launched").is_none() && (fields.item.is_none() || fields.follows.is_some())
 }
 
 pub(super) fn recommend_with(args: &Args, context: &Context, fields: &Fields, configuration: &Path) -> Outcome {

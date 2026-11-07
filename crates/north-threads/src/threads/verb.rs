@@ -79,6 +79,8 @@ pub type Outcome = Result<String, Failure>;
 
 /// A ported verb: arguments, context, stdin, stdout and stderr in; its exit code out.
 pub type Verb = fn(&[String], &Context, &mut dyn std::io::Read, &mut dyn Write, &mut dyn Write) -> i32;
+/// A family of verbs and the function that runs each of them.
+pub type Family = (&'static [&'static str], Verb);
 
 /// Prints a verb's result to `out` or its refusal to `err`; returns the exit code.
 pub fn report(verb: &str, result: Outcome, out: &mut dyn Write, err: &mut dyn Write) -> i32 {

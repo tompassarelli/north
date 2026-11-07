@@ -24,7 +24,7 @@ pub(super) fn code_health(arguments: &[String]) -> u8 {
 
 pub(super) fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
     let words: Vec<String> = std::iter::once(verb.to_owned()).chain(arguments.iter().cloned()).collect();
-    crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread))
+    crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread), crate::cli::THREADS_FAMILIES)
 }
 
 const LAND: &[(&str, Run)] = &[

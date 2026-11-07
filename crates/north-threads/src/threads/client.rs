@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{board, calibration, causes, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, review_findings, runs, schema, snapshot, staffing, verb};
+use crate::threads::{board, causes, claims, hold, incidents, ingest_lock, ingest_log, items, jobs, landing, outside, runs, schema, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 
@@ -19,22 +19,19 @@ pub use process::shell_quote;
 use process::{Input, agent_event_checks, code_of, detach, execute, has_usage, python_json, spool_stem};
 use spool::Spool;
 
-const READS: [&str; 11] = [
+const READS: [&str; 10] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate",
-    "routing-compare",
 ];
 /// Each family of ledger verbs and the function that runs it; `claim` and `list` run through claims.
-const PORTED: [(&[&str], verb::Verb); 10] = [
+const PORTED: [verb::Family; 8] = [
     (&jobs::VERBS, jobs::run),
     (&items::VERBS, items::run),
     (&board::VERBS, board::run),
     (&staffing::VERBS, staffing::run),
     (&runs::VERBS, runs::run),
-    (&calibration::VERBS, calibration::run),
     (&landing::VERBS, landing::run),
     (&incidents::VERBS, incidents::run),
     (&causes::VERBS, causes::run),
-    (&review_findings::VERBS, review_findings::run),
 ];
 /// The verb a call starts detached to send the spool to the ledger host without waiting on it.
 const SPOOL_FLUSH: &str = "spool-flush";
@@ -74,9 +71,17 @@ fn rows_in_chunks(data: &[u8], rows: usize) -> Vec<&[u8]> {
 fn snapshot_answers(argv: &[String]) -> bool {
     match argv.first().map(String::as_str) {
         Some("unowned") => true,
-        Some("recommend") => calibration::recommend_records_nothing(&argv[1..]),
+        Some("recommend") => recommend_records_nothing(&argv[1..]),
         _ => false,
     }
+}
+
+/// Whether a `recommend` call reads alone: one that names `--launched` or an Item without Follows records a prediction.
+fn recommend_records_nothing(argv: &[String]) -> bool {
+    let Ok(args) = verb::Args::parse(argv, &["--since", "--launched"], &[]) else { return false };
+    let [facets] = args.positional.as_slice() else { return false };
+    let fields = runs::brief::Fields::read(facets);
+    args.get("--launched").is_none() && (fields.item.is_none() || fields.follows.is_some())
 }
 
 fn unanswered(code: i32) -> &'static str {
@@ -99,6 +104,8 @@ pub struct Client {
     spool_drain: Duration,
     /// The `north threads` a call starts without waiting on it to pull a stale snapshot or send the spool; with none, the call does both inline.
     background: Option<Vec<OsString>>,
+    /// The verb families a caller above this crate adds to the ones the ledger runs itself.
+    families: &'static [verb::Family],
     clock: Arc<dyn Fn() -> Timestamp + Send + Sync>,
 }
 
@@ -109,15 +116,16 @@ enum Flush {
     Down,
 }
 
-pub fn run(arguments: &[String], fleet: Arc<dyn outside::FleetView>) -> u8 {
-    run_in(arguments, ambient_env(), fleet)
+pub fn run(arguments: &[String], fleet: Arc<dyn outside::FleetView>, families: &'static [verb::Family]) -> u8 {
+    run_in(arguments, ambient_env(), fleet, families)
 }
 
-pub fn run_in(arguments: &[String], env: BTreeMap<String, String>, fleet: Arc<dyn outside::FleetView>) -> u8 {
-    let Some(client) = client_in(env, fleet) else {
+pub fn run_in(arguments: &[String], env: BTreeMap<String, String>, fleet: Arc<dyn outside::FleetView>, families: &'static [verb::Family]) -> u8 {
+    let Some(mut client) = client_in(env, fleet) else {
         eprintln!("NorthThreads: no home directory");
         return 1;
     };
+    client.families = families;
     match client.main(arguments, &mut io::stdin(), &mut io::stderr()) {
         Ok(code) => (code & 0xff) as u8,
         Err(error) => {
@@ -237,6 +245,7 @@ impl Client {
             spool_drain: SPOOL_DRAIN,
             background: Some(vec![crate::platform::north_binary::north_binary().into(), "threads".into()]),
             clock: Arc::new(Timestamp::now),
+            families: &[],
         }
     }
 
@@ -279,9 +288,6 @@ impl Client {
             return self.spool_flush_verb(argv, err);
         }
         let database = self.var("THREADS_DB").is_some();
-        if first == Some("routing-compare") && !database {
-            return self.local(argv, Some(&self.snapshot), replay);
-        }
         if !database && self.remote.exists() {
             let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
             if snapshot_answers(argv) && self.snapshot.exists() {
@@ -349,10 +355,10 @@ impl Client {
         let ledger = ledger.unwrap_or_else(|| self.ledger());
         let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
         let replica = ledger == self.snapshot;
-        let ported = PORTED.iter().find(|(verbs, _)| verbs.contains(&verb)).map(|(_, run)| *run);
+        let ported = PORTED.iter().chain(self.families).find(|(verbs, _)| verbs.contains(&verb)).map(|(_, run)| *run);
         let claim = claims::verbs::VERBS.contains(&verb);
         if ported.is_none() && !claim {
-            let known: Vec<&str> = claims::verbs::VERBS.iter().chain(PORTED.iter().flat_map(|(verbs, _)| verbs.iter())).copied().chain(["snapshot-pages", "snapshot-pull", SPOOL_FLUSH]).collect();
+            let known: Vec<&str> = claims::verbs::VERBS.iter().chain(PORTED.iter().chain(self.families).flat_map(|(verbs, _)| verbs.iter())).copied().chain(["snapshot-pages", "snapshot-pull", SPOOL_FLUSH]).collect();
             eprintln!("usage: north threads VERB [ARGS]\nverbs: {}", known.join(", "));
             return Ok(if matches!(verb, "-h" | "--help" | "help") { 0 } else { 2 });
         }

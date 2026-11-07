@@ -9,7 +9,6 @@ mod boxes_tests;
 mod rates_tests;
 mod calibrate;
 mod eta_calibration;
-mod feeds;
 mod forward;
 mod history;
 mod mode;
@@ -21,7 +20,6 @@ pub mod rework;
 pub mod rework_labels;
 #[cfg(test)]
 mod rework_labels_tests;
-mod routing;
 mod summary;
 mod verbs;
 mod verdicts;
@@ -33,7 +31,7 @@ use toml_edit::DocumentMut;
 use crate::router::brief::CATEGORIES;
 
 pub use recommend::Pick;
-pub use verbs::{VERBS, eta_pred_scale, recommend_records_nothing, run};
+pub use verbs::{FAMILY, VERBS, eta_pred_scale, run};
 pub use box_eta::{box_durations, box_run};
 pub use boxes::{BoxRun, box_chains, box_duration, box_groups, moment};
 pub use forward::walk_forward_eta;

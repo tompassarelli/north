@@ -1,9 +1,9 @@
 use super::Refusal;
 
-const THREADS_VERBS: [&str; 27] = [
-    "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "replay-staffing", "planner-band", "box-eta",
-    "job-runs", "recommend-runs", "calibration-runs", "calibrate", "job-run", "queue", "claim", "release", "need", "unneed",
-    "new", "note", "close", "reopen", "block", "review-finding",
+const THREADS_VERBS: [&str; 23] = [
+    "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "replay-staffing", "planner-band",
+    "job-runs", "calibrate", "job-run", "queue", "claim", "release", "need", "unneed",
+    "new", "note", "close", "reopen", "block",
 ];
 const THREADS_UNBLOCK: &str = "unblock";
 const THREADS_INCIDENT: &str = "incident";

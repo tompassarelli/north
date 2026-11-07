@@ -45,7 +45,7 @@ Each number describes north's own records, a week against the week before under 
 
 ## What the numbers rest on
 
-- Rework is the judge in `crates/north-threads/src/threads/calibration/rework.rs`. A change to its rules bumps its `JUDGE_VERSION`, which judges every stored verdict again, and the weekly record measures both weeks on the day it records them, so the two weeks always share a rule. The sample of 20 below measured the named-issue rule's false positives; the blind-labelled sample of 64 landings in `rework_labels.json` measures its precision and recall together (north#641, north#711), and the ready bar's 5% and the climber's kept boxes both read this judge.
+- Rework is the judge in `crates/north-calibration/src/threads/calibration/rework.rs`. A change to its rules bumps its `JUDGE_VERSION`, which judges every stored verdict again, and the weekly record measures both weeks on the day it records them, so the two weeks always share a rule. The sample of 20 below measured the named-issue rule's false positives; the blind-labelled sample of 64 landings in `rework_labels.json` measures its precision and recall together (north#641, north#711), and the ready bar's 5% and the climber's kept boxes both read this judge.
 - Worker first-try success counts a worker's own Done report, and the ledger's closed box is an issue closed on GitHub, whose boxes its workers tick. `north task check --done-when` is the one tick no worker writes; a box on north#636 makes the climber's reward split each kept box into checker-verified and self-ticked, so a candidate that rewrites briefs cannot raise its own reward.
 
 ## The named-issue rule (north#657)

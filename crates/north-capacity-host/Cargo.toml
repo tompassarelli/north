@@ -13,6 +13,7 @@ doctest = false
 north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
 north-fleet = { path = "../north-fleet" }
+north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 regex.workspace = true
 rusqlite.workspace = true

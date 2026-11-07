@@ -17,6 +17,7 @@ north-fleet = { path = "../north-fleet" }
 north-health = { path = "../north-health" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
+north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads" }
 regex.workspace = true
 rusqlite.workspace = true

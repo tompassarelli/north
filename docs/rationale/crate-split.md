@@ -32,6 +32,14 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
 - `north-providers`: `providers`, `codex` and `ledger`, the provider adapters and the run ledger they write.
   Depends on `north-base`, `north-pace`, `north-threads` and `north-fleet`. `north-guard`, `north-ops`,
   `north-dispatch`, `north-runtime`, `north-tui` and the root package import `ledger` and `providers` from it.
+- `north-calibration` (north#719): `threads::calibration`, the tier recommendation, walk-forward ETA and $
+  replays, box chains, rework verdicts and the `north threads` calibration verbs. Depends on `north-base`,
+  `north-pace` and `north-threads`. Its `threads` module re-exports `north_threads::threads` and adds
+  `calibration`, so the crates that read calibration (`north-providers`, `north-capacity-host`,
+  `north-dispatch`, `north-health`, `north-ops`, `north-guard`, `north-flow` and the root package) take
+  `threads` from it and every `crate::threads::calibration::...` path is unchanged. The threads client
+  runs the verb families it holds itself plus the ones its caller passes (`verb::Family`); the root
+  package passes `calibration::FAMILY`, so north-threads never names calibration.
 - `north-health`: `health`, the `north health` checks. Depends on `north-base`, `north-pace` (for the launchable profiles its hooks flow reads) and `north-threads`;
   `north-ops` (for `health::loops`) and the root package import it.
 - `north-tui`: `tui`, the fleet terminal screen. Depends on `north-providers`; nothing below it uses it,
