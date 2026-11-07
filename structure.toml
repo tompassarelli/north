@@ -28,6 +28,11 @@ shape = "status-string"
 path = "crates/north-tune/src/loops/red_main.rs"
 reason = "the run status and conclusion are fields of the GitHub workflow-runs response, an external format with no north lifecycle behind it"
 
+[[implicit_state.allow]]
+shape = "phase-suffix"
+path = "crates/north-threads/src/threads/runs/hook_rules.rs"
+reason = "the dotted names are guard rule ids in a classification table, labels for refusal text and never a lifecycle phase"
+
 [crate_lines]
 default = 25000
 hub = 10000
