@@ -87,12 +87,17 @@ pub struct Table {
     modules: BTreeMap<String, BTreeSet<String>>,
 }
 
+const SPAWNS_NORTH: &str = "CARGO_BIN_EXE_north";
+const NARROW: &str = "narrow:";
+const TESTS: &str = "tests/it";
+
 impl Table {
-    pub fn parse(table: &str, plan: &Plan) -> Result<Self, String> {
+    pub fn parse(table: &str, plan: &Plan, spawners: &BTreeSet<String>) -> Result<Self, String> {
         let known: BTreeSet<&str> = plan.names().chain([ROOT]).collect();
         let mut modules = BTreeMap::new();
         for (index, line) in table.lines().enumerate() {
-            let line = line.split(" #").next().unwrap_or_default().trim();
+            let (line, comment) = line.split_once(" #").unwrap_or((line, ""));
+            let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
@@ -105,6 +110,14 @@ impl Table {
             if let Some(unknown) = crates.iter().find(|name| !known.contains(name.as_str())) {
                 return Err(format!("{TABLE}:{}: {module} names {unknown}, which is neither {ROOT} nor a [[crate_dag.crate]] in {STRUCTURE}", index + 1));
             }
+            let narrow = comment.trim().strip_prefix(NARROW).map(str::trim);
+            if narrow.is_some_and(str::is_empty) {
+                return Err(format!("{TABLE}:{}: {module} has a narrow marker with no reason", index + 1));
+            }
+            if narrow.is_some() && !spawners.contains(&module) {
+                return Err(format!("{TABLE}:{}: {module} does not spawn the north binary, so a narrow reason on it means nothing", index + 1));
+            }
+            let crates = if spawners.contains(&module) && narrow.is_none() { known.iter().map(|name| (*name).to_owned()).collect() } else { crates };
             if modules.insert(module.clone(), crates).is_some() {
                 return Err(format!("{TABLE}:{}: {module} is listed twice", index + 1));
             }
@@ -121,9 +134,9 @@ impl Table {
     }
 }
 
-pub fn select(structure: &str, table: &str, files: &[String]) -> Result<Selection, String> {
+pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: &[String]) -> Result<Selection, String> {
     let plan = Plan::parse(structure)?;
-    let table = Table::parse(table, &plan)?;
+    let table = Table::parse(table, &plan, spawners)?;
     let mut changed = BTreeSet::new();
     for file in files {
         match plan.owner(file) {
@@ -149,7 +162,23 @@ pub fn select(structure: &str, table: &str, files: &[String]) -> Result<Selectio
 
 pub fn selection(root: &Path, base: &str, head: &str) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
-    select(&read(STRUCTURE)?, &read(TABLE)?, &changed(root, base, head, &[]))
+    select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &changed(root, base, head, &[]))
+}
+
+pub fn spawners(root: &Path) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    let mut pending = vec![root.join(TESTS)];
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            pending.extend(std::fs::read_dir(&path).into_iter().flatten().flatten().map(|entry| entry.path()));
+        } else if path.extension().is_some_and(|extension| extension == "rs") && std::fs::read_to_string(&path).is_ok_and(|text| text.contains(SPAWNS_NORTH)) {
+            let relative = path.strip_prefix(root.join(TESTS)).unwrap_or(&path);
+            if let Some(module) = relative.components().next().and_then(|first| first.as_os_str().to_str()) {
+                found.insert(module.trim_end_matches(".rs").to_owned());
+            }
+        }
+    }
+    found
 }
 
 fn strings(item: Option<&Item>, name: &str, key: &str) -> Result<Vec<String>, String> {

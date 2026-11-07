@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use north_landing::land::slots::it_modules::{Plan, STRUCTURE, TABLE, Table};
+use north_landing::land::slots::it_modules::{Plan, STRUCTURE, Selection, TABLE, Table, select, spawners};
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap()
@@ -10,7 +10,7 @@ fn read(path: &str) -> String {
 #[test]
 fn every_tests_it_module_maps_to_crates_the_crate_dag_names() {
     let plan = Plan::parse(&read(STRUCTURE)).unwrap();
-    let table = Table::parse(&read(TABLE), &plan).unwrap();
+    let table = Table::parse(&read(TABLE), &plan, &spawners_of_tree()).unwrap();
     let declared: BTreeSet<String> = read("tests/it/main.rs").lines().filter_map(|line| line.strip_prefix("mod ")?.strip_suffix(';').map(str::to_owned)).collect();
     let mapped: BTreeSet<String> = table.modules().map(str::to_owned).collect();
     assert_eq!(declared.difference(&mapped).collect::<Vec<_>>(), Vec::<&String>::new(), "add each new tests/it module to {TABLE} with the crates it exercises");
@@ -36,7 +36,7 @@ fn sources(module: &str) -> String {
 #[test]
 fn every_crate_a_tests_it_module_imports_is_one_the_table_selects_it_for() {
     let plan = Plan::parse(&read(STRUCTURE)).unwrap();
-    let table = Table::parse(&read(TABLE), &plan).unwrap();
+    let table = Table::parse(&read(TABLE), &plan, &spawners_of_tree()).unwrap();
     let mut unselected = Vec::new();
     for module in table.modules() {
         let text = sources(module).replace("north_core::foundation::shim", "");
@@ -47,4 +47,22 @@ fn every_crate_a_tests_it_module_imports_is_one_the_table_selects_it_for() {
         }
     }
     assert_eq!(unselected, Vec::<String>::new(), "list each crate a module imports, or one that uses it, on the module's line of {TABLE}, so a change to that crate runs the module");
+}
+
+// KEEP(bug): 8c5d22002 changed north-capacity and north-capacity-host and the table's safe_push line did not name them, though the test spawns the north binary that links both, so the lane's candidate skipped it (north#782)
+#[test]
+fn a_module_that_spawns_the_north_binary_runs_for_any_crate_change_unless_its_line_says_why_not() {
+    let files = ["crates/north-capacity/src/capacity/lease_lifecycle.rs".to_owned(), "crates/north-capacity-host/src/capacity/host/state.rs".to_owned()];
+    let structure = read(STRUCTURE);
+    let spawners = BTreeSet::from(["safe_push".to_owned()]);
+    let modules = |names: &[&str]| Selection::Modules(names.iter().map(|name| (*name).to_owned()).collect());
+    assert_eq!(select(&structure, "safe_push north-landing\nplain north-strategy-types\n", &spawners, &files).unwrap(), modules(&["safe_push"]), "a module that spawns the north binary links every crate");
+    assert_eq!(select(&structure, "safe_push north-landing # narrow: reads only the tag path\nplain north-strategy-types\n", &spawners, &files).unwrap(), modules(&[]), "a narrow reason keeps the declared crates");
+    assert!(select(&structure, "safe_push north-landing # narrow:\nplain north-strategy-types\n", &spawners, &files).is_err(), "a narrow marker needs a reason");
+    assert!(select(&structure, "plain north-strategy-types # narrow: nothing to narrow\n", &spawners, &files).is_err(), "a module that does not spawn the binary has nothing to narrow");
+    assert!(spawners_of_tree().contains("safe_push"), "the scan finds the modules that spawn the north binary");
+}
+
+fn spawners_of_tree() -> BTreeSet<String> {
+    spawners(Path::new(env!("CARGO_MANIFEST_DIR")))
 }

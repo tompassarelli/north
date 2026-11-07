@@ -1,6 +1,7 @@
 # Each `mod` of tests/it/main.rs and the crates its tests exercise, by the [[crate_dag.crate]] names of structure.toml.
 # The lander turns a lane's changed files into `--test it -- MODULE::` filters (SAFE_PUSH_LAND_IT): a module runs when one of its crates, or a crate that uses one, changed.
 # `north` marks a module that reads repo files outside crates/: a docs/ change selects it. Any other change outside crates/ runs every module.
+# A module whose tests spawn the north binary (CARGO_BIN_EXE_north) runs for a change to any crate, since the binary links them all; a trailing `# narrow: REASON` keeps only the crates named.
 # One line per module, merged as a set.
 affected_modules north-landing north
 agents_plan north-ops north-pace
