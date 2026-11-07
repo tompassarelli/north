@@ -233,5 +233,5 @@ fn branch_state(branch: &str, cwd: &Path) -> Option<String> {
 
 fn api_spent(fleet: &Fleet) -> Vec<String> {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    crate::providers::claude::api_pool::move_spent(fleet, &crate::platform::orchestration::path(), &home)
+    crate::providers::claude::api_pool::move_spent(fleet, &crate::providers::claude::fleet::Claude, &crate::platform::orchestration::path(), &home)
 }

@@ -1,4 +1,4 @@
-use super::{Org, declared, moved_to, open, ran_out};
+use super::{Org, declared, moved_to, open, ran_out, since};
 use crate::credit::{Grant, launchable};
 use crate::fleet::model::Transcript;
 use crate::fleet::runtime::Runtime;
@@ -41,4 +41,38 @@ fn the_pool_opens_the_org_whose_soonest_grant_with_credit_left_expires_first() {
     assert!(ran_out(&transcript.entries));
     assert_eq!(moved_to("api:proton", &orgs, today, |_| false).as_deref(), Some("api:gmail"));
     assert_eq!(moved_to("api:proton", &orgs, today, |org| org.name == "gmail"), None);
+}
+
+fn append(stream: &Path, frames: &[serde_json::Value]) {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(stream).unwrap();
+    for frame in frames {
+        writeln!(file, "{frame}").unwrap();
+    }
+}
+
+fn low_credit_turn(uuid: &str) -> [serde_json::Value; 3] {
+    [
+        json!({"type": "user", "uuid": uuid, "session_id": "c", "message": {"content": "carry on"}}),
+        json!({"type": "assistant", "session_id": "c", "message": {"model": "<synthetic>", "content": [{"type": "text", "text": "Credit balance is too low"}]}}),
+        json!({"type": "result", "session_id": "c", "subtype": "success", "is_error": true, "api_error_status": 400, "result": "Credit balance is too low"}),
+    ]
+}
+
+// KEEP(bug): a session moved off an org that ran out of credit had its old low-credit turn read again on the next tick, which marked the new org exhausted while it still had credit; and a message delivered after a failed turn hid the failure, so no move happened (north#755)
+#[test]
+fn only_the_newest_low_credit_turn_on_the_current_account_counts() {
+    let scratch = tempfile::tempdir().unwrap();
+    let stream = scratch.path().join("stream.jsonl");
+    let ran_out_from = |offset: u64| ran_out(&since(&Claude, &stream, offset, Some("c")).entries);
+    append(&stream, &low_credit_turn("gmail"));
+    append(&stream, &[json!({"type": "result", "session_id": "other", "subtype": "success", "result": "done"})]);
+    assert!(ran_out_from(0));
+    let moved = std::fs::metadata(&stream).unwrap().len();
+    assert!(!ran_out_from(moved));
+    append(&stream, &[json!({"type": "user", "uuid": "report", "session_id": "c", "message": {"content": "[from child] Done: landed"}})]);
+    assert!(ran_out_from(0));
+    assert!(!ran_out_from(moved));
+    append(&stream, &low_credit_turn("apple")[1..]);
+    assert!(ran_out_from(moved));
 }

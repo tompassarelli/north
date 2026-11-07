@@ -7,7 +7,9 @@ use toml_edit::{DocumentMut, Item};
 use crate::credit::{Grant, marks};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::limit::recent;
-use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, SessionRecord};
+use crate::fleet::model::{ApiKey, Delivery, Entry, EntryKind, SessionRecord, Status, Transcript};
+use crate::fleet::runtime::Runtime;
+use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::records::write_record;
 use crate::fleet::registry::{Fleet, Halt};
 use crate::fleet::sender::Sender;
@@ -15,6 +17,7 @@ use crate::foundation::clock::Timestamp;
 
 const NEVER: &str = "9999-12-31";
 const LOW_CREDIT: &str = "credit balance is too low";
+const ACCOUNT_SINCE: &str = "account-since";
 
 /// One organization's entry in the pool of API keys: identified by its organization id, so two keys
 /// that report the same id are one entry with one balance and one exhausted mark.
@@ -95,10 +98,32 @@ pub fn listing(policy: &Path, home: &Path, state_root: &Path, here: &str) -> Vec
     lines
 }
 
-/// Whether a transcript's last turn ended on the API's low-credit error.
+/// Whether a transcript's newest ended turn ended on the API's low-credit error, even when a message delivered since has started another turn.
 pub fn ran_out(entries: &[Entry]) -> bool {
-    let tail: Vec<&Entry> = entries.iter().rev().take(2).collect();
-    matches!(tail.as_slice(), [end, error] if end.kind == EntryKind::TurnEnd && error.kind == EntryKind::Error && error.text.to_lowercase().contains(LOW_CREDIT))
+    let Some(end) = entries.iter().rposition(|entry| entry.kind == EntryKind::TurnEnd) else { return false };
+    end.checked_sub(1).and_then(|error| entries.get(error)).is_some_and(|error| error.kind == EntryKind::Error && error.text.to_lowercase().contains(LOW_CREDIT))
+}
+
+/// The transcript of `conversation` in the host stream at `stream` from byte `since` on: the turns a session ran on the account it moved onto there.
+pub fn since(runtime: &dyn Runtime, stream: &Path, since: u64, conversation: Option<&str>) -> Transcript {
+    let mut tail = StreamTail::open(stream.to_owned(), since);
+    let mut transcript = Transcript::default();
+    while let Ok(frames) = tail.frames() && !frames.is_empty() {
+        for frame in frames.iter().filter(|frame| runtime.frame_conversation(frame) == conversation) {
+            runtime.observe(frame, &mut transcript);
+        }
+    }
+    transcript
+}
+
+/// The session's transcript on its current account: since the byte of its host stream where the last move put it on that account, or its recent transcript when it has not moved on this host.
+fn on_account(fleet: &Fleet, runtime: &dyn Runtime, record: &SessionRecord) -> Option<Transcript> {
+    let moved = fleet.session_dir(&record.name).ok().and_then(|dir| std::fs::read_to_string(dir.join(ACCOUNT_SINCE)).ok());
+    let offset = moved.as_deref().and_then(|text| text.trim_end().split_once(' ')).filter(|(_, host_dir)| Path::new(host_dir) == record.host_dir).and_then(|(offset, _)| offset.parse().ok());
+    match offset {
+        Some(offset) => Some(since(runtime, &stream_path(&record.host_dir), offset, record.conversation.as_deref())),
+        None => fleet.follow_recent(&record.name).ok().map(|follower| follower.transcript().clone()),
+    }
 }
 
 /// The account a session on `account` (`LABEL:ORG`) moves to once ORG ran out of credit: the pinned account of the entry the pool opens without ORG and the entries `exhausted` marks.
@@ -107,9 +132,9 @@ pub fn moved_to(account: &str, orgs: &[Org], today: &str, exhausted: impl Fn(&Or
     open(orgs, today, |org| org.name == spent || exhausted(org), |_| true).map(|(org, _)| format!("{label}:{}", org.name))
 }
 
-/// Marks exhausted the organization of each recent session on an `api:ORG` account whose last turn ended on the API's
-/// low-credit error, then moves the session onto the entry the pool opens next, on its conversation; one line per mark and move.
-pub fn move_spent(fleet: &Fleet, policy: &Path, home: &Path) -> Vec<String> {
+/// Marks exhausted the organization of each recent session on an `api:ORG` account whose newest turn on that account ended on the API's
+/// low-credit error, then moves it, and each session not mid-turn on an organization marked exhausted, onto the entry the pool opens next, on its conversation; one line per mark and move.
+pub fn move_spent(fleet: &Fleet, runtime: &dyn Runtime, policy: &Path, home: &Path) -> Vec<String> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
     let (today, state) = (today(), home.join(".local/state/north"));
     let grants = crate::credit::open_grants(policy, &state.join("ledger.db"), &today);
@@ -121,17 +146,19 @@ pub fn move_spent(fleet: &Fleet, policy: &Path, home: &Path) -> Vec<String> {
         let machine = record.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());
         let orgs = declared(&document, &grants, home, &machine);
         let Some(org) = orgs.iter().find(|org| org.name == name) else { continue };
-        if !fleet.follow_recent(&record.name).is_ok_and(|follower| ran_out(&follower.transcript().entries)) {
+        let Some(transcript) = on_account(fleet, runtime, &record) else { continue };
+        let failed = ran_out(&transcript.entries);
+        if !failed && (transcript.status == Status::Working || !exhausted(&dir, org)) {
             continue;
         }
-        let marked = marks::mark(&dir, &org.id, &record.name, &today, next_credits.get(&org.id).map(String::as_str));
+        let marked = if failed { marks::mark(&dir, &org.id, &record.name, &today, next_credits.get(&org.id).map(String::as_str)) } else { Ok(false) };
         match &marked {
             Ok(true) => lines.push(format!("api:{} marked exhausted: {}'s last turn ended on a credit balance too low", org.name, record.name)),
             Ok(false) => {}
             Err(error) => lines.push(format!("api:{} ran out of credit but its exhausted mark was not written: {error}", org.name)),
         }
         match moved_to(&record.account, &orgs, &today, |org| exhausted(&dir, org)) {
-            Some(to) => lines.push(move_onto(fleet, &record, &org.name, (&to, policy, home, &machine))),
+            Some(to) => lines.push(move_onto(fleet, &record, &org.name, (&to, policy, home, &machine), failed)),
             None if matches!(marked, Ok(true)) => lines.push(format!("{}: api:{} ran out of credit and no other api org is open, so it stays parked", record.name, org.name)),
             None => {}
         }
@@ -139,12 +166,15 @@ pub fn move_spent(fleet: &Fleet, policy: &Path, home: &Path) -> Vec<String> {
     lines
 }
 
-fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str)) -> String {
+fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, home, machine): (&str, &Path, &Path, &str), failed: bool) -> String {
     let moved = || -> NorthResult<()> {
         super::accounts::on_machine(&record.provider, policy, home, to, machine)?;
         switch(fleet, record, to)?;
         fleet.waits().clear_usage(&record.name)?;
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("moved from account {} to {to}: org {spent} ran out of credit", record.account));
+        if !failed {
+            return Ok(());
+        }
         fleet.send_signed(&Sender::fleet(), &record.name, &resume_message(spent, to), Delivery::Queued)
     };
     match moved() {
@@ -157,7 +187,10 @@ fn move_onto(fleet: &Fleet, record: &SessionRecord, spent: &str, (to, policy, ho
 fn switch(fleet: &Fleet, record: &SessionRecord, to: &str) -> NorthResult<()> {
     fleet.halt(&record.name, Halt::Relaunched)?;
     set_account(fleet, &record.name, to)?;
+    let (since, host_dir) = (fleet.session_dir(&record.name)?.join(ACCOUNT_SINCE), fleet.session(&record.name)?.host_dir);
+    std::fs::write(&since, format!("{} {}\n", stream_len(&host_dir), host_dir.display()))?;
     let Err(error) = fleet.revive(&record.name, None) else { return Ok(()) };
+    let _ = std::fs::remove_file(&since);
     let restored = set_account(fleet, &record.name, &record.account).and_then(|()| fleet.revive(&record.name, None));
     Err(match restored {
         Ok(_) => error,
