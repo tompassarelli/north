@@ -181,6 +181,27 @@ pub(super) fn mask(text: &str) -> String {
     blank_literals(text, |_| true)
 }
 
+pub(super) fn line_comments(text: &str) -> Vec<(usize, String)> {
+    let bytes = text.as_bytes();
+    let mut found = Vec::new();
+    let (mut at, mut line) = (0, 1);
+    while at < bytes.len() {
+        let end = literal_end(bytes, at);
+        if end == at {
+            line += usize::from(bytes[at] == b'\n');
+            at += 1;
+            continue;
+        }
+        let body = &text[at..end];
+        if body.starts_with("//") && !body.starts_with("///") && !body.starts_with("//!") {
+            found.push((line, body[2..].trim().to_owned()));
+        }
+        line += body.bytes().filter(|byte| *byte == b'\n').count();
+        at = end;
+    }
+    found
+}
+
 pub(super) fn non_test_lines(text: &str) -> usize {
     let file = RustFile::new("", text);
     if file.whole_test {

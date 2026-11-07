@@ -18,7 +18,7 @@ pub(super) const USAGE: &str = "usage: north code-health <command> [--repo DIR] 
   budget [REV]             each crate against its line budget, the coupling signals and the change cost since the last review
   review-done [--sha SHA]  record the review marker
   imports                  resolve imports of files given as JSON on stdin
-  habits [--repo DIR]      the Rust habit checks
+  habits [--repo DIR] [--base REV [--head REV] [--shadow]]  the Rust habit checks; --base reports the code comments added since REV instead
   implicit-state           every implicit-state finding in REV's tree, counted by shape, and each stale allow
   tick [--dry-run]         the hourly review tick
   crate-lines [BASE HEAD]  workspace crate line caps (the default with no command)

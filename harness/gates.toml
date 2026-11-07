@@ -15,3 +15,7 @@ mode = "shadow"
 # A lane whose Box: trailer ticks a detector-filed box lands only with its guard's proof (north#706). Would-be refusals: $XDG_STATE_HOME/north/gates/detector-proof.jsonl on the pushing host.
 [gate.detector-proof]
 mode = "shadow"
+
+# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). It exits 0 and prints "would refuse:" lines in the land check output while in shadow.
+[gate.code-comment]
+mode = "shadow"

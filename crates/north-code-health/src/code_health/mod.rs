@@ -2,6 +2,9 @@ mod ambient;
 mod budget;
 mod change_cost;
 mod check;
+mod comments;
+#[cfg(test)]
+mod comments_tests;
 mod cli;
 #[cfg(test)]
 mod cli_tests;
@@ -32,6 +35,8 @@ mod tick;
 #[cfg(test)]
 mod tick_tests;
 
+const HABITS_USAGE: &str = "usage: north code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]]";
+
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("habits") => habits_command(&arguments[1..]),
@@ -57,18 +62,30 @@ pub fn crate_headroom(root: &std::path::Path, edited: &str) -> Option<String> {
 }
 
 fn habits_command(arguments: &[String]) -> u8 {
-    let root = match arguments {
-        [] => std::path::PathBuf::from("."),
-        [flag, dir] if flag == "--repo" => std::path::PathBuf::from(dir),
-        _ => return fail("usage: north code-health habits [--repo DIR]"),
+    let mut root = std::path::PathBuf::from(".");
+    let (mut base, mut head, mut shadow) = (None, "HEAD".to_owned(), false);
+    let mut rest = arguments.iter();
+    while let Some(argument) = rest.next() {
+        let mut value = || rest.next().cloned();
+        match argument.as_str() {
+            "--repo" => root = value().map(Into::into).unwrap_or_default(),
+            "--base" => base = value(),
+            "--head" => head = value().unwrap_or_default(),
+            "--shadow" => shadow = true,
+            _ => return fail(HABITS_USAGE),
+        }
+    }
+    let found = match &base {
+        Some(base) => comments::added(&root, base, &head),
+        None => habits::findings(&root, None),
     };
-    match habits::findings(&root, None) {
+    match found {
         Ok(lines) if lines.is_empty() => 0,
         Ok(lines) => {
             for line in lines {
-                println!("{line}");
+                println!("{}{line}", if shadow { "would refuse: " } else { "" });
             }
-            1
+            u8::from(!shadow)
         }
         Err(error) => fail(&error),
     }
