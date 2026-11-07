@@ -320,3 +320,19 @@ fn a_hundred_unlanded_lanes_cost_one_github_call() {
     assert!(out.contains("100 unlanded") || out.contains("kept"), "{out}");
     assert_eq!(rig.github_calls(), 1, "{}", rig.read("gh-calls"));
 }
+
+#[test]
+fn the_origin_sweep_waits_six_hours_for_its_own_record() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let rig = Rig::new(root, &root.join("home"));
+    rig.stub_github(&[]);
+    Classified::project(&rig, "north");
+    rig.fleet(&[("north-parent", None, "north")]);
+    let record = "# lane gc 2099-01-01T00:00:00.000Z: origin branch decisions\nkept\n";
+    write(&root.join("remote.txt"), record);
+    rig.lane_gc("2099-01-01T05:00:00Z", &[], &[]);
+    assert_eq!(rig.read("remote.txt"), record);
+    rig.lane_gc("2099-01-01T06:00:00Z", &[], &[]);
+    assert!(!rig.read("remote.txt").contains("kept"));
+}

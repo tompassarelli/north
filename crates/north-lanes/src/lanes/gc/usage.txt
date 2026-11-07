@@ -21,7 +21,8 @@ deleted when landed or superseded and not protected by an open PR, active Action
 a land ticket, a claim, a live worktree or a push under 24h (4h for claude/land-*); --remote
 sweeps only origin branches. An unlanded origin branch kept for 24h that no unchecked box in
 an open issue names gets one: a box on the first open issue its commits cite, else a new issue
-in its repository. Every origin decision is written to remote.txt beside the unlanded report.
+in its repository. Every origin decision is written to remote.txt beside the unlanded report. A run without --remote sweeps
+origin branches only when remote.txt is 6 hours old or absent, so the per-repository GitHub calls happen four times a day.
 A worktree it keeps loses its build output: when its branch is landed or it has had no touch
 within --idle-hours, its git-ignored target/ is deleted unless the lane is locked or a process
 holds a file in it open, and the run prints the path and size freed. A run over every container

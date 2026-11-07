@@ -39,6 +39,7 @@ pub use audit::run as repo;
 const SKIP: [&str; 3] = ["clients", "resources", "archive"];
 pub const USAGE: &str = include_str!("usage.txt").trim_ascii_end();
 const REMOTE_RECORD: &str = "remote.txt";
+const REMOTE_EVERY_MS: i64 = 6 * 3_600_000;
 
 #[derive(Clone, Debug)]
 pub(super) struct Options {
@@ -76,6 +77,7 @@ pub(super) struct Gc {
     pushes: HashMap<String, Option<HashMap<String, i64>>>,
     open: HashMap<String, Vec<Value>>,
     remote_rows: Vec<String>,
+    remote_due: bool,
 }
 
 enum Parsed {
@@ -130,6 +132,12 @@ fn parse(arguments: &[String], home: &Path) -> Parsed {
     Parsed::Sweep(options)
 }
 
+fn remote_swept_at(state: &Path) -> Option<i64> {
+    let record = std::fs::read_to_string(state.with_file_name(REMOTE_RECORD)).ok()?;
+    let stamp = record.lines().next()?.strip_prefix("# lane gc ")?.split_once(": ")?.0;
+    Some(Timestamp::parse_rfc3339(stamp)?.unix_millis())
+}
+
 fn print_unlanded(home: &Path, state: &Path) -> u8 {
     match std::fs::read_to_string(state) {
         Ok(text) => {
@@ -180,6 +188,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let local = trees::scan(&options.root, now_ms);
     let on_nexus = host::name() == "nexus";
     let hosts = if on_nexus { Hosts { laptop: Default::default(), nexus: local, on_nexus } } else { Hosts { laptop: local, nexus: trees::scan_remote(now_ms), on_nexus } };
+    let remote_due = options.remote || remote_swept_at(&options.state).is_none_or(|at| now_ms - at >= REMOTE_EVERY_MS);
     let mut gc = Gc {
         home,
         now_ms,
@@ -195,6 +204,7 @@ pub fn run(arguments: &[String]) -> u8 {
         pushes: HashMap::new(),
         open: HashMap::new(),
         remote_rows: Vec::new(),
+        remote_due,
     };
     gc.sweep_all(&containers);
     gc.finish()
@@ -207,7 +217,7 @@ impl Gc {
             let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let has_origin = origin_repo(&container.join("main")).is_some();
             let local = if self.options.remote || !container.join("worktrees").exists() { Ok(()) } else { self.sweep(container, &live) };
-            let swept = local.and_then(|()| if self.options.remote || has_origin { self.remote_sweep(container) } else { Ok(()) });
+            let swept = local.and_then(|()| if self.options.remote || (has_origin && self.remote_due) { self.remote_sweep(container) } else { Ok(()) });
             if let Err(error) = swept {
                 self.say(format!("{name}: stopped: {error}"));
             }
@@ -239,8 +249,10 @@ impl Gc {
                 return 1;
             }
             let remote = self.options.state.with_file_name(REMOTE_RECORD);
-            let text = format!("# lane gc {}: origin branch decisions\n{}\n", Timestamp::now().iso_millis(), self.remote_rows.join("\n"));
-            if let Err(error) = write_atomically(&remote, &text) {
+            let text = format!("# lane gc {}: origin branch decisions\n{}\n", Timestamp::from_unix_millis(self.now_ms).iso_millis(), self.remote_rows.join("\n"));
+            if self.remote_due
+                && let Err(error) = write_atomically(&remote, &text)
+            {
                 eprintln!("lane gc: {}: {error}", remote.display());
                 return 1;
             }
