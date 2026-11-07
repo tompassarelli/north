@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use super::{FaultKind, Lifecycle, Liveness, Owner, Refusal, State, Store};
+use super::{Delivery, Effect, FaultKind, Leased, Lifecycle, Liveness, Owner, Refusal, Stage, State, Store};
 use crate::foundation::clock::Timestamp;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -124,4 +124,75 @@ fn the_host_store_lives_under_the_state_root_a_caller_redirects_and_under_home_o
     assert_eq!(path(Some(""), Some("/home/tom")), Some("/home/tom/.local/state/north/ledger.db".into()));
     assert_eq!(path(None, Some("/home/tom")), Some("/home/tom/.local/state/north/ledger.db".into()));
     assert_eq!(path(None, None), None);
+}
+
+const CRASH: &str = "NORTH_OUTBOX_CRASH";
+const SENT: &str = "outbox-sent";
+const POINTS: [&str; 3] = ["committed", "leased", "sent"];
+
+fn effects(point: &str) -> [Effect; 2] {
+    let effect = |delivery, name: &str| Effect { kind: "pull-started".into(), key: format!("{point}/{name}"), payload: serde_json::json!({ "point": point }), delivery };
+    [effect(Delivery::ReplaySafe, "replay-safe"), effect(Delivery::ProcessBound, "process-bound")]
+}
+
+fn send_once(sink: &std::path::Path, leased: &Leased) -> Result<(), String> {
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(sink.join(SENT)).map_err(|error| error.to_string())?;
+    std::io::Write::write_all(&mut log, format!("{}\n", leased.effect.key).as_bytes()).map_err(|error| error.to_string())?;
+    match std::fs::File::create_new(sink.join(leased.effect.key.replace('/', "-"))) {
+        Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => Err(error.to_string()),
+        _ => Ok(()),
+    }
+}
+
+fn crash_at(point: &str, root: &std::path::Path) -> ! {
+    let mut store = Store::open(&root.join("ledger.db")).unwrap();
+    store.transition_with_effects::<Puller>(point, Pull::Pulling, "started", at(0), &effects(point)).unwrap().unwrap();
+    while point != "committed"
+        && let Some(leased) = store.lease("pull-started", at(1), Duration::from_secs(600)).unwrap()
+    {
+        if point == "sent" {
+            send_once(root, &leased).unwrap();
+        }
+    }
+    rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::Kill).unwrap();
+    unreachable!("a process killed with SIGKILL runs no further")
+}
+
+// KEEP(bug): four fixes in 72 h for a side effect lost, duplicated or orphaned across a restart (163a23c725 an offload offer started twice, 97e4aa6827 two launches of one session, 22571229b6 an after-landing run lost to a lander restart, 363349d345 watchdogs lost with their launcher), because a move and the effect it starts were separate writes (north#862)
+#[test]
+fn a_process_killed_between_a_move_and_its_effects_leaves_each_replay_safe_effect_delivered_once_and_each_process_bound_one_retired() {
+    if let Some(crash) = std::env::var_os(CRASH) {
+        let (point, root) = crash.to_str().unwrap().split_once(':').unwrap();
+        crash_at(point, std::path::Path::new(root));
+    }
+    let directory = tempfile::tempdir().unwrap();
+    for point in POINTS {
+        let killed = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "lifecycle::tests::a_process_killed_between_a_move_and_its_effects_leaves_each_replay_safe_effect_delivered_once_and_each_process_bound_one_retired", "--nocapture"])
+            .env(CRASH, format!("{point}:{}", directory.path().display()))
+            .output()
+            .unwrap();
+        assert!(!killed.status.success(), "{point}: {}", String::from_utf8_lossy(&killed.stderr));
+    }
+
+    let mut restarted = Store::open(&directory.path().join("ledger.db")).unwrap();
+    let mut received = Vec::new();
+    let delivered = restarted
+        .deliver("pull-started", at(2), Duration::from_secs(600), |leased| {
+            received.push(leased.effect.key.clone());
+            send_once(directory.path(), leased)
+        })
+        .unwrap();
+
+    assert_eq!((delivered, received), (3, POINTS.map(|point| format!("{point}/replay-safe")).to_vec()));
+    for point in POINTS {
+        let [replay_safe, process_bound] = effects(point);
+        assert_eq!(restarted.stage(&replay_safe.key).unwrap(), Some(Stage::Delivered), "{point}");
+        assert!(directory.path().join(replay_safe.key.replace('/', "-")).exists(), "{point}");
+        assert_eq!(restarted.stage(&process_bound.key).unwrap(), Some(Stage::Retired), "{point}");
+    }
+    assert_eq!(restarted.lease("pull-started", at(3), Duration::from_secs(600)).unwrap(), None);
+    let refused = restarted.transition_with_effects::<Puller>("fresh", Pull::Idle, "an illegal first move", at(4), &effects("refused")).unwrap();
+    assert!(refused.is_err());
+    assert_eq!(restarted.stage("refused/replay-safe").unwrap(), None);
 }

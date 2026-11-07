@@ -241,6 +241,18 @@ Owner: north#757. The module is `north_base::lifecycle` (`crates/north-base/src/
   move of the last hour, for every machine, without knowing any machine's type. `north health facts` on each host
   returns them and the laptop's `north health` shows them as the `state-machines` flow of the outcome watchdog
   (docs/rationale/outcome-watchdog.md), which pages the proxy after two failing ticks like every other flow.
+- **A move and the effects it starts commit together.** `Store::transition_with_effects::<L>(instance, to, cause,
+  at, effects)` writes the move and its side effects (start a watchdog, start an after-landing run, announce an
+  offload offer) into `lifecycle_effects` in the move's one `BEGIN IMMEDIATE` transaction; a refused move queues none.
+  Each effect has a kind, an idempotency key unique across the store (a second effect under a key already queued or
+  delivered is dropped) and a delivery: **replay-safe** effects are requeued when their lessee dies or their lease
+  runs out and their receiver dedupes on the key, **process-bound** effects belong to the process that committed the
+  move, only it leases them, and they are retired once it is gone. `Store::lease(kind, at, hold)` takes the oldest
+  deliverable effect of a kind after that recovery, `Store::delivered`, `Store::undelivered` (retried after a minute,
+  at most five leases) and `Store::retire` settle it, and `Store::deliver` drains a kind. Before north#862 each move
+  and its effect were separate writes, so a restart between them lost or repeated the effect: four fixes in 72 h
+  (163a23c725, 97e4aa6827, 22571229b6, 363349d345), each in its own module. The mechanism follows T3 Code's
+  `EventSink`, `EffectWorker` and `EffectOutbox` (pingdotgg/t3code at 32a0531, MIT, read as data, no code copied).
 
 ### Why this shape
 

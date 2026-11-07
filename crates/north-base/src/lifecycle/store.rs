@@ -4,9 +4,11 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
-use super::{Fault, FaultKind, Lifecycle, Liveness, Move, Moved, Owner, Proc, Record, Refusal, State};
+use super::{Effect, Fault, FaultKind, Lifecycle, Liveness, Move, Moved, Owner, Proc, Record, Refusal, State};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
+
+mod outbox;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS lifecycle_states(
@@ -32,6 +34,25 @@ CREATE TABLE IF NOT EXISTS lifecycle_moves(
   refused INTEGER NOT NULL CHECK(refused IN (0, 1))
 ) STRICT;
 CREATE INDEX IF NOT EXISTS lifecycle_moves_by_instance ON lifecycle_moves(machine, instance, at_ms);
+CREATE TABLE IF NOT EXISTS lifecycle_effects(
+  effect_id INTEGER PRIMARY KEY,
+  machine TEXT NOT NULL,
+  instance TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(length(kind) > 0),
+  key TEXT NOT NULL UNIQUE CHECK(length(key) > 0),
+  payload TEXT NOT NULL CHECK(json_valid(payload)),
+  delivery TEXT NOT NULL CHECK(delivery IN ('replay-safe', 'process-bound')),
+  owner TEXT NOT NULL CHECK(json_valid(owner)),
+  stage TEXT NOT NULL CHECK(stage IN ('pending', 'leased', 'delivered', 'retired')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lessee TEXT CHECK(lessee IS NULL OR json_valid(lessee)),
+  lease_until_ms INTEGER,
+  ready_ms INTEGER NOT NULL,
+  created_ms INTEGER NOT NULL,
+  settled_ms INTEGER,
+  note TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE INDEX IF NOT EXISTS lifecycle_effects_open ON lifecycle_effects(kind, stage);
 ";
 
 /// Logged moves older than this are pruned at the instance's next move.
@@ -135,13 +156,13 @@ impl Store {
     /// `deadline` replaces the machine's dwell for this stay.
     pub fn transition_by<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, deadline: Option<Timestamp>) -> NorthResult<Moved<L::State>> {
         let holder = self.who.clone();
-        self.moving::<L>(instance, to, cause, at, &holder, deadline)
+        self.moving::<L>(instance, to, cause, at, (&holder, deadline), &[])
     }
 
     /// As [`Store::transition`], with `holder` rather than the mover holding a state a process holds: a launcher
     /// records the process it started.
     pub fn transition_for<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, holder: &Owner) -> NorthResult<Moved<L::State>> {
-        self.moving::<L>(instance, to, cause, at, holder, None)
+        self.moving::<L>(instance, to, cause, at, (holder, None), &[])
     }
 
     /// The record of `instance`, first moved to its orphan state when the process holding it is gone, so a reader
@@ -162,7 +183,7 @@ impl Store {
         }
     }
 
-    fn moving<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, holder: &Owner, deadline: Option<Timestamp>) -> NorthResult<Moved<L::State>> {
+    fn moving<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, (holder, deadline): (&Owner, Option<Timestamp>), effects: &[Effect]) -> NorthResult<Moved<L::State>> {
         let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         let current = read(&transaction, L::NAME, instance)?.map(|row| typed::<L>(instance, row)).transpose()?;
         let current = match release::<L>(&transaction, &self.who, self.liveness.as_ref(), current, Some(to), at)? {
@@ -176,6 +197,7 @@ impl Store {
         }
         let first = Record { instance: instance.to_owned(), state: to, since: at, due: None, owner: None, cause: String::new(), seq: 0 };
         let record = write::<L>(&transaction, (&self.who, holder), current.as_ref().unwrap_or(&first), to, cause, at, deadline)?;
+        outbox::queue(&transaction, L::NAME, instance, &self.who, effects, at)?;
         prune::<L>(&transaction, at)?;
         transaction.commit().map_err(sql)?;
         Ok(Ok(record))
@@ -321,6 +343,7 @@ fn prune<L: Lifecycle>(transaction: &Transaction, at: Timestamp) -> NorthResult<
         }
     }
     transaction.execute("DELETE FROM lifecycle_moves WHERE machine = ?1 AND at_ms < ?2", params![L::NAME, at.unix_millis() - millis(KEEP_MOVES)]).map_err(sql)?;
+    outbox::prune(transaction, L::NAME, at.unix_millis() - millis(KEEP_MOVES))?;
     Ok(())
 }
 

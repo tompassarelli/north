@@ -1,7 +1,8 @@
 //! Explicit state machines: each machine names one typed state per instance and its legal moves, one record per
 //! instance lives in a [`Store`], [`Store::transition`] is the only writer and refuses an illegal move, every move is
-//! logged with its cause, and [`Store::faults`] finds an instance that overstayed its state or whose owner died
-//! without knowing any machine's type, so `north health` judges every machine alike (docs/rationale/state-machines.md).
+//! logged with its cause, [`Store::transition_with_effects`] commits a move with the side effects it starts, and
+//! [`Store::faults`] finds an instance that overstayed its state or whose owner died without knowing any machine's
+//! type, so `north health` judges every machine alike (docs/rationale/state-machines.md).
 use std::fmt::Debug;
 use std::time::Duration;
 
@@ -16,6 +17,47 @@ mod tests;
 
 pub use owner::{Liveness, Owner, Proc};
 pub use store::Store;
+
+/// How a side effect a move started is delivered when a crash falls between the move's commit and the delivery.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Delivery {
+    /// Requeued after a crash, so its receiver dedupes on the effect's key.
+    ReplaySafe,
+    /// Belongs to the process that committed the move: only that process delivers it, and it is retired once that
+    /// process is gone.
+    ProcessBound,
+}
+
+/// A side effect a move starts, committed in the move's transaction and delivered from the store's outbox.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Effect {
+    pub kind: String,
+    /// Unique across the store: an effect under a key already queued or delivered is dropped, so a repeated move
+    /// never starts its effect twice.
+    pub key: String,
+    pub payload: serde_json::Value,
+    pub delivery: Delivery,
+}
+
+/// An effect this process leased for delivery; it settles with [`Store::delivered`] or [`Store::undelivered`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Leased {
+    pub machine: String,
+    pub instance: String,
+    pub effect: Effect,
+    /// Leases taken so far, this one included.
+    pub attempts: i64,
+}
+
+/// Where an effect is in the outbox.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Stage {
+    Pending,
+    Leased,
+    Delivered,
+    /// A process-bound effect whose process gave it up or is gone.
+    Retired,
+}
 
 /// One state of a machine, stored by its name.
 pub trait State: Copy + Eq + Debug + 'static {
