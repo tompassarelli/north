@@ -6,6 +6,8 @@ const THREADS_VERBS: [&str; 27] = [
     "new", "note", "close", "reopen", "block", "review-finding",
 ];
 const THREADS_UNBLOCK: &str = "unblock";
+const THREADS_INCIDENT: &str = "incident";
+const INCIDENT_RECORD: &str = "record";
 const NORTH_ONLY_THREADS: [&str; 2] = ["ingest", "snapshot-pages"];
 const FLEET_ROW: [&str; 6] = ["put", "wait", "exchange", "settle", "register", "retire"];
 
@@ -37,5 +39,6 @@ fn threads(rest: &[&str], north: bool) -> Option<&'static str> {
     let named = |names: &'static [&'static str]| names.iter().find(|name| *name == verb).copied();
     named(&THREADS_VERBS)
         .or_else(|| (*verb == THREADS_UNBLOCK).then_some(THREADS_UNBLOCK))
+        .or_else(|| (*verb == THREADS_INCIDENT && arguments.first() == Some(&INCIDENT_RECORD)).then_some(THREADS_INCIDENT))
         .or_else(|| north.then(|| named(&NORTH_ONLY_THREADS)).flatten())
 }

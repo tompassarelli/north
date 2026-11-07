@@ -6,6 +6,7 @@ const POOL: &str = "pool";
 const FLEET_ROW_PEERED: [&str; 6] = ["put", "exchange", "register", "wait", "settle", "retire"];
 const FOLLOW_STEPS: [&str; 4] = ["follow", "follow-release", "follow-started", "follow-alert"];
 const GH_STATUSES: [&str; 2] = ["failed", "requeued"];
+const INCIDENT_FLAGS: [&str; 8] = ["--key", "--class", "--noticed-by", "--repo", "--subject", "--started-at", "--detected-at", "--detail"];
 pub const REMOTE_PEER: &str = "NORTH_REMOTE_PEER";
 
 pub(super) fn guard(mut plan: Plan, grants: &Grants, jobs: &dyn Jobs) -> Result<Plan, Refusal> {
@@ -37,6 +38,7 @@ fn threads(words: &[&str], grants: &Grants, jobs: &dyn Jobs) -> Result<(), Strin
     match *verb {
         "queue" => queue(rest, grants, jobs),
         "job-run" => job_run(rest, grants),
+        "incident" => incident_record(rest, grants),
         "new" => rest.first().map_or(Ok(()), |namespace| granted(namespace, grants)),
         _ => Ok(()),
     }
@@ -92,6 +94,25 @@ fn queue(words: &[&str], grants: &Grants, jobs: &dyn Jobs) -> Result<(), String>
         }
         _ => Ok(()),
     }
+}
+
+fn incident_record(words: &[&str], grants: &Grants) -> Result<(), String> {
+    let Some((&"record", flags)) = words.split_first() else { return Err("incident is served only as record".to_string()) };
+    let mut seen: Vec<&str> = Vec::new();
+    for pair in flags.chunks(2) {
+        let [flag, value] = pair else { return Err(format!("incident record: {} takes a value", pair[0])) };
+        if !INCIDENT_FLAGS.contains(flag) {
+            return Err(format!("incident record takes no {flag}"));
+        }
+        if seen.contains(flag) {
+            return Err(format!("incident record names {flag} twice"));
+        }
+        seen.push(flag);
+        if *flag == "--repo" && !value.is_empty() {
+            granted(value, grants)?;
+        }
+    }
+    Ok(())
 }
 
 fn job_run(words: &[&str], grants: &Grants) -> Result<(), String> {

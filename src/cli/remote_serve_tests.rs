@@ -53,6 +53,13 @@ fn remote_serve_guards_refuse_a_peer_reaching_past_its_own_jobs_hosts_and_reposi
         "threads queue follow north#9 --tier sonnet --parent p".into(),
         "threads queue follow-release 4".into(),
         "threads agent-event x".into(),
+        "threads incident import".into(),
+        "threads incident report".into(),
+        "threads incident".into(),
+        "threads incident record --key k --class c --noticed-by w --repo galileo".into(),
+        "threads incident record --key k --class c --noticed-by w --repo".into(),
+        "threads incident record --key k --key j".into(),
+        "threads incident record --guard x".into(),
         "threads agent-event-state 1 x".into(),
         format!("threads queue msg {GALILEO_JOB} failed x"),
         "threads block south#1 north#2".into(),
@@ -90,3 +97,13 @@ fn remote_serve_forces_the_peer_on_every_fleet_row_verb() {
     assert_eq!(planned("north dispatch need n-x gex45 north#791").unwrap().argv, ["north", "dispatch", "need", "n-x", "gex45", "north#791"]);
 }
 
+
+#[test]
+fn remote_serve_admits_incident_record_from_a_peer_for_a_granted_repository() {
+    for command in [
+        "north threads incident record --key k --class c --noticed-by lander --repo north --subject b --started-at 1 --detected-at 2 --detail 'a b'",
+        "threads incident record --key k --class c --noticed-by lease-reaper --subject gex45 --detail d",
+    ] {
+        assert!(planned(command).is_ok(), "{command}");
+    }
+}
