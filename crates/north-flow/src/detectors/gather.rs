@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
+use north_base::land_ticket::{self, Phase};
 use serde_json::Value;
 
 use super::correction;
@@ -219,11 +220,12 @@ impl<'a> Gatherer<'a> {
     fn ticket_refusals(&self, since: f64) -> Vec<Refusal> {
         let mut found = Vec::new();
         for queue in subdirectories(&self.places.state.join("north/land-queue")) {
+            let records = land_ticket::recorded(&queue);
             for path in files(&queue.join("done"), "json") {
                 let Some(at) = modified(&path).filter(|at| *at >= since) else { continue };
                 let Some(ticket) = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else { continue };
                 let verdict = ticket["verdict"].as_str().unwrap_or_default();
-                if verdict.starts_with("failed ") || verdict.starts_with("conflict ") {
+                if matches!(land_ticket::read(records.as_ref(), &queue, &path, Some(verdict)), Phase::Failed | Phase::Conflict) {
                     found.push(Refusal { lane: ticket["branch"].as_str().unwrap_or_default().to_owned(), sha: ticket["head"].as_str().unwrap_or_default().to_owned(), at, text: with_log(verdict) });
                 }
             }

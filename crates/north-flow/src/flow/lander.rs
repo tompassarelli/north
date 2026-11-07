@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
 
+use north_base::land_ticket::{self, Phase};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toml_edit::DocumentMut;
@@ -70,9 +71,13 @@ fn percentile_90(samples: &mut [f64]) -> Option<f64> {
 pub fn read(directory: &Path, now: f64) -> Facts {
     let tickets: Vec<PathBuf> = listed(directory, "json").into_iter().chain(listed(&directory.join(OUTBOX), "json")).collect();
     let oldest_queued_at = tickets.iter().filter_map(|path| started_at(path)).reduce(f64::min);
+    let records = land_ticket::recorded(directory);
     let last_landed_at = listed(&directory.join("done"), "json")
         .into_iter()
-        .filter(|path| fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|ticket| ticket["verdict"].as_str().is_some_and(|verdict| verdict.starts_with("landed "))))
+        .filter(|path| {
+            let ticket = fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
+            land_ticket::read(records.as_ref(), directory, path, ticket.as_ref().and_then(|ticket| ticket["verdict"].as_str())) == Phase::Landed
+        })
         .filter_map(|path| modified(&path))
         .reduce(f64::max);
     let mut logs: Vec<(f64, PathBuf)> = listed(&directory.join("logs"), "log").into_iter().filter_map(|path| Some((started_at(&path)?, path))).collect();

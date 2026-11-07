@@ -6,6 +6,7 @@ Command { name: "model", usage: "north land model [--repo DIR] [--era batch|prec
 Command { name: "profile", usage: "north land profile [--since DURATION] [--spans FILE]... [--landing BRANCH] [--repo NAME] [--last N] [--metric landing-p50|landing-p90|landing-projected|verification-p50|verification-p90]", run: trace::report::run },
 Command { name: "promote", usage: "north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]", run: promote::run },
 Command { name: "replay", usage: "north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...", run: replay::run },
+Command { name: "requeue", usage: "north land requeue TICKET --reason TEXT [--repo DIR]", run: requeue::run },
 Command { name: "reuse", usage: "north land reuse hash|record|lookup", run: reuse::run },
 Command { name: "scan", usage: "north land scan dep-gate|tool-removal|test-integrity BASE..HEAD", run: scans::run },
 Command { name: "serve", usage: "north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]", run: serve::run },

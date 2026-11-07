@@ -54,3 +54,23 @@ fn a_ticket_whose_lander_died_mid_check_is_orphaned_in_health_and_queued_again_b
     assert!(store.faults(Timestamp::now()).unwrap().is_empty());
     assert_eq!(queue::collect(queue_dir.path()).unwrap().len(), 1, "the next lander checks the ticket again");
 }
+
+// KEEP(bug): queue::requeue had no caller for a quarantined ticket, so the lander watchdog's quarantine had no exit (north#757 entry 2)
+#[test]
+fn a_quarantined_ticket_is_queued_again_by_name_and_a_queued_one_is_not() {
+    let queue_dir = tempfile::tempdir().unwrap();
+    let path = queue_dir.path().join(queue::file_name(1_000, "lane"));
+    queue::write(&path, &ticket("lane")).unwrap();
+    queued(&path, "enqueued").unwrap();
+    let quarantined = queue::settle(&path, ticket("lane"), "quarantined by the lander watchdog".to_owned(), Phase::Quarantined).unwrap();
+    assert!(quarantined.starts_with(queue_dir.path().join("quarantine")));
+
+    let said = crate::land::requeue::requeue(queue_dir.path(), "lane", "the repeated error was fixed").unwrap();
+
+    assert!(said.contains("queued again"), "{said}");
+    let store = land_ticket::open(queue_dir.path()).unwrap();
+    let instance = land_ticket::instance(queue_dir.path(), OsStr::new(path.file_name().unwrap()));
+    assert_eq!(store.current::<LandTicket>(&instance).unwrap().unwrap().state, Phase::Queued);
+    assert!(path.is_file() && !quarantined.exists());
+    assert!(crate::land::requeue::requeue(queue_dir.path(), "lane", "again").is_err(), "a ticket back in the queue is no longer quarantined");
+}

@@ -38,6 +38,7 @@ pub mod serve;
 pub mod sheriff;
 pub mod slots;
 pub mod speculate;
+pub mod requeue;
 pub mod urgent;
 pub mod withdraw;
 pub mod telemetry;

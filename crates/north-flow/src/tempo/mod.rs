@@ -9,6 +9,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
+use north_base::land_ticket::{self, Phase};
 use serde::{Deserialize, Serialize};
 
 use crate::foundation::clock::Timestamp;
@@ -51,11 +52,14 @@ fn tickets(directory: &Path) -> impl Iterator<Item = PathBuf> {
     fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| path.is_file() && path.extension().is_some_and(|extension| extension == "json"))
 }
 
-fn decided(done: &Path, since: f64) -> Vec<(f64, Decided)> {
-    tickets(done)
+fn decided(queue: &Path, since: f64) -> Vec<(f64, Phase, Decided)> {
+    let records = land_ticket::recorded(queue);
+    tickets(&queue.join("done"))
         .filter_map(|path| {
             let at = modified(&path).filter(|at| *at >= since)?;
-            Some((at, serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()?))
+            let ticket: Decided = serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()?;
+            let phase = land_ticket::read(records.as_ref(), queue, &path, ticket.verdict.as_deref());
+            Some((at, phase, ticket))
         })
         .collect()
 }
@@ -65,13 +69,13 @@ fn minutes(from: f64, to: f64) -> f64 {
 }
 
 pub fn read(repo: &str, queue: &Path, now: f64, window_minutes: u64) -> Reading {
-    let decided = decided(&queue.join("done"), now - window_minutes as f64 * 60.0);
-    let verdict = |ticket: &Decided| ticket.verdict.clone().unwrap_or_default();
-    let landed: Vec<&(f64, Decided)> = decided.iter().filter(|(_, ticket)| verdict(ticket).starts_with("landed")).collect();
-    let queued: Vec<f64> = landed.iter().filter_map(|(at, ticket)| Some(minutes(Timestamp::parse_python_datetime(&ticket.queued_at)?.unix_seconds_f64(), *at))).collect();
-    let first: Vec<f64> = landed.iter().filter_map(|(at, ticket)| Some(minutes(ticket.first_commit_secs.filter(|secs| *secs > 0)? as f64, *at))).collect();
+    let decided = decided(queue, now - window_minutes as f64 * 60.0);
+    let landed: Vec<&(f64, Phase, Decided)> = decided.iter().filter(|(_, phase, _)| *phase == Phase::Landed).collect();
+    let queued: Vec<f64> = landed.iter().filter_map(|(at, _, ticket)| Some(minutes(Timestamp::parse_python_datetime(&ticket.queued_at)?.unix_seconds_f64(), *at))).collect();
+    let first: Vec<f64> = landed.iter().filter_map(|(at, _, ticket)| Some(minutes(ticket.first_commit_secs.filter(|secs| *secs > 0)? as f64, *at))).collect();
     let ((queued_p50, queued_p90), (first_p50, first_p90)) = (percentiles(&queued), percentiles(&first));
-    let refused = |prefix: &str| decided.iter().filter(|(_, ticket)| verdict(ticket).starts_with(prefix)).count();
+    let refused = |wanted: Phase| decided.iter().filter(|(_, phase, _)| *phase == wanted).count();
+    let interactions = decided.iter().filter(|(_, phase, ticket)| *phase == Phase::Failed && ticket.verdict.as_deref().is_some_and(|verdict| verdict.starts_with("failed interaction"))).count();
     Reading {
         repo: repo.to_owned(),
         window_minutes,
@@ -81,8 +85,8 @@ pub fn read(repo: &str, queue: &Path, now: f64, window_minutes: u64) -> Reading 
         first_commit_to_main_p50_minutes: first_p50,
         first_commit_to_main_p90_minutes: first_p90,
         first_commit_samples: first.len(),
-        refused_alone: refused("failed ") - refused("failed interaction"),
-        conflicts: refused("conflict "),
+        refused_alone: refused(Phase::Failed) - interactions,
+        conflicts: refused(Phase::Conflict),
         queued_now: tickets(queue).count(),
     }
 }
