@@ -117,8 +117,7 @@ pub struct Launch<'a> {
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        let local = environment::active(&lander.queue).is_local();
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: !local, local, lanes: String::new() }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false, local: environment::active(&lander.queue).is_local(), lanes: String::new() }
     }
 }
 
