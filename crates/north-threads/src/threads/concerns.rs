@@ -1,4 +1,6 @@
-use rusqlite::{Connection, params};
+use std::path::Path;
+
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use super::runs::row::Row;
 use super::verb::Failure;
@@ -39,4 +41,29 @@ pub fn record(db: &Connection, row: &Row) -> Result<usize, Failure> {
         "INSERT OR IGNORE INTO concern_samples(project, concern, sampler, host, at, value, why, detail, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![project, concern, sampler, host, at.iso(), value, field("why"), field("detail"), state],
     )?)
+}
+
+pub struct Sampled {
+    pub project: String,
+    pub concern: String,
+    pub at: Timestamp,
+    pub value: f64,
+}
+
+pub fn since(database: &Path, host: &str, since: Timestamp) -> Result<Vec<Sampled>, String> {
+    let failed = |error: rusqlite::Error| format!("ledger {}: {error}", database.display());
+    let db = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
+    if db.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'concern_samples'", [], |_| Ok(())).optional().map_err(failed)?.is_none() {
+        return Ok(Vec::new());
+    }
+    let mut query = db.prepare("SELECT project, concern, at, value FROM concern_samples WHERE host = ?1 AND at >= ?2 AND value IS NOT NULL ORDER BY at").map_err(failed)?;
+    let rows = query.query_map(params![host, since.iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, f64>(3)?))).map_err(failed)?;
+    let mut found = Vec::new();
+    for row in rows {
+        let (project, concern, at, value) = row.map_err(failed)?;
+        if let Some(at) = Timestamp::parse_rfc3339(&at) {
+            found.push(Sampled { project, concern, at, value });
+        }
+    }
+    Ok(found)
 }

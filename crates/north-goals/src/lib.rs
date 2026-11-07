@@ -8,6 +8,7 @@ pub mod history;
 pub mod oracle;
 pub mod registry;
 pub mod tick;
+pub mod trend;
 pub mod verdict;
 
 #[cfg(test)]
@@ -17,10 +18,12 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use history::{Recorded, Store};
+use north_base::foundation::clock::Timestamp;
 use registry::Goal;
 use verdict::{Verdict, judge};
 
-const USAGE: &str = "usage: north check goals [--root DIR] [PROJECT...]";
+const USAGE: &str = "usage: north check goals [--root DIR] [--trend] [PROJECT...]";
 pub const PROJECTS: [&str; 3] = ["north", "makgora", "wisp"];
 
 pub struct Row {
@@ -62,12 +65,16 @@ fn number(value: f64, unit: &str) -> String {
     if unit.is_empty() { text } else { format!("{text} {unit}") }
 }
 
+fn measured(row: &Row) -> String {
+    match &row.verdict {
+        Verdict::Green(value) | Verdict::RedContract(value) | Verdict::RedDebt(value) | Verdict::RedOverCeiling(value) => number(*value, &row.goal.unit),
+        Verdict::Unmeasured(why) => why.clone(),
+    }
+}
+
 pub fn line(row: &Row) -> String {
     let goal = &row.goal;
-    let measured = match &row.verdict {
-        Verdict::Green(value) | Verdict::RedContract(value) | Verdict::RedDebt(value) | Verdict::RedOverCeiling(value) => number(*value, &goal.unit),
-        Verdict::Unmeasured(why) => why.clone(),
-    };
+    let measured = measured(row);
     let class = match &goal.debt {
         Some(debt) => format!("{}, ceiling {}, owner {}, revisit {}", goal.class.word(), number(debt.ceiling, &goal.unit), debt.owner, debt.revisit),
         None => goal.class.word().to_owned(),
@@ -98,8 +105,9 @@ pub fn failing(rows: &[Row], problems: &[String]) -> bool {
     !problems.is_empty() || rows.iter().any(|row| row.verdict.failing())
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], history: &dyn Store) -> u8 {
     let mut code = code_root();
+    let mut trend = false;
     let mut projects: Vec<String> = Vec::new();
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
@@ -111,6 +119,7 @@ pub fn run(arguments: &[String]) -> u8 {
                     return 2;
                 }
             },
+            "--trend" => trend = true,
             name if PROJECTS.contains(&name) => projects.push(name.to_owned()),
             _ => {
                 eprintln!("{USAGE}");
@@ -123,6 +132,54 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let began = Instant::now();
     let (rows, problems) = check(&code, &projects);
-    print!("{}", render(&rows, &problems, began.elapsed().as_secs_f64()));
+    if trend {
+        print!("{}", render_trend(&rows, &problems, history));
+    } else {
+        print!("{}", render(&rows, &problems, began.elapsed().as_secs_f64()));
+    }
     u8::from(failing(&rows, &problems))
+}
+
+fn render_trend(rows: &[Row], problems: &[String], history: &dyn Store) -> String {
+    let now = Timestamp::now().unix_seconds();
+    let host = north_base::platform::host::name();
+    let mut out = String::new();
+    let recorded: Vec<Recorded> = history.read(&host, Timestamp::from_unix_seconds(now - trend::LONGEST)).unwrap_or_else(|why| {
+        let _ = writeln!(out, "history not read: {why}");
+        Vec::new()
+    });
+    let _ = writeln!(out, "north check goals --trend: {} goals, history of {host}", rows.len());
+    let mut project = "";
+    for row in rows {
+        if row.project != project {
+            project = &row.project;
+            let _ = writeln!(out, "\n{project}");
+        }
+        let (state, judged) = tick::state_of(row, &recorded, now);
+        let goal = &row.goal;
+        let line = match &goal.debt {
+            Some(debt) => format!("{} {}, ceiling {}", goal.bound.word(), number(goal.bound.limit(), &goal.unit), number(debt.ceiling, &goal.unit)),
+            None => format!("{} {}", goal.bound.word(), number(goal.bound.limit(), &goal.unit)),
+        };
+        let meets = match (&goal.debt, judged) {
+            (Some(_), Some(judged)) => if judged.meets { "; meets its target" } else { "; short of its target" },
+            _ => "",
+        };
+        let _ = writeln!(out, "- {}: {} {} ({line}){meets}", goal.name, state.word(), measured(row));
+        if let Some(judged) = judged {
+            let windows: Vec<String> = trend::WINDOWS
+                .iter()
+                .zip(judged.fits)
+                .map(|(window, fit)| match fit {
+                    Some(fit) => format!("{} median {}, {:+.3}/day", window.name, number(fit.median, &goal.unit), fit.per_day()),
+                    None => format!("{} no samples", window.name),
+                })
+                .collect();
+            let _ = writeln!(out, "  {}", windows.join("; "));
+        }
+    }
+    problems.iter().for_each(|problem| {
+        let _ = writeln!(out, "\nnot read: {problem}");
+    });
+    out
 }

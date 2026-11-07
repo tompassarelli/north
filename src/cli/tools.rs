@@ -168,11 +168,15 @@ fn citation_check(arguments: &[String]) -> u8 {
 const CHECK: &[(&str, Run)] = &[
     ("citations", citation_check),
     ("experiments", crate::ops::experiments::run),
-    ("goals", north_goals::run),
+    ("goals", goals),
     ("issue-boxes", issue_box_lint::run),
     ("nix", super::nix::doctor),
     ("provenance", provenance::run),
 ];
+
+fn goals(arguments: &[String]) -> u8 {
+    north_goals::run(arguments, &super::concern_history::LedgerHistory)
+}
 
 fn check(arguments: &[String]) -> u8 {
     match arguments.split_first().and_then(|(verb, rest)| runner(CHECK, verb).map(|run| run(rest))) {

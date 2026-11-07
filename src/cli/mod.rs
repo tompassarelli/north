@@ -9,6 +9,7 @@ mod mutant_issues;
 mod agents;
 mod cloud;
 mod cloud_handback;
+pub(crate) mod concern_history;
 mod cloud_land;
 mod cloud_reap;
 mod token_usage;

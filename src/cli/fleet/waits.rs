@@ -99,7 +99,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.api_spent", own: None, run: Box::new(|fleet| said(api_spent(&fleet))) },
             ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.spend_trips", own: None, run: Box::new(|fleet| said(super::trips::watch(&fleet, now_ms()))) },
-            ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &LedgerHistory))) },
+            ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
             ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob {
@@ -136,20 +136,6 @@ fn recurred_corrections(now: i64) -> Vec<String> {
         let (set, text) = corrections::red(&corrections::recurrences(&seen, corrections::classes(), now as f64));
         north_goals::tick::Red { set, text }
     })
-}
-
-struct LedgerHistory;
-
-impl north_goals::history::Store for LedgerHistory {
-    fn record(&self, samples: &[north_goals::history::Sample]) -> Result<(), String> {
-        let mut batch = String::new();
-        for sample in samples {
-            let mut row = serde_json::to_value(sample).map_err(|error| error.to_string())?;
-            row["type"] = Value::from(crate::threads::concerns::KIND);
-            batch.push_str(&format!("{row}\n"));
-        }
-        if batch.is_empty() { Ok(()) } else { crate::threads::client::ingest(batch.as_bytes()) }
-    }
 }
 
 fn said(lines: impl IntoIterator<Item = String>) -> Probed {
