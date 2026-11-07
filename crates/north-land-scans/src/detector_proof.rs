@@ -91,6 +91,10 @@ fn missing(directory: &Path, fork: &str, head: &str) -> Vec<String> {
     let mut lacks = Vec::new();
     if text {
         let cases = case_verdicts(directory, head, &changed);
+        let regressed: Vec<&str> = cases.iter().filter(|(_, verdict)| verdict.as_ref().is_some_and(Verdict::refuses)).map(|(path, _)| path.as_str()).collect();
+        if !regressed.is_empty() {
+            lacks.push(format!("the lane regresses {}, so its harness text breaks what those cases hold", regressed.join(", ")));
+        }
         if !cases.iter().any(|(_, verdict)| *verdict == Some(Verdict::Kept)) {
             let read = if cases.is_empty() {
                 "the lane adds no case".to_owned()

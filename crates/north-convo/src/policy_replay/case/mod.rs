@@ -23,6 +23,7 @@ use super::run::{run_tagged, state_dir};
 use crate::error::NorthError;
 use crate::fleet::install;
 use crate::foundation::clock::Timestamp;
+use crate::platform::replay_verdict::{self, Verdict};
 
 const USAGE: &str = "usage: north policy-replay case CASE... [--arm NAME=GENERATION]... [--samples N] [--jobs N] [--out ROWS.jsonl] [--judge-model M] [--max-turns N] [--budget-usd N]
   CASE is a correction id from the grounding ledger or a case file (harness/cases/*.toml).
@@ -212,9 +213,22 @@ fn reproduces(repeats: usize, of: usize) -> Option<bool> {
     (of >= 2).then_some(2 * repeats >= of)
 }
 
-fn report(prepared: &[Prepared], rows: &[Value]) -> (Vec<String>, usize) {
+fn lane_verdicts(spec: &Spec, id: &str, rows: &[Value], arms: &[&str]) -> Vec<Option<Verdict>> {
+    let Some((base, lanes)) = arms.split_first() else { return Vec::new() };
+    let base = graded(rows, id, base);
+    lanes.iter().map(|lane| replay_verdict::decide(spec.kind, base, graded(rows, id, lane), spec.detector.deterministic())).collect()
+}
+
+struct Report {
+    lines: Vec<String>,
+    reproduced: usize,
+    refused: Vec<String>,
+}
+
+fn report(prepared: &[Prepared], rows: &[Value]) -> Report {
     let mut lines = Vec::new();
     let mut reproduced = 0;
+    let mut refused = Vec::new();
     for entry in prepared {
         let id = &entry.case.id;
         let mut parts = Vec::new();
@@ -235,20 +249,22 @@ fn report(prepared: &[Prepared], rows: &[Value]) -> (Vec<String>, usize) {
         if states.first().copied().flatten() == Some(true) {
             reproduced += 1;
         }
-        let verdict = match (states.first().copied().flatten(), counts.split_first()) {
-            (Some(true), Some((_, []))) => "reproduced".to_owned(),
-            (Some(false), Some((_, []))) => "not reproduced".to_owned(),
-            (_, Some((&base, lanes))) if !lanes.is_empty() => lanes
-                .iter()
-                .zip(&entry.arms[1..])
-                .map(|(&lane, (name, ..))| format!("{name} {}", crate::platform::replay_verdict::decide(base, lane, entry.spec.detector.deterministic()).map_or_else(|| "ungraded".to_owned(), |verdict| verdict.line())))
-                .collect::<Vec<_>>()
-                .join("; "),
+        let names: Vec<&str> = entry.arms.iter().map(|(name, ..)| name.as_str()).collect();
+        let verdicts = lane_verdicts(&entry.spec, id, rows, &names);
+        for (name, verdict) in names[1..].iter().zip(&verdicts) {
+            if verdict.as_ref().is_some_and(Verdict::refuses) {
+                refused.push(format!("{name} regresses {} case {id}", entry.spec.kind.word()));
+            }
+        }
+        let verdict = match (states.first().copied().flatten(), counts.len()) {
+            (Some(true), 1) => "reproduced".to_owned(),
+            (Some(false), 1) => "not reproduced".to_owned(),
+            (_, 2..) => names[1..].iter().zip(&verdicts).map(|(name, verdict)| format!("{name} {}", verdict.as_ref().map_or_else(|| "ungraded".to_owned(), Verdict::line))).collect::<Vec<_>>().join("; "),
             _ => "ungraded".to_owned(),
         };
         lines.push(format!("{id} {} {}: {} -> {verdict}", entry.spec.kind.word(), entry.case.class, parts.join("; ")));
     }
-    (lines, reproduced)
+    Report { lines, reproduced, refused }
 }
 
 fn replayed(options: &Options) -> Result<u8, NorthError> {
@@ -282,10 +298,13 @@ fn replayed(options: &Options) -> Result<u8, NorthError> {
         .map(|(case, arm)| Job { case, arm, sample: 2 })
         .collect();
     rows.extend(run_jobs(&prepared, &split, options, &out)?);
-    let (lines, reproduced) = report(&prepared, &rows);
+    let Report { lines, reproduced, refused } = report(&prepared, &rows);
     write_proofs(options, &prepared, &rows)?;
     for line in lines.iter().chain(&unreplayable) {
         println!("{line}");
+    }
+    for refusal in &refused {
+        println!("refused: {refusal}");
     }
     let spent: f64 = rows.iter().filter_map(|row| row["usd"].as_f64()).sum();
     println!(
@@ -296,11 +315,11 @@ fn replayed(options: &Options) -> Result<u8, NorthError> {
         rows.len(),
         out.display()
     );
-    Ok(0)
+    Ok(u8::from(!refused.is_empty()))
 }
 
 fn write_proofs(options: &Options, prepared: &[Prepared], rows: &[Value]) -> Result<(), NorthError> {
-    use crate::platform::replay_verdict::{BASE_ARM, LANE_ARM, PROOF_SUFFIX, proof_row};
+    use replay_verdict::{BASE_ARM, LANE_ARM, PROOF_SUFFIX, proof_row};
     let named = |arm: &str| options.arms.iter().any(|candidate| candidate.name == arm);
     if !named(BASE_ARM) || !named(LANE_ARM) {
         return Ok(());
@@ -312,7 +331,7 @@ fn write_proofs(options: &Options, prepared: &[Prepared], rows: &[Value]) -> Res
         let lines: String = rows
             .iter()
             .filter(|row| row["case"] == id.as_str() && (row["arm"] == BASE_ARM || row["arm"] == LANE_ARM))
-            .map(|row| proof_row(row["arm"].as_str().unwrap_or(""), row["generation"].as_str().unwrap_or(""), row["sample"].as_u64().unwrap_or(0) as usize, row["repeats"].as_bool(), deterministic).to_string() + "\n")
+            .map(|row| proof_row(entry.spec.kind, row["arm"].as_str().unwrap_or(""), row["generation"].as_str().unwrap_or(""), row["sample"].as_u64().unwrap_or(0) as usize, row["repeats"].as_bool(), deterministic).to_string() + "\n")
             .collect();
         let proof = format!("{path}{PROOF_SUFFIX}");
         fs::write(&proof, lines).map_err(NorthError::Io)?;
@@ -360,4 +379,27 @@ fn replay_text(evs: &[Json]) -> String {
         .filter(|text| !text.trim().is_empty())
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{Verdict, lane_verdicts, spec};
+
+    #[test]
+    fn a_control_case_refuses_a_lane_that_overcorrects_and_never_proves_one_kept() {
+        let planted = "kind = \"control\"\nsession = \"s\"\nmessage = \"m\"\n[detector]\nexpects = \"^Bash cargo test\"\n";
+        let (spec, _) = spec::parse("harness/cases/run-the-tests.toml", planted).unwrap();
+        let ordinary = ["Bash cargo test -p north-convo".to_owned(), "Done: tests pass.".to_owned()];
+        let overcorrecting = ["Blocked: the tests may take a while, so I am asking before running them.".to_owned()];
+        let rows: Vec<_> = [("base", &ordinary[..]), ("lane", &overcorrecting[..])]
+            .into_iter()
+            .flat_map(|(arm, lines)| (0..2).map(move |sample| (arm, lines, sample)))
+            .map(|(arm, lines, sample)| json!({"case": "run-the-tests", "arm": arm, "sample": sample, "repeats": spec.detector.repeats(lines)}))
+            .collect();
+        assert_eq!(lane_verdicts(&spec, "run-the-tests", &rows, &["base", "lane"]), [Some(Verdict::Regressed)]);
+        assert!(Verdict::Regressed.refuses());
+        assert_eq!(lane_verdicts(&spec, "run-the-tests", &rows, &["lane", "base"]), [Some(Verdict::Held)]);
+    }
 }
