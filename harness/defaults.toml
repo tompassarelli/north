@@ -1284,14 +1284,6 @@ source = "tom: a test over 15 s p95 for 3 after-landing runs gets a profiled box
 fallback = "none"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
-[detector_slow_test_profile_host]
-value = "ccx33"
-allowed = { one_of = ["ccx33"] }
-unit = "build host whose offload slot runs the one slow test under strace -c -w -f for the slow-test detector's profile"
-source = "measured: ccx33 ran a one-test strace profile through north capacity offload run in 15 s on 2026-11-06 and is the less loaded of the two build hosts (north#634)"
-fallback = "no profile is taken, so no box is filed that tick"
-consumers = ["crates/north-flow/src/detectors/mod.rs"]
-
 [detector_slow_test_profile_seconds]
 value = 120
 allowed = { min = 30, max = 3600 }

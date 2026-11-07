@@ -288,7 +288,9 @@ impl Gatherer<'_> {
         let command = slow_test::profile_command(&crossing.binary, &crossing.name)?;
         let seconds = default_number("detector_slow_test_profile_seconds") as u64;
         let head = self.git(&["rev-parse", "origin/main"])?.trim().to_owned();
-        let argv = ["north", "capacity", "offload", "run", "--host", &default_text("detector_slow_test_profile_host"), "--base", &head, "--head", &head, "--timeout", &seconds.to_string(), "--", &command];
+        let hosts = self.host.output(&["north", "capacity", "offload", "hosts"], None, None, PROFILE_GRACE)?;
+        let target = String::from_utf8_lossy(&hosts.stdout).lines().find_map(|line| line.split_whitespace().next().map(str::to_owned))?;
+        let argv = ["north", "capacity", "offload", "run", "--host", &target, "--base", &head, "--head", &head, "--timeout", &seconds.to_string(), "--", &command];
         let output = self.host.output(&argv, Some(&self.checkout()), None, Duration::from_secs(seconds) + PROFILE_GRACE)?;
         slow_test::summarize(&format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
     }

@@ -26,6 +26,7 @@ impl Host for Scripted {
         match argv {
             ["git", "grep", ..] => answer("crates/north-core/src/slow.rs\ntests/it/other.rs\ntests/it/slow.rs\n"),
             ["git", "rev-parse", "origin/main"] => answer("c88cebc6a54ba3f362a9be84f7d4eec17cdee9b7\n"),
+            ["north", "capacity", "offload", "hosts"] => answer("buildbox tom@buildbox\n"),
             ["north", "capacity", "offload", "run", ..] => {
                 self.offloads.borrow_mut().push(argv.iter().map(|word| (*word).to_owned()).collect());
                 answer(&format!("cargo output\n{PROFILE_MARK}\n{STRACE}"))
@@ -93,7 +94,7 @@ fn a_test_over_the_line_in_three_after_landing_runs_gets_one_profiled_box_on_its
     assert!(lines.iter().any(|line| line.contains("slow-test slow-test:north::it:slow::sixteen_seconds: filed a box on north#777")), "{lines:?}");
     let offloads = host.offloads.borrow();
     assert_eq!(offloads.len(), 1);
-    assert!(offloads[0].windows(2).any(|pair| pair == ["--host", "ccx33"]));
+    assert!(offloads[0].windows(2).any(|pair| pair == ["--host", "buildbox"]));
     assert!(offloads[0].last().unwrap().contains("-p north --test it -- --exact slow::sixteen_seconds"));
     let edits = host.edits.borrow();
     assert_eq!(edits.len(), 1);
