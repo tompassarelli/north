@@ -16,6 +16,8 @@ mod habits_tests;
 mod history;
 mod implicit;
 mod imports;
+#[cfg(test)]
+mod imports_tests;
 mod layers;
 mod report;
 mod resolver;

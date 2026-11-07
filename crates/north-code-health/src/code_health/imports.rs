@@ -1,4 +1,5 @@
-use super::rust_modules::{Crate, expand_use, inline_modules, resolve_rust};
+use super::rust_modules::{Crate, InlineModules, expand_use, resolve_rust};
+use super::rust_text::mask;
 use super::source::{Source, dirname};
 use regex::Regex;
 use std::collections::BTreeSet;
@@ -15,11 +16,13 @@ static TS_BARE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s*['"]([^'"]+)['"]"#).unwrap());
 static TS_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?-u:\b)(?:require|import)\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap());
-pub(super) static RS_USE: LazyLock<Regex> =
+static RS_USE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);").unwrap());
+static RS_PATH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[^A-Za-z0-9_:])((?:crate|super|self|[a-z][a-z0-9_]*)(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*)+)").unwrap()
+});
 static C_INCLUDE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^\s*#\s*include\s*"([^"]+)""#).unwrap());
-static BLOCK_COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)/\*.*?\*/").unwrap());
 static LINE_COMMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*//[^\r\n\u{2028}\u{2029}]*").unwrap());
 static TS_STEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(.*)\.(?:js|mjs|cjs|jsx)$").unwrap());
@@ -57,10 +60,6 @@ fn join_normalized(directory: &str, spec: &str) -> String {
         out.push('/');
     }
     out
-}
-
-fn strip_block_comments(text: &str) -> String {
-    BLOCK_COMMENT.replace_all(text, "").into_owned()
 }
 
 fn strip_line_comments(text: &str) -> String {
@@ -106,13 +105,8 @@ pub(super) fn imports_of(path: &str, text: &str, source: &Source, crates: &[Crat
     };
     match extension(path) {
         "rs" => {
-            let code = strip_line_comments(&strip_block_comments(text));
-            for found_use in RS_USE.captures_iter(&code) {
-                let start = found_use.get(0).map_or(0, |whole| whole.start());
-                let inline = inline_modules(&code, start);
-                for segments in expand_use(&found_use[1]) {
-                    add(resolve_rust(path, &segments, source, crates, &inline));
-                }
+            for (_, target) in rust_references(path, text, source, crates) {
+                add(Some(target));
             }
         }
         "c" | "h" => {
@@ -127,6 +121,34 @@ pub(super) fn imports_of(path: &str, text: &str, source: &Source, crates: &[Crat
                     add(resolve_ts(path, &specifier[1], source));
                 }
             }
+        }
+    }
+    found
+}
+
+pub(super) fn rust_references(path: &str, text: &str, source: &Source, crates: &[Crate]) -> Vec<(usize, String)> {
+    let code = mask(text);
+    let mut statements: Vec<(usize, usize, Vec<Vec<String>>)> = RS_USE
+        .captures_iter(&code)
+        .map(|statement| {
+            let whole = statement.get(0).expect("whole match");
+            (whole.start(), whole.end(), expand_use(&statement[1]))
+        })
+        .collect();
+    let mut paths: Vec<(usize, usize, Vec<Vec<String>>)> = RS_PATH
+        .captures_iter(&code)
+        .map(|reference| reference.get(1).expect("path group"))
+        .filter(|span| !statements.iter().any(|(start, end, _)| (*start..*end).contains(&span.start())))
+        .map(|span| (span.start(), span.end(), vec![span.as_str().split("::").map(|part| part.trim().to_owned()).collect()]))
+        .collect();
+    statements.append(&mut paths);
+    statements.sort_by_key(|(start, _, _)| *start);
+    let mut inline = InlineModules::of(&code);
+    let mut found = Vec::new();
+    for (start, _, trees) in statements {
+        let scope = inline.before(start);
+        for segments in trees {
+            found.extend(resolve_rust(path, &segments, source, crates, &scope).filter(|target| target != path).map(|target| (start, target)));
         }
     }
     found

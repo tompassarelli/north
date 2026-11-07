@@ -93,26 +93,46 @@ fn walk_use(prefix: &[String], text: &str, out: &mut Vec<Vec<String>>) {
     cut(inner.len(), inner.len());
 }
 
-pub(super) fn inline_modules(text: &str, until: usize) -> Vec<String> {
-    let mut stack: Vec<Option<String>> = Vec::new();
-    for token in INLINE_MOD_TOKEN.captures_iter(text) {
-        let whole = token.get(0).expect("whole match");
-        if whole.start() >= until {
-            break;
-        }
-        match whole.as_str() {
-            "}" => {
-                stack.pop();
-            }
-            "{" => stack.push(None),
-            _ => {
-                if let Some(name) = token.get(1) {
-                    stack.push(Some(name.as_str().to_owned()));
-                }
-            }
-        }
+enum Brace {
+    Open(Option<String>),
+    Close,
+}
+
+pub(super) struct InlineModules {
+    braces: Vec<(usize, Brace)>,
+    next: usize,
+    stack: Vec<Option<String>>,
+}
+
+impl InlineModules {
+    pub(super) fn of(text: &str) -> Self {
+        let braces = INLINE_MOD_TOKEN
+            .captures_iter(text)
+            .filter_map(|token| {
+                let whole = token.get(0).expect("whole match");
+                let brace = match whole.as_str() {
+                    "}" => Brace::Close,
+                    "{" => Brace::Open(None),
+                    _ => Brace::Open(Some(token.get(1)?.as_str().to_owned())),
+                };
+                Some((whole.start(), brace))
+            })
+            .collect();
+        Self { braces, next: 0, stack: Vec::new() }
     }
-    stack.into_iter().flatten().collect()
+
+    pub(super) fn before(&mut self, offset: usize) -> Vec<String> {
+        while let Some((_, brace)) = self.braces.get(self.next).filter(|(start, _)| *start < offset) {
+            match brace {
+                Brace::Close => {
+                    self.stack.pop();
+                }
+                Brace::Open(name) => self.stack.push(name.clone()),
+            }
+            self.next += 1;
+        }
+        self.stack.iter().flatten().cloned().collect()
+    }
 }
 
 fn module_of(path: &str, krate: &Crate) -> Location {
