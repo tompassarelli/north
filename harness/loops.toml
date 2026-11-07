@@ -286,8 +286,8 @@ defaults = [
 name = "remote-branches"
 decision = "which origin branch in a repository north lands to is deleted as landed, deleted as superseded by named commits on main, or kept and named in an open box"
 sites = [
-  "crates/north-guard/src/lanes/gc/remote.rs",
-  "crates/north-guard/src/lanes/gc/remote_boxes.rs",
+  "crates/north-lanes/src/lanes/gc/remote.rs",
+  "crates/north-lanes/src/lanes/gc/remote_boxes.rs",
   "crates/north-landing/src/land/after/cleanup.rs",
 ]
 signal = "origin branches older than 24 h that are on main by no commit and named in no open box, per lane gc run"
@@ -297,7 +297,7 @@ record = "agents/lane-gc/remote.txt"
 
 host = "lander"
 constants = [
-  "crates/north-guard/src/lanes/gc/remote.rs::BOX_AFTER_H",
+  "crates/north-lanes/src/lanes/gc/remote.rs::BOX_AFTER_H",
 ]
 
 [[loop]]

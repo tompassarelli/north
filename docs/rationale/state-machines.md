@@ -101,7 +101,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
    decision strings.
 10. **Lane retirement** (75: 25 x 3). Lane gc's activity from reflog and mtimes, `flagged_at` carried in
     `stale.json`, reap's age from a `.git` mtime that counts as old enough when unreadable
-    (`crates/north-guard/src/lanes/reap.rs:320`), rescue's partial end states, pin sidecars removed after their
+    (`crates/north-lanes/src/lanes/reap.rs:320`), rescue's partial end states, pin sidecars removed after their
     worktree (`lanes/pin_retire/consumed.rs:54`). Shapes: mtime-read, presence-flag.
 11. **Job queue and job runs** (68: 34 x 2). A `taken` job has no lease or taker
     (`crates/north-threads/src/threads/jobs/queue.rs:178-224`); a crashed job's `job_runs.finished` stays NULL and
@@ -198,7 +198,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
 36. **Rename-into-place leftovers** (none counted). Staging names nothing reaps after a crash: `.stage.*` and
     `.current.PID` (`crates/north-ops/src/ops/vendor_runtime/mod.rs:100-125`), `.incoming/PID`
     (`ops/retention/archive.rs:141`), `.zst.tmpPID` (`ops/convo/archive.rs:246`), `target.seeding-PID`
-    (`crates/north-guard/src/lanes/target_seed.rs:44`). Shapes: phase-suffix.
+    (`crates/north-lanes/src/lanes/target_seed.rs:44`). Shapes: phase-suffix.
 
 ### Not converted
 

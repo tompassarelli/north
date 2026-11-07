@@ -934,6 +934,7 @@ dependencies = [
  "north-lander-doctor",
  "north-landing",
  "north-landing-gates",
+ "north-lanes",
  "north-mutants",
  "north-ops",
  "north-providers",
@@ -1268,6 +1269,7 @@ dependencies = [
  "north-fleet",
  "north-github-mirror",
  "north-graph-ground",
+ "north-lanes",
  "north-pace",
  "north-providers",
  "north-strategy-types",
@@ -1368,6 +1370,22 @@ dependencies = [
  "north-mutants",
  "proptest",
  "regex",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-lanes"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-github-mirror",
+ "regex",
+ "rustix 0.38.44",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
