@@ -273,3 +273,17 @@ fn two_boxes_at_a_week_reading_of_99_percent_place_on_the_account_that_covers_a_
     let why = format!("{:?}", held.skipped);
     assert!(why.contains("claude:a has 1.0% of its week window left and one worker turn takes 4.0% at p90"), "{why}");
 }
+
+// KEEP(bug): every laptop launch from nexus failed for six hours on 2026-11-07 because the dispatch unit's PATH has no `threads` shim (north#828)
+#[test]
+fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_program_on_path() {
+    let (hosts, accounts) = fleet();
+    let survey = survey(Vec::new(), Cloud::Unreachable(String::new()), hosts, accounts);
+    let route = super::tier::Route { tier: super::tier::Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, follows: None, why: String::new() };
+    let launch = super::plan::Launch { item: super::issues::IssueRef { repo: "north".into(), number: 742 }, host: "whiterabbit".into(), account: "claude:a".into(), brief: "brief".into(), route, cloud: false, local: None };
+
+    let (program, words) = super::effects::command(&launch, "north-742-d1756", &survey, "/home/tom", "/runtime/bin/north").unwrap();
+
+    assert_eq!(program, "/runtime/bin/north");
+    assert_eq!(words[..7], ["threads", "queue", "add", "laptop", "north#742", "--", "north"]);
+}

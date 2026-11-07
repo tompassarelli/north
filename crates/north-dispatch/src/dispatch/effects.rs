@@ -32,7 +32,7 @@ pub fn session_name(launch: &Launch, at: f64) -> String {
 }
 
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
-/// a laptop job that runs it there.
+/// a laptop job that runs it there, queued through north itself because the dispatch unit's PATH has no `threads` shim.
 pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> Result<(String, Vec<String>), String> {
     let directory = format!("{home}/code/{}/main", crate::threads::catalog::checkout(&launch.item.repo));
     let remote = launch.host != survey.here && survey.laptop.as_deref() != Some(launch.host.as_str());
@@ -48,9 +48,9 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
     }
     words.push(launch.brief.clone());
     if survey.laptop.as_deref() == Some(launch.host.as_str()) {
-        let mut queued = ["queue", "add", "laptop", &launch.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
+        let mut queued = ["threads", "queue", "add", "laptop", &launch.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
         queued.extend(words);
-        return Ok(("threads".into(), queued));
+        return Ok((north.into(), queued));
     }
     Ok((north.into(), words))
 }
@@ -111,10 +111,11 @@ fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Res
     let (program, words) = command(launch, name, survey, home, &north.to_string_lossy())?;
     let mut child = std::process::Command::new(&program);
     child.args(&words).env_remove(crate::fleet::runtime::SESSION_ENV).env_remove(crate::fleet::runtime::ROLE_ENV);
-    match crate::platform::process::run_command_within(child, None, LAUNCH_WAIT) {
-        None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
-        Some(output) if output.status.success() => Ok(name.to_owned()),
-        Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
+    match crate::platform::process::try_run_command_within(child, None, LAUNCH_WAIT) {
+        Err(error) => Err(format!("{program} did not start: {error}")),
+        Ok(None) => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
+        Ok(Some(output)) if output.status.success() => Ok(name.to_owned()),
+        Ok(Some(output)) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
     }
 }
 
