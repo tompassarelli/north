@@ -18,6 +18,7 @@ The owner asked on 2026-11-07 for a scoreboard that shows whether north is at th
 **Arms.** Both get the brief as their first message, the same Claude Code binary, and the model and effort the original run had, the router's pick at launch.
 - north: the argv `north fleet launch` builds for a worker (`Claude::host`), its fleet prompt and standing orders, the profile's instructions, skills, agents and hooks, and the worker session variables.
 - plain: the same argv without the appended prompt, an empty config directory, and none of north's session variables.
+- t3code (`--arm t3code --t3 DIR --t3-node PATH`): T3 Code's own server (T3 Tools Inc., MIT, github.com/pingdotgg/t3code at 32a0531748c44b25072d7495ce0b9bd7e9450a87, built from source) runs headless inside the same sandbox, and the brief is a thread started through its own CLI on the Claude provider, so Claude Code gets the instructions, the `t3-code` MCP tools and the adapter options T3 Code sends. The one seam is a `claude` shim that runs the same Claude Code binary, copies its stream to `stream.jsonl` for cost, wall time and the leak screen, and applies the same cost cap and web-tool ban. T3 Code's CLI cannot set an effort, so its default stands. The server's 20 tools that need a desktop host are dropped from the model's view and never stubbed: `preview_dialog`, `preview_status`, `preview_open`, `preview_navigate`, `preview_resize`, `preview_set_appearance`, `preview_act`, `preview_evaluate`, `preview_wait_for`, `preview_recording_start`, `preview_recording_stop`, `preview_snapshot`, `t3_preview_list`, `t3_preview_close` (a Playwright browser), `device_list`, `device_open`, `device_close`, `device_screenshot` (an agent-device shim) and `html_render`, `html_preview` (a headless Chrome); the sandbox holds none of them. The run record's harness line lists them.
 
 **Sandbox, the same for both.**
 - Each arm runs under bubblewrap. `$HOME` is empty except the harness files, the toolchain state, the cargo registry and the arm's own directory.
@@ -55,4 +56,6 @@ The design, its review round and each disposition are in north#730 and its first
 
 ## Results
 
-None yet: `results.jsonl` is empty until the pilot runs. The pilot runs three tasks on both arms to measure the cost per task, which sets how many tasks the paid first pass can afford.
+**T3 Code arm, one task (2026-11-07).** `north-685-4082956297` (claude-opus-5-5) through T3 Code's server: 26 turns, 128 s of wall time, 0 interventions; graded wrong (2 of 3 fail-to-pass pass, 1 existing test broken), leak screen clean; its cost at list price is in `results.jsonl`. The north and plain pilot rows for this task are on gex45 and are not in `results.jsonl`: this one row is. The grader had first been checked on prepared directories for the same task, a known-fail tree (fail-to-pass 0 of 3, 3 broken, wrong) and a known-pass tree (3 of 3, none broken, correct).
+
+Pilot: three tasks on both arms measure the cost per task, which sets how many tasks the paid first pass can afford.

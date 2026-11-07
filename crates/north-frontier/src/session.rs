@@ -93,15 +93,14 @@ fn dev_env(tree: &Path) -> Result<Vec<(String, OsString)>, NorthError> {
     Ok(output.stdout.split(|byte| *byte == 0).filter_map(|entry| std::str::from_utf8(entry).ok()?.split_once('=')).filter(|(name, _)| !dropped(name)).map(|(name, value)| (name.to_owned(), OsString::from(value))).collect())
 }
 
-fn command(arm: &Attempt, sandbox: &Sandbox, name: &str, conversation: &str) -> Result<Command, NorthError> {
-    let Attempt { task, harness, key, brief, limits, .. } = *arm;
-    let account = Account { provider: ProviderName::new("claude"), label: "api".into(), home: sandbox.config.clone(), token_file: None, api: Some(ApiKey { org: "frontier".into(), file: key.to_owned() }) };
-    let instructions = if harness == Arm::North { worker_prompt(name)? } else { String::new() };
-    let spec = Claude.host(&account, &request(task, name, &sandbox.tree, brief)?, Opening::Fresh(Some(conversation)), &instructions)?;
+/// A command inside the arm's sandbox: its view of `~/code`, the key, `bound` read-only, and the dev shell's toolchain behind the shims.
+pub(crate) fn sandboxed(sandbox: &Sandbox, key: &Path, bound: &[PathBuf], tail: Vec<String>) -> Result<Command, NorthError> {
     let mut argv = sandbox.bwrap(key);
+    for path in bound {
+        argv.extend(["--ro-bind".into(), path.display().to_string(), path.display().to_string()]);
+    }
     argv.extend(["nice".into(), "-n".into(), "10".into()]);
-    argv.extend(spec.argv);
-    argv.extend(["--disallowedTools".into(), "WebFetch,WebSearch".into(), "--max-budget-usd".into(), format!("{:.2}", limits.budget_usd)]);
+    argv.extend(tail);
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]).env_clear();
     command.envs(KEPT_ENV.iter().filter_map(|name| Some((*name, std::env::var_os(name)?))));
@@ -112,10 +111,22 @@ fn command(arm: &Attempt, sandbox: &Sandbox, name: &str, conversation: &str) -> 
     joined.push(path);
     env.retain(|(name, _)| name != "PATH" && name != "HOME" && name != "TMPDIR");
     command.envs(env).env("PATH", joined).env("DISABLE_AUTOUPDATER", "1");
+    Ok(command)
+}
+
+fn command(arm: &Attempt, sandbox: &Sandbox, name: &str, conversation: &str) -> Result<Command, NorthError> {
+    let Attempt { task, harness, key, plan, brief, limits, .. } = *arm;
+    let (token_file, api) = if plan { (Some(key.to_owned()), None) } else { (None, Some(ApiKey { org: "frontier".into(), file: key.to_owned() })) };
+    let account = Account { provider: ProviderName::new("claude"), label: "api".into(), home: sandbox.config.clone(), token_file, api };
+    let instructions = if harness == Arm::North { worker_prompt(name)? } else { String::new() };
+    let spec = Claude.host(&account, &request(task, name, &sandbox.tree, brief)?, Opening::Fresh(Some(conversation)), &instructions)?;
+    let mut tail = spec.argv;
+    tail.extend(["--disallowedTools".into(), "WebFetch,WebSearch".into(), "--max-budget-usd".into(), format!("{:.2}", limits.budget_usd)]);
+    let mut command = sandboxed(sandbox, key, &[], tail)?;
     let fleet_env = spec.env.into_iter().filter(|(name, _)| !name.starts_with("GIT_"));
     match harness {
         Arm::North => command.envs(fleet_env),
-        Arm::Plain => command.envs(fleet_env.filter(|(name, _)| name == "CLAUDE_CONFIG_DIR")),
+        Arm::Plain | Arm::T3Code => command.envs(fleet_env.filter(|(name, _)| name == "CLAUDE_CONFIG_DIR")),
     };
     Ok(command)
 }
@@ -131,21 +142,21 @@ pub(crate) fn refused_for_credit(result: &Value) -> bool {
     result["is_error"] == true && result["result"].as_str().is_some_and(api_pool::low_credit)
 }
 
-fn asks(text: &str) -> bool {
+pub(crate) fn asks(text: &str) -> bool {
     let last = text.lines().rev().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
     let first = text.trim_start();
     last.ends_with('?') || first.starts_with("Not done:") || first.starts_with("Blocked:")
 }
 
-struct Stream {
-    reader: BufReader<File>,
-    results: Vec<Value>,
-    first_event: Option<Instant>,
-    last_event: Instant,
+pub(crate) struct Stream {
+    pub(crate) reader: BufReader<File>,
+    pub(crate) results: Vec<Value>,
+    pub(crate) first_event: Option<Instant>,
+    pub(crate) last_event: Instant,
 }
 
 impl Stream {
-    fn drain(&mut self) {
+    pub(crate) fn drain(&mut self) {
         let mut line = String::new();
         while self.reader.read_line(&mut line).is_ok_and(|read| read > 0) {
             if line.ends_with('\n') {
@@ -173,6 +184,7 @@ pub struct Attempt<'a> {
     pub harness: Arm,
     pub sample: u32,
     pub key: &'a Path,
+    pub plan: bool,
     pub brief: &'a str,
     pub limits: &'a Limits,
 }
@@ -240,12 +252,13 @@ fn supervise(arm: &Attempt, sandbox: &Sandbox, child: &mut std::process::Child, 
     Ok((ended, interventions))
 }
 
-fn record(arm: &Attempt, conversation: String, stream: &Stream, ended: String, interventions: u32) -> Result<RunRecord, NorthError> {
+pub(crate) fn record(arm: &Attempt, conversation: String, stream: &Stream, ended: String, interventions: u32) -> Result<RunRecord, NorthError> {
     let wall_s = stream.first_event.map_or(0.0, |first| stream.last_event.duration_since(first).as_secs_f64());
     let last = stream.results.last().cloned().unwrap_or(Value::Null);
     let harness = match arm.harness {
         Arm::North => fs::read_link(home().join(".claude/CLAUDE.md")).map_or_else(|_| "unknown".into(), |path| path.display().to_string()),
         Arm::Plain => "none".into(),
+        Arm::T3Code => format!("t3code 32a0531: T3 Code's own server and Claude adapter, run headless, all of its tools but the {} it cannot run in the sandbox ({}); effort is T3 Code's default", crate::t3code::DROPPED.len(), crate::t3code::DROPPED.join(" ")),
     };
     Ok(RunRecord {
         task: arm.task.id.clone(),

@@ -16,12 +16,13 @@ pub mod rows;
 mod sandbox;
 mod session;
 pub mod stats;
+mod t3code;
 mod task;
 
 #[cfg(test)]
 mod tests;
 
-const USAGE: &str = "usage: north frontier tasks --since DATE --until DATE --repo DIR --briefs DIR | oracle TASKS.json --out DIR [--only ID]... | run TASKS.json --briefs DIR --out DIR [--arm north|plain]... [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M] | grade TASKS.json --out DIR [--only ID]... | report TASKS.json --out DIR [--rows FILE]";
+const USAGE: &str = "usage: north frontier tasks --since DATE --until DATE --repo DIR --briefs DIR | oracle TASKS.json --out DIR [--only ID]... | run TASKS.json --briefs DIR --out DIR [--arm north|plain|t3code]... [--t3 DIR --t3-node PATH] [--plan ACCOUNT] [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M] | grade TASKS.json --out DIR [--only ID]... | report TASKS.json --out DIR [--rows FILE]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match cli::dispatch(arguments) {

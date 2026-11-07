@@ -7,6 +7,8 @@ pub const RESULTS: &str = "docs/rationale/frontier/results.jsonl";
 pub enum Arm {
     North,
     Plain,
+    #[serde(rename = "t3code")]
+    T3Code,
 }
 
 /// One arm's run of one frozen task, as the grader scored it.
@@ -38,6 +40,7 @@ impl Arm {
         match text {
             "north" => Some(Self::North),
             "plain" => Some(Self::Plain),
+            "t3code" => Some(Self::T3Code),
             _ => None,
         }
     }
@@ -46,6 +49,7 @@ impl Arm {
         match self {
             Self::North => "north",
             Self::Plain => "plain",
+            Self::T3Code => "t3code",
         }
     }
 }

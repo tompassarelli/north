@@ -12,11 +12,12 @@ struct Pair<'a> {
 
 fn pair_up(runs: &[Run]) -> (Vec<Pair<'_>>, usize) {
     let mut by_task: BTreeMap<&str, (Option<&Run>, Option<&Run>)> = BTreeMap::new();
-    for run in runs {
+    for run in runs.iter().filter(|run| run.arm != Arm::T3Code) {
         let slot = by_task.entry(&run.task).or_default();
         match run.arm {
             Arm::North => slot.0 = Some(run),
             Arm::Plain => slot.1 = Some(run),
+            Arm::T3Code => {}
         }
     }
     let mut left_out = 0;
@@ -34,6 +35,7 @@ fn arm(pair: &Pair<'_>, which: Arm) -> Run {
     match which {
         Arm::North => pair.north.clone(),
         Arm::Plain => pair.plain.clone(),
+        Arm::T3Code => unreachable!("a pair holds the north and plain runs"),
     }
 }
 
@@ -97,9 +99,10 @@ fn signed_points(delta: f64) -> String {
 pub fn render(runs: &[Run]) -> String {
     let (pairs, left_out) = pair_up(runs);
     let mut out = String::new();
+    let t3code = t3code_section(runs);
     let _ = writeln!(out, "frontier: north against plain Claude Code on {} boxes both arms ran ({left_out} left out: one arm missing or a transcript touched the landed commit)", pairs.len());
     if pairs.is_empty() {
-        return out;
+        return out + &t3code;
     }
     for (label, pick) in [("correct on first pass", (|run: &Run| run.correct_first_pass) as fn(&Run) -> bool), ("correct after continuations", |run: &Run| run.correct)] {
         for which in [Arm::North, Arm::Plain] {
@@ -135,6 +138,25 @@ pub fn render(runs: &[Run]) -> String {
         let counts: Vec<f64> = pairs.iter().map(|pair| f64::from(arm(pair, which).interventions)).collect();
         let spread = bootstrap(&counts, |sample| mean(&sample.iter().map(|count| **count).collect::<Vec<_>>()));
         let _ = writeln!(out, "- interventions per task, {which:?}: {:.2}, {}", mean(&counts).unwrap_or_default(), span(spread, |value| format!("{value:.2}")));
+    }
+    out + &t3code
+}
+
+/// T3 Code beside the north and plain arms on the boxes it ran, task by task: its runs are too few for the paired statistics above.
+fn t3code_section(runs: &[Run]) -> String {
+    let mut out = String::new();
+    let tasks: Vec<&str> = runs.iter().filter(|run| run.arm == Arm::T3Code).map(|run| run.task.as_str()).collect();
+    if tasks.is_empty() {
+        return out;
+    }
+    let _ = writeln!(out, "T3 Code (its own server and Claude adapter, headless, minus the tools it cannot run in the sandbox) beside the other arms on {} boxes:", tasks.len());
+    for task in tasks {
+        let cells: Vec<String> = [Arm::North, Arm::Plain, Arm::T3Code]
+            .into_iter()
+            .filter_map(|which| runs.iter().find(|run| run.task == task && run.arm == which))
+            .map(|run| format!("{} {} {} {}{}", run.arm.label(), if run.correct { "correct" } else { "wrong" }, dollars(run.cost_usd), minutes(run.wall_seconds), if run.contaminated { " (leaked)" } else { "" }))
+            .collect();
+        let _ = writeln!(out, "- {task}: {}", cells.join("; "));
     }
     out
 }

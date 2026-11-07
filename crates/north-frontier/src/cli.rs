@@ -14,6 +14,7 @@ use super::billing::{self, Spent};
 use super::grade::{Grade, grade};
 use super::sandbox::{Sandbox, git_text};
 use super::session::{self, Attempt, Limits, RunRecord};
+use super::t3code::{self, Install};
 use super::task::{self, Task};
 use super::{home, oracle, refusal};
 use crate::report::render;
@@ -120,6 +121,11 @@ fn run(flags: &Flags) -> Result<String, NorthError> {
     let limits = Limits { budget_usd: flags.number("budget-usd", 12.0)?, wall: Duration::from_secs_f64(flags.number("wall-min", 90.0)? * 60.0), idle: Duration::from_secs_f64(flags.number("idle-min", 10.0)? * 60.0) };
     let stop = flags.number("stop-usd", 212.0)?;
     let sample = flags.number("sample", 1.0)? as u32;
+    let plan = flags.one("plan").map(|label| { let file = state_root().join("claude-tokens").join(label); std::fs::canonicalize(&file).unwrap_or(file) });
+    let t3 = flags.one("t3").map(|dir| Install::new(dir, flags.one("t3-node")));
+    if arms.contains(&Arm::T3Code) && t3.is_none() {
+        return Err(refusal("--arm t3code needs --t3 DIR (a built T3 Code checkout) and --t3-node PATH"));
+    }
     let source = mirror(flags, &out)?;
     let queue = schedule(&tasks, &arms);
     let next = AtomicUsize::new(0);
@@ -129,7 +135,7 @@ fn run(flags: &Flags) -> Result<String, NorthError> {
         for _ in 0..jobs.max(1) {
             scope.spawn(|| {
                 while let Some((task, harness)) = queue.get(next.fetch_add(1, Ordering::SeqCst)) {
-                    let line = job(task, *harness, sample, &out, &briefs, &source, &limits, stop);
+                    let line = job(task, *harness, sample, &out, &briefs, &source, &limits, stop, t3.as_ref(), plan.as_deref());
                     eprintln!("{line}");
                     let _ = writeln!(log.lock().unwrap_or_else(std::sync::PoisonError::into_inner), "{line}");
                 }
@@ -142,7 +148,7 @@ fn run(flags: &Flags) -> Result<String, NorthError> {
 }
 
 #[allow(clippy::too_many_arguments, reason = "one job's inputs, all owned by the run loop")]
-fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source: &Path, limits: &Limits, stop: f64) -> String {
+fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source: &Path, limits: &Limits, stop: f64, t3: Option<&Install>, plan: Option<&Path>) -> String {
     let root = run_dir(out, task, harness, sample);
     if session::record_path(&root).exists() {
         return format!("{} {}: already run", task.id, harness.label());
@@ -154,10 +160,22 @@ fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source
         let mut refused = Vec::new();
         loop {
             set_aside(&root)?;
-            let (org, key) = pool_key(&refused)?;
+            let (org, key) = match plan {
+                Some(file) => (String::new(), ApiKey { org: String::new(), file: file.to_owned() }),
+                None => pool_key(&refused)?,
+            };
             let sandbox = Sandbox::build(&root, task, source, harness)?;
-            let (record, spent) = session::run(&Attempt { task, harness, sample, key: &key.file, brief: &brief, limits }, &sandbox)?;
-            charge_ledger(&key.org, &spent);
+            let attempt = Attempt { task, harness, sample, key: &key.file, plan: plan.is_some(), brief: &brief, limits };
+            let (record, spent) = match t3 {
+                Some(install) if harness == Arm::T3Code => t3code::run(&attempt, &sandbox, install)?,
+                _ => session::run(&attempt, &sandbox)?,
+            };
+            if plan.is_some() && record.ended == session::CREDIT {
+                return Err(refusal("the plan account refused the run: its window is at the limit"));
+            }
+            if plan.is_none() {
+                charge_ledger(&key.org, &spent);
+            }
             if record.ended == session::CREDIT {
                 let _ = api_pool::mark_ran_out(&north_base::platform::orchestration::path(), &state_root(), &org, &record.session);
                 if !refused.is_empty() {
