@@ -74,14 +74,19 @@ impl World for Live {
     }
 
     fn lane_files(&self, cwd: &str) -> Option<Vec<String>> {
-        let git = |args: &[&str]| -> Option<Vec<String>> {
-            let output = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
-            output.status.success().then(|| String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect())
-        };
-        let mut files = git(&["diff", "--name-only", "origin/main"])?;
-        files.extend(git(&["ls-files", "--others", "--exclude-standard"])?);
-        Some(files)
+        lane_changes(cwd)
     }
+}
+
+pub(super) fn lane_changes(cwd: &str) -> Option<Vec<String>> {
+    let git = |args: &[&str]| -> Option<Vec<String>> {
+        let output = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
+        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect())
+    };
+    let base = git(&["merge-base", "HEAD", "origin/main"])?.into_iter().next()?;
+    let mut files = git(&["diff", "--name-only", &base])?;
+    files.extend(git(&["ls-files", "--others", "--exclude-standard"])?);
+    Some(files)
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {

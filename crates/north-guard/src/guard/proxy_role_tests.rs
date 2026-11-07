@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use super::proxy_role::{ClaudeStart, Registered, World, decide};
+use super::proxy_role::{ClaudeStart, Registered, World, decide, lane_changes};
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
 
@@ -163,4 +163,33 @@ fn a_lane_of_one_config_or_doc_file_lands_and_any_other_lane_is_refused() {
         assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&unresolved)), "{unresolved}");
     }
     assert!(denied(&lane(&["harness/defaults.toml"]), &bash(&format!("cd {LANE} && git commit -m x && cargo test"))), "only the landing steps are allowed");
+    a_lane_behind_origin_main_lists_only_the_files_it_changed();
+}
+
+fn a_lane_behind_origin_main_lists_only_the_files_it_changed() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().to_str().unwrap();
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git").args(["-C", dir, "-c", "user.email=t@example", "-c", "user.name=t"]).args(args).output().unwrap();
+        assert!(output.status.success(), "git {args:?}");
+    };
+    let write = |name: &str| {
+        std::fs::create_dir_all(root.path().join(name).parent().unwrap()).unwrap();
+        std::fs::write(root.path().join(name), name).unwrap();
+    };
+    git(&["init", "-q", "-b", "main"]);
+    write("base.txt");
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "base"]);
+    git(&["branch", "lane"]);
+    write("src/moved.rs");
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "main moved"]);
+    git(&["update-ref", "refs/remotes/origin/main", "main"]);
+    git(&["checkout", "-q", "lane"]);
+    write("docs/spend-rule.md");
+    assert_eq!(lane_changes(dir), Some(vec!["docs/spend-rule.md".to_owned()]), "untracked");
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "lane"]);
+    assert_eq!(lane_changes(dir), Some(vec!["docs/spend-rule.md".to_owned()]), "committed");
 }
