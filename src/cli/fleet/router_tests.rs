@@ -7,7 +7,6 @@ use serde_json::json;
 use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::model::{Delivery, Ending};
-use crate::fleet::gate_lifecycle::GatePhase;
 use crate::fleet::gates::{Closure, Gate, GateBook, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};
@@ -67,10 +66,6 @@ impl GateBook for Recorded {
     }
 
     fn close_gate(&self, _id: i64, _closure: &Closure) -> NorthResult<bool> {
-        Ok(false)
-    }
-
-    fn move_gate(&self, _id: i64, _to: GatePhase, _cause: &str, _at_ms: u64) -> NorthResult<bool> {
         Ok(false)
     }
 }

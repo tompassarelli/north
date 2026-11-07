@@ -60,7 +60,7 @@ mod tests {
             default: usize::from(default),
             default_after_ms: if default { 8 * 3_600_000 } else { 0 },
         };
-        Gate::new(id, request, 0, closure)
+        Gate { id, request, opened_ms: 0, closure }
     }
 
     #[test]

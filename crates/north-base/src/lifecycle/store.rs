@@ -102,12 +102,6 @@ impl Store {
     /// Moves `instance` to `to` for `cause`, the only way its record changes. A state held by a process that is
     /// gone first moves to the machine's orphan state, logged with the holder, so the log says what happened.
     pub fn transition<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp) -> NorthResult<Moved<L::State>> {
-        self.transition_by::<L>(instance, to, cause, at, None)
-    }
-
-    /// [`Self::transition`] for a state whose limit belongs to the instance, as a gate's own default deadline does, so
-    /// `deadline` replaces the machine's dwell for this stay.
-    pub fn transition_by<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, deadline: Option<Timestamp>) -> NorthResult<Moved<L::State>> {
         let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         let mut current = read(&transaction, L::NAME, instance)?.map(|row| typed::<L>(instance, row)).transpose()?;
         let held = current.as_ref().and_then(|record| Some((record, record.owner.clone().filter(|owner| *owner != self.who)?)));
@@ -119,7 +113,7 @@ impl Store {
                 _ => {}
             }
             let orphan = L::orphan(record.state).ok_or_else(|| NorthError::State(format!("{} {instance} is held in {}, which has no orphan state", L::NAME, record.state.name())))?;
-            let orphaned = write::<L>(&transaction, &self.who, record, orphan, &format!("the holder, {owner}, is gone"), at, None)?;
+            let orphaned = write::<L>(&transaction, &self.who, record, orphan, &format!("the holder, {owner}, is gone"), at)?;
             current = Some(orphaned);
         }
         if !L::legal(current.as_ref().map(|record| record.state), to) {
@@ -128,7 +122,7 @@ impl Store {
             return Ok(Err(Refusal::Illegal { from: current.map(|record| record.state), to }));
         }
         let first = Record { instance: instance.to_owned(), state: to, since: at, due: None, owner: None, cause: String::new(), seq: 0 };
-        let record = write::<L>(&transaction, &self.who, current.as_ref().unwrap_or(&first), to, cause, at, deadline)?;
+        let record = write::<L>(&transaction, &self.who, current.as_ref().unwrap_or(&first), to, cause, at)?;
         transaction
             .execute("DELETE FROM lifecycle_moves WHERE machine = ?1 AND instance = ?2 AND at_ms < ?3", params![L::NAME, instance, at.unix_millis() - millis(KEEP_MOVES)])
             .map_err(sql)?;
@@ -216,13 +210,13 @@ fn typed<L: Lifecycle>(instance: &str, row: Row) -> NorthResult<Record<L::State>
     })
 }
 
-fn write<L: Lifecycle>(transaction: &Transaction, who: &Owner, from: &Record<L::State>, to: L::State, cause: &str, at: Timestamp, deadline: Option<Timestamp>) -> NorthResult<Record<L::State>> {
+fn write<L: Lifecycle>(transaction: &Transaction, who: &Owner, from: &Record<L::State>, to: L::State, cause: &str, at: Timestamp) -> NorthResult<Record<L::State>> {
     let previous = (from.seq > 0).then(|| from.state.name());
     let record = Record {
         instance: from.instance.clone(),
         state: to,
         since: at,
-        due: deadline.or_else(|| L::dwell(to).map(|dwell| Timestamp::from_unix_millis(at.unix_millis().saturating_add(millis(dwell))))),
+        due: L::dwell(to).map(|dwell| Timestamp::from_unix_millis(at.unix_millis().saturating_add(millis(dwell)))),
         owner: L::orphan(to).map(|_| who.clone()),
         cause: cause.to_owned(),
         seq: from.seq + 1,

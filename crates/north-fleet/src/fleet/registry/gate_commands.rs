@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::gates::{self, Closure, Decision, Gate, GateRequest, Hold, default_overdue, redeliver, settle};
+use crate::fleet::gates::{self, Closure, Decision, Gate, GateRequest, Hold, default_overdue, settle};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::now_ms;
 
@@ -37,7 +37,7 @@ impl Fleet {
 
     pub(super) fn answer_gate_with(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>, typed: Option<&gates::TypedTurn>, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
         let gate = self.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
-        if !gate.is_open() {
+        if gate.closure.is_some() {
             return settle(self.ledger.as_ref(), id, Decision::Option(number), now_ms(), deliver);
         }
         let asker = self.record(&gate.request.session)?;
@@ -66,11 +66,7 @@ impl Fleet {
         Ok(self.gate_holds()?.into_iter().filter(|hold| hold.box_text.is_none()).map(|hold| (hold.issue, hold.gate)).collect())
     }
 
-    /// Applies the default of each open gate past its deadline and delivers again each answer that never reached its session.
-    pub fn sweep_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
-        let deliver = |session: &str, text: &str| self.answer_session(session, text);
-        let mut swept = default_overdue(self.ledger.as_ref(), now_ms(), deliver)?;
-        swept.extend(redeliver(self.ledger.as_ref(), now_ms(), deliver)?);
-        Ok(swept)
+    pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
+        default_overdue(self.ledger.as_ref(), now_ms(), |session, text| self.answer_session(session, text))
     }
 }

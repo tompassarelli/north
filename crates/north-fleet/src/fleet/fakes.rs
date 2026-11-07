@@ -12,7 +12,6 @@ use crate::error::NorthResult;
 use crate::router::pricing::{PriceTable, TokenUse};
 
 use super::books::{Books, Landing, SessionSpend};
-use super::gate_lifecycle::GatePhase;
 use super::gates::{Closure, Gate, GateBook, GateRequest};
 use super::model::{Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
 use super::receipts::ReceiptBook;
@@ -57,7 +56,7 @@ impl GateBook for Paper {
     fn open_gate(&self, request: &GateRequest, opened_ms: u64) -> NorthResult<i64> {
         let mut gates = self.gates.lock().unwrap();
         let id = i64::try_from(gates.len()).unwrap() + 1;
-        gates.push(Gate::new(id, request.clone(), opened_ms, None));
+        gates.push(Gate { id, request: request.clone(), opened_ms, closure: None });
         Ok(id)
     }
 
@@ -66,25 +65,15 @@ impl GateBook for Paper {
     }
 
     fn gates(&self, closed_since_ms: u64) -> NorthResult<Vec<Gate>> {
-        let mut gates: Vec<Gate> = self.gates.lock().unwrap().iter().filter(|gate| !gate.phase.is_settled() || gate.closure.as_ref().is_some_and(|closure| closure.closed_ms >= closed_since_ms)).cloned().collect();
+        let mut gates: Vec<Gate> = self.gates.lock().unwrap().iter().filter(|gate| gate.closure.as_ref().is_none_or(|closure| closure.closed_ms >= closed_since_ms)).cloned().collect();
         gates.sort_by_key(|gate| (gate.closure.is_some(), gate.opened_ms + gate.request.default_after_ms, gate.id));
         Ok(gates)
     }
 
     fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool> {
         let mut gates = self.gates.lock().unwrap();
-        let gate = gates.iter_mut().find(|gate| gate.id == id && gate.is_open());
-        Ok(gate
-            .map(|gate| {
-                gate.closure = Some(closure.clone());
-                gate.phase = GatePhase::Delivering;
-            })
-            .is_some())
-    }
-
-    fn move_gate(&self, id: i64, to: GatePhase, _cause: &str, _at_ms: u64) -> NorthResult<bool> {
-        let mut gates = self.gates.lock().unwrap();
-        Ok(gates.iter_mut().find(|gate| gate.id == id).map(|gate| gate.phase = to).is_some())
+        let gate = gates.iter_mut().find(|gate| gate.id == id && gate.closure.is_none());
+        Ok(gate.map(|gate| gate.closure = Some(closure.clone())).is_some())
     }
 }
 

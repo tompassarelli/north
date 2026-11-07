@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS receipts(
 ) STRICT;
 ";
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 3;
 
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(60);
 
@@ -122,7 +122,6 @@ pub struct Ledger {
     conn: Mutex<Connection>,
     checkpointed: Mutex<Option<Instant>>,
     written: AtomicU64,
-    path: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -215,12 +214,10 @@ impl Ledger {
         let conn = Connection::open(path).map_err(sql)?;
         conn.busy_timeout(lock_wait).map_err(sql)?;
         conn.pragma_update(None, "synchronous", "NORMAL").map_err(sql)?;
-        let migrating = schema_version(&conn).map_err(sql)? < SCHEMA_VERSION;
-        if migrating {
+        if schema_version(&conn).map_err(sql)? < SCHEMA_VERSION {
             migrate(&conn).map_err(sql)?;
-            gates::adopt(path, &conn)?;
         }
-        Ok(Self { conn: Mutex::new(conn), checkpointed: Mutex::new(None), written: AtomicU64::new(0), path: path.to_owned() })
+        Ok(Self { conn: Mutex::new(conn), checkpointed: Mutex::new(None), written: AtomicU64::new(0) })
     }
 
     pub fn runs(&self) -> NorthResult<Vec<Run>> {

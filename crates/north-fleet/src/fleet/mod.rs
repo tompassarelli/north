@@ -6,7 +6,6 @@ pub mod claims;
 pub mod detached;
 pub mod digest_report;
 pub mod effort;
-pub mod gate_lifecycle;
 pub mod gates;
 pub mod compaction;
 pub mod checkpoint;
