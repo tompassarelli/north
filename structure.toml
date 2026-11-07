@@ -23,6 +23,11 @@ shape = "status-string"
 path = "crates/north-base/src/platform/land_notice.rs"
 reason = "the verdict is a line parsed from the lander's report text, an external format"
 
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-tune/src/loops/red_main.rs"
+reason = "the run status and conclusion are fields of the GitHub workflow-runs response, an external format with no north lifecycle behind it"
+
 [crate_lines]
 default = 25000
 hub = 10000
