@@ -4,7 +4,7 @@
 //! watermark, and pages the proxy once with what it took and the ledger's largest stores; the next pass waits for the next crossing.
 //! Between passes only caps are kept. Land-offload slots, the lander's reserved slot of each checkout last, go only under the eviction
 //! line. Within a slot store the least recently used slot whose lock no job holds goes first. The lines are free space, not a percent,
-//! so a large disk keeps the same headroom as a small one. The lease reaper runs it every 30 s on each build host, and a disk-floor
+//! so a large disk keeps the same headroom as a small one. The lease reaper starts it every 30 s on each build host as its own unit, and a disk-floor
 //! admission defer runs it after the other reclaim sweeps before deciding again.
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -28,6 +28,7 @@ pub const INCIDENT_CLASS: &str = "host-disk";
 const BUILD_OFFLOAD_DISK_SHARE: f64 = 0.15;
 const GIB: f64 = (1u64 << 30) as f64;
 const EPISODE_FILE: &str = "host-disk.episode";
+const KEEP_UNIT: &str = "north-disk-keep";
 const COMPANION_DIRS: [&str; 1] = ["beside"];
 const COMPANION_FILES: [&str; 2] = ["bundle", "patch"];
 const ENTRY_IDLE: Duration = Duration::from_secs(20 * 60);
@@ -296,10 +297,34 @@ fn evict_here(home: &Path, disk: &mut dyn FnMut() -> Option<Disk>, cleanup: bool
     (evicted, disk())
 }
 
-/// The lease reaper's disk step. A disk passing its high watermark, or the eviction line, with no host-disk episode open starts one
-/// cleanup pass down to the low watermark, records the episode and pages the proxy once with what the pass took; the episode closes
-/// once the disk is back over both lines, so the next pass waits for the next crossing. Between passes only caps are kept.
-pub fn tick() {
+/// The lease reaper's disk step: starts `north capacity disk keep` as its own transient user unit at the lowest CPU and I/O priority.
+/// A cleanup pass walks and trims hundreds of thousands of files for a minute or more, past the reaper's 25 s start timeout, and
+/// systemd ends every process left in the oneshot reaper's cgroup when it exits; the fixed unit name keeps a second pass from starting
+/// beside a running one.
+pub fn tend() {
+    if fixture() {
+        return;
+    }
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let started = Command::new("systemd-run")
+        .args(["--user", "--quiet", "--collect", "--unit", KEEP_UNIT, "--property=Nice=19", "--property=IOSchedulingClass=idle"])
+        .arg(format!("--setenv=PATH={}", path.to_string_lossy()))
+        .arg("--")
+        .arg(north_base::platform::north_binary::north_binary())
+        .args(["capacity", "disk", "keep"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    if let Err(error) = started {
+        eprintln!("north capacity: could not start the disk pass: {error}");
+    }
+}
+
+/// `north capacity disk keep`, the disk pass. A disk passing its high watermark, or the eviction line, with no host-disk episode open
+/// starts one cleanup pass down to the low watermark, records the episode and pages the proxy once with what the pass took; the episode
+/// closes once the disk is back over both lines, so the next pass waits for the next crossing. Between passes only caps are kept.
+pub fn keep() {
     if fixture() {
         return;
     }

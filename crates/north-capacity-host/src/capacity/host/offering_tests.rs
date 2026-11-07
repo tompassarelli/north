@@ -24,6 +24,7 @@ fn laptop(own_build_refusal: fn() -> Option<String>) -> Host {
         own_build_refusal,
         reclaim_disk: || None,
         tend_disk: || {},
+        keep_disk: || {},
         tend_slots: || {},
     }
 }
