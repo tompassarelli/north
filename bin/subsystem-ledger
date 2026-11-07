@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=$(git rev-parse --show-toplevel)
+days=${1:-14}
+ledger=${LEDGER_DB:-$HOME/.local/state/north/ledger.db}
+threads=${THREADS_DB:-$HOME/.local/state/threads/snapshot.db}
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+cd "$repo"
+git ls-files 'crates/*/src/*' | awk -F/ '{ for (i=1; i<=2; i++) { k=$4; if (i==2) { if ($5=="") continue; k=$4 "/" $5 } sub(/\.rs$/, "", k); if (k ~ /^(lib|main|tests|mod)$/) continue
+    if (!(k in own)) own[k]=$2; else if (own[k]!=$2) own[k]="-" } } END { for (k in own) if (own[k]!="-") print k " " own[k] }' >"$work/modules"
+unit_of='function unit(p,  a, k){ split(p, a, "/"); if (a[1]=="crates") { if (a[3]=="src") { k=a[4] "/" a[5]; sub(/\.rs$/, "", k); if (k in mod) return mod[k]; k=a[4]; sub(/\.rs$/, "", k); if (k in mod) return mod[k] } return a[2] }
+  if (a[1]=="src") return "north-bin"; if (a[1]=="harness"||a[1]=="agent-machinery"||a[1]=="tests") return a[1]; if (a[1]=="bin"||a[1]=="lib") return "bin-lib"; return "" }
+  BEGIN { while ((getline l < modules) > 0) { split(l, m, " "); mod[m[1]]=m[2] } }'
+git log --since="$days days ago" --no-merges -E --grep='^Incident-test:' --grep='^(Fix|Revert) ' --grep='on 2026-1[0-9]-[0-9]{2}' --format=%H | sort >"$work/fix"
+git log --since="$days days ago" --no-merges --numstat --format='@%H' | awk -v modules="$work/modules" -v fixes="$work/fix" "$unit_of"'
+    BEGIN { while ((getline h < fixes) > 0) fix[h]=1 }
+    /^@/ { sha=substr($0,2); next }
+    NF==3 { u=unit($3); if (u=="") next; if (!((u,sha) in seen)) { seen[u,sha]=1; commits[u]++; if (sha in fix) fixed[u]++ }
+            churn[u]+=($1=="-"?0:$1)+($2=="-"?0:$2) }
+    END { for (u in commits) printf "%s|%d|%d|%d\n", u, commits[u], fixed[u]+0, churn[u] }' >"$work/git"
+git ls-files crates src harness agent-machinery tests bin lib | xargs -d '\n' wc -l | awk -v modules=/dev/null "$unit_of"'$2!="total" { u=unit($2); if (u!="") tot[u]+=$1 } END { for (u in tot) printf "%s|%d\n", u, tot[u] }' >"$work/lines"
+cutoff="datetime('now','-$days days')"
+sqlite3 -readonly "$threads" "
+  select case when class like 'nix-%' then 'harness' when class='false-refusal' then 'north-diff-gates' when class='flaky-test' then 'north-landing-gates' else 'north-landing' end, 'loss', count(*) from incidents
+    where detected_at>=$cutoff and class not in ('lander-refused','lander-conflict') group by 1;
+  select case source when 'lander' then 'north-landing' when 'dispatch' then 'north-dispatch' when 'capacity' then 'north-capacity' else 'north-fleet' end, 'loss', count(*) from boundary_causes
+    where at>=$cutoff and cause not in ('worker','tom','proxy') group by 1;
+  select 'north-landing', 'loss', count(*) from land_checks where started_at>=$cutoff and outcome='timeout';
+  select 'north-landing', 'decision', count(*) from landings where queued_at>=$cutoff and verdict in ('conflict','failed');
+  select 'harness', 'decision', count(*) from hook_events where at>=$cutoff and verdict in ('refusal','rewrite');
+  select case source when 'dispatch' then 'north-dispatch' else 'north-threads' end, 'decision', count(*) from tier_predictions where at>=$cutoff group by 1;
+  select 'north-threads', 'decision', count(*) from tier_choice where since>=$cutoff;
+" -separator '|' >"$work/rows"
+sqlite3 -readonly "$ledger" "select 'north-fleet', 'decision', count(*) from gates where answer is not null and opened_ms>=(strftime('%s','now','-$days days')*1000);" -separator '|' >>"$work/rows"
+printf '| subsystem | lines | commits | fix commits | lines churned | harness-loss rows | decisions | repair per decision |\n|---|---:|---:|---:|---:|---:|---:|---:|\n'
+cut -d'|' -f1 "$work/lines" | sort -u | while read -r u; do
+  g=$(grep "^$u|" "$work/git" || echo "$u|0|0|0"); l=$(grep "^$u|" "$work/lines" | cut -d'|' -f2)
+  loss=$(awk -F'|' -v u="$u" '$1==u&&$2=="loss"{s+=$3} END{print s+0}' "$work/rows")
+  dec=$(awk -F'|' -v u="$u" '$1==u&&$2=="decision"{s+=$3} END{print s+0}' "$work/rows")
+  IFS='|' read -r _ commits fixed churn <<<"$g"
+  printf '%s|%s|%s|%s|%s|%s|%s\n' "$u" "$l" "$commits" "$fixed" "$churn" "$loss" "$dec"
+done | awk -F'|' '{r=($4+$6)/($7+1); printf "%s|%s|%s|%s|%s|%s|%s|%.2f\n", $1,$2,$3,$4,$5,$6,$7,r}' | sort -t'|' -k8,8nr -k4,4nr |
+  awk -F'|' '{printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n", $1,$2,$3,$4,$5,$6,$7,$8}'
