@@ -18,6 +18,7 @@ mod lineage;
 pub(super) mod one_proxy;
 mod list;
 mod placement;
+mod promises;
 mod ranked;
 mod typed;
 mod proxy;

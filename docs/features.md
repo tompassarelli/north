@@ -181,6 +181,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Tom digest: `north fleet digest [--since 24h]` reads the fleet store and prints four sections in order, each with its count: what landed in the window (task, short sha, age), the sessions in flight on every host, the open gates with the option their opener recommends, and stalls (a working session with no update for 2 hours, a starting one past the launch grace, a gate past its default time). [more](features/07-issues-and-native-items/0006-digest.md)
 - Done-when boxes: an open box whose Done when is a command writes it as ``Done when: `CMD` `` on its line. [more](features/07-issues-and-native-items/0007-done-when-boxes.md)
 - Clean-up group: every feature, bug, tooling and performance issue in north, makgora and wisp carries three `Clean-up:` boxes (development tests turned down, scaffolding removed, nothing left for later). [more](features/07-issues-and-native-items/0008-cleanup-group.md)
+- Proven close: an issue closes only when each ticked box carries its oracle's passing run, the `Evidence:` stamp `north task check --done-when` writes for an exit of 0, or says it is split to the issue that owns the rest (`split to REPO#N`); the `Landed on origin/main` box and the Clean-up boxes are read by their own checks. [more](features/07-issues-and-native-items/0009-oracle-close.md)
 
 ## Machines, capacity and scheduled jobs
 
@@ -217,6 +218,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Supply alert: `supply-alert normal|urgent TEXT [TITLE]` posts one phone alert through `ssh nexus nexus-alert`, so the ntfy publisher token stays on nexus.
 - Supply scan: `north supply-chain-scan` (daily user timer `supply-chain-scan.timer`) runs osv-scanner on origin/main lockfiles of makgora, wisp, north and nixos-config, alerts through `supply-alert` on new malware (urgent) or new fixable advisories (normal), and records seen IDs in `~/.local/state/supply-chain/seen.json`.
 - Self-detectors: `north ledger flow detect [--dry-run]`, and each `north ledger flow --stall-alarm` pass, run pure detectors over recorded state and file each finding once as an unticked box with a Done when on its owning issue, never a new issue, for dispatch to staff. [more](features/09-watches-and-alerts/0007-self-detectors.md)
+- Promises: a line of a session's report that names a time ahead of the report (`2:16 AM` in the laptop window's zone, or `2026-11-08T02:16Z`) and a command of two or more words in backticks is kept in the fleet root's `promises.jsonl` when the turn ends. [more](features/09-watches-and-alerts/0008-promises.md)
 
 ## Development tools
 

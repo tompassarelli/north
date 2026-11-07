@@ -49,6 +49,15 @@ impl Zone {
         }
     }
 
+    pub fn laptop() -> Self {
+        Window::read(&super::Ctx::from_env().window).zone
+    }
+
+    pub fn nearest(&self, around: i64, hour: i64, minute: i64) -> Option<i64> {
+        let day = self.day(around);
+        [-1, 0, 1].into_iter().filter_map(|shift| Some(self.wall(day.checked_add(Duration::days(shift))?, hour, minute))).min_by_key(|at| (at - around).abs())
+    }
+
     pub fn hhmm(&self, unix: i64) -> String {
         let minutes = (unix + self.offset(unix)).div_euclid(60);
         format!("{:02}:{:02}", minutes.div_euclid(60).rem_euclid(24), minutes.rem_euclid(60))

@@ -22,6 +22,7 @@ use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
 use super::model::{Delivery, Entry, EntryKind, Machine, Phase, Phases, Role, SessionRecord, Transcript};
 use super::prompt::is_deepened;
+use super::promises::{Book, Promise, promised};
 use super::receipts::{Courier, Report, deliver_report, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
@@ -376,9 +377,22 @@ impl TurnWatch {
         let Some(parent) = record.parent.as_deref() else { return };
         let (reply, lines) = view.map(|view| (view.reply, view.transcript.entries)).unwrap_or_default();
         let landed = landings::landed_between(record, &landings::pushes_of(record, &push_log()), turn.started_ms, turn.ended_ms);
+        if turn.exit == TurnExit::Completed {
+            self.keep_promises(record, turn, number, reply.as_deref().unwrap_or_default());
+        }
         let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply };
         if let Err(error) = deliver_report(self.ledger.as_ref(), self.ledger.as_ref(), self.courier.as_ref(), parent, &report, &lines, now_ms()) {
             eprintln!("north fleet: receipt to {parent} not sent: {}", error.user_message());
+        }
+    }
+
+    fn keep_promises(&self, record: &SessionRecord, turn: &Turn, number: u64, reply: &str) {
+        let promises: Vec<Promise> = promised(reply)
+            .into_iter()
+            .map(|(line, command, when)| Promise { session: record.name.clone(), turn: number, line, command, when, said_ms: turn.ended_ms, cwd: record.cwd.clone() })
+            .collect();
+        if let Err(error) = Book::at(&self.root).keep(&promises) {
+            eprintln!("north fleet: {}'s promises were not kept for the tick to check: {}", record.name, error.user_message());
         }
     }
 

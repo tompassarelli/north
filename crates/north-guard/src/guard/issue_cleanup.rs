@@ -2,7 +2,7 @@ use super::gh_write::{self, GhWrite};
 use super::issue_filing::Ref;
 use super::issue_labels::gh;
 use crate::hook::{HookInput, Verdict};
-use crate::platform::cleanup;
+use crate::platform::{box_oracles, cleanup};
 
 const OWNER: &str = "tompassarelli/";
 
@@ -76,10 +76,21 @@ fn unticked(write: &GhWrite, world: &mut Live) -> Option<String> {
     }
     let body = world.body(&repo, number)?;
     let open = cleanup::unticked(&body);
+    if open.is_empty() {
+        return unproven(&repo, number, &body);
+    }
+    Some(format!(
+        "No. {repo}#{number} still has {} unticked Clean-up box(es). Delete the tests that pin no guarantee a person would notice, the scaffolding and the follow-up notes this change left, then tick each box with what you deleted (`gh issue view {number} -R {repo} --json body -q .body > /tmp/{number}.md`, edit, `gh issue edit {number} -R {repo} --body-file /tmp/{number}.md`) and close again. Unticked:\n{}",
+        open.len(),
+        open.join("\n")
+    ))
+}
+
+fn unproven(repo: &str, number: u64, body: &str) -> Option<String> {
+    let open = box_oracles::unproven(body);
     (!open.is_empty()).then(|| {
         format!(
-            "No. {repo}#{number} still has {} unticked Clean-up box(es). Delete the tests that pin no guarantee a person would notice, the scaffolding and the follow-up notes this change left, then tick each box with what you deleted (`gh issue view {number} -R {repo} --json body -q .body > /tmp/{number}.md`, edit, `gh issue edit {number} -R {repo} --body-file /tmp/{number}.md`) and close again. Unticked:\n{}",
-            open.len(),
+            "No. {repo}#{number} closes only when each ticked box's oracle has run and passed, or the box is split with an owner. Untick each box below, write its oracle as `Done when:` followed by the command in backticks, and run `north task check --done-when {repo}#{number}`: it runs each oracle on main and ticks the box with its passing Evidence. A box this change does not finish says `split to REPO#N`, naming the issue that owns the rest. Unproven:\n{}",
             open.join("\n")
         )
     })

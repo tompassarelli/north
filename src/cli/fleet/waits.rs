@@ -114,6 +114,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
             ProbeJob { name: "probes.settle.api_spent", own: Some(API_SPENT), run: Box::new(|fleet| said(api_spent(&fleet))) },
             ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
+            ProbeJob { name: "probes.settle.promises", own: Some(super::promises::RUN * 2), run: Box::new(|fleet| said(super::promises::watch(&fleet, now_ms()))) },
             ProbeJob { name: "probes.settle.spend_trips", own: None, run: Box::new(|fleet| said(super::trips::watch(&fleet, now_ms()))) },
             ProbeJob {
                 name: "probes.settle.hand_over",
