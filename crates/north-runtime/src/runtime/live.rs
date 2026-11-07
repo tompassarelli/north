@@ -1,7 +1,7 @@
 use super::layout::{self, Layout};
 use crate::platform::process;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,8 @@ pub struct Live {
     pub live_at: i64,
     #[serde(default)]
     pub exact: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placed: Vec<String>,
 }
 
 pub fn journal(state: &Path) -> PathBuf {
@@ -45,10 +47,11 @@ pub(super) fn note_swap(layout: &Layout, link: &Path) {
 pub(super) fn record(layout: &Layout, checkout: &Path, hosts: &[(String, Vec<Swap>)]) {
     let path = layout.state.join(SEEN);
     let mut seen: BTreeMap<String, String> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+    let placed: Vec<String> = hosts.iter().map(|(host, _)| host.clone()).collect();
     let mut rows = Vec::new();
     for (host, swaps) in hosts {
         let moves = moves_since(swaps, seen.get(host).map(String::as_str));
-        rows.extend(moves.into_iter().flat_map(|(previous, swap)| landed(checkout, previous, &swap.runtime).into_iter().map(|(sha, landed_at)| Live { sha, host: host.clone(), landed_at, live_at: swap.at.max(landed_at), exact: !swap.estimated })));
+        rows.extend(moves.into_iter().flat_map(|(previous, swap)| landed(checkout, previous, &swap.runtime).into_iter().map(|(sha, landed_at)| Live { sha, host: host.clone(), landed_at, live_at: swap.at.max(landed_at), exact: !swap.estimated, placed: placed.clone() })));
         if let Some(last) = swaps.last() {
             seen.insert(host.clone(), last.runtime.clone());
         }
@@ -112,14 +115,34 @@ pub fn everywhere(rows: &[Live]) -> Vec<(i64, f64)> {
         let at = last.entry(row.host.as_str()).or_insert(row.live_at);
         *at = (*at).max(row.live_at);
     }
-    let mut landings: HashMap<&str, (i64, i64, usize)> = HashMap::new();
+    let mut landings: HashMap<&str, Vec<&Live>> = HashMap::new();
     for row in &rows {
-        let entry = landings.entry(row.sha.as_str()).or_insert((row.landed_at, row.live_at, 0));
-        entry.1 = entry.1.max(row.live_at);
-        entry.2 += 1;
+        landings.entry(row.sha.as_str()).or_default().push(row);
     }
     let serving = |landed_at: i64| last.values().filter(|at| **at >= landed_at).count();
-    landings.into_values().filter(|(landed_at, _, count)| *count >= serving(*landed_at)).map(|(landed_at, live_at, _)| (landed_at, (live_at - landed_at) as f64)).collect()
+    landings
+        .into_values()
+        .filter_map(|held| {
+            let landed_at = held[0].landed_at;
+            let live_at = match held.iter().any(|row| row.placed.is_empty()) {
+                true => held.iter().map(|row| row.live_at).max().filter(|_| held.len() >= serving(landed_at)),
+                false => in_placement(&held),
+            }?;
+            Some((landed_at, (live_at - landed_at) as f64))
+        })
+        .collect()
+}
+
+fn in_placement(held: &[&Live]) -> Option<i64> {
+    let mut placed: HashSet<&str> = held[0].placed.iter().map(String::as_str).collect();
+    for row in held {
+        placed.retain(|host| row.placed.iter().any(|named| named == host));
+    }
+    let seen: HashSet<&str> = held.iter().map(|row| row.host.as_str()).collect();
+    if !placed.iter().all(|host| seen.contains(host)) {
+        return None;
+    }
+    held.iter().filter(|row| placed.contains(row.host.as_str())).map(|row| row.live_at).max()
 }
 
 pub fn read(state: &Path) -> Vec<Live> {
@@ -150,17 +173,34 @@ mod tests {
 
     #[test]
     fn the_bar_counts_only_swaps_recorded_when_they_happened() {
-        let row = |sha: &str, host: &str, live_at, exact| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at: 1_000, live_at, exact };
+        let row = |sha: &str, host: &str, live_at, exact| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at: 1_000, live_at, exact, placed: Vec::new() };
         let rows = [row("f640", "laptop", 1_030, true), row("f640", "gex45", 1_040, true), row("cf56", "laptop", 1_500, false), row("cf56", "gex45", 1_520, false)];
         assert_eq!(everywhere(&rows), [(1_000, 40.0)]);
     }
 
     #[test]
     fn a_host_that_left_placement_stops_holding_every_later_landing_out_of_the_bar() {
-        let row = |sha: &str, host: &str, landed_at, live_at| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at, live_at, exact: true };
+        let row = |sha: &str, host: &str, landed_at, live_at| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at, live_at, exact: true, placed: Vec::new() };
         let rows = [row("260e", "laptop", 1_000, 1_020), row("260e", "gex45", 1_000, 1_040), row("260e", "ccx33", 1_000, 1_170), row("335b", "laptop", 40_000, 40_004), row("335b", "gex45", 40_000, 40_012)];
         let mut landings = everywhere(&rows);
         landings.sort_by_key(|(landed_at, _)| *landed_at);
         assert_eq!(landings, [(1_000, 170.0), (40_000, 12.0)]);
+    }
+
+    #[test]
+    fn a_landing_while_cpx62_was_out_of_placement_does_not_wait_for_its_return() {
+        let hosts = ["laptop", "nexus", "gex45"];
+        let with_cpx62 = ["laptop", "nexus", "gex45", "cpx62"];
+        let row = |sha: &str, host: &str, landed_at, live_at, placed: &[&str]| Live { sha: sha.to_owned(), host: host.to_owned(), landed_at, live_at, exact: true, placed: placed.iter().map(|host| (*host).to_owned()).collect() };
+        let mut rows = vec![row("0a7a", "cpx62", 1_000, 1_060, &with_cpx62)];
+        rows.extend(hosts.iter().map(|host| row("0a7a", host, 1_000, 1_050, &with_cpx62)));
+        let during = 29_000;
+        rows.extend(hosts.iter().map(|host| row("4d1c", host, during, during + 45, &hosts)));
+        let returned = 80_000;
+        rows.push(row("4d1c", "cpx62", during, returned, &with_cpx62));
+        rows.extend(with_cpx62.iter().map(|host| row("9e2b", host, returned + 100, returned + 140, &with_cpx62)));
+        let mut landings = everywhere(&rows);
+        landings.sort_by_key(|(landed_at, _)| *landed_at);
+        assert_eq!(landings, [(1_000, 60.0), (during, 45.0), (returned + 100, 40.0)]);
     }
 }
