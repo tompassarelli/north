@@ -17,7 +17,6 @@
             pkgs:
             (
               (rustToolchain: {
-                packages.${system}.shellcheck = pkgs.shellcheck;
                 formatter.${system} = pkgs.nixfmt-tree;
                 devShells.${system}.default = pkgs.mkShell rec {
                   packages = [

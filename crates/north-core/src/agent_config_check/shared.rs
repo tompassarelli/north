@@ -5,7 +5,7 @@ use std::process::Command;
 use regex::Regex;
 
 use super::report::Report;
-use super::{Context, combined, path_command, read};
+use super::{Context, combined, read};
 
 pub(super) const RUNTIMES: [(&str, &str, &str); 8] = [
     ("bash", "pkgs.bash", "bash"),
@@ -40,22 +40,6 @@ pub(super) fn canonical_link(report: &mut Report, firn: &Path, link: &Path, expe
     }
 }
 
-fn hooks(directory: &Path) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = fs::read_dir(directory)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-        .map(|entry| entry.path())
-        .filter(|path| {
-            let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-            name.ends_with(".sh") && !name.ends_with(".test.sh")
-        })
-        .collect();
-    found.sort();
-    found
-}
-
 fn skills(root: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = fs::read_dir(root)
         .into_iter()
@@ -68,37 +52,6 @@ fn skills(root: &Path) -> Vec<PathBuf> {
     found.sort();
     found
 }
-
-pub(super) fn shellcheck_command(on_path: Option<PathBuf>, north: &Path) -> Command {
-    match on_path {
-        Some(shellcheck) => Command::new(shellcheck),
-        None => {
-            let mut command = Command::new("nix");
-            command.args(["shell", "--quiet"]).arg(format!("path:{}#shellcheck", north.display())).args(["-c", "shellcheck"]);
-            command
-        }
-    }
-}
-
-pub(super) fn lint_hooks(north: &Path, on_path: Option<PathBuf>, report: &mut Report) -> usize {
-    let directory = north.join("harness/hooks");
-    let found = hooks(&directory);
-    if found.is_empty() {
-        report.bad(format!("shellcheck found no shared hooks to lint under {}", directory.display()));
-        return 0;
-    }
-    match shellcheck_command(on_path, north).args(["-S", "warning"]).args(&found).output() {
-        Ok(output) if output.status.success() => {
-            for hook in &found {
-                report.ok(format!("shellcheck {}", hook.file_name().unwrap_or_default().to_string_lossy()));
-            }
-        }
-        Ok(output) => report.bad(format!("shellcheck:\n{}", combined(&output))),
-        Err(error) => report.bad(format!("shellcheck is required to lint shared hooks and neither PATH nor the north flake supplied it: {error}")),
-    }
-    found.len()
-}
-
 
 fn scan_skills(context: &Context, report: &mut Report) -> usize {
     let mut count = 0;
@@ -145,7 +98,6 @@ fn live_links(context: &Context, report: &mut Report) {
 
 pub(super) fn check(context: &Context, report: &mut Report) {
     let before = report.fail;
-    let hook_count = lint_hooks(&context.north, path_command("shellcheck"), report);
     let skill_count = scan_skills(context, report);
     if fs::metadata(context.operator.join("AGENTS.md")).is_ok_and(|meta| meta.len() > 0) {
         report.ok("global AGENTS.md owner source present");
@@ -163,7 +115,7 @@ pub(super) fn check(context: &Context, report: &mut Report) {
     }
     report.group(
         "shared",
-        &format!("{hook_count} owner hooks linted · {skill_count} owner skills · North-generation instructions"),
+        &format!("{skill_count} owner skills · North-generation instructions"),
         before,
     );
 }

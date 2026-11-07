@@ -55,7 +55,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
 
 6. The generation's instructions and `provider-hooks` reach Claude Code and Codex through links
    Firn's profile module makes; `north check harness` checks that wiring and
-   `north check harness --local` lints the shared hooks. A hook script deleted from
+   `north check harness --local` checks the live links. A hook script deleted from
    the hooks directory of the north tree must be named in `harness/retired-hooks.txt`, which
    `north config agents check-owners` enforces at landing; the generation then carries a no-op stub
    under that name until each host's Firn profile stops registering it.
