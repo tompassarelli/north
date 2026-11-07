@@ -226,10 +226,10 @@ pub fn search(search: Search) -> std::thread::JoinHandle<Found> {
 
 
 fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
-    let judged = Command::new(follow::program()).args(["coverage", "miss", base, tip, "--log"]).arg(log).current_dir(&landed.repo).stdin(Stdio::null()).output();
+    let judged = Command::new(follow::program()).args(["test", "coverage", "miss", base, tip, "--log"]).arg(log).current_dir(&landed.repo).stdin(Stdio::null()).output();
     match judged {
         Ok(output) => print!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)),
-        Err(error) => eprintln!("north land: north coverage miss: {error}"),
+        Err(error) => eprintln!("north land: north test coverage miss: {error}"),
     }
 }
 

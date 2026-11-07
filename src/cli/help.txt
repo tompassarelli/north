@@ -5,45 +5,35 @@ Usage: north [COMMAND]
 Run north with no arguments to open the fleet screen.
 
 Operator console:
-  fleet                 Sessions, dispatch, pace, usage, orders, digest and report
+  fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
   gate                  Open, answer or list decision gates
   ledger                Fleet runs and cost; worker tiers, flow, tempo, incidents, scoreboard
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
-  laptop                Set or read the laptop's placement availability
-  private-desktop       Run or control an isolated private desktop
-  agent-capture         Take a screenshot without touching the clipboard
+  desktop               Run a private desktop or take a screenshot off the clipboard
   convo                 Search and read past agent transcripts
 
 Work and knowledge:
-  work                  List, claim, release and close work items
-  brief new             Print a worker brief skeleton for a category
-  grounding             Retrieve existing infrastructure and history
-  graph                 Record and query facts; list the ready backlog
-  review-items          Split a design review into items and route them
-  model-watch news      Show the last model watch digest or rate an item
+  work                  List, claim and close work items; write briefs, route reviews
+  graph                 Record and query facts, ground prompts, list the ready backlog
   wisp payoff           Measure Wisp agreement and native utilization
 
 Engineering and landing:
-  check                 Check citations, goals, experiments, issue boxes, nix, provenance
+  check                 Citations, goals, boxes, nix, provenance, privacy, the harness
   safe-push             Check and land a lane, or publish a tag
   land                  Serve the landing queue, run its checks, abandon or release
   lane                  Collect, reap, rescue, seed, squash and audit lanes
   code-health           Structure debt, crate lines, build time; split modules out
-  coverage              Pick the tests a change reaches; record the map
-  mutant                Run a mutation sweep or verify kill claims
-  frontier              Replay landed boxes under north and plain Claude Code, then grade
-  privacy judge         Judge a text for private kinds
+  test                  Coverage map, mutation sweeps and frontier replays
   docs                  Regenerate or check the docs indexes
   nix                   Explain a Nix footgun, or root and collect the store
 
 System and telemetry:
   health                Check harness invariants
-  agent-config-check  Check the shared agent harness and its budgets
   config                Skills and hooks, agent plan and usage, context, proxy calls
   runtime               Update, deploy or check the north and agent runtimes
   capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
-  ops                   Watch, expectations, credentials, GitHub, strategy log, climb
+  ops                   Watch, expectations, credentials, GitHub, strategy, climb, news
   help                  Show this help
 
 Run north COMMAND --help for its usage and contract. Run north --help-all

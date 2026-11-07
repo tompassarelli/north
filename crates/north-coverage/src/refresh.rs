@@ -19,23 +19,23 @@ pub fn run(arguments: &[String]) -> u8 {
             ("--head", Some(revision)) => head.clone_from(revision),
             ("--repo", Some(name)) => {
                 if let Err(why) = enter(name) {
-                    eprintln!("north coverage refresh: {why}");
+                    eprintln!("north test coverage refresh: {why}");
                     return 1;
                 }
             }
             _ => {
-                eprintln!("usage: north coverage refresh [--repo NAME] [--host NAME] [--head REVISION]");
+                eprintln!("usage: north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]");
                 return 2;
             }
         }
     }
     match refresh(&host_name.unwrap_or_else(host), &head) {
         Ok(map) => {
-            println!("north coverage: {} tests reach {} functions at {}", map.tests.len(), map.functions.len(), map.commit);
+            println!("north test coverage: {} tests reach {} functions at {}", map.tests.len(), map.functions.len(), map.commit);
             0
         }
         Err(why) => {
-            eprintln!("north coverage refresh: {why}");
+            eprintln!("north test coverage refresh: {why}");
             1
         }
     }

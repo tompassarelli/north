@@ -50,7 +50,7 @@ pub fn run(arguments: &[String]) -> u8 {
         [new, flag, category] if new == "new" && flag == "--category" => (category, None),
         [new, flag, category, item_flag, item] if new == "new" && flag == "--category" && item_flag == "--item" => (category, Some(item)),
         _ => {
-            eprintln!("usage: north brief new --category <{}> [--item REPO#N]", CATEGORIES.join("|"));
+            eprintln!("usage: north work brief new --category <{}> [--item REPO#N]", CATEGORIES.join("|"));
             return 2;
         }
     };
@@ -61,7 +61,7 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         None => {
-            eprintln!("north brief: unknown category {category}; use one of {}", CATEGORIES.join(" | "));
+            eprintln!("north work brief: unknown category {category}; use one of {}", CATEGORIES.join(" | "));
             2
         }
     }

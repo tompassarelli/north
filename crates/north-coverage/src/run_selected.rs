@@ -59,7 +59,7 @@ pub fn test(arguments: &[String]) -> u8 {
     if let Selection::Tests { tests, added, .. } = &selection
         && tests.len() + added.len() > MOST_BEFORE_PUSH
     {
-        eprintln!("north coverage: {} tests is over the {MOST_BEFORE_PUSH} {OVER}", tests.len() + added.len());
+        eprintln!("north test coverage: {} tests is over the {MOST_BEFORE_PUSH} {OVER}", tests.len() + added.len());
     }
     let tests = before_push(&selection, MOST_BEFORE_PUSH);
     let added = added_before_push(&selection, MOST_BEFORE_PUSH);
@@ -68,26 +68,26 @@ pub fn test(arguments: &[String]) -> u8 {
     }
     let command = format!("CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=pass {}", nextest_arguments(&tests, &added).join(" "));
     let host = host();
-    eprintln!("north coverage: running {} selected tests on {host}", tests.len() + added.len());
+    eprintln!("north test coverage: running {} selected tests on {host}", tests.len() + added.len());
     let status = Command::new(north()).args(["capacity", "offload", "run", "--host", &host, "--base", &request.base, "--head", &request.head, "--timeout", &request.timeout, "--", &command]).status();
     status.ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1))
 }
 
 fn usage() -> u8 {
-    eprintln!("usage: north coverage select|test BASE HEAD [--map FILE] [--timeout SECONDS]");
+    eprintln!("usage: north test coverage select|test BASE HEAD [--map FILE] [--timeout SECONDS]");
     2
 }
 
 fn fail(why: &str) -> u8 {
-    eprintln!("north coverage: {why}");
+    eprintln!("north test coverage: {why}");
     1
 }
 
 fn report(selection: &Selection) {
     match selection {
-        Selection::Tests { tests, file_level, added } if file_level.is_empty() => eprintln!("north coverage: {} {REACHED} functions, and {} tests the lane adds run too", tests.len(), added.len()),
-        Selection::Tests { tests, file_level, added } => eprintln!("north coverage: {} {REACHED} code, and {} tests the lane adds run too; a change outside every function, newer than the map, or in a file or input the map cannot place in a function selects every test reaching the whole file ({})", tests.len(), added.len(), file_level.join(", ")),
-        Selection::Unmapped(why) => eprintln!("north coverage: {why}; {STOOD_DOWN}, the full suite runs after it"),
+        Selection::Tests { tests, file_level, added } if file_level.is_empty() => eprintln!("north test coverage: {} {REACHED} functions, and {} tests the lane adds run too", tests.len(), added.len()),
+        Selection::Tests { tests, file_level, added } => eprintln!("north test coverage: {} {REACHED} code, and {} tests the lane adds run too; a change outside every function, newer than the map, or in a file or input the map cannot place in a function selects every test reaching the whole file ({})", tests.len(), added.len(), file_level.join(", ")),
+        Selection::Unmapped(why) => eprintln!("north test coverage: {why}; {STOOD_DOWN}, the full suite runs after it"),
     }
 }
 
@@ -98,7 +98,7 @@ pub enum Ran {
 }
 
 pub fn ran(candidate_log: &str) -> Option<Ran> {
-    let lines = || candidate_log.lines().filter_map(|line| line.trim_start().strip_prefix("north coverage: "));
+    let lines = || candidate_log.lines().filter_map(|line| line.trim_start().strip_prefix("north test coverage: "));
     if lines().any(|line| line.contains(STOOD_DOWN) || line.contains(OVER)) {
         Some(Ran::StoodDown)
     } else if lines().any(|line| line.contains(REACHED)) {

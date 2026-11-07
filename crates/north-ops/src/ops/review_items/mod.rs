@@ -353,7 +353,7 @@ pub fn render(plan: &str, author: Tier, items: &[Item]) -> Vec<String> {
     lines
 }
 
-const USAGE: &str = "Usage: north review-items PLAN [--author sonnet-high|opus-medium|opus-high] [--root DIR]";
+const USAGE: &str = "Usage: north work review PLAN [--author sonnet-high|opus-medium|opus-high] [--root DIR]";
 
 pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> u8 {
     let mut plan = None;

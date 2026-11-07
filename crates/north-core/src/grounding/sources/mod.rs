@@ -229,7 +229,7 @@ pub fn spawn_refresh_if_stale() {
         let _ = Command::new("nice")
             .args(["-n", "19", "ionice", "-c", "3"])
             .arg(exe)
-            .args(["grounding", "refresh", "--if-idle"])
+            .args(["graph", "ground", "refresh", "--if-idle"])
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)

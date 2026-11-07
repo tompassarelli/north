@@ -1,6 +1,6 @@
 //! The coverage record beside a land queue's logs: one `landed` line per landed lane tip naming the
 //! candidate log its pre-push selection wrote to, and one `judged` line per tip whose after-landing
-//! failures `north coverage miss` judged, with the count of failed tests the selection skipped.
+//! failures `north test coverage miss` judged, with the count of failed tests the selection skipped.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};

@@ -32,8 +32,8 @@ fn a_planted_miss_is_named_and_starts_one_refresh() {
     let logs = queue.path().join("logs");
     std::fs::create_dir_all(&logs).unwrap();
     let (selected, stood_down) = (logs.join("1-candidate.log"), logs.join("2-candidate.log"));
-    std::fs::write(&selected, "north coverage: 3 tests reach the changed functions, and 0 tests the lane adds run too\n").unwrap();
-    std::fs::write(&stood_down, "north coverage: Cargo.toml is a build input; no coverage-selected tests run before the push, the full suite runs after it\n").unwrap();
+    std::fs::write(&selected, "north test coverage: 3 tests reach the changed functions, and 0 tests the lane adds run too\n").unwrap();
+    std::fs::write(&stood_down, "north test coverage: Cargo.toml is a build input; no coverage-selected tests run before the push, the full suite runs after it\n").unwrap();
     let record = coverage_record::path(queue.path());
     let landed = |count: usize, log: &Path| (0..count).map(|index| Line::Landed { sha: format!("{}{index}", log.display()), log: log.to_owned() }).collect::<Vec<_>>();
     let arguments = ["--landings".to_owned(), "20".to_owned(), "--queue".to_owned(), queue.path().display().to_string()];

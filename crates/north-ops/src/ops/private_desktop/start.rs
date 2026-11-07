@@ -206,7 +206,7 @@ fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
     command
         .arg("--")
         .arg(current)
-        .arg("private-desktop")
+        .args(["desktop", "private"])
         .arg("start")
         .args(arguments);
     Err(command.exec())
@@ -272,7 +272,7 @@ fn ensure_tools(arguments: &[String]) -> io::Result<Option<u8>> {
             "--command",
         ])
         .arg(current)
-        .arg("private-desktop")
+        .args(["desktop", "private"])
         .arg("start")
         .args(arguments)
         .status()?;

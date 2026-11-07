@@ -55,7 +55,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Ok(map) => match serde_json::to_string(&map) {
             Ok(text) => {
                 println!("{MAP_LINE}{text}");
-                eprintln!("north coverage record: {} tests reach {} functions at {}", map.tests.len(), map.functions.len(), map.commit);
+                eprintln!("north test coverage record: {} tests reach {} functions at {}", map.tests.len(), map.functions.len(), map.commit);
                 0
             }
             Err(error) => fail(&format!("cannot encode the map: {error}")),
@@ -65,7 +65,7 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 fn fail(why: &str) -> u8 {
-    eprintln!("north coverage record: {why}");
+    eprintln!("north test coverage record: {why}");
     1
 }
 
@@ -83,7 +83,7 @@ fn record(arguments: &[String]) -> Result<Map, String> {
     let listing: Listing = serde_json::from_slice(&listing.stdout).map_err(|error| format!("cannot read nextest's listing: {error}"))?;
     let ran = nextest(&root, &tools, &work, &[&["run", "--no-fail-fast"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat())?;
     if !ran.status.success() {
-        eprintln!("north coverage record: some tests failed; their reach is still recorded");
+        eprintln!("north test coverage record: some tests failed; their reach is still recorded");
     }
     let listed = listing.binaries.values().map(|binary| binary.testcases.len()).sum::<usize>();
     let binaries: HashMap<String, String> = listing.binaries.into_values().map(|binary| (binary.path, binary.id)).collect();

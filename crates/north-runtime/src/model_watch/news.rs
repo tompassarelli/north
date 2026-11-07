@@ -69,7 +69,7 @@ pub(super) fn run(arguments: &[String], host: &dyn Host, path: &Path) -> u8 {
             0
         }
         Err(message) => {
-            eprintln!("north model-watch news: error: {message}");
+            eprintln!("north ops model-watch news: error: {message}");
             2
         }
     }

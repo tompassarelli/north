@@ -99,7 +99,7 @@ impl Policy {
             return None;
         }
         Some(format!(
-            "`git worktree add {path}` puts a {project} worktree outside the layout, and every stray fails `north lane layout` and `north agent-config-check` on this host until someone moves it. A lane goes in {container}/worktrees/SLUG and a pin in {container}/pins/FULL_OBJECT_ID:\n  git -C {container}/main worktree add {container}/worktrees/SLUG -b SLUG"
+            "`git worktree add {path}` puts a {project} worktree outside the layout, and every stray fails `north lane layout` and `north check harness` on this host until someone moves it. A lane goes in {container}/worktrees/SLUG and a pin in {container}/pins/FULL_OBJECT_ID:\n  git -C {container}/main worktree add {container}/worktrees/SLUG -b SLUG"
         ))
     }
     pub(super) fn worktree_decision(&self, call: &GitCall) -> Option<(String, String)> {

@@ -10,7 +10,7 @@ const PAYLOAD_LIMIT: u64 = 1048576;
 const HOOK_ID: &str = "prompt-grounding";
 const DEADLINE: Duration = Duration::from_millis(1000);
 const RETRIEVAL: Duration = Duration::from_millis(600);
-const LATE_NOTE: &str = "Grounding stopped at its 1 s deadline because the index was slow, so this message was not grounded; run `north grounding query --query TEXT` if it matters.";
+const LATE_NOTE: &str = "Grounding stopped at its 1 s deadline because the index was slow, so this message was not grounded; run `north graph ground query --query TEXT` if it matters.";
 
 pub struct Gate<'a> {
     pub guards_off: &'a dyn Fn() -> bool,

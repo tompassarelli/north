@@ -33,7 +33,7 @@ pub fn parse(stdout: &str) -> Vec<Finding> {
         .collect()
 }
 
-/// Judges `text` by running `north privacy judge`: exit 0 is clean, exit 1 prints the findings, anything else means the judge could not run.
+/// Judges `text` by running `north check privacy judge`: exit 0 is clean, exit 1 prints the findings, anything else means the judge could not run.
 pub fn judge(text: &str) -> Result<Vec<Finding>, String> {
     verdict(&process::run_command_within(command(), Some(text.as_bytes()), JUDGE_LIMIT).ok_or("the private-text judge did not finish")?)
 }
@@ -48,7 +48,7 @@ pub fn judge_in_hook(text: &str) -> Result<Vec<Finding>, String> {
 
 fn command() -> Command {
     let mut command = Command::new(north_binary());
-    command.args(["privacy", "judge", "--text", "-"]);
+    command.args(["check", "privacy", "judge", "--text", "-"]);
     command
 }
 

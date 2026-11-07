@@ -7,7 +7,7 @@ use north_base::platform::private_text::{Finding, render};
 
 use crate::runtime_access::RuntimeAccess;
 
-const USAGE: &str = "usage: north privacy judge --text FILE|- [--kinds FILE]";
+const USAGE: &str = "usage: north check privacy judge --text FILE|- [--kinds FILE]";
 
 pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
     let Some(("judge", options)) = arguments.split_first().map(|(verb, rest)| (verb.as_str(), rest)) else {

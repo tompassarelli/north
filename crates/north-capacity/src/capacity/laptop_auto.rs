@@ -245,7 +245,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some(program) => Command::new(program),
         None => {
             let mut north = Command::new(north_base::platform::north_binary::north_binary());
-            north.arg("laptop");
+            north.args(["fleet", "laptop"]);
             north
         }
     };

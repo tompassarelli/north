@@ -11,7 +11,7 @@ use crate::map::{self, Test};
 use crate::pick::Selection;
 use crate::run_selected::{MOST_BEFORE_PUSH, git, north, repository, selection_between};
 
-const USAGE: &str = "usage: north coverage miss BASE HEAD --log FILE [--map FILE]";
+const USAGE: &str = "usage: north test coverage miss BASE HEAD --log FILE [--map FILE]";
 const FAILED: [&str; 6] = ["FAIL", "SIGSEGV", "SIGABRT", "SIGKILL", "TIMEOUT", "ABORT"];
 pub const MISSED: u8 = 1;
 
@@ -61,20 +61,20 @@ pub fn judge(selection: &Selection, log: &str, refresh: impl FnOnce() -> Result<
 fn report(agreement: Agreement, refresh: impl FnOnce() -> Result<(), String>) -> u8 {
     match agreement {
         Agreement::NotJudged(why) => {
-            println!("north coverage: not judged: {why}, so the selection ran nothing before the push");
+            println!("north test coverage: not judged: {why}, so the selection ran nothing before the push");
             0
         }
         Agreement::Agree { failed } => {
-            println!("north coverage: agree: the selection before the push ran each of the {failed} tests that failed after it");
+            println!("north test coverage: agree: the selection before the push ran each of the {failed} tests that failed after it");
             0
         }
         Agreement::Missed(missed) => {
             for test in &missed {
-                println!("north coverage: miss: {} {} failed after the push, and the selection before it skipped it", test.binary, test.name);
+                println!("north test coverage: miss: {} {} failed after the push, and the selection before it skipped it", test.binary, test.name);
             }
             match refresh() {
-                Ok(()) => println!("north coverage: refreshing the map after {} missed tests", missed.len()),
-                Err(why) => eprintln!("north coverage: cannot start a refresh after the miss: {why}"),
+                Ok(()) => println!("north test coverage: refreshing the map after {} missed tests", missed.len()),
+                Err(why) => eprintln!("north test coverage: cannot start a refresh after the miss: {why}"),
             }
             MISSED
         }
@@ -96,7 +96,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let text = match fs::read_to_string(&log) {
         Ok(text) => text,
         Err(error) => {
-            eprintln!("north coverage: cannot read {log}: {error}");
+            eprintln!("north test coverage: cannot read {log}: {error}");
             return 2;
         }
     };
@@ -113,7 +113,7 @@ fn record(head: &str, judged: &Agreement) {
         coverage_record::append(&path, &[Line::Judged { sha, misses }]).map_err(|error| format!("{}: {error}", path.display()))
     });
     if let Err(why) = written {
-        eprintln!("north coverage: cannot record the judgement of {head}: {why}");
+        eprintln!("north test coverage: cannot record the judgement of {head}: {why}");
     }
 }
 
@@ -129,7 +129,7 @@ fn start_refresh() -> Result<(), String> {
     }
     let log = fs::OpenOptions::new().create(true).append(true).open(&log_path).map_err(|error| format!("cannot create {}: {error}", log_path.display()))?;
     let errors = log.try_clone().map_err(|error| format!("{}: {error}", log_path.display()))?;
-    Command::new(north()).args(["coverage", "refresh"]).stdin(Stdio::null()).stdout(log).stderr(errors).process_group(0).spawn().map(drop).map_err(|error| format!("north coverage refresh: {error}"))
+    Command::new(north()).args(["test", "coverage", "refresh"]).stdin(Stdio::null()).stdout(log).stderr(errors).process_group(0).spawn().map(drop).map_err(|error| format!("north test coverage refresh: {error}"))
 }
 
 #[cfg(test)]

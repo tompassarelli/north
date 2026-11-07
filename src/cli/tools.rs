@@ -12,7 +12,6 @@ use crate::{
 mod subverbs;
 
 const UNIFORM: &[(&str, Run)] = &[
-    ("agent-config-check", agent_config_check::run),
     ("agent-policy-contract", agent_policy_contract::run),
     ("dep-gate", dep_gate::run),
     ("evidence", crate::ops::reclaim::evidence_start),
@@ -30,7 +29,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("safe-push", super::remote_land::safe_push),
     ("follows-release", follows_release::run),
     ("job-run", crate::ops::job_run::run),
-    ("review-items", review_items),
     ("cloud", super::cloud::run),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
     ("strategy", super::strategy::run),
@@ -45,13 +43,11 @@ const UNIFORM: &[(&str, Run)] = &[
     ("convo", crate::convo::run),
     ("warcraft-close", crate::ops::warcraft_close::run),
     ("wc3-login-field", crate::ops::wc3_login_field::run),
-    ("agent-capture", crate::ops::agent_capture::run),
     ("incident-mine", crate::ops::incident_mine::run),
     ("tool-mine", crate::tool_mine::run),
     ("policy-replay", crate::policy_replay::run),
     ("defaults-measure", crate::ops::defaults_measure::run),
     ("spend", super::spend::run),
-    ("brief", crate::guard::brief_skeleton::run),
     ("proxy", |arguments| match arguments.first().map(String::as_str) {
         Some("calls") => {
             eprintln!("did you mean: north config proxy {}", arguments.join(" "));
@@ -60,8 +56,8 @@ const UNIFORM: &[(&str, Run)] = &[
         _ => super::fleet::proxy(arguments),
     }),
     ("ops", ops),
-    ("private-check", crate::ops::private_check::run),
     ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
+    ("private-check", crate::ops::private_check::run),
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),
     ("github-mirror", crate::github_mirror::sync::run),
@@ -86,7 +82,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("runtime", runtime),
     ("tune", crate::tune::run),
     ("loops", crate::loops::run),
-    ("frontier", north_frontier::run),
+    ("desktop", desktop),
     ("code-health", code_health),
 ];
 
@@ -101,10 +97,13 @@ pub(super) enum Tool {
     Dispatch,
     Report,
     Config,
+    Work,
+    Test,
     Timer(Timer),
 }
 
 const OPERATIONS: &[(&str, Tool)] = &[
+    ("test", Tool::Test),
     ("wisp", Tool::Wisp),
     ("pace", Tool::Pace),
     ("capacity", Tool::Capacity),
@@ -116,7 +115,7 @@ impl Tool {
     pub(super) fn fleet_verb(verb: &str) -> Option<Self> {
         match verb {
             "report" => Some(Self::Report),
-            "dispatch" | "pace" | "usage" => Self::named(verb),
+            "dispatch" | "pace" | "usage" | "laptop" => Self::named(verb),
             _ => None,
         }
     }
@@ -142,6 +141,15 @@ impl Tool {
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
             Self::Report => super::in_runtime(async move { Ok(ExitCode::from(crate::ops::report::run(arguments))) }),
             Self::Config => super::in_runtime(async move { Ok(ExitCode::from(config(arguments))) }),
+            Self::Work => super::in_runtime(async move { Ok(ExitCode::from(work(arguments))) }),
+            Self::Test => match arguments.split_first() {
+                Some((verb, rest)) if verb == "frontier" => ExitCode::from(north_frontier::run(rest)),
+                Some((verb, rest)) if let Some(run) = runner(TEST, verb) => super::in_runtime(async move { Ok(ExitCode::from(run(rest))) }),
+                _ => {
+                    eprintln!("usage: north test (coverage|frontier|mutant) ...; north test --help lists each");
+                    ExitCode::from(2)
+                }
+            },
             Self::Pace => ExitCode::from(crate::pacing::run(arguments, crate::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
             Self::Capacity => match arguments.split_first() {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(crate::ops::run_bounded::run(rest)),
@@ -166,6 +174,8 @@ fn citation_check(arguments: &[String]) -> u8 {
 
 const CHECK: &[(&str, Run)] = &[
     ("citations", citation_check),
+    ("harness", agent_config_check::run),
+    ("privacy", |arguments| crate::privacy::run(arguments, &super::agents::claude_access())),
     ("experiments", crate::experiments::run),
     ("goals", goals),
     ("issue-boxes", issue_box_lint::run),
@@ -192,7 +202,7 @@ fn review_items(arguments: &[String]) -> u8 {
     crate::ops::review_items::run(arguments, defines)
 }
 
-pub(super) const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help", "private-desktop"];
+pub(super) const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help"];
 
 pub(super) fn defines(command: &str) -> bool {
     BUILT_IN.contains(&command) || super::forwarded(command, Vec::new()).is_some()
@@ -208,5 +218,28 @@ fn config(arguments: &[String]) -> u8 {
         Some((noun, rest)) if noun == "context" => crate::context_audit::run(rest, agent_config_check::startup_tokens),
         Some((noun, rest)) if noun == "proxy" => crate::proxy::run(rest, &super::verbs::VERB_KINDS),
         _ => 2,
+    }
+}
+
+const TEST: &[(&str, Run)] = &[
+    ("coverage", north_coverage::run),
+    ("mutant", |arguments| north_mutants::cli::run(arguments, &super::mutant_issues::MirrorIssues, crate::land::scans::test_admission::contract_tests)),
+];
+
+fn work(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if verb == "brief" => crate::guard::brief_skeleton::run(rest),
+        Some((_, rest)) => review_items(rest),
+        None => 2,
+    }
+}
+
+fn desktop(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((verb, rest)) if verb == "capture" => crate::ops::agent_capture::run(rest),
+        _ => {
+            eprintln!("usage: north desktop (capture|private) ...; north desktop --help lists each");
+            2
+        }
     }
 }

@@ -156,7 +156,7 @@ the rule never reads them as the proxy's.
 
 ## Grounding
 
-The UserPromptSubmit grounding hook and `north brief new --category C --item REPO#N` read this graph through
+The UserPromptSubmit grounding hook and `north work brief new --category C --item REPO#N` read this graph through
 `crates/north-graph-ground`: for each issue (`north#634`) or file path a message names, up to four, they add the
 neighborhood two hops out, and the hook shows it among its live lines inside its 600 ms retrieval bound.
 

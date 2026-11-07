@@ -24,7 +24,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "usage: north private-desktop reap [--dry-run]",
+                "usage: north desktop private reap [--dry-run]",
             ));
         }
     };

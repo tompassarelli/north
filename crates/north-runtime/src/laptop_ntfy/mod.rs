@@ -18,7 +18,7 @@ const USAGE: &str = "north laptop-ntfy serve|notify|press: phone signals for the
 
 serve         HTTP endpoint the ntfy Open/Close buttons call: POST /laptop/open or /laptop/close with the action bearer token
 notify        publish the state with Open/Close buttons once a day at the window's open edge
-press VERB    run `north laptop VERB` as the phone would
+press VERB    run `north fleet laptop VERB` as the phone would
 
 Environment: LAPTOP_NTFY_URL, LAPTOP_NTFY_TOPIC, LAPTOP_NTFY_TOKEN_FILE (publisher), LAPTOP_NTFY_ACTION_TOKEN_FILE,
 LAPTOP_NTFY_ACTION_URL (what the buttons call), LAPTOP_NTFY_LISTEN (host:port), LAPTOP_NTFY_STATE (directory),

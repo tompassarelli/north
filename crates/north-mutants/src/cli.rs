@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 use crate::env::{Env, Lease, Stop, git_bytes, repo_name, valid_id};
 use crate::sweep::{self, ContractTests, Issues, MatrixArgs, RetireArgs, SweepArgs};
 
-const USAGE: &str = "Usage: north mutant record <id> | north mutant verify <base> <head>
-       north mutant matrix [--mutants N] [--seed TEXT] [--timeout SECONDS_PER_TREE]
-       north mutant retire --repo NAME --evidence TSV [--matrix TSV]... [--contract TEST]... (adds the Test-contract: trailers listed at HEAD) [--date YYYY-MM-DD] [--days N]
-       north mutant post --issue REPO#N < BOX
-       north mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]
+const USAGE: &str = "Usage: north test mutant record <id> | north test mutant verify <base> <head>
+       north test mutant matrix [--mutants N] [--seed TEXT] [--timeout SECONDS_PER_TREE]
+       north test mutant retire --repo NAME --evidence TSV [--matrix TSV]... [--contract TEST]... (adds the Test-contract: trailers listed at HEAD) [--date YYYY-MM-DD] [--days N]
+       north test mutant post --issue REPO#N < BOX
+       north test mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]
 Record the scratch copy diff against HEAD; verify each Test-kind kill claim on demand; mutate product code
 and print which tests kill which mutants; propose the tests with no recent catch, no unique kill and no
 listed contract; run both on a build host for each repository and add the proposal as a box on an issue.";

@@ -26,9 +26,9 @@ use crate::platform::north_binary::north_binary;
 use report::Report;
 use roots::Roots;
 
-const USAGE: &str = "usage: north agent-config-check [--local] [--policy-only] [--verbose]
-       north agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]
-       north agent-config-check tree-policy [--tree DIR]";
+const USAGE: &str = "usage: north check harness [--local] [--policy-only] [--verbose]
+       north check harness policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]
+       north check harness tree-policy [--tree DIR]";
 
 struct Context {
     north: PathBuf,
@@ -275,7 +275,7 @@ fn help_group(context: &Context, report: &mut Report) {
 fn routines(context: &Context, report: &mut Report) {
     let before = report.fail;
     let mut command = Command::new(&context.north_bin);
-    command.args(["agents", "routines", "list"]);
+    command.args(["config", "agents", "routines", "list"]);
     if !context.local {
         command.arg("--no-live");
     }

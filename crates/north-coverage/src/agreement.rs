@@ -8,7 +8,7 @@ use north_base::platform::land_queue;
 use crate::map;
 use crate::run_selected::{Ran, git, ran};
 
-const USAGE: &str = "usage: north coverage agreement --landings COUNT [--queue DIRECTORY]";
+const USAGE: &str = "usage: north test coverage agreement --landings COUNT [--queue DIRECTORY]";
 pub const SHORT: u8 = 1;
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -53,7 +53,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let queue_directory = match queue_directory.map_or_else(|| queue(Path::new(".")), Ok) {
         Ok(directory) => directory,
         Err(why) => {
-            eprintln!("north coverage: cannot find the land queue: {why}");
+            eprintln!("north test coverage: cannot find the land queue: {why}");
             return 2;
         }
     };
@@ -61,20 +61,20 @@ pub fn run(arguments: &[String]) -> u8 {
     let lines = match coverage_record::read(&path) {
         Ok(lines) => lines,
         Err(error) => {
-            eprintln!("north coverage: cannot read {}: {error}", path.display());
+            eprintln!("north test coverage: cannot read {}: {error}", path.display());
             return 2;
         }
     };
     let tally = tally(&lines, wanted, |log| fs::read_to_string(log).ok());
     println!(
-        "north coverage: of the newest {} landings, {} ran the coverage check and {} of those ran a selection before the push instead of standing down; {} failed tests after them were skipped by their selection",
+        "north test coverage: of the newest {} landings, {} ran the coverage check and {} of those ran a selection before the push instead of standing down; {} failed tests after them were skipped by their selection",
         tally.landings, tally.rust, tally.selected, tally.misses
     );
     if tally.agrees(wanted) {
         return 0;
     }
     if tally.landings < wanted {
-        println!("north coverage: {} landings are recorded, short of the {wanted} asked for", tally.landings);
+        println!("north test coverage: {} landings are recorded, short of the {wanted} asked for", tally.landings);
     }
     SHORT
 }

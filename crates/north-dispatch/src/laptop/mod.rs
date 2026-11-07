@@ -15,7 +15,7 @@ pub use ctx::{Ctx, hostname};
 pub use die::Die;
 pub use zone::Zone;
 
-const USAGE: &str = "north laptop open|close|drain|toggle|status|tick|observe: the laptop's placement availability, one state on the ledger host.
+const USAGE: &str = "north fleet laptop open|close|drain|toggle|status|tick|observe: the laptop's placement availability, one state on the ledger host.
 
 open [until HH:MM] [REASON...]   available: laptop-runner takes laptop and pool jobs
 close [until HH:MM] [REASON...]  draining with a 2-minute grace, then unavailable
@@ -66,7 +66,7 @@ impl Ctx {
             "status" => self.status(args),
             "tick" if args.is_empty() => self.tick(),
             "observe" => self.observe(args),
-            _ => Err(Die::new(2, format!("unknown command {verb}; see north laptop --help"))),
+            _ => Err(Die::new(2, format!("unknown command {verb}; see north fleet laptop --help"))),
         }
     }
 }

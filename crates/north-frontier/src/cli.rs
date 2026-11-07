@@ -197,7 +197,7 @@ fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source
 fn charge_ledger(org: &str, spent: &Spent) {
     let charged = Ledger::open(&state_root().join("ledger.db")).and_then(|ledger| billing::charge(&ledger, org, spent));
     if let Err(error) = charged {
-        eprintln!("north frontier: the spend of {} on api:{org} was not written to the ledger: {}", spent.name, error.user_message());
+        eprintln!("north test frontier: the spend of {} on api:{org} was not written to the ledger: {}", spent.name, error.user_message());
     }
 }
 

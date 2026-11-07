@@ -1,4 +1,4 @@
-# The classes of Tom's corrections, read by `north grounding distill` (pattern, paraphrase), the
+# The classes of Tom's corrections, read by `north graph ground distill` (pattern, paraphrase), the
 # repeated-correction detector of `north ledger flow detect` (owner, guard) and the fleet tick (guarded_at).
 # A correction takes the first class whose pattern matches its typed text; its ledger row keeps the
 # paraphrase, never Tom's words. A class seen twice gets one box on its owner proposing the guard.

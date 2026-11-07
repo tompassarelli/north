@@ -176,7 +176,7 @@ fn js_number(n: f64) -> String {
 fn run_query(question: &str, tier: &str, as_of: f64, prior: &str, state: &Path, hook: bool) -> NorthResult<(String, f64)> {
     let started = Instant::now();
     let output = Command::new(env::current_exe()?)
-        .args(["grounding", "query", "--tier", tier, "--query", question])
+        .args(["graph", "ground", "query", "--tier", tier, "--query", question])
         .args(if hook && tier == "A" { &["--hook"][..] } else { &[] })
         .env("NORTH_GROUNDING_AS_OF", if as_of != 0.0 { js_number(as_of) } else { String::new() })
         .env("NORTH_GROUNDING_PRIOR", prior)
@@ -638,7 +638,7 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
     let valued = ["--runs", "--holdout", "--exclude-session"];
     let path = args.iter().enumerate().find(|(i, a)| !(a.starts_with("--") || *i > 0 && valued.contains(&args[i - 1].as_str()))).map(|(_, a)| a);
     let Some(path) = path else {
-        eprintln!("usage: north grounding score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]");
+        eprintln!("usage: north graph ground score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]");
         return Ok(2);
     };
     let value = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();

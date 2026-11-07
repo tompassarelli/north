@@ -131,7 +131,7 @@ pub fn main(args: &[String], grounded: &dyn Fn(&str) -> bool) -> NorthResult<i32
 fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
     if has(args, "--help") || has(args, "-h") {
         println!(
-            "usage: north grounding query [--query TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | hook | distill | score"
+            "usage: north graph ground query [--query TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | hook | distill | score"
         );
         return Ok(0);
     }

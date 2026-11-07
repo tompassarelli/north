@@ -189,7 +189,7 @@ fn mutant_fixture() -> (Fixture, String) {
 }
 
 fn record(fixture: &Fixture, directory: &Path, name: &str) -> Observed {
-    north(fixture, directory, &["mutant", "record", name])
+    north(fixture, directory, &["test", "mutant", "record", name])
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn a_test_kind_claim_needs_a_recorded_non_empty_mutant_patch_and_the_check_never
         }
         fixture.git(&["commit", "--allow-empty", "-qm", "mutant evidence", "-m", &format!("Test-kind: recorded boundary 3 kills {name}")]);
         let lane_before = fixture.git(&["status", "--porcelain"]);
-        let verified = north(&fixture, &fixture.repo, &["mutant", "verify", &base, "HEAD"]);
+        let verified = north(&fixture, &fixture.repo, &["test", "mutant", "verify", &base, "HEAD"]);
         match name {
             "empty" => verified.expect(
                 false,

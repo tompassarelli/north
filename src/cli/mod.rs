@@ -131,16 +131,21 @@ const FORWARDED: &[(&str, Forward)] = &[
     ("ledger", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
     ("task", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
     ("gate", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
-    ("work", |_, rest| Command::Work(rest)),
+    ("work", |_, rest| match rest.first().map(String::as_str) {
+        Some("brief" | "review") => Command::Tool(Tool::Work, rest),
+        _ => Command::Work(rest),
+    }),
     ("language-gate", |_, rest| Command::LanguageGate(rest)),
     ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
     ("health", |_, rest| Command::Health(rest)),
     ("contract-probe", |_, rest| Command::ContractProbe(rest)),
-    ("grounding", |_, rest| Command::Grounding(rest)),
     ("remote-serve", |_, rest| Command::RemoteServe(rest)),
 ];
 
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
+    if command == "graph" && rest.first().is_some_and(|verb| verb == "ground") {
+        return Some(Command::Grounding(rest[1..].to_vec()));
+    }
     if let Some(tool) = Tool::named(command) {
         return Some(Command::Tool(tool, rest));
     }

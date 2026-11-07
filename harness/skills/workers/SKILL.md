@@ -12,7 +12,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 ## Staff
 
 - One task per worker, and one worker per scarce client or device instance, because shared instances corrupt each other's runs. Check `north threads list` and open issues; never duplicate a held item.
-- Start a brief with `north brief new --category X`, which prints every header line the brief guard requires for that category.
+- Start a brief with `north work brief new --category X`, which prints every header line the brief guard requires for that category.
 - Pick the tier with `north ledger worker --recommend '<Category and facet lines>'` and take the ETA from its `eta` line, or mark your estimate `(uncalibrated)` on `eta n/a`. Size each box to 20 minutes or less or name why.
 
 | Provider | Tier | Model / invocation |

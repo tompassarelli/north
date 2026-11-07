@@ -55,7 +55,7 @@ fn load(path: &Path) -> Result<Value, NorthError> {
 fn session_start_tokens(operator: &Path) -> Result<usize, NorthError> {
     let firn = std::env::var("NORTH_FIRN").unwrap_or_else(|_| format!("{}/code/nixos-config/main", std::env::var("HOME").unwrap_or_default()));
     let output = Command::new(std::env::current_exe().map_err(NorthError::Io)?)
-        .args(["agent-config-check", "policy-gate", "measure", "--repo", &firn, "--operator"])
+        .args(["check", "harness", "policy-gate", "measure", "--repo", &firn, "--operator"])
         .arg(operator)
         .output()
         .map_err(NorthError::Io)?;

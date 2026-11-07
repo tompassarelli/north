@@ -80,12 +80,12 @@ pub(super) fn watch(host: &dyn Host, options: &Options, config: &Value) -> u8 {
         let _ = fs::create_dir_all(parent);
     }
     let Ok(db) = Connection::open(&options.db) else {
-        eprintln!("north model-watch: ledger unavailable");
+        eprintln!("north ops model-watch: ledger unavailable");
         return 1;
     };
     let _ = db.busy_timeout(Duration::from_secs(30));
     if let Err(error) = db.execute_batch(&format!("{SCHEMA}{}", digest::SCHEMA)) {
-        eprintln!("north model-watch: {error}");
+        eprintln!("north ops model-watch: {error}");
         return 1;
     }
     let threshold = config["market_move_threshold"].as_f64().unwrap_or(0.10);
@@ -102,7 +102,7 @@ pub(super) fn watch(host: &dyn Host, options: &Options, config: &Value) -> u8 {
     let shown = match record_proposals(&db, options, &events) {
         Ok(shown) => shown,
         Err(error) => {
-            eprintln!("north model-watch: proposals: {error}");
+            eprintln!("north ops model-watch: proposals: {error}");
             return 1;
         }
     };

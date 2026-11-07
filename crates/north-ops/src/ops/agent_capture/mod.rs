@@ -4,7 +4,7 @@ use std::process::Command;
 
 use serde_json::Value;
 
-const USAGE: &str = "agent-capture: screenshot for agents that never touches Tom's clipboard.\n\n  north agent-capture --screen OUT.png            the focused output\n  north agent-capture --window ID OUT.png         one visible floating niri window (ID from `niri msg -j windows`);\n                                                  windows with app-id \"agent-client.*\" or title \"agent-client-*\" open floating\n  north agent-capture --region \"X,Y WxH\" OUT.png  a logical-pixel region\n\nBuilt on grim because niri's screenshot actions always replace the clipboard; niri reports positions only for visible floating windows.";
+const USAGE: &str = "agent-capture: screenshot for agents that never touches Tom's clipboard.\n\n  north desktop capture --screen OUT.png            the focused output\n  north desktop capture --window ID OUT.png         one visible floating niri window (ID from `niri msg -j windows`);\n                                                  windows with app-id \"agent-client.*\" or title \"agent-client-*\" open floating\n  north desktop capture --region \"X,Y WxH\" OUT.png  a logical-pixel region\n\nBuilt on grim because niri's screenshot actions always replace the clipboard; niri reports positions only for visible floating windows.";
 
 pub struct Programs {
     pub niri: String,
@@ -54,14 +54,14 @@ fn capture(arguments: &[String], programs: &Programs) -> Result<String, Failure>
     let usage = |text: &str| Failure(format!("usage: {text}"), 2);
     match arguments.first().map(String::as_str) {
         Some("--screen") => {
-            let out = arguments.get(1).filter(|out| !out.is_empty()).ok_or_else(|| usage("north agent-capture --screen OUT.png"))?;
+            let out = arguments.get(1).filter(|out| !out.is_empty()).ok_or_else(|| usage("north desktop capture --screen OUT.png"))?;
             let focused = programs.niri_json("focused-output", &["focused-output"]).ok().and_then(|output| output["name"].as_str().map(str::to_owned)).ok_or_else(|| Failure("no focused output".to_owned(), 1))?;
             programs.grim(&["-o", &focused, out])?;
             Ok(out.clone())
         }
         Some("--window") => {
             let (Some(id), Some(out)) = (arguments.get(1).filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())).and_then(|id| id.parse::<u64>().ok()), arguments.get(2).filter(|out| !out.is_empty())) else {
-                return Err(usage("north agent-capture --window ID OUT.png"));
+                return Err(usage("north desktop capture --window ID OUT.png"));
             };
             let found = geometry(&programs.niri_json("windows", &["windows"])?, &programs.niri_json("workspaces", &["workspaces"])?, &programs.niri_json("outputs", &["outputs"])?, id);
             match found {
@@ -72,7 +72,7 @@ fn capture(arguments: &[String], programs: &Programs) -> Result<String, Failure>
         }
         Some("--region") => {
             let (Some(region), Some(out)) = (arguments.get(1).filter(|region| !region.is_empty()), arguments.get(2).filter(|out| !out.is_empty())) else {
-                return Err(usage("north agent-capture --region \"X,Y WxH\" OUT.png"));
+                return Err(usage("north desktop capture --region \"X,Y WxH\" OUT.png"));
             };
             programs.grim(&["-g", region, out]).map(|()| out.clone())
         }

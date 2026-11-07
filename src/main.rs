@@ -46,8 +46,8 @@ fn main() -> std::process::ExitCode {
         }
         arguments
             .first()
-            .filter(|argument| *argument == "private-desktop" && !cli::answers_help(&arguments))
-            .map_or_else(cli::main, |_| ops::private_desktop::run(&arguments[1..]))
+            .filter(|argument| *argument == "desktop" && arguments.get(1).is_some_and(|verb| verb == "private") && !cli::answers_help(&arguments))
+            .map_or_else(cli::main, |_| ops::private_desktop::run(&arguments[2..]))
     })
 }
 

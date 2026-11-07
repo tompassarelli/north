@@ -226,7 +226,7 @@ sites = [
   "crates/north-flow/src/detectors/correction.rs",
 ]
 signal = "Tom's corrections in the grounding ledger, classed by harness/corrections.toml and counted per class per week; the weekly count is the harness's learning score, a class seen twice gets a guard box on its owner, and a guarded class that recurs is red in the proxy's fleet tick"
-updated_by = "north grounding distill, run 15 s after each of Tom's prompts in a proxy session; north ledger flow detect files the guard boxes"
+updated_by = "north graph ground distill, run 15 s after each of Tom's prompts in a proxy session; north ledger flow detect files the guard boxes"
 cadence_hours = 24
 record = "north/grounding/ledger.jsonl"
 score = "north/grounding/corrections-week.txt"

@@ -21,8 +21,8 @@ use crate::pacing::placement::gate;
 use crate::runtime_access::RuntimeAccess;
 
 static SOURCES: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base::platform::harness::table("harness/model-watch-sources.toml"));
-const USAGE: &str = "usage: north model-watch [--interests PATH] [--feedback PATH] [--topic TOPIC] [--alerts-only] [--location PATH] [--sources PATH] [--timeout SECONDS] [--proposals DIR]
-       north model-watch news [--days N] [--noise ID | --more ID] [--feedback PATH]";
+const USAGE: &str = "usage: north ops model-watch [--interests PATH] [--feedback PATH] [--topic TOPIC] [--alerts-only] [--location PATH] [--sources PATH] [--timeout SECONDS] [--proposals DIR]
+       north ops model-watch news [--days N] [--noise ID | --more ID] [--feedback PATH]";
 
 pub(super) struct Options {
     pub(super) interests: PathBuf,
@@ -137,7 +137,7 @@ pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
     let options = match Options::parse(arguments) {
         Ok(options) => options,
         Err(error) => {
-            eprintln!("north model-watch: {error}\n{USAGE}");
+            eprintln!("north ops model-watch: {error}\n{USAGE}");
             return 2;
         }
     };
@@ -161,7 +161,7 @@ fn execute(host: &dyn Host, options: &Options) -> u8 {
     let config = match load_sources(options) {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("north model-watch: sources: {error}");
+            eprintln!("north ops model-watch: sources: {error}");
             return 1;
         }
     };

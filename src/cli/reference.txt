@@ -18,7 +18,7 @@ Commands:
   check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers
   check provenance audit [--repo REPO] [--db DB] [--event EVENT]  Audit grounding events
   check provenance inventory [--repo REPO] [--rev REV] [--stubs]  Count the hooks, policy lines, tiers and bars no record names
-  review-items PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
+  work review PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
   ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per failed run on each open "main is red" issue
   red-main-notify                               Tell each open "main is red" issue's culprit lane session and the proxy, once per culprit commit
   main-red RUN_ID                               Confirm a failed main CI run once, then ask the lander to revert its culprit (GH_REPO names the repository)
@@ -28,7 +28,7 @@ Commands:
   code-health habits [--repo DIR]               Run the Rust habit checks
   code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold; --rev measures a fresh detached checkout of REF, --file keeps one rolling split issue per repo
   guard language                                PreToolUse language guard
-  grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
+  graph ground [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
   work [list|search|show|claim|release|need|unneed|close]  Work items
   config agents [status|stale|inspect|path|on|off|sync|check-hook-paths|check-owners|live-refs|busy|plan|usage|routines]  Manage skills and hooks; run the agent plan, usage, busy and routines commands
   config check [--package DIR]                 Check the agent-machinery package: catalog shape, units, assets, schemas, contracts and its portable source boundary
@@ -37,7 +37,7 @@ Commands:
   dep-gate BASE HEAD                            Check dependency changes before landing
   denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
   denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
-  privacy judge --text FILE|- [--kinds FILE]       Judge a text for the private kinds listed in south: prints one kind and quoted span per finding (exit 1), exits 2 when the judge cannot run
+  check privacy judge --text FILE|- [--kinds FILE]       Judge a text for the private kinds listed in south: prints one kind and quoted span per finding (exit 1), exits 2 when the judge cannot run
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
   land abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land serve [--once] [--repo DIR] [--checker PROGRAM]  Land the queued lanes of this origin: one candidate, checked once by safe-push --check-candidate, pushed to main by lease
@@ -64,16 +64,16 @@ Commands:
   nix explain <nix subcommand | class>           Print a Nix footgun card, then the option sections of this host's `nix <cmd> --help` it names
   nix gc [--dry-run] [--max-freed SIZE]          Root every promoted runtime, live worktree dev shell and rustup wrapper store path, then collect the store
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
-  coverage select|test|miss BASE HEAD [--map FILE] | agreement --landings COUNT | record | refresh [--repo NAME] [--host NAME] [--head REVISION]  Pick the Rust tests that reach the functions a change touches, name the after-push failures they missed and refresh the map, judge the newest landings' selection share and misses, or record the test-to-function coverage map on a check host
+  test coverage select|test|miss BASE HEAD [--map FILE] | agreement --landings COUNT | record | refresh [--repo NAME] [--host NAME] [--head REVISION]  Pick the Rust tests that reach the functions a change touches, name the after-push failures they missed and refresh the map, judge the newest landings' selection share and misses, or record the test-to-function coverage map on a check host
   graph tell|retract T1 T2 T3 | show T1 | ask QUERY_JSON | ready [--query ready|held] | ingest [SOURCE...] | validate [--db PATH] [--writer NAME] [--json]  Record, withdraw and read facts in the triple graph, run a Datalog query over them, and list the ready boxes of the backlog in rank order with each held box's blocking edge
-  brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
+  work brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
   config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
-  agent-config-check [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
-  agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
-  agent-config-check tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits with no other checkout or live state; the land check for harness/ and agent-machinery/
+  check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
+  check harness policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
+  check harness tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits with no other checkout or live state; the land check for harness/ and agent-machinery/
   agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring
-  mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]  Run a mutation sweep over the named repositories and file surviving mutants
-  mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
+  test mutant sweep --repo DIR... [--host NAME] [--mutants N] [--timeout SECONDS_PER_TREE] [--days N] [--issue OWNER_REPO#N] [--remote-north COMMAND]  Run a mutation sweep over the named repositories and file surviving mutants
+  test mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
   threads ARGV                                  Run a NorthThreads command on the ledger host
   remote-serve --peer HOST [--repos REPO,...] [--log FILE]  The ssh forced command for a peer key: run SSH_ORIGINAL_COMMAND only if the allowlist and the peer's guards admit it, exit 126 on a refusal, and log one row per call
   remote-serve audit --peer HOST [--log FILE] [--keys FILE]  Count a peer's logged calls and refusals and print its key's days to expiry-time from authorized_keys
@@ -89,7 +89,7 @@ Commands:
   ledger scoreboard [--all] [--explain] | --weekly | --record | --rework [--since 7d] | audit [--tell] Print the readiness bars per repository, or with --weekly the weekly harness numbers for the last 7 days and the 7 days before
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
-  private-desktop [start|control|capture|type]   Run or control an isolated private desktop
+  desktop private [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
   fleet orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R)]   Record a verdict north observed itself, or tick issue boxes whose Observe: command exits 0
@@ -113,14 +113,14 @@ Commands:
   capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
-  laptop open|close|drain|toggle|status|tick|observe  Set or read the laptop's placement availability on the ledger host
+  fleet laptop open|close|drain|toggle|status|tick|observe  Set or read the laptop's placement availability on the ledger host
   laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
   laptop-ntfy serve|notify|press open|close     Phone signals for the laptop state: button endpoint, daily window reminder
   agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
   ops watch --once [--quiet]                    Run the landing and GitHub probes, raise their alerts to the proxy and the lane lead (--quiet prints none), then run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
   job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers
-  model-watch [--alerts-only] [--topic T] [--sources FILE]  Snapshot public model, release and market sources, rank new candidates once on the plan, send the digest; --alerts-only sends location warnings
-  model-watch news [--days N] [--noise ID|--more ID]  Show the last delivered watch digest or record feedback on an item
+  ops model-watch [--alerts-only] [--topic T] [--sources FILE]  Snapshot public model, release and market sources, rank new candidates once on the plan, send the digest; --alerts-only sends location warnings
+  ops model-watch news [--days N] [--noise ID|--more ID]  Show the last delivered watch digest or record feedback on an item
   outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read
   outside-watch status                          Show the last run and its log line
   lane reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
@@ -134,7 +134,7 @@ Commands:
   ops strategy refusals [--since 1h]  Print the launches placement refused in the window, each counted by its last placement, as a rate per hour: the oracle of the launch-refusals-per-hour goal
   ops strategy replay [--since 24h] [--invariants] [--budget]  Decide the window's logged placement, admission and lander cases again with this binary's code and print each kind's outcome counts beside the logged ones; exits 1 when a count shifts past replay_outcome_shift_ratio, and with --invariants also when a launch is placed on an account at its provider's limit, a lease asked from inside an offload slot is deferred behind the land check waiting for it, or the replayed landing p90 passes replay_landing_p90_seconds
   ops climb run --dry-run [--since 7d]  Print the week's largest measured loss from the worker ledger (repeat-run and unclosed-box dollars per tier and category), the one candidate policy change the generator writes for it, the candidate's score from strategy replay against the current policy, and every live arm's share with the ledger boxes behind it
-  frontier tasks|oracle|run|grade|report ...  Replay landed boxes from their base under north's worker harness and under plain Claude Code on the same model, each in its own sandbox; grade each arm's tree by the landing's own tests and write one run row per arm and task for north ledger scoreboard --frontier (docs/rationale/frontier.md)
+  test frontier tasks|oracle|run|grade|report ...  Replay landed boxes from their base under north's worker harness and under plain Claude Code on the same model, each in its own sandbox; grade each arm's tree by the landing's own tests and write one run row per arm and task for north ledger scoreboard --frontier (docs/rationale/frontier.md)
   lane audit [--repo NAME]... [--alert]         For every unarchived tompassarelli GitHub repo pushed in 2026 (own forks only): list branches already on the default branch but still present (a repository's GitHub Pages source branch is expected and left out), group unlanded branches as open work under the issue they name with its state, owner and age (oldest first), then the tags that are not v* releases and the v* tags without a GitHub release; writes ~/.local/state/agents/repo-audit/latest.txt; exits 1 on a landed branch older than an hour, an unowned branch whose issues are all closed or that names no issue, a bad tag, or a lane gc that failed or retires nothing, and --alert sends supply-alert (nightly timer)
   pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
   lane reap [--all] [--dry-run]                    Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it
@@ -159,7 +159,7 @@ Commands:
   warcraft-close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
   wc3-login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]  Type one stored Battle.net field into the verified private login window
   ops credentials check [--json] | renew [--dry-run] | import-cookies SITE [--from CHROME_PROFILE]  List every credential the fleet uses with its kind (machine or human-session), expiry and renewal path and exit 1 on any human-session, expired or undeclared one; renew runs machine renewals before expiry, batches what needs Tom into one notice 30 days ahead and writes the loop record (daily timer); import-cookies copies a declared site's sign-in from Tom's Chrome profile into the automation-chrome profile on the same machine and refuses an undeclared site
-  agent-capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
+  desktop capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant
   runtime health                                Check that the running binary is the current runtime with its programs and tree
   after-landing --git-dir DIR --base BASE --head HEAD  Run the after-landing checks on a landed range

@@ -1,9 +1,9 @@
-//! `north coverage`: a map from each Rust test to the functions it executes, recorded on a check
+//! `north test coverage`: a map from each Rust test to the functions it executes, recorded on a check
 //! host from an instrumented nextest run, and the pre-push test selection it drives: the tests that
 //! reach the functions a lane changed, the tests of a whole changed file where the map is older than
 //! that code, and none where the lane changes an input the map does not trace. The full suite still
 //! runs after the push, and `agreement` reads the land queue's coverage record of how often the
-//! selection ran and what it missed. Depends only on north-base; the lander reaches it through `north coverage`.
+//! selection ran and what it missed. Depends only on north-base; the lander reaches it through `north test coverage`.
 pub mod agreement;
 pub mod exec;
 pub mod hunks;
@@ -14,7 +14,7 @@ pub mod record;
 pub mod refresh;
 pub mod run_selected;
 
-const USAGE: &str = "usage: north coverage select BASE HEAD [--map FILE]\n       north coverage test BASE HEAD [--map FILE] [--timeout SECONDS]\n       north coverage miss BASE HEAD --log FILE [--map FILE]\n       north coverage agreement --landings COUNT [--queue DIRECTORY]\n       north coverage record [NEXTEST-ARGUMENT...]\n       north coverage refresh [--repo NAME] [--host NAME] [--head REVISION]\n       north coverage exec BINARY [ARGUMENT...]";
+const USAGE: &str = "usage: north test coverage select BASE HEAD [--map FILE]\n       north test coverage test BASE HEAD [--map FILE] [--timeout SECONDS]\n       north test coverage miss BASE HEAD --log FILE [--map FILE]\n       north test coverage agreement --landings COUNT [--queue DIRECTORY]\n       north test coverage record [NEXTEST-ARGUMENT...]\n       north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]\n       north test coverage exec BINARY [ARGUMENT...]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {

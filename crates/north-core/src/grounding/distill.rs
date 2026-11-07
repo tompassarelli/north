@@ -51,9 +51,9 @@ corrections loop's score. The prompt-grounding hook starts `run --after-prompt` 
 prompts, and the Stop hook at the end of each turn in his window, so a message he typed while the
 turn ran is read too: it waits 15 s for the transcript, then refreshes the convo index and runs.
 
-  north grounding distill run [--since 14d] [--no-refresh] [--if-idle] [--after-prompt]
-  north grounding distill status
-  north grounding distill capture
+  north graph ground distill run [--since 14d] [--no-refresh] [--if-idle] [--after-prompt]
+  north graph ground distill status
+  north graph ground distill capture
 "#;
 
 pub const SCORE_FILE: &str = "corrections-week.txt";
@@ -921,7 +921,7 @@ pub fn spawn_capture() {
     }
     let Ok(log) = fs::OpenOptions::new().append(true).create(true).open(state.join(CAPTURE_LOG)) else { return };
     let Ok(err) = log.try_clone() else { return };
-    let _ = Command::new("nice").args(["-n", "19", "north", "grounding", "distill", "run", "--after-prompt"]).stdin(Stdio::null()).stdout(log).stderr(err).spawn();
+    let _ = Command::new("nice").args(["-n", "19", "north", "graph", "ground", "distill", "run", "--after-prompt"]).stdin(Stdio::null()).stdout(log).stderr(err).spawn();
 }
 
 pub fn corrections_seen() -> Vec<(String, f64)> {

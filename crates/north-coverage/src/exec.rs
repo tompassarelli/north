@@ -26,11 +26,11 @@ impl Work {
 
 pub fn run(arguments: &[String]) -> u8 {
     let Some((binary, rest)) = arguments.split_first() else {
-        eprintln!("usage: north coverage exec BINARY [ARGUMENT...]");
+        eprintln!("usage: north test coverage exec BINARY [ARGUMENT...]");
         return 2;
     };
     let (Some(work), Some(tools)) = (std::env::var_os(WORK_ENV), std::env::var_os(TOOLS_ENV)) else {
-        eprintln!("north coverage exec: {WORK_ENV} and {TOOLS_ENV} must be set by north coverage record");
+        eprintln!("north test coverage exec: {WORK_ENV} and {TOOLS_ENV} must be set by north test coverage record");
         return 2;
     };
     let work = Work { root: PathBuf::from(work) };
@@ -45,7 +45,7 @@ pub fn run(arguments: &[String]) -> u8 {
     if let Some(test) = test
         && let Err(why) = reduce(&work, Path::new(&tools), &key, binary, test)
     {
-        eprintln!("north coverage exec: {why}");
+        eprintln!("north test coverage exec: {why}");
         return code.max(1);
     }
     code
