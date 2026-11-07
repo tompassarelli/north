@@ -1195,7 +1195,7 @@ replays held the load at 50 to 90 on 24 threads and drained the battery while pl
 - the `land.check` lines: clippy and nextest of the changed crates, the whole-tree habit tests, the
   coverage-selected tests, and the checks that finish in seconds: the verb-table sort, the tests/it
   module list, code-health layers, agent-config tree-policy, package, features-index, rationale-index,
-  doctor nix, test-admission kills, citation, nix-entry, experiments and run-time-data (north#634).
+  doctor nix, test-admission kills, citation, nix-entry, safe-push-verbs, experiments and run-time-data (north#634, north#810).
   e1d1313a5 moved all but clippy and nextest after landing for speed (north#719); an after-landing
   line can only turn main red, and on 2026-11-07 a 6464-byte workers skill (98d30d226) and a layers
   breach (086197b4b) did, so every one of them a lane's own change can fail moved back (north#714).

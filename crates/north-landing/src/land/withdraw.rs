@@ -40,11 +40,8 @@ pub(super) fn find(queue: &Path, wanted: &str) -> Result<(PathBuf, Ticket), Stri
     let file = if wanted.ends_with(".json") { wanted.to_owned() } else { format!("{wanted}.json") };
     let mut matches = Vec::new();
     for directory in [queue.to_path_buf(), queue.join(queue::OUTBOX)] {
-        for (path, ticket) in queue::pending(&directory).map_err(|error| format!("{}: {error}", directory.display()))? {
-            if path.file_name().is_some_and(|name| name == file.as_str()) || ticket.branch == wanted {
-                matches.push((path, ticket));
-            }
-        }
+        let pending = queue::pending(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
+        matches.extend(pending.into_iter().filter(|(path, ticket)| path.file_name().is_some_and(|name| name == file.as_str()) || ticket.branch == wanted));
     }
     matches.into_iter().max_by_key(|(path, _)| queue::queued_micros(path)).ok_or_else(|| format!("no queued ticket named {wanted} in {}", queue.display()))
 }

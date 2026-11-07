@@ -16,6 +16,7 @@ pub mod nix_entry;
 pub mod outgoing;
 pub mod policy;
 pub mod rule_owners;
+pub mod safe_push_verbs;
 pub mod slug;
 pub mod shell_hook;
 pub mod strategy_purity;
@@ -26,13 +27,14 @@ mod test_file;
 pub mod test_integrity;
 pub mod tool_removal;
 mod wall_clock;
+pub mod withdrawal;
 
 use std::path::{Path, PathBuf};
 
 pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity|incident-test|test-admission|policy-sweep|generated-rewrite BASE..HEAD\n       north land scan test-admission run BASE..HEAD\n       north land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD\n       north land scan boxes BASE..HEAD\n       north land scan docs-owners BASE..HEAD
        north land scan doc-links BASE..HEAD
        north land scan gate-shadow BASE..HEAD
-       north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps";
+       north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps";
 
 pub struct Range<'a> {
     pub base: &'a str,
@@ -72,6 +74,7 @@ pub fn run(arguments: &[String]) -> u8 {
         [name, rest @ ..] if name == "dropped-commits" => dropped_commits::run(&directory, rest),
         [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),
         [name, rest @ ..] if name == "nix-entry" => nix_entry::run(&directory, rest),
+        [name, rest @ ..] if name == "safe-push-verbs" => safe_push_verbs::run(&directory, rest),
         [name, range] if name == "run-time-data" => north_base::run_time_data::run(&directory, range),
         [name, range] if name == "dep-gate" => dep_gate(&directory, range),
         [name, range] if name == "doc-links" => doc_links::scan(&directory, range, &mut std::io::stdout()),

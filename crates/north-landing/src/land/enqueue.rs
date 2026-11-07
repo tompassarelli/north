@@ -217,6 +217,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     lane_squash::refuse_unfinished_subject(&root, &branch)?;
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let queue = queue::directory(environment.state_home, &origin);
+    super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session)?;
     if let Err((gates, detail)) = refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment))? {
         judged(environment, &root, &branch, &head, &gates, Err(detail))?;
     }

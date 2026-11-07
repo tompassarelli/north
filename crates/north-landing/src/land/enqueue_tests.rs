@@ -201,3 +201,27 @@ fn a_lane_that_began_with_a_wip_commit_lands_under_its_last_commit_and_a_lane_en
     assert!(refusal.contains("lane lane") && refusal.contains("--message"), "{refusal}");
     lane.enqueue(super::Shape::OneCommit { message: Some("Resume a landing the lander stopped on\n") });
 }
+
+#[test]
+fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queues_the_same_head_until_the_withdrawer_clears_it_or_the_head_changes() {
+    let lane = Lane::new();
+    let (state, south) = (lane.dir.path().join("state"), lane.dir.path().join("absent-south"));
+    let enqueue_as = |session: &str| {
+        let environment = super::Environment { state_home: &state, host: "fixture-host", session: Some(session), south: &south, denylist: None };
+        super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment)
+    };
+    let queued = enqueue_as("worker-1").unwrap();
+    let queue = super::queue::directory(&state, &run(&lane.repo, &["remote", "get-url", "--push", "origin"]));
+    super::queue::settle(&queued.path, queued.ticket.clone(), "withdrawn by proxy: caller audit pending".to_owned(), north_base::land_ticket::Phase::Withdrawn).unwrap();
+
+    let refused = enqueue_as("worker-1").unwrap_err();
+    assert!(refused.contains("withdrawn by proxy: caller audit pending") && refused.contains("clear-withdrawal"), "{refused}");
+    let name = queued.path.file_stem().unwrap().to_string_lossy().into_owned();
+    north_land_scans::withdrawal::clear(&queue, &name, "proxy", "audit done").unwrap();
+    let requeued = enqueue_as("worker-1").unwrap();
+
+    super::queue::settle(&requeued.path, requeued.ticket, "withdrawn by proxy: again".to_owned(), north_base::land_ticket::Phase::Withdrawn).unwrap();
+    assert!(enqueue_as("worker-1").is_err());
+    lane.commit("a changed head", &[]);
+    enqueue_as("worker-1").unwrap();
+}
