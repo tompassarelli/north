@@ -6,15 +6,16 @@ use north_graph::{Graph, Synced, Term, default_path};
 use crate::places::Places;
 use crate::shas::Shas;
 use crate::facts::Sourced;
-use crate::{corrections, coverage, decisions, issues, ledger, pushes, ranking, touches};
+use crate::{corrections, coverage, decisions, issues, ledger, losses, pushes, ranking, touches};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ranking ledger pushes touches decisions corrections coverage (all when none is named)";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ranking ledger losses pushes touches decisions corrections coverage (all when none is named)";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {
     Mirror,
     Ranking,
     Ledger,
+    Losses,
     Pushes,
     Touches,
     Decisions,
@@ -23,13 +24,14 @@ pub enum Source {
 }
 
 impl Source {
-    pub const ALL: [Self; 8] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Pushes, Self::Touches, Self::Decisions, Self::Corrections, Self::Coverage];
+    pub const ALL: [Self; 9] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Losses, Self::Pushes, Self::Touches, Self::Decisions, Self::Corrections, Self::Coverage];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Mirror => "mirror",
             Self::Ranking => "ranking",
             Self::Ledger => "ledger",
+            Self::Losses => "losses",
             Self::Pushes => "pushes",
             Self::Touches => "touches",
             Self::Decisions => "decisions",
@@ -43,6 +45,7 @@ impl Source {
             Self::Mirror => issues::read(places, shas),
             Self::Ranking => ranking::read(places),
             Self::Ledger => ledger::read(places).map(Sourced::from),
+            Self::Losses => losses::read(places),
             Self::Pushes => pushes::read(places).map(Sourced::from),
             Self::Touches => touches::read(places).map(Sourced::from),
             Self::Decisions => decisions::read(places).map(Sourced::from),

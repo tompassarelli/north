@@ -25,6 +25,7 @@ use super::digest;
 use super::gated;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
+use super::ranked;
 use super::one_proxy;
 use super::launch::{LaunchParts, launch_parts};
 use super::list;
@@ -209,6 +210,7 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         one_proxy::admit(fleet, caller.as_deref(), &format!("launch {}", request.name))?;
     }
     lineage::reader(fleet, &mut request, caller.as_deref())?;
+    ranked::admit(fleet, &request, caller.as_deref())?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());

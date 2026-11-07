@@ -79,3 +79,11 @@ pub fn held_query() -> Value {
 pub fn rank_query() -> Value {
     json!({"find": "rank", "rules": [rule(("rank", &["?issue", "?rank"]), vec![fact("?issue", "rank", "?rank")])]})
 }
+
+pub fn worth_query() -> Value {
+    json!({"find": "worth", "rules": [rule(("worth", &["?issue", "?loss", "?box"]), vec![fact("?issue", "loss-usd", "?loss"), fact("?issue", "box-usd", "?box")])]})
+}
+
+pub fn label_query() -> Value {
+    json!({"find": "labelled", "rules": [rule(("labelled", &["?issue", "?label"]), vec![fact("?issue", "state", ":open"), fact("?issue", "label", "?label")])]})
+}

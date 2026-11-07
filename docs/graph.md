@@ -130,17 +130,29 @@ something the ingest cannot resolve (`unparsed-wait`) refuses the push until the
 ## Ready set
 
 `north graph ready [--db PATH] [--query ready|held]` lists the backlog as a dependency graph, read-only: each unticked box of
-an open issue with no live wait, in rank order (`ready N`, issue, rank, box), then each box held by a wait with the edge that
-holds it (`held`, issue, rank, box, `waits on` the box or issue and its text or title). A wait is live while its target box
+an open issue with no live wait, in measured order (`ready N`, issue, its figure and rank, box), then each box held by a wait with
+the edge that holds it (`held`, issue, figure and rank, box, `waits on` the box or issue and its text or title). A wait is live while its target box
 is unticked or its target issue is open; `:blocked-by`, `:follows` and `:doc-waits-on` on the issue hold each of its boxes.
-Boxes of issues with no rank come last. `--query ready` and `--query held` print the `north graph ask` query behind each list,
+The measured order puts first the issue whose fix removes the most measured usage per dollar of one of its
+boxes: the `losses` ingest source tells each issue the 24 h usage of the harness cause classes it owns (`:loss-usd`, the
+classes `north ledger flow` charges, each owned by the issue `harness_loss_owners` in harness/defaults.toml names) and what
+one of its boxes costs (`:box-usd`, its worker usage per Done run over 14 days, else the fleet's), and the figure prints as
+`7.8 = $9.35 lost 24 h / $1.20 a box`. Priority label, then rank, break ties, so an issue that owns no measured loss keeps
+its label and rank order; boxes of issues with no rank come last among equals. `--query ready` and `--query held` print the `north graph ask` query behind each list,
 so `north graph ask "$(north graph ready --query ready)"` prints the same rows as tab-separated terms.
 
-`north dispatch` reads the same set (`crates/north-graph-ground/src/backlog.rs`): it orders issues by priority label, then
-rank, and skips an issue whose every unticked product box is held with `no box is ready: box "..." waits on ...`. A box is
+`north dispatch` reads the same set (`crates/north-graph-ground/src/backlog.rs`): it orders issues as `north graph ready` lists their
+ready boxes, issues with no ready box after them by priority label and rank, and skips an issue whose every unticked product box is held with `no box is ready: box "..." waits on ...`. A box is
 ready for this purpose when at least one product box is ready, so a ready Clean-up box never frees an issue whose product
 boxes wait. The graph is as fresh as the last ingest, which `north land follow` runs after each landing; when the graph cannot
 be read dispatch prints a `note:` and falls back to label and age order and the issue-level waits it reads from text.
+
+A proxy-role session launches a worker only on one of the first five issues of that order, or on an issue it created or
+edited in a turn that answers a message Tom typed (the newest prompt of its transcript carries no `[from NAME]` or `[gate ID]`
+sender); otherwise `north fleet launch` names the top five and refuses. The rule is the `proxy-launch-rank` gate of
+harness/gates.toml, in shadow until reviewed: it warns the proxy and appends each would-be refusal to
+`$XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl`. Dispatch's own launches run without the caller's fleet session, so
+the rule never reads them as the proxy's.
 
 ## Grounding
 

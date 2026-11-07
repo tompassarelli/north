@@ -75,16 +75,23 @@ const USAGE: &str = "usage: north dispatch [--dry-run] | route-replay [--days N]
 pub struct Outcome {
     pub launches: Vec<Launch>,
     pub skipped: Vec<(IssueRef, String)>,
-    pub ready: usize,
+    /// The issues dispatch found ready to staff, in the order it staffs them.
+    pub ready: Vec<IssueRef>,
     pub free: i64,
     pub revival: revive::Revival,
 }
 
+/// The issues in the fact graph's measured order (`north graph ready`), each issue with no ready box there after them, by
+/// priority label, backlog rank, age, project and number.
 fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects, backlog: Option<&Backlog>) -> Vec<&'a Issue> {
+    let leaders = backlog.map(Backlog::leaders).unwrap_or_default();
+    let place = |issue: &Issue| leaders.iter().position(|leader| *leader == issue.reference().to_string()).unwrap_or(usize::MAX);
     let rank = |issue: &Issue| backlog.and_then(|backlog| backlog.rank(&issue.reference().to_string())).unwrap_or(i64::MAX);
     let mut ordered: Vec<&Issue> = issues.iter().collect();
     ordered.sort_by(|a, b| {
-        (a.priority().cmp(&b.priority()))
+        place(a)
+            .cmp(&place(b))
+            .then(a.priority().cmp(&b.priority()))
             .then(rank(a).cmp(&rank(b)))
             .then(a.created.total_cmp(&b.created))
             .then_with(|| projects.position(&a.repo).cmp(&projects.position(&b.repo)))
@@ -134,7 +141,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             outcome.skipped.push((issue.reference(), why));
             continue;
         }
-        outcome.ready += 1;
+        outcome.ready.push(issue.reference());
         if let Some((file, holder)) = claims.conflict(issue) {
             outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
             continue;
@@ -168,11 +175,11 @@ pub fn boxless<'a>(survey: &'a Survey, outcome: &Outcome) -> Vec<&'a Issue> {
 /// The one line Tom gets when ready work and free slots coexist and nothing launched.
 pub fn alert(outcome: &Outcome, failures: &[String], here: &str) -> Option<String> {
     let launched = outcome.launches.len() - failures.len().min(outcome.launches.len());
-    if outcome.ready == 0 || outcome.free == 0 || launched > 0 {
+    if outcome.ready.is_empty() || outcome.free == 0 || launched > 0 {
         return None;
     }
     let why = failures.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
-    Some(format!("north dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready, outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
+    Some(format!("north dispatch on {here}: {} ready, {} free slots, none launched: {}", outcome.ready.len(), outcome.free, why.unwrap_or_else(|| "no reason recorded".into())))
 }
 
 fn print_survey(survey: &Survey) {
@@ -274,6 +281,10 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     };
     print_survey(&survey);
     let outcome = decide(&survey, &format!("north dispatch on {}", survey.here));
+    for (place, item) in outcome.ready.iter().enumerate() {
+        let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));
+        println!("ready {}\t{item}\t{standing}", place + 1);
+    }
     for (item, why) in &outcome.skipped {
         println!("skip {item}: {why}");
     }

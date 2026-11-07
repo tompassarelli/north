@@ -14,7 +14,7 @@ fn a_rolling_alarm_issue_is_not_ready_because_its_body_declares_no_category_whil
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None, builds: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, grant: None }];
     let alarm = decide(&survey(vec![uncategorised("north", 608, &body, &[])], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()), "test");
-    assert!(alarm.launches.is_empty() && alarm.ready == 0, "{:?}", alarm.skipped);
+    assert!(alarm.launches.is_empty() && alarm.ready.is_empty(), "{:?}", alarm.skipped);
     assert_eq!(alarm.skipped, [(super::issues::IssueRef::parse("north#608").unwrap(), super::facets::UNCATEGORISED.to_owned())]);
 
     let headed = decide(&survey(vec![uncategorised("north", 608, &format!("Category: tooling\n{body}"), &[])], Cloud::Closed(String::new()), hosts, accounts), "test");

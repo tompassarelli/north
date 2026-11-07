@@ -4,7 +4,7 @@ use north_graph::default_path;
 use crate::backlog::read;
 use crate::rules::{held_query, ready_query};
 
-const USAGE: &str = "usage: north graph ready [--db PATH] [--query ready|held]\nlists the ready boxes in rank order, then each held box with the edge that holds it; --query prints the `north graph ask` query behind a list";
+const USAGE: &str = "usage: north graph ready [--db PATH] [--query ready|held]\nlists the ready boxes most measured worth first (the 24 h harness usage the issue owns per dollar a box costs, then priority label and backlog rank), then each held box with the edge that holds it; --query prints the `north graph ask` query behind a list";
 
 pub fn command(arguments: &[String]) -> u8 {
     let mut db = default_path();

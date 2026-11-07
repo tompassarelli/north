@@ -114,6 +114,16 @@ pub fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
     Ok(true)
 }
 
+/// The threads ledger this host reads: `THREADS_DB`, else the mirrored snapshot on a remote client, else the local database.
+pub fn threads_database() -> PathBuf {
+    if let Some(path) = std::env::var_os("THREADS_DB") {
+        return path.into();
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let state = home.join(".local/state/threads");
+    state.join(if home.join(".config/threads/remote").exists() { "snapshot.db" } else { "threads.db" })
+}
+
 pub fn ledger_path() -> NorthResult<PathBuf> {
     ambient_client(unread_fleet()).map(|client| client.ledger()).ok_or_else(|| NorthError::Usage("no home directory".into()))
 }

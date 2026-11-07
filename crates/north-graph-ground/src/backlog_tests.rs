@@ -31,14 +31,18 @@ fn graph() -> Graph {
     issue(&mut graph, "north#5", Some(4), &[("box:5a", "Waits on a closed issue")]);
     tell(&mut graph, "north#5", "doc-waits-on", Term::string("north#6"));
     tell(&mut graph, "north#6", "state", Term::keyword("closed"));
+    tell(&mut graph, "north#2", "label", Term::string("priority:later"));
+    tell(&mut graph, "north#5", "loss-usd", Term::float(9.0));
+    tell(&mut graph, "north#5", "box-usd", Term::float(1.5));
     graph
 }
 
 #[test]
-fn the_reader_lists_ready_boxes_in_rank_order_with_each_held_boxs_edge_from_the_layout_ingest_stores() {
+fn the_reader_lists_ready_boxes_most_measured_loss_per_dollar_first_then_by_label_and_rank_with_each_held_boxs_edge() {
     let backlog = read_from(&graph()).unwrap();
     let ready: Vec<(&str, &str)> = backlog.ready.iter().map(|entry| (entry.issue.as_str(), entry.node.as_str())).collect();
-    assert_eq!(ready, [("north#1", "box:1a"), ("north#2", "box:2a"), ("north#4", "box:4c"), ("north#5", "box:5a")]);
+    assert_eq!(ready, [("north#5", "box:5a"), ("north#1", "box:1a"), ("north#4", "box:4c"), ("north#2", "box:2a")], "the issue owning measured loss leads, and a later label sinks below rank");
+    assert_eq!(backlog.leaders(), ["north#5", "north#1", "north#2"], "an issue whose only ready box is a Clean-up box under a held product box leads nothing");
     let held: Vec<(&str, &str, &str)> = backlog.held.iter().map(|held| (held.entry.issue.as_str(), held.entry.node.as_str(), held.edge.as_str())).collect();
     assert_eq!(held, [("north#1", "box:1b", "box:2a"), ("north#3", "box:3a", "north#2"), ("north#4", "box:4a", "north#2")]);
     assert_eq!(backlog.held[0].edge_text, "Build the broker", "a box edge reads as the box it waits on");
@@ -53,7 +57,7 @@ fn the_reader_lists_ready_boxes_in_rank_order_with_each_held_boxs_edge_from_the_
     assert!(matches!(backlog.verdict("north#99"), Verdict::Unknown));
 
     let lines = backlog.lines();
-    assert_eq!(lines[0], "ready 1\tnorth#1\trank 1\tShip the gateway");
-    assert_eq!(lines[2], "ready 3\tnorth#5\trank 4\tWaits on a closed issue", "north#4's ready Clean-up box is not listed while a product box of it waits");
-    assert_eq!(lines[3], "held\tnorth#1\trank 1\tMove the callers\twaits on box:2a \"Build the broker\"");
+    assert_eq!(lines[0], "ready 1\tnorth#5\t6.0 = $9.00 lost 24 h / $1.50 a box, rank 4\tWaits on a closed issue");
+    assert_eq!(lines[2], "ready 3\tnorth#2\t0 measured, rank 2\tBuild the broker", "north#4's ready Clean-up box is not listed while a product box of it waits");
+    assert_eq!(lines[3], "held\tnorth#1\t0 measured, rank 1\tMove the callers\twaits on box:2a \"Build the broker\"");
 }

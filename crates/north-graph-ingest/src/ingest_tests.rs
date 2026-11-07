@@ -39,7 +39,7 @@ fn places(directory: &Path) -> Places {
     std::fs::write(directory.join("pushes.tsv"), format!("1793926432\tnorth\tn634-hung-slots\t{FULL}\t{FULL}\tn634-hung-slots\n")).unwrap();
     std::fs::write(directory.join("corrections.jsonl"), "{\"id\":\"L1\",\"at\":\"2026-10-01T14:15:12Z\",\"kind\":\"correction\",\"quote\":\"Tom said the reply did not answer his question.\",\"source\":\"tom convo:1 session:abc\",\"superseded_by\":null,\"class\":\"unanswered\"}\n").unwrap();
     std::fs::create_dir_all(directory.join("coverage")).unwrap();
-    Places { mirror, ledger, pushes: directory.join("pushes.tsv"), code: directory.join("code"), decisions: None, corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage"), ranking: directory.join("backlog-ranking.md") }
+    Places { mirror, ledger, threads: directory.join("threads.db"), pushes: directory.join("pushes.tsv"), code: directory.join("code"), decisions: None, corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage"), ranking: directory.join("backlog-ranking.md") }
 }
 
 fn unobserved_claims() -> Query {

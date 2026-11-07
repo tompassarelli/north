@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
@@ -45,14 +44,7 @@ pub fn eta_calibration(tier: &str) -> NorthResult<(Option<f64>, String)> {
     crate::threads::calibration::eta_pred_scale(&threads_database(), Timestamp::now(), tier).map_err(NorthError::State)
 }
 
-pub fn threads_database() -> PathBuf {
-    if let Some(path) = std::env::var_os("THREADS_DB") {
-        return path.into();
-    }
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let state = home.join(".local/state/threads");
-    state.join(if home.join(".config/threads/remote").exists() { "snapshot.db" } else { "threads.db" })
-}
+pub use crate::threads::client::threads_database;
 
 fn text(row: &Value, key: &str) -> String {
     row[key].as_str().unwrap_or_default().to_owned()

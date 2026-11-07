@@ -13,6 +13,7 @@ mod lineage;
 pub(super) mod one_proxy;
 mod list;
 mod placement;
+mod ranked;
 mod proxy;
 mod rebooted;
 mod relaunch;

@@ -2,3 +2,7 @@
 
 [gate.gate-shadow]
 mode = "shadow"
+
+# A proxy launches a worker only on one of the top five issues of `north graph ready` or an issue it filed or edited in a turn answering a message Tom typed (north#734). Would-be refusals: $XDG_STATE_HOME/north/gates/proxy-launch-rank.jsonl on the launching host.
+[gate.proxy-launch-rank]
+mode = "shadow"

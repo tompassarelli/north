@@ -13,7 +13,6 @@ const TOM_LABELS: [&str; 3] = ["evidence:tom", "needs:tom", "decision:tom"];
 /// Labels whose issue is not one box: a roadmap root is finished by its children.
 const ROOT_LABELS: [&str; 1] = ["roadmap"];
 const RUNNING_LABELS: [&str; 1] = ["native:running"];
-const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
 /// Why dispatch skips an open issue with no Done-when box at all, which the triage lead gives one.
 pub const NEEDS_BOX: &str = "needs a box: no Done-when box";
 
@@ -131,8 +130,7 @@ impl Issue {
 
     /// The rank `threads unowned` staffs by: priority:now, unprioritized, next, later; within a priority, docs/rationale/backlog-ranking.md's order.
     pub fn priority(&self) -> usize {
-        let label = PRIORITIES.iter().find(|priority| self.labels.iter().any(|label| label == *priority)).unwrap_or(&"-");
-        PRIORITIES.iter().position(|priority| priority == label).unwrap_or(1)
+        north_graph_ground::priority(self.labels.iter().map(String::as_str))
     }
 }
 

@@ -108,8 +108,9 @@ fn predict(launch: &Launch) {
 fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Result<String, String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
     let (program, words) = command(launch, name, survey, home, &north.to_string_lossy())?;
-    let arguments: Vec<&str> = words.iter().map(String::as_str).collect();
-    match run_within(&program, &arguments, LAUNCH_WAIT) {
+    let mut child = std::process::Command::new(&program);
+    child.args(&words).env_remove(crate::fleet::runtime::SESSION_ENV).env_remove(crate::fleet::runtime::ROLE_ENV);
+    match crate::platform::process::run_command_within(child, None, LAUNCH_WAIT) {
         None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
         Some(output) if output.status.success() => Ok(name.to_owned()),
         Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
