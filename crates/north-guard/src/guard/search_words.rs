@@ -68,6 +68,25 @@ pub(super) fn segments(tokens: Vec<Token>) -> Vec<Segment> {
     found
 }
 
+pub(super) fn drop_redirects(tokens: Vec<Token>) -> Vec<Token> {
+    let mut kept = Vec::new();
+    let mut target_next = false;
+    for token in tokens {
+        let (kind, text, quoted) = &token;
+        if *kind == "sep" {
+            target_next = false;
+            kept.push(token);
+        } else if target_next {
+            target_next = false;
+        } else if !quoted && is_redirect(text) {
+            target_next = is_redirect_operator(text);
+        } else {
+            kept.push(token);
+        }
+    }
+    kept
+}
+
 fn duration(token: &str) -> bool {
     let digits = token.trim_end_matches(['s', 'm', 'h', 'd']);
     let suffix = &token[digits.len()..];
@@ -240,8 +259,44 @@ fn wildcard(pattern: &[char], name: &[char]) -> bool {
         None => name.is_empty(),
         Some(('*', rest)) => (0..=name.len()).any(|skip| wildcard(rest, &name[skip..])),
         Some(('?', rest)) => name.split_first().is_some_and(|(_, tail)| wildcard(rest, tail)),
+        Some(('[', rest)) => match (class_end(rest), name.split_first()) {
+            (Some(end), Some((first, tail))) => in_class(&rest[..end], *first) && wildcard(&rest[end + 1..], tail),
+            (None, Some((first, tail))) => *first == '[' && wildcard(rest, tail),
+            _ => false,
+        },
         Some((letter, rest)) => name.split_first().is_some_and(|(first, tail)| first == letter && wildcard(rest, tail)),
     }
+}
+
+fn class_end(rest: &[char]) -> Option<usize> {
+    let skip = usize::from(matches!(rest.first(), Some('!' | '^')));
+    let body = rest.get(skip + 1..)?;
+    body.iter().position(|c| *c == ']').map(|at| at + skip + 1)
+}
+
+fn in_class(class: &[char], candidate: char) -> bool {
+    let (negated, class) = match class.split_first() {
+        Some(('!' | '^', tail)) => (true, tail),
+        _ => (false, class),
+    };
+    let mut hit = false;
+    let mut index = 0;
+    while index < class.len() {
+        if class.get(index + 1) == Some(&'-') && index + 2 < class.len() {
+            hit |= (class[index]..=class[index + 2]).contains(&candidate);
+            index += 3;
+        } else {
+            hit |= class[index] == candidate;
+            index += 1;
+        }
+    }
+    hit != negated
+}
+
+pub(super) fn glob_matches(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let name: Vec<char> = name.chars().collect();
+    wildcard(&pattern, &name)
 }
 
 pub(super) fn has_glob(word: &str) -> bool {
@@ -286,3 +341,4 @@ pub(super) fn is_redirect_operator(word: &str) -> bool {
 pub(super) fn is_plain_argument(word: &str) -> bool {
     !word.starts_with('-') && !is_redirect(word) && !word.bytes().all(|b| b.is_ascii_digit())
 }
+

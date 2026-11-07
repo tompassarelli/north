@@ -1391,6 +1391,7 @@ label = "true"
 rule = "resource-safe-search"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 10 of 301 distinct refused calls"
+narrowed = "2026-11-08 north#706: an operand after `cd DIR` is resolved against DIR (a `cd` into a variable leaves relative operands unjudged), and redirect targets such as `> /dev/null` are no longer operands"
 
 [[sample.row]]
 command = "L=/home/tom/code/north/worktrees/spawn-guard-one-rule/crates/north-core/src/router; cd $L && python3 - <<'EOF' from pathlib import Path p = Path(\"rout"
@@ -1517,6 +1518,7 @@ label = "true"
 rule = "corpus-scan"
 window = "2026-11-01 to 2026-11-08"
 drawn = "1 in 8 of 241 distinct refused calls"
+narrowed = "2026-11-08 north#706: a glob segment counts as archives or accounts only when it can match them, a search reading a pipe has no default `.`, `fd -dN` is read as a depth, and redirect targets are no longer operands"
 
 [[sample.row]]
 command = "cat /tmp/claude-1000/-home-tom-code-north-main/f1a617db-c1e5-4278-8a4a-e99b9c8902e2/tasks/bndwsrn8x.output; grep -n 'nixos-anywhere' ~/code/south/main"

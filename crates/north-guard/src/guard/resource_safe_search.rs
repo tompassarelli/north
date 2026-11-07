@@ -109,25 +109,39 @@ impl Refusal {
 }
 
 pub(super) fn refusal(command: &str, cwd: &str, home: &str) -> Option<String> {
-    let reasons: Vec<String> = inspect_command(command, cwd, home, 0)
+    let reasons: Vec<String> = inspect_command(command, Some(cwd), home, 0)
         .iter()
         .map(Refusal::reason)
         .collect();
     (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
-fn inspect_command(text: &str, base: &str, home: &str, depth: usize) -> Vec<Refusal> {
-    let tokens = shell::tokenize(
+fn inspect_command(text: &str, base: Option<&str>, home: &str, depth: usize) -> Vec<Refusal> {
+    let tokens = search_words::drop_redirects(shell::tokenize(
         &shell::strip_heredocs(text),
         ";&|\n()`",
         false,
         false,
         " \t\r",
-    );
-    search_words::segments(tokens)
-        .into_iter()
-        .flat_map(|segment| inspect_segment(&segment.words, segment.piped, base, home, depth))
-        .collect()
+    ));
+    let mut here = base.map(str::to_owned);
+    let mut found = Vec::new();
+    for segment in search_words::segments(tokens) {
+        if let Some(directory) = change_directory(&segment.words) {
+            here = here
+                .as_deref()
+                .filter(|_| !directory.contains(['$', '`']))
+                .map(|current| resolve_operand(directory, current, home));
+        } else {
+            found.extend(inspect_segment(&segment.words, segment.piped, here.as_deref(), home, depth));
+        }
+    }
+    found
+}
+
+fn change_directory(words: &[String]) -> Option<&str> {
+    let mut rest = words.iter().skip_while(|word| shell::assignment(word));
+    (rest.next()? == "cd").then(|| rest.find(|word| !word.starts_with('-')).map(String::as_str))?
 }
 
 fn is_search(name: &str) -> bool {
@@ -137,7 +151,7 @@ fn is_search(name: &str) -> bool {
 fn inspect_segment(
     words: &[String],
     piped: bool,
-    base: &str,
+    base: Option<&str>,
     home: &str,
     depth: usize,
 ) -> Vec<Refusal> {
@@ -153,6 +167,11 @@ fn inspect_segment(
     let Some(operands) = path_operands(tool, &words[index + 1..], piped) else {
         return Vec::new();
     };
+    let operands: Vec<String> = operands
+        .into_iter()
+        .filter(|operand| base.is_some() || operand.starts_with(['/', '~']))
+        .collect();
+    let base = base.unwrap_or("/");
     let found = |(target, shape), repository| Refusal {
         tool: tool.to_owned(),
         target,

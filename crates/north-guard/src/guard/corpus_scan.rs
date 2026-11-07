@@ -10,6 +10,7 @@ const CHEAP_DEPTH: i64 = 3;
 const GREP_LIKE: &[&str] = &[
     "grep", "egrep", "fgrep", "rgrep", "zgrep", "zegrep", "zfgrep",
 ];
+const READS_PIPE: &[&str] = &["rg", "ripgrep", "ag", "ack", "ack-grep"];
 const RG_LIKE: &[&str] = &["rg", "ripgrep", "ag", "ack", "ack-grep", "fd", "fdfind"];
 const WRAPPERS: &[&str] = &[
     "sudo", "doas", "env", "nice", "ionice", "time", "nohup", "command", "builtin", "xargs",
@@ -93,13 +94,13 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 
 enum Seg {
     Lit(String),
-    Wild,
+    Wild(String),
 }
 
 impl Seg {
     fn is(&self, name: &str) -> bool {
         match self {
-            Seg::Wild => true,
+            Seg::Wild(pattern) => search_words::glob_matches(pattern, name),
             Seg::Lit(text) => text == name,
         }
     }
@@ -179,7 +180,7 @@ impl Corpus {
                 .filter(|part| !part.is_empty())
                 .map(|part| {
                     if globbed(part) {
-                        Seg::Wild
+                        Seg::Wild(part.to_owned())
                     } else {
                         Seg::Lit(part.to_owned())
                     }
@@ -193,6 +194,7 @@ struct Search {
     tool: String,
     arguments: Vec<String>,
     base: String,
+    piped: bool,
 }
 
 fn run_length(text: &str) -> bool {
@@ -208,6 +210,7 @@ struct Scanner<'a> {
     tool: Option<String>,
     arguments: Vec<String>,
     found: Vec<Search>,
+    piped: bool,
     at_command: bool,
     change_dir: bool,
     skip_next: bool,
@@ -220,8 +223,10 @@ impl Scanner<'_> {
                 tool,
                 arguments: std::mem::take(&mut self.arguments),
                 base: self.here.clone(),
+                piped: self.piped,
             });
         }
+        self.piped = false;
         (self.at_command, self.change_dir, self.skip_next) = (true, false, false);
     }
 
@@ -263,6 +268,7 @@ fn searches(tokens: Vec<Token>, corpus: &Corpus, start: &str) -> Vec<Search> {
         tool: None,
         arguments: Vec::new(),
         found: Vec::new(),
+        piped: false,
         at_command: true,
         change_dir: false,
         skip_next: false,
@@ -270,6 +276,7 @@ fn searches(tokens: Vec<Token>, corpus: &Corpus, start: &str) -> Vec<Search> {
     for (kind, text, quoted) in tokens {
         if kind == "sep" {
             scanner.flush();
+            scanner.piped = text == "|";
         } else {
             scanner.feed(text, quoted);
         }
@@ -304,6 +311,10 @@ fn python_int(text: &str) -> Option<i64> {
 fn depth_limit(arguments: &[String]) -> Option<i64> {
     let mut best: Option<i64> = None;
     for (index, token) in arguments.iter().enumerate() {
+        if let Some(depth) = token.strip_prefix("-d").and_then(python_int).filter(|_| token.len() > 2) {
+            best = Some(best.map_or(depth, |best| best.min(depth)));
+            continue;
+        }
         let (name, value) = match token.split_once('=') {
             Some((name, value)) if token.starts_with('-') => (name, Some(value)),
             _ => (token.as_str(), arguments.get(index + 1).map(String::as_str)),
@@ -356,13 +367,13 @@ fn operands(tool: &str, arguments: &[String]) -> Vec<String> {
 
 pub(super) fn refusal(command: &str, cwd: &str, home: &str) -> Option<String> {
     let corpus = Corpus::new(home);
-    let tokens = shell::tokenize(
+    let tokens = search_words::drop_redirects(shell::tokenize(
         &shell::strip_heredocs(command),
         ";&|\n(){}`",
         false,
         false,
         " \t",
-    );
+    ));
     let mut hit: Option<(String, String)> = None;
     let mut doubled = false;
     let mut seen: HashMap<String, String> = HashMap::new();
@@ -376,7 +387,7 @@ pub(super) fn refusal(command: &str, cwd: &str, home: &str) -> Option<String> {
             continue;
         }
         let mut paths = operands(&search.tool, &search.arguments);
-        if paths.is_empty() {
+        if paths.is_empty() && !(search.piped && READS_PIPE.contains(&search.tool.as_str())) {
             paths.push(".".into());
         }
         for path in paths {

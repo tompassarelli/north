@@ -27,11 +27,11 @@ False share by guard (over 10% marked *):
 - privacy-judge.pending 14/30 * (narrowed by 0a478d5770: no pending refusal in the 2 h after it deployed)
 - issue-cleanup 24/30 *
 - heavy-command.farm 2/3 * (after df206b8a67; the 26 earlier false rows were already fixed) (narrowed here)
-- resource-safe-search 20/30 *
+- resource-safe-search 20/30 * (narrowed here)
 - session-kill.self-match 19/30 * (narrowed here)
 - session-kill 13/30 * (narrowed here)
 - worker-tier.item 11/30 * (narrowed here)
-- corpus-scan 8/30 *
+- corpus-scan 8/30 * (narrowed here)
 - modern-search 8/30 * (narrowed here)
 - tripwire 8/30 *
 - issue-filing 6/30 *
@@ -86,3 +86,23 @@ lost. The 4 false rows fall into three classes the fix never addressed:
 
 Reverting the fix would bring back the 21 of 30 false the earlier sample measured, so it stays. The three new classes are
 narrowing work on north#706.
+
+## resource-safe-search and corpus-scan narrowed (north#706)
+
+Replaying the stored sample rows (commands kept to 150 characters) through each guard before and after the change:
+
+- resource-safe-search read 7 false rows refused before and 0 after; corpus-scan read 4 before and 0 after.
+- Every true row the old code refused is still refused. The 2 and 8 true rows that were already not refused read the same
+  before and after, because their stored text is cut before the searching part.
+
+The false classes and their fixes:
+
+- an operand after `cd DIR` was resolved against the hook's cwd, so `rg ... ..` after a `cd` into a worktree read the
+  repository container; both guards now resolve it against DIR, and resource-safe-search leaves a relative operand unjudged
+  after a `cd` into a shell variable;
+- a redirect target (`2>/dev/null`, `> /dev/null`) was read as a search operand and a /dev/null content search refused; both
+  guards drop redirect words and their targets, unless quoted;
+- a glob segment such as `land-queue*` counted as `archives` or `accounts` because any glob matched; corpus-scan now matches
+  the glob against the name;
+- `rg` or `ag` reading a pipe got the default operand `.`; corpus-scan now skips it, as resource-safe-search already did;
+- `fd -d3` was not read as a depth; corpus-scan now reads `-dN`.
