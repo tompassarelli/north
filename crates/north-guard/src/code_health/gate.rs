@@ -190,8 +190,9 @@ pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_
             v.push(Violation::new("hotspot", &c.path, format!("complexity {now} > {was} in a top-{limit} hotspot — {FIX_HOTSPOT}")));
         }
     }
+    v.extend(super::implicit::debt(&mut hs, override_path, &head_files, &base_as_head)?);
     let allowed = allows(repo, &[&format!("{base}..{head}")])?;
-    v.retain(|x| !(["file-size", "function", "hotspot"].contains(&x.rule.as_str()) && allowed.iter().any(|a| a.rule == x.rule && a.path == x.path)));
+    v.retain(|x| !(["file-size", "function", "hotspot", super::implicit::RULE].contains(&x.rule.as_str()) && allowed.iter().any(|a| a.rule == x.rule && a.path == x.path)));
     Ok(GateResult { violations: v, warning: None })
 }
 

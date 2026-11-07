@@ -252,7 +252,7 @@ debt), that never refuses a landing and files each new occurrence as gate debt. 
 - `marker-stamp`: `set_modified`, `set_times` or `touch` stamping a file with the current time, read later as state.
 - `presence-flag`: a path the repository writes or removes whose existence, or `read_to_string().ok()`, decides
   behaviour, the empty marker file included.
-- `unit-intent`: `systemctl stop|disable|mask|kill` of a unit, used to hold an intent no record keeps.
+- `unit-intent`: `systemctl stop|disable|mask` of a unit, used to hold an intent no record keeps.
 - `pid-liveness`: `/proc/PID` existence or `kill(pid, 0)` taken as a holder's liveness, with no start-time check.
 - `phase-suffix`: a `.staging`, `.old`, `.partial`, `.done` or `.tried` name whose presence is read as a phase.
 - `status-string`: a field named status, state, phase or stage compared with a word literal outside parsing, a SQL
@@ -270,4 +270,5 @@ different crates, a process list or window list read as a session's state, and a
 underneath it (a `set-property --runtime` value cached past a reboot).
 
 Code that reads and writes its state through `north_base::lifecycle::Store` is exempt; an exception is a
-`[[implicit_state.allow]]` entry in structure.toml naming the shape, path, item and reason.
+`[[implicit_state.allow]]` entry in structure.toml naming the shape, path, item and reason, or a
+`Code-health-allow: implicit-state PATH — REASON` trailer; the files under `[implicit_state] owners` are not scanned.

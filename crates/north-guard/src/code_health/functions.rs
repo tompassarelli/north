@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
-use std::process::Command;
+
+use north_base::platform::ast_grep::{self, Match};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct Function {
@@ -79,48 +79,11 @@ fn rules(language: Language) -> String {
 }
 
 pub(super) fn ast_grep_available() -> bool {
-    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("ast-grep").is_file()))
+    ast_grep::available()
 }
 
-#[derive(Clone)]
-struct Match {
-    rule: String,
-    file: String,
-    start: usize,
-    end: usize,
-    line: usize,
-    end_line: usize,
-    name: Option<String>,
-}
-
-fn scan(root: &Path, languages: &BTreeSet<Language>) -> Result<Vec<Match>, String> {
-    let rules_file = root.join(".rules.yml");
-    let text = languages.iter().map(|language| rules(*language)).collect::<Vec<_>>().join("---\n");
-    std::fs::write(&rules_file, text).map_err(|error| format!("ast-grep rules: {error}"))?;
-    let mut command = Command::new("ast-grep");
-    command.args(["scan", "--threads", "1", "-r"]).arg(&rules_file).arg("--json=stream");
-    for kind in ["hidden", "vcs", "dot", "parent", "global", "exclude"] {
-        command.args(["--no-ignore", kind]);
-    }
-    let output = command.arg(root).output().map_err(|error| format!("ast-grep: {error}"))?;
-    if !matches!(output.status.code(), Some(0 | 1)) {
-        return Err(format!("ast-grep: {}", String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    let mut out = Vec::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines().filter(|line| !line.is_empty()) {
-        let found: serde_json::Value = serde_json::from_str(line).map_err(|error| format!("ast-grep output: {error}"))?;
-        let number = |pointer: &str| found.pointer(pointer).and_then(serde_json::Value::as_u64).unwrap_or(0) as usize;
-        out.push(Match {
-            rule: found["ruleId"].as_str().unwrap_or_default().to_owned(),
-            file: found["file"].as_str().unwrap_or_default().to_owned(),
-            start: number("/range/byteOffset/start"),
-            end: number("/range/byteOffset/end"),
-            line: number("/range/start/line") + 1,
-            end_line: number("/range/end/line") + 1,
-            name: found.pointer("/metaVariables/single/N/text").and_then(serde_json::Value::as_str).map(str::to_owned),
-        });
-    }
-    Ok(out)
+fn scan(files: &[ast_grep::File], languages: &BTreeSet<Language>) -> Result<Vec<Match>, String> {
+    ast_grep::scan(files, &languages.iter().map(|language| rules(*language)).collect::<Vec<_>>().join("---\n"))
 }
 
 struct Unit {
@@ -143,7 +106,7 @@ fn assemble(matches: &[Match]) -> Vec<Function> {
         if parent.is_some_and(|(top, _)| top.start == found.start && top.end == found.end) {
             continue;
         }
-        let name = found.name.as_deref().unwrap_or("?");
+        let name = found.single.get("N").map_or("?", String::as_str);
         let mut qualified = parent.map_or_else(|| name.to_owned(), |(_, qualified)| format!("{qualified}.{name}"));
         let count = seen.entry(qualified.clone()).or_insert(0);
         *count += 1;
@@ -189,21 +152,12 @@ pub(super) fn measure(groups: &[(&str, &[SourceText])]) -> Result<BTreeMap<Strin
     if languages.is_empty() {
         return Ok(result);
     }
-    let root = tempfile::Builder::new().prefix("code-health-").tempdir().map_err(|error| format!("temp dir: {error}"))?;
-    for (prefix, files) in groups {
-        for file in *files {
-            let out = root.path().join(prefix).join(&file.path);
-            if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-            }
-            std::fs::write(&out, file.text.as_bytes()).map_err(|error| format!("{}: {error}", out.display()))?;
-        }
-    }
+    let paths: Vec<String> = groups.iter().flat_map(|(prefix, files)| files.iter().map(move |file| format!("{prefix}/{}", file.path))).collect();
+    let texts = groups.iter().flat_map(|(_, files)| files.iter().map(|file| &*file.text));
+    let files: Vec<ast_grep::File> = paths.iter().zip(texts).map(|(path, text)| ast_grep::File { path, text }).collect();
     let mut by_file: BTreeMap<String, Vec<Match>> = BTreeMap::new();
-    let prefix = format!("{}/", root.path().display());
-    for found in scan(root.path(), &languages)? {
-        let relative = found.file.strip_prefix(&prefix).unwrap_or(&found.file).to_owned();
-        by_file.entry(relative).or_default().push(found);
+    for found in scan(&files, &languages)? {
+        by_file.entry(found.file.clone()).or_default().push(found);
     }
     for (relative, matches) in by_file {
         if let Some(slot) = result.get_mut(&relative) {

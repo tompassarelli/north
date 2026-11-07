@@ -4,6 +4,10 @@ function_lines = 60
 function_complexity = 15
 hotspot_top = 10
 
+[implicit_state]
+owners = ["crates/north-base/src/lifecycle.rs", "crates/north-base/src/lifecycle/"]
+typed = "north_base::lifecycle (one Lifecycle enum per state, written only through lifecycle::Store)"
+
 [crate_lines]
 default = 25000
 hub = 10000
@@ -45,7 +49,7 @@ may_use = ["north-providers"]
 [[crate_dag.crate]]
 name = "north-guard"
 paths = ["crates/north-guard/src/**", "crates/*/src/lanes.rs", "crates/*/src/lanes/**", "crates/*/src/code_health.rs", "crates/*/src/code_health/**"]
-may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground"]
+may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-graph-ground", "north-implicit-state"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
@@ -75,6 +79,11 @@ may_use = ["north-base", "north-fleet", "north-providers"]
 [[crate_dag.crate]]
 name = "north-mutants"
 paths = ["crates/north-mutants/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
+name = "north-implicit-state"
+paths = ["crates/north-implicit-state/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
@@ -174,7 +183,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["lifecycle", "strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier"]
+may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier", "lifecycle", "implicit_state"]
 
 [[module]]
 name = "strategy_types"
@@ -258,7 +267,7 @@ may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "cap
 name = "threads"
 paths = ["crates/north-threads/src/threads/**", "crates/north-threads/src/work_items.rs"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
-may_use = ["lifecycle", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["domain", "platform", "foundation", "crate-roots", "lifecycle"]
 
 [[module]]
 name = "autoland_status"
@@ -393,6 +402,12 @@ responsibility = "Mutation testing of a repository's tests: the recorded mutants
 may_use = ["crate-roots", "platform"]
 
 [[module]]
+name = "implicit_state"
+paths = ["crates/north-implicit-state/src/**"]
+responsibility = "The implicit-state shapes: ast-grep rules that find state kept outside a typed lifecycle, their exceptions in structure.toml, the occurrences a change adds and the repository listing."
+may_use = ["crate-roots", "platform"]
+
+[[module]]
 name = "coverage"
 paths = ["crates/north-coverage/src/**"]
 responsibility = "The map from each Rust test to the functions it executes, recorded on a check host, and the pre-push selection of the tests that reach a change."
@@ -420,7 +435,7 @@ may_use = ["crate-roots", "foundation", "graph"]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/check/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/dividend/**", "crates/north-dispatch/src/laptop/**", "crates/north-dispatch/src/loops/**", "crates/north-dispatch/src/lib.rs", "crates/north-dispatch/src/pacing/**", "crates/north-dispatch/src/resident_cap/**", "crates/north-dispatch/src/tune/**", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["lifecycle", "strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground"]
+may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle"]
 
 [[module]]
 name = "usage"
@@ -432,7 +447,7 @@ may_use = ["domain", "platform", "foundation", "crate-roots"]
 name = "code_health"
 paths = ["crates/north-guard/src/code_health/**"]
 responsibility = "The code-health report, gate, edit check and review signal over structure.toml, their import resolution and function metrics; the Rust habit checks; the hourly review tick."
-may_use = ["platform", "foundation", "crate-roots"]
+may_use = ["platform", "foundation", "crate-roots", "implicit_state"]
 
 [[module]]
 name = "split"

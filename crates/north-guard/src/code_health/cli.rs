@@ -19,6 +19,7 @@ pub(super) const USAGE: &str = "usage: north code-health <command> [--repo DIR] 
   review-done [--sha SHA]  record the review marker
   imports                  resolve imports of files given as JSON on stdin
   habits [--repo DIR]      the Rust habit checks
+  implicit-state           every implicit-state finding in REV's tree, counted by shape, and each stale allow
   tick [--dry-run]         the hourly review tick
   crate-lines [BASE HEAD]  workspace crate line caps (the default with no command)
   layers BASE HEAD         module and crate DAG breaches between two commits
@@ -152,6 +153,13 @@ fn dispatch(arguments: &[String], io: &mut Io) -> Result<u8, String> {
             };
             print(io, &text)?;
             Ok(u8::from(reasons.is_empty()))
+        }
+        "implicit-state" => {
+            if !ast_grep_available() {
+                return Err("ast-grep is not on PATH".to_owned());
+            }
+            print(io, &super::implicit::listing(&repo, rev, config)?)?;
+            Ok(0)
         }
         "budget" => {
             let rev = a.positional.first().map_or(rev, String::as_str);

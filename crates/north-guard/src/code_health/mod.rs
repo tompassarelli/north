@@ -14,6 +14,7 @@ mod habits;
 #[cfg(test)]
 mod habits_tests;
 mod history;
+mod implicit;
 mod imports;
 mod layers;
 mod report;

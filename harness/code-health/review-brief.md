@@ -44,6 +44,13 @@ volatile imports (a module importing one that changes more often) and special ca
    every check family you keep (a sweep, a recorded scenario, a property, a boundary check), name one canary: the
    injected fault or mutant that must trip it, and run it once. A family with no canary that you can write goes on
    the list as an item. Never weaken or retry a test to green; deletions follow the skill's keep-or-name rule.
+   Implicit state: read the open findings of `north code-health implicit-state --repo {{checkout}} --rev origin/main`, then answer
+   what no rule matches: which decision reads state no typed lifecycle owns? Look for a value one host writes and
+   another reads (a file, a unit, a ref, a remote row), a phase implied by which config table, list or directory an
+   entry sits in, a log or report line parsed back as current state, and two writers of one state in different
+   modules or crates. Each one goes on the list as an item that moves it into the typed lifecycle `structure.toml`
+   names under `[implicit_state] typed`, or as an `[[implicit_state.allow]]` entry with its reason; when there is
+   none, the list says so and names the files read.
 2. Staff the top items as worker boxes per the workers skill, launching fleet sessions with `--parent <your session name>`,
    each in its own worktree off origin/main. Each slice preserves behavior: no feature, tuning or interface
    change for outside callers; when a module boundary moves, update every in-repo caller and `structure.toml`

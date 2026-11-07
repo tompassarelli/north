@@ -1194,6 +1194,7 @@ dependencies = [
  "north-fleet",
  "north-github-mirror",
  "north-graph-ground",
+ "north-implicit-state",
  "north-pace",
  "north-providers",
  "north-strategy-types",
@@ -1220,6 +1221,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-implicit-state"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "regex",
  "toml_edit",
 ]
 
