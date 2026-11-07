@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
@@ -22,9 +23,22 @@ impl Fleet {
 
     fn launch_as(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<SessionRecord> {
         let session_dir = self.session_dir(&request.name)?;
-        if session_dir.exists() && claim == Claim::Fresh {
-            return Err(NorthError::Usage(format!("a session named {} already exists; --take-over ends it and moves the name and its messages to the new session", request.name)));
+        if claim == Claim::TakeOver {
+            return self.launch_into(request, claim, &session_dir);
         }
+        fs::create_dir_all(&self.root)?;
+        match fs::create_dir(&session_dir) {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(NorthError::Usage(format!("a session named {} already exists; --take-over ends it and moves the name and its messages to the new session", request.name)));
+            }
+            claimed => claimed?,
+        }
+        self.launch_into(request, claim, &session_dir).inspect_err(|_| {
+            let _ = fs::remove_dir(&session_dir);
+        })
+    }
+
+    fn launch_into(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path) -> NorthResult<SessionRecord> {
         if let Some(parent) = &request.parent {
             self.reaches(parent)?;
         }
@@ -49,9 +63,9 @@ impl Fleet {
         let predecessor = self.retire_for(&request.name, claim)?;
         record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
         self.claim_before_start(request, &tasks, verification)?;
-        fs::create_dir_all(&session_dir)?;
+        fs::create_dir_all(session_dir)?;
         let Err(error) = self.bring_up(request, &mut record, &account, runtime.as_ref(), predecessor.as_ref(), conversation.as_deref()) else { return Ok(record) };
-        Err(match self.discard_failed_launch(&session_dir) {
+        Err(match self.discard_failed_launch(session_dir) {
             Ok(()) => error,
             Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
         })

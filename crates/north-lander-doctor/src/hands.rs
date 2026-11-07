@@ -52,7 +52,7 @@ pub fn release() -> String {
 }
 
 const EVICT: &str = r#"PATH=$HOME/.local/bin:$PATH
-north capacity reap-orphans >/dev/null 2>&1 || true
+north capacity disk keep >/dev/null 2>&1 || true
 df -Pk "$HOME" | awk 'NR == 2 { printf "%.0f%% free after eviction\n", $4 * 100 / ($3 + $4) }'
 "#;
 
