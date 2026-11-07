@@ -28,7 +28,7 @@ sqlite3 -readonly "$threads" "
     where at>=$cutoff and cause not in ('worker','tom','proxy') group by 1;
   select 'north-landing', 'loss', count(*) from land_checks where started_at>=$cutoff and outcome='timeout';
   select 'north-landing', 'decision', count(*) from landings where queued_at>=$cutoff and verdict in ('conflict','failed');
-  select 'harness', 'decision', count(*) from hook_events where at>=$cutoff and verdict in ('refusal','rewrite');
+  select 'north-guard', 'decision', count(*) from hook_events where at>=$cutoff and verdict in ('refusal','rewrite');
   select case source when 'dispatch' then 'north-dispatch' else 'north-threads' end, 'decision', count(*) from tier_predictions where at>=$cutoff group by 1;
   select 'north-threads', 'decision', count(*) from tier_choice where since>=$cutoff;
 " -separator '|' >"$work/rows"
