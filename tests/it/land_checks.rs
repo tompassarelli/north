@@ -212,6 +212,15 @@ fn land_publish() {
     }
 
     {
+        let fixture = Fixture::new(&[("land.runner", "build-host"), ("land.check", "file.txt :: ./bin/head-north land tests one"), ("land.check", "file.txt :: ./bin/head-north land tests two"), ("land.check", "file.txt :: true clippy"), ("land.check", "file.txt :: true nextest")]);
+        let output = fixture.command().env("NORTH_LAND_CHECKS_OFF_HOST", "1").output().unwrap();
+        assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+        let trace = fixture.trace();
+        assert!(trace.contains("capacity offload choose --any --avoid "), "the lander's candidate checks asked for a build host that may be this one: {trace}");
+        assert!(trace.contains("--taken buildbox --taken buildbox --avoid "), "on 2026-11-08 the lander spread its candidate checks onto the laptop beside gex45 by free slots: {trace}");
+    }
+
+    {
         let fixture = Fixture::new(&[("land.runner", "buildbox"), ("land.check", "file.txt :: true clippy")]);
         let output = fixture.command().env("SAFE_PUSH_LAND_RUNNER", "").output().unwrap();
         assert_eq!(output.status.code(), Some(0), "{}", text(&output));

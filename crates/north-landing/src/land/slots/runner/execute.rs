@@ -166,6 +166,8 @@ impl Shared {
         for _ in 0..pinned {
             choose.extend(["--taken", self.arguments.runner_host.as_str()]);
         }
+        let avoid = self.environment.off_host.then(north_base::platform::host::name);
+        choose.extend(avoid.iter().flat_map(|here| ["--avoid", here.as_str()]));
         let Some(output) = self.north(&choose).await.filter(|output| output.status.success()) else { return Arc::clone(self) };
         let hosts: Vec<String> = String::from_utf8_lossy(&output.stdout).lines().map(str::trim).filter(|host| !host.is_empty()).map(str::to_owned).collect();
         if hosts.len() != jobs.len() {

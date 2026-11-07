@@ -115,11 +115,14 @@ async fn off_host_runner() -> Option<String> {
 }
 
 async fn runner_host(environment: &Environment, config: &Config) -> Option<String> {
+    let land_runner = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
+    if land_runner.is_empty() {
+        return Some(String::new());
+    }
     if environment.off_host {
         return off_host_runner().await;
     }
-    let land_runner = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
-    Some(if land_runner.is_empty() { String::new() } else { resolve_runner_host(&land_runner).await })
+    Some(resolve_runner_host(&land_runner).await)
 }
 
 async fn forward_signals(cancel: watch::Sender<bool>) {

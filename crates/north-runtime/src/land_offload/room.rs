@@ -148,11 +148,11 @@ pub(super) enum Chosen {
     Queued(String),
 }
 
-/// The host a land check runs on: the least busy for a land check of `cores` (its slot backlog per job it runs at once, or its committed share of its CPUs, whichever is higher) once each name in `taken` counts as one more land check already on its way there, among `remotes` and this host as `here` when it is a `Peer`; when this host is the `Fallback` and no remote has room, the land check queues on the least busy readable remote, and runs on this host only when no remote answers; a tie goes to the earlier remote.
+/// The host a land check runs on: the least busy for a land check of `cores` (its slot backlog per job it runs at once, or its committed share of its CPUs, whichever is higher) once each name in `taken` counts as one more land check already on its way there, among `remotes` and this host as `here` when it is a `Peer`; when no remote has room, the land check queues on the least busy readable remote, and runs on this host only when it is the `Fallback` and no remote answers; a tie goes to the earlier remote.
 pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() -> Option<Room>, remotes: Vec<(String, Option<Room>)>, taken: &[String], cores: f64) -> Result<Chosen, Vec<String>> {
     let mut refused = Vec::new();
     let chosen = match standing {
-        Standing::Reserved => most_room(remotes, taken, cores, &mut refused).map(Chosen::Room),
+        Standing::Reserved => most_room(remotes.iter().cloned(), taken, cores, &mut refused).map(Chosen::Room).or_else(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)),
         Standing::Peer => most_room(remotes.into_iter().chain([(here.to_owned(), local())]), taken, cores, &mut refused).map(Chosen::Room),
         Standing::Fallback => most_room(remotes.iter().cloned(), taken, cores, &mut refused).map(Chosen::Room).or_else(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)).or_else(|| Some(Chosen::Room(here.to_owned()))),
     };
@@ -230,7 +230,8 @@ mod tests {
         assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())));
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), None)], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
-        assert!(check_host(Standing::Reserved, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0).is_err());
+        assert_eq!(check_host(Standing::Reserved, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())), "a laptop off the land checks queues them on a full gex45, never runs them itself");
+        assert!(check_host(Standing::Reserved, "laptop", laptop, vec![("gex45".to_owned(), None)], &[], 6.0).is_err());
         let slotted = |committed: &str, limit: f64, slots: &str| {
             let mut room = parse(&format!("{}@SLOTS@\n{slots}\n", PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", committed).replace("%PRESSURE%", "1"))).unwrap();
             room.admission.limit_cpus = limit;

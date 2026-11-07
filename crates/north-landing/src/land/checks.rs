@@ -117,7 +117,8 @@ pub struct Launch<'a> {
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false, local: environment::active(&lander.queue).is_local(), lanes: String::new() }
+        let local = environment::active(&lander.queue).is_local();
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: !local, local, lanes: String::new() }
     }
 }
 
@@ -139,17 +140,10 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     if !launch.lanes.is_empty() {
         command.env(LANES_ENV, &launch.lanes);
     }
-    if launch.red_fix {
-        command.env(RED_FIX_ENV, "1");
-    }
-    if launch.lander_slot {
-        command.env(LANDER_SLOT_ENV, "1");
-    }
-    if launch.off_host {
-        command.env(OFF_HOST_ENV, "1");
-    }
-    if launch.local {
-        command.env(LOCAL_ENV, "1");
+    for (set, name) in [(launch.red_fix, RED_FIX_ENV), (launch.lander_slot, LANDER_SLOT_ENV), (launch.off_host, OFF_HOST_ENV), (launch.local, LOCAL_ENV)] {
+        if set {
+            command.env(name, "1");
+        }
     }
     if let Some(logs) = log.parent() {
         command.env(super::trace::SPANS_ENV, super::trace::Spans::beside(logs).path());
