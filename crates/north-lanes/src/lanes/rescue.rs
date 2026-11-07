@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 use time::OffsetDateTime;
 
 use super::repo::{find_container, git_checked, git_ok, git_out};
+use super::unpushed;
 use north_base::platform::process;
 
 const USAGE: &str = "Usage: north lane rescue [path] [--dry-run]
@@ -12,6 +13,10 @@ const USAGE: &str = "Usage: north lane rescue [path] [--dry-run]
 Relocate a dirty main checkout's tracked + untracked (non-ignored) changes
 into a new worktree/branch under <container>/worktrees/, verify it byte-for-byte,
 commit it there, then restore main to a clean working tree.
+
+A clean main checkout holding commits origin/main lacks (after fetching origin
+main) has them saved on a keep/ branch, reusing one that already contains HEAD,
+and main is reset to origin/main; the branch and main are verified afterwards.
 
   (no path)   operate on the container of the current directory
   path        operate on the container reached from this path instead
@@ -117,7 +122,7 @@ impl Rescue {
         let main_dir = container.join("main");
         match git_out(&main_dir, &["--no-optional-locks", "status", "--porcelain"]) {
             None => return Finished::Failed(vec![format!("lane rescue: could not read the status of {}", main_dir.display())]),
-            Some(status) if status.is_empty() => return Finished::Clean,
+            Some(status) if status.is_empty() => return self.rescue_clean(&main_dir, dry_run),
             Some(_) => {}
         }
         let Some(changes) = gather(&main_dir) else {
@@ -128,8 +133,17 @@ impl Rescue {
             return Finished::Plan(plan(&destination, &changes));
         }
         match self.relocate(&destination, &changes) {
-            Ok(()) => Finished::Done(format!("rescued -> {} (branch {})", destination.rescue_dir.display(), destination.branch)),
+            Ok(()) => Finished::Done(format!("rescued -> {} (branch {}){}", destination.rescue_dir.display(), destination.branch, unpushed::dirty_note(&main_dir))),
             Err(lines) => Finished::Failed(lines),
+        }
+    }
+
+    fn rescue_clean(&self, main_dir: &Path, dry_run: bool) -> Finished {
+        match unpushed::inspect(main_dir) {
+            Ok(None) => Finished::Clean,
+            Ok(Some(unpushed)) if dry_run => Finished::Plan(unpushed::plan(&unpushed)),
+            Ok(Some(unpushed)) => unpushed::apply(main_dir, &unpushed).map_or_else(Finished::Failed, Finished::Done),
+            Err(message) => Finished::Failed(vec![format!("lane rescue: {message}; main is UNTOUCHED")]),
         }
     }
 

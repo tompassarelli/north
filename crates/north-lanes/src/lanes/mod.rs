@@ -9,6 +9,7 @@ mod reference_search;
 mod repo;
 mod rescue;
 mod target_seed;
+mod unpushed;
 #[cfg(test)]
 mod test_git;
 mod verdict;
@@ -27,5 +28,7 @@ mod pin_retire_tests;
 mod reap_tests;
 #[cfg(test)]
 mod rescue_tests;
+#[cfg(test)]
+mod unpushed_tests;
 #[cfg(test)]
 mod verdict_tests;
