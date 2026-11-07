@@ -346,3 +346,17 @@ fn the_relaunch_after_north_733s_recorded_laptop_need_follows_the_stopped_run_an
     let fresh = Issue { stop: Stop::default(), ..stopped };
     assert_eq!(super::tier::route(&fresh, &super::tier::History::default(), &BTreeMap::new()).unwrap().follows, None, "a box with no host stop follows nothing");
 }
+
+#[test]
+fn a_laptop_launch_reads_its_stop_from_the_reports_the_laptop_mirrors_north_706() {
+    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None };
+    let reports = serde_json::json!({"wisp-188-d1646": {"entries": [{"kind": "assistant", "text": "Not done: the capture needs the laptop's client.\nStop: wait until 2026-11-08T03:00Z"}], "turns": [{"exit": "completed", "ended_ms": 5_000}]}});
+    let mut boxes = [issue("wisp", 188, "- [ ] a", &[])];
+    let mut notes = Vec::new();
+
+    super::survey::stopped(std::slice::from_ref(&launch), &mut boxes, |launch| super::survey::shown(launch, Some("whiterabbit"), &reports), |_| None, &mut notes);
+
+    assert!(notes.is_empty(), "{notes:?}");
+    assert_eq!(boxes[0].stop.until.as_ref().map(|(written, _)| written.as_str()), Some("2026-11-08T03:00Z"), "dispatch noted wisp-188-d1646 report unread and could relaunch the box");
+    assert!(super::survey::shown(&launch, Some("whiterabbit"), &serde_json::Value::Null).is_err(), "a report the laptop has not mirrored stays unread");
+}

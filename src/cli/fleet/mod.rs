@@ -24,6 +24,7 @@ mod typed;
 mod proxy;
 mod rebooted;
 mod relaunch;
+mod reports;
 mod revive;
 mod router;
 mod row;

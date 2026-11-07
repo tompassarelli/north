@@ -35,7 +35,7 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     Ok(())
 }
 
-fn turn_json(turn: &Turn) -> Value {
+pub(super) fn turn_json(turn: &Turn) -> Value {
     json!({
         "exit": turn.exit.label(),
         "ended_ms": turn.ended_ms,

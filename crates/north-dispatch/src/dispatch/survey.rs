@@ -265,11 +265,11 @@ pub fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispatched: 
     i64::try_from(listed).unwrap_or(i64::MAX).max(dispatched)
 }
 
-/// A dispatched session's `north fleet show --json`: a launch registers where dispatch ran, except
-/// on the laptop, whose job queue starts it in the laptop's own registry.
-fn shown(launch: &record::Record, laptop: Option<&str>) -> Result<Value, String> {
+/// A dispatched session's `north fleet show --json`: a launch registers where dispatch ran, except on the laptop,
+/// whose job queue starts it in the laptop's own registry and whose retired sessions it mirrors as `reports`.
+pub(super) fn shown(launch: &record::Record, laptop: Option<&str>, reports: &Value) -> Result<Value, String> {
     if laptop == Some(launch.host.as_str()) {
-        return Err(format!("{} runs in the laptop's registry", launch.name));
+        return reports.get(&launch.name).cloned().ok_or_else(|| format!("{} runs in the laptop's registry and its report is not among those mirrored", launch.name));
     }
     remote_json(None, &["fleet", "show", &launch.name, "--json"])
 }
@@ -405,10 +405,11 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     for (item, slug, why) in claim_lists.iter().flat_map(|(host, listing)| claim_box_rows(listing, host, &stopped_sessions)) {
         box_holds.entry(item).or_default().entry(slug).or_insert(why);
     }
+    let laptop_reports = laptop.as_deref().map_or(Value::Null, |host| fleets::mirrored_reports(&record::directory(), host, &mut notes));
     let copies = fleets::copy_times(&record::directory(), "fleet", laptop.as_deref());
     let forgotten = fleets::forgotten(&fleet_lists, &copies, &records, at);
     let listed = fleets::listed(&fleet_lists);
-    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref()), &mut notes);
+    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref(), &laptop_reports), &mut notes);
     holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &records, at)));
     let mut box_tries = record::BoxHolds::new();
     for (item, boxes) in record::box_retries(&records, at, &unspent) {
@@ -436,7 +437,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     let rules = Rules::configured();
     let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
-    stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref()), crate::fleet::registry::retired_report_here, &mut notes);
+    stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref(), &laptop_reports), crate::fleet::registry::retired_report_here, &mut notes);
     let launches = super::stops::last_launches(&records);
     let learned = super::host_needs::read(&record::directory());
     let (waits, fresh_waits) = super::wait_stops::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {

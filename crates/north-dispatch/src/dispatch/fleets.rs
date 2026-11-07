@@ -292,6 +292,15 @@ pub fn mirrored(directory: &Path, kind: &str, host: &str, at: f64, notes: &mut V
     }
 }
 
+/// The transcripts of the sessions the laptop retired in the last two days, which it copies to `reports-HOST.json` (`north fleet reports --json`); Null when no copy reads.
+pub fn mirrored_reports(directory: &Path, host: &str, notes: &mut Vec<String>) -> Value {
+    let path = directory.join(format!("reports-{host}.json"));
+    std::fs::read_to_string(&path).map_err(|error| error.to_string()).and_then(|text| serde_json::from_str(&text).map_err(|error| error.to_string())).unwrap_or_else(|why| {
+        notes.push(format!("{host} reports unread: {}: {why}", path.display()));
+        Value::Null
+    })
+}
+
 /// When the laptop last copied its `KIND-HOST.json` listing to `directory`.
 pub fn copied(directory: &Path, kind: &str, host: &str) -> Option<f64> {
     let modified = std::fs::metadata(directory.join(format!("{kind}-{host}.json"))).and_then(|meta| meta.modified()).ok()?;

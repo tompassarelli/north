@@ -41,7 +41,22 @@ impl Fleet {
         self.retired_session(name).map(|(_, record)| record)
     }
 
-    pub(super) fn retired_session(&self, name: &str) -> Option<(PathBuf, SessionRecord)> {
+    /// The names archived at or after `since_ms`, from the stamp each archive directory carries.
+    pub fn retired_names_since(&self, since_ms: u64) -> Vec<String> {
+        let names: std::collections::BTreeSet<String> = fs::read_dir(self.root.join(ARCHIVE))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let file = entry.file_name().to_string_lossy().into_owned();
+                let (name, stamp) = file.rsplit_once('-')?;
+                (stamp.parse::<u64>().ok()? >= since_ms).then(|| name.to_owned())
+            })
+            .collect();
+        names.into_iter().collect()
+    }
+
+    pub fn retired_session(&self, name: &str) -> Option<(PathBuf, SessionRecord)> {
         let prefix = format!("{name}-");
         fs::read_dir(self.root.join(ARCHIVE))
             .into_iter()
