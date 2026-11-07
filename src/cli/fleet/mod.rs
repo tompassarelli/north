@@ -8,6 +8,7 @@ mod claims;
 mod desktop;
 mod digest;
 mod gated;
+mod held;
 mod launch;
 mod need;
 mod interactive;

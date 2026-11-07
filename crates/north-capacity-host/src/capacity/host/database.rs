@@ -247,6 +247,22 @@ pub fn queued_behind_capacity(db: &Connection, session: &str, from: i64, to: i64
     queued
 }
 
+/// The gated runs admitted since `since` (unix seconds) that queued at least `QUEUED_BOUND_SECONDS`, by the fleet session
+/// that owns each (owner `gate:SESSION`), for the resume pass that wakes a session its queue admitted.
+pub fn queued_admissions(db: &Connection, since: i64) -> std::collections::BTreeMap<String, Vec<Queued>> {
+    let mut admitted: std::collections::BTreeMap<String, Vec<Queued>> = std::collections::BTreeMap::new();
+    let Ok(mut statement) = db.prepare("SELECT owner, at, queuedSeconds FROM capacity_priority WHERE owner LIKE 'gate:%' AND queuedSeconds >= ?1") else { return admitted };
+    let rows = statement.query_map(rusqlite::params![QUEUED_BOUND_SECONDS], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?)));
+    for (owner, at, seconds) in rows.into_iter().flatten().filter_map(Result::ok) {
+        let Some(session) = owner.strip_prefix("gate:") else { continue };
+        let Ok(at) = crate::foundation::clock::Timestamp::parse(&at).map(|at| at.unix_seconds()) else { continue };
+        if at >= since {
+            admitted.entry(session.to_owned()).or_default().push(Queued { at, seconds });
+        }
+    }
+    admitted
+}
+
 /// The capacity database opened read-only where it exists, for a reader that must not create it.
 pub fn capacity_database_readonly() -> Option<Connection> {
     let path = env("AGENT_CAPACITY_DB").map_or_else(|| state_root().join("agents/machine-capacity/capacity.db"), PathBuf::from);

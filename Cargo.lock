@@ -1159,6 +1159,7 @@ dependencies = [
  "north-base",
  "north-claude-stream",
  "north-pace",
+ "north-resume",
  "north-session-host",
  "regex",
  "rusqlite",
@@ -1496,6 +1497,13 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml_edit",
+]
+
+[[package]]
+name = "north-resume"
+version = "0.1.0"
+dependencies = [
+ "north-base",
 ]
 
 [[package]]

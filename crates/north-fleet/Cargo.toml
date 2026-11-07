@@ -14,6 +14,7 @@ north-claude-stream = { path = "../north-claude-stream" }
 north-base = { path = "../north-base" }
 north-pace = { path = "../north-pace" }
 north-session-host = { path = "../north-session-host" }
+north-resume = { path = "../north-resume" }
 regex.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true

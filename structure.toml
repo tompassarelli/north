@@ -187,9 +187,14 @@ paths = ["crates/north-session-host/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-resume"
+paths = ["crates/north-resume/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
 name = "north-fleet"
 paths = ["crates/*/src/fleet.rs", "crates/*/src/fleet/**"]
-may_use = ["north-claude-stream", "north-pace", "north-session-host"]
+may_use = ["north-claude-stream", "north-pace", "north-resume", "north-session-host"]
 
 [[crate_dag.crate]]
 name = "north-providers"
@@ -451,7 +456,7 @@ may_use = ["crate-roots", "foundation", "platform", "lifecycle"]
 name = "frontier"
 paths = ["crates/north-frontier/src/**"]
 responsibility = "The frontier benchmark: frozen landed boxes, a sandbox per arm, the north and plain Claude Code arms, grading by the landing's own tests, the run rows and their intervals and paired tests."
-may_use = ["crate-roots", "fleet", "foundation", "platform", "providers", "ledger", "lifecycle", "claude_stream"]
+may_use = ["crate-roots", "fleet", "foundation", "platform", "providers", "lifecycle", "claude_stream", "ledger"]
 
 [[module]]
 name = "mutants"

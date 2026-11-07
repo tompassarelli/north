@@ -20,9 +20,7 @@ use crate::fleet::tick::{ProbeJob, Probed, WaitProbes};
 use crate::fleet::limit::Parked;
 use crate::fleet::reaper;
 use crate::fleet::resume::{self, Waker};
-use crate::land_ticket::lanes_by_session;
 use crate::platform::attribution::{self, Cause};
-use crate::platform::{land_queue, records_mirror};
 use crate::fleet::waits::{Probe, Registered, Run, Settled};
 use crate::foundation::clock::Timestamp;
 use crate::grounding::distill;
@@ -124,7 +122,7 @@ impl WaitProbes for Probes {
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },
-            ProbeJob { name: "probes.settle.resume_landing", own: None, run: Box::new(|fleet| said(resume::resume(&fleet, &lanes_by_session(&land_queue::queues(&records_mirror::state_home())).unwrap_or_default(), &Revival(&fleet)))) },
+            ProbeJob { name: "probes.settle.resume", own: None, run: Box::new(|fleet| said(resume::resume(&fleet, &super::held::read(i64::try_from(now_ms() / 1000).unwrap_or_default()), &Revival(&fleet)))) },
             ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
         ];
         let fleet_wide = vec![

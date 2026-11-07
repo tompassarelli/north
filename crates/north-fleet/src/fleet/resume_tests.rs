@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use std::sync::Arc;
 
 use north_base::platform::attribution::Harness;
-use north_base::land_ticket::{Phase as Ticket, Records, lanes_by_session, lanes_of};
+use north_base::land_ticket::{Lane, Phase as Ticket, Records, lanes_by_session, lanes_of};
 
 use super::*;
 use crate::fleet::fakes::{Paper, Stream};
@@ -89,21 +89,52 @@ fn a_session_stopped_on_its_queued_lane_is_woken_once_when_the_lander_decides_it
     let lane = queued(state.path(), "north-669-d1955", "guards", now_ms() - 12 * MINUTE);
     let waker = Recorded::default();
 
-    let by_session = |state: &Path| lanes_by_session(&queues(state)).unwrap();
+    let by_session = |state: &Path| Held { lanes: lanes_by_session(&queues(state)).unwrap(), ..Held::default() };
     assert!(resume(&fleet, &by_session(state.path()), &waker).is_empty(), "an open lane wakes nothing");
     decided(&lane, "failed: the candidate's tests are red");
 
     let first = resume(&fleet, &by_session(state.path()), &waker);
     let sent = worker.frames.lock().unwrap().clone();
     let mut stream = File::options().append(true).open(fleet.root.join("north-669-d1955/g1/stream.jsonl")).unwrap();
-    writeln!(stream, "{}", serde_json::json!({"type": "user", "session_id": "north-669-d1955", "message": {"content": [{"type": "text", "text": format!("[from service:north-fleet] {}", message(&lanes(state.path(), "north-669-d1955"), 0))}]}})).unwrap();
+    writeln!(stream, "{}", serde_json::json!({"type": "user", "session_id": "north-669-d1955", "message": {"content": [{"type": "text", "text": format!("[from service:north-fleet] {}", north_resume::message(&lanes(state.path(), "north-669-d1955"), 0))}]}})).unwrap();
     stopped_at(&fleet, "north-669-d1955", Duration::from_secs(600));
     let again = resume(&fleet, &by_session(state.path()), &waker);
 
     assert_eq!(first, ["resumed north-669-d1955: the lander decided its lane"]);
     assert_eq!(sent.len(), 1, "{sent:?}");
-    assert!(sent[0].contains(OPENER) && sent[0].contains("guards: failed: the candidate's tests are red"), "{sent:?}");
+    assert!(sent[0].contains(OPENERS[0]) && sent[0].contains("guards: failed: the candidate's tests are red"), "{sent:?}");
     assert!(again.is_empty() && worker.frames.lock().unwrap().len() == 1, "one stop wakes once: {again:?}");
     assert_eq!(*waker.attributed.lock().unwrap(), [("north-669-d1955".to_owned(), Cause::Harness(Harness::LandingRefusal))]);
     assert!(waker.revived.lock().unwrap().is_empty(), "a session whose host runs needs no revive");
+}
+
+/// The 2026-11-07 stops that only needed a slot or a time: a worker whose build queued 900 s behind capacity and a worker
+/// parked on a registered job, each woken once when the record that ends its stop appears, never by a wait that settled before the stop.
+#[test]
+fn a_session_stopped_on_a_queued_run_or_a_registered_wait_is_woken_once_when_that_record_ends_the_stop() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
+    let queued = live(&fleet, "north-730-queued");
+    let parked = live(&fleet, "north-730-parked");
+    for name in ["north-730-queued", "north-730-parked"] {
+        stopped_at(&fleet, name, Duration::from_secs(600));
+    }
+    let now = now_ms();
+    let waker = Recorded::default();
+    let mut held = Held::default();
+    held.admissions.insert("north-730-queued".into(), vec![Admission { queued_ms: now - 20 * MINUTE, admitted_ms: now + 3 * MINUTE }]);
+    held.settlements.insert("north-730-parked".into(), vec![Settlement { registered_ms: now - 40 * MINUTE, settled_ms: now - 30 * MINUTE, run: "job:old".into() }]);
+
+    let first = resume(&fleet, &Held { admissions: held.admissions.clone(), ..Held::default() }, &waker);
+    assert!(first.len() == 1, "{first:?}");
+    assert!(resume(&fleet, &Held { settlements: held.settlements.clone(), ..Held::default() }, &waker).is_empty(), "a wait that settled before the stop wakes nothing");
+
+    held.settlements.get_mut("north-730-parked").unwrap().push(Settlement { registered_ms: now - 40 * MINUTE, settled_ms: now + 5 * MINUTE, run: "job:n730-poolkey-landed".into() });
+    let woken = resume(&fleet, &Held { settlements: held.settlements.clone(), ..Held::default() }, &waker);
+
+    assert_eq!(woken, ["resumed north-730-parked: its wait settled"]);
+    let (asked, told) = (queued.frames.lock().unwrap().clone(), parked.frames.lock().unwrap().clone());
+    assert!(asked.len() == 1 && asked[0].contains(OPENERS[1]), "{asked:?}");
+    assert!(told.len() == 1 && told[0].contains(OPENERS[2]) && told[0].contains("job:n730-poolkey-landed") && !told[0].contains("job:old"), "{told:?}");
+    assert_eq!(*waker.attributed.lock().unwrap(), [("north-730-queued".to_owned(), Cause::Harness(Harness::Capacity)), ("north-730-parked".to_owned(), Cause::Harness(Harness::Waits))]);
 }

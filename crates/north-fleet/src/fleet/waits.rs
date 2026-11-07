@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
+use north_resume::OVER;
+
 use super::runtime::now_ms;
 use super::store::{WaitKind, WaitRequest};
 
@@ -224,6 +226,6 @@ fn revival(wait: &Registered, result: &str) -> String {
         return super::limit::resume_message(account);
     }
     let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
-    format!("[north: the run you waited on is over] {named}: {result}. Read its output and continue to a final report.")
+    format!("{OVER} {named}: {result}. Read its output and continue to a final report.")
 }
 
