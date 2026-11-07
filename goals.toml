@@ -182,3 +182,14 @@ source = "north#731: a north landing is the live runtime on every host within 2 
 unit = "s"
 max = 120
 class = "ready"
+
+[[goal]]
+name = "launch-refusals-per-hour"
+source = "north#643: a launch that placement refuses is a worker not staffed; north#641's readiness bar counts first tries lost to the harness, and a refused launch is the earliest such loss"
+oracle = "north strategy refusals --since 3h"
+unit = "per h"
+max = 1
+class = "debt"
+ceiling = 6
+owner = "tompassarelli/north#643"
+revisit = "launches refused by placement, counting each launch by its last placement, stay over 6 an hour for a day"

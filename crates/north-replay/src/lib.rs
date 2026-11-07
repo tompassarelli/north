@@ -5,16 +5,18 @@ use std::path::Path;
 use std::time::Instant;
 
 use north_base::platform::decision_log;
-use north_strategy_types::{admission, land, placement};
+use north_strategy_types::{Kind, admission, land, placement};
 
 mod admitted;
 mod bounds;
 mod judged;
 mod parallel;
 mod placed;
+mod refused;
 mod report;
 
 pub use bounds::Bounds;
+pub use refused::run as refusals;
 use report::{Counts, Invariant, stamp};
 
 const USAGE: &str = "usage: north strategy replay [--since 24h] [--invariants] [--budget]";
@@ -143,6 +145,9 @@ fn print_report(replayed: &Replayed, invariants: bool, (since, now): (f64, f64),
     println!("north strategy replay: {} to {}", stamp(since), stamp(now));
     for counts in &replayed.counts {
         println!("{}", counts.line());
+        if let Some(kind) = Kind::ALL.iter().find(|kind| kind.name() == counts.kind) {
+            println!("  moves goals: {}", kind.moves().join(", "));
+        }
     }
     if invariants {
         for invariant in &replayed.invariants {

@@ -386,6 +386,13 @@ Truth rests on two checks that test different things.
   have been different too, and replay does not pretend to know them. The goal checks of north#641 are
   judged over these per-decision diffs, and replay reports nothing about the paths history would have taken.
 
+**Goal checks each kind moves** (`Kind::moves` in north-strategy-types; `north strategy replay` prints each
+kind's line `moves goals: ...`, and a test holds every name to a goal of `goals.toml`). Placement moves
+`launch-refusals-per-hour`, whose oracle `north strategy refusals --since 3h` counts the launches whose last logged
+placement refused them, as a rate. Admission moves `laptop-load-15m` and `launch-refusals-per-hour`, and every lander
+kind moves `landing-p90`, `landing-projected` and `verification-p50`. The fleet tick reads these goals every
+10 minutes and tells the proxy of any red one, so a migrated decision that turns its goal red is heard within a tick.
+
 The 20 s target in north#643 box 3 is easy for placement and hard for admission. Up to 1.8 million
 admission calls from a week on gex45, each replayed twice (old and new), is about 3.6 million calls. That
 fits in 20 s on 20 threads only if one call costs under 110 µs, decoding included. Calls almost never

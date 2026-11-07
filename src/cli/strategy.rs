@@ -3,6 +3,7 @@
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((verb, rest)) if verb == "replay" => north_replay::run(rest),
+        Some((verb, rest)) if verb == "refusals" => north_replay::refusals(rest),
         _ => crate::ops::strategy_log::run(arguments),
     }
 }

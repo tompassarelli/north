@@ -66,4 +66,13 @@ impl Kind {
             Self::LandSheriff => "land.sheriff",
         }
     }
+
+    /// The goal checks of goals.toml this kind's decisions move; a strategy migrated for the kind is judged on these.
+    pub const fn moves(self) -> &'static [&'static str] {
+        match self {
+            Self::Placement => &["launch-refusals-per-hour"],
+            Self::Admission => &["laptop-load-15m", "launch-refusals-per-hour"],
+            Self::LandPick | Self::LandBatch | Self::LandJudge | Self::LandWave | Self::LandSheriff => &["landing-p90", "landing-projected", "verification-p50"],
+        }
+    }
 }

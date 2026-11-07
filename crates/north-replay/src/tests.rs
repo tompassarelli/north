@@ -311,3 +311,36 @@ fn assert_a_strategy_whose_slowest_call_passes_10_ms_is_refused_naming_its_kind_
     assert_eq!(execute(root.path(), NOW, &deciders(&sleeps, &same_judgement, &unplaced), &bounds(), &options), 1);
     assert_eq!(execute(root.path(), NOW, &deciders(&quiet_admission, &same_judgement, &unplaced), &bounds(), &options), 0);
 }
+
+fn refused_decision() -> placement::Decision {
+    placement::Decision { target: Target::Held("saturated".into()), machine: None, outcome: Outcome::Refused { kind: placement::Refusal::Saturated, why: "saturated".into() }, lines: Vec::new() }
+}
+
+#[test]
+fn a_launch_counts_as_refused_only_when_its_last_placement_in_the_window_refused_it() {
+    let root = tempfile::tempdir().unwrap();
+    let log = |name: &str, seconds_ago: f64, decision: placement::Decision| {
+        let at = NOW - seconds_ago;
+        let case = placement::Case { launch: placement::Launch { name: name.into(), ..placed_case(20.0).launch }, ..placed_case(20.0) };
+        append(root.path(), Kind::Placement, "jsonl", at, &envelope(Kind::Placement, &format!("{name}{seconds_ago}"), at, None, case, decision));
+    };
+    log("waited-then-placed", 900.0, refused_decision());
+    log("waited-then-placed", 300.0, placed_on_c());
+    log("refused", 800.0, refused_decision());
+    log("refused", 200.0, refused_decision());
+    log("placed", 100.0, placed_on_c());
+    log("refused-before-the-window", 7200.0, refused_decision());
+    assert_eq!(refused::refused_launches(root.path(), NOW - 3600.0, NOW), 1);
+}
+
+#[test]
+fn every_goal_a_decision_kind_names_as_the_one_it_moves_is_a_goal_of_goals_toml() {
+    let goals: toml_edit::DocumentMut = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../goals.toml")).unwrap().parse().unwrap();
+    let names: Vec<&str> = goals["goal"].as_array_of_tables().unwrap().iter().filter_map(|goal| goal["name"].as_str()).collect();
+    for kind in Kind::ALL {
+        assert!(!kind.moves().is_empty(), "{} names no goal check", kind.name());
+        for goal in kind.moves() {
+            assert!(names.contains(goal), "{} moves {goal}, which goals.toml does not define", kind.name());
+        }
+    }
+}
