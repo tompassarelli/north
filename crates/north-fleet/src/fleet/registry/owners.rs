@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::Fleet;
 use crate::fleet::model::Status;
@@ -16,6 +16,18 @@ impl Fleet {
             owner_ids(&mut owners, &row.name, row.conversation.as_deref(), &row.provider);
         }
         Some(owners)
+    }
+
+    /// The sessions above a launch whose parent is `parent`: its parent, that one's parent and so on, read from this host's registry and every other host's cached rows.
+    pub fn ancestors(&self, parent: Option<&str>) -> BTreeSet<String> {
+        let mut parents: BTreeMap<String, String> = cached_sessions(&self.root).ok().flatten().unwrap_or_default().into_iter().filter_map(|row| Some((row.name, row.parent?))).collect();
+        parents.extend(self.sessions().unwrap_or_default().into_iter().filter_map(|record| Some((record.name, record.parent?))));
+        let mut found = BTreeSet::new();
+        let mut next = parent.map(str::to_owned);
+        while let Some(name) = next.filter(|name| !name.is_empty() && found.insert(name.clone())) {
+            next = parents.get(&name).cloned();
+        }
+        found
     }
 }
 

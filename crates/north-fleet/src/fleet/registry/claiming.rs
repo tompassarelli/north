@@ -19,7 +19,7 @@ impl Fleet {
         if verification {
             return Ok(());
         }
-        claims::hold_all(self.claims.as_ref(), tasks, &request.name)
+        claims::hold_all(self.claims.as_ref(), &claims::own_tasks(self.claims.as_ref(), tasks, &self.ancestors(request.parent.as_deref())), &request.name)
     }
 
     /// Starts a fresh session, giving its claims back when it does not start.

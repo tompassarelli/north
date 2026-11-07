@@ -330,7 +330,7 @@ impl Fleet {
             host.send(&Unaccepted::to_replay(&host_dir))?;
         }
         remote::leave_record(record, &self.root.join(PLACED));
-        claims::hold_for(self.claims.as_ref(), record);
+        claims::hold_for(self.claims.as_ref(), record, &self.ancestors(record.parent.as_deref()));
         Ok(())
     }
 

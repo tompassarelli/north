@@ -39,12 +39,23 @@ pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str) -> NorthRe
     Ok(())
 }
 
-pub fn hold_for(claims: &dyn Claims, record: &SessionRecord) {
+/// The tasks a session claims for itself: each one no session above it already holds, so a lead holding an issue keeps
+/// its claim while the children it staffs on that issue's boxes work under it; an unread ledger leaves every task to the claim.
+pub fn own_tasks(claims: &dyn Claims, tasks: &[String], ancestors: &BTreeSet<String>) -> Vec<String> {
+    if ancestors.is_empty() || tasks.is_empty() {
+        return tasks.to_vec();
+    }
+    let above: BTreeSet<String> = claims.holders(Rows::Items(tasks)).unwrap_or_default().into_iter().filter(|(_, owner)| ancestors.contains(owner)).map(|(item, _)| item).collect();
+    tasks.iter().filter(|task| !above.contains(*task)).cloned().collect()
+}
+
+pub fn hold_for(claims: &dyn Claims, record: &SessionRecord, ancestors: &BTreeSet<String>) {
     if record.verification {
         return;
     }
-    for task in record.tasks() {
-        if let Err(error) = claims.hold(task, &record.name) {
+    let tasks: Vec<String> = record.tasks().map(str::to_owned).collect();
+    for task in own_tasks(claims, &tasks, ancestors) {
+        if let Err(error) = claims.hold(&task, &record.name) {
             eprintln!("north fleet: {} does not hold {task}: {}", record.name, error.user_message());
         }
     }
@@ -152,5 +163,18 @@ mod tests {
         let error = hold_all(&claims, &tasks, "worker").unwrap_err();
         assert!(matches!(error, NorthError::Refused(why) if why == "north#9 is already owned by tom"));
         assert_eq!(*claims.1.lock().unwrap(), ["hold north#7 worker", "release north#7 worker"]);
+    }
+
+    #[test]
+    fn children_a_lead_staffs_on_boxes_of_its_own_issue_start_and_leave_the_lead_holding_it() {
+        let claims = Held::default();
+        claims.hold("north#757", "n-state-machines").unwrap();
+        let tasks = ["north#757".to_owned()];
+        let lead = BTreeSet::from(["n-state-machines".to_owned()]);
+        for child in ["gex45-n757-gates", "gex45-n757-layers"] {
+            hold_all(&claims, &own_tasks(&claims, &tasks, &lead), child).unwrap();
+        }
+        assert_eq!(claims.holders(Rows::Items(&tasks)).unwrap(), [("north#757".to_owned(), "n-state-machines".to_owned())]);
+        assert_eq!(own_tasks(&claims, &tasks, &BTreeSet::from(["proxy".to_owned()])), tasks, "a launch outside the lead's tree still claims, so the live holder refuses it");
     }
 }
