@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -10,25 +9,26 @@ use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::signal::unix::{SignalKind, signal};
 
-use super::affected::{self, CHANGED_ENV, PACKAGES_ENV, Scope};
-use super::it_modules::{self, IT_ENV};
+use super::affected::{self, Scope};
 use super::clippy_first;
-use super::deps;
 use super::shared_build;
 use super::select::{Config, changed, path_class};
-use crate::landing::check_timings::outcomes::{Record, Records};
 use arguments::{Arguments, Environment, Outcome, parse};
 use checkout::Trees;
+use entry::{any, portable, replay, start_stage};
+use selection::{defined_on_tree, it_for, scope_for};
 
 mod arguments;
 mod batch;
 mod build_host;
 mod checkout;
+mod entry;
 mod execute;
 mod fail_fast;
 mod judge;
 mod log;
 mod queue_checks;
+mod selection;
 mod spawn;
 mod timeout_row;
 mod verdict;
@@ -118,89 +118,6 @@ async fn forward_signals(cancel: watch::Sender<bool>) {
     let _ = cancel.send(true);
     tokio::time::sleep(CANCEL_GRACE).await;
     std::process::exit(CANCELLED);
-}
-
-fn scope_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<Scope> {
-    if !commands.iter().any(|command| command.contains(PACKAGES_ENV) || command.contains(CHANGED_ENV)) {
-        return None;
-    }
-    let scope = affected::scope(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
-        warn(&format!("safe-push: {error}; the Rust checks cover the whole workspace"));
-        Scope::Workspace
-    });
-    if !arguments.leased {
-        say(&format!("safe-push: the Rust checks cover {}", scope.arguments()));
-    }
-    Some(scope)
-}
-
-fn defined_on_tree(root: &Path, arguments: &Arguments, commands: Vec<String>) -> Vec<String> {
-    if !arguments.pinned() {
-        return commands;
-    }
-    let tree = Config::load(root, arguments.tree());
-    let tree = if arguments.after { tree.after_set() } else { tree };
-    commands.into_iter().filter(|command| tree.runs(command)).collect()
-}
-
-fn it_for(root: &Path, arguments: &Arguments, commands: &[String]) -> Option<String> {
-    if !commands.iter().any(|command| command.contains(IT_ENV)) {
-        return None;
-    }
-    let selection = it_modules::selection(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
-        warn(&format!("safe-push: {error}; the tests/it run covers every module"));
-        it_modules::Selection::Every
-    });
-    if !arguments.leased {
-        say(&format!("safe-push: the tests/it run is {}", selection.arguments()));
-    }
-    Some(selection.arguments())
-}
-
-fn portable(arguments: &Arguments) -> u8 {
-    let Some(root) = toplevel() else { return 1 };
-    let config = Config::load(&root, &arguments.head);
-    let Ok(commands) = config.commands(&root, &arguments.base, &arguments.head) else { return 1 };
-    let portable = config.workflow.is_empty() && !commands.is_empty() && commands.iter().all(|command| config.local_reason(command).is_none());
-    u8::from(!portable)
-}
-
-fn record_wait(arguments: &Arguments) {
-    let Some(log) = &arguments.event_log else { return };
-    if let Some(directory) = log.parent() {
-        let _ = fs::create_dir_all(directory);
-    }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log) {
-        let _ = writeln!(file, "{}", arguments.wait_event);
-    }
-}
-
-fn start_stage(arguments: &Arguments) -> Option<u8> {
-    let destination = arguments.destination.as_deref()?;
-    if destination != "main" {
-        return Some(0);
-    }
-    let Some(root) = toplevel() else { return Some(0) };
-    if !Config::load(&root, "HEAD").has_checks() {
-        return Some(0);
-    }
-    record_wait(arguments);
-    let Err(error) = deps::sync(&root) else { return None };
-    warn(&error);
-    Outcome(arguments.outcome.clone()).record(&["skip", "skipped: bun install failed"]);
-    Some(1)
-}
-
-fn any(arguments: &Arguments) -> u8 {
-    let Some(root) = toplevel() else { return 1 };
-    u8::from(!Config::load(&root, &arguments.head).has_checks())
-}
-
-fn replay(arguments: &Arguments) -> u8 {
-    let until = if arguments.until == 0 { u64::MAX } else { arguments.until };
-    let records: Vec<Record> = Records::at(arguments.records.clone().unwrap_or_else(Records::default_path)).read().into_iter().filter(|record| (arguments.since..until).contains(&record.started)).collect();
-    say(&fail_fast::replay(&records).to_string());
-    0
 }
 
 async fn orchestrate(arguments: Arguments) -> i32 {
