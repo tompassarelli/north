@@ -89,17 +89,34 @@ pub fn hourly_budget() -> u32 {
     std::env::var(BUDGET_ENV).ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_BUDGET)
 }
 
-pub fn session_spends(now: i64) -> Vec<(String, u32)> {
+pub struct SessionSpend {
+    pub session: String,
+    pub used: u32,
+    pub by_call: Vec<(String, String, u32)>,
+}
+
+pub fn session_spends(now: i64) -> Vec<SessionSpend> {
     let directory = ledger_path("");
-    let mut spends: Vec<(String, u32)> = fs::read_dir(directory)
+    let mut spends: Vec<SessionSpend> = fs::read_dir(directory)
         .into_iter()
         .flatten()
         .flatten()
         .filter(|entry| entry.path().extension().is_none_or(|extension| extension != "tmp" && extension != "refused"))
-        .map(|entry| (entry.file_name().to_string_lossy().into_owned(), fresh_spend(&entry.path(), now).iter().map(|(_, cost)| cost).sum()))
-        .filter(|(_, used)| *used > 0)
+        .map(|entry| {
+            let spent = entries(&entry.path(), now);
+            let mut by_call: Vec<(String, String, u32)> = Vec::new();
+            for spend in &spent {
+                match by_call.iter_mut().find(|(caller, endpoint, _)| *caller == spend.caller && *endpoint == spend.endpoint) {
+                    Some(row) => row.2 += spend.cost,
+                    None => by_call.push((spend.caller.clone(), spend.endpoint.clone(), spend.cost)),
+                }
+            }
+            by_call.sort_by(|left, right| right.2.cmp(&left.2).then_with(|| left.0.cmp(&right.0)).then_with(|| left.1.cmp(&right.1)));
+            SessionSpend { session: entry.file_name().to_string_lossy().into_owned(), used: spent.iter().map(|spend| spend.cost).sum(), by_call }
+        })
+        .filter(|spend| spend.used > 0)
         .collect();
-    spends.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    spends.sort_by(|left, right| right.used.cmp(&left.used).then_with(|| left.session.cmp(&right.session)));
     spends
 }
 
@@ -158,7 +175,7 @@ fn prepare(real: &str, arguments: &[String], session: &str, budget: u32, ledger:
     }
     let token = mint().map_err(Refusal::Token)?;
     if units > 0 {
-        record(ledger, now, units);
+        record(ledger, now, (units, super::gh_session_caller::of_process(std::process::id()), super::gh_session_caller::endpoint(arguments)));
     }
     let mut command = Command::new(real);
     command.args(arguments);
@@ -197,21 +214,36 @@ fn admit(spent: &[(i64, u32)], now: i64, units: u32, budget: u32, session: &str)
     Err(format!("session {session} has spent {used} of its {budget} GitHub API units this hour and this call costs {units}{frees} (NORTH_GH_HOURLY_BUDGET sets the share)"))
 }
 
-fn fresh_spend(ledger: &Path, now: i64) -> Vec<(i64, u32)> {
+struct Spend {
+    at: i64,
+    cost: u32,
+    caller: String,
+    endpoint: String,
+}
+
+fn entries(ledger: &Path, now: i64) -> Vec<Spend> {
     let text = fs::read_to_string(ledger).unwrap_or_default();
     text.lines()
         .filter_map(|line| {
-            let (at, cost) = line.split_once(' ')?;
-            Some((at.parse::<i64>().ok()?, cost.parse::<u32>().ok()?))
+            let mut fields = line.splitn(4, ' ');
+            let at = fields.next()?.parse::<i64>().ok()?;
+            let cost = fields.next()?.parse::<u32>().ok()?;
+            let caller = fields.next().unwrap_or("unknown").to_owned();
+            let endpoint = fields.next().unwrap_or("").to_owned();
+            Some(Spend { at, cost, caller, endpoint })
         })
-        .filter(|(at, _)| now - at < WINDOW_SECONDS)
+        .filter(|spend| now - spend.at < WINDOW_SECONDS)
         .collect()
 }
 
-fn record(ledger: &Path, now: i64, units: u32) {
-    let mut kept = fresh_spend(ledger, now);
-    kept.push((now, units));
-    let body: String = kept.iter().map(|(at, cost)| format!("{at} {cost}\n")).collect();
+fn fresh_spend(ledger: &Path, now: i64) -> Vec<(i64, u32)> {
+    entries(ledger, now).into_iter().map(|spend| (spend.at, spend.cost)).collect()
+}
+
+fn record(ledger: &Path, now: i64, spend: (u32, String, String)) {
+    let mut kept = entries(ledger, now);
+    kept.push(Spend { at: now, cost: spend.0, caller: spend.1, endpoint: spend.2 });
+    let body: String = kept.iter().map(|spend| format!("{} {} {} {}\n", spend.at, spend.cost, spend.caller, spend.endpoint)).collect();
     let written = ledger.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| {
         let temporary = ledger.with_extension(format!("{}.tmp", std::process::id()));
         fs::File::create(&temporary)?.write_all(body.as_bytes())?;

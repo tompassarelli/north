@@ -10,11 +10,13 @@ const USAGE: &str = "usage: north github budget
 
 Print what is left of each GitHub token's hourly limit (the user's own login and the Socrates Agent
 App installation fleet sessions use), every fleet session's spend against its hourly share
-(NORTH_GH_HOURLY_BUDGET units, see north gh-session), and the callers that cost the most GitHub
+(NORTH_GH_HOURLY_BUDGET units, see north gh-session) with the five calls that cost it most by caller
+(the north command that ran gh, such as hook-public-text or fleet-tick, else shell) and endpoint, and the callers that cost the most GitHub
 calls in the last hour by token (personal, app, none), personal first, from the broker's calls.log (calls GitHub answered with anything but 304,
 apart from /rate_limit). A session reaching 50% and 80% of its share tells the proxy once.";
 
 const TOP_CALLERS: usize = 10;
+const SESSION_ROWS: usize = 5;
 const HOUR: u64 = 3600;
 
 pub fn github(arguments: &[String]) -> u8 {
@@ -41,8 +43,11 @@ fn budget() -> u8 {
         }
     }
     let share = gh_session::hourly_budget();
-    for (session, used) in gh_session::session_spends(i64::try_from(now).unwrap_or(i64::MAX)) {
-        println!("session {session}\t{used} of {share} units ({}%)", u64::from(used) * 100 / u64::from(share.max(1)));
+    for spend in gh_session::session_spends(i64::try_from(now).unwrap_or(i64::MAX)) {
+        println!("session {}\t{} of {share} units ({}%)", spend.session, spend.used, u64::from(spend.used) * 100 / u64::from(share.max(1)));
+        for (caller, endpoint, units) in spend.by_call.iter().take(SESSION_ROWS) {
+            println!("  {caller}\t{endpoint}\t{units} units ({}%)", u64::from(*units) * 100 / u64::from(share.max(1)));
+        }
     }
     let log = std::fs::read_to_string(Place::from_env().calls()).unwrap_or_default();
     for (caller, calls) in top_callers(&log, now).into_iter().take(TOP_CALLERS) {

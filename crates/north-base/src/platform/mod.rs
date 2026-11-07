@@ -22,6 +22,7 @@ pub mod github_quota;
 pub mod gh_shim;
 pub mod github_app;
 pub mod gh_session;
+mod gh_session_caller;
 pub mod ssh_session;
 pub mod git_credential;
 pub mod hook_commands;

@@ -85,3 +85,16 @@ fn paginated_and_long_listings_cost_more_and_help_costs_nothing() {
     assert_eq!(cost(&words(&["config", "get", "editor"])), 0);
     assert_eq!(cost(&[]), 0);
 }
+
+#[test]
+fn a_recorded_call_keeps_its_caller_and_endpoint_through_later_rewrites_and_an_old_line_reads_as_unknown() {
+    let ledger = scratch("breakdown");
+    fs::create_dir_all(ledger.parent().unwrap()).unwrap();
+    fs::write(&ledger, "990 2\n").unwrap();
+    prepare("gh", &words(&["api", "repos/o/r/issues/638"]), "worker-1", 10, &ledger, 1000, token).unwrap();
+    prepare("gh", &words(&["issue", "view", "7"]), "worker-1", 10, &ledger, 1001, token).unwrap();
+    let kept: Vec<(u32, String, String)> = entries(&ledger, 1002).into_iter().map(|spend| (spend.cost, spend.caller, spend.endpoint)).collect();
+    assert_eq!(kept[0], (2, "unknown".to_owned(), String::new()));
+    assert_eq!(kept[1].2, "api repos/o/r/issues/:n");
+    assert_eq!(kept[2].2, "issue view");
+}
