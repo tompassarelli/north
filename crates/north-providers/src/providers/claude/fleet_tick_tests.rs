@@ -314,7 +314,7 @@ fn hand_over_telling(host: &Host, table: &Table, launches: &Launches, tell_tom: 
         launches.borrow_mut().push(request.clone());
         host.fleet.session(&request.name)
     };
-    crate::fleet::handover::hand_over(&host.fleet, table, &|_| true, &take, tell_tom, NOW_MS)
+    crate::fleet::handover::hand_over(&host.fleet, table, &BTreeMap::new(), &|_| true, &take, tell_tom, NOW_MS)
 }
 
 fn parked_on(host: &Host, name: &str, account: &str, at_ms: u64, since_ms: u64, cwd: &Path) {
@@ -576,4 +576,28 @@ fn a_host_deleted_from_placement_is_named_in_no_tick_line_and_a_forget_aimed_at_
     assert!(host.fleet.cached_sessions().unwrap().unwrap_or_default().iter().all(|row| row.name != "held-there"));
     let lines = host.tick().lines();
     assert!(lines.iter().all(|line| !line.contains("ccx33")), "{lines:?}");
+}
+
+#[test]
+fn a_worker_handed_over_from_the_primary_checkout_with_no_land_ticket_is_pointed_at_its_brief_not_at_the_checkout_head_north_801() {
+    use crate::usage::decide::world::Window;
+    let host = host("nexus");
+    with_accounts(&host, &["a", "c"]);
+    let primary = host.home.path().join("code/north/main");
+    std::fs::create_dir_all(&primary).unwrap();
+    working_on(&host, "chr-north-1107-B", "a", Some("lead"), &primary);
+    let brief = host.home.path().join("briefs/chr-north-1107-B.md");
+    let file = host.root().join("chr-north-1107-B/session.json");
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    record["brief"] = json!(brief);
+    std::fs::write(file, record.to_string()).unwrap();
+    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "a", Window::FiveHour, 40.0, 3_600), read(1, "a", Window::Week, 100.0, 86_400), read(2, "c", Window::FiveHour, 10.0, 3_600), read(3, "c", Window::Week, 10.0, 86_400)], ..Default::default() });
+    let launches = Launches::default();
+
+    let done = hand_over_with(&host, &table, &launches);
+
+    let launched = launches.borrow();
+    let prompt = &launched.iter().find(|request| request.name == "chr-north-1107-B").unwrap_or_else(|| panic!("{:?}", done.lines)).prompt;
+    assert!(prompt.contains(&brief.display().to_string()), "{prompt}");
+    assert!(!prompt.contains(&format!("Your lane at {}", primary.display())), "{prompt}");
 }

@@ -177,14 +177,19 @@ impl LaunchRequest {
         super::budget::stated(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::budget::stated(&brief)))
     }
 
-    pub fn named_brief(&self) -> Option<String> {
-        let brief = self
+    /// The brief file the prompt points at: its first absolute path to an existing `.md` file.
+    pub fn brief_path(&self) -> Option<PathBuf> {
+        self
             .prompt
             .split_whitespace()
             .map(|word| word.trim_start_matches(|c: char| "\"'`(<[".contains(c)).trim_end_matches(|c: char| "\"'`)>],;:.".contains(c)))
             .map(Path::new)
-            .find(|path| path.is_absolute() && path.extension().is_some_and(|ext| ext == "md") && path.is_file())?;
-        std::fs::read_to_string(brief).ok()
+            .find(|path| path.is_absolute() && path.extension().is_some_and(|ext| ext == "md") && path.is_file())
+            .map(Path::to_path_buf)
+    }
+
+    pub fn named_brief(&self) -> Option<String> {
+        std::fs::read_to_string(self.brief_path()?).ok()
     }
 }
 
@@ -302,6 +307,9 @@ pub struct SessionRecord {
     /// The box of its task its claim covers instead of the whole issue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim_box: Option<String>,
+    /// The brief file its launch prompt pointed at, which a handover hands the new conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adopted_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -351,6 +359,7 @@ impl SessionRecord {
             budget: request.budget(),
             box_name: request.box_name(),
             claim_box: request.claimed_box(),
+            brief: request.brief_path(),
             adopted_ms: None,
             revived_mid_task_ms: None,
             phase: None,

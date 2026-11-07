@@ -1,8 +1,9 @@
 //! A session is taken over onto another source when `usage::decide::assess` says so: a worker with
 //! unlanded work once its source is out, a proxy or lead before its source runs out. The new session
-//! gets a `Follows:` brief and the old one's lane, and a lead goes first.
+//! gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
 use std::collections::{BTreeMap, BTreeSet};
 
+use north_base::land_ticket::Lane;
 use north_base::platform::attribution::{self, Cause, Harness};
 
 use super::limit::{UsageWait, park, recent, unknown_reset_ms};
@@ -37,6 +38,7 @@ pub struct HandOver {
 pub fn hand_over(
     fleet: &Fleet,
     readings: &dyn AccountReadings,
+    lanes: &BTreeMap<String, Vec<Lane>>,
     holds_work: &dyn Fn(&SessionRecord) -> bool,
     take_over: &dyn Fn(&LaunchRequest) -> NorthResult<SessionRecord>,
     tell_tom: &dyn Fn(&str) -> Result<(), String>,
@@ -103,9 +105,10 @@ pub fn hand_over(
             continue;
         }
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("handed over from account {} to {}", record.account, to.0));
+        let lane = lanes.get(&record.name).and_then(|held| held.iter().max_by_key(|lane| lane.queued_ms()));
         let request = LaunchRequest {
             account: to.0.clone(),
-            prompt: if proxy { proxy_brief(record, &to.0) } else { brief(record, &to.0) },
+            prompt: if proxy { proxy_brief(record, &to.0) } else { brief(record, lane, &to.0) },
             placement: Some(format!("handed over from account {}", record.account)),
             resume: proxy.then(|| record.conversation.clone()).flatten(),
             ..record.relaunch_request()
@@ -113,7 +116,7 @@ pub fn hand_over(
         match take_over(&request) {
             Ok(_) => {
                 let _ = waits.clear_usage(&record.name);
-                done.lines.push(format!("{}: handed over from account {} to {} with its lane {}", record.name, record.account, to.0, record.cwd.display()));
+                done.lines.push(format!("{}: handed over from account {} to {} {}", record.name, record.account, to.0, lane.map_or_else(|| "with no lane".to_owned(), |lane| format!("with its lane {}", lane.branch))));
             }
             Err(error) => done.lines.push(format!("{}: not handed over from account {} to {}: {}", record.name, record.account, to.0, error.user_message())),
         }
@@ -174,17 +177,31 @@ fn family_of(model: Option<&str>) -> ModelFamily {
     [("fable", ModelFamily::Fable), ("sonnet", ModelFamily::Sonnet), ("haiku", ModelFamily::Haiku)].into_iter().find(|(word, _)| model.contains(word)).map_or(ModelFamily::Opus, |(_, family)| family)
 }
 
-fn brief(record: &SessionRecord, to: &str) -> String {
+fn brief(record: &SessionRecord, lane: Option<&Lane>, to: &str) -> String {
     let follows = record.task_ref.clone().unwrap_or_else(|| record.name.clone());
+    let from = &record.account;
+    let work = match lane {
+        Some(lane) => format!(
+            "Your lane is branch {branch}, whose newest land ticket is {phase}. \
+             Run `git fetch origin`, then check whether {branch} is on origin/main. \
+             If it is not, rebase it onto origin/main, re-run the targeted checks and re-enqueue it with `safe-push --to main`. \
+             If it is, report `Done:` with the landed sha.",
+            branch = lane.branch,
+            phase = north_base::lifecycle::State::name(lane.phase),
+        ),
+        None => {
+            let start = record.brief.as_ref().map_or_else(|| format!("Your launch named no brief file, so start from {follows}."), |brief| format!("Your brief is {}; start from it.", brief.display()));
+            format!(
+                "No land ticket names you, so you have no lane yet: your working directory {cwd} and whatever its HEAD holds are not your work. {start} \
+                 Edit in a fresh worktree off origin/main.",
+                cwd = record.cwd.display(),
+            )
+        }
+    };
     format!(
         "Follows: {follows} (handed over from account {from} to {to}, which is above the floor)\n\n\
-         [north: account {from} is at or under its floor, so `north fleet tick` took over {name} onto account {to}] Your lane at {cwd} is intact and your earlier conversation ended on {from}. \
-         Run `git fetch origin`, then check whether your lane is on origin/main. \
-         If it is not, rebase it onto origin/main, re-run the targeted checks and re-enqueue it with `safe-push --to main`. \
-         If it is, report `Done:` with the landed sha.",
-        from = record.account,
+         [north: account {from} is at or under its floor, so `north fleet tick` took over {name} onto account {to}] Your earlier conversation ended on {from}. {work}",
         name = record.name,
-        cwd = record.cwd.display(),
     )
 }
 

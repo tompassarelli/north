@@ -119,7 +119,7 @@ impl WaitProbes for Probes {
                 name: "probes.settle.hand_over",
                 own: None,
                 run: Box::new(|fleet| {
-                    let handed = hand_over(&fleet, &UsageTable, &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request).inspect(|record| super::desktop::show_taken(&fleet, record)), &tell_tom, now_ms());
+                    let handed = hand_over(&fleet, &UsageTable, &reaper::Evidence::lanes(&reaper::Here), &|record| holds_unlanded_lane(&record.cwd), &|request| fleet.take_over(request).inspect(|record| super::desktop::show_taken(&fleet, record)), &tell_tom, now_ms());
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },
