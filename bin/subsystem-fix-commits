@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+days=${1:-14}
+threads=${THREADS_DB:-$HOME/.local/state/threads/snapshot.db}
+cd "$(git rev-parse --show-toplevel)"
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+export days
+changes_recent_lines() {
+  local c=$1 since f a b
+  since=$(( $(git log -1 --format=%ct "$c") - days * 86400 ))
+  git diff-tree -p -U0 --no-renames --no-commit-id "$c" |
+    awk '/^--- a\//{f=substr($0,7)} /^@@/{split($2,r,","); a=substr(r[1],2); n=(r[2]==""?1:r[2]); if (n>0) print f, a, a+n-1}' |
+    while read -r f a b; do
+      if git blame -s -L "$a,$b" --since="@$since" "$c^" -- "$f" 2>/dev/null | grep -q '^[0-9a-f]'; then echo "$c recent-lines"; return; fi
+    done
+}
+export -f changes_recent_lines
+git log --since="$days days ago" --no-merges --format=%H >"$work/window"
+xargs -a "$work/window" -P "$(nproc)" -I{} bash -c 'changes_recent_lines {}' >"$work/recent"
+sqlite3 -readonly "$threads" "
+  select l.landed_sha, 'green-after-red' from landings l
+   where l.repo='north' and l.verdict='landed' and l.queued_at>=datetime('now','-$days days')
+     and exists (select 1 from landings f where f.repo=l.repo and f.lane=l.lane and f.verdict='failed' and f.queued_at<l.queued_at)" -separator ' ' >"$work/green"
+cat "$work/recent" "$work/green" | awk 'NR==FNR { win[$1]=1; next } ($1 in win) { r[$1]=($1 in r ? r[$1] "," : "") $2 } END { for (c in r) print c, r[c] }' "$work/window" - | sort
