@@ -3,6 +3,7 @@ use super::*;
 struct Filer {
     worker: Option<String>,
     claimed: Vec<(Ref, String)>,
+    files_its_item: bool,
 }
 
 impl Filed for Filer {
@@ -21,6 +22,10 @@ impl Filed for Filer {
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String> {
         self.claimed.push((new.clone(), by.to_owned()));
         Ok(format!("owns {}#{}", new.0, new.1))
+    }
+
+    fn files_its_item(&mut self) -> bool {
+        self.files_its_item
     }
 }
 
@@ -44,15 +49,24 @@ fn an_issue_a_fleet_worker_files_is_claimed_for_it_and_a_blocker_or_a_proxy_fili
         (739, "n-firn-follow", "Category: tooling\n\n## Done when\n- [ ] the follow timer ships each landing to every host"),
     ];
     for (number, session, body) in replay {
-        let mut filer = Filer { worker: Some(session.to_owned()), claimed: Vec::new() };
+        let mut filer = Filer { worker: Some(session.to_owned()), claimed: Vec::new(), files_its_item: false };
         let verdict = link_with(&filed(number, body), &mut filer);
         assert_eq!(filer.claimed, [(("tompassarelli/north".to_owned(), number), session.to_owned())], "north#{number} was staffed beside {session}, which filed it");
         assert!(matches!(verdict, Verdict::Advise(note) if note.contains("not staff it again")), "north#{number}");
-        let mut blocker = Filer { worker: Some(session.to_owned()), claimed: Vec::new() };
+        let mut blocker = Filer { worker: Some(session.to_owned()), claimed: Vec::new(), files_its_item: false };
         link_with(&filed(number + 100, &format!("Blocks: north#{number}\n{body}")), &mut blocker);
         assert!(blocker.claimed.is_empty(), "a blocker {session} files stays for dispatch");
-        let mut proxy = Filer { worker: None, claimed: Vec::new() };
+        let mut proxy = Filer { worker: None, claimed: Vec::new(), files_its_item: false };
         link_with(&filed(number, body), &mut proxy);
         assert!(proxy.claimed.is_empty(), "an issue the proxy files stays for dispatch");
     }
+}
+
+#[test]
+fn an_issue_a_worker_files_as_its_own_item_is_claimed_even_when_it_names_what_it_blocks_north_769() {
+    let body = "Category: debugging-unknown-cause\nClass: a session host exits mid-task\nDefect: the host of north-743-d0351 exited at 11:04 AM\nBlocks: north#761\n\n## Done when\n- [ ] the host survives a deploy";
+    let mut filer = Filer { worker: Some("n-host-death".to_owned()), claimed: Vec::new(), files_its_item: true };
+    link_with(&filed(769, body), &mut filer);
+    assert_eq!(filer.claimed, [(("tompassarelli/north".to_owned(), 769), "n-host-death".to_owned())], "dispatch staffed north-769-d0416 beside n-host-death, which filed north#769 as its item");
+    assert!(FILE_IT_FIRST.is_match("Item: new north issue, file it first (bug, priority:now): a fleet session host exits mid-task"));
 }

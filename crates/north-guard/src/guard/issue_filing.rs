@@ -15,6 +15,7 @@ static BLOCKS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Blo
 static SPLIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*(?:split|follow[- ]?up)\s+(?:of|to)\b[\s:*_]*((?:[\w.-]+/)?[\w.-]*)#(\d+)").unwrap());
 static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https://github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)").unwrap());
+static FILE_IT_FIRST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Item:[^\n]*\bfile it first\b").unwrap());
 static DEFECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Defect:[\s*_]*\S").unwrap());
 static DONE_WHEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Done when:[ \t*_]*").unwrap());
 static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>]*[-*][ \t]+\[[ xX]\]").unwrap());
@@ -137,6 +138,9 @@ pub(super) trait Filed {
     /// The fleet worker session filing, never the proxy, which files issues for dispatch to staff.
     fn worker(&mut self) -> Option<String>;
     fn claim(&mut self, new: &Ref, by: &str) -> Result<String, String>;
+    /// Whether the worker's brief makes the issue it files its own item (`Item: new ... issue, file it first`), so one
+    /// naming what it blocks stays with it too.
+    fn files_its_item(&mut self) -> bool;
 }
 
 impl Filed for Live {
@@ -174,6 +178,10 @@ impl Filed for Live {
             .map_err(|error| error.to_string())?;
         let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().to_owned();
         if ran.status.success() { Ok(said(&ran.stdout)) } else { Err(said(&ran.stderr)) }
+    }
+
+    fn files_its_item(&mut self) -> bool {
+        self.worker_brief().is_some_and(|brief| FILE_IT_FIRST.is_match(&brief))
     }
 }
 
@@ -214,7 +222,7 @@ pub(super) fn link_with(input: &HookInput, world: &mut impl Filed) -> Verdict {
         Ok(false) => {}
         Err(why) => notes.push(format!("Could not append the Clean-up group to {}#{}: {why}", new.0, new.1)),
     }
-    if let Some(worker) = world.worker().filter(|_| !BLOCKS.is_match(&body)) {
+    if let Some(worker) = world.worker().filter(|_| !BLOCKS.is_match(&body) || world.files_its_item()) {
         notes.push(match world.claim(&new, &worker) {
             Ok(said) => format!("{said}: an issue a fleet worker files is claimed for it, so north dispatch does not staff it again."),
             Err(why) => format!("Could not claim {}#{} for you ({why}); claim it with `north threads claim {}#{} --by {worker}` before north dispatch staffs it again.", new.0, new.1, new.0, new.1),
