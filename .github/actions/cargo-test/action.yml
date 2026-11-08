@@ -22,16 +22,7 @@ runs:
       run: |
         sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 update -qq
         sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 install -y --no-install-recommends bubblewrap
-        mkdir -p ~/.cache/ci-tools
-        [ -s ~/.cache/ci-tools/betterleaks.tar.gz ] || curl -fsSL --connect-timeout 20 --max-time 120 --retry 10 --retry-delay 15 --retry-max-time 600 -o ~/.cache/ci-tools/betterleaks.tar.gz https://github.com/betterleaks/betterleaks/releases/download/v1.10.0/betterleaks_1.10.0_linux_x64.tar.gz
-        cp ~/.cache/ci-tools/betterleaks.tar.gz /tmp/betterleaks.tar.gz
-        echo "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe  /tmp/betterleaks.tar.gz" | sha256sum -c -
-        sudo tar -xz -C /usr/local/bin -f /tmp/betterleaks.tar.gz betterleaks
-        [ "$DEV_SHELL" != true ] || exit 0
-        [ -s ~/.cache/ci-tools/ast-grep.zip ] || curl -fsSL --connect-timeout 20 --max-time 120 --retry 10 --retry-delay 15 --retry-max-time 600 -o ~/.cache/ci-tools/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.42.1/app-x86_64-unknown-linux-gnu.zip
-        cp ~/.cache/ci-tools/ast-grep.zip /tmp/ast-grep.zip
-        echo "5de8b87cba67fc8dc3e239d54b6484802ad745a7ae3de76be4fe89661dc52657  /tmp/ast-grep.zip" | sha256sum -c -
-        sudo unzip -o -q /tmp/ast-grep.zip ast-grep -d /usr/local/bin
+        CI_TOOLS_SKIP_AST_GREP="$DEV_SHELL" bash "$GITHUB_ACTION_PATH/../ci-tools.sh"
     - name: Allow bubblewrap user namespaces
       shell: bash
       run: |
