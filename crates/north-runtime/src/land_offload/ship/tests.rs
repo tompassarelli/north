@@ -52,6 +52,7 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
         .env_remove("SAFE_PUSH_LAND_PACKAGES")
         .env_remove("SAFE_PUSH_LAND_IT")
         .env_remove("SAFE_PUSH_LAND_SELECT_PATHS")
+        .env_remove("SAFE_PUSH_LAND_TIPS")
         .env("HOME", home.unwrap_or(fresh_home.path()))
         .output()
         .unwrap();

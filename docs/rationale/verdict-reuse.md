@@ -112,6 +112,46 @@ ambient read, the way `ambient-test-inputs.tsv` only shrinks.
   Clippy is split per crate in a later lane.
 - Scans over a range (`${SAFE_PUSH_LAND_BASE}..${SAFE_PUSH_LAND_HEAD}`) read history, so they stay keyed on
   the exact range. Each takes 0.1 to 5 s and runs beside the tests, not after them.
+- Scans get no per-input key. Measured over the 52 probe candidates of the hour to 8:52 AM on 2026-11-08
+  (the land queue's `spans.jsonl`), scans and other non-cargo checks took 2337 s:
+  - `land scan test-admission kills` took 1573 s of it: 52 runs with a p50 of 33 s and a p90 of 70 s, on 52
+    distinct candidate trees, each keyed on its exact base and head trees.
+  - Every other scan had a p50 of at most 0.61 s. A verdict-cache hit cost 0.5 to 0.9 s (the six hits of
+    the `tests/it/crates.txt` check), so reusing these scans would take as long as running them.
+  - After the push, `test-admission run` (228 s over 5 landings) and `graph validate` (57 s over 5) read the
+    whole Rust tree or every path, so they stay keyed on the tree.
+- The mutant kill passes when any added test catches any mutant of the candidate's diff, so a pass could carry
+  to a longer stack through its witness (the caught mutant and the tests that caught it) when every input
+  those tests compile or read is unchanged. A static key was tried on 2026-11-08 and replayed over that day's
+  228 commits on main to 8:52 AM, taking each commit that adds tests as a lane and the next 1 to 7 commits as
+  the lanes stacked on it. The key hashed:
+  - the path-dependency closure of the test packages;
+  - every top-level path outside `crates/`, since harness tables are read at run time through
+    `CARGO_MANIFEST_DIR`;
+  - paths outside a crate that compiled code names through `include_str!`, `CARGO_MANIFEST_DIR` or `../`.
+
+  Of the 17 lanes that added tests, 10 could not be keyed, because their closure has code that joins the
+  repository root and so may read anything. The other 7 reused 0 of their 49 stacks: within one to three
+  lanes every stack changed `docs/`, `harness/` or `north-base`. A key narrow enough to reuse would need the
+  paths each test actually reads, which is the recorder's path set (lanes 2 and 5 below). Until then, the
+  kill's cost is cut only by judging it once per lane rather than once per probe. That changes what it tests
+  from the union of a probe's lanes to each lane alone.
+- Decision of 2026-11-08 (land-lead): the mutant kill is judged once per lane, the lane alone against its
+  fork point, when it queues (`@enqueue` on its `.safe-push` line). It is a test-admission policy about the
+  lane's own added tests, not a guarantee about main's tree. A probe reruns it on its merged tree only when
+  two of its lanes touch the same file; otherwise the scan reports each lane judged and exits 0. The lander
+  passes each probe's lane tips, oldest first, in `SAFE_PUSH_LAND_TIPS`, and the offload carries it to the
+  slot.
+  - What a lane's own pass does not prove, named: lane A adds a test whose expected value comes from
+    `harness/defaults.toml`, read at run time through `harness_root`
+    (`crates/north-base/src/platform/harness.rs`). Lane B edits that table so the mutant's default return
+    value now equals the expected value. On A+B the same test no longer catches the mutant. A and B touch
+    no file in common, so the probe does not rerun the kill. Any later commit on main can cause the same
+    drift, and the mutant sweep on main finds it after landing.
+  - Replay of the hour to 8:52 AM: the kill ran 52 times (35 of them ran cargo-mutants, 1564 s) across the
+    probes that landed 15 lanes. Under the decision it runs once per lane when the lane queues, plus once in
+    each probe whose lanes share a file. Of that hour's four landed batches of more than one lane, two
+    shared a file (`src/cli/tools.rs` in a batch of five, `structure.toml` in another batch of five).
 
 ### Sandbox: `north land sandbox exec`
 
@@ -291,4 +331,5 @@ The lanes:
    blob ids, dep-info closure), the shadow log and `north land reuse report`. Starts after lanes 2 and 3.
 6. **On.** Starts after the report shows 100 landings with 0 disagreements. The runner reuses, and the 1 h
    scoreboard is read for the reused share and queue p90. Closes the shadow box and the turned-on box.
-7. **Later.** Clippy per crate keyed on dep-info, scans that read no range, and test selection by path set.
+7. **Later.** Clippy per crate keyed on dep-info, and test selection by path set. Scans are left out (see
+   Unit).

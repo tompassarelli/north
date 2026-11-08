@@ -101,7 +101,7 @@ impl Round<'_> {
             return unbuilt(worktree, log, lanes, built.head, format!("{} lanes cannot be built together: {reason}", set.len()));
         }
         let red_fix = set.iter().any(|(_, ticket)| ticket.red_fix.is_some());
-        let launch = checks::Launch { red_fix, local: self.local, lanes: checks::lane_names(set.iter().map(|(_, ticket)| ticket.branch.as_str())), ..checks::Launch::of(self.lander) };
+        let launch = checks::Launch { red_fix, local: self.local, lanes: checks::lane_names(set.iter().map(|(_, ticket)| ticket.branch.as_str())), tips: built.tips.join(" "), ..checks::Launch::of(self.lander) };
         let end = match checks::start(&launch, &worktree, self.base, &log, true) {
             Ok(mut started) => loop {
                 if cancel.load(Ordering::Relaxed) {

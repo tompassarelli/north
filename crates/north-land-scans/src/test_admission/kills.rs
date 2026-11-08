@@ -13,7 +13,7 @@ use super::super::{Range, git};
 use super::limits;
 use north_base::platform::records_mirror::state_home;
 use north_base::foundation::exit::NO_VERDICT;
-use north_base::foundation::offload::SLOT_ENV;
+use north_base::foundation::offload::{SLOT_ENV, TIPS_ENV};
 use north_base::platform::orchestration;
 
 pub const USAGE: &str = "usage: north land scan test-admission kills [--host NAME] [--remote-north COMMAND] BASE..HEAD\n       north land scan test-admission kills --here BASE..HEAD";
@@ -53,6 +53,11 @@ pub fn run(directory: &Path, arguments: &[String], out: &mut impl Write) -> u8 {
             _ => bad = true,
         }
     }
+    let tips = std::env::var(TIPS_ENV).unwrap_or_default();
+    if let Some(lanes) = range.as_deref().filter(|_| !bad).and_then(|range| judged_alone(directory, range, &tips)) {
+        let _ = writeln!(out, "mutant kill: not run in this probe: each of its {lanes} lane(s) was judged alone against its fork point before it queued, and no two of them touch the same file");
+        return 0;
+    }
     let Some(lane) = range.as_deref().filter(|_| !bad && !remote.is_empty()).and_then(|range| lane(directory, range)) else {
         eprintln!("{USAGE}");
         return 64;
@@ -62,6 +67,26 @@ pub fn run(directory: &Path, arguments: &[String], out: &mut impl Write) -> u8 {
         return 0;
     };
     if here { on_this_host(directory, &lane, out) } else { offloaded(directory, &lane, host, &remote, out) }
+}
+
+/// The number of lanes in a probe whose lanes, ending at `tips` oldest first, touch pairwise disjoint files; `None` outside a probe or when two lanes share a file, so the merged tree is judged.
+fn judged_alone(directory: &Path, range: &str, tips: &str) -> Option<usize> {
+    let Range { base, head } = Range::parse(range)?;
+    let tips: Vec<&str> = tips.split_whitespace().collect();
+    let commit = |revision: &str| git::text(directory, &["rev-parse", "--verify", &format!("{revision}^{{commit}}")]).map(|sha| sha.trim().to_owned());
+    if commit(tips.last()?)? != commit(head)? {
+        return None;
+    }
+    let mut from = git::merge_base(directory, base, head);
+    let mut touched = BTreeSet::new();
+    for tip in &tips {
+        let files = git::text(directory, &["diff", "--name-only", "--no-renames", &from, tip])?;
+        if !files.lines().all(|file| touched.insert(file.to_owned())) {
+            return None;
+        }
+        from = (*tip).to_owned();
+    }
+    Some(tips.len())
 }
 
 fn lane(directory: &Path, range: &str) -> Option<Option<Lane>> {

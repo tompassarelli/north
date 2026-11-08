@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::Ordering;
 use north_base::foundation::exit::{NO_VERDICT_STATUS, TRANSPORT_FAILED_TEXT};
-use north_base::foundation::offload::{LANDER_SLOT_ENV, LANES_ENV, LOCAL_ENV, OFF_HOST_ENV, OWNER_ENV, RED_FIX_ENV};
+use north_base::foundation::offload::{LANDER_SLOT_ENV, LANES_ENV, LOCAL_ENV, OFF_HOST_ENV, OWNER_ENV, RED_FIX_ENV, TIPS_ENV};
 
 pub use crate::platform::land_queue::ROUND;
 use super::lander::Lander;
@@ -111,11 +111,12 @@ pub struct Launch<'a> {
     pub off_host: bool,
     pub local: bool,
     pub lanes: String,
+    pub tips: String,
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false, local: environment::active(&lander.queue).is_local(), lanes: String::new() }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), red_fix: false, lander_slot: true, off_host: false, local: environment::active(&lander.queue).is_local(), lanes: String::new(), tips: String::new() }
     }
 }
 
@@ -136,6 +137,9 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env(OWNER_ENV, launch.offload_owner).env(ROUND, &launch.round);
     if !launch.lanes.is_empty() {
         command.env(LANES_ENV, &launch.lanes);
+    }
+    if !launch.tips.is_empty() {
+        command.env(TIPS_ENV, &launch.tips);
     }
     for (set, name) in [(launch.red_fix, RED_FIX_ENV), (launch.lander_slot, LANDER_SLOT_ENV), (launch.off_host, OFF_HOST_ENV), (launch.local, LOCAL_ENV)] {
         if set {

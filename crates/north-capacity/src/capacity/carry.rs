@@ -22,7 +22,7 @@ pub const LANDING: &str = "SAFE_PUSH_LANDING";
 pub const LAND_BASE: &str = "SAFE_PUSH_LAND_BASE";
 pub const LAND_HEAD: &str = "SAFE_PUSH_LAND_HEAD";
 
-const CARRY: [(&str, Reach); 35] = [
+const CARRY: [(&str, Reach); 36] = [
     (LANDING, Reach::Landing),
     (LAND_BASE, Reach::Landing),
     (LAND_HEAD, Reach::Landing),
@@ -33,6 +33,7 @@ const CARRY: [(&str, Reach); 35] = [
     ("SAFE_PUSH_LAND_CPUS", Reach::Landing),
     ("SAFE_PUSH_LAND_IT", Reach::Landing),
     ("SAFE_PUSH_LAND_SELECT_PATHS", Reach::Landing),
+    (north_base::foundation::offload::TIPS_ENV, Reach::Landing),
     ("PATH", Reach::Host),
     ("HOME", Reach::Host),
     ("USER", Reach::Host),

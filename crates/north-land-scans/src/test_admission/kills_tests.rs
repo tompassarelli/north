@@ -1,6 +1,8 @@
 use toml_edit::DocumentMut;
 
-use super::fallbacks;
+use std::path::Path;
+
+use super::{fallbacks, judged_alone};
 
 const HOSTS: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n\n[hosts.cpx62]\nssh = \"tom@cpx62\"\n\n[hosts.whiterabbit]\nreaches = [\"gex45\", \"cpx62\"]\n";
 
@@ -11,4 +13,44 @@ fn a_mutant_kill_inside_an_offload_slot_runs_on_the_slot_host_and_tries_only_hos
     assert_eq!(fallbacks(true, || Some("gex45".to_owned()), "gex45", Some(&cfg), "cpx62"), ["cpx62"]);
     assert!(fallbacks(false, || None, "gex45", Some(&cfg), "cpx62").is_empty());
     assert_eq!(fallbacks(false, || None, "gex45", Some(&cfg), "whiterabbit"), ["gex45"]);
+}
+
+fn git_in(directory: &Path, arguments: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .current_dir(directory)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+        .args(arguments)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {arguments:?}");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+fn lane(repo: &Path, path: &str, text: &str) -> String {
+    std::fs::create_dir_all(repo.join(path).parent().unwrap()).unwrap();
+    std::fs::write(repo.join(path), text).unwrap();
+    git_in(repo, &["add", path]);
+    git_in(repo, &["commit", "-qm", path]);
+    git_in(repo, &["rev-parse", "HEAD"])
+}
+
+// KEEP(bug): on 2026-11-08 in the hour to 8:52 AM every probe ran the mutant kill on its merged tree, 52 runs and 1573 s, though each lane's kill is judged against its own fork point when it queues (north#842)
+#[test]
+fn a_probe_judges_the_mutant_kill_on_its_merged_tree_only_when_two_of_its_lanes_touch_the_same_file() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    let main = lane(repo, "README.md", "north\n");
+    let first = lane(repo, "crates/a/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    let second = lane(repo, "crates/b/src/lib.rs", "pub fn g() -> u8 { 2 }\n");
+    let overlapping = lane(repo, "crates/a/src/lib.rs", "pub fn f() -> u8 { 3 }\n");
+    let range = |head: &str| format!("{main}..{head}");
+    assert_eq!(judged_alone(repo, &range(&second), &format!("{first} {second}")), Some(2));
+    assert_eq!(judged_alone(repo, &range(&first), &first), Some(1));
+    assert_eq!(judged_alone(repo, &range(&overlapping), &format!("{first} {second} {overlapping}")), None);
+    assert_eq!(judged_alone(repo, &range(&second), ""), None);
+    assert_eq!(judged_alone(repo, &range(&overlapping), &format!("{first} {second}")), None);
 }
