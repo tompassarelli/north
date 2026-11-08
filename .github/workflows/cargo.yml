@@ -37,14 +37,22 @@ jobs:
         shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - name: Toolchain and cargo cache
+      - name: Nix dev shell
+        uses: ./.github/actions/nix-dev-shell
+      - name: Cargo cache
         uses: ./.github/actions/rust
         with:
+          rustup: false
           cache-key: cargo-test
           save: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 }}
       - name: Cargo test environment
         uses: ./.github/actions/cargo-test
+        with:
+          dev-shell: true
       - name: Test
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
+        env:
+          TMPDIR: /tmp
         run: |
           echo 1000 > /proc/self/oom_score_adj
           shard=${SHARD:-1} shards=${SHARDS:-1} out=$RUNNER_TEMP/cargo-shard
@@ -82,6 +90,7 @@ jobs:
           retention-days: 1
       - name: Warm the check artifacts the clippy land check restores
         if: github.ref == 'refs/heads/main' && matrix.shard == 1
+        shell: nix develop --no-update-lock-file -c bash -eo pipefail {0}
         run: cargo clippy --all-targets --locked
   cover:
     needs: test

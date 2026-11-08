@@ -1,19 +1,27 @@
 name: Cargo test environment
 description: The bun, bubblewrap, betterleaks and ast-grep the cargo test suite drives, for every job that runs it.
+inputs:
+  dev-shell:
+    description: The job's steps run in the Nix dev shell, which brings bun and ast-grep.
+    default: 'false'
 runs:
   using: composite
   steps:
-    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+    - if: inputs.dev-shell != 'true'
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:
         bun-version: 1.4.4
     - name: Sandbox boundary and scanner
       shell: bash
+      env:
+        DEV_SHELL: ${{ inputs.dev-shell }}
       run: |
         sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 update -qq
         sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 install -y --no-install-recommends bubblewrap
         curl -fsSL --connect-timeout 20 --max-time 120 --retry 2 -o /tmp/betterleaks.tar.gz https://github.com/betterleaks/betterleaks/releases/download/v1.10.0/betterleaks_1.10.0_linux_x64.tar.gz
         echo "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe  /tmp/betterleaks.tar.gz" | sha256sum -c -
         sudo tar -xz -C /usr/local/bin -f /tmp/betterleaks.tar.gz betterleaks
+        [ "$DEV_SHELL" != true ] || exit 0
         curl -fsSL --connect-timeout 20 --max-time 120 --retry 2 -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.42.1/app-x86_64-unknown-linux-gnu.zip
         echo "5de8b87cba67fc8dc3e239d54b6484802ad745a7ae3de76be4fe89661dc52657  /tmp/ast-grep.zip" | sha256sum -c -
         sudo unzip -o -q /tmp/ast-grep.zip ast-grep -d /usr/local/bin

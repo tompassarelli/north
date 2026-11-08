@@ -7,10 +7,14 @@ inputs:
   save:
     description: Write the cargo and sccache caches; land checks run on per-lane refs that no later run can read, so they only read main's.
     default: 'true'
+  rustup:
+    description: Install the toolchain through rustup; a job in the Nix dev shell takes it from the flake instead.
+    default: 'true'
 runs:
   using: composite
   steps:
     - name: Toolchain from rust-toolchain.toml
+      if: inputs.rustup == 'true'
       shell: bash
       run: rustup show active-toolchain || rustup toolchain install
     - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11

@@ -1,0 +1,18 @@
+name: Nix dev shell
+description: Nix, and the toolchain of the flake's dev shell on PATH, so a job's steps run in the same shell the lander's after-landing run uses.
+runs:
+  using: composite
+  steps:
+    - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      with:
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+    - name: Toolchain of the dev shell on PATH for the cache actions
+      shell: bash
+      run: |
+        nix develop --no-update-lock-file -c bash -c 'dirname "$(command -v rustc)"' >> "$GITHUB_PATH"
+    - name: Git from the flake's nixpkgs, kept in the Nix store like the NixOS hosts' git
+      shell: bash
+      run: |
+        nix profile install --inputs-from . nixpkgs#git
+        echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
