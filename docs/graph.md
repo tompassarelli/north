@@ -159,6 +159,18 @@ query can join a claim to the checks of the commit it names.
   harness/corrections.toml. The ledger holds Tom's corrections as neutral paraphrases and so does the graph.
 - `coverage` (writer `coverage`): `(test:BINARY::NAME :reaches fn:FILE:START-END)`, `:in-binary`, `:in-file` and
   `(coverage:REPO :commit SHA)` from the coverage map, replaced whole by each map.
+- `crates` (writer `cargo`): `(crate:NAME :root DIR)` for each workspace member and the root package (DIR relative to the
+  workspace root, `.` for `north`), `(crate:NAME :depends-on crate:DEP)` for each path dependency of any kind on another
+  member (inline, dotted, table or `workspace = true`), `(FILE :embeds PATH)` for each `include_str!` or `include_bytes!` of
+  a string literal or of `concat!(env!("CARGO_MANIFEST_DIR"), "...")`, PATH relative to the repository, and
+  `(crates:north :crates-commit SHA)`. It reads `~/code/north/main` at the commit `origin/main` names there, through
+  `git show` and `git grep`, never the working tree, and replaces its four predicates whole.
+- `reads` (writer `recorder`): per test, from its newest verdict-reuse shadow line (`land-reuse/*.tsv`) that names a path set
+  (`verdict-cache/v2/*/sets/SETID`), `(test:BINARY::NAME :reads PATH)` for each `content` and `exec` entry, `:lists DIR`
+  (`.` for the tree root) and `:expects-absent PATH`, skipping paths under `target/`, one `:read-set SETID` per recorded
+  test, so a recorded test with no in-tree reads differs from an unrecorded one, and `(reads:north :reads-commit PROBE)`
+  with the newest line's probe. An `unreusable` entry tells nothing: every set carries environment-only ones that no query
+  reads. With no shadow log it tells nothing and says so. It replaces its five predicates whole.
 - `observations` (writers `lander`, `git` and `checker`): `(SHA :landed-on "main")` by `lander` for each commit the push log,
   the ledger's landings or the threads database's `landings` record, and `(SHA :ancestor-of "origin/main")` by `git` for each commit a claim names that
   `git rev-list origin/main` lists in `~/code/REPO/main`. It runs after `mirror` and appends through `Graph::apply`: it reads
@@ -200,6 +212,8 @@ The rest stay laptop-only, so a ledger-host graph holds no fact from them:
   and `records-mirror` does not carry it. `:landed-as` and `:works-on` reach the ledger host's graph through `ledger`.
 - `corrections`: `grounding/ledger.jsonl` is written and read on the laptop, and no copy is mirrored to the ledger host.
 - `coverage`: the coverage map is built on the laptop and no copy is mirrored to the ledger host.
+- `crates`: the change graph is read by landings, which run on the laptop, and the ledger host's timer does not name it.
+- `reads`: the shadow log and the path sets are written by the laptop's landings, and the ledger host holds no copy.
 
 Which Done claims on north#634 have no checker observation, as one `ask` (`claim` joins each worker's quoted claim to the boxes
 of the issue; `observed` is a commit `checker` passed):

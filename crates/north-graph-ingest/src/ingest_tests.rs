@@ -39,7 +39,7 @@ fn places(directory: &Path) -> Places {
     std::fs::write(directory.join("pushes.tsv"), format!("1793926432\tnorth\tn634-hung-slots\t{FULL}\t{FULL}\tn634-hung-slots\n")).unwrap();
     std::fs::write(directory.join("corrections.jsonl"), "{\"id\":\"L1\",\"at\":\"2026-10-01T14:15:12Z\",\"kind\":\"correction\",\"quote\":\"Tom said the reply did not answer his question.\",\"source\":\"tom convo:1 session:abc\",\"superseded_by\":null,\"class\":\"unanswered\"}\n").unwrap();
     std::fs::create_dir_all(directory.join("coverage")).unwrap();
-    Places { mirror, ledger, threads: directory.join("threads.db"), pushes: directory.join("pushes.tsv"), code: directory.join("code"), corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage"), ranking: directory.join("backlog-ranking.md") }
+    Places { mirror, ledger, threads: directory.join("threads.db"), pushes: directory.join("pushes.tsv"), code: directory.join("code"), corrections: directory.join("corrections.jsonl"), coverage: directory.join("coverage"), ranking: directory.join("backlog-ranking.md"), land_reuse: directory.join("land-reuse"), verdict_cache: directory.join("verdict-cache") }
 }
 
 fn unobserved_claims() -> Query {
@@ -229,4 +229,72 @@ fn a_debt_issue_whose_every_section_waits_on_a_crate_split_is_held_behind_the_sp
 
     let fixable = backlog_of(&DEBT_AT_1022.replace("WAITS", "").replace("GATES", "crate-lines, code-health"));
     assert!(matches!(fixable.verdict("north#722"), Verdict::Ready), "a code-health section can be fixed forward: {:?}", fixable.held);
+}
+
+#[test]
+fn crates_reads_the_cargo_path_dependency_shapes_and_embeds_at_origin_main_not_the_working_tree() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut places = places(directory.path());
+    places.code = directory.path().join("code");
+    let checkout = places.code.join("north/main");
+    let files = [
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/a\", \"crates/b\", \"crates/c\"]\n[workspace.dependencies]\nc = { path = \"crates/c\" }\nserde = \"1\"\n[package]\nname = \"top\"\n[dependencies]\na = { path = \"crates/a\" }\n"),
+        ("crates/a/Cargo.toml", "[package]\nname = \"a\"\n[dependencies]\nb = { path = \"../b\" }\nserde.workspace = true\noutside = { path = \"../../../elsewhere\" }\n[dev-dependencies]\nc.workspace = true\n"),
+        ("crates/b/Cargo.toml", "[package]\nname = \"b\"\n[build-dependencies.c]\npath = \"../c\"\n"),
+        ("crates/c/Cargo.toml", "[package]\nname = \"c\"\n"),
+        ("crates/a/src/lib.rs", "const A: &str = include_str!(\"../data/a.toml\");\nconst B: &[u8] = include_bytes!(\n    concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../harness/defaults.toml\"),\n);\nconst C: &str = \"include_str!(\\\"/etc/hostname\\\")\";\n"),
+    ];
+    for (path, body) in files {
+        std::fs::create_dir_all(checkout.join(path).parent().unwrap()).unwrap();
+        std::fs::write(checkout.join(path), body).unwrap();
+    }
+    git(&checkout, &["init", "-q"]);
+    git(&checkout, &["add", "."]);
+    git(&checkout, &["commit", "-q", "-m", "one"]);
+    let landed = git(&checkout, &["rev-parse", "HEAD"]);
+    git(&checkout, &["update-ref", "refs/remotes/origin/main", &landed]);
+    git(&checkout, &["checkout", "-q", "-b", "elsewhere"]);
+    std::fs::write(checkout.join("crates/c/Cargo.toml"), "[package]\nname = \"c\"\n[dependencies]\na = { path = \"../a\" }\n").unwrap();
+    git(&checkout, &["commit", "-q", "-am", "never landed"]);
+    let mut graph = Graph::open_in_memory().unwrap();
+    let report = ingest(&mut graph, &places, &[Source::Crates]);
+    assert!(!report.failed, "{:?}", report.lines);
+    let pairs = |pairs: &[(&str, &str)]| pairs.iter().map(|(subject, object)| (format!("\"{subject}\""), format!("\"{object}\""))).collect::<Vec<_>>();
+    assert_eq!(told_as(&graph, "root"), pairs(&[("crate:a", "crates/a"), ("crate:b", "crates/b"), ("crate:c", "crates/c"), ("crate:top", ".")]));
+    assert_eq!(told_as(&graph, "depends-on"), pairs(&[("crate:a", "crate:b"), ("crate:a", "crate:c"), ("crate:b", "crate:c"), ("crate:top", "crate:a")]), "every path dependency on a member, of any kind and in any shape, at origin/main");
+    assert_eq!(told_as(&graph, "embeds"), pairs(&[("crates/a/src/lib.rs", "crates/a/data/a.toml"), ("crates/a/src/lib.rs", "harness/defaults.toml")]));
+    assert_eq!(told_as(&graph, "crates-commit"), pairs(&[("crates:north", &landed)]));
+    let again = ingest(&mut graph, &places, &[Source::Crates]);
+    assert_eq!(again.lines, ["crates: 0 asserted, 0 retracted, 11 unchanged"]);
+}
+
+#[test]
+fn reads_takes_each_tests_newest_shadow_unit_line_naming_a_set_and_tells_its_path_set() {
+    let directory = tempfile::tempdir().unwrap();
+    let places = places(directory.path());
+    let mut graph = Graph::open_in_memory().unwrap();
+    let report = ingest(&mut graph, &places, &[Source::Reads]);
+    assert!(!report.failed && report.lines[1].contains("no shadow log"), "{:?}", report.lines);
+    std::fs::create_dir_all(&places.land_reuse).unwrap();
+    let sets = places.verdict_cache.join("v2/0a1b/sets");
+    std::fs::create_dir_all(&sets).unwrap();
+    std::fs::write(sets.join("aa11"), "content\tharness/old.toml\n").unwrap();
+    std::fs::write(sets.join("bb22"), "absent\tharness/local.toml\ncontent\tharness/defaults.toml\nexec\tbin/safe-push\nlisting\t.\nlisting\tcrates\ncontent\ttarget/debug/north\nunreusable\treads $HOME\n").unwrap();
+    let test = "north-fleet-supervisor gate_rows::a_gate_row_reads_the_defaults";
+    std::fs::write(
+        places.land_reuse.join("2026-11-08.tsv"),
+        format!("100\tunit\tp100\t{test}\taa11\tpass\t0.5\n200\tunit\tp200\t{test}\tbb22\tpass\t0.4\n300\tunit\tp300\t{test}\t-\tfail\t0.1\n250\tunit\tp250\tnorth::it stdio::lines\t-\tpass\t1.0\n"),
+    )
+    .unwrap();
+    let report = ingest(&mut graph, &places, &[Source::Reads]);
+    assert!(!report.failed, "{:?}", report.lines);
+    let node = "\"test:north-fleet-supervisor::gate_rows::a_gate_row_reads_the_defaults\"";
+    let of = |predicate: &str| told_as(&graph, predicate).into_iter().map(|(subject, object)| format!("{} {object}", if subject == node { "T" } else { &subject })).collect::<Vec<_>>();
+    assert_eq!(of("reads"), ["T \"bin/safe-push\"", "T \"harness/defaults.toml\""], "content and exec of the newest line naming a set; nothing under target/");
+    assert_eq!(of("lists"), ["T \".\"", "T \"crates\""]);
+    assert_eq!(of("expects-absent"), ["T \"harness/local.toml\""]);
+    assert_eq!(of("read-set"), ["T \"bb22\""], "one set per recorded test, and no fact for its environment-only lines");
+    assert_eq!(of("reads-commit"), ["\"reads:north\" \"p300\""]);
+    let again = ingest(&mut graph, &places, &[Source::Reads]);
+    assert_eq!(again.lines, ["reads: 0 asserted, 0 retracted, 7 unchanged"]);
 }

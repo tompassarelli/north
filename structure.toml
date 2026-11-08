@@ -617,7 +617,7 @@ may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
 name = "grounding"
 paths = ["crates/north-core/src/grounding/**"]
 responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "lifecycle", "graph", "graph_loops"]
+may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "lifecycle", "graph_loops", "graph"]
 
 [[module]]
 name = "capacity"
@@ -682,8 +682,8 @@ may_use = ["crate-roots", "lifecycle"]
 [[module]]
 name = "graph_ingest"
 paths = ["crates/north-graph-ingest/src/**"]
-responsibility = "Loading what north already records into the fact graph: the GitHub mirror, ledger, push log, decision log, corrections and coverage map, each told as a set by its own writer."
-may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "threads", "lifecycle", "platform.harness", "platform.store", "platform.records"]
+responsibility = "Loading what north already records into the fact graph: the GitHub mirror, ledger, push log, corrections, coverage map, workspace manifests and recorded test reads, each told as a set by its own writer."
+may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "threads", "lifecycle", "platform.harness", "platform.store", "platform.records", "verdict_cache"]
 
 [[module]]
 name = "graph_ground"

@@ -7,9 +7,9 @@ use north_graph::{Graph, Retained, Retention, Synced, Term, default_path};
 use crate::places::Places;
 use crate::shas::Shas;
 use crate::facts::Sourced;
-use crate::{corrections, coverage, issues, ledger, losses, observations, pushes, ranking, touches};
+use crate::{corrections, coverage, crates, issues, ledger, losses, observations, pushes, ranking, reads, touches};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\n       north graph retain [--db PATH]\nsources: mirror ranking ledger losses pushes touches corrections coverage observations (all when none is named)";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\n       north graph retain [--db PATH]\nsources: mirror ranking ledger losses pushes touches corrections coverage crates reads observations (all when none is named)";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {
@@ -21,11 +21,13 @@ pub enum Source {
     Touches,
     Corrections,
     Coverage,
+    Crates,
+    Reads,
     Observations,
 }
 
 impl Source {
-    pub const ALL: [Self; 9] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Losses, Self::Pushes, Self::Touches, Self::Corrections, Self::Coverage, Self::Observations];
+    pub const ALL: [Self; 11] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Losses, Self::Pushes, Self::Touches, Self::Corrections, Self::Coverage, Self::Crates, Self::Reads, Self::Observations];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -37,6 +39,8 @@ impl Source {
             Self::Touches => "touches",
             Self::Corrections => "corrections",
             Self::Coverage => "coverage",
+            Self::Crates => "crates",
+            Self::Reads => "reads",
             Self::Observations => "observations",
         }
     }
@@ -51,6 +55,8 @@ impl Source {
             Self::Touches => touches::read(places).map(Sourced::from),
             Self::Corrections => corrections::read(places).map(Sourced::from),
             Self::Coverage => coverage::read(places).map(Sourced::from),
+            Self::Crates => crates::read(places),
+            Self::Reads => reads::read(places),
             Self::Observations => unreachable!("ingest appends observations through observe"),
         }
     }

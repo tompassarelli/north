@@ -11,6 +11,8 @@ pub struct Places {
     pub corrections: PathBuf,
     pub ranking: PathBuf,
     pub coverage: PathBuf,
+    pub land_reuse: PathBuf,
+    pub verdict_cache: PathBuf,
 }
 
 fn state() -> PathBuf {
@@ -30,6 +32,8 @@ impl Places {
             corrections: std::env::var_os("NORTH_GROUNDING_LEDGER").map_or_else(|| north.join("grounding/ledger.jsonl"), PathBuf::from),
             ranking: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main/docs/rationale/backlog-ranking.md"),
             coverage: north.join("coverage"),
+            land_reuse: north.join("land-reuse"),
+            verdict_cache: north_base::verdict_cache::Store::here().0,
         }
     }
 }
