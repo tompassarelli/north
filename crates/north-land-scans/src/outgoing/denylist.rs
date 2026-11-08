@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::platform::private_text::{self, Finding};
 
-use crate::landing::denylist;
+use crate::landing::denylist::{self, Fault};
 use crate::landing::step::cancelled;
 use crate::landing::step::{Refused, Step};
 use crate::slug::slug_of;
@@ -77,7 +77,7 @@ impl Denylist {
     pub fn verdict(
         &self,
         visibility: impl FnOnce() -> String,
-        findings: impl FnOnce() -> Result<BTreeSet<String>, String>,
+        findings: impl FnOnce() -> Result<BTreeSet<String>, Fault>,
         judged: impl FnOnce() -> Result<Vec<Finding>, String>,
     ) -> DenylistVerdict {
         let configured = self.config.as_ref().is_some_and(|config| config.is_file());
@@ -133,21 +133,30 @@ impl Denylist {
         }
     }
 
-    fn findings(&self, root: &Path, base: &str, head: &str, tag: &str) -> Result<BTreeSet<String>, String> {
+    fn findings(&self, root: &Path, base: &str, head: &str, tag: &str) -> Result<BTreeSet<String>, Fault> {
         match &self.config {
-            Some(config) => denylist::scan_range(root, config, base, head, Some(tag)),
+            Some(config) => Ok(denylist::scan_range(root, config, base, head, Some(tag))?),
             None => {
                 let held = denylist::south_denylist(&self.south)?;
-                denylist::scan_range(root, held.path(), base, head, Some(tag))
+                Ok(denylist::scan_range(root, held.path(), base, head, Some(tag))?)
             }
         }
     }
 
-    fn report(&self, findings: Result<BTreeSet<String>, String>, visibility: &str) -> DenylistVerdict {
+    fn report(&self, findings: Result<BTreeSet<String>, Fault>, visibility: &str) -> DenylistVerdict {
         let found = match findings {
             Ok(found) if found.is_empty() => return DenylistVerdict::pass(Vec::new()),
             Ok(found) => found,
-            Err(error) => {
+            Err(Fault::Unavailable(error)) => {
+                return DenylistVerdict {
+                    lines: vec![
+                        format!("denylist: no verdict: {error}"),
+                        format!("safe-push: ✗ the deny-list is not reachable, so a {visibility} push has no verdict on private values yet; NOT pushed, and the next landing round retries it (exit {NO_VERDICT})."),
+                    ],
+                    stand: Stand::NoVerdict,
+                };
+            }
+            Err(Fault::Failed(error)) => {
                 return DenylistVerdict::refuse(vec![
                     format!("denylist: cannot scan: {error}"),
                     format!(

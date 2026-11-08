@@ -3,19 +3,22 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+use crate::foundation::exit::NO_VERDICT;
 use crate::platform::betterleaks::{Finding, Scanner};
 use crate::platform::git as platform_git;
 use crate::platform::private_text;
 
 #[path = "denylist_archive.rs"]
 mod archive;
+#[path = "denylist_mirror.rs"]
+mod mirror;
 
 use archive::Unpacker;
+pub use mirror::Fault;
 
 type Staged = BTreeMap<PathBuf, BTreeMap<String, String>>;
 
 const USAGE: &str = "usage: north denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]\n       north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
-const SOUTH_DENYLIST: &str = "origin/main:privacy/public-denylist.toml";
 const NON_FILE_MODES: [&str; 2] = ["160000", "040000"];
 
 #[derive(Debug, Eq, PartialEq)]
@@ -300,15 +303,12 @@ fn text_segments(root: &Path, request: &Request, commits: &[String], blobs: &BTr
     Ok(segments)
 }
 
-pub fn south_denylist(south: &Path) -> Result<tempfile::NamedTempFile, String> {
-    let main = south.join("main");
-    git(&main, &["fetch", "-q", "origin", "main"])?;
-    let rules = git_bytes(&main, &["show", SOUTH_DENYLIST])
-        .map_err(|e| format!("the deny-list is missing from {} {SOUTH_DENYLIST}: {e}", main.display()))?;
-    let mut file = tempfile::NamedTempFile::new().map_err(|e| format!("cannot create the deny-list copy: {e}"))?;
-    std::io::Write::write_all(&mut file, &rules).map_err(|e| format!("cannot write the deny-list copy: {e}"))?;
-    Ok(file)
+pub fn south_denylist(south: &Path) -> Result<tempfile::NamedTempFile, Fault> {
+    mirror::south_denylist_in(south, &mirror::mirror_path()?)
 }
+
+#[cfg(test)]
+use mirror::south_denylist_in;
 
 const PROSE_PATHS: [&str; 4] = ["*.md", "*.txt", "*.rst", "*.adoc"];
 
@@ -350,10 +350,10 @@ pub fn scan_range(root: &Path, config: &Path, base: &str, head: &str, ref_name: 
         head: head.to_owned(),
         ref_name: ref_name.map(str::to_owned),
     };
-    scan(root, &request)
+    scan(root, &request).map_err(|fault| fault.to_string())
 }
 
-fn scan(root: &Path, request: &Request) -> Result<BTreeSet<String>, String> {
+fn scan(root: &Path, request: &Request) -> Result<BTreeSet<String>, Fault> {
     let held;
     let named = match &request.config {
         Source::Config(path) => PathBuf::from(path),
@@ -397,8 +397,8 @@ pub fn run(args: &[String]) -> u8 {
         return 2;
     };
     let outcome = std::env::current_dir()
-        .map_err(|e| e.to_string())
-        .and_then(|dir| git(&dir, &["rev-parse", "--show-toplevel"]))
+        .map_err(|e| Fault::Failed(e.to_string()))
+        .and_then(|dir| Ok(git(&dir, &["rev-parse", "--show-toplevel"])?))
         .map(|root| PathBuf::from(root.trim_end_matches('\n')))
         .and_then(|root| scan(&root, &request));
     match outcome {
@@ -409,7 +409,11 @@ pub fn run(args: &[String]) -> u8 {
             }
             1
         }
-        Err(error) => {
+        Err(Fault::Unavailable(error)) => {
+            eprintln!("denylist: no verdict: {error}");
+            NO_VERDICT
+        }
+        Err(Fault::Failed(error)) => {
             eprintln!("denylist: cannot scan: {error}");
             2
         }

@@ -36,3 +36,15 @@ fn a_judge_that_times_out_holds_the_push_as_no_verdict_not_a_refusal() {
     assert_eq!(judged(Ok(vec![Finding { kind: "address".to_owned(), span: "x".to_owned() }])), Stand::Refuse, "a judge that names a private kind still refuses");
     assert_eq!(judged(Ok(Vec::new())), Stand::Pass);
 }
+
+// KEEP(bug): a deny-list that could not be fetched refused every landing probe as if a private value matched on 2026-11-08; north#933
+#[test]
+fn an_unreachable_deny_list_holds_the_push_as_no_verdict_and_a_scan_failure_still_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("main")).unwrap();
+    let denylist = Denylist { south: dir.path().to_path_buf(), config: None };
+    let scanned = |findings: Result<BTreeSet<String>, Fault>| denylist.verdict(|| "PUBLIC".to_owned(), || findings, || Ok(Vec::new())).stand;
+    assert_eq!(scanned(Err(Fault::Unavailable("no network".to_owned()))), Stand::NoVerdict);
+    assert_eq!(scanned(Err(Fault::Failed("the deny-list is missing".to_owned()))), Stand::Refuse);
+    assert_eq!(scanned(Ok(BTreeSet::from(["fake-private-term in notes.txt".to_owned()]))), Stand::Refuse, "a matched private value still refuses");
+}

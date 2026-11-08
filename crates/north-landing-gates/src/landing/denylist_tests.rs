@@ -31,12 +31,14 @@ fn denylist_south_rules_come_from_origin_main_not_the_checkout() {
     git(south.path(), &["clone", "-q", &origin.to_string_lossy(), "main"]).unwrap();
     write(origin, "privacy/public-denylist.toml", "fresh = true\n");
     commit_all(origin, "new rules");
-    let rules = south_denylist(south.path()).unwrap();
+    let holder = tempfile::tempdir().unwrap();
+    let mirror = holder.path().join("mirror.git");
+    let rules = south_denylist_in(south.path(), &mirror).unwrap();
     assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
     assert_eq!(std::fs::read_to_string(main.join("privacy/public-denylist.toml")).unwrap(), "stale = true\n");
     git(origin, &["rm", "-q", "privacy/public-denylist.toml"]).unwrap();
     commit_all(origin, "drop rules");
-    assert!(south_denylist(south.path()).unwrap_err().contains("missing"));
+    assert!(south_denylist_in(south.path(), &mirror).unwrap_err().to_string().contains("missing"));
 }
 
 fn crc32(bytes: &[u8]) -> u32 {
@@ -105,4 +107,83 @@ fn denylist_a_fifo_in_a_tar_is_an_empty_member_and_the_files_beside_it_are_still
     Unpacker::new(archive::DEPTH_CAP, archive::BYTE_CAP).members(b"fixture.tar", &tar.stdout, 0, &mut members).unwrap();
     let found: Vec<(String, Vec<u8>)> = members.into_iter().map(|member| (String::from_utf8(member.path).unwrap(), member.content)).collect();
     assert_eq!(found, [("fixture.tar/tree/fifo".to_owned(), Vec::new()), ("fixture.tar/tree/notes.txt".to_owned(), b"owner zebra-quokka-7731\n".to_vec())]);
+}
+const PLANTED_RULES: &str = "title = \"fixture\"\n[[rules]]\nid = \"fake-private-term\"\nregex = '''zebra-quokka-7731'''\n";
+
+fn south_clone(origin: &Path, south: &Path) {
+    git(south, &["clone", "-q", &origin.to_string_lossy(), "main"]).unwrap();
+}
+
+fn refs(root: &Path) -> String {
+    git(root, &["for-each-ref"]).unwrap()
+}
+
+fn plant(rules: &Path) -> BTreeSet<String> {
+    let scratch = fixture();
+    let root = scratch.path();
+    write(root, "README.md", "nothing here\n");
+    let base = commit_all(root, "start");
+    write(root, "notes.txt", "owner zebra-quokka-7731\n");
+    let head = commit_all(root, "add notes");
+    scan_range(root, rules, &base, &head, None).unwrap()
+}
+
+// KEEP(bug): one fetch killed inside south's checkout left refs/remotes/origin/main.lock there and every landing probe was refused until a person cleared it on 2026-11-08; north#933
+#[test]
+fn denylist_a_stale_lock_in_the_south_checkout_neither_blocks_nor_is_touched_by_the_scan() {
+    let scratch = fixture();
+    let origin = scratch.path();
+    write(origin, "privacy/public-denylist.toml", PLANTED_RULES);
+    commit_all(origin, "rules");
+    let south = tempfile::tempdir().unwrap();
+    south_clone(origin, south.path());
+    let main = south.path().join("main");
+    write(&main, ".git/refs/remotes/origin/main.lock", "");
+    let (status, held_refs) = (git(&main, &["status", "--porcelain"]).unwrap(), refs(&main));
+    let mirror = tempfile::tempdir().unwrap();
+    let rules = south_denylist_in(south.path(), &mirror.path().join("south-denylist.git")).unwrap();
+    let findings = plant(rules.path());
+    assert!(findings.contains("fake-private-term in notes.txt"), "{findings:?}");
+    assert_eq!(git(&main, &["status", "--porcelain"]).unwrap(), status);
+    assert_eq!(refs(&main), held_refs);
+    assert!(main.join(".git/refs/remotes/origin/main.lock").exists(), "the scan leaves the lock where it found it");
+}
+
+#[test]
+fn denylist_a_failed_fetch_scans_the_last_copy_and_with_no_copy_reports_no_verdict() {
+    let scratch = fixture();
+    let origin = scratch.path();
+    write(origin, "privacy/public-denylist.toml", PLANTED_RULES);
+    commit_all(origin, "rules");
+    let south = tempfile::tempdir().unwrap();
+    south_clone(origin, south.path());
+    let mirrors = tempfile::tempdir().unwrap();
+    let (cold, warm) = (mirrors.path().join("cold.git"), mirrors.path().join("warm.git"));
+    assert!(south_denylist_in(south.path(), &warm).is_ok());
+    git(&south.path().join("main"), &["remote", "set-url", "origin", &south.path().join("gone").to_string_lossy()]).unwrap();
+    let copy = south_denylist_in(south.path(), &warm).unwrap();
+    assert_eq!(std::fs::read_to_string(copy.path()).unwrap(), PLANTED_RULES);
+    assert!(!plant(copy.path()).is_empty(), "a private value still refuses on the last copy");
+    assert!(matches!(south_denylist_in(south.path(), &cold), Err(Fault::Unavailable(_))), "no copy means no verdict, not a refusal");
+}
+
+#[test]
+fn denylist_a_stale_lock_in_the_mirror_is_recovered_and_the_rules_refresh() {
+    let scratch = fixture();
+    let origin = scratch.path();
+    write(origin, "privacy/public-denylist.toml", "stale = true\n");
+    commit_all(origin, "old rules");
+    let south = tempfile::tempdir().unwrap();
+    south_clone(origin, south.path());
+    let holder = tempfile::tempdir().unwrap();
+    let mirror = holder.path().join("south-denylist.git");
+    assert!(south_denylist_in(south.path(), &mirror).is_ok());
+    write(&mirror, "refs/south/main.lock", "");
+    write(&mirror, "north-fetch.lock", "");
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(mirror.join("north-fetch.lock")).unwrap().set_modified(hour_ago).unwrap();
+    write(origin, "privacy/public-denylist.toml", "fresh = true\n");
+    commit_all(origin, "new rules");
+    let rules = south_denylist_in(south.path(), &mirror).unwrap();
+    assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
 }
