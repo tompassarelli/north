@@ -13,7 +13,7 @@ use super::model::{Observation, Subject, censored, command_key, current_cache_st
 use crate::capacity::local_machine::host_name;
 use super::policy::batch_class;
 use super::handover::Listening;
-use super::offering::{Admitted, Declines, NO_BUILD_HOST, Waiting, agent_session, accepted, offer_first, queue_time_left, try_offload};
+use super::offering::{Admitted, Declines, HELD_HOST, NO_BUILD_HOST, Waiting, agent_session, accepted, offer_first, queue_time_left, try_offload};
 use super::terminations::Terminations;
 use super::quiet_holds::{QuietHolds, quiet_owners};
 use super::requeue;
@@ -430,6 +430,9 @@ fn refusal(admitted: &Obj) -> Option<String> {
     let view = admitted.value();
     if text(&view, "reason") == Some(NO_BUILD_HOST) {
         return Some(format!("refused: this host does not compile for fleet sessions and no build host took the job ({}); the detail names what to change or wait for", text(&view, "detail").unwrap_or_default()));
+    }
+    if text(&view, "reason") == Some(HELD_HOST) {
+        return Some(format!("refused: this host is under a hold that keeps heavy work off it, and the offload declined this build ({}), so it never runs here; run it on a build host with `north capacity offload run --host <build host> --base origin/main --head HEAD --timeout SECS -- \"COMMAND\"`, which ships the tree and runs the command there", text(&view, "detail").unwrap_or_default()));
     }
     if text(&view, "reason") == Some("PAIR_HELD") {
         let holder = view.get("holder").map_or_else(String::new, |holder| holder.as_str().map_or_else(|| holder.to_string(), str::to_owned));

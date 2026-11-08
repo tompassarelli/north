@@ -1,5 +1,5 @@
 use super::json::Obj;
-use super::offering::{deferred_session_build, offers_before_deciding, session_build_refusal};
+use super::offering::{Declines, HELD_HOST, deferred_session_build, held_build_refusal, offers_before_deciding, session_build_refusal};
 use super::request::Create;
 use crate::capacity::build_offload::{Candidate, Declined, Job};
 use crate::capacity::effects::Host;
@@ -135,4 +135,24 @@ async fn an_offer_whose_timeout_fires_at_announce_runs_the_job_once_here_and_nev
     GAVE_UP.store(true, std::sync::atomic::Ordering::SeqCst);
     north_base::platform::wait::until(std::time::Duration::from_secs(30), || ANNOUNCE_DONE.load(std::sync::atomic::Ordering::SeqCst));
     assert_eq!(HOST_RUNS.load(std::sync::atomic::Ordering::SeqCst), 0, "the host must not also start the abandoned offer");
+}
+
+// KEEP(bug): at 10:12 AM on 2026-11-08 offload declined a session's `cargo build -p north --bin north` as an artifact build and capacity host run built it on the laptop under the playtest hold, load 80; the hold now binds the stay-on-this-host fallback, so the build is refused and never started here; north#892
+#[test]
+fn a_build_offload_declines_as_an_artifact_is_refused_under_a_hold_and_runs_here_only_without_one() {
+    let create = Create { kind: "run", owner: "n892-testclock".to_owned(), timeout_seconds: Some(3600) };
+    let build = ["cargo", "build", "--locked", "-p", "north", "--bin", "north"].map(str::to_owned);
+    let mut declines = Declines::new();
+    assert!(declines.note(Some(Declined::artifact()), "n892-testclock").is_some());
+    let playing = laptop(|| None);
+    let refused = held_build_refusal(&playing, &build, declines.kept_here.as_ref(), &create).expect("the hold keeps the build off this host");
+    assert_eq!(refused.get("decision").and_then(serde_json::Value::as_str), Some("REFUSED"));
+    assert_eq!(refused.get("reason").and_then(serde_json::Value::as_str), Some(HELD_HOST));
+    assert!(refused.get("detail").and_then(serde_json::Value::as_str).unwrap_or_default().contains("artifact"));
+    let free = Host { lease_builds: || true, ..laptop(|| None) };
+    assert!(held_build_refusal(&free, &build, declines.kept_here.as_ref(), &create).is_none(), "no hold: the build runs here as before");
+    assert!(held_build_refusal(&playing, &build, Declines::new().kept_here.as_ref(), &create).is_none(), "nothing declined: nothing to hold");
+    let mut full = Declines::new();
+    full.note(Some(Declined::NoRoom(vec!["gex45: busy".to_owned()])), "n892-testclock");
+    assert!(held_build_refusal(&playing, &build, full.kept_here.as_ref(), &create).is_none(), "a want of a build host is the session-build refusal's, not this one's");
 }

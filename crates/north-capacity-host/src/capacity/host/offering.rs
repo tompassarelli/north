@@ -20,6 +20,7 @@ use crate::foundation::clock::Timestamp;
 
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 pub(super) const NO_BUILD_HOST: &str = "NO_BUILD_HOST";
+pub(super) const HELD_HOST: &str = "HELD_HOST";
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
 const OFFER_PENDING: u8 = 0;
 const OFFER_STARTED: u8 = 1;
@@ -56,18 +57,20 @@ pub(super) fn queue_time_left(timeout_seconds: Option<u64>, queued_seconds: f64)
 pub(super) struct Declines {
     printed: Option<String>,
     missing_host: Option<Declined>,
+    pub(super) kept_here: Option<Declined>,
     pub(super) retry_milliseconds: f64,
 }
 
 impl Declines {
     pub(super) fn new() -> Self {
-        Self { printed: None, missing_host: None, retry_milliseconds: OFFLOAD_RETRY_MILLISECONDS }
+        Self { printed: None, missing_host: None, kept_here: None, retry_milliseconds: OFFLOAD_RETRY_MILLISECONDS }
     }
 
     /// The OFFLOAD_DECLINED line a decline earns, None when it repeats the reason already printed.
     pub(super) fn note(&mut self, why: Option<Declined>, owner: &str) -> Option<Obj> {
         let why = why?;
         self.missing_host = why.lacks_host().then(|| why.clone());
+        self.kept_here = (!why.lacks_host()).then(|| why.clone());
         self.retry_milliseconds = why.retry_milliseconds(OFFLOAD_RETRY_MILLISECONDS);
         why.changes(&mut self.printed).then(|| Obj::new().put("decision", "OFFLOAD_DECLINED").put("reason", why.reason()).put("detail", why.detail()).put("owner", owner))
     }
@@ -183,6 +186,15 @@ pub(super) fn session_build_refusal(host: &Host, command: &[String], missing: Op
     Some(no_build_host(missing, &here, create))
 }
 
+/// The refusal a fleet session's Rust compile gets on a host whose hold keeps heavy work off it when the build hosts declined it for a reason that leaves it on this host (it builds an artifact the caller runs, ships too large a diff): the hold binds that fallback too, so the build never runs here.
+pub(super) fn held_build_refusal(host: &Host, command: &[String], kept: Option<&Declined>, create: &Create) -> Option<Obj> {
+    if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) {
+        return None;
+    }
+    let kept = kept?;
+    Some(Obj::new().put("decision", "REFUSED").put("reason", HELD_HOST).put("detail", format!("{}: {}", kept.reason(), kept.detail())).put("owner", create.owner.as_str()))
+}
+
 /// The refusal a fleet session's Rust compile gets when this host took it for want of a build host but its admission defers it: it waits in no queue, so no caller's deadline runs out behind a wait it never asked for, and is refused at once as when this host has no room.
 pub(super) fn deferred_session_build(host: &Host, command: &[String], missing: Option<&Declined>, create: &Create, first: &Obj) -> Option<Obj> {
     if (host.lease_builds)() || !crate::capacity::gate::compiles_rust(command) || first.get("decision").and_then(Value::as_str) != Some("DEFER") {
@@ -206,6 +218,9 @@ pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminati
             return Some(Admitted::Offloaded(code));
         }
         if let Some(refused) = session_build_refusal(host, waiting.command, waiting.declined.missing_host.as_ref(), create) {
+            return Some(Admitted::Here(refused));
+        }
+        if let Some(refused) = held_build_refusal(host, waiting.command, waiting.declined.kept_here.as_ref(), create) {
             return Some(Admitted::Here(refused));
         }
     }
