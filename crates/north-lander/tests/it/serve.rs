@@ -66,11 +66,18 @@ impl World {
     }
 
     pub(super) fn lander(&self, repository: &Repository, hold: Option<&Path>) -> Child {
-        let arguments = ["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--checker", self.path().join("bin/checker").to_str().unwrap()].join("\n");
+        let mut command = self.land(&["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--checker", self.path().join("bin/checker").to_str().unwrap()]);
+        if let Some(hold) = hold {
+            command.env("HOLD", hold);
+        }
+        command.spawn().unwrap()
+    }
+
+    pub(super) fn land(&self, arguments: &[&str]) -> Command {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])
-            .env(ARGUMENTS, arguments)
+            .env(ARGUMENTS, arguments.join("\n"))
             .env("XDG_STATE_HOME", self.path().join("state"))
             .env("NORTH_DECISION_LOG", self.path().join("state/north/decisions"))
             .env("HOME", self.path())
@@ -82,10 +89,7 @@ impl World {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if let Some(hold) = hold {
-            command.env("HOLD", hold);
-        }
-        command.spawn().unwrap()
+        command
     }
 }
 

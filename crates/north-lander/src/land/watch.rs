@@ -3,9 +3,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+mod hand_off;
 mod journal;
+
+pub use hand_off::hand_off;
 
 use journal::{Entry, Journaled, adopt_journal_files, journal, take_journaled};
 
@@ -115,6 +118,7 @@ pub struct Watch {
     draining: bool,
     /// The queue whose journaled runs this watch holds, empty until it resumes or follows one.
     queue: PathBuf,
+    handed_off_looked: Option<Instant>,
 }
 
 impl Drop for Watch {
@@ -290,7 +294,7 @@ impl Watch {
     }
 
     pub fn settle(&mut self, lander: &Lander) -> bool {
-        let mut recovered = false;
+        let mut recovered = self.take_handed_off(lander);
         for landing in self.jobs.settle() {
             self.follow(lander, &landing.base, &landing.head, landing.lanes);
             recovered = true;

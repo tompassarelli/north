@@ -1350,3 +1350,16 @@ lander-fix order, the first commit is red-fix-a.
 Rejected: a separate pass that checks each lander fix alone off the lander before the batch. It was built
 against the probe rounds. Land-first already lands every queued lane in the next push, so a second pass would only
 add a check the lane passed before queueing.
+
+### Break-glass, when even a lander fix cannot wait (2026-11-08, north#930)
+
+Tom asked on 2026-11-08 for a sanctioned path past the lander after land-first waited over an hour; the
+alternative in use was editing or bypassing a guard by hand, which leaves no record and skips the scans.
+`north land break-glass TICKET --reason TEXT --approval GATE` lands one queued ticket only under Tom's recorded
+approval. It runs the outgoing secret scan and the privacy judge on exactly the commits it pushes, records an
+incident naming the reason, and hands the landing to the serving lander so the after-landing run and the
+sheriff's revert still follow it. No guard changes to allow it.
+
+Replay: `cargo nextest run -p north-lander -E 'test(break_glass_lands)'` refuses the command without
+approval and pushes nothing, then lands the ticket once approval is recorded, with the secret scan run and the
+incident recorded.
