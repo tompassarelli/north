@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::process::Command;
 
 use north_graph::{Action, Atom, Graph, Term, Triple, parse_query};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
-use crate::facts::text;
+use crate::facts::{Facts, text};
 use crate::places::Places;
 
 const LANDER: &str = "lander";
@@ -23,6 +23,7 @@ pub struct Appended {
 
 pub fn append(graph: &mut Graph, places: &Places) -> Result<Appended, String> {
     let mut appended = Appended::default();
+    carried_checks(graph, places, &mut appended)?;
     let landed = fresh(&landings(places, &mut appended.notes), &subjects(graph, LANDER, LANDED_ON)?, &mut appended);
     let known = subjects(graph, GIT, ANCESTOR_OF)?;
     let mut unseen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -42,7 +43,7 @@ pub fn append(graph: &mut Graph, places: &Places) -> Result<Appended, String> {
     }
     let told = |shas: &[String], predicate: &str, object: &str| -> Vec<Action> { shas.iter().map(|sha| Action::assert(Triple::new(text(sha), Term::keyword(predicate), text(object)))).collect() };
     let (landed, ancestors) = (told(&landed, LANDED_ON, MAIN), told(&ancestors, ANCESTOR_OF, ORIGIN_MAIN));
-    appended.asserted = landed.len() + ancestors.len();
+    appended.asserted += landed.len() + ancestors.len();
     graph.apply_batches(&[(LANDER, &landed), (GIT, &ancestors)]).map_err(|why| why.to_string())?;
     Ok(appended)
 }
@@ -59,6 +60,10 @@ fn landings(places: &Places, notes: &mut Vec<String>) -> BTreeSet<String> {
         Ok(found) => landed.extend(found),
         Err(why) => notes.push(format!("no landings from {}: {why}", places.ledger.display())),
     }
+    match threads_landings(places) {
+        Ok(found) => landed.extend(found),
+        Err(why) => notes.push(format!("no landings from {}: {why}", places.threads.display())),
+    }
     landed.retain(|sha| !sha.is_empty());
     landed.into_iter().map(|sha| sha.to_ascii_lowercase()).collect()
 }
@@ -70,6 +75,46 @@ fn ledger_landings(places: &Places) -> rusqlite::Result<Vec<String>> {
     let connection = Connection::open_with_flags(&places.ledger, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut statement = connection.prepare("SELECT landed_sha FROM tasks WHERE outcome = 'landed' AND landed_sha IS NOT NULL")?;
     statement.query_map([], |row| row.get::<_, String>(0))?.collect()
+}
+
+fn threads_landings(places: &Places) -> rusqlite::Result<Vec<String>> {
+    let Some(connection) = threads(places, "landings")? else { return Ok(Vec::new()) };
+    let mut statement = connection.prepare("SELECT landed_sha FROM landings WHERE verdict = 'landed' AND landed_sha IS NOT NULL")?;
+    statement.query_map([], |row| row.get::<_, String>(0))?.collect()
+}
+
+fn carried_checks(graph: &mut Graph, places: &Places, appended: &mut Appended) -> Result<(), String> {
+    let read = || -> rusqlite::Result<Facts> {
+        let mut facts = Facts::new(&[]);
+        let Some(connection) = threads(places, "done_checks")? else { return Ok(facts) };
+        let mut statement = connection.prepare("SELECT task_ref, head_sha, command, exit FROM done_checks")?;
+        let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))?;
+        for row in rows {
+            let (task, sha, command, exit) = row?;
+            crate::ledger::check(&mut facts, &task, &sha, command, exit);
+        }
+        Ok(facts)
+    };
+    let facts = match read() {
+        Ok(facts) => facts,
+        Err(why) => {
+            appended.notes.push(format!("no carried checks from {}: {why}", places.threads.display()));
+            return Ok(());
+        }
+    };
+    let synced = graph.sync(&facts.finish()).map_err(|why| why.to_string())?;
+    appended.asserted += synced.asserted;
+    appended.unchanged += synced.unchanged;
+    Ok(())
+}
+
+fn threads(places: &Places, table: &str) -> rusqlite::Result<Option<Connection>> {
+    if !places.threads.is_file() {
+        return Ok(None);
+    }
+    let connection = Connection::open_with_flags(&places.threads, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let found = connection.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [table], |_| Ok(())).optional()?;
+    Ok(found.map(|()| connection))
 }
 
 fn on_main(places: &Places, repo: &str) -> Result<HashSet<String>, String> {

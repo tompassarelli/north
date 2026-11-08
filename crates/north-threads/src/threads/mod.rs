@@ -5,6 +5,7 @@ pub mod causes;
 pub mod claims;
 pub mod capacity_admissions;
 pub mod concerns;
+pub mod done_checks;
 pub mod fixtures;
 pub mod client;
 pub mod hold;

@@ -119,12 +119,14 @@ query can join a claim to the checks of the commit it names.
   harness/corrections.toml. The ledger holds Tom's corrections as neutral paraphrases and so does the graph.
 - `coverage` (writer `coverage`): `(test:BINARY::NAME :reaches fn:FILE:START-END)`, `:in-binary`, `:in-file` and
   `(coverage:REPO :commit SHA)` from the coverage map, replaced whole by each map.
-- `observations` (writers `lander` and `git`): `(SHA :landed-on "main")` by `lander` for each commit the push log or the
-  ledger's landings record, and `(SHA :ancestor-of "origin/main")` by `git` for each commit a claim names that
+- `observations` (writers `lander`, `git` and `checker`): `(SHA :landed-on "main")` by `lander` for each commit the push log,
+  the ledger's landings or the threads database's `landings` record, and `(SHA :ancestor-of "origin/main")` by `git` for each commit a claim names that
   `git rev-list origin/main` lists in `~/code/REPO/main`. It runs after `mirror` and appends through `Graph::apply`: it reads
   only the live assertions of its two predicates and adds what is new, and never retracts, since a landed commit stays landed.
   `north task check --done-when` records each verdict in the ledger's checks with the main commit it ran on, which `ledger`
-  tells as `checker`'s `:check-passed` or `:check-failed`.
+  tells as `checker`'s `:check-passed` or `:check-failed`. The host that ran the check also queues it as a `done_check` row on
+  its threads spool, so the ledger host's threads database holds every host's verdicts in `done_checks`, and `observations`
+  tells them as the same `checker` facts; a fact both sources tell is asserted once.
 
 A worker's claim counts only when a mechanical writer corroborates it. `harness/graph-rules/corroborated.json` derives
 `corroborated(BOX, SHA, WRITER)`: a quoted `(BOX :done-at SHA)` claim whose SHA is not `:none`, with `checker` asserting
@@ -144,10 +146,13 @@ deletes its history (see Retention).
 The graph is per host. The laptop's is built by `north land follow` after each landing, from every source. The ledger host
 (nexus) keeps its own, built every five minutes by south's `north-graph-ingest` timer
 (`modules/north-graph-ingest.nix`), so `north graph ready`, dispatch's backlog read and the learning loops that read the graph
-run where the ledger, the mirror and the threads database are. It runs `north graph ingest mirror ranking ledger losses` and
-no other source, each read from a copy the ledger host already holds: `mirror` from its own `github-mirror.db`, `ranking`
-from the `~/code/north/main` checkout that checkout-sync keeps current, `ledger` from its `ledger.db`, `losses` from its
-threads database. A named source that cannot be read fails the unit, which notifies through `update-notify`.
+run where the ledger, the mirror and the threads database are. It runs
+`north graph ingest mirror ranking ledger losses observations` and no other source, each read from a copy the ledger host
+already holds: `mirror` from its own `github-mirror.db`, `ranking` from the `~/code/north/main` checkout that checkout-sync
+keeps current, `ledger` from its `ledger.db`, `losses` from its threads database, and `observations` from the threads
+database's `landings`, which the lander writes there, and `done_checks`, which each host's threads spool carries there, with
+the ancestry of claimed commits from the `~/code/REPO/main` checkouts checkout-sync keeps; a repository with no checkout there
+leaves a note and no ancestry. A named source that cannot be read fails the unit, which notifies through `update-notify`.
 
 The rest stay laptop-only, so a ledger-host graph holds no fact from them:
 

@@ -12,6 +12,7 @@ use crate::fleet::turns::{RunRecord, RunSink};
 
 mod books;
 mod briefs;
+mod carried;
 pub mod closed;
 mod closed_source;
 mod corroborated;
@@ -200,10 +201,7 @@ impl Ledger {
     }
 
     pub fn open_default() -> NorthResult<Self> {
-        let home = std::env::var_os("HOME")
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?;
-        Self::open(&PathBuf::from(home).join(".local/state/north/ledger.db"))
+        Self::open(&carried::default_ledger().ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?)
     }
 
     pub fn open(path: &Path) -> NorthResult<Self> {
@@ -265,7 +263,9 @@ impl Ledger {
                 params![check.task_ref, check.command, check.cwd.display().to_string(), check.head_sha, check.exit, check.ran_ms],
             )
             .map(drop)
-        })
+        })?;
+        carried::carry(&self.path, check);
+        Ok(())
     }
 
     fn write<T>(&self, work: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> NorthResult<T> {

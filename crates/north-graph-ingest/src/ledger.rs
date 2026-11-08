@@ -46,13 +46,17 @@ fn checks(connection: &Connection, facts: &mut Facts) -> rusqlite::Result<()> {
     let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))?;
     for row in rows {
         let (task, sha, command, exit) = row?;
-        let sha = sha.to_ascii_lowercase();
-        facts.tell(CHECKER, text(&sha), if exit == 0 { "check-passed" } else { "check-failed" }, text(command));
-        if let Some(issue) = issue_ref(&task) {
-            facts.tell(CHECKER, text(&sha), "checked-for", text(issue));
-        }
+        check(facts, &task, &sha, command, exit);
     }
     Ok(())
+}
+
+pub fn check(facts: &mut Facts, task: &str, sha: &str, command: String, exit: i64) {
+    let sha = sha.to_ascii_lowercase();
+    facts.tell(CHECKER, text(&sha), if exit == 0 { "check-passed" } else { "check-failed" }, text(command));
+    if let Some(issue) = issue_ref(task) {
+        facts.tell(CHECKER, text(&sha), "checked-for", text(issue));
+    }
 }
 
 fn tasks(connection: &Connection, facts: &mut Facts) -> rusqlite::Result<()> {
