@@ -16,7 +16,7 @@ What the review found that the assessment missed:
 - South's catalog named north files by path. `check-owners` verifies those paths against the other repository's main, in both north's and south's landings, so a plain move had no landing order that passed. The fix extends the rule north already used for guards: South names every north-owned unit by a `structure.toml` `[[registered]]` id, and moving a north file edits only north.
 - makgora and wisp ran `effect-kit.mjs` by its north path (their CI, makgora's pre-push and its landing check), so their lanes landed right after the move.
 - North's root had no licence text, although Cargo.toml declares `MIT OR Apache-2.0`. The package's licence texts became the root's, and its third-party credits (Three.js and Astro notes, the cavecrew and Matt Pocock inspirations) moved word for word into the root NOTICE.
-- `doctrine.md` is delivered to the `north` instructions target, which no agent reads. It moved unchanged; north#869 decides whether it is delivered or folded into the skills that own its rules.
+- `doctrine.md` was delivered to the `north` instructions target, which no agent reads. North#869 (2026-11-08) deleted it and the target: Tom's south policy already carried its Done when and Not required lists, the planning skill its 80/20 hardening rule, and the planning and workers skills now carry the rest (run admission with no shadow roles, the not-facts list, stopping at the repairable boundary, an unblocking discovery is not scope, and when a box needs the owner).
 - docs/rationale/non-rust-inventory.md had called the package published. It was not.
 
 ## What changed

@@ -5,7 +5,7 @@ The live catalog is authoritative: `agents status --json`, `agents inspect
 
 ## Source and activation
 
-- `north:harness/skills/` and `north:harness/doctrine.md` own reusable workflows and the work-ownership contract.
+- `north:harness/skills/` owns reusable workflows and the work-ownership contract.
 - `south:agents/` owns operator policy; `north:harness/` owns local hook sources.
 - `nixos-config:modules/north-profile/firn/skills/` owns configuration workflows.
 - `south:agents/catalog-config.json` declares owner registrations,

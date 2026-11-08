@@ -50,7 +50,7 @@ Read in three rings and stop at the first one that answers:
   authorized host effects; [docs/architecture.md](docs/architecture.md) maps the owning boundaries.
 - [bin/](bin/): every harness command (`agents`, `threads`, `safe-push` and more);
   [docs/features.md](docs/features.md) says what each one is for.
-- [harness/](harness/): hooks, skills, the delivery doctrine, defaults and policy owners;
+- [harness/](harness/): hooks, skills, defaults and policy owners;
   [docs/harness.md](docs/harness.md) follows them end to end, and
   [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md) says how skills are laid out.
 - [docs/](docs/): the concept documents, the feature entries and the rationale notes.

@@ -878,10 +878,6 @@ id = "instructions.code"
 path = "harness/code/AGENTS.md"
 
 [[registered]]
-id = "instructions.doctrine"
-path = "harness/doctrine.md"
-
-[[registered]]
 id = "config.defaults"
 path = "harness/defaults.toml"
 

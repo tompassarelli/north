@@ -72,6 +72,11 @@ Report usable delivery first and the material remaining boundary next; link
 details. This is not permission to hide a required failure, mark human approval
 complete, or compress away a limitation that changes the operator's decision.
 
+Fix a defect that blocks the outcome at its smallest owning cause. Stop
+root-cause descent at the evidenced, repairable boundary and name any upstream
+or human dependency. Record a discovery that blocks no box for later; it is
+never added scope.
+
 ## Quality is several decisions
 
 Changeability, claim correctness, robustness, security, and operational

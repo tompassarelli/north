@@ -264,7 +264,7 @@ fn rule_text(line: &str) -> String {
 fn policy_name(path: &str) -> bool {
     matches!(
         Path::new(path).file_name().and_then(|s| s.to_str()),
-        Some("AGENTS.md" | "SKILL.md" | "doctrine.md" | "catalog-config.json")
+        Some("AGENTS.md" | "SKILL.md" | "catalog-config.json")
     )
 }
 fn policy_line(path: &str, line: &str) -> bool {
@@ -272,7 +272,7 @@ fn policy_line(path: &str, line: &str) -> bool {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    matches!(name, "AGENTS.md" | "SKILL.md" | "doctrine.md")
+    matches!(name, "AGENTS.md" | "SKILL.md")
         && re!(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)").is_match(line)
         || name == "catalog-config.json" && re!(r#""kind"\s*:\s*"hook""#).is_match(line)
 }

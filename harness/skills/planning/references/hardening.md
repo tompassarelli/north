@@ -7,6 +7,11 @@ Separate guarantees already provided from guarantees requested. Identify the
 consumer, plausible failure, consequence, and smallest mechanism that changes
 the decision; do not raise unrelated quality axes.
 
+A missing fact means no addition. Public source, a daemon, durable local data,
+hypothetical users and wanting a property are not facts. A missing exposure
+fact means volatile, owner-controlled research with no lifecycle ceremony;
+never ask the owner to classify the stakes.
+
 ## Assurance envelope
 
 Use the needed fields, not a mandatory form:
