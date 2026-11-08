@@ -84,12 +84,8 @@ const HELD_AFTER_RUNNER: &str = r#"#!/bin/sh
 while [ ! -e "$HOME/release" ]; do sleep 0.05; done
 "#;
 
-fn wait_for(what: &str, ready: impl Fn() -> bool) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-    while !ready() {
-        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+fn wait_for(what: &str, ready: impl FnMut() -> bool) {
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(60), ready), "timed out waiting for {what}");
 }
 
 // KEEP(bug): on 2026-11-08 a lander round held main for 40 min while it checked merged trees; a push must wait for no earlier batch's checks, only for the lease on main (north#902)
