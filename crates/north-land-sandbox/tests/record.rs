@@ -114,7 +114,8 @@ fn a_child_stopped_by_sigstop_stays_stopped_until_sigcont() {
     let scene = Scene::new();
     let script = r#"
 beat="$TMPDIR/beat"
-(while :; do echo >> "$beat"; done) &
+exec 3>> "$beat"
+(while :; do echo >&3; done) &
 child=$!
 sleep 0.2
 kill -STOP $child
@@ -131,4 +132,13 @@ kill $child
     let file = scene.root.path().join("recorded");
     let output = scene.sandbox().arg("--record").arg(&file).args(["--", "sh", "-c", script]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "stayed-stopped", "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn a_child_stopped_by_sigstop_still_dies_of_sigterm() {
+    let scene = Scene::new();
+    let script = "sleep 5 & child=$!; sleep 0.2; kill -STOP $child; sleep 0.1; kill -TERM $child; wait $child; echo $?";
+    let file = scene.root.path().join("recorded");
+    let output = scene.sandbox().arg("--record").arg(&file).args(["--", "sh", "-c", script]).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "143", "{}", String::from_utf8_lossy(&output.stderr));
 }

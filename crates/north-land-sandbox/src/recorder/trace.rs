@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nix::errno::Errno;
 use nix::sys::ptrace::{self, Options};
@@ -21,8 +21,14 @@ const OPTIONS: Options = Options::PTRACE_O_TRACESECCOMP
     .union(Options::PTRACE_O_EXITKILL);
 
 const STOPS: [Signal; 4] = [Signal::SIGSTOP, Signal::SIGTSTP, Signal::SIGTTIN, Signal::SIGTTOU];
-const HELD_POLL: Duration = Duration::from_millis(5);
-const SIGCONT_BIT: u64 = 1 << (libc::SIGCONT - 1);
+const HELD_WAIT: Duration = Duration::from_micros(200);
+const HELD_CHECK: Duration = Duration::from_millis(5);
+const SIGCONT_BIT: u64 = bit(libc::SIGCONT);
+const NO_EFFECT_WHILE_STOPPED: u64 = bit(libc::SIGCHLD) | bit(libc::SIGURG) | bit(libc::SIGWINCH) | bit(libc::SIGSTOP) | bit(libc::SIGTSTP) | bit(libc::SIGTTIN) | bit(libc::SIGTTOU);
+
+const fn bit(signal: i32) -> u64 {
+    1 << (signal - 1)
+}
 
 pub fn follow(recorder: &mut Recorder, root: Pid) -> Result<u8, String> {
     match waitpid(root, Some(WaitPidFlag::__WALL)) {
@@ -33,12 +39,16 @@ pub fn follow(recorder: &mut Recorder, root: Pid) -> Result<u8, String> {
     resume(root, None);
     let mut stopped: HashSet<Pid> = HashSet::from([root]);
     let mut held: HashSet<Pid> = HashSet::new();
+    let mut checked = Instant::now();
     loop {
         let flags = if held.is_empty() { WaitPidFlag::__WALL } else { WaitPidFlag::__WALL | WaitPidFlag::WNOHANG };
         let status = match waitpid(None, Some(flags)) {
             Ok(WaitStatus::StillAlive) => {
-                std::thread::sleep(HELD_POLL);
-                held.retain(|pid| !release(*pid));
+                std::thread::sleep(HELD_WAIT);
+                if checked.elapsed() >= HELD_CHECK {
+                    held.retain(|pid| !release(*pid));
+                    checked = Instant::now();
+                }
                 continue;
             }
             Ok(status) => status,
@@ -73,13 +83,18 @@ pub fn follow(recorder: &mut Recorder, root: Pid) -> Result<u8, String> {
 }
 
 fn release(pid: Pid) -> bool {
-    let continued = std::fs::read_to_string(format!("/proc/{pid}/status")).map_or(true, |status| {
-        status.lines().filter(|line| line.starts_with("SigPnd:") || line.starts_with("ShdPnd:")).any(|line| line.split_whitespace().nth(1).and_then(|mask| u64::from_str_radix(mask, 16).ok()).is_some_and(|mask| mask & SIGCONT_BIT != 0))
-    });
-    if continued {
+    let wakes = std::fs::read_to_string(format!("/proc/{pid}/status")).map_or(true, |status| wakes_a_stopped_process(&status));
+    if wakes {
         resume(pid, None);
     }
-    continued
+    wakes
+}
+
+fn wakes_a_stopped_process(status: &str) -> bool {
+    let mask = |field: &str| status.lines().filter(|line| line.starts_with(field)).filter_map(|line| line.split_whitespace().nth(1)).filter_map(|mask| u64::from_str_radix(mask, 16).ok()).fold(0, |all, mask| all | mask);
+    let pending = mask("SigPnd:") | mask("ShdPnd:");
+    let deferred = mask("SigBlk:") | mask("SigIgn:") | mask("SigCgt:") | NO_EFFECT_WHILE_STOPPED;
+    pending & SIGCONT_BIT != 0 || pending & !deferred != 0
 }
 
 fn resume(pid: Pid, signal: Option<Signal>) {
