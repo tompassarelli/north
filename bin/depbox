@@ -7,6 +7,7 @@ if [ -z "${DEPBOX_ADMITTED:-}" ] && command -v north >/dev/null; then env -u CAR
 if [ -n "$class" ]; then
   DEPBOX_ADMITTED=1 exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
 fi
+[ -z "${NORTH_WORKER_SANDBOXED:-}" ] || exec north --worker-sandbox --outside -- "$0" "$@"
 read -r host_pid _ </proc/self/stat
 [ "$host_pid" = "$$" ] || exec /run/current-system/sw/bin/unshare --user --map-current-user --pid --fork --kill-child=KILL --mount-proc "$0" "$@"
 

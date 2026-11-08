@@ -59,11 +59,15 @@ impl Home {
     }
 
     fn run(&self, command: &str, sandboxed: bool) -> Output {
+        self.run_in(&self.lane(), command, sandboxed)
+    }
+
+    fn run_in(&self, directory: &Path, command: &str, sandboxed: bool) -> Output {
         let home = self.path();
         let mut outer = Command::new("bwrap");
         outer.args(["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/dev/shm", "--tmpfs"]);
         outer.arg(format!("/run/user/{}", rustix::process::getuid().as_raw()));
-        outer.arg("--bind").arg(home).arg(home).arg("--chdir").arg(self.lane());
+        outer.arg("--bind").arg(home).arg(home).arg("--chdir").arg(directory);
         outer.args(["--clearenv", "--setenv", "PATH"]).arg(std::env::var_os("PATH").unwrap()).arg("--setenv").arg("HOME").arg(home).args(["--setenv", "SHELL", "bash"]);
         outer.arg("--setenv").arg(CHILD).arg(home);
         if sandboxed {
@@ -106,7 +110,7 @@ fn a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_direc
         assert!(home.removed().is_empty(), "{replay} removed {:?}: {stderr}", home.removed());
     }
     let home = Home::new();
-    let output = home.run("rm -rf scratch", true);
+    let output = home.run_in(&home.path().join("code/p/main"), &format!("cd {} && rm -rf scratch", home.lane().display()), true);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert!(!home.lane().join("scratch").exists());
 }
