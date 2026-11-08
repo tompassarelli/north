@@ -7,7 +7,7 @@ use crate::facts::{Facts, Sourced, text};
 use crate::places::Places;
 
 const WRITER: &str = "recorder";
-const REPLACED: [&str; 5] = ["reads", "lists", "expects-absent", "read-set", "reads-commit"];
+const REPLACED: [&str; 6] = ["reads", "lists", "expects-absent", "read-set", "recorded-in", "reads-commit"];
 
 struct Unit<'a> {
     epoch: f64,
@@ -52,6 +52,7 @@ pub fn read(places: &Places) -> Result<Sourced, String> {
         let entries = path_set::parse(&body).map_err(|why| format!("set {} of {binary} {name} at {}: {why}", unit.set, unit.probe))?;
         let test = format!("test:{binary}::{name}");
         facts.tell(WRITER, text(&test), "read-set", text(unit.set));
+        facts.tell(WRITER, text(&test), "recorded-in", text(*binary));
         for entry in entries.iter().filter(|entry| !(entry.path == "target" || entry.path.starts_with("target/"))) {
             let predicate = match entry.kind {
                 Kind::Content | Kind::Exec => "reads",

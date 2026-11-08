@@ -16,6 +16,8 @@ struct Answer {
     always: Vec<String>,
     #[serde(default)]
     added: Vec<AddedTest>,
+    #[serde(default)]
+    known: usize,
 }
 
 #[derive(Deserialize)]
@@ -30,6 +32,7 @@ pub struct Tests {
     by_binary: BTreeMap<String, BTreeSet<String>>,
     added: BTreeSet<(String, String)>,
     modules: BTreeSet<String>,
+    known: usize,
 }
 
 impl Tests {
@@ -43,7 +46,7 @@ impl Tests {
             }
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        let tests = Self { by_binary, added, modules: BTreeSet::new() };
+        let tests = Self { by_binary, added, modules: BTreeSet::new(), known: answer.known };
         (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests).filter(|tests| tests.filter().len() <= FILTER_LIMIT)
     }
 
@@ -68,7 +71,7 @@ impl Tests {
 
     pub fn summary(&self) -> String {
         let traced: usize = self.by_binary.values().map(BTreeSet::len).sum();
-        format!("the {traced} tests the change graph traces in {} test binaries, and the {} tests the lane adds, and the tree-wide tests/it modules {}", self.by_binary.len(), self.added.len(), self.modules.iter().cloned().collect::<Vec<_>>().join(", "))
+        format!("the {traced} of the {} tests the change graph knows, in {} test binaries, and the {} tests the lane adds, and the tree-wide tests/it modules {}", self.known, self.by_binary.len(), self.added.len(), self.modules.iter().cloned().collect::<Vec<_>>().join(", "))
     }
 
     fn filter(&self) -> String {

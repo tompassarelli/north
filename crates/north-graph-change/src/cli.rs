@@ -117,7 +117,7 @@ fn affected(context: &Context, options: &Options) -> Result<u8, String> {
     let cone = cone_between(&context.root, &facts, base, head)?;
     if options.json {
         let added: Vec<Value> = cone.added.iter().map(|test| json!({ "package": test.package, "name": test.name })).collect();
-        println!("{}", json!({ "tests": ids(&cone.tests), "always": ids(&cone.always), "added": added, "files": cone.files, "untraced": cone.untraced }));
+        println!("{}", json!({ "tests": ids(&cone.tests), "always": ids(&cone.always), "added": added, "files": cone.files, "untraced": cone.untraced, "known": facts.all_tests().len() }));
     } else if cone.untraced.is_none() {
         for test in cone.tests.iter().chain(&cone.always) {
             println!("{test}");

@@ -167,10 +167,11 @@ query can join a claim to the checks of the commit it names.
   `git show` and `git grep`, never the working tree, and replaces its four predicates whole.
 - `reads` (writer `recorder`): per test, from its newest verdict-reuse shadow line (`land-reuse/*.tsv`) that names a path set
   (`verdict-cache/v2/*/sets/SETID`), `(test:BINARY::NAME :reads PATH)` for each `content` and `exec` entry, `:lists DIR`
-  (`.` for the tree root) and `:expects-absent PATH`, skipping paths under `target/`, one `:read-set SETID` per recorded
-  test, so a recorded test with no in-tree reads differs from an unrecorded one, and `(reads:north :reads-commit PROBE)`
+  (`.` for the tree root) and `:expects-absent PATH`, skipping paths under `target/`, one `:read-set SETID` and one
+  `:recorded-in BINARY_ID` (the binary its shadow line names) per recorded test, so a recorded test with no in-tree reads
+  differs from an unrecorded one and a test coverage never reached is still known, and `(reads:north :reads-commit PROBE)`
   with the newest line's probe. An `unreusable` entry tells nothing: every set carries environment-only ones that no query
-  reads. With no shadow log it tells nothing and says so. It replaces its five predicates whole.
+  reads. With no shadow log it tells nothing and says so. It replaces its six predicates whole.
 - `observations` (writers `lander`, `git` and `checker`): `(SHA :landed-on "main")` by `lander` for each commit the push log,
   the ledger's landings or the threads database's `landings` record, and `(SHA :ancestor-of "origin/main")` by `git` for each commit a claim names that
   `git rev-list origin/main` lists in `~/code/REPO/main`. It runs after `mirror` and appends through `Graph::apply`: it reads
@@ -348,7 +349,8 @@ week before once a week of data exists.
 `north graph ask affected|overlap|blame` (`crates/north-graph-change`) answer, for landing lanes, which tests a change can
 affect, read from the graph's facts; any other `north graph ask` stays the kernel's JSON query. Each takes `[--db PATH]`,
 `[--repo DIR]` (default the working directory) and `[--json]`. A lane is `NAME=BASE..HEAD`, a test id is nextest's
-`BINARY_ID TEST_NAME`, split back from the node `test:BINARY_ID::TEST_NAME` by its `:in-binary` fact.
+`BINARY_ID TEST_NAME`, split back from the node `test:BINARY_ID::TEST_NAME` by its `:in-binary` or `:recorded-in` fact; the tests the graph
+knows are those with either fact.
 
 A lane's cone, from `git diff --name-status --no-renames BASE HEAD`:
 
@@ -370,12 +372,12 @@ A lane's cone, from `git diff --name-status --no-renames BASE HEAD`:
 - A non-Rust path nothing reads, embeds or roots selects nothing, but only while the graph holds recorded reads
   (`reads:north :reads-commit`); with none it is untraced.
 - `added` lists the `#[test]` functions the lane adds, with their package. `always` lists, for a lane that changes a non-Rust
-  path, the tests the graph knows (`:in-binary`) with no `:read-set`, since their data reads are unknown; with full recording
+  path, the tests the graph knows with no `:read-set`, since their data reads are unknown; with full recording
   it is empty. Reads outside the tree (terminfo, the loader, `$HOME` state, the host checkout) select nothing, because a
   diff changes only tree paths.
 
 `affected BASE HEAD` prints the cone's tests then `always`, one per line, and exits 0, or exits 3 with the reason on stderr
-when untraced; `--json` prints `{"tests","always","added","files","untraced"}`. `overlap LANE...` prints one line per
+when untraced; `--json` prints `{"tests","always","added","files","untraced","known"}`, `known` counting the tests the graph knows, which the land check names beside the tests it selects. `overlap LANE...` prints one line per
 independent group: lanes in different groups share no traced test, an `always` test links none, and an untraced lane joins
 every group; `--json` adds each sharing pair with its tests and `always`, which then holds every known test. `blame
 [--failed "BIN NAME"]... [--compile FILE]... [--log FILE]... LANE...` prints the lanes that hold a failure, most failures

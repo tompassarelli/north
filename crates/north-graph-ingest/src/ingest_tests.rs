@@ -294,7 +294,8 @@ fn reads_takes_each_tests_newest_shadow_unit_line_naming_a_set_and_tells_its_pat
     assert_eq!(of("lists"), ["T \".\"", "T \"crates\""]);
     assert_eq!(of("expects-absent"), ["T \"harness/local.toml\""]);
     assert_eq!(of("read-set"), ["T \"bb22\""], "one set per recorded test, and no fact for its environment-only lines");
+    assert_eq!(of("recorded-in"), ["T \"north-fleet-supervisor\""], "the binary the shadow line names, so the test is known with no coverage");
     assert_eq!(of("reads-commit"), ["\"reads:north\" \"p300\""]);
     let again = ingest(&mut graph, &places, &[Source::Reads]);
-    assert_eq!(again.lines, ["reads: 0 asserted, 0 retracted, 7 unchanged"]);
+    assert_eq!(again.lines, ["reads: 0 asserted, 0 retracted, 8 unchanged"]);
 }

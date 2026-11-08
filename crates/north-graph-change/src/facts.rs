@@ -63,7 +63,9 @@ fn crate_name(node: &str) -> Option<&str> {
 impl<'g> Facts<'g> {
     pub fn read(graph: &'g Graph, repository: &str) -> Result<Self, String> {
         let mut facts = Self { graph, tests: BTreeMap::new(), unrecorded: OnceCell::new(), crates: Vec::new(), depends: BTreeMap::new(), coverage_commit: None, reads_recorded: false };
-        for (node, binary) in facts.pairs("in-binary")? {
+        let mut binaries = facts.pairs("in-binary")?;
+        binaries.extend(facts.pairs("recorded-in")?);
+        for (node, binary) in binaries {
             let name = node.strip_prefix("test:").and_then(|rest| rest.strip_prefix(binary.as_str())).and_then(|rest| rest.strip_prefix("::"));
             if let Some(name) = name {
                 let id = TestId { binary: binary.clone(), name: name.to_owned() };

@@ -54,6 +54,20 @@ The withdrawn lanes this replay was asked about:
   diff that runs before the probe's tests. It appears only as one of 11 lanes named for a north-lander compile error
   whose culprit was n842-groups.
 
+## Selection on the live graph
+
+At 2:00 PM +07 the laptop's graph.db, the one the lander's land check asks, held the crate facts (`crates`, writer `cargo`)
+but no recorded reads: the gex45 recording sat in `graph-917/north`, outside the `land-reuse` and `verdict-cache/v2`
+paths the `reads` source reads. 9 of the last 20 lanes on main changed a non-Rust path and answered untraced, so their
+land checks kept the crate-level selection. With the recording placed in those paths and ingested (25,698 facts), and
+each recorded test told `:recorded-in` its binary so a test coverage never reached is still known:
+
+- The 20 lanes on main from 2649c5a3a2 to f3b0513fa0: 20 of 20 traced, where 11 traced before. Over all 274
+  lanes of the morning's queue, each lane's own commit: 273 traced, the other changes `flake.nix`.
+- Missed tests: the 13 failures of verified culprits above, and the 2 tests that failed a lane alone after 11:20 AM
+  (n842-classify's habits test, n892-hostfault2's carry matrix test), are each in the lane's own set: 15 of 15.
+- The after-landing runs at 2:03 PM ran graph selections, f3b0513fa0 39 tests of the 243 in the binaries it built.
+
 ## What follows
 
 - Blame runs before the bisect in the after-landing culprit search: one lane named reverts it, several bisect only
