@@ -18,5 +18,5 @@ fn an_urgent_ticket_lands_in_round_one_when_every_other_ticket_is_bad() {
     let probes = paced(&queue, &[9], 6, RefusalRate::default(), &[]);
     assert!(probes.len() <= 6);
     let green: Vec<bool> = probes.iter().map(|probe| probe.iter().all(|lane| *lane == 9)).collect();
-    assert_eq!(settle(&probes, &green).land, [9]);
+    assert_eq!(settle(&probes, &green, &[]).land, [9]);
 }

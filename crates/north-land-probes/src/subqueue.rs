@@ -61,7 +61,7 @@ pub fn share(lengths: &[usize], slots: usize) -> Vec<usize> {
     shares
 }
 
-pub fn round<L: Clone + PartialEq, K: Ord>(queue: &[(L, Footprint<K>)], slots: usize, cap: usize, suspects: &[L]) -> Vec<SubRound<L>> {
+pub fn round<L: Clone + PartialEq, K: Ord>(queue: &[(L, Footprint<K>)], slots: usize, cap: usize, groups: &[Vec<L>]) -> Vec<SubRound<L>> {
     let queues = partition(queue);
     let shares = share(&queues.iter().map(Vec::len).collect::<Vec<_>>(), slots);
     queues
@@ -69,7 +69,7 @@ pub fn round<L: Clone + PartialEq, K: Ord>(queue: &[(L, Footprint<K>)], slots: u
         .zip(shares)
         .filter(|(_, slots)| *slots > 0)
         .map(|(lanes, slots)| {
-            let mine: Vec<L> = suspects.iter().filter(|suspect| lanes.contains(suspect)).cloned().collect();
+            let mine: Vec<Vec<L>> = groups.iter().filter(|group| group.iter().all(|lane| lanes.contains(lane))).cloned().collect();
             let probes = plan(&lanes, slots, cap, &mine);
             SubRound { lanes, probes }
         })

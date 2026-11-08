@@ -29,7 +29,7 @@ const LOCAL_PROBES: usize = 1;
 
 #[derive(Default, Serialize, Deserialize)]
 struct Suspects {
-    ids: Vec<String>,
+    groups: Vec<Vec<String>>,
     stalls: u32,
 }
 
@@ -47,17 +47,21 @@ impl Suspects {
         if local {
             return self.plan(ids, LOCAL_PROBES, false).into_iter().take(LOCAL_PROBES).collect();
         }
-        let named: Vec<usize> = ids.iter().enumerate().filter(|(_, id)| self.ids.contains(id)).map(|(at, _)| at).collect();
-        if self.stalls >= STALLS_BEFORE_ALONE && let Some(first) = named.first() {
+        let named = self.named(ids);
+        if self.stalls >= STALLS_BEFORE_ALONE && let Some(first) = named.first().and_then(|group| group.first()) {
             return vec![vec![*first]];
         }
         plan(&(0..ids.len()).collect::<Vec<_>>(), room, usize::MAX, &named)
     }
 
-    fn after(&mut self, ids: &[String], next: &[usize], landed: bool) {
-        let next: Vec<String> = next.iter().map(|lane| ids[*lane].clone()).collect();
-        self.stalls = if landed || next != self.ids { 0 } else { self.stalls + 1 };
-        self.ids = next;
+    fn named(&self, ids: &[String]) -> Vec<Vec<usize>> {
+        self.groups.iter().map(|group| ids.iter().enumerate().filter(|(_, id)| group.contains(id)).map(|(at, _)| at).collect::<Vec<_>>()).filter(|group| !group.is_empty()).collect()
+    }
+
+    fn after(&mut self, ids: &[String], next: &[Vec<usize>], landed: bool) {
+        let next: Vec<Vec<String>> = next.iter().map(|group| group.iter().map(|lane| ids[*lane].clone()).collect()).collect();
+        self.stalls = if landed || next != self.groups { 0 } else { self.stalls + 1 };
+        self.groups = next;
     }
 }
 
@@ -100,7 +104,7 @@ impl Decided<'_> {
     }
 
     fn proof(&self, culprit: usize) -> Option<&Probe> {
-        let carries = |probe: &&&Probe| !probe.green() && self.settled.land.iter().all(|lane| probe.lanes.contains(lane)) && probe.lanes.contains(&culprit);
+        let carries = |probe: &&&Probe| !probe.green() && probe.lanes.contains(&culprit) && probe.lanes.iter().all(|lane| *lane == culprit || self.settled.land.contains(lane));
         self.probes.iter().filter(carries).min_by_key(|probe| probe.lanes.len()).copied()
     }
 }
@@ -153,11 +157,11 @@ impl Probing for Lander {
             return self.settle_undecided(pass, lanes, &finished);
         }
         pause::resume(&self.queue);
-        let settled = settle(&probes.iter().map(|probe| probe.lanes.clone()).collect::<Vec<_>>(), &probes.iter().map(|probe| probe.green()).collect::<Vec<_>>());
-        suspects.after(&ids, &settled.suspects, !settled.land.is_empty() || settled.refuse.is_some());
+        let settled = settle(&probes.iter().map(|probe| probe.lanes.clone()).collect::<Vec<_>>(), &probes.iter().map(|probe| probe.green()).collect::<Vec<_>>(), &suspects.named(&ids));
+        suspects.after(&ids, &settled.groups, !settled.land.is_empty() || !settled.refuse.is_empty());
         suspects.save(&self.queue)?;
         let mut unbuilt = Unbuilt::load(&self.queue, &ids);
-        let pull = unbuilt.after(&ids, &finished).filter(|pull| settled.refuse != Some(pull.lane));
+        let pull = unbuilt.after(&ids, &finished).filter(|pull| !settled.refuse.contains(&pull.lane));
         unbuilt.save(&self.queue)?;
         if let Some(pull) = pull {
             unbuilt::pull(self, pass.rebuilds, lanes[pull.lane], &finished[pull.probe], &pull, attempt.base)?;
@@ -181,15 +185,14 @@ impl Probing for Lander {
             }
             main.clone_from(&landing.head);
         }
-        if let Some(culprit) = settled.refuse
-            && let Some(proof) = decided.proof(culprit)
-        {
+        for (culprit, proof) in settled.refuse.iter().filter_map(|culprit| decided.proof(*culprit).map(|proof| (*culprit, proof))) {
             let detail = proof.verdict().map(|verdict| verdict.class().1.to_owned()).unwrap_or_default();
             steps::judge(&steps::Judged { verdict: proof.verdict().unwrap_or(&Verdict::Green), included: &[lanes[culprit]], base_moved: false, streak: 0, searched: false }, &Judgement::Culprit(detail), &decided.id, 0);
             self.refuse_culprit(pass, lanes[culprit], proof, &main)?;
-        } else if settled.land.is_empty() {
-            let names = settled.suspects.iter().map(|lane| lanes[*lane].1.branch.as_str()).collect::<Vec<_>>().join(", ");
-            println!("north land: probes carrying {names} were refused; the next round leaves each of them out in turn");
+        }
+        if settled.land.is_empty() && settled.refuse.is_empty() {
+            let names = settled.groups.iter().flatten().map(|lane| lanes[*lane].1.branch.as_str()).collect::<Vec<_>>().join(", ");
+            println!("north land: probes carrying {names} were refused; the next round splits them in halves");
         }
         Ok(Flow::Done(Round::Progress))
     }

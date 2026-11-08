@@ -25,15 +25,15 @@ pub fn urgent_first<L: Clone + PartialEq>(queue: &[L], urgent: &[L]) -> Vec<L> {
     queue.iter().filter(|lane| urgent.contains(lane)).chain(queue.iter().filter(|lane| !urgent.contains(lane))).cloned().collect()
 }
 
-pub fn paced<L: Clone + PartialEq>(queue: &[L], urgent: &[L], slots: usize, rate: RefusalRate, suspects: &[L]) -> Vec<Vec<L>> {
+pub fn paced<L: Clone + PartialEq>(queue: &[L], urgent: &[L], slots: usize, rate: RefusalRate, groups: &[Vec<L>]) -> Vec<Vec<L>> {
     let ordered = urgent_first(queue, urgent);
     let cap = rate.stride();
-    let head = ordered.first().filter(|lane| slots > 0 && urgent.contains(lane) && !suspects.contains(lane)).map(|lane| vec![lane.clone()]);
+    let head = ordered.first().filter(|lane| slots > 0 && urgent.contains(lane) && !groups.iter().any(|group| group.contains(lane))).map(|lane| vec![lane.clone()]);
     let Some(head) = head else {
-        return plan(&ordered, slots, cap, suspects);
+        return plan(&ordered, slots, cap, groups);
     };
     let mut probes = vec![head];
-    for probe in plan(&ordered, slots - 1, cap, suspects) {
+    for probe in plan(&ordered, slots - 1, cap, groups) {
         if !probes.contains(&probe) {
             probes.push(probe);
         }

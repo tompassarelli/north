@@ -6,7 +6,7 @@ use crate::settle;
 struct Lander {
     main: Vec<u32>,
     queue: Vec<(u32, Footprint<&'static str>)>,
-    suspects: Vec<u32>,
+    suspects: Vec<Vec<u32>>,
     green: fn(&[u32]) -> bool,
 }
 
@@ -21,12 +21,12 @@ impl Lander {
         assert!(subrounds.iter().map(|subround| subround.probes.len()).sum::<usize>() <= slots, "round planned more probes than its {slots} slots");
         let base = self.main.clone();
         let mut landed = Vec::new();
-        self.suspects.clear();
+        let groups = std::mem::take(&mut self.suspects);
         for subround in subrounds {
             let green: Vec<bool> = subround.probes.iter().map(|probe| (self.green)(&base.iter().chain(probe).copied().collect::<Vec<_>>())).collect();
-            let settled = settle(&subround.probes, &green);
-            self.queue.retain(|(lane, _)| !settled.land.contains(lane) && settled.refuse != Some(*lane));
-            self.suspects.extend(settled.suspects);
+            let settled = settle(&subround.probes, &green, &groups);
+            self.queue.retain(|(lane, _)| !settled.land.contains(lane) && !settled.refuse.contains(lane));
+            self.suspects.extend(settled.groups);
             self.main.extend(&settled.land);
             landed.push(settled.land);
         }
