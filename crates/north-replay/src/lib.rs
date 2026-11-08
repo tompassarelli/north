@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::time::Instant;
 
+use rustix::time::{ClockId, clock_gettime};
+
 use north_base::platform::decision_log;
 use north_strategy_types::{Kind, admission, land, placement};
 
@@ -33,10 +35,11 @@ pub struct Deciders<'a> {
     pub clock: &'a (dyn Fn() -> f64 + Sync),
 }
 
-/// Seconds since the first call, which the replay reads around each decision.
-pub fn wall_seconds() -> f64 {
-    static START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
-    START.elapsed().as_secs_f64()
+/// Seconds of CPU the calling thread has used, which the replay reads around each decision so that
+/// other work on the host, which takes wall time but not this thread's CPU, cannot move the bound.
+pub fn thread_cpu_seconds() -> f64 {
+    let spent = clock_gettime(ClockId::ThreadCPUTime);
+    spent.tv_sec as f64 + spent.tv_nsec as f64 / 1e9
 }
 
 impl Deciders<'static> {
@@ -46,7 +49,7 @@ impl Deciders<'static> {
             admission: &north_capacity::capacity::replay::decide,
             judge: &north_landing::land::judge_case::judge,
             placement: &north_dispatch::pacing::placement::case::replayed_target,
-            clock: &wall_seconds,
+            clock: &thread_cpu_seconds,
         }
     }
 }
