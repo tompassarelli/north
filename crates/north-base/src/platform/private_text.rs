@@ -1,5 +1,9 @@
+use std::fs::{self, File, OpenOptions};
+use std::path::Path;
 use std::process::{Command, Output};
 use std::time::Duration;
+
+use rustix::fs::{FlockOperation, flock};
 
 use crate::foundation::hook_deadline::HOOK_TIMEOUT_SECS;
 
@@ -13,6 +17,8 @@ const HOOK_LIMIT: Duration = Duration::from_secs(HOOK_TIMEOUT_SECS as u64 - HOOK
 const _: () = assert!(HOOK_LIMIT.as_secs() >= JUDGE_P90_SECS + 10, "the hook must wait past the judge's measured p90 (13 to 28 s on 2026-11-08) with room to spare");
 const JUDGE_ARGS: [&str; 5] = ["check", "privacy", "judge", "--text", "-"];
 const SPAN_CHARS: usize = 160;
+const JUDGE_SLOTS: usize = 4;
+const SLOT_POLL: Duration = Duration::from_millis(100);
 pub const KINDS_ENV: &str = "NORTH_PRIVATE_KINDS";
 pub const SEGMENT_BREAK: &str = "\u{1e}\n";
 
@@ -40,6 +46,8 @@ pub fn parse(stdout: &str) -> Vec<Finding> {
 
 /// Judges `text` by running `north check privacy judge`: exit 0 is clean, exit 1 prints the findings, anything else means the judge could not run.
 pub fn judge(text: &str) -> Result<Vec<Finding>, String> {
+    let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| Path::new(&std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), std::path::PathBuf::from);
+    let _slot = slot(&state.join("north/privacy-judge"));
     verdict(&process::run_command_within(command(), Some(text.as_bytes()), JUDGE_LIMIT).ok_or("the private-text judge did not finish")?)
 }
 
@@ -90,3 +98,28 @@ pub fn refusal(findings: &[Finding]) -> String {
 pub fn unavailable(reason: &str) -> String {
     format!("No. GitHub text is public and the private-kind judge has no verdict on this text, so it is refused: {reason}.")
 }
+
+/// Holds one of the host's `JUDGE_SLOTS` judge slots until dropped, so concurrent candidate checks wait in turn instead of each starting its own model runs; `None` when the slot directory cannot be made.
+fn slot(directory: &Path) -> Option<File> {
+    fs::create_dir_all(directory).ok()?;
+    loop {
+        if let Some(held) = try_slot(directory)? {
+            return Some(held);
+        }
+        std::thread::sleep(SLOT_POLL);
+    }
+}
+
+fn try_slot(directory: &Path) -> Option<Option<File>> {
+    for index in 0..JUDGE_SLOTS {
+        let file = OpenOptions::new().create(true).truncate(false).write(true).open(directory.join(format!("slot-{index}.lock"))).ok()?;
+        if flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok() {
+            return Some(Some(file));
+        }
+    }
+    Some(None)
+}
+
+#[cfg(test)]
+#[path = "private_text_tests.rs"]
+mod tests;
