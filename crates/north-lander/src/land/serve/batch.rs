@@ -57,8 +57,8 @@ pub(super) struct Attempt<'a> {
 
 pub(super) trait Batching {
     fn batch(&self, watch: &mut Watch) -> Result<Round, String>;
-    fn attempt(&self, watch: &mut Watch, pass: &mut Pass, logs: &Path, answering: bool) -> Result<Flow, String>;
-    fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool, answering: bool) -> Option<Flow>;
+    fn attempt(&self, watch: &mut Watch, pass: &mut Pass, logs: &Path) -> Result<Flow, String>;
+    fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool) -> Option<Flow>;
     fn sort_picks<'a>(&self, pass: &mut Pass, attempt: &Attempt<'a>) -> Result<(Vec<Entry<'a>>, Option<String>), String>;
 }
 
@@ -73,9 +73,8 @@ impl Batching for Lander {
         self.round.store(u64::try_from(micros()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
         self.heartbeat.enter(Step::Jobs);
         watch.jobs.start(self);
-        let answering = watch.jobs.answering(self);
         loop {
-            match self.attempt(watch, &mut pass, &logs, answering)? {
+            match self.attempt(watch, &mut pass, &logs)? {
                 Flow::Next => {}
                 Flow::Stop => break,
                 Flow::Done(round) => return Ok(round),
@@ -84,7 +83,7 @@ impl Batching for Lander {
         Ok(pass.progress_or(Round::Waiting(format!("no candidate settled in {ATTEMPTS} attempts"))))
     }
 
-    fn attempt(&self, watch: &mut Watch, pass: &mut Pass, logs: &Path, answering: bool) -> Result<Flow, String> {
+    fn attempt(&self, watch: &mut Watch, pass: &mut Pass, logs: &Path) -> Result<Flow, String> {
         let claimed = jobs::claimed(self);
         let mut queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
         queued.retain(|(path, _)| !claimed.contains(path));
@@ -95,7 +94,7 @@ impl Batching for Lander {
         } else {
             &queued
         };
-        if let Some(flow) = self.gate(pass, &queued, tickets.is_empty(), answering) {
+        if let Some(flow) = self.gate(pass, &queued, tickets.is_empty()) {
             return Ok(flow);
         }
         self.heartbeat.enter(Step::Prepare);
@@ -119,17 +118,9 @@ impl Batching for Lander {
         self.land_batch(watch, pass, &attempt, &included, &landing)
     }
 
-    fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool, answering: bool) -> Option<Flow> {
+    fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool) -> Option<Flow> {
         if empty {
             return Some(Flow::Done(pass.progress_or(Round::Idle)));
-        }
-        if answering && !pass.red_only {
-            if lander_fix::repairs(queued).is_empty() {
-                return Some(Flow::Done(pass.progress_or(Round::Checking)));
-            }
-            println!("north land: main is red and the sheriff is answering its revert request; checking the queued red and lander fixes alone");
-            pass.red_only = true;
-            return Some(Flow::Next);
         }
         if !pass.red_only && let Some(reason) = pause::held(&self.queue) {
             if lander_fix::repairs(queued).is_empty() {

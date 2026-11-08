@@ -420,7 +420,7 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
     }
 }
 
-pub fn requests(lander: &Lander) -> Result<Vec<(String, String)>, String> {
+fn requests(lander: &Lander) -> Result<Vec<(String, String)>, String> {
     let listing = git(&lander.repo, &["ls-remote", "origin", &format!("{REQUESTS}*")])?;
     Ok(listing
         .lines()

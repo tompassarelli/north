@@ -50,7 +50,6 @@ const REST: Duration = Duration::from_secs(5);
 pub struct Jobs {
     running: Vec<Job>,
     ended: Vec<(Kind, Instant)>,
-    listed: Option<(Instant, bool)>,
 }
 
 impl Jobs {
@@ -89,20 +88,6 @@ impl Jobs {
             }
         }
         recovered
-    }
-
-    pub fn answering(&mut self, lander: &Lander) -> bool {
-        if !self.running.iter().any(|job| job.kind == Kind::Sheriff) {
-            return false;
-        }
-        if let Some((at, open)) = self.listed
-            && at.elapsed() < REST
-        {
-            return open;
-        }
-        let open = sheriff::requests(lander).is_ok_and(|requests| !requests.is_empty());
-        self.listed = Some((Instant::now(), open));
-        open
     }
 
     pub fn running(&self) -> Vec<(Kind, Duration)> {
