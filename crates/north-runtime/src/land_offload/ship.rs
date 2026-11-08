@@ -143,7 +143,7 @@ fn job_ref(head: &CommitId) -> String {
 pub(super) mod beside;
 mod script;
 pub(super) use script::jobs_part;
-pub use script::{OTHER_JOBS, SlotClass, is_lander_slot};
+pub use script::{LANDER_JOBS, SlotClass, is_lander_slot, others_cap};
 pub(crate) use script::slot_ports;
 use script::remote_script;
 mod bundle;

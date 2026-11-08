@@ -661,7 +661,7 @@ fn a_lane_check_waits_while_lane_checks_hold_their_share_of_a_hosts_slots_and_a_
             .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LANDING='1'", "", "", "0", "", "", "", lander])
             .env("HOME", home.path())
             .env("PATH", &path)
-            .env("NORTH_OFFLOAD_MAX_JOBS", (super::OTHER_JOBS + 2).to_string())
+            .env("NORTH_OFFLOAD_MAX_JOBS", (super::LANDER_JOBS + 2).to_string())
             .env_remove("NORTH_OFFLOAD_ROOT")
             .stdin(fs::File::open(&bundle).unwrap())
             .stdout(std::process::Stdio::null())
@@ -669,14 +669,14 @@ fn a_lane_check_waits_while_lane_checks_hold_their_share_of_a_hosts_slots_and_a_
             .spawn()
             .unwrap()
     };
-    let lanes: Vec<std::process::Child> = (0..super::OTHER_JOBS).map(|index| {
+    let lanes: Vec<std::process::Child> = (0..super::others_cap(super::LANDER_JOBS + 2)).map(|index| {
         let child = spawn(&format!("lane-{index}"), "", true);
         wait_until_in_line(home.path(), &log, index as usize + 1);
         child
     }).collect();
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.matches("start-lane-").count() == super::OTHER_JOBS as usize)), "the lane checks never took their slots");
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.matches("start-lane-").count() == super::others_cap(super::LANDER_JOBS + 2) as usize)), "the lane checks never took their slots");
     let queued = spawn("queued-lane", "", false);
-    wait_until_in_line(home.path(), &log, super::OTHER_JOBS as usize + 1);
+    wait_until_in_line(home.path(), &log, super::others_cap(super::LANDER_JOBS + 2) as usize + 1);
     let mut holding = spawn("lander", "1", true);
     assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.contains("start-lander"))), "the lander job never took its reserved slot");
     let second = spawn("second-lander", "1", false).wait().unwrap();

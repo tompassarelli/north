@@ -7,8 +7,13 @@ const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
 const LANDER_SUFFIX: &str = ".lander";
 
-/// The slots of a build host that jobs other than the lander's (lane pre-checks, worker builds) may hold at once, so the rest of its job cap stays free for the lander's probes and red fixes, which never wait behind them: on 2026-11-08 lane checks held at most one slot in 87% of the probes' slot readings, and a probe's 7 jobs need the other 4 of gex45's 5 and 3 of cpx62's 4.
-pub const OTHER_JOBS: u32 = 1;
+/// The slots of a build host kept for the lander's own jobs (its after-landing runs, red fixes and culprit probes); lane pre-checks and worker builds may hold the rest of its job cap: on 2026-11-08 under land-first, lanes waited for slots with 12 queued while a cap of one slot for them per host left gex45 and cpx62 at a load of 6.5 on 16 threads.
+pub const LANDER_JOBS: u32 = 2;
+
+/// The jobs other than the lander's a host whose job cap is `cap` runs at once: all but `LANDER_JOBS`, and at least one.
+pub fn others_cap(cap: u32) -> u32 {
+    cap.saturating_sub(LANDER_JOBS).max(1)
+}
 
 pub(super) const CAP: &str = r#"cores=${AGENT_CAPACITY_CORES:-$(nproc 2>/dev/null || echo 1)}
 host_cap=${NORTH_OFFLOAD_MAX_JOBS:-}
@@ -110,7 +115,9 @@ ticket=$queue/$rank-$(date +%s%N)-$$@$name
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 @JOBS@@CAP@
 others_full() {
-  [ "$(other_jobs)" -ge @OTHER_JOBS@ ]
+  others_cap=$((host_cap - @LANDER_JOBS@))
+  [ "$others_cap" -ge 1 ] || others_cap=1
+  [ "$(other_jobs)" -ge "$others_cap" ]
 }
 served=$root/served
 mkdir -p "$served"
@@ -345,7 +352,7 @@ pub(crate) fn jobs_part() -> String {
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string()).replace("@LANDER_SUFFIX@", LANDER_SUFFIX).replace("@OTHER_JOBS@", &OTHER_JOBS.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string()).replace("@LANDER_SUFFIX@", LANDER_SUFFIX).replace("@LANDER_JOBS@", &LANDER_JOBS.to_string())
 }
 
 pub(super) fn beside_part() -> String {

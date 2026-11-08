@@ -4,7 +4,7 @@ use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
 
-use super::ship::{OFFLOAD_ROOT, OTHER_JOBS, SLOTS, host_job_cap, jobs_part, quote};
+use super::ship::{OFFLOAD_ROOT, SLOTS, host_job_cap, others_cap, jobs_part, quote};
 
 const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
@@ -129,7 +129,7 @@ pub(super) fn check_slots<'a>(rooms: impl IntoIterator<Item = &'a Room>, cores: 
     rooms.into_iter().fold((0, 0), |(free, total), room| {
         let host_cores = room.slots.map_or(room.measure.cores as u32, |slots| slots.cores);
         let all = held(room.admission.limit_cpus).min(host_job_cap(host_cores, cores.ceil() as u32, room.measure.memory_total_mib as u32).min(SLOTS) as usize);
-        let lander = all.saturating_sub(OTHER_JOBS as usize);
+        let lander = all.saturating_sub(others_cap(all as u32) as usize);
         let open = room.slots.map_or(all, |slots| all.saturating_sub((slots.running + slots.ahead) as usize));
         (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()).min(lander).min(open) } else { 0 }, total + all)
     })
@@ -213,23 +213,23 @@ mod tests {
     }
 
     #[test]
-    fn a_host_reporting_24_free_cores_at_4_per_check_offers_the_lander_5_of_its_6_slots_and_two_such_hosts_10_of_12() {
+    fn a_host_reporting_24_free_cores_at_4_per_check_offers_the_lander_2_of_its_6_slots_and_two_such_hosts_4_of_12() {
         let gib = 1024 * 1024;
         let mut host = reading(80 * gib, "3.00", "0.0", "1");
         host.admission.limit_cpus = 24.0;
         host.measure.cores = 24.0;
-        assert_eq!(check_slots([&host], 4.0), (5, 6), "one of its six checks is kept for lane pre-checks and worker builds");
-        assert_eq!(check_slots([&host, &host], 4.0), (10, 12));
+        assert_eq!(check_slots([&host], 4.0), (2, 6), "four of its six checks may go to lane pre-checks and worker builds");
+        assert_eq!(check_slots([&host, &host], 4.0), (4, 12));
         let mut small = host;
         small.admission.limit_cpus = 8.0;
         assert_eq!(check_slots([&small], 4.0), (1, 2));
         let mut loaded = host;
         loaded.admission.committed_cpus = 10.0;
-        assert_eq!(check_slots([&loaded, &host], 4.0), (8, 12), "a host with 14 of 24 cores free holds 3 more checks");
+        assert_eq!(check_slots([&loaded, &host], 4.0), (4, 12), "a host with 14 of 24 cores free still holds the 2 checks it keeps for the lander");
         let mut pressed = reading(80 * gib, "3.00", "0.0", "90");
         pressed.admission.limit_cpus = 24.0;
         pressed.measure.cores = 24.0;
-        assert_eq!(check_slots([&pressed, &host], 4.0), (5, 12), "a host its admission refuses offers no free slot");
+        assert_eq!(check_slots([&pressed, &host], 4.0), (2, 12), "a host its admission refuses offers no free slot");
     }
 
     // KEEP(bug): at 10:20 AM on 2026-11-08 the lander read 33 free slots with land checks charged one core, and planned 33 probes of about 6 offload jobs each, while gex45 held its 6 slots with 35 jobs queued for them
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(check_slots([&gex45, &cpx62], charge), (0, 9), "gex45 caps its jobs at 6 and cpx62 at 3 by memory, every slot is held and 35 lander jobs wait for gex45's, where the free cores read 19 + 14 = 33");
         let idle = |room: Room| Room { slots: room.slots.map(|slots| Slots { running: 0, queued: 0, ahead: 0, ..slots }), ..room };
         let (free, _) = check_slots([&idle(gex45), &idle(cpx62)], charge);
-        assert_eq!(free, 7, "idle, the hosts keep 5 and 2 slots for the lander, one each for other jobs");    }
+        assert_eq!(free, 4, "idle, the hosts keep 2 slots each for the lander, the rest for other jobs");    }
 
     #[test]
     fn a_runtime_build_has_room_on_gex45_at_its_4_20_pm_reading_whose_load_average_is_the_ci_farm() {
