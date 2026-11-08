@@ -13,8 +13,7 @@ pub enum Squash {
 }
 
 struct LaneCommit {
-    subject: String,
-    body: String,
+    text: String,
     trailers: Vec<String>,
     merge: bool,
 }
@@ -69,26 +68,15 @@ fn lane_commit(repo: &Path, oid: &str) -> Result<LaneCommit, String> {
     let parents = git(repo, &["show", "-s", "--format=%P", oid])?;
     let message = git(repo, &["show", "-s", "--format=%B", oid])?;
     let (text, trailers) = split_trailers(&message);
-    let (subject, body) = text.split_once("\n\n").map_or((text.as_str(), ""), |(subject, body)| (subject, body));
-    Ok(LaneCommit {
-        subject: subject.trim().to_owned(),
-        body: body.trim().to_owned(),
-        trailers,
-        merge: parents.split_whitespace().count() > 1,
-    })
+    Ok(LaneCommit { text: text.trim().to_owned(), trailers, merge: parents.split_whitespace().count() > 1 })
 }
 
 fn message(commits: &[&LaneCommit], supplied: Option<&str>) -> String {
     let mut text = match supplied {
         Some(supplied) => split_trailers(supplied).0,
         None => {
-            let last = commits[commits.len() - 1];
-            let mut text = last.subject.clone();
-            if !last.body.is_empty() {
-                text.push_str("\n\n");
-                text.push_str(&last.body);
-            }
-            text
+            let (last, earlier) = commits.split_last().expect("a squash has a commit");
+            std::iter::once(last).chain(earlier).map(|commit| commit.text.as_str()).collect::<Vec<_>>().join("\n\n")
         }
     };
     let mut seen = BTreeSet::new();
@@ -250,3 +238,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "lane_squash_tests.rs"]
+mod tests;
