@@ -317,7 +317,7 @@ pub fn prose_range(root: &Path, base: &str, head: &str, ref_name: Option<&str>) 
     let base = if base.is_empty() { String::new() } else { commit(root, base)? };
     let range = if base.is_empty() { head } else { format!("{base}..{head}") };
     let mut segments: Vec<String> = git(root, &["log", "--format=%B%x00", &range, "--"])?.split('\0').map(str::to_owned).collect();
-    let mut diff = vec!["log", "-p", "-U0", "--no-merges", "--no-renames", "--format=", range.as_str(), "--"];
+    let mut diff = vec!["log", "-p", "-U0", "--no-merges", "-M", "--format=", range.as_str(), "--"];
     diff.extend(PROSE_PATHS);
     let generated: Vec<String> = super::merge_set::read_rules(&root.join(super::merge_set::DEFAULT_CONFIG)).unwrap_or_default().into_iter().filter(|rule| matches!(rule.kind, super::merge_set::Kind::Regenerate { .. })).map(|rule| format!(":(exclude){}", rule.path)).collect();
     diff.extend(generated.iter().map(String::as_str));
