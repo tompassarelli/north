@@ -76,13 +76,3 @@ each recorded test told `:recorded-in` its binary so a test coverage never reach
 - Scoping a merged-tree run to the lanes' overlapping tests waits until each lane's own reachable tests run before it
   queues: under land-first the merged run is the first place a lane's tests run, so a run limited to the overlap
   would skip them (north#902).
-
-## Tests before queueing (north#943)
-
-Before north#943 the checks before queueing were clippy and the `@enqueue` scans; no test ran until the after-landing
-run on the merged tree, so a lane that broke its own test landed and was reverted. When `north graph ask affected` traces
-a lane, safe-push now adds the nextest land check to those checks, and it runs the graph's selection: the tests the
-change can reach, the tests the lane adds and the tree-wide tests/it modules, logged as "the N of the M tests the change
-graph knows". An untraced lane (a toolchain input, or an answer with no runnable test) keeps the checks it had, and the
-after-landing run still checks every landed batch. The 15 of 15 failures above were each in the failing lane's own set,
-so each would have stopped its lane before it queued.
