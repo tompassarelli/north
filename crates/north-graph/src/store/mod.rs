@@ -71,10 +71,14 @@ pub fn default_path() -> PathBuf {
 
 impl Graph {
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_patiently(path, PATIENCE)
+    }
+
+    pub fn open_patiently(path: &Path, patience: Duration) -> Result<Self> {
         if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent).map_err(|why| GraphError::Corrupt(format!("{}: {why}", parent.display())))?;
         }
-        Self::prepare(Connection::open(path)?)
+        Self::prepare(Connection::open(path)?, patience)
     }
 
     pub fn open_read_only(path: &Path, patience: Duration) -> Result<Self> {
@@ -88,11 +92,11 @@ impl Graph {
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        Self::prepare(Connection::open_in_memory()?)
+        Self::prepare(Connection::open_in_memory()?, PATIENCE)
     }
 
-    fn prepare(mut connection: Connection) -> Result<Self> {
-        connection.busy_timeout(PATIENCE)?;
+    fn prepare(mut connection: Connection, patience: Duration) -> Result<Self> {
+        connection.busy_timeout(patience)?;
         connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version != 0 && version != SCHEMA_VERSION {

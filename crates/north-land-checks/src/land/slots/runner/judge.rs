@@ -17,13 +17,13 @@ use super::spawn::{Attempt, Ran};
 
 impl Shared {
     pub(super) fn deadline_of(&self, command: &str) -> Deadline {
-        let timings = Timings::at(Timings::default_root());
+        let timings = Timings::standard();
         self.environment.timeout.or_else(|| self.config.deadline_seconds(command)).map_or_else(|| timings.deadline(command, &self.cache_class(command)), Deadline::configured)
     }
 
     pub(super) async fn finish_check(&self, command: &str, attempt: Attempt, ran: &Ran, cpu: Option<f64>, parent: Option<&str>) -> i32 {
         let Attempt { leased, started, timeout } = attempt;
-        let timings = Timings::at(Timings::default_root());
+        let timings = Timings::standard();
         let class = self.cache_class(command);
         if self.overflows(command, ran.status) {
             say(&format!("safe-push: every build-host slot stayed busy, so land check {command} overflows to GitHub Actions"));
@@ -108,7 +108,7 @@ impl Shared {
 
     fn added_findings(&self, command: &str, lane_log: &Path) -> Vec<String> {
         let round = std::env::var(ROUND).unwrap_or_default();
-        let timings = Timings::at(Timings::default_root());
+        let timings = Timings::standard();
         let lane = log_findings(&fs::read_to_string(lane_log).unwrap_or_default());
         match timings.findings(&self.trees.base, command, &self.cache_class(command), &round) {
             Some(base) => check_findings::added(&lane, &check_findings::decode(&base)),
@@ -123,7 +123,7 @@ impl Shared {
             return None;
         }
         let class = self.cache_class(command);
-        let timings = Timings::at(Timings::default_root());
+        let timings = Timings::standard();
         let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
         let result = if let Some(result) = timings.result(&self.trees.base, command, &class, &round) {
             say(&format!("safe-push: base tree {tree} already ran land check {command} this round"));
@@ -157,13 +157,13 @@ impl Shared {
             warn(&format!("safe-push: {error}"));
         }
         let Ok(ran) = ran else { return BaseResult::Failed(format!("land check {command} could not start on the base tree")) };
-        let _ = Timings::at(Timings::default_root()).record(&self.trees.base, command, &self.cache_class(command), ran.timing());
+        let _ = Timings::standard().record(&self.trees.base, command, &self.cache_class(command), ran.timing());
         if ran.status == 0 {
             let _ = fs::remove_file(&ran.log);
             return BaseResult::Passed;
         }
         let text = fs::read_to_string(&ran.log).unwrap_or_default();
-        let _ = Timings::at(Timings::default_root()).record_findings(&self.trees.base, command, &self.cache_class(command), &std::env::var(ROUND).unwrap_or_default(), &check_findings::encode(&log_findings(&text)));
+        let _ = Timings::standard().record_findings(&self.trees.base, command, &self.cache_class(command), &std::env::var(ROUND).unwrap_or_default(), &check_findings::encode(&log_findings(&text)));
         let first = first_error(&text).unwrap_or_else(|| format!("exited {}", ran.status));
         say(&format!("safe-push: land check {command} exited {} on the base tree too; log: {}", ran.status, ran.log.display()));
         BaseResult::Failed(first)

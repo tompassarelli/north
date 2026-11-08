@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-diff-gates = { path = "../north-diff-gates" }
+north-graph-loops = { path = "../north-graph-loops" }
 north-mutants = { path = "../north-mutants" }
 regex.workspace = true
 serde_json.workspace = true

@@ -5,6 +5,9 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::fmt;
 use std::path::PathBuf;
+use std::time::Duration;
+
+use north_graph_loops::{CheckDeadline, check_deadlines, check_key, graph_path, tell_check_deadline};
 
 pub const CEILING: u64 = 2100;
 const FLOOR: u64 = 300;
@@ -12,6 +15,7 @@ const WINDOW: usize = 20;
 const MEASURED: usize = 5;
 const MARGIN: u64 = 3;
 const EXCEEDED: &str = "exceeded";
+const WRITE_PATIENCE: Duration = Duration::from_millis(300);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Basis {
@@ -34,13 +38,24 @@ impl Deadline {
 
     pub fn from_passes(walls: &[u64]) -> Self {
         let recent = &walls[walls.len().saturating_sub(WINDOW)..];
-        if recent.len() < MEASURED {
-            return Deadline { seconds: CEILING, basis: Basis::Unmeasured { passes: recent.len() } };
+        Self::from_p90((recent.len() >= MEASURED).then(|| {
+            let mut sorted = recent.to_vec();
+            sorted.sort_unstable();
+            sorted[(sorted.len() * 9).div_ceil(10) - 1]
+        }), recent.len())
+    }
+
+    fn from_p90(p90: Option<u64>, passes: usize) -> Self {
+        match p90 {
+            Some(p90) => Deadline { seconds: p90.saturating_mul(MARGIN).clamp(FLOOR, CEILING), basis: Basis::Measured { p90, passes } },
+            None => Deadline { seconds: CEILING, basis: Basis::Unmeasured { passes } },
         }
-        let mut sorted = recent.to_vec();
-        sorted.sort_unstable();
-        let p90 = sorted[(sorted.len() * 9).div_ceil(10) - 1];
-        Deadline { seconds: p90.saturating_mul(MARGIN).clamp(FLOOR, CEILING), basis: Basis::Measured { p90, passes: recent.len() } }
+    }
+
+    fn learned(told: &CheckDeadline) -> Self {
+        let passes = usize::try_from(told.passes).unwrap_or(usize::MAX);
+        let measured = Self::from_p90(told.p90, passes).raised(told.exceeded);
+        Deadline { seconds: told.seconds, ..measured }
     }
 
     pub fn after_landing(runs: &[u64], exceeded: Option<u64>) -> Self {
@@ -83,11 +98,17 @@ pub enum Base {
 
 pub struct Timings {
     root: PathBuf,
+    graph: PathBuf,
 }
 
 impl Timings {
     pub fn at(root: PathBuf) -> Self {
-        Timings { root }
+        let graph = root.join("graph.db");
+        Timings { root, graph }
+    }
+
+    pub fn standard() -> Self {
+        Timings { root: Self::default_root(), graph: graph_path() }
     }
 
     pub fn default_root() -> PathBuf {
@@ -120,27 +141,48 @@ impl Timings {
     }
 
     pub fn passed(&self, command: &str, class: &str, seconds: u64) -> io::Result<()> {
-        let path = self.passes_file(command, class);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        OpenOptions::new().create(true).append(true).open(path)?.write_all(format!("{seconds}\n").as_bytes())
+        self.observe(command, class, &format!("{seconds}\n"))
     }
 
     pub fn exceeded_on_base_too(&self, command: &str, class: &str, deadline: u64) -> io::Result<()> {
+        self.observe(command, class, &format!("{EXCEEDED}\t{deadline}\n"))
+    }
+
+    fn observe(&self, command: &str, class: &str, line: &str) -> io::Result<()> {
         let path = self.passes_file(command, class);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        OpenOptions::new().create(true).append(true).open(path)?.write_all(format!("{EXCEEDED}\t{deadline}\n").as_bytes())
+        OpenOptions::new().create(true).append(true).open(path)?.write_all(line.as_bytes())?;
+        self.tell(command, class).map_err(io::Error::other)
     }
 
-    pub fn deadline(&self, command: &str, class: &str) -> Deadline {
+    fn tell(&self, command: &str, class: &str) -> Result<(), String> {
+        let (walls, exceeded) = self.observed(command, class);
+        let measured = Deadline::from_passes(&walls);
+        let p90 = match measured.basis {
+            Basis::Measured { p90, .. } => Some(p90),
+            _ => None,
+        };
+        let told = CheckDeadline { seconds: measured.raised(exceeded).seconds, passes: walls.len() as u64, p90, exceeded };
+        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
+        tell_check_deadline(&self.graph, &check_key(class, command), &told, at, WRITE_PATIENCE)
+    }
+
+    fn observed(&self, command: &str, class: &str) -> (Vec<u64>, Option<u64>) {
         let text = fs::read_to_string(self.passes_file(command, class)).unwrap_or_default();
         let lines: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
         let recent = &lines[lines.len().saturating_sub(WINDOW)..];
-        let walls: Vec<u64> = recent.iter().filter_map(|line| line.parse().ok()).collect();
+        let walls = recent.iter().filter_map(|line| line.parse().ok()).collect();
         let exceeded = recent.iter().filter_map(|line| line.strip_prefix(EXCEEDED)?.trim().parse().ok()).max();
+        (walls, exceeded)
+    }
+
+    pub fn deadline(&self, command: &str, class: &str) -> Deadline {
+        if let Some(told) = check_deadlines(&self.graph).ok().and_then(|told| told.get(&check_key(class, command)).copied()) {
+            return Deadline::learned(&told);
+        }
+        let (walls, exceeded) = self.observed(command, class);
         Deadline::from_passes(&walls).raised(exceeded)
     }
 

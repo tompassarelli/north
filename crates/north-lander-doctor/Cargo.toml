@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-check-environment = { path = "../north-check-environment" }
+north-graph-loops = { path = "../north-graph-loops" }
 north-lander = { path = "../north-lander" }
 serde.workspace = true
 serde_json.workspace = true

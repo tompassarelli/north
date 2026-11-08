@@ -104,7 +104,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-landing-gates"
 paths = ["crates/north-landing-gates/src/**"]
-may_use = ["north-base", "north-diff-gates", "north-mutants"]
+may_use = ["north-base", "north-diff-gates", "north-graph-loops", "north-mutants"]
 
 [[crate_dag.crate]]
 name = "north-land-scans"
@@ -259,7 +259,7 @@ may_use = ["north-base", "north-capacity", "north-dispatch", "north-landing"]
 [[crate_dag.crate]]
 name = "north-lander-doctor"
 paths = ["crates/north-lander-doctor/src/**"]
-may_use = ["north-base", "north-check-environment", "north-lander"]
+may_use = ["north-base", "north-check-environment", "north-graph-loops", "north-lander"]
 
 [[crate_dag.crate]]
 name = "north-climb"

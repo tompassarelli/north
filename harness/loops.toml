@@ -145,7 +145,8 @@ sites = ["crates/north-landing-gates/src/landing/check_timings.rs", "crates/nort
 signal = "p90 wall of the last passing runs of each check, doubled after a timeout on lane and base"
 updated_by = "north land"
 cadence_hours = 24
-record = "safe-push/check-timings/passes"
+store = "graph"
+writer = "land"
 
 host = "lander"
 constants = [
@@ -314,7 +315,8 @@ sites = [
 signal = "each bound read live every run; a remedy that leaves its bound over 5 minutes later turns the state unknown; one incident row per remedy and per unknown episode counts recurrences by class"
 updated_by = "north land doctor, run every 2 minutes before each north-land-shadow.timer tick on the lander host"
 cadence_hours = 1
-record = "north/land-doctor/book.json"
+store = "graph"
+writer = "land-doctor"
 
 host = "lander"
 constants = [
