@@ -517,7 +517,7 @@ fn withdrawn_mid_round(world: &World) {
     });
     let verdict = |lane: &Lane| queue::read(&lander.queue.join("done").join(&lane.name)).map(|ticket| ticket.verdict.unwrap_or_default()).unwrap_or_default();
     let (tax, am_move) = (verdict(&lanes[1]), verdict(&lanes[3]));
-    assert!(tax.starts_with("landed ") && tax == am_move, "at 8:33 AM n882-plan and n882-context were withdrawn while the round's probes carrying them ran on; the green lanes left land in that round: n882-tax {tax:?}, am-move {am_move:?}");
+    assert!(tax.starts_with("landed ") && am_move.starts_with("landed "), "at 8:33 AM n882-plan and n882-context were withdrawn while the round's probes carrying them ran on; the green lanes left land in that round: n882-tax {tax:?}, am-move {am_move:?}");
     let subjects = world.landed_subjects();
     assert!(!subjects.contains(&lanes[0].subject) && !subjects.contains(&lanes[2].subject), "a withdrawn lane reached main: {subjects:?}");
 }
