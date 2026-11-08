@@ -9,6 +9,7 @@ mod ops;
 mod parse;
 mod plan;
 mod relation;
+mod slot;
 
 use crate::error::Result;
 use crate::store::{Graph, Terms};

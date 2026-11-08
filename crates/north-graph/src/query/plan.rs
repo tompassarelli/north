@@ -4,14 +4,9 @@ use super::ast::{Arg, Arith, Clause, Compare, Query, Rule};
 use super::base::Window;
 use super::check::{BaseRelation, Schema};
 use super::join::{self, Join, Member};
+use super::slot::Slot;
 use crate::error::Result;
 use crate::store::Terms;
-
-#[derive(Clone, Copy, Debug)]
-pub enum Slot {
-    Var(usize),
-    Const(i64),
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {

@@ -9,7 +9,7 @@ use super::base::{self, Window};
 use super::budget::Budget;
 use super::check::BaseRelation;
 use super::ops;
-use super::plan::Slot;
+use super::slot::Slot;
 use crate::error::Result;
 use crate::key::{Key, atom_key, decode_key};
 use crate::store::Terms;
