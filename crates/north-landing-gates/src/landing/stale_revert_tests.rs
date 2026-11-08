@@ -69,3 +69,20 @@ fn moving_a_recent_function_into_a_new_file_with_its_locals_as_fields_is_no_reve
     commit_at(root, "batch.rs", moved, "the loop as phases", START + 103 * HOUR);
     assert_eq!(shas(&reverted(root, "main", "lane", "lane").unwrap()), Vec::<&str>::new());
 }
+
+#[test]
+fn restoring_an_import_line_while_moving_the_recent_call_into_another_file_is_no_revert() {
+    let scratch = fixture();
+    let root = scratch.path();
+    let before = "use crate::spend::{self, Rules, View};\n\nfn spend_view(cfg: &Config) -> View {\n    let catalog = harness::document(MODEL_CATALOG);\n    spend::view(rules, |name| spend::plan_week(cfg, catalog, name), keyed(cfg))\n}\n";
+    commit_at(root, "survey.rs", before, "survey", START + 100 * HOUR);
+    commit_at(root, "read.rs", "pub fn view() {}\n", "read", START + 100 * HOUR);
+    let sized = "use crate::spend::{self, Rules, Size, View};\n\nfn spend_view(cfg: &Config) -> View {\n    let catalog = harness::document(MODEL_CATALOG);\n    let turn = placement::worker_turns(at);\n    spend::view(rules, |name| Size { plan_week: spend::plan_week(cfg, catalog, name), turn: turn(name) }, keyed(cfg))\n}\n";
+    commit_at(root, "survey.rs", sized, "size an account by its turn", START + 101 * HOUR);
+    git_ok(root, &["checkout", "-q", "-b", "lane"]);
+    let delegated = "use crate::spend::{self, Rules, View};\n\nfn spend_view(cfg: &Config) -> View {\n    spend::view_from_config(cfg, rules, placement::worker_turns(at))\n}\n";
+    commit_at(root, "survey.rs", delegated, "assemble the view in read.rs", START + 102 * HOUR);
+    let owner = "pub fn view() {}\n\npub fn view_from_config(cfg: &Config, rules: &Rules, turn: impl Fn(&str) -> Option<Turn>) -> View {\n    let catalog = harness::document(MODEL_CATALOG);\n    view(rules, |name| Size { plan_week: plan_week(cfg, catalog, name), turn: turn(name) }, keyed(cfg))\n}\n";
+    commit_at(root, "read.rs", owner, "the owner of the recipe", START + 103 * HOUR);
+    assert_eq!(shas(&reverted(root, "main", "lane", "lane").unwrap()), Vec::<&str>::new());
+}

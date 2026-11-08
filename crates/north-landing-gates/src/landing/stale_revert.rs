@@ -175,7 +175,12 @@ impl FileChange {
 }
 
 fn meaningful(text: &str) -> bool {
-    text.chars().any(|c| c.is_alphanumeric() || c == '_')
+    text.chars().any(|c| c.is_alphanumeric() || c == '_') && !import(text)
+}
+
+fn import(text: &str) -> bool {
+    let text = text.strip_prefix("pub ").unwrap_or(text);
+    text.starts_with("use ") || text.starts_with("import ") || text.starts_with("#include ")
 }
 
 fn place_free(text: &str) -> String {
