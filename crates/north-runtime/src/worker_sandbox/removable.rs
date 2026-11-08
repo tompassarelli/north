@@ -10,12 +10,14 @@ pub struct Context {
     pub cargo_home: Option<PathBuf>,
     pub cargo_target: Option<PathBuf>,
     pub named_lanes: Vec<PathBuf>,
+    pub named_projects: Vec<PathBuf>,
 }
 
 impl Context {
     /// The context of `command`, run from this process's working directory.
     pub fn from_env(command: &str) -> Self {
         let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+        let named = named(&set("HOME").unwrap_or_default(), command);
         Self {
             home: set("HOME").unwrap_or_default(),
             cwd: std::env::current_dir().unwrap_or_default(),
@@ -24,12 +26,13 @@ impl Context {
             cache: set("XDG_CACHE_HOME"),
             cargo_home: set("CARGO_HOME"),
             cargo_target: set("CARGO_TARGET_DIR"),
-            named_lanes: named_lanes(&set("HOME").unwrap_or_default(), command),
+            named_lanes: named.lanes,
+            named_projects: named.projects,
         }
     }
 }
 
-/// The trees a worker command may remove or rename files out of: its lane, its project's git directory, whose lock files, packs and maintenance files git renames from every checkout, scratch and caches, and agent state apart from the account profiles that hold transcripts and logins.
+/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names, whose lock files, packs and maintenance files git renames from every checkout, scratch and caches, and agent state apart from the account profiles that hold transcripts and logins.
 pub fn removable(context: &Context) -> Vec<PathBuf> {
     let home = &context.home;
     let mut roots: Vec<PathBuf> = ["/tmp", "/var/tmp", "/dev/shm"].map(PathBuf::from).into();
@@ -41,11 +44,16 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots.extend([".rustup", ".bun", ".npm"].map(|name| home.join(name)));
     let state = home.join(".local/state");
     roots.extend(beneath_except(&state, &[state.join("north/profiles"), state.join("north/claude-tokens")]));
-    for lane in lane(home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()) {
-        roots.extend(lane.parent().and_then(Path::parent).map(|project| project.join("main/.git")));
+    let lanes: Vec<PathBuf> = lane(home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()).collect();
+    let projects = project(home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(lanes.iter().filter_map(|lane| lane.parent().and_then(Path::parent)).map(Path::to_path_buf));
+    for project in projects {
+        roots.extend(common_git_dir(&project.join("main")));
+        roots.push(project.join("main/.git"));
+    }
+    for lane in lanes {
+        roots.extend(common_git_dir(&lane));
         roots.push(lane);
     }
-    roots.extend(project(home, &context.cwd).map(|project| project.join("main/.git")));
     roots
 }
 
@@ -62,29 +70,57 @@ fn lane(home: &Path, cwd: &Path) -> Option<PathBuf> {
     Some(project.join("worktrees").join(slug))
 }
 
-/// The lanes `command` names by absolute path (`~/code/PROJECT/worktrees/SLUG`, also written with `~` or `$HOME`). Claude Code starts every command in the session's first directory, so a worker reaches its lane with `cd LANE && ...` and the lane appears in the text. A computed target never does; a literal delete of another session's lane is tripwire's to refuse.
-fn named_lanes(home: &Path, command: &str) -> Vec<PathBuf> {
+/// What `command` names by absolute path (`~/code/PROJECT` and `~/code/PROJECT/worktrees/SLUG`, also written with `~` or `$HOME`).
+struct Named {
+    projects: Vec<PathBuf>,
+    lanes: Vec<PathBuf>,
+}
+
+/// The projects and lanes `command` names. Claude Code starts every command in the session's first directory, so a worker reaches its lane with `cd LANE && ...` and the lane appears in the text, as does the project it runs git in with `git -C PROJECT/main fetch`. A computed target never does; a literal delete of another session's lane is tripwire's to refuse.
+fn named(home: &Path, command: &str) -> Named {
     let code = home.join("code");
     let prefixes = [code.to_string_lossy().into_owned(), "~/code".to_owned(), "$HOME/code".to_owned(), "${HOME}/code".to_owned()];
-    let mut lanes = Vec::new();
+    let word = |text: &str| -> String { text.chars().take_while(|c| c.is_ascii_alphanumeric() || "._-".contains(*c)).collect() };
+    let mut named = Named { projects: Vec::new(), lanes: Vec::new() };
     for prefix in &prefixes {
         for (start, _) in command.match_indices(prefix.as_str()) {
             let rest = &command[start + prefix.len()..];
             let mut parts = rest.strip_prefix('/').unwrap_or("").split('/');
-            let (Some(project), Some("worktrees"), Some(slug)) = (parts.next(), parts.next(), parts.next()) else {
-                continue;
-            };
-            let slug: String = slug.chars().take_while(|c| c.is_ascii_alphanumeric() || "._-".contains(*c)).collect();
-            if project.is_empty() || project.starts_with('.') || slug.is_empty() || slug.starts_with('.') || project.contains(char::is_whitespace) {
+            let project = word(parts.next().unwrap_or(""));
+            if project.is_empty() || project.starts_with('.') {
                 continue;
             }
-            let lane = code.join(project).join("worktrees").join(slug);
-            if !lanes.contains(&lane) {
-                lanes.push(lane);
+            let project = code.join(project);
+            if !named.projects.contains(&project) {
+                named.projects.push(project.clone());
+            }
+            let slug = word(parts.next().filter(|part| *part == "worktrees").and(parts.next()).unwrap_or(""));
+            if slug.is_empty() || slug.starts_with('.') {
+                continue;
+            }
+            let lane = project.join("worktrees").join(slug);
+            if !named.lanes.contains(&lane) {
+                named.lanes.push(lane);
             }
         }
     }
-    lanes
+    named
+}
+
+/// The git common directory of the checkout at `checkout`, the one `git rev-parse --path-format=absolute --git-common-dir` prints there, read from the files git keeps: a `.git` directory is its own common directory, and a `.git` gitfile points at a worktree's git directory, whose `commondir` file names the common one. The grant must be this directory, since git creates its lock files there and renames them away: in a project whose `main/.git` is a gitfile, `main/.git` is a file and grants nothing.
+fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
+    let dot = checkout.join(".git");
+    let git_dir = if dot.is_dir() {
+        dot
+    } else {
+        let pointer = std::fs::read_to_string(&dot).ok()?;
+        checkout.join(pointer.trim().strip_prefix("gitdir:")?.trim())
+    };
+    let common = match std::fs::read_to_string(git_dir.join("commondir")) {
+        Ok(relative) => git_dir.join(relative.trim()),
+        Err(_) => git_dir,
+    };
+    common.canonicalize().ok()
 }
 
 /// The directories under `root` other than the `protected` paths, by real path since a Landlock rule holds an inode: a symlink is followed only toward a protected path inside it (`~/.local/state/north` links to `~/code/north-data`, which holds the profiles) and never granted itself, and a plain file is never a rule because removal is a right of its directory.

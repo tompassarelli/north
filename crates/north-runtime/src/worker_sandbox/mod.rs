@@ -73,3 +73,6 @@ fn shell(command: &str) -> std::process::ExitCode {
     eprintln!("north worker-sandbox: {error}");
     std::process::ExitCode::from(126)
 }
+
+#[cfg(test)]
+mod tests;
