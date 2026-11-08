@@ -26,6 +26,8 @@ use super::{change_lease, fail, print_to};
 use crate::capacity::effects::Host;
 use crate::capacity::build_offload;
 use crate::capacity::dev_shell;
+use crate::capacity::subject_start::{self, Exit};
+use north_base::foundation::exit::NO_VERDICT_STATUS;
 
 const QUEUE_POLL_MILLISECONDS: u64 = 1000;
 const BEHIND_POLL_MILLISECONDS: u64 = 10_000;
@@ -242,7 +244,7 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
     } else {
         std::process::Command::new(super::systemd::program("systemd-run"))
     };
-    child.args(arguments).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).env("AGENT_CAPACITY_LEASE", &lease);
+    child.args(arguments).stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()).env("AGENT_CAPACITY_LEASE", &lease).env(subject_start::ENV, subject_start::witness(root, &lease));
     if let Some(pair) = request.pair {
         child.env("AGENT_CAPACITY_PAIR", pair.to_string());
     }
@@ -377,12 +379,17 @@ async fn supervise(mut child: tokio::process::Child, unit: &str, terminations: &
     }
 }
 
-/// The decision printed before RELEASED when a lease's command exits nonzero, so that exit is never a bare RESERVED/RELEASED pair: it names the exit, the program and the reason admission gave (a gaming hold that admits the class says RUN).
-pub(super) fn command_exit(request: &Request, owner: &str, command: &[String], admitted: &Obj, exit_code: i32) -> Option<Obj> {
+/// The decision printed before RELEASED when a lease's command exits nonzero, so that exit is never a bare RESERVED/RELEASED pair: it names the exit, the program and the reason admission gave (a gaming hold that admits the class says RUN). A lease whose subject never started says SUBJECT_NOT_STARTED with its launcher's exit, and exits no verdict.
+pub(super) fn command_exit(request: &Request, owner: &str, command: &[String], admitted: &Obj, exit: Exit) -> Option<Obj> {
+    let (decision, exit_code) = match exit {
+        Exit::Subject(code) => ("COMMAND_EXITED", code),
+        Exit::NotStarted { launcher } => ("SUBJECT_NOT_STARTED", launcher),
+    };
     (exit_code != 0).then(|| {
         Obj::new()
-            .put("decision", "COMMAND_EXITED")
-            .put("exitCode", exit_code)
+            .put("decision", decision)
+            .put("exitCode", exit.code())
+            .put_some("launcherExitCode", matches!(exit, Exit::NotStarted { .. }).then_some(exit_code))
             .put("program", command.first().map_or("", String::as_str))
             .put("class", request.name.as_str())
             .put("owner", owner)
@@ -396,23 +403,26 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
     let unit = scope_unit(&lease);
     let child_cpu_before = children_cpu_seconds();
     let cache = current_cache_state();
+    let witness = subject_start::witness(root, &lease);
+    subject_start::arm(&witness);
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
-            let exit_code = supervise(child, &unit, terminations).await;
+            let exit = Exit::judge(supervise(child, &unit, terminations).await, &witness);
+            let exit_code = exit.code();
             let usage = measurement.finish();
             let entry = usage_entry(owner, request, command, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);
             let memory_high = admitted.get("scope").and_then(|scope| field(scope, "memoryMiB"));
             let entry = model_fields(entry, owner, request, command, &usage, cache, memory_high);
             record(&entry, &usage, command, request, &lease);
-            if let Some(line) = command_exit(request, owner, command, admitted, exit_code) {
+            if let Some(line) = command_exit(request, owner, command, admitted, exit) {
                 print_to(&line, true);
             }
             exit_code
         }
         Err(error) => {
-            eprintln!("machine-capacity: {error}");
-            1
+            eprintln!("machine-capacity: the lease's scope did not start, so its command never ran and reached no verdict: {error}");
+            NO_VERDICT_STATUS
         }
     };
     advance(&mut ledger(root), &lease, Phase::Settling, &format!("the command exited with {exit_code}; its scope is being stopped"), None);

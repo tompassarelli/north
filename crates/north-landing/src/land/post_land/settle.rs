@@ -19,7 +19,8 @@ use crate::land::red_episode::Episode;
 use crate::land::after_landing_lifecycle::{self as lifecycle, Main, RedMain};
 use crate::land::setting;
 
-pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String]) -> Option<BTreeSet<Failure>> {
+/// Reruns the failing steps on `tree` on `host`, the one host every probe of a sheriff case runs on.
+pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String], host: &str) -> Option<BTreeSet<Failure>> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let landed = Landed { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: tree.to_owned(), heads: Vec::new(), lanes: Vec::new(), tips: Vec::new() };
     let mut runner = vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()];
@@ -38,7 +39,7 @@ pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String])
         offload_owner: lander.offload_owner.clone(),
         capacity: setting::landing(&lander.repo, "refs/remotes/origin/main", "landing.capacity"),
         deadline: deadline(&lander.repo, &ledger_path(), &landed.repository, tree),
-        host: None,
+        host: Some(host.to_owned()),
         cancel: Arc::default(),
         adoptable: false,
     };

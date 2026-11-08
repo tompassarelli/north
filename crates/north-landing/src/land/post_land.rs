@@ -110,6 +110,19 @@ impl Hosts {
     }
 }
 
+/// The host `north capacity offload choose --any` gives a check, away from `avoid`: a build host by name, else this host
+/// when it has the most room; None when no host answers.
+pub fn choose_host(repo: &Path, avoid: Option<&str>) -> Option<String> {
+    let mut command = Command::new(follow::program());
+    command.args(["capacity", "offload", "choose", "--any"]);
+    if let Some(avoid) = avoid {
+        command.args(["--avoid", avoid]);
+    }
+    let chosen = command.current_dir(repo).stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|output| output.status.success())?;
+    let host = String::from_utf8_lossy(&chosen.stdout).trim().to_owned();
+    Some(if host.is_empty() { north_base::platform::host::name() } else { host })
+}
+
 impl Run {
     fn at(&self, head: &str, tree: &str) -> Self {
         let short = |sha: &str| sha[..sha.len().min(12)].to_owned();

@@ -175,7 +175,7 @@ fn flaky_red_main(lander: &mut Lander) -> Result<String, String> {
     let failing: BTreeSet<Failure> = [failure.clone()].into();
     let request = sheriff::Request { head: "tip".to_owned(), parent: "green".to_owned(), run: "drill".to_owned(), log: String::new(), failing: failing.clone() };
     let lanes = [sheriff::Lane { commit: "tip".to_owned(), message: "an innocent lane (north#634)".to_owned() }];
-    let rerun = |_: &sheriff::Lane| Some(if run() { BTreeSet::new() } else { failing.clone() });
+    let rerun = |_: &sheriff::Lane, _: sheriff::On| Some(sheriff::Probed { host: "drill".to_owned(), failures: if run() { BTreeSet::new() } else { failing.clone() } });
     match sheriff::find(&request, "tip", &lanes, &BTreeSet::new(), rerun, rerun) {
         sheriff::Finding::Fixed { .. } => Ok(format!("main went red on {}; the sheriff reran it at the tip, read it passing, and reverted nothing", failure.key())),
         other => Err(format!("the sheriff read a test that fails once as {other:?}")),

@@ -72,3 +72,33 @@ fn cargo_in_a_lease_runs_as_many_jobs_as_the_lease_holds_cpus_not_its_scopes_cei
     let jobs = command.as_std().get_envs().find(|(name, _)| *name == "CARGO_BUILD_JOBS").and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string));
     assert_eq!(jobs.as_deref(), Some(std::ffi::OsStr::new("4")), "on 2026-11-08 at 8:02 AM a 4-CPU land-check lease on the laptop ran cargo with CARGO_BUILD_JOBS=20, its scope's ceiling, and held 41 rustc processes at load 86");
 }
+
+fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject_start::Exit, Option<serde_json::Value>) {
+    let lease = "00000000-0000-4000-8000-000000000004";
+    let request = Request { name: "heavy".to_owned(), landing: true, ..Request::default() };
+    let admitted = Obj::new().put("lease", lease).put("scope", serde_json::json!({ "cpus": 2, "memoryMiB": 1024 }));
+    let command = ["bash".to_owned(), "bin/catalog-owner-check".to_owned()];
+    let scoped = scope_command(root, &request, &admitted, Some(60), &command);
+    let witness = crate::capacity::subject_start::witness(root, lease);
+    let named = scoped.as_std().get_envs().find(|(name, _)| *name == crate::capacity::subject_start::ENV).and_then(|(_, value)| value.map(std::path::PathBuf::from));
+    assert_eq!(named.as_deref(), Some(witness.as_path()), "the scope names the lease's start witness to the wrappers inside it");
+    let program = root.join("systemd-run");
+    north_base::foundation::shim::write_script(&program, &format!("{launcher}\n"));
+    crate::capacity::subject_start::arm(&witness);
+    let status = std::process::Command::new(&program).env(crate::capacity::subject_start::ENV, &witness).stderr(std::process::Stdio::null()).status().unwrap();
+    let exit = crate::capacity::subject_start::Exit::judge(status.code().unwrap(), &witness);
+    (exit, super::run::command_exit(&request, "land-check", &command, &admitted, exit).map(|line| line.value()))
+}
+
+// KEEP(bug): south 6dd9582d2d was reverted as 47778f0 on 2026-11-08 because systemd-run's own "Failed to start transient scope unit: Remote peer disconnected" exit 1 was reported as bin/catalog-owner-check's exit; north#892
+#[test]
+fn a_lease_whose_scope_never_started_its_subject_exits_no_verdict_not_the_launchers_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let (exit, line) = launched(root.path(), "echo 'Failed to start transient scope unit: Remote peer disconnected' >&2; exit 1");
+    assert_eq!(exit.code(), north_base::foundation::exit::NO_VERDICT_STATUS);
+    let line = line.expect("a decision line");
+    assert_eq!((line["decision"].as_str(), line["launcherExitCode"].as_i64()), (Some("SUBJECT_NOT_STARTED"), Some(1)));
+    let (exit, line) = launched(root.path(), "touch \"$NORTH_SUBJECT_STARTED\"; exit 1");
+    assert_eq!(exit.code(), 1, "a subject that started and failed keeps its own exit");
+    assert_eq!(line.expect("a decision line")["decision"].as_str(), Some("COMMAND_EXITED"));
+}

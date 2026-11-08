@@ -42,6 +42,22 @@ pub enum Finding {
     Revert { lane: String, cases: Vec<Failure> },
     Flaky { lane: String, cases: Vec<Failure> },
     Environment { cases: Vec<Failure> },
+    HostFault { host: String, cases: Vec<Failure>, elsewhere: Option<String> },
+}
+
+/// Failing checks rerun on one host: the host they ran on and what failed there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Probed {
+    pub host: String,
+    pub failures: BTreeSet<Failure>,
+}
+
+/// Where a probe runs: any host the bench picks, the host this case is pinned to, or any host but that one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum On<'a> {
+    Any,
+    Host(&'a str),
+    Besides(&'a str),
 }
 
 fn trailer(message: &str, key: &str) -> String {
@@ -60,7 +76,7 @@ fn labels(failures: &BTreeSet<Failure>) -> Vec<String> {
     failures.iter().map(|failure| failure.label().to_owned()).collect()
 }
 
-fn bisect(case: &mut SheriffCase, failing: &BTreeSet<Failure>, lanes: &[Lane], at: &mut impl FnMut(&Lane) -> Option<BTreeSet<Failure>>) -> Option<usize> {
+fn bisect(case: &mut SheriffCase, failing: &BTreeSet<Failure>, lanes: &[Lane], at: &mut Rerun) -> Option<usize> {
     let (mut culprit, mut passing) = (0, lanes.len());
     while passing - culprit > 1 {
         let middle = culprit + (passing - culprit) / 2;
@@ -104,15 +120,55 @@ fn reproduce(case: &mut SheriffCase, index: usize, lane: &Lane, newest: &Lane, f
     Ok(Some(held))
 }
 
+/// Bisects and confirms on one host, so a failure only that host produces can never pass for a lane's: Some names the
+/// finding, None means the failing checks still fail without every suspect there.
+fn on_one_host(case: &mut SheriffCase, cases: &[Failure], failing: &BTreeSet<Failure>, lanes: &[Lane], reverted: &BTreeSet<String>, at: &mut Rerun, probe: &mut Rerun) -> Option<Finding> {
+    let newest = &lanes[0];
+    let suspects: Vec<usize> = match bisect(case, failing, lanes, at) {
+        Some(culprit) => vec![culprit],
+        None => (0..lanes.len()).collect(),
+    };
+    for index in suspects {
+        let lane = &lanes[index];
+        if is_revert(&lane.message) || reverted.contains(&lane.commit) {
+            continue;
+        }
+        steps::sheriff(case, &SheriffStep::Confirm(index as u64));
+        let still = probe(lane);
+        case.confirmations.push((index as u64, still.as_ref().map(labels)));
+        if !still.is_some_and(|still| still.is_disjoint(failing)) {
+            continue;
+        }
+        return Some(match reproduce(case, index, lane, newest, failing, at, probe) {
+            Err(reason) => {
+                steps::sheriff(case, &SheriffStep::NoVerdict);
+                Finding::NoVerdict(format!("rerunning {} {reason} reached no verdict", names(cases)))
+            }
+            Ok(None) => {
+                steps::sheriff(case, &SheriffStep::Flaky);
+                Finding::Flaky { lane: lane.commit.clone(), cases: cases.to_vec() }
+            }
+            Ok(Some(held)) => {
+                steps::sheriff(case, &SheriffStep::Revert(index as u64));
+                Finding::Revert { lane: lane.commit.clone(), cases: held.into_iter().collect() }
+            }
+        });
+    }
+    None
+}
+
+/// The sheriff's finding for a red main. Every probe after the first runs on the host the first ran on, so a revert
+/// always rests on the failing checks failing at the tip and passing without the lane on that one host; checks that
+/// fail there whatever lane is removed rerun at the tip on another host, and pass there as that host's fault.
 pub fn find(
     request: &Request,
     tip: &str,
     lanes: &[Lane],
     reverted: &BTreeSet<String>,
-    mut at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
-    mut probe: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>,
+    mut at: impl FnMut(&Lane, On) -> Option<Probed>,
+    mut probe: impl FnMut(&Lane, On) -> Option<Probed>,
 ) -> Finding {
-    let mut case = SheriffCase { head: request.head.clone(), tip: tip.to_owned(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new(), confirmations: Vec::new() };
+    let mut case = SheriffCase { head: request.head.clone(), tip: tip.to_owned(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new(), confirmations: Vec::new(), host: String::new() };
     let no_verdict = |case: &SheriffCase, reason: String| {
         steps::sheriff(case, &SheriffStep::NoVerdict);
         Finding::NoVerdict(reason)
@@ -124,9 +180,10 @@ pub fn find(
         return no_verdict(&case, format!("no landing lies between the last green {} and the tip {}", short(&request.parent), short(tip)));
     };
     steps::sheriff(&case, &SheriffStep::Probe(0));
-    let Some(reproduced) = at(newest) else {
+    let Some(Probed { host, failures: reproduced }) = at(newest, On::Any) else {
         return no_verdict(&case, format!("rerunning {} at the tip {} reached no verdict", names(&request.failing.iter().cloned().collect::<Vec<_>>()), short(tip)));
     };
+    case.host.clone_from(&host);
     case.probes.push((0, labels(&reproduced)));
     let failing: BTreeSet<Failure> = reproduced.intersection(&request.failing).cloned().collect();
     let cases: Vec<Failure> = if failing.is_empty() { request.failing.iter().cloned().collect() } else { failing.iter().cloned().collect() };
@@ -134,35 +191,26 @@ pub fn find(
         steps::sheriff(&case, &SheriffStep::Fixed);
         return Finding::Fixed { cases };
     }
-    let suspects: Vec<usize> = match bisect(&mut case, &failing, lanes, &mut at) {
-        Some(culprit) => vec![culprit],
-        None => (0..lanes.len()).collect(),
-    };
-    for index in suspects {
-        let lane = &lanes[index];
-        if is_revert(&lane.message) || reverted.contains(&lane.commit) {
-            continue;
-        }
-        steps::sheriff(&case, &SheriffStep::Confirm(index as u64));
-        let still = probe(lane);
-        case.confirmations.push((index as u64, still.as_ref().map(labels)));
-        if !still.is_some_and(|still| still.is_disjoint(&failing)) {
-            continue;
-        }
-        return match reproduce(&mut case, index, lane, newest, &failing, &mut at, &mut probe) {
-            Err(reason) => no_verdict(&case, format!("rerunning {} {reason} reached no verdict", names(&cases))),
-            Ok(None) => {
-                steps::sheriff(&case, &SheriffStep::Flaky);
-                Finding::Flaky { lane: lane.commit.clone(), cases }
-            }
-            Ok(Some(held)) => {
-                steps::sheriff(&case, &SheriffStep::Revert(index as u64));
-                Finding::Revert { lane: lane.commit.clone(), cases: held.into_iter().collect() }
-            }
-        };
+    let mut at_host = |lane: &Lane| at(lane, On::Host(&host)).map(|probed| probed.failures);
+    let mut probe_host = |lane: &Lane| probe(lane, On::Host(&host)).map(|probed| probed.failures);
+    if let Some(finding) = on_one_host(&mut case, &cases, &failing, lanes, reverted, &mut at_host, &mut probe_host) {
+        return finding;
     }
-    steps::sheriff(&case, &SheriffStep::Environment);
-    Finding::Environment { cases }
+    steps::sheriff(&case, &SheriffStep::Elsewhere);
+    match at(newest, On::Besides(&host)).filter(|other| other.host != host) {
+        Some(other) if other.failures.is_disjoint(&failing) => {
+            steps::sheriff(&case, &SheriffStep::HostFault);
+            Finding::HostFault { host, cases, elsewhere: Some(other.host) }
+        }
+        Some(_) => {
+            steps::sheriff(&case, &SheriffStep::Environment);
+            Finding::Environment { cases }
+        }
+        None => {
+            steps::sheriff(&case, &SheriffStep::HostFault);
+            Finding::HostFault { host, cases, elsewhere: None }
+        }
+    }
 }
 
 pub fn names(cases: &[Failure]) -> String {
@@ -217,41 +265,63 @@ impl Probes<'_> {
         }).collect()
     }
 
-    fn rerun(&self, commit: &str, tree: &str) -> Option<BTreeSet<Failure>> {
+    /// The host a probe runs on: the case's pinned host, else one `north capacity offload choose` picks away from `avoid`;
+    /// tests the sheriff runs itself run here unless they must run elsewhere.
+    fn place(&self, on: On, tests: bool) -> Option<String> {
+        let here = north_base::platform::host::name();
+        match on {
+            On::Host(host) => Some(host.to_owned()),
+            On::Any if tests => Some(here),
+            On::Any => post_land::choose_host(&self.lander.repo, None),
+            On::Besides(avoid) => post_land::choose_host(&self.lander.repo, Some(avoid)).filter(|host| host != avoid),
+        }
+    }
+
+    fn rerun(&self, commit: &str, tree: &str, on: On) -> Option<Probed> {
         let tests = self.tests();
+        let host = self.place(on, !tests.is_empty())?;
         if tests.is_empty() {
             let steps = self.steps();
             if steps.is_empty() {
                 return None;
             }
-            println!("north land: sheriff: rerunning {} on {tree}", steps.join(", "));
-            return post_land::rerun(self.lander, &self.request.parent, commit, &steps);
+            println!("north land: sheriff: rerunning {} on {tree} on {host}", steps.join(", "));
+            let failures = post_land::rerun(self.lander, &self.request.parent, commit, &steps, &host)?;
+            return Some(Probed { host, failures });
         }
-        git(self.worktree, &["reset", "-q", "--hard"]).ok()?;
-        git(self.worktree, &["checkout", "-q", "--detach", commit]).ok()?;
-        println!("north land: sheriff: running {} on {tree}", names(&tests.iter().cloned().collect::<Vec<_>>()));
         let command = red_check::rerun_command(&tests)?;
-        let run = Command::new("timeout").args([PROBE_SECONDS, "bash", "-c", &command]).current_dir(self.worktree).output().ok()?;
-        let log = format!("{}\n{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-        let still = red_check::failures(&log);
-        if !run.status.success() && still.is_empty() {
-            return None;
-        }
-        Some(still)
+        println!("north land: sheriff: running {} on {tree} on {host}", names(&tests.iter().cloned().collect::<Vec<_>>()));
+        let (passed, log) = if host == north_base::platform::host::name() {
+            git(self.worktree, &["reset", "-q", "--hard"]).ok()?;
+            git(self.worktree, &["checkout", "-q", "--detach", commit]).ok()?;
+            let run = Command::new("timeout").args([PROBE_SECONDS, "bash", "-c", &command]).current_dir(self.worktree).output().ok()?;
+            (run.status.success(), format!("{}\n{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr)))
+        } else {
+            let run = Command::new(super::after::follow::program())
+                .args(["capacity", "offload", "run", "--host", &host, "--base", commit, "--head", commit, "--timeout", PROBE_SECONDS, "--", &command])
+                .current_dir(&self.lander.repo)
+                .env(north_base::foundation::offload::OWNER_ENV, &self.lander.offload_owner)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .ok()?;
+            (run.status.success(), format!("{}\n{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr)))
+        };
+        let failures = red_check::failures(&log);
+        (passed || !failures.is_empty()).then_some(Probed { host, failures })
     }
 
-    fn at(&self, lane: &Lane) -> Option<BTreeSet<Failure>> {
-        self.rerun(&lane.commit, &format!("main at {}", short(&lane.commit)))
+    fn at(&self, lane: &Lane, on: On) -> Option<Probed> {
+        self.rerun(&lane.commit, &format!("main at {}", short(&lane.commit)), on)
     }
 
-    fn without(&self, lane: &Lane) -> Option<BTreeSet<Failure>> {
+    fn without(&self, lane: &Lane, on: On) -> Option<Probed> {
         if !without(self.worktree, self.tip, &lane.commit).ok()? {
             return None;
         }
         let message = format!("sheriff probe: main {} without {}", short(self.tip), short(&lane.commit));
         git(self.worktree, &["-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-verify", "-m", &message]).ok()?;
         let probe = git(self.worktree, &["rev-parse", "HEAD"]).ok()?;
-        self.rerun(&probe, &format!("main {} without {}", short(self.tip), short(&lane.commit)))
+        self.rerun(&probe, &format!("main {} without {}", short(self.tip), short(&lane.commit)), on)
     }
 }
 
@@ -305,6 +375,19 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: 
     Ok(format!("revert {lane} {head} queued as {branch}"))
 }
 
+/// A failure the pinned host gives at every commit: no lane caused it, so nothing is reverted; when no other host reached a
+/// verdict either, the proxy is paged, since no host can say whether main is red.
+fn host_fault(request: &Request, tip: &str, host: &str, cases: &[Failure], elsewhere: Option<&str>) -> String {
+    let Some(other) = elsewhere else {
+        let text = format!("north land: sheriff: {} fail on {host} at main {} and on main without each landed lane, and no other host reached a verdict on them, so no host can say whether main is red; nothing is reverted; log: {}", names(cases), short(tip), request.log);
+        if !super::after::send("proxy", &text) {
+            println!("{text}");
+        }
+        return format!("host fault on {host}: {} fail there whatever lane is removed and no other host reached a verdict; the proxy is paged; nothing is reverted", names(cases));
+    };
+    format!("host fault on {host}: {} fail there whatever lane is removed and pass at the tip {} on {other}, so {host}, not main, is at fault; nothing is reverted", names(cases), short(tip))
+}
+
 fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<String, String> {
     git(worktree, &["fetch", "-q", "--no-tags", "origin", name, "refs/heads/main"])?;
     let main = git(&lander.repo, &["ls-remote", "origin", "refs/heads/main"])?.split_whitespace().next().unwrap_or_default().to_owned();
@@ -321,10 +404,11 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
     }
     let lanes = lanes(worktree, &request.parent, &main)?;
     let probes = Probes { lander, worktree, request: &request, tip: &main };
-    match find(&request, &main, &lanes, &reverted(lander), |lane| probes.at(lane), |lane| probes.without(lane)) {
+    match find(&request, &main, &lanes, &reverted(lander), |lane, on| probes.at(lane, on), |lane, on| probes.without(lane, on)) {
         Finding::NoVerdict(reason) => Ok(format!("no verdict: {reason}; nothing is reverted")),
         Finding::Fixed { cases } => Ok(format!("fixed: {} pass at the tip {}; nothing is reverted", names(&cases), short(&main))),
         Finding::Environment { cases } => Ok(format!("environment {} still fail on main without each landed lane; nothing is reverted", names(&cases))),
+        Finding::HostFault { host, cases, elsewhere } => Ok(host_fault(&request, &main, &host, &cases, elsewhere.as_deref())),
         Finding::Revert { lane, cases } => revert(lander, worktree, &request, &main, &lane, &cases),
         Finding::Flaky { lane, cases } => {
             let text = format!("north land: sheriff: {} failed at the tip {} and passed on main without {}, but did not fail twice at the tip and pass twice without it in back-to-back reruns, so they are flaky, not that lane's failure; nothing is reverted; file the flaky test on its owner; log: {}", names(&cases), short(&main), short(&lane), request.log);

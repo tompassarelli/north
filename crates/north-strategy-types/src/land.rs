@@ -147,6 +147,9 @@ pub struct SheriffCase {
     /// Each confirmation rerun on the tip without a suspect, by lane index: its failures, or none when it reached no verdict.
     #[serde(default)]
     pub confirmations: Vec<(u64, Option<Vec<String>>)>,
+    /// The host every probe after the first ran on, so a revert compares runs on one host.
+    #[serde(default)]
+    pub host: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -170,6 +173,10 @@ pub enum SheriffStep {
     Flaky,
     /// Main without the lane at this index passes the failing steps, so it is reverted.
     Revert(u64),
+    /// The failing steps still fail on the pinned host without every suspect, so they rerun at the tip on another host.
+    Elsewhere,
+    /// The failing steps pass at the tip on another host, or no other host reached a verdict: the pinned host is at fault and nothing is reverted.
+    HostFault,
     /// The failing steps still fail without the culprit, so nothing is reverted.
     Environment,
 }

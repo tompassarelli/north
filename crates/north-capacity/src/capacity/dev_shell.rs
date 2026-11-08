@@ -10,8 +10,8 @@ const USAGE: &str = "usage: north capacity dev-shell -- COMMAND...";
 const EXEC_USAGE: &str = "usage: north capacity exec [--dev-shell DIRECTORY] -- COMMAND...";
 const RUN_USAGE: &str = "usage: north capacity dev-shell run [--dir DIRECTORY] (--prepare | -- COMMAND...)";
 const TRACE: &str = "NORTH_DEV_SHELL_TRACE";
-const NOT_FOUND: u8 = 127;
-const NOT_EXECUTABLE: u8 = 126;
+pub(crate) const NOT_FOUND: u8 = 127;
+pub(crate) const NOT_EXECUTABLE: u8 = 126;
 const SEED_FAILED: u8 = 125;
 const SYSTEM_NIX: [&str; 2] = ["/run/current-system/sw/bin/nix", "/nix/var/nix/profiles/default/bin/nix"];
 const PREPARE_TIMEOUT_SECONDS: &str = "1800";
@@ -195,12 +195,7 @@ fn trace(line: &str) {
     }
 }
 
-fn replace_with(who: &str, program: &Path, name: &str, arguments: &[String], marked: Option<&str>) -> u8 {
-    let mut command = std::process::Command::new(program);
-    command.arg0(name).args(arguments);
-    if let Some(identity) = marked {
-        command.env(MARK, identity);
-    }
+fn replace_with(who: &str, command: &mut std::process::Command, name: &str) -> u8 {
     let error = command.exec();
     eprintln!("{who}: {name}: {error}");
     NOT_EXECUTABLE
@@ -209,7 +204,12 @@ fn replace_with(who: &str, program: &Path, name: &str, arguments: &[String], mar
 fn run_directly(who: &str, command: &[String]) -> u8 {
     let (program, rest) = command.split_first().expect("a non-empty command");
     match resolve(program) {
-        Some(resolved) => replace_with(who, &resolved, program, rest, None),
+        Some(resolved) => {
+            let started = super::subject_start::mark();
+            let code = replace_with(who, std::process::Command::new(&resolved).arg0(program).args(rest).env_remove(super::subject_start::ENV), program);
+            super::subject_start::unmark(started);
+            code
+        }
         None => {
             eprintln!("{who}: {program}: command not found");
             NOT_FOUND
@@ -379,5 +379,5 @@ pub fn command(arguments: &[String]) -> u8 {
     let north = north_base::platform::north_binary::north_binary().to_string_lossy().into_owned();
     let mut words = vec!["develop".to_owned(), profile.to_string_lossy().into_owned(), "--offline".to_owned(), "-c".to_owned(), "env".to_owned(), format!("{MARK}={identity}"), north, "capacity".to_owned(), "exec".to_owned(), "--".to_owned()];
     words.extend(invocation.command);
-    replace_with("north capacity dev-shell", &nix, "nix", &words, None)
+    replace_with("north capacity dev-shell", std::process::Command::new(&nix).arg0("nix").args(&words), "nix")
 }
