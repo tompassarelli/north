@@ -1,0 +1,64 @@
+# Change graph replay: carry-over, missed tests and blame on 2026-11-08's queue
+
+The change graph (north#917) answers three questions about a lane: which tests its change can reach (`north graph ask
+affected`), which lanes share a reachable test (`overlap`), and which lanes a failed test or compile error points at
+(`blame`). This note records how those answers scored when replayed against the north landing queue of 2026-11-08,
+run with the landed queries (0b858b9384) and edges (e9412f10a4). It matched the replay run on the unlanded code exactly.
+
+## Inputs
+
+- The north queue from midnight to 11:20 AM +07: 274 landed lanes in 96 pushes, each lane's head and the merged tree
+  it landed in, and 62 red probes with a failed test or compile error in their check logs.
+- Ground truth: a failure's culprit is *verified* when the lane's withdrawal or refusal names that failure (50
+  failures), and *inferred* when it is the only withdrawn or refused lane in its probe (23 failures).
+- Edges: the lander's coverage map (2026-11-06, 774 tests), the crate graph at origin/main, and per-test read sets
+  recorded on a build host at main bde3db9c68 (1,151 of 1,166 tests; the 15 north-land-sandbox tests run unrecorded
+  by design).
+
+## Carry-over: alone verdicts that still hold on the merged tree
+
+For each landed lane, the share of its alone-checked tests that no other lane in its merged tree can reach, so the
+lane's alone verdict on them holds after the merge:
+
+- 245 of 274 lanes were traced. The other 29 change flake.nix, which the graph counts as a toolchain change that
+  reaches every test.
+- Mean carried share: 53.1% over all lanes, 59.4% over traced lanes. In 25 traced lanes, no other lane in the batch
+  reaches any test in the lane's cone.
+- Carried tests that failed in a real probe: **0**. Of the 607 cases where a probe failed a test that a lane other
+  than the culprit had passed alone, 594 were not carried (the graph saw another lane reach the test) and 13 were
+  untraced. None was a carried test.
+
+## Missed tests
+
+For each verified culprit, the test it broke is in the set `affected` returns for its own commit: 13 of 13, with no
+miss and no untraced answer.
+
+## Blame
+
+Per failure, the culprit compared with the lanes `blame` names out of the lanes in that probe:
+
+- Verified ties: the culprit was among the named lanes 50 of 50 times. In 15 it was the only lane named; in 35 it was
+  one of several.
+- Inferred ties: 10 exact, 9 among, 4 where blame named other lanes, and 4 where blame named no lane.
+- Across the 50 verified ties, blame named 3.4 lanes on average out of 14.3 in the probe: 2.3 of 13.8 for test
+  failures, and 10.1 of 17 for compile errors, where every lane that changes the file or a crate it depends on stays
+  named.
+
+The withdrawn lanes this replay was asked about:
+
+- n882-climb, which broke the runtime reuse test: named alone (1 of 23 lanes), both times.
+- n842-groups, which failed to compile north-lander: named among 2 of 2, 8 of 14, 10 of 16 and 11 of 23.
+- n903-losses: named alone (1 of 23) twice, and among 2 of 38 twice.
+- n909-relay: named among 2 of 38, twice.
+- n906-payoff: no failed test or compile error was tied to it. The tool-removal gate refused it, a check on its own
+  diff that runs before the probe's tests. It appears only as one of 11 lanes named for a north-lander compile error
+  whose culprit was n842-groups.
+
+## What follows
+
+- Blame runs before the bisect in the after-landing culprit search: one lane named reverts it, several bisect only
+  among them, untraced bisects the whole batch (north#902, worker q902-gblame).
+- `affected` narrows each land check's test selection (north#902, worker q902-gselect).
+- Scoping a merged-tree run to the lanes' overlapping tests waits until each lane's own reachable tests run before it
+  queues: under land-first the merged run is the first place a lane's tests run, so a run limited to the overlap
+  would skip them (north#902).
