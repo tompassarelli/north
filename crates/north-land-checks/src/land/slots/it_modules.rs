@@ -85,17 +85,22 @@ impl Plan {
 
 pub struct Table {
     modules: BTreeMap<String, BTreeSet<String>>,
+    tree_wide: BTreeSet<String>,
 }
 
 const SPAWNS_NORTH: &str = "CARGO_BIN_EXE_north";
 const NARROW: &str = "narrow:";
 const TREE_WIDE: &str = "tree-wide:";
 const TESTS: &str = "tests/it";
+const SOURCES: &str = "src/";
+const DOCS: &str = "docs/";
+const SUPPORT: &str = "support";
 
 impl Table {
     pub fn parse(table: &str, plan: &Plan, spawners: &BTreeSet<String>) -> Result<Self, String> {
         let known: BTreeSet<&str> = plan.names().chain([ROOT]).collect();
         let mut modules = BTreeMap::new();
+        let mut tree_wide_modules = BTreeSet::new();
         for (index, line) in table.lines().enumerate() {
             let (line, comment) = line.split_once(" #").unwrap_or((line, ""));
             let line = line.trim();
@@ -122,12 +127,15 @@ impl Table {
             if narrow.is_some() && !spawners.contains(&module) {
                 return Err(format!("{TABLE}:{}: {module} does not spawn the north binary, so a narrow reason on it means nothing", index + 1));
             }
+            if tree_wide.is_some() {
+                tree_wide_modules.insert(module.clone());
+            }
             let crates = if tree_wide.is_some() || (spawners.contains(&module) && narrow.is_none()) { known.iter().map(|name| (*name).to_owned()).collect() } else { crates };
             if modules.insert(module.clone(), crates).is_some() {
                 return Err(format!("{TABLE}:{}: {module} is listed twice", index + 1));
             }
         }
-        Ok(Self { modules })
+        Ok(Self { modules, tree_wide: tree_wide_modules })
     }
 
     pub fn modules(&self) -> impl Iterator<Item = &str> {
@@ -137,28 +145,41 @@ impl Table {
     pub fn crates(&self, module: &str) -> Option<&BTreeSet<String>> {
         self.modules.get(module)
     }
+
+    fn module_of(&self, file: &str) -> Option<&str> {
+        let relative = file.strip_prefix(TESTS)?.strip_prefix('/')?;
+        let first = match relative.split_once('/') {
+            Some((directory, _)) => directory,
+            None => relative.strip_suffix(".rs")?,
+        };
+        self.modules.get_key_value(first).map(|(module, _)| module.as_str()).filter(|module| *module != SUPPORT)
+    }
 }
 
 pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: &[String]) -> Result<Selection, String> {
     let plan = Plan::parse(structure)?;
     let table = Table::parse(table, &plan, spawners)?;
     let mut changed = BTreeSet::new();
+    let mut edited = BTreeSet::new();
     for file in files {
-        match plan.owner(file) {
-            Some(name) => {
-                changed.insert(name.to_owned());
-            }
-            None if file.starts_with("docs/") && !rust_build_input(file) => {
-                changed.insert(ROOT.to_owned());
-            }
-            None => return Ok(Selection::Every),
+        if let Some(name) = plan.owner(file) {
+            changed.insert(name.to_owned());
+        } else if let Some(module) = table.module_of(file) {
+            edited.insert(module.to_owned());
+        } else if file.starts_with(SOURCES) || (file.starts_with(DOCS) && !rust_build_input(file)) {
+            changed.insert(ROOT.to_owned());
+        } else {
+            return Ok(Selection::Every);
         }
     }
     let affected = plan.closure(changed);
     if plan.names().all(|name| affected.contains(name)) {
         return Ok(Selection::Every);
     }
-    let modules: BTreeSet<String> = table.modules.iter().filter(|(_, crates)| !crates.is_disjoint(&affected)).map(|(module, _)| module.clone()).collect();
+    if !edited.is_empty() {
+        edited.extend(table.tree_wide.iter().cloned());
+    }
+    let modules: BTreeSet<String> = table.modules.iter().filter(|(_, crates)| !crates.is_disjoint(&affected)).map(|(module, _)| module.clone()).chain(edited).collect();
     if modules.len() == table.modules.len() {
         return Ok(Selection::Every);
     }
@@ -208,3 +229,7 @@ fn glob(pattern: &str) -> Result<Regex, String> {
     out.push('$');
     Regex::new(&out).map_err(|error| format!("{STRUCTURE}: glob {pattern}: {error}"))
 }
+
+#[cfg(test)]
+#[path = "it_modules_tests.rs"]
+mod tests;

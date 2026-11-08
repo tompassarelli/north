@@ -587,8 +587,9 @@ tests on `north_landing` alone) move to `crates/north-lander/tests/it`.
 The table is `tests/it/crates.txt` (box 4-20), one line per module, merged as a set. It names planned crates,
 so `crates/north-land-checks/src/land/slots/it_modules.rs` resolves a changed file through `structure.toml`'s
 `[crate_dag]` globs, not through `cargo metadata`, and the selection holds before and after each move. A
-module runs when one of its crates, or a crate whose `may_use` reaches one, changed. Any change outside
-`crates/` except `docs/` runs every module. The lander exports the result as
+module runs when one of its crates, or a crate whose `may_use` reaches one, changed. A `src/` or `docs/` change selects the modules marked `north`, and a change to one
+module's own files under `tests/it` selects it and the tree-wide modules (north#842, 2026-11-08); any other change outside
+`crates/` runs every module. The lander exports the result as
 `SAFE_PUSH_LAND_IT` (`--test it` and a nextest filterset, `-E kind(lib)|kind(bin)|(binary_id(north::it)&test(/MODULE::|.../))`; with no module selected only `-E kind(lib)|kind(bin)`, so tests/it is not built) to any check that names it. The selection follows the
 planned DAG, so a back-edge still listed under "Edges to cut" can let a test outside the selection fail; the full
 suite in main CI catches it. Since 2026-11-05 a `.safe-push` land check runs, before a lane lands, the unit
