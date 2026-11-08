@@ -142,3 +142,24 @@ fn enqueue_runs_an_added_check_whose_checker_the_live_runtime_does_not_cover_on_
     assert!(output.status.success() && !log.contains("a land check this lane adds exited"), "{log}");
     assert_eq!(runs(&counter), 1, "{log}");
 }
+
+#[test]
+fn enqueue_reruns_a_check_before_queueing_on_another_build_host_when_the_first_host_drops_its_connection() {
+    let fixture = Fixture::new();
+    let hosts = fixture.root.join("offload-hosts");
+    let stub = fixture.root.join("north-stub");
+    let script = format!(
+        "case \"$1 $2 $3\" in\n  'capacity offload choose') case \"$*\" in *'--avoid flaky'*) echo steady ;; *) echo flaky ;; esac; exit 0 ;;\n  'capacity offload verdict') exit 0 ;;\n  'capacity offload run') printf '%s\\n' \"$5\" >>{hosts}; [ \"$5\" != flaky ] || {{ echo 'north capacity offload: the connection ended (ssh exit 255) before the remote host reported the command exit, so the run reached no verdict' >&2; exit 75; }}; exit 0 ;;\nesac\ncase \"$1 $2\" in 'capacity deadline') shift 4; exec \"$@\" ;; esac\nexec {real} \"$@\"\n",
+        hosts = hosts.display(),
+        real = env!("CARGO_BIN_EXE_north")
+    );
+    north_core::foundation::shim::write_script(&stub, &script);
+    fs::write(fixture.repo.join(".safe-push"), "[land]\n\trunner = build-host\n\tafter = \"** :: true # cargo clippy --all-targets -- -D warnings\"\n").unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add a clippy after-landing check that runs on a build host"]);
+    let output = north_enqueue_with(&fixture, &[("NORTH_LAND_NORTH", &stub)]);
+    let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "{log}");
+    assert_eq!(fs::read_to_string(&hosts).unwrap().lines().collect::<Vec<_>>(), ["flaky", "steady"], "on 2026-11-08 cpx62's ssh dropped mid-clippy and the lane was refused with exit 75 instead of rerunning the check on a host that answers: {log}");
+    assert!(written(&fixture.state).iter().any(|path| path.extension().is_some_and(|extension| extension == "json")), "{:?}", written(&fixture.state));
+}

@@ -101,17 +101,9 @@ async fn resolve_runner_host(value: &str) -> String {
 }
 
 async fn off_host_runner() -> Option<String> {
-    let here = north_base::platform::host::name();
-    let deadline = tokio::time::Instant::now() + OFF_HOST_PATIENCE;
-    loop {
-        if let Some(host) = build_host::chosen(&program(), "build-host", Some(&here)).await {
-            return Some(host);
-        }
-        if tokio::time::Instant::now() + OFF_HOST_RETRY > deadline {
-            return None;
-        }
-        say(&format!("safe-push: no build host has room yet; asking again in {} s", OFF_HOST_RETRY.as_secs()));
-        tokio::time::sleep(OFF_HOST_RETRY).await;
+    match build_host::placed(&program(), "build-host", &north_base::platform::host::name(), &[]).await {
+        build_host::Placed::Host(host) => Some(host),
+        build_host::Placed::Here | build_host::Placed::Unanswered => None,
     }
 }
 
@@ -291,7 +283,7 @@ fn root_span(arguments: &Arguments) -> Span {
     }
 }
 
-fn block_on(work: impl Future<Output = i32>) -> std::io::Result<i32> {
+fn block_on<T>(work: impl Future<Output = T>) -> std::io::Result<T> {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         return Ok(tokio::task::block_in_place(|| handle.block_on(work)));
     }
@@ -316,18 +308,33 @@ pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
     }
 }
 
-async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>) -> i32 {
+pub(super) struct Added {
+    pub(super) status: i32,
+    pub(super) host: String,
+    pub(super) unanswered: bool,
+}
+
+async fn run_added(root: PathBuf, arguments: Arguments, config: Config, commands: Vec<String>) -> i32 {
+    run_added_avoiding(root, arguments, config, commands, &[]).await.status
+}
+
+async fn run_added_avoiding(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>, failed: &[String]) -> Added {
     let mut environment = Environment::load();
     if environment.capacity.is_empty() {
         environment.capacity = config.capacity.clone().unwrap_or_default();
     }
     let wanted = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
     if !wanted.is_empty() {
-        match build_host::chosen(&program(), &wanted, Some(&north_base::platform::host::name())).await {
-            Some(host) => arguments.runner_host = host,
-            None => warn("safe-push: no build host has room, so the checks before queueing run on this host under the land-check capacity lease"),
+        match build_host::placed(&program(), &wanted, &north_base::platform::host::name(), failed).await {
+            build_host::Placed::Host(host) => arguments.runner_host = host,
+            build_host::Placed::Here => warn("safe-push: no build host has room, so the checks before queueing run on this host under the land-check capacity lease"),
+            build_host::Placed::Unanswered => {
+                warn(&format!("safe-push: no build host answered for {} minutes, and the checks before queueing never run uncompiled on a busy laptop", OFF_HOST_PATIENCE.as_secs() / 60));
+                return Added { status: NO_VERDICT_STATUS, host: String::new(), unanswered: true };
+            }
         }
     }
+    let host = arguments.runner_host.clone();
     let commands = { let (here, built) = lander_only(&root, &arguments, arguments.runner_host.is_empty(), commands).await; [here, built].concat() };
     let (_cancel_sender, cancel) = watch::channel(false);
     let scope = scope_for(&root, &arguments, &commands, None);
@@ -336,5 +343,6 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     let paths = path_class(&root, &arguments.base, &arguments.head);
     let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees, paths, fail_fast: false, free_slots: None, actions_down: false, scope, it , selected_paths: None, placed: Arc::default(), pinned: 0 });
     let pending = shared.cached(&commands).await;
-    if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() }
+    let status = if pending.is_empty() { 0 } else { shared.run_list(&pending).await.status() };
+    Added { status, host, unanswered: false }
 }
