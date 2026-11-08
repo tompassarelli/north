@@ -42,6 +42,10 @@ pub fn routines_dir() -> PathBuf {
     operator.join("routines")
 }
 
+fn unquote(value: &str) -> &str {
+    value.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')).unwrap_or(value)
+}
+
 fn valid_duration(text: &str) -> bool {
     DURATION.is_match(text.trim())
 }
@@ -71,7 +75,7 @@ pub fn parse(text: &str, stem: &str) -> Result<Entry, String> {
     let mut entry = Entry { body: body.trim().to_owned(), ..Entry::default() };
     for line in head.lines() {
         if let Some((key, value)) = line.split_once(':') {
-            entry.fields.insert(key.trim().to_owned(), value.trim().to_owned());
+            entry.fields.insert(key.trim().to_owned(), unquote(value.trim()).to_owned());
         }
     }
     let relates = entry.get("relates-to");

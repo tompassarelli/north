@@ -1,6 +1,6 @@
 ---
 name: worker
-description: The default Opus worker for all Opus-range work: implementation, known- and unknown-cause bugs, netcode, determinism, engine, performance, cross-module changes, planning and architecture.
+description: "The default Opus worker for all Opus-range work: implementation, known- and unknown-cause bugs, netcode, determinism, engine, performance, cross-module changes, planning and architecture."
 model: opus
 effort: medium
 permissionMode: bypassPermissions

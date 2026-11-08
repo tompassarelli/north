@@ -1,6 +1,6 @@
 ---
 name: worker-high
-description: Escalation only: work an Opus medium worker failed through a reasoning problem (wrong cause, two failed fixes). Never a first assignment, never for landing, capacity, client or leash stops.
+description: "Escalation only: work an Opus medium worker failed through a reasoning problem (wrong cause, two failed fixes). Never a first assignment, never for landing, capacity, client or leash stops."
 model: opus
 effort: high
 permissionMode: bypassPermissions
