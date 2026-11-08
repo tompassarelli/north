@@ -159,12 +159,15 @@ pub(super) enum Chosen {
     Queued(String),
 }
 
-/// The host a land check runs on: the least busy for a land check of `cores` (its slot backlog per job it runs at once, or its committed share of its CPUs, whichever is higher) once each name in `taken` counts as one more land check already on its way there, among `remotes` and this host as `here` when it is a `Peer`; when no remote has room, the land check queues on the least busy readable remote, and runs on this host only when it is the `Fallback` and no remote answers; a tie goes to the earlier remote.
+/// The host a land check runs on: the least busy for a land check of `cores` (its slot backlog per job it runs at once, or its committed share of its CPUs, whichever is higher) once each name in `taken` counts as one more land check already on its way there, among `remotes`; when no remote has room, the land check queues on the least busy readable remote, and runs on this host as `here` only when it is a `Peer` and every readable remote's queue holds more than a round of land checks, or when it is the `Fallback` and no remote answers; a tie goes to the earlier remote.
 pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() -> Option<Room>, remotes: Vec<(String, Option<Room>)>, taken: &[String], cores: f64) -> Result<Chosen, Vec<String>> {
     let mut refused = Vec::new();
     let chosen = match standing {
         Standing::Reserved => most_room(remotes.iter().cloned(), taken, cores, &mut refused).map(Chosen::Room).or_else(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)),
-        Standing::Peer => most_room(remotes, taken, cores, &mut refused).or_else(|| most_room([(here.to_owned(), local())], taken, cores, &mut refused)).map(Chosen::Room),
+        Standing::Peer => most_room(remotes.iter().cloned(), taken, cores, &mut refused)
+            .map(Chosen::Room)
+            .or_else(|| (!behind_a_round(&remotes, taken, cores)).then(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)).flatten())
+            .or_else(|| most_room([(here.to_owned(), local())], taken, cores, &mut refused).map(Chosen::Room)),
         Standing::Fallback => most_room(remotes.iter().cloned(), taken, cores, &mut refused).map(Chosen::Room).or_else(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)).or_else(|| Some(Chosen::Room(here.to_owned()))),
     };
     chosen.ok_or(refused)
@@ -173,6 +176,13 @@ pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() ->
 fn least_busy(remotes: &[(String, Option<Room>)], taken: &[String], cores: f64) -> Option<String> {
     let on = |name: &str| taken.iter().filter(|host| *host == name).count();
     remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, room.busy(cores, on(name))))).fold(None::<(&String, f64)>, |best, (name, busy)| if best.is_none_or(|(_, least)| busy < least) { Some((name, busy)) } else { best }).map(|(name, _)| name.clone())
+}
+
+/// Whether every remote's queue holds more than a round of land checks of `cores`, its job cap, once each name in `taken` counts as one more queued there: only then does a `Peer` run one itself; a remote whose slots are unread counts as not behind.
+fn behind_a_round(remotes: &[(String, Option<Room>)], taken: &[String], cores: f64) -> bool {
+    let on = |name: &str| taken.iter().filter(|host| *host == name).count() as u32;
+    remotes.iter().any(|(_, room)| room.is_some())
+        && remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, room))).all(|(name, room)| room.slots.is_some_and(|slots| slots.queued + on(name) > host_job_cap(slots.cores, cores.ceil() as u32, room.measure.memory_total_mib as u32)))
 }
 
 fn most_room(hosts: impl IntoIterator<Item = (String, Option<Room>)>, taken: &[String], cores: f64, refused: &mut Vec<String>) -> Option<String> {
@@ -257,7 +267,7 @@ mod tests {
         let full = reading(80 * gib, "3.00", "17.0", "10");
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
         assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())), "on 2026-11-08 at 8:02 AM the idler laptop out-roomed gex45 and took land checks at load 86 to 115; the desktop comes last while a build host has room");
-        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
+        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())), "a full gex45 whose queue is unread is not a round behind, so the land check queues there");
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())));
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), None)], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
         assert_eq!(check_host(Standing::Reserved, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())), "a laptop off the land checks queues them on a full gex45, never runs them itself");
@@ -273,5 +283,8 @@ mod tests {
         assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(ccx33)), ("gex45".to_owned(), Some(gex45))], &[], 4.0), Ok(Chosen::Room("gex45".to_owned())), "ccx33 runs 2 jobs at once with 9 queued; gex45 runs 5 with 2 free");
         let taken = ["gex45".to_owned(), "gex45".to_owned()];
         assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(slotted("1.0", 8.0, "0 0 8"))), ("gex45".to_owned(), Some(gex45))], &taken, 4.0), Ok(Chosen::Room("ccx33".to_owned())), "an idle ccx33 takes the run once gex45's free slots are taken");
+        let queued = |jobs: u32| slotted("17.0", 20.0, &format!("3 {jobs} 20"));
+        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(queued(3)))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())), "on 2026-11-08 the laptop took land checks at load 73 whenever the build hosts were full; a queue of one round of gex45's 3 jobs waits there");
+        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(queued(4)))], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())), "the laptop takes one once gex45 queues more than a round");
     }
 }
