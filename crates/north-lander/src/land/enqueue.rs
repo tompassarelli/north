@@ -178,6 +178,14 @@ fn pays_debt(root: &Path, base: &str, head: &str) -> Option<String> {
     north_goals::ceiling::paid(root, &registry, &changed).ok()?.into_iter().next()
 }
 
+type Marks = (Option<RedFix>, Option<String>, Option<String>);
+
+fn marks(root: &Path, base: &str, head: &str, destination: &str) -> Result<Marks, String> {
+    let red_fix = red_fix(root, base, destination)?;
+    let urgent = red_fix.is_none().then(|| pays_debt(root, base, head)).flatten();
+    Ok((red_fix, super::lander_fix::marked(root, base, head)?, urgent))
+}
+
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
     let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
@@ -210,8 +218,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         judged(environment, &root, &branch, &head, &gates, Err(detail))?;
     }
     judged(environment, &root, &branch, &head, "revert guard", refuse_stale_revert(&root, &base, &head))?;
-    let red_fix = red_fix(&root, &base, &destination)?;
-    let urgent = red_fix.is_none().then(|| pays_debt(&root, &base, &head)).flatten();
+    let (red_fix, lander_fix, urgent) = marks(&root, &base, &head, &destination)?;
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
     let ticket = Ticket {
         origin,
@@ -228,6 +235,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         verdict: None,
         keep_lane,
         urgent,
+        lander_fix,
         decided_on: None,
         published: published(&root, &branch, &destination),
     };

@@ -1313,3 +1313,36 @@ stacked one landed at 4:26:22.
 - The probe planner (`north-land-probes`), the probe fan-out, the suspect groups and the unbuilt-lane pull were deleted with nothing left calling them. The coverage agreement record lost its `landed` lines, which named the probe's check log.
 
 Replays in crates/north-lander/tests/it/land_first.rs: three queued lanes land in one push with the checker never called; a batch carrying a bad lane is reverted to exactly that lane; a batch queued while the previous batch's after-landing run is held is pushed before that run ends.
+
+## Lander fixes never wait behind the lander (2026-11-08, north#930)
+
+From 2026-11-04 to 2026-11-08 every lander improvement waited in the queue it was meant to fix. Land-first
+(q902-deadcode), queued at 11:37 AM on 2026-11-08, was still 8th of the urgent tickets at 12:57 PM, behind
+three Main-red fixes and four other urgent lanes, each waiting for probe rounds of about 10 minutes. Land-first
+itself removed the probe rounds: the lander now pushes one candidate of every queued lane, which already passed
+its own land checks on a build host before queueing, and checks the merged tree after landing. Two ways remained
+for the lander to hold back its own repair, and a lander-fix lane closes both.
+
+A lane marks itself with a `Lander-fix: REASON` trailer. `north land enqueue` accepts the mark only on a lane
+that changes nothing but lander and landing code (`lander_fix::PATHS` in north-lander: the `crates/north-land*`
+crates, north-safe-push, north-check-environment, the offload slot code, `tests/it/land*`, the landing docs and
+the features index), so jumping the queue can never reach a product change, and records it on the ticket as
+`lander_fix`.
+
+- Order. The queue orders lander fixes ahead of every other ticket, Main-red fixes included, so a lander fix is
+  the first commit of the push and no lane queued ahead of it can conflict it out of the candidate.
+- Repairs only. While the sheriff answers a revert request or the base-broken pause holds, the lander builds
+  only repairs; `lander_fix::repairs` puts the queued lander fixes there beside the Main-red fixes.
+
+Safety is unchanged: the same land checks before queueing, the same scans, privacy and gates, the same lease
+push, and the same after-landing run and sheriff revert follow the fix.
+
+Replay: `cargo nextest run -p north-lander -E 'test(the_lander_fix_queued_at_12_57_pm)'` queues the 12:57 PM
+queue (seven urgent tickets ahead, three of them Main-red fixes, and twenty lanes around q902-deadcode; the
+lanes the ledger snapshot names keep their branch names and queue times, the rest are named by role). It shows
+the whole queue landing in one push with q902-deadcode as its first commit. On land-first's main without the
+lander-fix order, the first commit is red-fix-a.
+
+Rejected: a separate pass that checks each lander fix alone off the lander before the batch. It was built
+against the probe rounds. Land-first already lands every queued lane in the next push, so a second pass would only
+add a check the lane passed before queueing.

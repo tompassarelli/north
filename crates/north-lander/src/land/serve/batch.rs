@@ -13,7 +13,7 @@ use crate::land::queue::{self, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::telemetry::Stages;
 use crate::land::watch::Watch;
-use crate::land::{pause, red, steps};
+use crate::land::{lander_fix, pause, steps};
 
 pub(super) type Entry<'a> = (&'a PathBuf, &'a Ticket);
 
@@ -90,7 +90,7 @@ impl Batching for Lander {
         queued.retain(|(path, _)| !claimed.contains(path));
         let fixes;
         let tickets = if pass.red_only {
-            fixes = red::fixes(&queued);
+            fixes = lander_fix::repairs(&queued);
             &fixes
         } else {
             &queued
@@ -124,18 +124,18 @@ impl Batching for Lander {
             return Some(Flow::Done(pass.progress_or(Round::Idle)));
         }
         if answering && !pass.red_only {
-            if red::fixes(queued).is_empty() {
+            if lander_fix::repairs(queued).is_empty() {
                 return Some(Flow::Done(pass.progress_or(Round::Checking)));
             }
-            println!("north land: main is red and the sheriff is answering its revert request; checking the queued red fixes alone");
+            println!("north land: main is red and the sheriff is answering its revert request; checking the queued red and lander fixes alone");
             pass.red_only = true;
             return Some(Flow::Next);
         }
         if !pass.red_only && let Some(reason) = pause::held(&self.queue) {
-            if red::fixes(queued).is_empty() {
+            if lander_fix::repairs(queued).is_empty() {
                 return Some(Flow::Done(Round::Waiting(reason)));
             }
-            println!("north land: {reason}; checking the queued red fixes alone");
+            println!("north land: {reason}; checking the queued red and lander fixes alone");
             pass.paused = Some(reason);
             pass.red_only = true;
             return Some(Flow::Next);

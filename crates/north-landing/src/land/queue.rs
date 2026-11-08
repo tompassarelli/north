@@ -59,6 +59,8 @@ pub struct Ticket {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub urgent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lander_fix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decided_on: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
@@ -66,7 +68,7 @@ pub struct Ticket {
 
 impl Ticket {
     pub fn goes_first(&self) -> bool {
-        self.red_fix.is_some() || self.urgent.is_some()
+        self.red_fix.is_some() || self.urgent.is_some() || self.lander_fix.is_some()
     }
 }
 
@@ -182,7 +184,7 @@ fn listed(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     }
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
     let positions = positions(directory, &tickets, now);
-    tickets.sort_by_key(|(path, ticket)| (ticket.red_fix.is_none(), !ticket.goes_first(), positions[path], path.clone()));
+    tickets.sort_by_key(|(path, ticket)| (ticket.lander_fix.is_none(), ticket.red_fix.is_none(), !ticket.goes_first(), positions[path], path.clone()));
     Ok(tickets)
 }
 
