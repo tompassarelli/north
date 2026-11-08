@@ -108,8 +108,9 @@ fn stored(d: &Doc) -> Doc {
 
 pub fn import() -> Result<Value> {
     let retired = state_dir().join(RETIRED);
-    if !retired.exists() {
-        return Ok(json!({"imported": 0}));
+    match fs::File::open(&retired) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!({"imported": 0})),
+        opened => drop(opened?),
     }
     let Some(lock) = refresh_lock(&state_dir(), true)? else {
         return Ok(json!({"busy": true}));
