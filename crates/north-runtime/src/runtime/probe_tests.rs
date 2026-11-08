@@ -16,12 +16,18 @@ impl FakeProc {
         proc
     }
 
-    fn spawn(&mut self, comm: &str, argv: &[&str]) {
+    fn spawn(&mut self, comm: &str, argv: &[&str]) -> u32 {
+        self.spawn_under(1, comm, argv)
+    }
+
+    fn spawn_under(&mut self, parent: u32, comm: &str, argv: &[&str]) -> u32 {
         self.1 += 1;
         let pid = self.0.path().join(self.1.to_string());
         std::fs::create_dir(&pid).unwrap();
         std::fs::write(pid.join("comm"), format!("{comm}\n")).unwrap();
+        std::fs::write(pid.join("stat"), format!("{} ({comm}) S {parent} 0 0\n", self.1)).unwrap();
         std::fs::write(pid.join("cmdline"), argv.iter().map(|word| format!("{word}\0")).collect::<String>()).unwrap();
+        self.1
     }
 
     fn sessions(&mut self, live: usize, hosts_each: usize) {
@@ -161,4 +167,24 @@ fn a_watchdog_waiting_to_restart_after_a_crash_or_stopped_is_a_fault() {
     assert_eq!(unit_problems(("activating", "auto-restart", "exit-code")), vec!["capacity-watchdog.service is activating auto-restart exit-code".to_owned()]);
     assert_eq!(unit_problems(("activating", "start", "success")), vec!["capacity-watchdog.service is activating start success".to_owned()]);
     assert_eq!(unit_problems(("failed", "failed", "exit-code")), vec!["capacity-watchdog.service is failed".to_owned()]);
+}
+
+#[test]
+fn a_remote_job_counts_once_with_its_wrapper_chain_and_orphaned_wrappers_still_count() {
+    let mut proc = FakeProc::new();
+    proc.sessions(2, 1);
+    let north = north(LIVE);
+    proc.spawn("north", &[&north, "land", "serve", "--repo", "/home/tom/code/north/main"]);
+    for job in 0..65 {
+        let check = proc.spawn("north", &[&north, "land", "checks", "--base", "b", "--head", &job.to_string()]);
+        let deadline = proc.spawn_under(check, "north", &[&north, "capacity", "deadline", "-", "3600", "--", &north, "capacity", "offload", "run"]);
+        proc.spawn_under(deadline, "north", &[&north, "capacity", "offload", "run", "--host", "gex45"]);
+    }
+    let (problems, record) = proc.problems();
+    assert!(problems.is_empty(), "on 2026-11-08 the laptop read 197 transient north processes, three per offloaded land check, so settle refused it 8 times and the lander runtime stopped following main: {problems:?}");
+    assert_eq!(record["transient"], json!(65));
+    for orphan in 0..36 {
+        proc.spawn("north", &[&north, "capacity", "offload", "run", "--host", "gex45", "--head", &orphan.to_string()]);
+    }
+    assert_eq!(proc.problems().0, vec!["101 transient north processes (bound 100)".to_owned()]);
 }

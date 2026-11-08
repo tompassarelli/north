@@ -71,8 +71,11 @@ impl NorthProcesses {
     fn read(section: &str, runtime: Option<&str>) -> Self {
         let mut processes = Self::default();
         let mut watchdogs: Vec<(&str, &str)> = Vec::new();
+        let mut transient: Vec<(&str, &str)> = Vec::new();
         for line in section.lines().filter(|line| !line.is_empty()) {
-            let argv: Vec<&str> = line.split('\t').collect();
+            let mut fields = line.splitn(3, '\t');
+            let (Some(pid), Some(parent), Some(command)) = (fields.next(), fields.next(), fields.next()) else { continue };
+            let argv: Vec<&str> = command.split('\t').collect();
             match (Resident::of(&argv[1..]).filter(|_| promoted(argv[0])), &argv[1..]) {
                 (Some(resident), _) => {
                     *processes.residents.entry(resident).or_default() += 1;
@@ -83,10 +86,12 @@ impl NorthProcesses {
                 (None, ["fleet", "watchdog", session, ..]) => watchdogs.push((argv[0], session)),
                 (None, rest) => match lander(rest).filter(|_| promoted(argv[0])) {
                     Some(repo) => *processes.landers.entry(repo).or_default() += 1,
-                    None => processes.transient += 1,
+                    None => transient.push((pid, parent)),
                 },
             }
         }
+        let pids: BTreeSet<&str> = transient.iter().map(|(pid, _)| *pid).collect();
+        processes.transient = transient.iter().filter(|(_, parent)| !pids.contains(parent)).count() as u64;
         for (program, session) in watchdogs {
             match processes.sessions.contains(session) && runtime.is_some_and(|runtime| runs(program, runtime)) {
                 true => *processes.watchdogs.entry(session.to_owned()).or_default() += 1,
@@ -310,7 +315,8 @@ fn facts_script() -> String {
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
          mark north; for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
-         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); argv=(\"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
+         read -r _ _ _ parent _ <\"$pid/stat\" 2>/dev/null || parent=0; \
+         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); argv=(\"${{pid##*/}}\" \"$parent\" \"${{argv[@]//[$'\\t\\n']/ }}\"); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
          for settings in \"$HOME/.claude/settings.json\" \"$state\"/profiles/*/settings.json; do\n\
          case \"$settings\" in */profiles/stale-*) continue ;; esac\n\
          [ -f \"$settings\" ] && {{ mark \"settings $settings\"; cat \"$settings\"; }}\ndone\ntrue\n",
