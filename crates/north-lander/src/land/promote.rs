@@ -21,6 +21,7 @@ use arrival::arrive;
 const USAGE: &str = "usage: north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
 pub const REFUSED: &str = "lander-refused";
 const ROUNDS: usize = 8;
+const MATCHED_PAST_UNREACHED: usize = 2;
 const WALK: usize = 256;
 const SHADOW_MINUTES: u64 = 15;
 const SHADOW_PAUSE: Duration = Duration::from_secs(30);
@@ -267,8 +268,11 @@ fn promote(options: &Options) -> Result<Outcome, String> {
         replayed += replay_recorded(&binary, &held, repository, &options.checker, &mut divergences, &mut unreached);
     }
     if divergences.is_empty() && !unreached.is_empty() {
-        let candidate = target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        return Ok(Outcome::Unreached { candidate, reason: unreached.join("; ") });
+        if replayed < MATCHED_PAST_UNREACHED {
+            let candidate = target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            return Ok(Outcome::Unreached { candidate, reason: unreached.join("; ") });
+        }
+        println!("north land promote: {} round(s) reached no verdict beside {replayed} that matched and none that diverged; reported, not held on: {}", unreached.len(), unreached.join("; "));
     }
     if !divergences.is_empty() {
         let replay = |binary: &Path, divergence: &Divergence| run_replay(binary, &divergence.checkout, &divergence.base, &options.checker, &divergence.tickets).map(|replayed| replayed.verdict);

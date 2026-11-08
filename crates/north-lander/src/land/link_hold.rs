@@ -18,7 +18,7 @@ pub struct Hold {
 }
 
 fn parse(text: &str) -> Option<Hold> {
-    let mut words = text.split_whitespace();
+    let mut words = text.lines().next()?.split_whitespace();
     let since = words.next()?.parse().ok()?;
     Some(Hold { since, alarmed: words.next() == Some(ALARMED) })
 }
@@ -40,6 +40,10 @@ fn path(home: &Path) -> PathBuf {
 
 pub fn since(home: &Path) -> Option<u64> {
     fs::read_to_string(path(home)).ok().as_deref().and_then(parse).map(|hold| hold.since)
+}
+
+pub fn reason(home: &Path) -> Option<String> {
+    fs::read_to_string(path(home)).ok()?.lines().nth(1).map(str::trim).filter(|reason| !reason.is_empty()).map(str::to_owned)
 }
 
 pub fn clear(home: &Path) {
@@ -99,7 +103,7 @@ pub fn held(home: &Path, now: u64, candidate: &str, reason: &str) {
         }
     }
     let _ = fs::create_dir_all(home);
-    let _ = fs::write(path(home), render(hold));
+    let _ = fs::write(path(home), format!("{}{}\n", render(hold), reason.replace('\n', " ")));
 }
 
 #[cfg(test)]

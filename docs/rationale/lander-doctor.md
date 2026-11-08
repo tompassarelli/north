@@ -10,7 +10,7 @@ Each run prints every bound with its live value and limit:
 - minutes since the last landing while lanes wait: 30;
 - round silence while lanes wait: 15 minutes since the newest write of `<queue>/watchdog/rounds.json` or any file in `<queue>/logs`, which a lander writes every round and while a check streams its log;
 - lander link lag: 2 hours between the commit the lander link names and main's newest commit;
-- held minutes: 15, from `lander-held`, or from when current moved when there is none;
+- lander link behind current: 3 landings or 15 minutes, counting first-parent commits of main between the two links that land more than 30 seconds apart as separate landings and timing from the first landing the lander lacks (from `lander-held`, or from when current moved, without a north checkout). Over it, the doctor pages the proxy, and `land-lead` while that session is live, naming the hold reason from `lander-unreached` or `lander-held`, and pages again every 30 minutes while the link stays behind;
 - each held land-offload slot: the land-check ceiling plus 15 minutes, the grace the lander's own offload deadline adds. A slot counts as held only while its lock is held; a holder file whose lock is free is left by a holder that ended; background slots hold mutant sweeps for hours and are left out;
 - free disk: 10% on the lander and each host `north capacity offload hosts` names;
 - stale worktree registrations: 0 under `~/code/*/main` on each of those hosts;

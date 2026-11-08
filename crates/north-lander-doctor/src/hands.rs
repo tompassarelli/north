@@ -4,6 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
 use north_lander::land::after::{follow, send};
+use north_base::platform::land_notice::OWNER;
 use north_lander::land::watchdog::{self, Hands as _};
 use north_lander::land::{promote, queue};
 
@@ -66,7 +67,7 @@ impl Hands for Host {
             Remedy::Evict { place } => shell(place, EVICT, &[]).map(|said| said.trim().to_owned()),
             Remedy::Restart { unit } => watchdog::Host.restart(unit, "the lander doctor read it wedged").map(|()| format!("restarted {unit}")),
             Remedy::Rollback { home, from, to, units } => roll_back(home, from, to, units),
-            Remedy::Alarm(text) => if self.page(text) { Ok("the proxy heard of it".to_owned()) } else { Err("paging the proxy failed".to_owned()) },
+            Remedy::Alarm(text) | Remedy::Page(text) => if self.page(text) { Ok("the proxy heard of it".to_owned()) } else { Err("paging the proxy failed".to_owned()) },
             Remedy::Promote => promote(),
             Remedy::CheckHere { queue } => {
                 north_check_environment::settle(queue, Environment::Local, "the lander doctor read main's check environment broken past its bound");
@@ -87,7 +88,8 @@ impl Hands for Host {
     }
 
     fn page(&self, text: &str) -> bool {
-        send(PROXY, text)
+        let told = [PROXY, OWNER].map(|session| send(session, text));
+        told.contains(&true)
     }
 }
 

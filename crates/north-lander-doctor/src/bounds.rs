@@ -10,7 +10,9 @@ pub const OLDEST_QUEUED_SECS: u64 = 20 * 60;
 pub const SINCE_LANDING_SECS: u64 = 30 * 60;
 pub const ROUND_SILENCE_SECS: u64 = 15 * 60;
 pub const LINK_LAG_SECS: u64 = 2 * 3600;
-pub const HELD_SECS: u64 = 15 * 60;
+pub const BEHIND_LANDINGS: usize = 3;
+pub const BEHIND_SECS: u64 = 15 * 60;
+pub const REPAGE_SECS: u64 = 30 * 60;
 pub const SLOT_GRACE_SECS: u64 = 900;
 pub const SLOT_DEADLINE_SECS: u64 = CEILING + SLOT_GRACE_SECS;
 pub const DISK_FREE_PERCENT: f64 = 10.0;
@@ -24,7 +26,7 @@ pub enum Bound {
     SinceLanding,
     RoundSilence,
     LinkLag,
-    Held,
+    Behind,
     SlotHold,
     DiskFree,
     StaleWorktrees,
@@ -42,7 +44,7 @@ impl Bound {
             Bound::SinceLanding => "since-landing",
             Bound::RoundSilence => "round-silence",
             Bound::LinkLag => "link-lag",
-            Bound::Held => "link-held",
+            Bound::Behind => "link-behind",
             Bound::SlotHold => "slot-hold",
             Bound::DiskFree => "disk-free",
             Bound::StaleWorktrees => "stale-worktrees",
@@ -60,7 +62,7 @@ impl Bound {
             Bound::SinceLanding => minutes(SINCE_LANDING_SECS),
             Bound::RoundSilence => minutes(ROUND_SILENCE_SECS),
             Bound::LinkLag => minutes(LINK_LAG_SECS),
-            Bound::Held => minutes(HELD_SECS),
+            Bound::Behind => format!("{BEHIND_LANDINGS} landings or {}", minutes(BEHIND_SECS)),
             Bound::BaseBroken => minutes(BASE_BROKEN_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
             Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
@@ -83,6 +85,7 @@ pub enum Remedy {
     Restart { unit: String },
     Rollback { home: PathBuf, from: String, to: String, units: Vec<String> },
     Alarm(String),
+    Page(String),
     Promote,
     CheckHere { queue: PathBuf },
     Wait(String),
@@ -98,6 +101,7 @@ impl Remedy {
             Remedy::Restart { .. } => Some("lander-wedged"),
             Remedy::Rollback { .. } => Some("lander-rollback"),
             Remedy::Alarm(_) => Some("lander-source-build"),
+            Remedy::Page(_) => Some("lander-behind"),
             Remedy::Promote => Some("lander-promotion-retry"),
             Remedy::CheckHere { .. } => Some("lander-check-environment"),
             Remedy::Wait(_) => None,
@@ -116,6 +120,7 @@ impl fmt::Display for Remedy {
             Remedy::Restart { unit } => write!(formatter, "restart {unit}"),
             Remedy::Rollback { from, to, .. } => write!(formatter, "roll the lander link back from {from} to {to}, the last build that landed a batch green"),
             Remedy::Alarm(text) => write!(formatter, "tell the proxy: {text}"),
+            Remedy::Page(text) => write!(formatter, "page the proxy and the lander's lead, again each {} while it lasts: {text}", minutes(REPAGE_SECS)),
             Remedy::Promote => write!(formatter, "retry the promotion with north runtime promote, which replays under lander-promote.lock"),
             Remedy::CheckHere { queue } => write!(formatter, "judge the candidates of {} in this host's check environment, where main last passed", queue.display()),
             Remedy::Wait(reason) => write!(formatter, "none: {reason}"),
@@ -296,22 +301,23 @@ fn source_builds(queue: &QueueFacts) -> Vec<Finding> {
 
 fn judge_link(link: &LinkFacts) -> Vec<Finding> {
     let subject = "lander";
-    let held = link.held.unwrap_or(0);
     let rolled_back = link.refused.as_deref() == Some(link.current.as_str());
-    let held = if held <= HELD_SECS {
-        Finding::healthy(Bound::Held, subject, minutes(held))
-    } else if rolled_back {
-        Finding::over(Bound::Held, subject, minutes(held), wait("rolled back", format!("the doctor rolled the lander back from {}; north land promote refuses it until current moves on", link.current)))
-    } else {
-        Finding::over(Bound::Held, subject, minutes(held), wait("held", "north land promote records the hold and alarms the proxy once per hold"))
+    let behind = match &link.behind {
+        None => Finding::healthy(Bound::Behind, subject, "on current".to_owned()),
+        Some(behind) if behind.landings.is_none_or(|landings| landings <= BEHIND_LANDINGS) && behind.secs <= BEHIND_SECS => Finding::healthy(Bound::Behind, subject, behind.to_string()),
+        Some(behind) if rolled_back => Finding::over(Bound::Behind, subject, behind.to_string(), wait("rolled back", format!("the doctor rolled the lander back from {}; north land promote refuses it until current moves on", link.current))),
+        Some(behind) => {
+            let text = format!("north land doctor: the lander link runs {}, {behind} behind current {}, so landings since are not live on the lander: {}", link.lander, link.current, behind.reason);
+            Finding::over(Bound::Behind, subject, behind.to_string(), known("behind current", Remedy::Page(text)))
+        }
     };
     let lag = match link.lag {
         None => Finding::healthy(Bound::LinkLag, subject, "unknown: no north checkout to read main from".to_owned()),
         Some(lag) if lag <= LINK_LAG_SECS => Finding::healthy(Bound::LinkLag, subject, minutes(lag)),
-        Some(lag) if link.lander != link.current => Finding::over(Bound::LinkLag, subject, minutes(lag), wait("held", "the link-held bound owns a lander that does not follow current")),
+        Some(lag) if link.lander != link.current => Finding::over(Bound::LinkLag, subject, minutes(lag), wait("behind", "the link-behind bound owns a lander that does not follow current")),
         Some(lag) => Finding::over(Bound::LinkLag, subject, minutes(lag), State::Unknown(format!("the lander runs {} and current is the same, yet main is {} newer: the runtime does not follow main", link.lander, minutes(lag)))),
     };
-    vec![held, lag, no_verdict(link)]
+    vec![behind, lag, no_verdict(link)]
 }
 
 fn no_verdict(link: &LinkFacts) -> Finding {

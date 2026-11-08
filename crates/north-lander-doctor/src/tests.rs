@@ -11,7 +11,7 @@ use north_lander::land::queue::{self, Ticket};
 use super::*;
 use crate::bounds::{BASE_BROKEN_SECS, Bound, OLDEST_QUEUED_SECS, ROUND_SILENCE_SECS, SLOT_DEADLINE_SECS};
 use north_check_environment::Environment;
-use crate::facts::{LinkFacts, PlaceFacts, Probe, QueueFacts, Reach, SlotHold};
+use crate::facts::{Behind, LinkFacts, PlaceFacts, Probe, QueueFacts, Reach, SlotHold};
 
 const NOW: u64 = 1_800_000_000;
 
@@ -88,7 +88,7 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
     let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, unserved: Vec::new() };
     let text = render(&cure(&facts, &mut Book::default(), &Fake::default(), NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-held lander: 0 min", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes"] {
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
 }
@@ -398,4 +398,25 @@ fn a_queue_paused_on_a_broken_check_environment_past_its_bound_is_known_and_its_
     assert_eq!(placed.state, State::Known { name: "check environment broken", remedies: vec![Remedy::CheckHere { queue: PathBuf::from("/queue") }] });
     let local = judged(paused(BASE_BROKEN_SECS + 60, Environment::Local));
     assert!(matches!(local.state, State::Known { name: "check environment broken", ref remedies } if matches!(remedies.as_slice(), [Remedy::Wait(_)])), "{local:?}");
+}
+
+// KEEP(bug): on 2026-11-08 the lander ran 3efa5a3d from 8:00 AM to 9:06 AM while every promotion held on a transient replay, and the doctor's link-held bound read over with no remedy, so the proxy heard nothing for an hour (north#842)
+#[test]
+fn a_lander_link_four_landings_behind_current_pages_the_proxy_with_the_hold_reason_every_thirty_minutes() {
+    let link = |landings: usize, refused: Option<&str>| LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), refused: refused.map(str::to_owned), behind: Some(Behind { landings: Some(landings), secs: 300, reason: "round north-873-pack: transient land check".to_owned() }), ..LinkFacts::default() };
+    let facts = |landings: usize| Facts { link: Some(link(landings, None)), ..Facts::default() };
+    let hands = Fake::default();
+    let mut book = Book::default();
+    assert!(render(&cure(&facts(3), &mut book, &hands, NOW)).contains("bound link-behind lander: 3 landing(s) and 5 min (limit 3 landings or 15 min): within"));
+    assert!(hands.pages.borrow().is_empty());
+    assert!(render(&cure(&facts(4), &mut book, &hands, NOW)).contains("bound link-behind lander: 4 landing(s) and 5 min (limit 3 landings or 15 min): over: behind current"));
+    assert_eq!(hands.pages.borrow().len(), 1);
+    assert!(hands.pages.borrow()[0].contains("the lander link runs runtimes/a, 4 landing(s) and 5 min behind current runtimes/b") && hands.pages.borrow()[0].ends_with("round north-873-pack: transient land check"), "{:?}", hands.pages.borrow());
+    cure(&facts(5), &mut book, &hands, NOW + 29 * 60);
+    assert_eq!(hands.pages.borrow().len(), 1, "a page repeats each 30 minutes, not each run");
+    cure(&facts(6), &mut book, &hands, NOW + 30 * 60);
+    assert_eq!(hands.pages.borrow().len(), 2);
+    cure(&Facts { link: Some(link(7, Some("runtimes/b"))), ..Facts::default() }, &mut Book::default(), &hands, NOW);
+    assert_eq!(hands.pages.borrow().len(), 2, "a rolled-back link pages no one");
+    assert_eq!(facts::landings(&[100, 101, 102, 400, 900, 901]), 3, "a batch's commits land seconds apart and count as one landing");
 }

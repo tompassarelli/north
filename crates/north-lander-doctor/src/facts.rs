@@ -16,6 +16,7 @@ use north_lander::land::{link_hold, pause, post_land, queue, watchdog};
 pub const INFRASTRUCTURE_WINDOW_SECS: u64 = 2 * 3600;
 pub const DECIDED_WINDOW_SECS: u64 = 24 * 3600;
 pub const PROBE_SECONDS: &str = "60";
+pub const LANDING_GAP_SECS: u64 = 30;
 pub const INFRASTRUCTURE: &[&str] = &["is a missing but already registered worktree", "is not on this host", "lacks the commits under", "No space left on device"];
 pub const TOOLCHAINS: &[&str] = &["gcc", "binutils", "glibc", "clang", "llvm", "rustc", "ghc"];
 
@@ -78,13 +79,29 @@ pub struct LinkFacts {
     pub home: PathBuf,
     pub lander: String,
     pub current: String,
-    pub held: Option<u64>,
+    pub behind: Option<Behind>,
     pub lag: Option<u64>,
     pub green_since_link: bool,
     pub refused: Option<String>,
     pub builds: BTreeSet<String>,
     pub units: Vec<String>,
     pub unreached: Option<link_hold::Unreached>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Behind {
+    pub landings: Option<usize>,
+    pub secs: u64,
+    pub reason: String,
+}
+
+impl std::fmt::Display for Behind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.landings {
+            Some(landings) => write!(formatter, "{landings} landing(s) and {} min", self.secs / 60),
+            None => write!(formatter, "{} min", self.secs / 60),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -259,7 +276,7 @@ fn target(link: &Path) -> Option<String> {
 pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u64) -> Option<LinkFacts> {
     let lander = target(&home.join("lander"))?;
     let current = target(&home.join("current")).unwrap_or_default();
-    let held = (lander != current).then(|| link_hold::since(home).map_or_else(|| link_age(&home.join("current"), now).unwrap_or(0), |since| now.saturating_sub(since)));
+    let behind = (lander != current).then(|| behind(home, north, &lander, &current, now));
     let lag = north.and_then(|checkout| lag(checkout, &lander));
     let link_set = link_age(&home.join("lander"), now).unwrap_or(0);
     let builds = fs::read_dir(home.join("runtimes"))
@@ -270,7 +287,25 @@ pub fn link_facts(home: &Path, north: Option<&Path>, units: Vec<String>, now: u6
         .map(|entry| format!("runtimes/{}", entry.file_name().to_string_lossy()))
         .collect();
     let refused = fs::read_to_string(home.join(crate::REFUSED)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
-    Some(LinkFacts { home: home.to_owned(), green_since_link: green_since(&post_land::ledger_path(), now.saturating_sub(link_set)), lander, current, held, lag, refused, builds, units, unreached: link_hold::unreached_of(home) })
+    Some(LinkFacts { home: home.to_owned(), green_since_link: green_since(&post_land::ledger_path(), now.saturating_sub(link_set)), lander, current, behind, lag, refused, builds, units, unreached: link_hold::unreached_of(home) })
+}
+
+fn behind(home: &Path, north: Option<&Path>, lander: &str, current: &str, now: u64) -> Behind {
+    let unreached = link_hold::unreached_of(home).filter(|unreached| current.ends_with(&unreached.candidate)).map(|unreached| format!("{} promotion(s) in a row reached no verdict: {}", unreached.attempts, unreached.reason));
+    let reason = unreached.or_else(|| link_hold::reason(home)).unwrap_or_else(|| "no hold recorded: north land promote has not judged current yet".to_owned());
+    let sha = |link: &str| Path::new(link).file_name().map(|name| name.to_string_lossy().into_owned());
+    let range = sha(lander).zip(sha(current)).map(|(lander, current)| format!("{lander}..{current}"));
+    let landed: Option<Vec<u64>> = north.zip(range).and_then(|(checkout, range)| git(checkout, &["log", "--first-parent", "--format=%ct", &range]).ok()).map(|times| times.lines().filter_map(|time| time.trim().parse().ok()).collect());
+    match landed.filter(|times| !times.is_empty()) {
+        Some(times) => Behind { landings: Some(landings(&times)), secs: now.saturating_sub(times.iter().copied().min().unwrap_or(now)), reason },
+        None => Behind { landings: None, secs: link_hold::since(home).map_or_else(|| link_age(&home.join("current"), now).unwrap_or(0), |since| now.saturating_sub(since)), reason },
+    }
+}
+
+pub fn landings(committed: &[u64]) -> usize {
+    let mut times = committed.to_vec();
+    times.sort_unstable();
+    1 + times.windows(2).filter(|pair| pair[1] - pair[0] > LANDING_GAP_SECS).count()
 }
 
 fn lag(checkout: &Path, lander: &str) -> Option<u64> {

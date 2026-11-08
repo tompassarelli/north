@@ -20,7 +20,7 @@ pub mod hands;
 mod tests;
 
 use book::Book;
-use bounds::{Finding, PATIENCE_SECS, Remedy, State, minutes};
+use bounds::{Finding, PATIENCE_SECS, REPAGE_SECS, Remedy, State, minutes};
 use facts::{Facts, Place, Reach};
 use hands::Hands;
 
@@ -63,7 +63,8 @@ fn treat(finding: Finding, book: &mut Book, hands: &dyn Hands, now: u64) -> Trea
                     continue;
                 };
                 match book.last_remedy(&key, class).map(|at| now.saturating_sub(at)) {
-                    Some(waited) if waited < PATIENCE_SECS || matches!(remedy, Remedy::Alarm(_) | Remedy::Promote) => outcomes.push(format!("waiting: applied \"{remedy}\" {} ago", minutes(waited))),
+                    Some(waited) if matches!(remedy, Remedy::Page(_)) && waited >= REPAGE_SECS => outcomes.push(apply(&finding, remedy, class, book, hands, now)),
+                    Some(waited) if waited < PATIENCE_SECS || matches!(remedy, Remedy::Alarm(_) | Remedy::Page(_) | Remedy::Promote) => outcomes.push(format!("waiting: applied \"{remedy}\" {} ago", minutes(waited))),
                     Some(waited) => outcomes.push(page(&finding, &format!("\"{remedy}\" did not clear it {} after it was applied", minutes(waited)), book, hands, now)),
                     None => outcomes.push(apply(&finding, remedy, class, book, hands, now)),
                 }
@@ -76,7 +77,11 @@ fn treat(finding: Finding, book: &mut Book, hands: &dyn Hands, now: u64) -> Trea
 
 fn apply(finding: &Finding, remedy: &Remedy, class: &str, book: &mut Book, hands: &dyn Hands, now: u64) -> String {
     let key = finding.key();
-    let result = hands.apply(remedy);
+    let result = match remedy {
+        Remedy::Page(text) if hands.page(text) => Ok("the proxy and the lander's lead heard of it".to_owned()),
+        Remedy::Page(_) => return format!("failed \"{remedy}\": paging the proxy failed, the next run tries again"),
+        _ => hands.apply(remedy),
+    };
     book.count_incident(class);
     let episode = book.open(&key, now);
     episode.remedies.push((now, class.to_owned()));

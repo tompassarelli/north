@@ -42,7 +42,11 @@ reverted, and each owner re-queues with `Follows:` and the declaration.
 
 A candidate replay that ends transient (the check environment broke, a host did not answer) has
 said nothing about the candidate, so `north land promote` neither holds the link nor bisects on
-it. It writes `~/.local/state/north/lander-unreached` with the candidate and the count of
+it when it is the only evidence. When no round diverged and at least 2 rounds matched, the
+promotion reports each transient round and moves the link: on 2026-11-08 all 19 promotions held on
+one to three transient replays of 8 while 4 to 7 rounds matched, under slot contention, and the
+lander ran 3efa5a3d for an hour after newer lander fixes landed (north#842). With fewer than 2
+matched rounds it writes `~/.local/state/north/lander-unreached` with the candidate and the count of
 promotions in a row that reached no verdict, exits 75, and the next promotion retries; a promotion
 that settles clears the record. At about 4:10 PM on 2026-11-06 a replay of round
 n656-adopted-capture failed because `mkdir -p` on gex45 did not finish within 20 s. The judge read

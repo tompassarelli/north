@@ -250,6 +250,14 @@ impl Chain {
         git(&self.checkout, &["rev-parse", "HEAD"])
     }
 
+    fn land(&self, micros: u128, branch: &str) {
+        let base = git(&self.checkout, &["rev-parse", "HEAD"]);
+        let landed = self.commit(&format!("{branch}.txt"), &format!("{branch} (north#842)"));
+        let origin = git(&self.checkout, &["remote", "get-url", "--push", "origin"]);
+        let ticket = Ticket { origin, root: self.checkout.clone(), branch: branch.to_owned(), head: landed.clone(), decided_on: Some(base), verdict: Some(format!("landed {landed}")), ..Default::default() };
+        decided(&self.queue.join("done"), micros, &ticket);
+    }
+
     fn runtime(&self, sha: &str, on_replay: &str) {
         let binary = self.state.join(format!("north/runtimes/{sha}/tree/bin/north"));
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
@@ -463,4 +471,35 @@ fn a_candidate_replaying_a_round_as_the_held_runtime_does_again_moves_the_lander
     assert!(chain.reverts().is_empty(), "{stdout}");
     assert!(!chain.state.join("north/lander-held").exists(), "{stdout}");
     assert!(chain.told().contains(&format!("the lander link follows {}", &candidate[..9])) && chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
+}
+
+// KEEP(bug): on 2026-11-08 all 19 promotions from 12:07 AM held the lander link because one or more of eight replays came back transient under slot contention while 4 to 7 rounds matched and none diverged, so no lander fix landed after 7:52 AM went live until a hand swap at 9:06 AM (north#842)
+#[test]
+fn a_transient_replay_beside_matched_rounds_moves_the_lander_link_and_a_divergence_still_holds_it() {
+    let transient = "echo 'replay: verdict transient land check cargo nextest run waited past its slot deadline'";
+    let replay = |lane_b: &str| format!("case \"$*\" in *lane-b*) {lane_b};; *lane-c*) {transient};; *) echo 'replay: verdict landed';; esac");
+    let chain = Chain::new();
+    chain.land(2, "lane-b");
+    chain.land(3, "lane-c");
+    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
+    chain.runtime(&candidate, &replay("echo 'replay: verdict landed'"));
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(promoted.status, "{stdout}");
+    assert!(stdout.contains("1 round(s) reached no verdict beside 2 that matched and none that diverged; reported, not held on: round lane-c: transient"), "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
+    assert!(!chain.state.join("north/lander-unreached").exists(), "{stdout}");
+
+    let chain = Chain::new();
+    chain.land(2, "lane-b");
+    chain.land(3, "lane-c");
+    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Change a landing rule without saying so");
+    chain.runtime(&candidate, &replay("echo 'replay: verdict failed'"));
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(!promoted.status, "{stdout}");
+    assert!(!stdout.contains("reported, not held on"), "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{}", chain.held), "a divergence beside a transient round moved the link: {stdout}");
 }

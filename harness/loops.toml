@@ -327,7 +327,9 @@ writer = "land-doctor"
 host = "lander"
 constants = [
   "crates/north-lander-doctor/src/bounds.rs::DISK_FREE_PERCENT",
-  "crates/north-lander-doctor/src/bounds.rs::HELD_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::BEHIND_LANDINGS",
+  "crates/north-lander-doctor/src/bounds.rs::BEHIND_SECS",
+  "crates/north-lander-doctor/src/bounds.rs::REPAGE_SECS",
   "crates/north-lander-doctor/src/bounds.rs::LINK_LAG_SECS",
   "crates/north-lander-doctor/src/bounds.rs::OLDEST_QUEUED_SECS",
   "crates/north-lander-doctor/src/bounds.rs::PATIENCE_SECS",
