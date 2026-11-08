@@ -68,13 +68,13 @@ fn bars(screen: &Screen, window: &str) -> Vec<String> {
         counted.1 += 1;
     }
     let several = repos.len() > 1;
-    let heads: Vec<String> = repos.iter().map(|(repo, (failing, of))| format!("{failing} of {of} bars fail on the last 1 h{}", if several { format!(" in {repo}") } else { String::new() })).collect();
+    let heads: Vec<String> = repos.iter().map(|(repo, (failing, of))| format!("{failing} of {of} targets missed in the last 1 h{}", if several { format!(" in {repo}") } else { String::new() })).collect();
     let mut out = vec![format!("Key metrics: {}", heads.join("; "))];
     let mut ordered: Vec<&super::ready::Line> = lines.iter().collect();
     ordered.sort_by_key(|line| line.passed);
-    let mut rows = vec![header(&["", "bar", "target", "last 1 h", &format!("last {window}")])];
+    let mut rows = vec![header(&["", "measure", "target", "last 1 h", &format!("last {window}")])];
     rows.extend(ordered.iter().map(|line| {
-        let name = if several { format!("{} {}", line.repo, line.bar) } else { line.bar.to_owned() };
+        let name = if several { format!("{} {}", line.repo, line.plain) } else { line.plain.to_owned() };
         vec![if line.passed { "pass" } else { "FAIL" }.to_owned(), name, line.target.clone(), line.hour_text.clone(), line.window_text.clone()]
     }));
     out.extend(grid(&rows, &[Align::Left; 5]));
@@ -103,7 +103,7 @@ fn accounts(screen: &Screen, billing: &Result<Billing, String>) -> Vec<String> {
         Ok(accounts) => accounts,
         Err(why) => return vec![format!("accounts unread: {why}")],
     };
-    let mut rows = vec![header(&["account", "plan", "week left", "burn", "outlook", "week resets"])];
+    let mut rows = vec![header(&["account", "plan", "week left", "use per hour", "outlook", "week resets"])];
     rows.extend(accounts.iter().map(|account| {
         let plan = billing.as_ref().ok().and_then(|billing| billing.plans.get(&account.account));
         vec![
@@ -158,7 +158,7 @@ fn first_try(landed: usize, tries: usize) -> String {
 }
 
 fn dispatch(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: usize) -> Vec<String> {
-    let mut out = vec![format!("Dispatch: worker runs started in the last {window} by task category, and the boxes they closed in it")];
+    let mut out = vec![format!("Workers: runs started in the last {window} by task category, and the boxes they closed in it")];
     let mixes = match mixes {
         Ok(mixes) => mixes,
         Err(why) => return vec![format!("{}: unread: {why}", out[0])],
@@ -173,12 +173,12 @@ fn dispatch(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: 
     for row in &mixes.rows[..shown] {
         let category = if row.category == previous { String::new() } else { row.category.clone() };
         previous = &row.category;
-        let per_closed = row.usd_per_closed.map_or_else(|| "-".to_owned(), |usd| format!("{}{}", money(usd), if row.dearest { " dearest" } else { "" }));
+        let per_closed = row.usd_per_closed.map_or_else(|| "-".to_owned(), |usd| format!("{}{}", money(usd), if row.most_per_box { " most per box" } else { "" }));
         rows.push(vec![category, row.mix.clone(), row.runs.to_string(), money(row.usd), first_try(row.first_tries_landed, row.first_tries), row.closed.to_string(), per_closed]);
     }
     let rest = &mixes.rows[shown..];
     if !rest.is_empty() {
-        rows.push(vec![format!("{} more mixes", rest.len()), String::new(), rest.iter().map(|row| row.runs).sum::<usize>().to_string(), money(rest.iter().map(|row| row.usd).sum())]);
+        rows.push(vec![format!("{} more model and effort rows", rest.len()), String::new(), rest.iter().map(|row| row.runs).sum::<usize>().to_string(), money(rest.iter().map(|row| row.usd).sum())]);
     }
     let (runs, usd, tries, landed): (usize, f64, usize, usize) = mixes.rows.iter().fold((0, 0.0, 0, 0), |sum, row| (sum.0 + row.runs, sum.1 + row.usd, sum.2 + row.first_tries, sum.3 + row.first_tries_landed));
     let per_closed = if mixes.closed > 0 { money(usd / mixes.closed as f64) } else { "-".to_owned() };

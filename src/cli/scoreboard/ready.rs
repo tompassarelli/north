@@ -102,6 +102,25 @@ impl Bar {
         }
     }
 
+    /// The label in words a reader needs no statistics for, as `north dash` prints it.
+    fn plain(self) -> &'static str {
+        match self {
+            Self::LandingP90 => "landing wait, slowest 1 in 10",
+            Self::VerificationP50 => "checks after landing, typical",
+            Self::VerificationP90 => "checks after landing, slowest 1 in 10",
+            Self::Rework => "landed work redone within 48 h",
+            Self::FirstTry => "first tries that land",
+            Self::HarnessLoss => "first tries lost to north's own tooling",
+            Self::AskToLanding => "ask to landed, typical",
+            Self::Corrections => "Tom's corrections per hour",
+            Self::PriorityNow => "urgent issues open",
+            Self::IdleAccount => "longest an account sat idle",
+            Self::LiveP90 => "landed to running everywhere, slowest 1 in 10",
+            Self::UsagePerLanding => "usage per first try landed",
+            Self::StrandedUsage => "usage wasted while work waited",
+        }
+    }
+
     /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent.
     fn quiet_passes(self) -> bool {
         matches!(self, Self::AskToLanding | Self::Corrections | Self::LiveP90)
@@ -460,6 +479,8 @@ pub fn report(now: i64) -> Vec<String> {
 pub struct Line {
     pub repo: &'static str,
     pub bar: &'static str,
+    #[serde(skip)]
+    pub plain: &'static str,
     pub target: String,
     pub passed: bool,
     pub hour: Option<f64>,
@@ -484,6 +505,7 @@ pub fn lines(now: i64, span: i64) -> Result<Vec<Line>, String> {
             found.push(Line {
                 repo,
                 bar: bar.label(),
+                plain: bar.plain(),
                 target: table::threshold(goal),
                 passed: counts(Standing::of(goal.bound, hour), bar),
                 hour: hour.map(|reading| reading.value),

@@ -25,7 +25,7 @@ pub struct Row {
     pub closed: usize,
     pub usd_per_closed: Option<f64>,
     /// The mix whose closed box costs most in a category where more than one mix closed a box.
-    pub dearest: bool,
+    pub most_per_box: bool,
     #[serde(skip)]
     mixes: BTreeMap<String, usize>,
 }
@@ -91,9 +91,9 @@ impl Mixes {
         for category in categories.keys() {
             let priced: Vec<usize> = rows.iter().enumerate().filter(|(_, row)| &row.category == category && row.usd_per_closed.is_some()).map(|(index, _)| index).collect();
             if priced.len() > 1
-                && let Some(&dearest) = priced.iter().max_by(|a, b| rows[**a].usd_per_closed.unwrap_or(0.0).total_cmp(&rows[**b].usd_per_closed.unwrap_or(0.0)))
+                && let Some(&most_per_box) = priced.iter().max_by(|a, b| rows[**a].usd_per_closed.unwrap_or(0.0).total_cmp(&rows[**b].usd_per_closed.unwrap_or(0.0)))
             {
-                rows[dearest].dearest = true;
+                rows[most_per_box].most_per_box = true;
             }
         }
         rows.sort_by(|a, b| categories[&b.category].total_cmp(&categories[&a.category]).then_with(|| a.category.cmp(&b.category)).then_with(|| b.runs.cmp(&a.runs)));
