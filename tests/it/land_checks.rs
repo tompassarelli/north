@@ -482,6 +482,24 @@ fn head_north_command(fixture: &Fixture, command: &str) -> Command {
     run
 }
 
+// KEEP(bug): on 2026-11-08 the lander read 52 probes whose tree did not compile as no verdict, because head-north exited 75 for every failed build of north (north#902)
+#[test]
+fn head_north_refuses_a_tree_that_does_not_compile_and_reaches_no_verdict_only_when_the_build_itself_fails() {
+    let fixture = Fixture::new(&[("land.check-local", "true")]);
+    live_runtime(&fixture);
+    fs::create_dir_all(fixture.repo.join("bin")).unwrap();
+    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/head-north"), fixture.repo.join("bin/head-north"));
+    script(&fixture.repo.join("bin/land-shell"), "printf '%s\\n' \"$STUB_CARGO_ERROR\" >&2\nexit 101\n");
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "head-north"]);
+    let build = |error: &str| head_north_command(&fixture, "./bin/head-north --build").env("STUB_UNCOVERED", "1").env("STUB_CARGO_ERROR", error).output().unwrap();
+    let broken = build("error: could not compile `north-lander` (lib) due to 1 previous error");
+    assert_eq!(broken.status.code(), Some(1), "a tree that does not compile read as no verdict: {}", text(&broken));
+    assert!(text(&broken).contains("north does not compile from this tree"), "{}", text(&broken));
+    let unfetched = build("error: failed to download `serde v1.0.0`");
+    assert_eq!(unfetched.status.code(), Some(75), "a build that failed for want of the host's crates refused the lane: {}", text(&unfetched));
+}
+
 // KEEP(bug): the lander refused lane 3e400d15d on 2026-11-07 because head-north exited 1 opening the lease file of a runtime another process was still building (north#807)
 #[test]
 fn a_land_check_waits_for_a_runtime_another_process_is_still_building_instead_of_failing() {
