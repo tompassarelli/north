@@ -14,6 +14,7 @@ use crate::usage::outlook::{AccountOutlook, Runway};
 mod billing;
 mod dispatch;
 mod render;
+mod spend;
 
 const USAGE: &str = "usage: north dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --frontier | --rework [--since 7d] | audit [--tell]";
 const DEFAULT_WINDOW: &str = "24h";
@@ -26,6 +27,8 @@ pub struct Screen {
     pub accounts: Result<Vec<AccountOutlook>, String>,
     pub runs: Result<(Vec<WindowRun>, ClosedReport), String>,
     pub attempts: Result<Vec<workers::Attempt>, String>,
+    /// The runs of the last 7 days, from which each subscription's week is sized in dollars.
+    pub week_runs: Result<Vec<WindowRun>, String>,
     pub billing: Result<billing::Billing, String>,
 }
 
@@ -58,7 +61,7 @@ pub fn run(arguments: &[String]) -> u8 {
             0
         }
         Ok(screen) => {
-            print!("{}", render::screen(&screen));
+            print!("{}", render::screen(&screen, colored()));
             0
         }
         Err(why) => {
@@ -92,15 +95,22 @@ fn read(window: &str) -> Result<Screen, String> {
     let now = Timestamp::now().unix_seconds();
     let since = ledger::window_start_ms(window).map_err(|error| error.user_message())? / 1_000;
     let span = now - since;
-    let (bars, accounts, runs, attempts) = std::thread::scope(|scope| {
+    let (bars, accounts, runs, attempts, week_runs) = std::thread::scope(|scope| {
         let bars = scope.spawn(|| ready::lines(now, span));
         let accounts = scope.spawn(accounts);
         let runs = scope.spawn(|| ledger::inside(window).map_err(|error| error.user_message()));
         let attempts = scope.spawn(|| first_tries(since, now));
+        let week_runs = scope.spawn(|| ledger::runs_inside("7d").map_err(|error| error.user_message()));
         let joined = |name: &str| format!("{name} reader panicked");
-        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))))
+        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))))
     });
-    Ok(Screen { window: window.to_owned(), now, bars, accounts, runs, attempts, billing: billing::read() })
+    Ok(Screen { window: window.to_owned(), now, bars, accounts, runs, attempts, week_runs, billing: billing::read() })
+}
+
+/// Colour only for a person at a terminal: never into a pipe or file, under NO_COLOR, or on a dumb terminal.
+fn colored() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()) && std::env::var("TERM").is_ok_and(|term| term != "dumb")
 }
 
 fn accounts() -> Result<Vec<AccountOutlook>, String> {
@@ -140,12 +150,14 @@ fn figures(screen: &Screen) -> Value {
         })).collect::<Vec<_>>().into()
     });
     let mixes = dispatch::Mixes::of(screen);
+    let spent = spend::Spend::of(screen).map(|spent| json!({"classes": spent.classes.iter().map(|class| json!({"mix": class.mix, "runs": class.runs, "usd": class.usd, "week_pct": class.week_pct, "all_pct": class.all_pct})).collect::<Vec<_>>(), "api_credit": {"runs": spent.api.runs, "usd": spent.api.usd}}));
     json!({
         "since": screen.window,
         "at": Timestamp::from_unix_seconds(screen.now).iso(),
         "bars": section(screen.bars.as_ref().map(|bars| json!(bars))),
         "accounts": section(accounts),
         "spend": section(mixes.as_ref().map(|mixes| json!(mixes.spend))),
+        "subscription_spend": section(spent.as_ref().cloned()),
         "spend_by_model": section(mixes.as_ref().map(|mixes| json!(mixes.models))),
         "infra": section(screen.billing.as_ref().map(|billing| json!({"machines": billing.machines, "monthly_usd": billing.total_usd(), "capped": billing.capped()}))),
         "dispatch": section(mixes.as_ref().map(|mixes| json!(mixes.rows))),

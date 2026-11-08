@@ -110,12 +110,12 @@ impl Bar {
             Self::VerificationP90 => "checks after landing, slowest 1 in 10",
             Self::Rework => "landed work redone within 48 h",
             Self::FirstTry => "first tries that land",
-            Self::HarnessLoss => "first tries lost to north's own tooling",
+            Self::HarnessLoss => "first tries lost to tooling",
             Self::AskToLanding => "ask to landed, typical",
             Self::Corrections => "Tom's corrections per hour",
             Self::PriorityNow => "urgent issues open",
             Self::IdleAccount => "longest an account sat idle",
-            Self::LiveP90 => "landed to running everywhere, slowest 1 in 10",
+            Self::LiveP90 => "landing to live, slowest 1 in 10",
             Self::UsagePerLanding => "usage per first try landed",
             Self::StrandedUsage => "usage wasted while work waited",
         }
@@ -488,6 +488,12 @@ pub struct Line {
     pub window: Option<f64>,
     pub window_n: Option<usize>,
     #[serde(skip)]
+    pub window_passed: bool,
+    #[serde(skip)]
+    pub five_text: String,
+    #[serde(skip)]
+    pub fifteen_text: String,
+    #[serde(skip)]
     pub hour_text: String,
     #[serde(skip)]
     pub window_text: String,
@@ -502,6 +508,7 @@ pub fn lines(now: i64, span: i64) -> Result<Vec<Line>, String> {
         for bar in Bar::ALL {
             let goal = goals.of(bar);
             let (hour, window) = (records.reading(bar, repo, last(now, 60)), records.reading(bar, repo, last(now, span / 60)));
+            let (five, fifteen) = (records.reading(bar, repo, last(now, 5)), records.reading(bar, repo, last(now, 15)));
             found.push(Line {
                 repo,
                 bar: bar.label(),
@@ -512,6 +519,9 @@ pub fn lines(now: i64, span: i64) -> Result<Vec<Line>, String> {
                 hour_n: hour.map(|reading| reading.sample),
                 window: window.map(|reading| reading.value),
                 window_n: window.map(|reading| reading.sample),
+                window_passed: counts(Standing::of(goal.bound, window), bar),
+                five_text: table::cell(goal, five, true),
+                fifteen_text: table::cell(goal, fifteen, true),
                 hour_text: table::cell(goal, hour, true),
                 window_text: table::cell(goal, window, true),
             });

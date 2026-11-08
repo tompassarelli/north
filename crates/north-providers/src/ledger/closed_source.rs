@@ -163,6 +163,11 @@ fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> 
     report_over(since, until, |_| true)
 }
 
+/// The same runs without the closed-box report, for a caller that needs only what each run cost.
+pub fn runs_inside(window: &str) -> NorthResult<Vec<WindowRun>> {
+    window_runs(&window_start(window)?)
+}
+
 /// The runs of every role that started in the last `window`, each priced at API-equivalent rates, and the closed-box
 /// report over those runs alone, so a box closed in the window counts only the spend its runs made inside it.
 pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport)> {
@@ -290,6 +295,10 @@ pub struct WindowRun {
     pub tier: String,
     pub model: String,
     pub effort: String,
+    /// The login that ran it as the ledger names it, such as `claude-b`, or `claude-api` for a run billed to an API organization's credit; empty when unrecorded.
+    pub account: String,
+    /// When it started, in the ledger's own timestamp text, which orders as time does.
+    pub started: String,
     pub usd: f64,
 }
 
@@ -306,7 +315,7 @@ fn window_runs(since: &str) -> NorthResult<Vec<WindowRun>> {
         Access::ReadOnly,
         Duration::from_secs(5),
         &format!(
-            "SELECT agent, {ROLE_SQL} AS role, tier, category, model, COALESCE(effort, '') AS effort, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
+            "SELECT agent, {ROLE_SQL} AS role, tier, category, model, COALESCE(effort, '') AS effort, COALESCE(account, '') AS account, COALESCE(started, '') AS started, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
              FROM runs WHERE started >= '{}'",
             since.replace('\'', "")
         ),
@@ -327,6 +336,8 @@ fn window_runs(since: &str) -> NorthResult<Vec<WindowRun>> {
                 tier: super::closed::tier_label(&tier),
                 model: family.map_or(named.clone(), str::to_owned),
                 effort: effort.unwrap_or_default(),
+                account: text(row, "account"),
+                started: text(row, "started"),
                 usd: prices.run_usd(model, &tier, row["input"].as_i64().unwrap_or(0), row["cache_read"].as_i64().unwrap_or(0), row["output"].as_i64().unwrap_or(0)),
             }
         })
