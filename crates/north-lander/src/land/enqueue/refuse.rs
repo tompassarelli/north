@@ -38,7 +38,8 @@ pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head:
 pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path, lander_ledger: Option<String>) -> Result<Result<(), (String, String)>, String> {
     let fork = merge_base(root, base, head);
     let borrowed = lander_ledger.map(|rows| ledger_home(&rows)).transpose().map_err(|error| format!("cannot keep the lander's post-land ledger: {error}"))?;
-    let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()) };
+    let code_health = crate::land::after::gates::code_health_program();
+    let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()), code_health: &code_health };
     let Some((failed, text)) = lane_gates::failed(&lane) else { return Ok(Ok(())) };
     let gates = failed.join(", ");
     let detail = format!("{gates} refused it here, as the lander would after its queue wait:\n{}", String::from_utf8_lossy(&text).trim_end());

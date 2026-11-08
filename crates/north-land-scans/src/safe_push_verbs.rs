@@ -9,7 +9,7 @@ use super::git;
 const USAGE: &str = "usage: north land scan safe-push-verbs [REVISION]";
 const SETTINGS: &str = ".safe-push";
 const VERBS: &str = "src/cli/verbs.rs";
-const COMMAND_KEYS: [&str; 6] = ["run", "check", "after", "warm", "build", "machine-bound"];
+const COMMAND_KEYS: [&str; 7] = ["run", "check", "after", "after-only", "warm", "build", "machine-bound"];
 const TABLE_START: &str = "VerbKinds::new(&[";
 
 static CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:^|[\s"'(=;|&])(?:[^\s"']*/)?(?:head-)?north[ \t]+([^\n]*)"#).expect("north call pattern"));

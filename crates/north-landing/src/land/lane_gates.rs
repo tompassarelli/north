@@ -1,13 +1,17 @@
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use super::after::gates::{self, Landed};
 use super::scans::{incident_guard, policy, test_admission, test_integrity, tool_removal};
+use super::slots::select::Config;
 
 pub struct Lane<'a> {
     pub worktree: &'a Path,
     pub base: &'a str,
     pub head: &'a str,
     pub state_home: &'a Path,
+    pub code_health: &'a Path,
 }
 
 pub struct Refused {
@@ -24,6 +28,7 @@ const GATES: &[(&str, Gate)] = &[
     ("incident test", incident),
     ("tool removal", removal),
     ("policy sweep", sweep),
+    ("after-only reason", after_only),
 ];
 
 impl Lane<'_> {
@@ -53,9 +58,19 @@ fn sweep(lane: &Lane, out: &mut Vec<u8>) -> bool {
     policy::scan(lane.worktree, &lane.range(), out) != 0
 }
 
+fn after_only(lane: &Lane, out: &mut Vec<u8>) -> bool {
+    let config = Config::load(lane.worktree, lane.head);
+    let unreasoned = config.after_without_reason();
+    for command in &unreasoned {
+        let _ = writeln!(out, "after-only reason: .safe-push runs `{command}` only after landing; list it as a land.check so it runs before, or record why it cannot with `land.after-only = REASON :: {command}`");
+    }
+    !unreasoned.is_empty()
+}
+
 pub fn failed(lane: &Lane) -> Option<(Vec<&'static str>, Vec<u8>)> {
     let mut text = Vec::new();
-    let failed: Vec<&str> = GATES.iter().filter(|(_, gate)| gate(lane, &mut text)).map(|(label, _)| *label).collect();
+    let mut failed: Vec<&str> = GATES.iter().filter(|(_, gate)| gate(lane, &mut text)).map(|(label, _)| *label).collect();
+    failed.extend(gates::before(&Landed { tree: lane.worktree, base: lane.base, head: lane.head, code_health: lane.code_health }, &mut text));
     (!failed.is_empty()).then_some((failed, text))
 }
 
@@ -67,3 +82,7 @@ pub fn judge(lane: &Lane, logs: &Path, name: &str) -> Result<Option<Refused>, St
     let gates = failed.join(", ");
     Ok(Some(Refused { verdict: format!("failed {gates}; log: {}", log.display()), gates, log }))
 }
+
+#[cfg(test)]
+#[path = "lane_gates_tests.rs"]
+mod tests;

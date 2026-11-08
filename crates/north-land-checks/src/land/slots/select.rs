@@ -17,6 +17,8 @@ pub struct Config {
     pub capacity: Option<String>,
     checks: Vec<String>,
     after: Vec<String>,
+    after_landing: Vec<String>,
+    after_only: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
     host_inputs: Vec<String>,
@@ -53,6 +55,8 @@ impl Config {
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks,
             after: blob_values(repo, head, "land.after"),
+            after_landing: blob_values(repo, head, "after-landing.check"),
+            after_only: blob_values(repo, head, "land.after-only"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
             host_inputs: blob_values(repo, head, "land.host-input"),
@@ -98,6 +102,11 @@ impl Config {
 
     pub fn runs(&self, command: &str) -> bool {
         self.checks.iter().any(|entry| entry.split_once(SEPARATOR).is_some_and(|(_, listed)| listed == command)) || self.is_inferred(command)
+    }
+
+    pub fn after_without_reason(&self) -> Vec<&str> {
+        let commands = self.after.iter().chain(&self.after_landing).filter_map(|entry| entry.split_once(SEPARATOR).map(|(_, command)| command));
+        commands.filter(|command| !self.runs(command) && reason(&self.after_only, command).is_none()).collect()
     }
 
     pub fn local_reason(&self, command: &str) -> Option<&str> {

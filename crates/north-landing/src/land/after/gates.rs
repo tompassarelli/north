@@ -25,6 +25,7 @@ pub struct Landed<'a> {
     pub tree: &'a Path,
     pub base: &'a str,
     pub head: &'a str,
+    pub code_health: &'a Path,
 }
 
 impl Gate {
@@ -35,6 +36,13 @@ impl Gate {
             Self::InstructionLimits => "instruction-limits",
             Self::GeneratedRewrite => "generated-rewrite",
             Self::CiBudget => "ci-budget",
+        }
+    }
+
+    fn after_only(self) -> Option<&'static str> {
+        match self {
+            Self::CiBudget => Some("it judges the CI run time main measures for the landed commit, which exists only after the push"),
+            Self::CodeHealth | Self::CrateLines | Self::InstructionLimits | Self::GeneratedRewrite => None,
         }
     }
 
@@ -73,6 +81,10 @@ pub fn run(landed: &Landed) -> Vec<Failure> {
     failures
 }
 
+pub fn before(landed: &Landed, out: &mut Vec<u8>) -> Vec<&'static str> {
+    GATES.into_iter().filter(|gate| gate.after_only().is_none() && !gate.check(landed, out)).map(Gate::name).collect()
+}
+
 pub fn scan(name: &str, arguments: &[String]) -> u8 {
     let [range] = arguments else {
         eprintln!("{USAGE}");
@@ -84,17 +96,21 @@ pub fn scan(name: &str, arguments: &[String]) -> u8 {
     };
     let tree = root(Path::new("."));
     let mut out = Vec::new();
-    let passed = gate.check(&Landed { tree: &tree, base, head }, &mut out);
+    let passed = gate.check(&Landed { tree: &tree, base, head, code_health: &code_health_program() }, &mut out);
     let _ = std::io::stdout().write_all(&out);
     u8::from(!passed)
 }
 
+pub fn code_health_program() -> PathBuf {
+    std::env::var_os("SAFE_PUSH_CODE_HEALTH").filter(|path| !path.is_empty()).map_or_else(north, PathBuf::from)
+}
+
 fn code_health(landed: &Landed, out: &mut Vec<u8>) -> bool {
-    let program = std::env::var_os("SAFE_PUSH_CODE_HEALTH").filter(|path| !path.is_empty()).map_or_else(north, PathBuf::from);
+    let program = landed.code_health;
     let enrolled = git::bytes(landed.tree, &["cat-file", "-e", &format!("{}:structure.toml", landed.head)]).is_some();
-    let mut command = Command::new(&program);
+    let mut command = Command::new(program);
     command.args(["code-health", "gate", landed.base, landed.head]);
-    let status = if is_executable(&program) { captured(&mut command, &root(landed.tree), out) } else { None };
+    let status = if is_executable(program) { captured(&mut command, &root(landed.tree), out) } else { None };
     let verdict = match (status, enrolled) {
         (Some(0), _) => return true,
         (Some(1), _) => "✗ code-health gate refused.".to_owned(),

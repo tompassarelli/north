@@ -226,7 +226,7 @@ fn gates_in(main: &Path, tree: &Path, args: &Args) -> Result<Vec<Failure>, Strin
     let mut links = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "mutant.link"]).unwrap_or_default();
     links.push_str(&git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.link"]).unwrap_or_default());
     link_paths(main, tree, &links)?;
-    let mut failures = crate::land::after::gates::run(&crate::land::after::gates::Landed { tree, base: &args.base, head: &args.head });
+    let mut failures = crate::land::after::gates::run(&crate::land::after::gates::Landed { tree, base: &args.base, head: &args.head, code_health: &crate::land::after::gates::code_health_program() });
     let checks = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.check"]).unwrap_or_default();
     failures.extend(repo_check_failures(tree, &repo_checks(&checks)));
     failures.extend(goal_failures(main, tree, args, &links));

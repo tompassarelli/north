@@ -187,7 +187,10 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
 
 5. it pushes the largest green candidate to main, the exact tree that was checked, tells each lane's session it landed, and runs the
    after-landing checks (`land.after`) and `follows-release`; a red after-landing run reverts only
-   the lane that broke it.
+   the lane that broke it. Every gate that runs after landing also judges the lane before it: the
+   built-in after-landing gates but the CI budget run as lane gates at enqueue and pick, and a
+   `land.after` or `after-landing.check` command that is no `land.check` needs a
+   `land.after-only = REASON :: COMMAND` line, which the "after-only reason" lane gate enforces.
 
 `safe-push --dry-run --to main` runs the same scans and land checks on this host without queueing.
 
