@@ -187,3 +187,19 @@ fn denylist_a_stale_lock_in_the_mirror_is_recovered_and_the_rules_refresh() {
     let rules = south_denylist_in(south.path(), &mirror).unwrap();
     assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
 }
+
+// KEEP(bug): on 2026-11-08 n876-t3-fixed-default's frontier.md line passed the private-kinds judge alone at enqueue but was refused in every probe, where prose_range joined it with another lane's lines in the same file into one judged segment (north#842)
+#[test]
+fn two_lanes_adding_lines_to_one_doc_are_judged_as_separate_segments() {
+    let scratch = fixture();
+    let root = scratch.path();
+    write(root, "docs/frontier.md", "base\n");
+    let base = commit_all(root, "base");
+    write(root, "docs/frontier.md", "base\nfirst lane line\n");
+    commit_all(root, "first lane");
+    write(root, "docs/frontier.md", "base\nfirst lane line\nsecond lane line\n");
+    let head = commit_all(root, "second lane");
+    let prose = prose_range(root, &base, &head, None).unwrap();
+    let segments: Vec<&str> = prose.split(private_text::SEGMENT_BREAK).map(str::trim).filter(|segment| !segment.is_empty()).collect();
+    assert!(segments.contains(&"first lane line") && segments.contains(&"second lane line"), "{segments:#?}");
+}

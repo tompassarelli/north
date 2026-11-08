@@ -317,14 +317,16 @@ pub fn prose_range(root: &Path, base: &str, head: &str, ref_name: Option<&str>) 
     let base = if base.is_empty() { String::new() } else { commit(root, base)? };
     let range = if base.is_empty() { head } else { format!("{base}..{head}") };
     let mut segments: Vec<String> = git(root, &["log", "--format=%B%x00", &range, "--"])?.split('\0').map(str::to_owned).collect();
-    let mut diff = vec!["log", "-p", "-U0", "--no-merges", "-M", "--format=", range.as_str(), "--"];
+    let mut diff = vec!["log", "-p", "-U0", "--no-merges", "-M", "--format=%x01%H", range.as_str(), "--"];
     diff.extend(PROSE_PATHS);
     let generated: Vec<String> = super::merge_set::read_rules(&root.join(super::merge_set::DEFAULT_CONFIG)).unwrap_or_default().into_iter().filter(|rule| matches!(rule.kind, super::merge_set::Kind::Regenerate { .. })).map(|rule| format!(":(exclude){}", rule.path)).collect();
     diff.extend(generated.iter().map(String::as_str));
-    let mut added: BTreeMap<String, String> = BTreeMap::new();
-    let (mut file, mut header) = (String::new(), false);
+    let mut added: BTreeMap<(usize, String), String> = BTreeMap::new();
+    let (mut picked, mut file, mut header) = (0, String::new(), false);
     for line in git(root, &diff)?.lines() {
-        if line.starts_with("diff --git ") {
+        if line.starts_with('\x01') {
+            picked += 1;
+        } else if line.starts_with("diff --git ") {
             header = true;
         } else if line.starts_with("@@") {
             header = false;
@@ -333,7 +335,7 @@ pub fn prose_range(root: &Path, base: &str, head: &str, ref_name: Option<&str>) 
                 path.clone_into(&mut file);
             }
         } else if let Some(text) = line.strip_prefix('+') {
-            let held = added.entry(file.clone()).or_default();
+            let held = added.entry((picked, file.clone())).or_default();
             held.push_str(text);
             held.push('\n');
         }
