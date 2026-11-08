@@ -37,7 +37,7 @@ all_patterns = true
 
 [[read]]
 file = "crates/north-dispatch/src/dispatch/issues.rs"
-lines = 7
+lines = 10
 kind = "verdict"
 all_patterns = true
 
