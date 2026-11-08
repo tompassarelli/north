@@ -873,6 +873,10 @@ id = "skill.game-design-prototyping"
 path = "harness/skills/game-design-prototyping/SKILL.md"
 
 [[registered]]
+id = "skill.clean-room"
+path = "harness/skills/clean-room/SKILL.md"
+
+[[registered]]
 id = "skill.game-ip"
 path = "harness/skills/game-ip/SKILL.md"
 

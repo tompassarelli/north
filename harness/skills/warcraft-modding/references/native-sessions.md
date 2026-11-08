@@ -76,7 +76,7 @@ input and hardware latency.
 
 ## Desync diagnosis and in-map setup
 
-- Find the first divergent frame from map-side checksums, replays and War3Log, then bisect map state with map-side Lua instrumentation; never read client memory (see `game-ip`).
+- Find the first divergent frame from map-side checksums, replays and War3Log, then bisect map state with map-side Lua instrumentation; never read client memory (see `clean-room`).
 - Use stack-trace builds for Lua/TypeScript stacks.
 - Run pad parity through makgora:ts/test/native/pads/ with `--compare`.
 - Set up matches through `-dev quick`, `-dev quick hero NAME`, `-dev quick cpu N` and `-dev slots`.

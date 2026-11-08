@@ -1,6 +1,6 @@
 # Native clients and checks
 
-Read before starting, leasing or driving a native client, taking a native capture, proving a parity, motion, visual or timed-effect fix, landing a `Verify: native` box, or chasing a desync. `game-ip` owns where native facts may come from and what may run on a client.
+Read before starting, leasing or driving a native client, taking a native capture, proving a parity, motion, visual or timed-effect fix, landing a `Verify: native` box, or chasing a desync. `clean-room` owns where native facts may come from and what may run on a client.
 
 ## Clients and hosts
 

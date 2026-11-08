@@ -19,7 +19,7 @@ metadata:
 ## Shared rules
 
 - Read makgora:AGENTS.md and makgora:docs/typescript.md before editing makgora:ts/, because they pin the Wisp consumer and its commands; use `warcraft-modding` for the Wisp workflow, builds and native clients.
-- Take Melee feel only from public frame data (SmashWiki, Smashboards, public frame-data sites) and from watching the game, per `game-ip`, because decomp names, addresses or code, values read from Melee's files, and Nintendo animation or art are not ours to use.
+- Take Melee feel only from public frame data (SmashWiki, Smashboards, public frame-data sites) and from watching the game, per `clean-room` and its Nintendo reference (harness/skills/clean-room/references/nintendo.md), because decomp names, addresses or code, values read from Melee's files, and Nintendo animation or art are not ours to use.
 - Use original authored motion and art from licensed inputs, because everything shipped must be ours or licensed.
 - Keep proprietary models, private art, references and recordings outside Git in the private build-input and reference stores, under `repo-safety`, because they are private or licensed inputs.
 - Publish art with `bun wisp inputs add FAMILY DIR` and commit the result, and never edit generated modules or live input families in place, because inputs are hashed and generated files are rebuilt.

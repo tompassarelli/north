@@ -71,7 +71,7 @@ makgora:docs/smash-melee-reference/. Existing measured shield contact is
 makgora:docs/smash-melee-reference/slippi-ntsc-shield-contact.json;
 damage is makgora:docs/smash-melee-reference/slippi-ntsc-grounded-damage.json.
 Those numerical traces do not record pixel colors. Never use decomp code or
-names, Melee's files or proprietary animation assets as references (`game-ip`).
+names, Melee's files or proprietary animation assets as references (`clean-room`).
 
 ## Original Mak'gora application decisions
 
