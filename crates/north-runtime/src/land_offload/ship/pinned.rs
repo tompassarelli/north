@@ -40,7 +40,7 @@ fn build_host(lander_runtime: Option<bool>) -> tempfile::TempDir {
 fn script_on(home: &Path, slot: &Path, runtime: &str, command: &str) -> Command {
     let head = format!("set -eu\nslot={} command={} limit=30 base=b head=h landing= landref= runtime={}\n{}", quote(&slot.display().to_string()), quote(command), quote(runtime), run_part());
     let mut script = Command::new("sh");
-    script.args(["-c", &head]).env("HOME", home);
+    script.args(["-c", &head]).env("HOME", home).env("TMPDIR", home);
     script
 }
 

@@ -171,7 +171,11 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
-    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, runtime.unwrap_or_default(), &red_fix, &marker, &beside.pins, &lander_slot];
+    let carried = carried(land, |name| std::env::var(name).ok());
+    let header = bundle::spilled(&beside.command, &carried, &beside.pins);
+    let bundle = bundle::with_header(&header, bundle).map_err(|why| unreached(&why))?;
+    let spilled = header.len().to_string();
+    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, "", &reference, "", &owner, runtime.unwrap_or_default(), &red_fix, &marker, "", &lander_slot, &spilled];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let master = master::options(land.ssh);
     let options: Vec<&str> = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"].into_iter().chain(master.iter().map(String::as_str)).collect();

@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::Seek;
+use std::io::{Seek, Write};
 use std::process::Command;
 
 use super::{CommitId, Land, quote};
@@ -47,4 +47,15 @@ pub(super) fn carried(land: &Land, value: impl Fn(&str) -> Option<String>) -> St
         value.map(|value| format!("{name}={}", quote(&value)))
     });
     words.collect::<Vec<_>>().join(" ")
+}
+
+/// The words of a land check that can outgrow one argument, written as the shell assignments the host reads from the head of its stdin: the ssh command line and the host's own `sh -c` take a word of 128 KB at most, and the shim that scopes the call carries it twice (north#951).
+pub(super) fn spilled(command: &str, carried: &str, pins: &str) -> Vec<u8> {
+    format!("command={}\ncarried={}\npins={}\n", quote(command), quote(carried), quote(pins)).into_bytes()
+}
+
+pub(super) fn with_header(header: &[u8], mut bundle: File) -> Result<File, String> {
+    let mut file = tempfile::tempfile().map_err(|error| format!("bundle file: {error}"))?;
+    file.write_all(header).and_then(|()| std::io::copy(&mut bundle, &mut file).map(drop)).and_then(|()| file.rewind()).map_err(|error| error.to_string())?;
+    Ok(file)
 }

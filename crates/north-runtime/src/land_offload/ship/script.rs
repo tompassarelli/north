@@ -60,13 +60,14 @@ host_jobs() {
 "#;
 
 pub(super) const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-} spilled=${15:-0}
 root=@ROOT@
 mkdir -p "$root"
 if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/north" ] || [ ! -f "$HOME/.local/state/north/runtimes/$runtime/@TREE_MARKER@" ]; }; then echo "offload: the lander runtime $runtime is not on this host yet" >&2; exit @RUNTIME_MISSING@; fi
 bundle=$(mktemp "$root/$name.bundle.XXXXXX")
-trap 'rm -f "$bundle"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
+trap 'rm -f "$bundle" "${script:-}"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
 trap 'exit 143' HUP INT TERM
+[ "$spilled" -eq 0 ] || eval "$(head -c "$spilled")"
 cat >"$bundle"
 if ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1; then
   git -C "$repo" fetch -q --no-auto-maintenance origin 2>/dev/null || true
@@ -218,6 +219,8 @@ done
 "#;
 
 const RUN: &str = r#"cd "$slot"
+script=$(mktemp "${root:-${TMPDIR:-/tmp}}/offload-command.XXXXXX")
+printf '%s\n' "$command" >"$script"
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; export PATH; fi
 if [ -n "${runtime:-}" ]; then
   runtime_dir=$HOME/.local/state/north/runtimes/$runtime
@@ -234,7 +237,7 @@ leased() {
 }
 rc=0
 if [ -z "${ran:-}" ]; then
-  leased bash -euo pipefail -c "$command" 4>&- 6>&- 9>&- || rc=$?
+  leased bash -euo pipefail "$script" 4>&- 6>&- 9>&- || rc=$?
   exit "$rc"
 fi
 id=${ran#*:}
@@ -247,7 +250,7 @@ rm -f "$exited" "$lost" "$attached" "$results/$id.sent_out" "$results/$id.sent_e
 trap '' PIPE HUP
 (
   rc=0
-  leased bash -euo pipefail -c "$command" || rc=$?
+  leased bash -euo pipefail "$script" || rc=$?
   echo "$rc" >"$exited.part" && mv "$exited.part" "$exited"
 ) >"$out" 2>"$err" 4>&- 6>&- 9>&- </dev/null &
 @DRAIN@detached=

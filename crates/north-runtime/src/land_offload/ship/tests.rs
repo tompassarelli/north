@@ -56,7 +56,7 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
         .env_remove("SAFE_PUSH_LAND_IT")
         .env_remove("SAFE_PUSH_LAND_SELECT_PATHS")
         .env_remove("SAFE_PUSH_LAND_TIPS")
-        .env("HOME", home.unwrap_or(fresh_home.path()))
+        .env("HOME", home.unwrap_or(fresh_home.path())).env("TMPDIR", home.unwrap_or(fresh_home.path()))
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -507,7 +507,7 @@ fn remote_reports(command: &str, marker: &str) -> (Option<u8>, Option<u8>, Strin
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
-    let output = Command::new("sh").args(["-c", &script]).env("HOME", slot.path()).env("PATH", path).output().unwrap();
+    let output = Command::new("sh").args(["-c", &script]).env("HOME", slot.path()).env("TMPDIR", slot.path()).env("PATH", path).output().unwrap();
     let mut shown = Vec::new();
     let ran = super::relay(output.stdout.as_slice(), &mut shown, marker, || {});
     (output.status.code().and_then(|code| u8::try_from(code).ok()), ran, String::from_utf8(shown).unwrap())
@@ -772,4 +772,29 @@ fn a_slot_target_past_its_cap_is_trimmed_and_kept_warm_instead_of_removed() {
     assert!(reused.status.success(), "a slot whose target passed its cap kept the build the next check reuses, not a cold target (north#935): {stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main/target");
     assert_eq!(fs::read_to_string(&trims).unwrap(), format!("{} 2\n", slot.display()));
+}
+
+// KEEP(bug): north#951, a land check batch whose command and carried values passed 64 KB failed on its way to the build host with Argument list too long; they now ride the head of the host's stdin and the host runs the command from a file
+#[test]
+fn a_200_kb_land_check_command_reaches_the_host_intact() {
+    let (home, head, bundle_path) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let seen = home.path().join("seen");
+    let command = format!("printf 'x' >{0}\n# {1}\nprintf 'y' >>{0}", seen.display(), "z".repeat(200 * 1024));
+    let header = bundle::spilled(&command, "SAFE_PUSH_LAND_CPUS='6'", "");
+    let stdin = bundle::with_header(&header, fs::File::open(&bundle_path).unwrap()).unwrap();
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let spilled = header.len().to_string();
+    let output = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", "", "refs/land-offload/job", "", "", "", "", "", "", "", &spilled], &[])
+        .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
+        .env("PATH", &path)
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .stdin(stdin)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(&seen).unwrap(), "xy");
 }
