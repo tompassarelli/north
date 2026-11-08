@@ -12,9 +12,9 @@ benchmarks = [
 ]
 
 [models."claude:haiku".value]
-plan = "Tom's Claude Max 20x via Claude Code"
+plan = "Claude subscription via Claude Code, account plans selected by operator policy"
 monthly_price = 200
-monthly_price_note = "Max 20x per the account's rate-limit tier, extra usage off"
+monthly_price_note = "per the account's declared plan, extra usage off"
 monthly_price_options = [100, 200]
 currency = "USD"
 source = "https://support.claude.com/en/articles/11049741-what-is-the-max-plan"
@@ -43,9 +43,9 @@ strengths = ["features","tooling","fixes with a known cause"]
 benchmarks = []
 
 [models."claude:sonnet-high".value]
-plan = "Tom's Claude Max 20x via Claude Code"
+plan = "Claude subscription via Claude Code, account plans selected by operator policy"
 monthly_price = 200
-monthly_price_note = "Max 20x per the account's rate-limit tier, extra usage off"
+monthly_price_note = "per the account's declared plan, extra usage off"
 monthly_price_options = [100, 200]
 currency = "USD"
 source = "https://support.claude.com/en/articles/11049741-what-is-the-max-plan"
@@ -77,9 +77,9 @@ benchmarks = [
 ]
 
 [models."claude:opus-medium".value]
-plan = "Tom's Claude Max 20x via Claude Code"
+plan = "Claude subscription via Claude Code, account plans selected by operator policy"
 monthly_price = 200
-monthly_price_note = "Max 20x per the account's rate-limit tier, extra usage off"
+monthly_price_note = "per the account's declared plan, extra usage off"
 monthly_price_options = [100, 200]
 currency = "USD"
 source = "https://support.claude.com/en/articles/11049741-what-is-the-max-plan"
@@ -111,9 +111,9 @@ benchmarks = [
 ]
 
 [models."claude:opus-high".value]
-plan = "Tom's Claude Max 20x via Claude Code"
+plan = "Claude subscription via Claude Code, account plans selected by operator policy"
 monthly_price = 200
-monthly_price_note = "Max 20x per the account's rate-limit tier, extra usage off"
+monthly_price_note = "per the account's declared plan, extra usage off"
 monthly_price_options = [100, 200]
 currency = "USD"
 source = "https://support.claude.com/en/articles/11049741-what-is-the-max-plan"
@@ -145,9 +145,9 @@ benchmarks = [
 ]
 
 [models."claude:opus-xhigh".value]
-plan = "Tom's Claude Max 20x via Claude Code"
+plan = "Claude subscription via Claude Code, account plans selected by operator policy"
 monthly_price = 200
-monthly_price_note = "Max 20x per the account's rate-limit tier, extra usage off"
+monthly_price_note = "per the account's declared plan, extra usage off"
 monthly_price_options = [100, 200]
 currency = "USD"
 source = "https://support.claude.com/en/articles/11049741-what-is-the-max-plan"
