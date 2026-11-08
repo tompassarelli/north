@@ -10,6 +10,7 @@ pub mod ab;
 mod assign;
 mod billing;
 mod cli;
+mod config;
 mod followup;
 mod grade;
 mod live;

@@ -352,10 +352,10 @@ fn live_box(flags: &Flags, route: live::Route) -> Result<String, NorthError> {
     }
     let header = flags.one("header").map(fs::read_to_string).transpose().map_err(NorthError::Io)?.unwrap_or_default();
     let install = Install::new(need("t3")?, flags.one("t3-node"));
-    let config = flags.one("config").map(PathBuf::from);
+    let owner = flags.one("owner").map_or_else(|| home().join(".claude"), PathBuf::from);
     let (tree, base) = (PathBuf::from(need("tree")?), PathBuf::from(need("base")?));
     let wall = Duration::from_secs_f64(flags.number("wall-min", 120.0)? * 60.0);
-    let job = live::Job { issue, text: need("box")?, header: &header, tree: &tree, base: &base, token: &token, account, config: config.as_deref(), wall, route };
+    let job = live::Job { issue, text: need("box")?, header: &header, tree: &tree, base: &base, token: &token, account, owner: &owner, wall, route };
     let record = live::run(&job, &install)?;
     Ok(serde_json::to_string_pretty(&record).map_err(NorthError::Json)? + "\n")
 }

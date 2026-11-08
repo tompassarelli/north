@@ -98,6 +98,7 @@ pub type Guard = fn(&HookInput) -> Verdict;
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum HookKind {
     PreBash,
+    Safety,
     PreEdit,
     PreAgent,
     PreTimer,
@@ -119,6 +120,7 @@ impl HookKind {
     fn explicit(kind: &str) -> Option<Self> {
         Some(match kind {
             "pre-bash" => Self::PreBash,
+            "safety" => Self::Safety,
             "pre-edit" => Self::PreEdit,
             "pre-agent" => Self::PreAgent,
             "pre-timer" => Self::PreTimer,
@@ -161,7 +163,7 @@ impl HookKind {
 
     fn event(self) -> &'static str {
         match self {
-            Self::PreBash | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::PreAsk | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
+            Self::PreBash | Self::Safety | Self::PreEdit | Self::PreAgent | Self::PreTimer | Self::PreMessage | Self::PreAsk | Self::SpawnCapacity | Self::NativeSpawn => "PreToolUse",
             Self::PostTool => "PostToolUse",
             Self::PermissionRequest => "PermissionRequest",
             Self::Stop | Self::RecommendActs => "Stop",
@@ -209,6 +211,7 @@ impl HookKind {
                 crate::guard::nix_activity::evaluate,
                 crate::guard::unrunnable_box::evaluate,
             ],
+            Self::Safety => &[crate::guard::tripwire::check, crate::guard::sops_decrypt::evaluate],
             Self::PreEdit => &[
                 crate::guard::proxy_role::evaluate,
                 crate::guard::launch_critical::evaluate,
@@ -353,7 +356,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
             return Ok(());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
-        _ => return Err("Usage: north hook [stats [--since 7d]|dispatch|pre-bash|pre-edit|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]".into()),
+        _ => return Err("Usage: north hook [stats [--since 7d]|dispatch|pre-bash|safety|pre-edit|post-tool|session-start|stop|recommend-acts|pre-agent|pre-message|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|prompt-grounding|language-guard|firn-system-policy|permission-request|codex-conduct]".into()),
     };
     let _ = process(
         io::stdin().lock(),

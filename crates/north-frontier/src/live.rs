@@ -10,6 +10,7 @@ use north_base::error::NorthError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::config;
 use super::process;
 use super::refusal;
 use super::t3code::{self, Install};
@@ -28,7 +29,7 @@ pub struct Job<'a> {
     pub base: &'a Path,
     pub token: &'a Path,
     pub account: &'a str,
-    pub config: Option<&'a Path>,
+    pub owner: &'a Path,
     pub wall: Duration,
     pub route: Route,
 }
@@ -41,6 +42,7 @@ pub struct Record {
     pub model: String,
     pub effort: String,
     pub account: String,
+    pub config_sha256: String,
     pub thread: Option<String>,
     pub status: String,
     pub wall_s: f64,
@@ -58,15 +60,14 @@ fn t3(job: &Job, install: &Install, arguments: &[&str]) -> Command {
     run.arg("--base-dir").arg(job.base).env_clear().current_dir(job.tree);
     run.envs(KEPT_ENV.iter().filter_map(|name| Some((*name, std::env::var_os(name)?))));
     run.env("DISABLE_INSTALLATION_CHECKS", "1");
-    if let Some(config) = job.config {
-        run.env("CLAUDE_CONFIG_DIR", config);
-    }
+    run.env("CLAUDE_CONFIG_DIR", job.base.join("config"));
     run
 }
 
 pub fn run(job: &Job, install: &Install) -> Result<Record, NorthError> {
     let (model, effort) = (job.route)(job.issue, job.header).map_err(refusal)?;
     fs::create_dir_all(job.base).map_err(NorthError::Io)?;
+    let config_sha256 = config::assemble(job.owner, &job.base.join("config"))?;
     t3code::write_settings(job.base, &model, &effort)?;
     let log = job.base.join("t3-server.log");
     let port = t3code::free_port()?.to_string();
@@ -79,7 +80,7 @@ pub fn run(job: &Job, install: &Install) -> Result<Record, NorthError> {
     let outcome = thread(job, install, &mut server, &log, &tree);
     process::kill(&mut server);
     let (thread, status, reply) = outcome?;
-    let record = Record { issue: job.issue.to_owned(), box_text: job.text.to_owned(), model, effort, account: job.account.to_owned(), thread, status, wall_s: started.elapsed().as_secs_f64(), reply };
+    let record = Record { issue: job.issue.to_owned(), box_text: job.text.to_owned(), model, effort, account: job.account.to_owned(), config_sha256, thread, status, wall_s: started.elapsed().as_secs_f64(), reply };
     fs::write(job.base.join("run.json"), serde_json::to_string_pretty(&record).map_err(NorthError::Json)?).map_err(NorthError::Io)?;
     Ok(record)
 }
