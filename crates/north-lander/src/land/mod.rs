@@ -10,7 +10,6 @@ pub mod promote;
 pub mod push_refusal;
 pub mod red;
 pub mod replay;
-pub mod reuse;
 pub mod serve;
 pub mod shadow;
 pub mod urgent;

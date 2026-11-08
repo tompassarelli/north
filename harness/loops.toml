@@ -519,8 +519,6 @@ constants = [
   "crates/north-landing/src/land/refusal.rs::TAIL_LINES",
   "crates/north-landing/src/land/repositories.rs::RECENT",
   "crates/north-landing/src/land/reservation.rs::KEPT_SECS",
-  "crates/north-lander/src/land/reuse/hash.rs::SCRIPT_DEPTH",
-  "crates/north-lander/src/land/reuse/hash.rs::SCRIPT_LIMIT",
   "crates/north-landing/src/land/scans/boxes.rs::SHORT_SHA",
   "crates/north-land-scans/src/language.rs::STOP",
   "crates/north-land-scans/src/policy.rs::TRIALS",

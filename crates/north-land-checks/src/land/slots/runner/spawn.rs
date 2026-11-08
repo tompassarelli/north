@@ -6,16 +6,14 @@ use std::time::{Instant, SystemTime};
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
-use crate::land::slots::affected::{CHANGED_ENV, CPUS_ENV, PACKAGES_ENV};
-use crate::land::slots::it_modules::IT_ENV;
 use crate::land::slots::select::Placement;
+use crate::land::slots::verdict_key;
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
 use crate::land::trace::check_log::{self, Line, Mark};
 use crate::landing::check_timings::Timing;
-use crate::landing::land_test_selection::SELECT_PATHS_ENV;
 use super::{ACTIONS_CLASS, CANCELLED_STATUS, KILLED_STATUS, OFFLOAD_GRACE, REAP, Shared, TIMED_OUT_STATUS, say, warn};
 use super::log::{new_log, Sink, tee};
 
@@ -93,15 +91,7 @@ impl Shared {
     }
 
     pub(super) fn scope_environment(&self) -> Vec<(&'static str, String)> {
-        let mut environment = Vec::new();
-        if let Some(scope) = &self.scope {
-            environment.push((PACKAGES_ENV, scope.arguments()));
-            environment.push((CHANGED_ENV, scope.changed_arguments()));
-            environment.extend(scope.cpus().map(|cpus| (CPUS_ENV, cpus.to_string())));
-        }
-        environment.extend(self.it.clone().map(|filters| (IT_ENV, filters)));
-        environment.extend(self.selected_paths.clone().map(|paths| (SELECT_PATHS_ENV, paths)));
-        environment
+        verdict_key::selection_environment(self.scope.as_ref(), self.it.as_deref(), self.selected_paths.as_deref())
     }
 
     fn land_runner(&self) -> String {

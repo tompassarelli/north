@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
-use north_base::verdict_cache::{self, Check, Pass};
+use north_base::verdict_cache;
 use tokio::process::Command;
 use tokio::task::JoinSet;
 
 use super::{ACTIONS_CLASS, Shared, say};
+use crate::land::slots::verdict_key;
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
@@ -16,24 +17,19 @@ const LOCAL: &str = "local";
 
 struct Inputs {
     root: PathBuf,
+    base: String,
     tree: String,
-    runtime: String,
     environment: Vec<(String, String)>,
 }
 
 impl Inputs {
     fn of(shared: &Shared) -> Arc<Self> {
-        let tree = shared.arguments.tree();
-        let mut environment: Vec<(String, String)> = [("SAFE_PUSH_LAND_BASE", shared.arguments.base.as_str()), ("SAFE_PUSH_LAND_HEAD", tree), ("SAFE_PUSH_LAND_RUNTIME_HEAD", tree)].into_iter().map(|(name, value)| (name.to_owned(), value.to_owned())).collect();
-        environment.extend(shared.scope_environment().into_iter().map(|(name, value)| (name.to_owned(), value)));
-        Arc::new(Self { root: shared.root.clone(), tree: tree.to_owned(), runtime: verdict_cache::runtime_identity(), environment })
+        let environment = shared.scope_environment().into_iter().map(|(name, value)| (name.to_owned(), value)).collect();
+        Arc::new(Self { root: shared.root.clone(), base: shared.arguments.base.clone(), tree: shared.arguments.tree().to_owned(), environment })
     }
 
     fn key(&self, command: &str) -> Option<String> {
-        let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-        let (south, nixos) = (home.join("code/south/main"), home.join("code/nixos-config/main"));
-        let machine_repos: [(&str, &Path); 2] = [("south", &south), ("nixos-config", &nixos)];
-        verdict_cache::key(&Check { repo: &self.root, tree: &self.tree, command, runtime: &self.runtime, environment: &self.environment, machine_repos: &machine_repos })
+        verdict_key::key(&self.root, &self.base, &self.tree, command, &self.environment)
     }
 }
 
@@ -50,18 +46,8 @@ async fn keys(inputs: &Arc<Inputs>, commands: &[String]) -> BTreeMap<String, Str
     keys
 }
 
-async fn north(root: &Path, arguments: &[&str]) -> Option<std::process::Output> {
+async fn north(root: &Path, arguments: &[String]) -> Option<std::process::Output> {
     Command::new(program()).args(arguments).current_dir(root).stdin(Stdio::null()).stderr(Stdio::null()).output().await.ok()
-}
-
-fn hits(text: &str) -> BTreeMap<String, (String, Pass)> {
-    text.lines()
-        .filter_map(|line| {
-            let mut words = line.split(' ');
-            let (key, host, seconds, sha) = (words.next()?, words.next()?, words.next()?, words.next()?);
-            Some((key.to_owned(), (host.to_owned(), Pass::parse(&format!("{seconds} {sha}"))?)))
-        })
-        .collect()
 }
 
 impl Shared {
@@ -80,13 +66,12 @@ impl Shared {
 
     async fn lookup(&self, commands: &[String]) -> (Vec<String>, Vec<(String, String)>) {
         let keys = keys(&Inputs::of(self), commands).await;
-        let mut arguments = vec!["capacity", "offload", "verdict", "hit"];
-        arguments.extend(keys.values().map(String::as_str));
+        let arguments = verdict_key::hit_arguments(&keys.values().map(String::as_str).collect::<Vec<_>>());
         let found = if keys.is_empty() {
             BTreeMap::new()
         } else {
             match north(&self.root, &arguments).await {
-                Some(output) if output.status.success() => hits(&String::from_utf8_lossy(&output.stdout)),
+                Some(output) if output.status.success() => verdict_key::hits(&String::from_utf8_lossy(&output.stdout)),
                 _ => {
                     say("safe-push: the verdict cache could not be read, so every land check runs");
                     BTreeMap::new()
@@ -112,9 +97,7 @@ impl Shared {
         for (command, key) in keys(&inputs, commands).await {
             let class = class.map_or_else(|| self.cache_class(&command), str::to_owned);
             let host = if class == ACTIONS_CLASS { LOCAL } else { class.as_str() };
-            let verdict = if status == 0 { ["--pass", inputs.tree.as_str()] } else { ["--fail", ""] };
-            let mut arguments = vec!["capacity", "offload", "verdict", "record", "--host", host, "--key", key.as_str()];
-            arguments.extend(verdict.into_iter().filter(|word| !word.is_empty()));
+            let arguments = verdict_key::record_arguments(host, &key, (status == 0).then_some(inputs.tree.as_str()));
             let _ = north(&self.root, &arguments).await;
         }
     }

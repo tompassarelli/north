@@ -64,7 +64,7 @@ it).
 | 18 | `north fleet send` is unsigned and can pose as the owner (proxy-role.md:93) | stale | `Sender` (crates/north-fleet-store/src/sender.rs) is required, has no default, and `--from tom` is refused from the CLI. A session's identity is still read from its environment, not a capability; no spoofed message has been recorded since |
 | 19 | The reports mirror hit 38.5 MB | stale | 5c282bbe5f (2026-11-08 04:56 +07) mirrors only the entries dispatch reads |
 | 20 | fleet-tick timed out 38 times | stale | a73b350e3e is live from 4:18 AM +07; the laptop journal's last "timed out" line is at 04:18:13 |
-| 21 | Landings rerun tests the lane already passed | wrong | The lander reuses a verdict keyed to the exact tree (crates/north-lander/src/land/reuse/); the first cycle dropped T3 Code's cache as convergent for this reason |
+| 21 | Landings rerun tests the lane already passed | wrong | The lander reuses a verdict keyed to the exact tree (crates/north-base/src/verdict_cache/); the first cycle dropped T3 Code's cache as convergent for this reason |
 | 22 | Lost alerts, duplicate staffing and torn restarts | confirmed | Four fixes in 72 h, each in its own module: 163a23c725 (an offload offer also started after timing out), 97e4aa6827 (two launches of one name), 22571229b6 (an after-landing run lost to a lander restart), 363349d345 (7 workers' watchdogs reaped with the launcher's cgroup) |
 | 23 | `.git/config.lock` failures during concurrent worktree adds | ungrounded | No north commit in 14 days names a config.lock failure |
 

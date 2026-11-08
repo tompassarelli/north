@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::after::follow::program;
-use super::{candidate, hold, lander, queue, repositories, reuse};
+use super::{candidate, hold, lander, queue, repositories};
 
 mod pick;
 mod run;
@@ -25,7 +25,7 @@ pub enum Round {
 pub struct Settings {
     pub repo: PathBuf,
     pub state: PathBuf,
-    pub verdicts: PathBuf,
+    pub north: Vec<String>,
     pub queue: PathBuf,
     pub host: String,
     pub checker: Vec<String>,
@@ -39,7 +39,7 @@ impl Settings {
         Ok(Self {
             repo: repo.to_owned(),
             queue: queue::directory(&state, &origin),
-            verdicts: reuse::state_dir(),
+            north: vec![program()],
             state,
             host: repositories::local_host(),
             checker: vec![program(), "land".to_owned(), "checks".to_owned()],
@@ -137,3 +137,6 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     u8::from(!ok)
 }
+
+#[cfg(test)]
+mod tests;

@@ -7,7 +7,7 @@ use super::super::checks::{ROUND, SCRUBBED};
 use super::super::queue::Ticket;
 use super::super::setting;
 use super::super::slots::select::Config;
-use super::super::reuse::{self, Key, Verdict};
+use super::super::slots::verdict_key;
 use super::{OWNER, Settings};
 use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
 use north_base::foundation::offload::OWNER_ENV;
@@ -15,7 +15,22 @@ use north_base::foundation::offload::OWNER_ENV;
 
 pub struct Found {
     pub head: String,
-    pub lines: Vec<(String, Key)>,
+    pub lines: Vec<(String, String)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Verdict {
+    Pass,
+    Fail,
+}
+
+fn north(settings: &Settings, worktree: &Path, arguments: &[String]) -> Option<std::process::Output> {
+    let (program, prefix) = settings.north.split_first()?;
+    Command::new(program).args(prefix).args(arguments).current_dir(worktree).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()
+}
+
+fn failed_marker(logs: &Path, key: &str) -> PathBuf {
+    logs.join(format!("{key}.failed"))
 }
 
 pub fn missing(settings: &Settings, worktree: &Path, main: &str, path: &Path, ticket: &Ticket, logs: &Path) -> Option<Found> {
@@ -24,14 +39,15 @@ pub fn missing(settings: &Settings, worktree: &Path, main: &str, path: &Path, ti
         return None;
     }
     let commands = Config::load(worktree, &built.head).commands(worktree, main, &built.head).ok()?;
-    let lines: Vec<(String, Key)> = commands
-        .into_iter()
-        .filter_map(|line| {
-            let input = reuse::input_hash(worktree, &line).ok()?;
-            let key = Key { lane_head: ticket.head.clone(), main: main.to_owned(), input };
-            reuse::lookup(&settings.verdicts, &key).is_none().then_some((line, key))
-        })
-        .collect();
+    let environment = verdict_key::lane_environment(worktree, main, &built.head, &commands);
+    let keyed: Vec<(String, String)> = commands.into_iter().filter_map(|line| Some((line.clone(), verdict_key::key(worktree, main, &built.head, &line, &environment)?))).collect();
+    if keyed.is_empty() {
+        return None;
+    }
+    let keys: Vec<&str> = keyed.iter().map(|(_, key)| key.as_str()).collect();
+    let output = north(settings, worktree, &verdict_key::hit_arguments(&keys)).filter(|output| output.status.success())?;
+    let held = verdict_key::hits(&String::from_utf8_lossy(&output.stdout));
+    let lines: Vec<(String, String)> = keyed.into_iter().filter(|(_, key)| !held.contains_key(key) && !failed_marker(logs, key).exists()).collect();
     (!lines.is_empty()).then_some(Found { head: built.head, lines })
 }
 
@@ -65,7 +81,7 @@ pub fn check(settings: &Settings, worktree: &Path, main: &str, host: &str, found
         let mut argv = settings.checker.clone();
         argv.extend(["--leased", "--base", main, "--head", &found.head, "--runner-host", host, "--command", line].map(str::to_owned));
         let argv = wrapped(&capacity, argv);
-        let Some((_, log)) = log_for(logs, &key.lane_head, index) else {
+        let Some((_, log)) = log_for(logs, &found.head, index) else {
             unrecorded += 1;
             continue;
         };
@@ -80,8 +96,12 @@ pub fn check(settings: &Settings, worktree: &Path, main: &str, host: &str, found
         }
         match command.status().ok().and_then(|status| verdict_of(status.code())) {
             Some(verdict) => {
-                let _ = reuse::record(&settings.verdicts, key, verdict);
-                recorded += 1;
+                let passed = (verdict == Verdict::Pass).then_some(found.head.as_str());
+                let written = north(settings, worktree, &verdict_key::record_arguments(host, key, passed)).is_some_and(|output| output.status.success());
+                if verdict == Verdict::Fail {
+                    let _ = fs::write(failed_marker(logs, key), "");
+                }
+                if written { recorded += 1 } else { unrecorded += 1 }
             }
             None => unrecorded += 1,
         }
