@@ -26,6 +26,13 @@ fn the_wait_phrases_issue_bodies_use_are_read_as_edges_and_one_that_cannot_be_re
         assert!(found.on.is_empty() && found.unparsed.is_empty(), "a date, a percentage range or a wait on itself is no edge: {found:?}");
     }
 
+    let lines = ["Fighter folders move (C15). Done in #422 at e67cc2daf6.", "Cue rows move into fighter files (C20, after C15).", "Cold-reader runs (C27, after C15-C20).", "A gate stayed open after Tom chose the CPX62 and the box was ticked"];
+    let siblings = items(&lines);
+    assert_eq!(of(&lines, 1).on, [Wait::Box(siblings[0].id("north#7"))], "a label in a box's parentheses names it");
+    assert_eq!(of(&lines, 2).on, [Wait::Box(siblings[0].id("north#7")), Wait::Box(siblings[1].id("north#7"))], "a label range holds on each sibling inside it");
+    let prose = of(&lines, 3);
+    assert!(prose.on.is_empty() && prose.unparsed.is_empty(), "after followed by prose is no wait: {prose:?}");
+
     let (named, unparsed) = waits::follows("Follows: north#12, #13\n- Follows: when the lander is back", "north");
     assert_eq!(named, ["north#12", "north#13"]);
     assert_eq!(unparsed, ["Follows: when the lander is back"]);

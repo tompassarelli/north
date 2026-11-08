@@ -76,7 +76,9 @@ query can join a claim to the checks of the commit it names.
   unticked or an issue closed retracts what no longer holds.
   Waits come from the same issues: `(box:... :waits-on box:...|north#560)` for each unticked box whose text names what it
   waits on (`waits on`, `waiting for`, `blocked by`, `depends on`, `follows`, `after`, `needs` followed by `north#N`, `#N`,
-  `box N` or a sibling box's leading label such as `B16` or `4-3`), `(north#8 :follows north#7)` from `Follows:` lines, and
+  `box N`, a sibling box's label such as `B16` or `4-3`, which the box leads with or names first inside parentheses as in
+  `(C15)` or `(C20, after C15)`, or a label range such as `C15-C26`, which waits on each labelled sibling inside it; `after`
+  is a wait only when such a reference follows it directly, so `after Tom chose` is prose), `(north#8 :follows north#7)` from `Follows:` lines, and
   `(box:... :unparsed-wait TEXT)` for a wait that names a box it cannot resolve. The ingest report prints each unparsed wait
   as `mirror: cannot parse a wait of ...`. `:follows`, `:waits-on` and `:unparsed-wait` are replaced from the mirror.
 - `ranking` (writer `ranking`): `(north#633 :rank 1)` from the ranked list in `docs/rationale/backlog-ranking.md` and

@@ -38,6 +38,11 @@ fn label_reference() -> &'static Regex {
     PATTERN.get_or_init(|| Regex::new(r"\b(?:[A-Z]{1,3}\d+[a-z]?|\d{1,2}-\d{1,3}|(?:Prune|Split|Box|Step|Phase|Part)\s+\d+[a-z]?)\b").unwrap_or_else(|error| panic!("{error}")))
 }
 
+fn label_range() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| Regex::new(r"\b([A-Z]{1,3})(\d+)\s*-\s*([A-Z]{1,3})?(\d+)\b").unwrap_or_else(|error| panic!("{error}")))
+}
+
 fn box_word() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
     PATTERN.get_or_init(|| Regex::new(r"(?i)\bbox(?:es)?\b").unwrap_or_else(|error| panic!("{error}")))
@@ -69,9 +74,23 @@ fn leading_label(text: &str) -> &str {
     text[..end].trim_end()
 }
 
+fn parenthesized_labels(text: &str) -> impl Iterator<Item = &str> {
+    text.split('(').skip(1).filter_map(|rest| rest.split(')').next()).map(|inner| inner.split(',').next().unwrap_or_default().trim())
+}
+
 fn carries_label(text: &str, label: &str) -> bool {
     let head = leading_label(text);
-    head == label || head.strip_prefix(label).is_some_and(|rest| rest.starts_with(' '))
+    head == label || head.strip_prefix(label).is_some_and(|rest| rest.starts_with(' ')) || parenthesized_labels(text).any(|named| named == label)
+}
+
+fn numbered_label(text: &str) -> Option<(&str, u32)> {
+    let numbered = |word: &str| -> Option<(usize, u32)> {
+        let digits = word.find(|c: char| c.is_ascii_digit())?;
+        let valid = (1..=3).contains(&digits) && word[..digits].bytes().all(|byte| byte.is_ascii_uppercase());
+        if valid { word[digits..].parse().ok().map(|number| (digits, number)) } else { None }
+    };
+    let lead = leading_label(text).split(' ').next().unwrap_or_default();
+    std::iter::once(lead).chain(parenthesized_labels(text)).find_map(|word| numbered(word).map(|(digits, number)| (&word[..digits], number)))
 }
 
 struct Reading<'a> {
@@ -119,7 +138,29 @@ impl<'a> Reading<'a> {
         for label in label_reference().find_iter(phrase).filter(|label| bounded(phrase, label.start(), label.end())) {
             self.sibling(siblings.iter().find(|other| carries_label(&other.text, label.as_str())), label.as_str());
         }
+        for range in label_range().captures_iter(phrase) {
+            let prefix = &range[1];
+            let (Ok(low), Ok(high)) = (range[2].parse::<u32>(), range[4].parse::<u32>()) else { continue };
+            if range.get(3).is_some_and(|other| other.as_str() != prefix) || low > high {
+                continue;
+            }
+            let labelled = siblings.iter().filter_map(|other| numbered_label(&other.text).filter(|(at, _)| *at == prefix).map(|(_, number)| (number, other)));
+            let within: Vec<(u32, &Item)> = labelled.filter(|(number, _)| (low..=high).contains(number)).collect();
+            for end in [low, high] {
+                if !within.iter().any(|(number, _)| *number == end) {
+                    self.missing.push(format!("{prefix}{end}"));
+                }
+            }
+            for (_, other) in within {
+                self.sibling(Some(other), prefix);
+            }
+        }
     }
+}
+
+fn leads_with_reference(phrase: &str) -> bool {
+    let phrase = phrase.trim_start();
+    [issue_reference(), position_reference(), label_reference(), label_range()].iter().any(|pattern| pattern.find(phrase).is_some_and(|found| found.start() == 0))
 }
 
 pub fn of(item: &Item, issue: &str, siblings: &[Item]) -> Waits {
@@ -127,6 +168,9 @@ pub fn of(item: &Item, issue: &str, siblings: &[Item]) -> Waits {
     for found in trigger().captures_iter(&item.text) {
         let Some(whole) = found.get(0) else { continue };
         let phrase = clause(&item.text[whole.end()..]);
+        if found[1].eq_ignore_ascii_case("after") && !leads_with_reference(phrase) {
+            continue;
+        }
         let mut reading = Reading { item, issue, siblings, seen: 0, waits: Vec::new(), missing: Vec::new() };
         reading.read(phrase);
         let referenced = reading.seen > 0 || !reading.missing.is_empty();
