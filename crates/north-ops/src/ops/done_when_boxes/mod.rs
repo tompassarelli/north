@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -5,6 +6,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::check_lane;
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{CheckRun, Ledger};
 use crate::platform::rolling_issue::{Gh, Tracker};
@@ -149,36 +151,51 @@ fn record(ledger: &Ledger, task_ref: &str, verdicts: &[Verdict], main: &Path, st
 
 pub enum Main {
     Given(PathBuf),
-    Fetched { repo: PathBuf, checkout: TempDir },
+    Fetched { repo: PathBuf, checkout: Checkout },
+}
+
+pub enum Checkout {
+    Lane { path: PathBuf, _lock: File },
+    Scratch(TempDir),
 }
 
 impl Main {
     pub fn fetch(repo: &Path) -> NorthResult<Self> {
-        let failed = |what: &str, output: &std::process::Output| format!("git {what}: {}", String::from_utf8_lossy(&output.stderr).trim());
         git::stdout(repo, &["fetch", "--quiet", "origin", "main"], |output| failed("fetch origin main", output)).map_err(NorthError::Refused)?;
-        let checkout = Self::scratch(repo)?;
-        let path = checkout.path().to_string_lossy().into_owned();
-        git::stdout(repo, &["worktree", "add", "--quiet", "--detach", &path, "origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
+        let checkout = match container(repo) {
+            Some((container, common)) => Self::lane(repo, &container, &common)?,
+            None => Self::scratch(repo)?,
+        };
         Ok(Self::Fetched { repo: repo.to_owned(), checkout })
     }
 
-    fn scratch(repo: &Path) -> NorthResult<TempDir> {
-        let mut builder = tempfile::Builder::new();
-        builder.prefix("done-when-");
-        let lanes = git::stdout(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"], |_| String::new())
-            .ok()
-            .and_then(|common| PathBuf::from(String::from_utf8_lossy(&common).trim()).parent()?.parent().map(|container| container.join("worktrees")))
-            .filter(|lanes| std::fs::create_dir_all(lanes).is_ok());
-        Ok(match lanes {
-            Some(lanes) => builder.tempdir_in(lanes)?,
-            None => builder.tempdir()?,
-        })
+    fn lane(repo: &Path, container: &Path, common: &Path) -> NorthResult<Checkout> {
+        let path = check_lane::of(container);
+        std::fs::create_dir_all(&path)?;
+        let lock = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(common.join("north-done-when.lock"))?;
+        lock.lock()?;
+        if path.join(".git").exists() {
+            git::stdout(&path, &["checkout", "--quiet", "--detach", "--force", "origin/main"], |output| failed("checkout origin/main", output)).map_err(NorthError::Refused)?;
+            git::stdout(&path, &["clean", "-fdq"], |output| failed("clean", output)).map_err(NorthError::Refused)?;
+        } else {
+            let location = path.to_string_lossy().into_owned();
+            git::stdout(repo, &["worktree", "add", "--quiet", "--detach", "--force", &location, "origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
+        }
+        Ok(Checkout::Lane { path, _lock: lock })
+    }
+
+    fn scratch(repo: &Path) -> NorthResult<Checkout> {
+        let checkout = tempfile::Builder::new().prefix("done-when-").tempdir()?;
+        let path = checkout.path().to_string_lossy().into_owned();
+        git::stdout(repo, &["worktree", "add", "--quiet", "--detach", &path, "origin/main"], |output| failed("worktree add", output)).map_err(NorthError::Refused)?;
+        Ok(Checkout::Scratch(checkout))
     }
 
     pub fn dir(&self) -> &Path {
         match self {
             Self::Given(dir) => dir,
-            Self::Fetched { checkout, .. } => checkout.path(),
+            Self::Fetched { checkout: Checkout::Lane { path, .. }, .. } => path,
+            Self::Fetched { checkout: Checkout::Scratch(checkout), .. } => checkout.path(),
         }
     }
 
@@ -191,10 +208,21 @@ impl Main {
 
 impl Drop for Main {
     fn drop(&mut self) {
-        if let Self::Fetched { repo, checkout } = self {
+        if let Self::Fetched { repo, checkout: Checkout::Scratch(checkout) } = self {
             let _ = git::run(repo, &["worktree", "remove", "--force", &checkout.path().to_string_lossy()]);
         }
     }
+}
+
+fn failed(what: &str, output: &std::process::Output) -> String {
+    format!("git {what}: {}", String::from_utf8_lossy(&output.stderr).trim())
+}
+
+fn container(repo: &Path) -> Option<(PathBuf, PathBuf)> {
+    let common = git::stdout(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"], |_| String::new()).ok()?;
+    let common = PathBuf::from(String::from_utf8_lossy(&common).trim());
+    let container = common.parent()?.parent()?.to_path_buf();
+    container.join("worktrees").is_dir().then_some((container, common))
 }
 
 #[derive(Debug, Default)]

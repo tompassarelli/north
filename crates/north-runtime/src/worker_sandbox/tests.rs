@@ -99,3 +99,26 @@ fn only_a_bare_unlock_or_stray_invocation_leaves_the_domain_and_any_shell_syntax
         assert_eq!(sanctioned(confined, home), None, "{confined}");
     }
 }
+
+#[test]
+fn a_command_run_from_main_may_build_in_the_done_when_lane_north_task_check_uses() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("north-done-when-lane").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    let main = home.join("code/alpha/main");
+    std::fs::create_dir_all(&main).unwrap();
+    std::fs::create_dir_all(home.join("code/alpha/worktrees")).unwrap();
+    let lane = "../worktrees/done-when/target";
+    let command = format!("mkdir -p {lane}/a && mv {lane}/a {lane}/b && rm -r {lane}");
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", &home)
+        .env(COMMAND, &command)
+        .current_dir(&main)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+}

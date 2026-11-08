@@ -1,4 +1,5 @@
 pub mod activation;
+pub mod check_lane;
 pub mod check_log;
 pub mod clock;
 pub mod exit;

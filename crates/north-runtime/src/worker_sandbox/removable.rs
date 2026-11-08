@@ -49,12 +49,19 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     for project in projects {
         roots.extend(common_git_dir(&project.join("main")));
         roots.push(project.join("main/.git"));
+        roots.extend(check_lane(&project));
     }
     for lane in lanes {
         roots.extend(common_git_dir(&lane));
         roots.push(lane);
     }
     roots
+}
+
+/// A Landlock rule holds an inode, so the done-when lane must exist before the domain is built.
+fn check_lane(project: &Path) -> Option<PathBuf> {
+    let lane = north_base::foundation::check_lane::of(project);
+    (project.join("worktrees").is_dir() && std::fs::create_dir_all(&lane).is_ok()).then_some(lane)
 }
 
 /// The project container `cwd` lies in: `~/code/PROJECT`.
