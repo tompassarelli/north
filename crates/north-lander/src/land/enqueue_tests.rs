@@ -225,3 +225,22 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
     lane.commit("a changed head", &[]);
     enqueue_as("worker-1").unwrap();
 }
+
+// KEEP(bug): on 2026-11-08 n882-context failed code-health layers and check experiments in every probe it rode, about 10 probes, until the proxy withdrew it, though both judge only the lane's own diff (north#842)
+#[test]
+fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_before_its_ticket_is_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    run(repo, &["init", "-q", "-b", "main"]);
+    fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.safe-push"), repo.join(".safe-push")).unwrap();
+    let base = commit(repo, "main carries north's land lines");
+    for (path, text) in [("crates/north-context-pack/src/pack.rs", "use north_graph_ground::ground;\n"), ("docs/rationale/experiments.toml", "[[experiment]]\nname = \"context-pack\"\n")] {
+        fs::create_dir_all(repo.join(path).parent().unwrap()).unwrap();
+        fs::write(repo.join(path), text).unwrap();
+    }
+    commit(repo, "n882-context: pack context from graph-ground");
+    let queued = crate::land::slots::select::Config::load(repo, "HEAD").queue_set(false).commands(repo, &base, "HEAD").unwrap();
+    for gate in ["code-health layers", "check experiments"] {
+        assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
+    }
+}
