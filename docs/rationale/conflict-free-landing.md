@@ -292,6 +292,15 @@ The send-back message, through refusal-inline-clippy's refusal text, says three 
   so a function moved back into mod.rs is a conflict, not a set merge. Sorted sides stay sorted
   (`merge_set` keeps order when all three sides are sorted), which matches rustfmt. The
   .gitattributes line and the rule land in the same lane.
+- **Inserts at one point (2026-11-08).** Of north's 85 conflict verdicts in the 24 h to 11:30 AM on
+  2026-11-08, 17 sat only in Cargo.toml, structure.toml and docs/features.md: crate splits each adding
+  a workspace member and a path dependency, and lanes each appending an `[[implicit_state.allow]]`
+  table. The `line-inserts` and `table-inserts` kinds settle a conflicting hunk only when the base
+  side is empty and every line both sides insert matches the rule's pattern (Cargo.toml dependency
+  lines, src/main.rs `mod` lines) or forms whole tables of an order-free allowlist; first-match tables
+  such as `[[module]]` stay conflicts. On one path they combine with `toml-array`, which takes
+  Cargo.toml's `members` and `default-members`. The other 68 verdicts each held a real overlapping
+  hunk in another file, the share left to an agent resolver.
 - **Not adopted:**
   - A `rust-items` union driver on `*.rs`. It would union same-named items (`use std::path::Path;`
     twice: E0252), it would union statements such as `assert!(..);` that syn parses as items, and it

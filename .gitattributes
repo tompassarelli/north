@@ -12,3 +12,5 @@ crates/north-fleet/src/fleet/mod.rs merge=set
 crates/north-guard/src/guard/mod.rs merge=set
 crates/north-lander/src/land/commands.rs merge=set
 src/cli/verbs.rs merge=set
+Cargo.toml merge=set
+src/main.rs merge=set

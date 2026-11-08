@@ -13,7 +13,7 @@ pub struct Driver {
 
 pub const DRIVERS: &[Driver] = &[Driver { name: "set", description: "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)", arguments: "merge-driver set %O %A %B %P" }];
 const GIT_DRIVERS: [&str; 3] = ["text", "binary", "union"];
-const KINDS: [&str; 4] = ["lines", "block", "toml-array", "regenerate"];
+const KINDS: [&str; 6] = ["lines", "block", "toml-array", "line-inserts", "table-inserts", "regenerate"];
 static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
 static REPORTED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 pub const DEFAULT_CONFIG: &str = "harness/merge-sets.toml";
@@ -51,7 +51,7 @@ fn doubled_first_words(entries: &[Entry]) -> BTreeSet<&str> {
 pub enum Kind {
     Lines(Identity),
     Block { start: String, end: String, sorted: bool },
-    TomlArray(Vec<String>),
+    Text { arrays: Vec<String>, inserts: Vec<Insert> },
     Regenerate { command: String, sources: Vec<String>, generator: Vec<String> },
 }
 
@@ -287,34 +287,16 @@ fn render_array(key: &str, entries: &[Entry], template: &str) -> String {
     format!("{indent}{key} = [{quoted}]")
 }
 
-fn text_merge(base: &str, ours: &str, theirs: &str) -> Result<(String, bool), String> {
-    let dir = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let paths = ["ours", "base", "theirs"].map(|name| dir.path().join(name));
-    for (path, text) in paths.iter().zip([ours, base, theirs]) {
-        fs::write(path, text).map_err(|error| error.to_string())?;
-    }
-    let status = Command::new("git")
-        .args(["merge-file", "-L", "ours", "-L", "base", "-L", "theirs"])
-        .args(&paths)
-        .status()
-        .map_err(|error| format!("git merge-file: {error}"))?;
-    let code = status.code().ok_or("git merge-file was killed")?;
-    if !(0..=127).contains(&code) {
-        return Err(format!("git merge-file failed with {code}"));
-    }
-    Ok((fs::read_to_string(&paths[0]).map_err(|error| error.to_string())?, code > 0))
-}
-
 #[cfg(test)]
 fn merge_arrays(base: &str, ours: &str, theirs: &str, key: &str) -> Result<String, String> {
-    merge_array_keys(base, ours, theirs, &[key.to_owned()])
+    merge_text_rules(base, ours, theirs, &[key.to_owned()], &[])
 }
 
-fn merge_array_keys(base: &str, ours: &str, theirs: &str, keys: &[String]) -> Result<String, String> {
+fn merge_text_rules(base: &str, ours: &str, theirs: &str, keys: &[String], inserts: &[Insert]) -> Result<String, String> {
     let (base, ours, theirs) = (parse_array_file(base, keys)?, parse_array_file(ours, keys)?, parse_array_file(theirs, keys)?);
-    let (merged, conflicts) = text_merge(&base.skeleton, &ours.skeleton, &theirs.skeleton)?;
+    let (merged, conflicts) = text::resolve(&base.skeleton, &ours.skeleton, &theirs.skeleton, inserts)?;
     if conflicts {
-        return Err("the text around the arrays conflicts".to_owned());
+        return Err("the text conflicts outside the arrays and the entries both sides insert".to_owned());
     }
     let present = merged.lines().filter_map(|line| line.strip_prefix(PLACEHOLDER)).collect::<BTreeSet<_>>();
     for side in [&ours, &theirs] {
@@ -371,6 +353,20 @@ pub fn generator_moved(rules: &[Rule], ahead: &[String], pick: &[String]) -> Opt
     })
 }
 
+fn text_rule<'a>(rules: &'a mut Vec<Rule>, path: &str) -> (&'a mut Vec<String>, &'a mut Vec<Insert>) {
+    let at = match rules.iter().position(|rule| rule.path == path && matches!(rule.kind, Kind::Text { .. })) {
+        Some(at) => at,
+        None => {
+            rules.push(Rule { path: path.to_owned(), kind: Kind::Text { arrays: Vec::new(), inserts: Vec::new() } });
+            rules.len() - 1
+        }
+    };
+    match &mut rules[at].kind {
+        Kind::Text { arrays, inserts } => (arrays, inserts),
+        _ => unreachable!("the rule at {at} is a text rule"),
+    }
+}
+
 pub fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
     let text = fs::read_to_string(config).map_err(|error| format!("{}: {error}", config.display()))?;
     let document = text.parse::<toml_edit::DocumentMut>().map_err(|error| format!("{}: {error}", config.display()))?;
@@ -389,11 +385,19 @@ pub fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
                 _ => return Err(format!("{path}: a block entry needs a start and an end line")),
             },
             (Some("toml-array"), Some(key), None) => {
-                if let Some(Rule { kind: Kind::TomlArray(keys), .. }) = rules.iter_mut().find(|rule: &&mut Rule| rule.path == path && matches!(rule.kind, Kind::TomlArray(_))) {
-                    keys.push(key.to_owned());
-                    continue;
-                }
-                Kind::TomlArray(vec![key.to_owned()])
+                text_rule(&mut rules, &path).0.push(key.to_owned());
+                continue;
+            }
+            (Some("line-inserts"), None, None) => {
+                let insert = Insert::Lines(field("pattern").ok_or_else(|| format!("{path}: a line-inserts entry needs a pattern"))?.to_owned());
+                text::validate(&insert).map_err(|error| format!("{path}: {error}"))?;
+                text_rule(&mut rules, &path).1.push(insert);
+                continue;
+            }
+            (Some("table-inserts"), None, None) => {
+                let tables = string_array(table, "tables").ok_or_else(|| format!("{path}: a table-inserts entry needs a tables array of table names"))?;
+                text_rule(&mut rules, &path).1.push(Insert::Tables(tables));
+                continue;
             }
             (Some("regenerate"), None, Some(command)) if !command.trim().is_empty() => Kind::Regenerate {
                 command: command.to_owned(),
@@ -404,7 +408,7 @@ pub fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
                 report_unknown(kind, config);
                 continue;
             }
-            _ => return Err(format!("{path}: kind must be lines, block with a start and an end, toml-array with a key, or regenerate with a command and sources")),
+            _ => return Err(format!("{path}: kind must be lines, block with a start and an end, toml-array with a key, line-inserts with a pattern, table-inserts with tables, or regenerate with a command and sources")),
         };
         rules.push(Rule { path, kind });
     }
@@ -415,15 +419,8 @@ fn merge_text(kind: &Kind, base: &str, ours: &str, theirs: &str) -> Result<Strin
     match kind {
         Kind::Lines(identity) => merge_lines(base, ours, theirs, *identity),
         Kind::Block { start, end, sorted } => block::merge_block(base, ours, theirs, start, end, *sorted),
-        Kind::TomlArray(keys) => merge_array_keys(base, ours, theirs, keys),
+        Kind::Text { arrays, inserts } => merge_text_rules(base, ours, theirs, arrays, inserts),
         Kind::Regenerate { command, .. } => Err(format!("a generated file: `north merge-driver continue` runs `{command}` on the merged sources")),
-    }
-}
-
-fn conflict_text(base: &str, ours: &str, theirs: &str) -> String {
-    match text_merge(base, ours, theirs) {
-        Ok((text, true)) => text,
-        _ => format!("<<<<<<< ours\n{ours}=======\n{theirs}>>>>>>> theirs\n"),
     }
 }
 
@@ -485,6 +482,11 @@ pub fn run(arguments: &[String]) -> u8 {
 #[path = "merge_set_block.rs"]
 mod block;
 pub use block::sort_block;
+
+#[path = "merge_set_text.rs"]
+mod text;
+pub use text::Insert;
+use text::{conflict_text, text_merge};
 
 #[cfg(test)]
 #[path = "merge_set_tests.rs"]
