@@ -692,3 +692,72 @@ fn a_lane_check_waits_while_lane_checks_hold_their_share_of_a_hosts_slots_and_a_
     assert_eq!(order.iter().filter(|event| event.contains("lander")).count(), 4, "both lander jobs ran while the lane checks held their slots: {order:?}");
     assert_eq!(order.last().map(String::as_str), Some("end-queued-lane"), "{order:?}");
 }
+
+#[test]
+fn a_run_whose_connection_is_killed_in_the_middle_still_reports_its_real_exit_and_output_to_a_fresh_connection() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let marker = "north-offload-ran:job-lost";
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let command = "echo before; sleep 2; echo after; exit 3";
+    let mut remote = Command::new("setsid")
+        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "0", "", marker])
+        .env("HOME", home.path())
+        .env("PATH", &path)
+        .env_remove(north_base::foundation::offload::SLOT_ENV)
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .stdin(fs::File::open(&bundle).unwrap())
+        .stdout(std::process::Stdio::piped())
+        .stderr(fs::File::create(home.path().join("remote.err")).unwrap())
+        .spawn()
+        .unwrap();
+    let mut lines = std::io::BufReader::new(remote.stdout.take().unwrap());
+    let mut line = String::new();
+    while !line.starts_with(super::RUNNING) {
+        line.clear();
+        assert!(std::io::BufRead::read_line(&mut lines, &mut line).unwrap() > 0, "the remote ended before it ran: {}", fs::read_to_string(home.path().join("remote.err")).unwrap_or_default());
+    }
+    drop(lines);
+    let exited = home.path().join(".cache/land-offload/results/job-lost.exit");
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || exited.exists()), "the run stopped with its connection instead of finishing: {}", fs::read_to_string(home.path().join("remote.err")).unwrap_or_default());
+    assert_eq!(remote.wait().unwrap().code(), Some(3), "the remote script outlived its connection and ended with the command's exit");
+    let read = Command::new("sh").args(["-c", &super::script::reattach_script(), "offload-reattach", marker, "30"]).env("HOME", home.path()).output().unwrap();
+    let mut shown = Vec::new();
+    let ran = super::relay(read.stdout.as_slice(), &mut shown, marker, || {});
+    assert_eq!(super::verdict(read.status.code().and_then(|code| u8::try_from(code).ok()), ran), Ok(3), "a fresh connection reads the real exit: {}", String::from_utf8_lossy(&read.stderr));
+    assert!(String::from_utf8(shown).unwrap().contains("after"), "a fresh connection reads the output written after the loss");
+}
+
+#[test]
+fn a_connection_that_ends_after_the_run_started_is_asked_again_until_the_host_answers_and_never_when_it_cannot_help() {
+    let lost = (Some(255), None);
+    let mut asked = 0;
+    let answered = super::reattach::ride_out(lost, true, std::time::Duration::from_secs(5), std::time::Duration::ZERO, || {
+        asked += 1;
+        if asked < 3 { lost } else { (Some(0), Some(3)) }
+    });
+    assert_eq!((answered, asked), ((Some(0), Some(3)), 3));
+    for (first, started, window) in [(lost, false, 5), ((Some(255), Some(1)), true, 5), ((Some(1), None), true, 5), (lost, true, 0)] {
+        let mut asked = 0;
+        let kept = super::reattach::ride_out(first, started, std::time::Duration::from_secs(window), std::time::Duration::ZERO, || {
+            asked += 1;
+            (Some(0), Some(0))
+        });
+        assert_eq!((kept, asked), (first, 0), "{first:?} started {started} window {window}");
+    }
+}
+
+#[test]
+fn the_offload_master_starts_as_the_main_process_of_a_unit_of_its_own_and_a_client_never_forks_one() {
+    let arguments = super::master::unit_arguments("tom@cpx62.example", "/run/user/1/north-offload-%C", Some("/run/agent"));
+    let at = |word: &str| arguments.iter().position(|argument| argument == word).unwrap_or_else(|| panic!("{word} is not in {arguments:?}"));
+    assert!(at("--user") < at("--") && at("--collect") < at("--"));
+    assert_eq!(arguments[at("--unit") + 1], "north-offload-master-tom-cpx62-example");
+    assert!(arguments.contains(&"--setenv=SSH_AUTH_SOCK=/run/agent".to_owned()));
+    assert!(at("ssh") == at("--") + 1 && at("-M") > at("ssh") && at("-N") > at("ssh") && !arguments.contains(&"-f".to_owned()), "the master stays in the foreground as the unit's process: {arguments:?}");
+    assert_eq!(arguments.last().map(String::as_str), Some("tom@cpx62.example"));
+    let client = super::master::options("");
+    assert!(client.contains(&"ControlMaster=no".to_owned()) && !client.iter().any(|option| option.starts_with("ControlPersist") || option == "ControlMaster=auto"), "{client:?}");
+}

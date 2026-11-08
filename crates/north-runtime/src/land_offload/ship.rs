@@ -149,6 +149,8 @@ mod bundle;
 #[cfg(test)]
 mod pinned;
 mod relay;
+mod master;
+mod reattach;
 
 pub(super) fn run(land: &Land) -> u8 {
     let (relative, name) = match checkout(land.checkout) {
@@ -187,22 +189,35 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
     let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, runtime.unwrap_or_default(), &cpus, &red_fix, &marker, &beside.pins, &lander_slot];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
-    let master = own_master();
+    let master = master::options(land.ssh);
     let options: Vec<&str> = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"].into_iter().chain(master.iter().map(String::as_str)).collect();
     let spawned = on_host(land.ssh, &script, &words, &options)
         .stdin(Stdio::from(bundle))
         .stdout(Stdio::piped())
         .spawn();
     let mut child = spawned.map_err(|error| unreached(&format!("ssh: {error}")))?;
-    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, || waiting.end()));
+    let started = std::cell::Cell::new(false);
+    let ran = child.stdout.take().and_then(|stdout| {
+        relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), &marker, || {
+            waiting.end();
+            started.set(true);
+        })
+    });
     let exited = child.wait().map_err(|error| unreached(&format!("ssh: {error}")))?;
-    Ok((exited.code().and_then(|code| u8::try_from(code).ok()), ran))
+    let first = (exited.code().and_then(|code| u8::try_from(code).ok()), ran);
+    Ok(reattach::ride_out(first, started.get() && !land.ssh.is_empty(), reattach::WINDOW, reattach::PAUSE, || read_back(land, &marker)))
 }
 
-/// The land offloads keep their own ssh master per host, apart from the shared host master that carries bulk transfers (north#682), so a check pays no fresh handshake: 2.6 s to gex45 on 2026-11-08 against 0.6 s through a master, inside every offloaded check span (north#634).
-fn own_master() -> Vec<String> {
-    let runtime = std::env::var("XDG_RUNTIME_DIR").ok().filter(|directory| !directory.is_empty()).unwrap_or_else(|| format!("/run/user/{}", rustix::process::getuid().as_raw()));
-    ["ControlMaster=auto".to_owned(), "ControlPersist=60".to_owned(), format!("ControlPath={runtime}/north-offload-%C")].into_iter().flat_map(|option| ["-o".to_owned(), option]).collect()
+/// One fresh connection to the host that reads the result of the run marked `marker` back: the output it wrote since the last byte this host sent, then its status, which the run's own script recorded in files when the first connection was lost.
+fn read_back(land: &Land, marker: &str) -> (Option<u8>, Option<u8>) {
+    let remote = format!("sh -c {} offload-reattach {} {}", quote(&script::reattach_script()), quote(marker), land.timeout_seconds);
+    let master = master::options(land.ssh);
+    let mut command = with_caller("ssh");
+    command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"]).args(&master).args([land.ssh, "--", &remote]);
+    let Ok(mut child) = command.stdout(Stdio::piped()).spawn() else { return (None, None) };
+    let ran = child.stdout.take().and_then(|stdout| relay(std::io::BufReader::new(stdout), &mut std::io::stdout(), marker, || {}));
+    let exited = child.wait().ok().and_then(|status| status.code()).and_then(|code| u8::try_from(code).ok());
+    (exited, ran)
 }
 
 fn on_host(ssh: &str, script: &str, words: &[&str], options: &[&str]) -> Command {

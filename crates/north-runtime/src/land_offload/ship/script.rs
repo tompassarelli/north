@@ -1,5 +1,8 @@
 use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, job_mib, quote};
 
+/// Minutes a run whose client lost its connection keeps going with no client reattached, so a caller killed on purpose does not leave the run holding its slot to its deadline; the runner reattaches within `REATTACH_WINDOW`, which is shorter.
+const REATTACH_MINUTES: u32 = 3;
+const DRAIN_POLL: &str = "0.1";
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
 const LANDER_SUFFIX: &str = ".lander";
@@ -170,6 +173,7 @@ printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$
 printf '%s\n' "$owner" >"$root/$s.owner"
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
+  [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true
   rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder" "$root/$s@LANDER_SUFFIX@"
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
   if [ -e "$slot/.git" ]; then git -C "$slot" clean -ffdxq -e /target 2>/dev/null || true; fi
@@ -230,9 +234,75 @@ leased() {
   if command -v north >/dev/null 2>&1; then north capacity host run --class heavy --owner "$lease_owner" --timeout-seconds "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 rc=0
-leased bash -euo pipefail -c "$command" 4>&- 6>&- 9>&- || rc=$?
-[ -z "${ran:-}" ] || printf "%s %s\n" "$ran" "$rc"
+if [ -z "${ran:-}" ]; then
+  leased bash -euo pipefail -c "$command" 4>&- 6>&- 9>&- || rc=$?
+  exit "$rc"
+fi
+id=${ran#*:}
+results=${root:-$HOME/.cache/land-offload}/results
+mkdir -p "$results"
+find "$results" -type f -mmin +1440 -delete 2>/dev/null || true
+out=$results/$id.out err=$results/$id.err exited=$results/$id.exit lost=$results/$id.lost attached=$results/$id.attached
+rm -f "$exited" "$lost" "$attached" "$results/$id.sent_out" "$results/$id.sent_err"
+: >"$out"; : >"$err"
+trap '' PIPE HUP
+(
+  rc=0
+  leased bash -euo pipefail -c "$command" || rc=$?
+  echo "$rc" >"$exited.part" && mv "$exited.part" "$exited"
+) >"$out" 2>"$err" 4>&- 6>&- 9>&- </dev/null &
+@DRAIN@detached=
+while :; do
+  ended=; [ ! -f "$exited" ] || ended=1
+  if [ -z "$detached" ]; then drain || { detached=1; echo >"$lost"; }; fi
+  [ -z "$ended" ] || break
+  if [ -n "$detached" ] && [ -n "$(find "$lost" -mmin +@REATTACH_MINUTES@ 2>/dev/null)" ] && [ -z "$(find "$attached" -mmin -1 2>/dev/null)" ]; then
+    kill -TERM "-$$" 2>/dev/null || true
+  fi
+  sleep @DRAIN_POLL@
+done
+read -r rc <"$exited"
+printf "%s %s\n" "$ran" "$rc" || true
 exit "$rc"
+"#;
+
+const DRAIN: &str = r#"drain() {
+  for stream in out err; do
+    f=$results/$id.$stream
+    [ -f "$f" ] || continue
+    sent=0
+    [ ! -f "$results/$id.sent_$stream" ] || read -r sent <"$results/$id.sent_$stream" || sent=0
+    size=$(wc -c <"$f")
+    [ "$size" -gt "$sent" ] || continue
+    if [ "$stream" = out ]; then
+      { tail -c +$((sent + 1)) "$f" 2>/dev/null | head -c $((size - sent)); } || return 1
+    else
+      { tail -c +$((sent + 1)) "$f" 2>/dev/null | head -c $((size - sent)) >&2; } || return 1
+    fi
+    echo "$size" >"$results/$id.sent_$stream"
+  done
+}
+"#;
+
+pub(super) const REATTACH: &str = r#"ran=$1 limit=$2
+root=@ROOT@
+id=${ran#*:}
+results=$root/results
+exited=$results/$id.exit attached=$results/$id.attached
+[ -f "$results/$id.out" ] || { echo "offload: this host holds no record of run $id" >&2; exit 1; }
+@DRAIN@deadline=$(( $(date +%s) + limit + 60 ))
+while :; do
+  ended=; [ ! -f "$exited" ] || ended=1
+  echo >"$attached"
+  drain || exit 1
+  if [ -n "$ended" ]; then
+    read -r rc <"$exited"
+    printf "%s %s\n" "$ran" "$rc"
+    exit 0
+  fi
+  [ "$(date +%s)" -lt "$deadline" ] || { echo "offload: run $id never ended within its limit" >&2; exit 1; }
+  sleep @DRAIN_POLL@
+done
 "#;
 
 /// Which of a checkout's slots on the build host a job takes: a land check one of its `SLOTS`, a background job (a mutant sweep) the checkout's one background slot, queued behind every land check and never counted against their job cap, so an hours-long sweep holds no land check's slot.
@@ -251,8 +321,15 @@ impl SlotClass {
     }
 }
 
+pub(super) fn reattach_script() -> String {
+    REATTACH.replace("@DRAIN@", DRAIN).replace("@DRAIN_POLL@", DRAIN_POLL).replace("@ROOT@", OFFLOAD_ROOT)
+}
+
 pub(super) fn run_part() -> String {
-    RUN.replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
+    RUN.replace("@DRAIN@", DRAIN)
+        .replace("@REATTACH_MINUTES@", &REATTACH_MINUTES.to_string())
+        .replace("@DRAIN_POLL@", DRAIN_POLL)
+        .replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV)
         .replace("@LEASE@", crate::runtime::layout::LEASE)
         .replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker())
         .replace("@TRANSPORT_FAILED@", &TRANSPORT_FAILED.to_string())
