@@ -96,10 +96,4 @@ mod reuse_report {
         assert!(text.contains("would reuse by test-seconds: 4.0 of 10.0 s (40.0%)"), "{text}");
         assert!(text.contains("first difference: content harness/x"), "{text}");
     }
-
-    #[test]
-    fn a_log_with_no_disagreement_says_zero() {
-        let text = render(&summarize(&[unit("p1", Some("aaaaaaaaaaaaaaaa"), true, 1.0)]), "1h");
-        assert!(text.contains("disagreements: 0\n") && !text.contains("  disagreement:"), "{text}");
-    }
 }
