@@ -114,6 +114,10 @@ impl Graph {
         Ok(Self { connection })
     }
 
+    pub fn head(&self) -> Result<i64> {
+        Ok(self.connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM occurrences", [], |row| row.get(0))?)
+    }
+
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
     }

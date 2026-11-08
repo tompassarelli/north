@@ -104,11 +104,20 @@ at or under 5%.
 
 ## The archive in north-graph
 
-Each candidate is a node written by `north graph tell` under writer `climb`: `climb:ID :parent climb:PARENT` (the root is
-`climb:current`), `:change` (the typed change as a string), `:loss-category`, `:loss-usd`, `:replay-refusals` (a count),
-`:replay-reached` (cases), `:status` (proposed, refused, arm, kept, reverted), `:arm-share`, and at selection `:usd-per-kept`
-and `:first-pass`. The generator reads the archive back with `north graph ask`, and parents are drawn across it, not only from the
-current best, as in DGM. Retraction never deletes: a reverted change keeps its node with status reverted.
+Each candidate is a node `climb:ID-SEQ` that `north ops climb run` tells under writer `climb` in one `Graph::apply`
+transaction per run (`crates/north-climb/src/lineage.rs`): `:parent` (another node, or the root `climb:current`), `:change`
+(the typed change as a string), `:mutates FILE` for each file its diff touches, `:arm` (the arm it routes boxes onto; a tier
+route has none), `:loss-category`, `:loss-usd`, `:replay-refusals` (a count), `:replay-reached` (cases), `:status` (proposed,
+refused, arm, kept, reverted) and `:landed-seq`, the graph head the run judged it at. `:corroborated-kept` and `:scored`
+(USD per kept box) count only the arm's kept boxes that `harness/graph-rules/corroborated.json` holds by `checker`, read
+with `asOf` the landing seq, so a box a worker ticked itself never scores and a check that passes later never leaks into an
+earlier candidate's score. Selection adds `:arm-share`, `:usd-per-kept` and `:first-pass`.
+
+The generator reads the archive back through `harness/graph-rules/lineage.json` and draws the parent across it, as in DGM:
+the root and every node that ran as an arm or was kept, each weighted by its score against the archive's best and by one
+over one plus its children, with a seed from the candidate and the head so a rerun draws the same parent. A proposed or
+refused candidate never ran and is no parent. Retraction never deletes: a reverted change keeps its node with status
+reverted. A host with no `graph.db` keeps the root as parent and writes nothing.
 
 ## Registration and cadence
 

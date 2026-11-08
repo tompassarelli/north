@@ -264,7 +264,7 @@ may_use = ["north-base", "north-check-environment", "north-graph-loops", "north-
 [[crate_dag.crate]]
 name = "north-climb"
 paths = ["crates/north-climb/src/**"]
-may_use = ["north-base", "north-dispatch", "north-replay", "north-strategy-types"]
+may_use = ["north-base", "north-dispatch", "north-graph", "north-replay", "north-strategy-types"]
 
 [[crate_dag.crate]]
 name = "north-runtime"
@@ -376,8 +376,8 @@ may_use = ["crate-roots", "foundation", "landing", "lifecycle", "land_ticket", "
 [[module]]
 name = "climb"
 paths = ["crates/north-climb/src/**"]
-responsibility = "The policy climber: the ledger's largest measured loss, one candidate policy change for it, the paths a candidate may not touch, its score from strategy replay, and the live arms."
-may_use = ["crate-roots", "foundation", "ledger", "ops", "replay", "strategy_types", "lifecycle", "platform.records", "platform.store"]
+responsibility = "The policy climber: the ledger's largest measured loss, one candidate policy change for it, the paths a candidate may not touch, its score from strategy replay, the live arms, and the archive of candidates it keeps in the fact graph."
+may_use = ["crate-roots", "foundation", "ledger", "ops", "replay", "strategy_types", "lifecycle", "platform.records", "platform.store", "graph", "platform.harness", "threads"]
 
 [[module]]
 name = "foundation"

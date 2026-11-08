@@ -344,7 +344,7 @@ constants = [
 [[loop]]
 name = "policy-climber"
 decision = "which change to routing, brief generation or dispatch rules north tries next, from the ledger's largest measured loss"
-sites = ["crates/north-climb/src/lib.rs", "crates/north-climb/src/loss.rs", "crates/north-climb/src/candidate.rs", "crates/north-climb/src/score.rs"]
+sites = ["crates/north-climb/src/lib.rs", "crates/north-climb/src/loss.rs", "crates/north-climb/src/candidate.rs", "crates/north-climb/src/score.rs", "crates/north-climb/src/lineage.rs"]
 updated_by = "north ops climb run"
 cadence_hours = 24
 owner = "north#636 Policy climber: archive, live arm and selection"

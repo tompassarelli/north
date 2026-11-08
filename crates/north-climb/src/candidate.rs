@@ -31,6 +31,15 @@ impl Change {
         }
     }
 
+    /// The arm the change routes boxes onto; a tier route moves no arm.
+    pub fn arm(&self) -> Option<&str> {
+        match self {
+            Self::TierRoute { .. } => None,
+            Self::ArmRoute { to, .. } => Some(to),
+            Self::OpenArm { arm, .. } => Some(arm),
+        }
+    }
+
     pub fn describe(&self) -> String {
         match self {
             Self::TierRoute { category, from, to } => format!("route category {category} from tier {from} to tier {to}"),
@@ -94,7 +103,7 @@ impl Cheapest {
         let change = Change::TierRoute { category: loss.category.clone(), from: loss.tier.clone(), to: better.tier.clone() };
         Some(Candidate {
             id: format!("tier-route-{}-{}", loss.category, better.tier),
-            parent: "current".to_owned(),
+            parent: crate::lineage::ROOT.to_owned(),
             why: format!(
                 "{} closed {} boxes at ${:.2} each with {:.0}% kept, against ${:.2} each with {:.0}% kept here",
                 better.tier,
@@ -120,7 +129,7 @@ impl Cheapest {
         let share = |arm: &Arm| arm.kept as f64 / arm.closed as f64;
         (cost(best) < cost(worst) && share(best) >= share(worst)).then(|| Candidate {
             id: format!("arm-route-{}-{}-{}", loss.category, worst.arm, best.arm),
-            parent: "current".to_owned(),
+            parent: crate::lineage::ROOT.to_owned(),
             why: format!("arm {} kept {} of {} boxes at ${:.2} each, against ${:.2} each with {} of {} kept on arm {}", best.arm, best.kept, best.closed, cost(best), cost(worst), worst.kept, worst.closed, worst.arm),
             saving_usd: Some(worst.kept as f64 * (cost(worst) - cost(best))),
             change: Change::ArmRoute { category: loss.category.clone(), from: worst.arm.clone(), to: best.arm.clone(), to_tier: best.tier.clone() },
@@ -133,7 +142,7 @@ fn open(loss: &Loss) -> Candidate {
     let arm = if loss.unclosed_usd >= loss.repeat_usd { "split" } else { "escalate" };
     Candidate {
         id: format!("open-arm-{}-{arm}", loss.category),
-        parent: "current".to_owned(),
+        parent: crate::lineage::ROOT.to_owned(),
         why: format!("the ledger holds no cheaper tier or arm for {}, and ${:.2} of its ${:.2} loss is {}", loss.category, loss.unclosed_usd.max(loss.repeat_usd), loss.usd(), if arm == "split" { "boxes that never closed" } else { "repeat runs" }),
         saving_usd: None,
         change: Change::OpenArm { category: loss.category.clone(), arm: arm.to_owned() },

@@ -1,0 +1,4 @@
+{"find": "lineage", "rules": [
+  {"head": {"rel": "lineage", "args": [{"var": "node"}, {"var": "property"}, {"var": "value"}]}, "body": [
+     {"rel": "assertion", "args": ["climb", {"var": "node"}, ["keyword", "landed-seq"], {"var": "seq"}]},
+     {"rel": "assertion", "args": ["climb", {"var": "node"}, {"var": "property"}, {"var": "value"}]}]}]}
