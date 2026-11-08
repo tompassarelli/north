@@ -197,7 +197,7 @@ fn a_rise_files_only_while_it_holds_with_the_weeks_dearest_box_dropped() {
 }
 
 #[test]
-fn a_tick_moves_an_eta_or_budget_cell_at_most_twofold_from_the_cells_file_however_far_the_week_lies() {
+fn a_tick_moves_an_eta_or_budget_cell_at_most_twofold_from_the_prior_tick_however_far_the_week_lies() {
     let week = boxes("70", 3, SONNET, "tooling", "2026-10-24", 9_000_000);
     let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&[], "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new(), estimates: Ok(Vec::new()), briers: Ok(Vec::new()), runs: Ok(Vec::new()), skills: Vec::new() };
     let unlimited = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);

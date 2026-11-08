@@ -1,10 +1,11 @@
-use super::{Loop, Role};
+use super::{Loop, Role, Store};
 use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Reading {
     At(SystemTime),
     Never,
+    Unread(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -19,7 +20,7 @@ pub struct Finding {
     pub failed: bool,
 }
 
-pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, score: &dyn Fn(&str) -> Option<String>, extra: Vec<Finding>, now: SystemTime) -> Checked {
+pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> Reading, score: &dyn Fn(&str) -> Option<String>, extra: Vec<Finding>, now: SystemTime) -> Checked {
     let mut lines = Vec::new();
     let mut failing = Vec::new();
     for found in loops {
@@ -40,8 +41,8 @@ pub fn check(loops: &[Loop], held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) ->
     Checked { lines, failing }
 }
 
-fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Reading, now: SystemTime) -> (String, bool) {
-    let (Some(signal), Some(record)) = (&found.signal, &found.record) else {
+fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> Reading, now: SystemTime) -> (String, bool) {
+    let (Some(signal), Some(store)) = (&found.signal, &found.store) else {
         return match &found.owner {
             Some(owner) => (format!("open; {} sets it; owner {owner}", found.updated_by), false),
             None => (format!("FAIL no outcome signal and no owner; {} sets it", found.updated_by), true),
@@ -51,8 +52,9 @@ fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Rea
         return (format!("checked on {}", found.host.name()), false);
     }
     let limit = Duration::from_secs(2 * found.cadence_hours * 3_600);
-    match read(record) {
-        Reading::Never => (format!("FAIL never updated: no {record}"), true),
+    match read(store) {
+        Reading::Never => (format!("FAIL never updated: {}", missing(store)), true),
+        Reading::Unread(why) => (format!("FAIL unread: {why}"), true),
         Reading::At(at) => {
             let age = now.duration_since(at).unwrap_or_default();
             let hours = age.as_secs() / 3_600;
@@ -62,5 +64,12 @@ fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&str) -> Rea
                 (format!("ok: {} updated {hours} h ago from {signal}", found.updated_by), false)
             }
         }
+    }
+}
+
+fn missing(store: &Store) -> String {
+    match store {
+        Store::Record(record) => format!("no {record}"),
+        Store::Graph { writer } => format!("no tick by writer {writer} in graph.db"),
     }
 }

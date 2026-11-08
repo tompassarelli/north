@@ -232,9 +232,14 @@ paths = ["crates/north-graph-ground/src/**"]
 may_use = ["north-base", "north-graph"]
 
 [[crate_dag.crate]]
+name = "north-graph-loops"
+paths = ["crates/north-graph-loops/src/**"]
+may_use = ["north-base", "north-graph"]
+
+[[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
-may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground", "north-pacing"]
+may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground", "north-pacing", "north-graph-loops"]
 
 [[crate_dag.crate]]
 name = "north-pacing"
@@ -244,7 +249,7 @@ may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north
 [[crate_dag.crate]]
 name = "north-tune"
 paths = ["crates/north-tune/src/**"]
-may_use = ["north-dispatch"]
+may_use = ["north-dispatch", "north-graph-loops"]
 
 [[crate_dag.crate]]
 name = "north-replay"

@@ -1,0 +1,3 @@
+{"find": "effort", "rules": [
+  {"head": {"rel": "effort", "args": [{"var": "cell"}, {"var": "effort"}]},
+   "body": [{"rel": "assertion", "args": ["tune", {"var": "cell"}, ["keyword", "cell/effort"], {"var": "effort"}]}]}]}

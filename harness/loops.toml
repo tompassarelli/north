@@ -1,8 +1,9 @@
 # Every automatic decision north makes, as a learning loop: the decision, the files that make it
-# (`sites`), the outcome signal it learns from, what updates it and how often, and the record under
-# the state root (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update, on the
-# host `host` names (ledger, lander or here). `north loops check` and `north tune` fail a closed loop
-# held on this host whose record is older than twice its cadence or missing; `owner` names the box that closes
+# (`sites`), the outcome signal it learns from, what updates it and how often, and where its last update
+# shows, on the host `host` names (ledger, lander or here): with `store = "graph"`, the newest tick its `writer`
+# told graph.db through harness/graph-rules/ticked.json; otherwise the `record` under the state root
+# (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update. `north loops check` and `north tune` fail a closed loop
+# held on this host whose last update is older than twice its cadence or missing; `owner` names the box that closes
 # an open loop, which prints but does not fail; `score` names a one-line record under the state root that
 # `north loops check` prints beside the loop's verdict. The tests in crates/north-tune/src/loops fail
 # when a decision site, numeric constant or defaults key behind dispatch, fleet launch, capacity
@@ -23,7 +24,8 @@ sites = [
 signal = "ledger cost per kept box with 48 h rework, per arm stamp"
 updated_by = "north tune"
 cadence_hours = 24
-record = "north/tune/cells.json"
+store = "graph"
+writer = "tune"
 
 host = "ledger"
 constants = [
@@ -37,7 +39,8 @@ sites = ["crates/north-dispatch/src/dispatch/grounds.rs"]
 signal = "p75 run wall of closed boxes per tier family and category"
 updated_by = "north tune"
 cadence_hours = 24
-record = "north/tune/cells.json"
+store = "graph"
+writer = "tune"
 
 host = "ledger"
 constants = [
@@ -53,7 +56,8 @@ sites = ["crates/north-dispatch/src/dispatch/grounds.rs"]
 signal = "median cost per closed box per tier family and category"
 updated_by = "north tune"
 cadence_hours = 24
-record = "north/tune/cells.json"
+store = "graph"
+writer = "tune"
 
 host = "ledger"
 

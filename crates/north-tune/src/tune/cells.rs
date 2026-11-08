@@ -4,8 +4,7 @@ use crate::dispatch::{ARM_WINDOW, BUDGET_TIMES, Effort, Evidence, LEDGER_WINDOW,
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Every cell's current value by name, as the cells file holds it.
-pub type Cells = BTreeMap<String, Value>;
+pub use north_graph_loops::Cells;
 
 /// What a cell's value rests on: the ledger rows read, the closed boxes behind it, the 95% interval
 /// of the figure it comes from, and the figures in words.
@@ -99,7 +98,7 @@ fn round_cents(usd: f64) -> f64 {
     (usd * 100.0).round() / 100.0
 }
 
-/// One cell whose value differs from the cells file's: a new or changed value with its evidence,
+/// One cell whose value differs from the prior tick's: a new or changed value with its evidence,
 /// or a cell the window no longer decides.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Change {

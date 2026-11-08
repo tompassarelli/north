@@ -206,7 +206,7 @@ incidents. Shapes name the north#758 rule that matches each machine's code.
   `ingest.lock`): the kernel releases them with their holder.
 - Once-guards and dedupe memories (`file-skills/SESSION/HASH`, `nix-cards`, `recommend-acts`, `seen.json`,
   `dispatch/alert.json`, `landing/notified`, `landing/followed`): a lost or stale entry repeats or skips one notice.
-- Caches with a time to live (`gh_cache`, `github-mirror.db`, `usage-gate.json` as a reading, tune `cells.json`) and
+- Caches with a time to live (`gh_cache`, `github-mirror.db`, `usage-gate.json` as a reading, tune's cells in the graph) and
   content-addressed verdicts (`verdict_cache`, `private-text-verdicts`): a key, not a phase.
 - Already explicit: goal trend (`crates/north-goals/src/history.rs`), capacity `Mode` with its transition functions
   and `adjustments.jsonl`, the convo index's `files` table, flow episode alerts (`ops/flow/alerts.rs`, the closest

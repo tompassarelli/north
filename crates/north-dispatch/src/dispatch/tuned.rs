@@ -1,17 +1,19 @@
 use super::tier::{Effort, Route};
 use crate::foundation::clock::Timestamp;
-use serde_json::Value;
+use north_graph_loops::{Cells, Learned};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::path::PathBuf;
+use std::time::SystemTime;
 
 pub const FRESH_HOURS: u64 = 36;
+pub const WRITER: &str = "tune";
 
-/// The cells file as dispatch reads it: every cell the last tick wrote and the date it wrote them,
-/// or none once the file is older than `FRESH_HOURS`.
+/// North tune's cells as dispatch reads them from the graph, each through its decision's rule under
+/// harness/graph-rules/, with the date of the tick that told them, or none once that tick is older
+/// than `FRESH_HOURS`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Tuned {
-    cells: BTreeMap<String, Value>,
+    cells: Cells,
     date: String,
 }
 
@@ -23,18 +25,17 @@ pub struct Figure {
 }
 
 impl Tuned {
-    pub fn read(path: &Path, now: SystemTime) -> Self {
-        let Ok(written) = std::fs::metadata(path).and_then(|meta| meta.modified()) else { return Self::default() };
-        if now.duration_since(written).is_ok_and(|age| age > Duration::from_secs(FRESH_HOURS * 3_600)) {
-            return Self::default();
+    pub fn from_learned(learned: Learned, now: SystemTime) -> Self {
+        let now = now.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX));
+        let fresh = |at: &i64| now.saturating_sub(*at) <= i64::try_from(FRESH_HOURS * 3_600).unwrap_or(i64::MAX);
+        match learned.at.filter(fresh) {
+            Some(at) => Self { cells: learned.cells, date: Timestamp::from_unix_seconds(at).iso_date() },
+            None => Self::default(),
         }
-        let cells = std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
-        let seconds = written.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX));
-        Self { cells, date: Timestamp::from_unix_seconds(seconds).iso_date() }
     }
 
     pub fn current() -> Self {
-        cells_file().map_or_else(|_| Self::default(), |path| Self::read(&path, SystemTime::now()))
+        north_graph_loops::read(&north_graph_loops::graph_path(), WRITER).map_or_else(|_| Self::default(), |learned| Self::from_learned(learned, SystemTime::now()))
     }
 
     pub fn efforts(&self) -> BTreeMap<String, Effort> {
@@ -55,8 +56,4 @@ pub fn current_efforts() -> BTreeMap<String, Effort> {
 pub fn directory() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or("HOME is not set")?;
     Ok(PathBuf::from(home).join(".local/state/north/tune"))
-}
-
-pub fn cells_file() -> Result<PathBuf, String> {
-    Ok(directory()?.join("cells.json"))
 }

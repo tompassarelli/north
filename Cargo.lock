@@ -1201,6 +1201,7 @@ dependencies = [
  "north-fleet-supervisor",
  "north-github-mirror",
  "north-graph-ground",
+ "north-graph-loops",
  "north-pace",
  "north-pacing",
  "north-providers",
@@ -1361,6 +1362,15 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "north-graph-loops"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-graph",
+ "serde_json",
 ]
 
 [[package]]
@@ -1789,9 +1799,11 @@ dependencies = [
  "north-base",
  "north-calibration",
  "north-dispatch",
+ "north-graph-loops",
  "north-pace",
  "north-providers",
  "serde_json",
+ "tempfile",
  "toml_edit",
 ]
 

@@ -1,0 +1,3 @@
+{"find": "budget", "rules": [
+  {"head": {"rel": "budget", "args": [{"var": "cell"}, {"var": "usd"}]},
+   "body": [{"rel": "assertion", "args": ["tune", {"var": "cell"}, ["keyword", "cell/budget-usd"], {"var": "usd"}]}]}]}

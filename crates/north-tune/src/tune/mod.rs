@@ -1,6 +1,6 @@
 //! `north tune`: the daily learning tick. It reads the ledger's closed boxes of the last week and
 //! the week before, prints the dashboard line, writes the effort cells whose arms decided and the
-//! ETA and budget cells to the cells file, appends each changed cell's evidence to the provenance
+//! ETA and budget cells to the graph as one transaction of writer `tune`, appends each changed cell's evidence to the provenance
 //! file, keeps one rolling north issue for the cells whose cost per closed box rose more than 25%
 //! week on week, opened on the second risen tick in a row and closed on the first calm one, and prints the open north issue
 //! count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
@@ -16,12 +16,13 @@
 //! skills no run loaded and those whose boxes did worse. A failed read of the arms' evidence keeps the prior effort cells and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun, rises};
-use crate::dispatch::tuned::directory;
+use crate::dispatch::tuned::{WRITER, directory};
 use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
 use crate::threads::calibration::predictions::Brier;
 use crate::platform::github;
 use crate::platform::rolling_issue::{self, Breaches, alarm};
 use cells::{Cells, Change};
+use north_graph_loops::Learned;
 use costs::Cost;
 use dividends::{Dividend, Reading};
 use serde_json::Value;
@@ -205,7 +206,8 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let ledger = Ledger { week, before, evidence, notes, estimates, briers, runs: coverage::read(), skills };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
-    let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };
+    let learned = files.learned()?;
+    let prior = Prior { cells: learned.cells.clone(), costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };
     let tick = tick(&ledger, &prior, &dividends::definitions()?, &mut Gh { rolling: rolling_issue::Gh::north() }, &at, dry_run);
     tick.lines.iter().for_each(|line| println!("{line}"));
     let loops = crate::loops::here(None);
@@ -215,13 +217,13 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     }
     let tick = failing(tick, &loops);
     if !dry_run {
-        files.write(&tick)?;
+        files.write(&tick, &learned)?;
     }
     Ok(tick)
 }
 
-/// The cells file dispatch's decisions are written to and the provenance file each change of them
-/// is appended to, in north's state directory.
+/// The graph dispatch's cells are told to, and the provenance, costs, readings and breaches files beside
+/// them in north's state directory.
 struct Files {
     dir: PathBuf,
 }
@@ -231,13 +233,12 @@ impl Files {
         Ok(Self { dir: directory()? })
     }
 
-    fn cells(&self) -> Result<Cells, String> {
-        let path = self.dir.join("cells.json");
-        match std::fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Cells::new()),
-            Err(error) => Err(format!("{}: {error}", path.display())),
+    fn learned(&self) -> Result<Learned, String> {
+        let graph = north_graph_loops::graph_path();
+        if !graph.exists() {
+            return Ok(Learned::default());
         }
+        north_graph_loops::read(&graph, WRITER)
     }
 
     fn costs(&self) -> Result<Vec<Cost>, String> {
@@ -267,9 +268,9 @@ impl Files {
         }
     }
 
-    /// Appends the changes' provenance before the cells file moves, so a tick that dies between the
-    /// two re-records a change next time rather than losing its evidence.
-    fn write(&self, tick: &Tick) -> Result<(), String> {
+    /// Appends the changes' provenance before the graph moves, so a tick that dies between the two
+    /// re-records a change next time rather than losing its evidence.
+    fn write(&self, tick: &Tick, prior: &Learned) -> Result<(), String> {
         let failed = |error: std::io::Error| format!("{}: {error}", self.dir.display());
         std::fs::create_dir_all(&self.dir).map_err(failed)?;
         let mut provenance = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("provenance.jsonl")).map_err(failed)?;
@@ -280,11 +281,7 @@ impl Files {
         let mut readings = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("dividends.jsonl")).map_err(failed)?;
         tick.readings.iter().try_for_each(|record| writeln!(readings, "{record}")).map_err(failed)?;
         std::fs::write(self.dir.join("breaches.json"), serde_json::to_string(&tick.breaches).map_err(|error| error.to_string())? + "\n").map_err(failed)?;
-        let staged = self.dir.join("cells.json.tmp");
-        let text = serde_json::to_string_pretty(&tick.cells).map_err(|error| error.to_string())?;
-        let mut file = std::fs::File::create(&staged).map_err(failed)?;
-        file.write_all((text + "\n").as_bytes()).and_then(|()| file.sync_all()).map_err(failed)?;
-        std::fs::rename(&staged, self.dir.join("cells.json")).map_err(failed)
+        north_graph_loops::tell(&north_graph_loops::graph_path(), WRITER, prior, &tick.cells, Timestamp::now().unix_seconds())
     }
 }
 

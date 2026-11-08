@@ -12,11 +12,15 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-dispatch = { path = "../north-dispatch" }
+north-graph-loops = { path = "../north-graph-loops" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }
 north-calibration = { path = "../north-calibration" }
 serde_json.workspace = true
 toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

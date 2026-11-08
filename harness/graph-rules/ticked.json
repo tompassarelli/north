@@ -1,0 +1,3 @@
+{"find": "ticked", "rules": [
+  {"head": {"rel": "ticked", "args": [{"var": "writer"}, {"var": "at"}]},
+   "body": [{"rel": "assertion", "args": [{"var": "writer"}, {"var": "loop"}, ["keyword", "loop/tick-at"], {"var": "at"}]}]}]}

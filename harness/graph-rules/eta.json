@@ -1,0 +1,3 @@
+{"find": "eta", "rules": [
+  {"head": {"rel": "eta", "args": [{"var": "cell"}, {"var": "minutes"}]},
+   "body": [{"rel": "assertion", "args": ["tune", {"var": "cell"}, ["keyword", "cell/eta-minutes"], {"var": "minutes"}]}]}]}

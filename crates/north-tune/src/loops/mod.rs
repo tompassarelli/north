@@ -4,8 +4,10 @@ mod red_main;
 
 pub use check::{Checked, Finding, Reading, check};
 pub use hosts::{Hosts, last_written};
+use std::cell::OnceCell;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use toml_edit::{DocumentMut, Item, Table};
 
 pub static REGISTRY: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table("harness/loops.toml"));
@@ -42,10 +44,18 @@ pub struct Loop {
     pub signal: Option<String>,
     pub updated_by: String,
     pub cadence_hours: u64,
-    pub record: Option<String>,
+    pub store: Option<Store>,
     pub host: Role,
     pub owner: Option<String>,
     pub score: Option<String>,
+}
+
+/// Where a closed loop's last update shows: a record file under the state root, or the newest tick its
+/// writer told graph.db.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Store {
+    Record(String),
+    Graph { writer: String },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -80,9 +90,15 @@ pub fn parse(text: &str) -> Result<Vec<Loop>, String> {
             return Err(format!("loop {name} names no sites"));
         }
         let cadence_hours = table.get("cadence_hours").and_then(Item::as_integer).filter(|hours| *hours > 0).ok_or_else(|| format!("loop {name} has no positive cadence_hours"))?;
-        let (signal, record, owner) = (text("signal"), text("record"), text("owner"));
-        if signal.is_some() != record.is_some() {
-            return Err(format!("loop {name} names a signal and a record together or neither"));
+        let (signal, owner) = (text("signal"), text("owner"));
+        let store = match (text("store").as_deref(), text("record"), text("writer")) {
+            (None, Some(record), None) => Some(Store::Record(record)),
+            (Some("graph"), None, Some(writer)) => Some(Store::Graph { writer }),
+            (None, None, None) => None,
+            _ => return Err(format!("loop {name} names a record, or store = \"graph\" with a writer, or neither")),
+        };
+        if signal.is_some() != store.is_some() {
+            return Err(format!("loop {name} names a signal and where it lands together or neither"));
         }
         if signal.is_none() && owner.is_none() {
             return Err(format!("loop {name} has no signal and no owner to close it"));
@@ -91,7 +107,7 @@ pub fn parse(text: &str) -> Result<Vec<Loop>, String> {
             None => Role::Here,
             Some(role) => Role::parse(&role).ok_or_else(|| format!("loop {name} has host {role}, not ledger, lander or here"))?,
         };
-        Ok(Loop { decision: needs("decision")?, updated_by: needs("updated_by")?, constants: strings(table, "constants"), defaults: strings(table, "defaults"), name, sites, signal, cadence_hours: cadence_hours.unsigned_abs(), record, host, owner, score: text("score") })
+        Ok(Loop { decision: needs("decision")?, updated_by: needs("updated_by")?, constants: strings(table, "constants"), defaults: strings(table, "defaults"), name, sites, signal, cadence_hours: cadence_hours.unsigned_abs(), store, host, owner, score: text("score") })
     }).collect()
 }
 
@@ -108,7 +124,11 @@ pub fn state_root() -> PathBuf {
 pub fn here(role: Option<Role>) -> Result<Checked, String> {
     let loops = parse(&REGISTRY)?;
     let state = state_root();
-    let read = |record: &str| last_written(&state, record).map_or(Reading::Never, Reading::At);
+    let ticks: OnceCell<Result<BTreeMap<String, i64>, String>> = OnceCell::new();
+    let read = |store: &Store| match store {
+        Store::Record(record) => last_written(&state, record).map_or(Reading::Never, Reading::At),
+        Store::Graph { writer } => graph_reading(ticks.get_or_init(|| north_graph_loops::ticks(&north_graph_loops::graph_path())), writer),
+    };
     let score = |record: &str| std::fs::read_to_string(state.join(record)).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty());
     let held: Box<dyn Fn(Role) -> bool> = match role {
         Some(role) => Box::new(move |found| found == role),
@@ -120,6 +140,14 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
     };
     let watched = held(Role::Lander).then(|| red_main::finding(&state, SystemTime::now()));
     Ok(check(&loops, &*held, &read, &score, watched.into_iter().collect(), SystemTime::now()))
+}
+
+/// A graph loop's reading: the newest tick its writer told, from the ticks graph.db holds.
+pub fn graph_reading(ticks: &Result<BTreeMap<String, i64>, String>, writer: &str) -> Reading {
+    match ticks {
+        Err(why) => Reading::Unread(why.clone()),
+        Ok(ticks) => ticks.get(writer).and_then(|at| u64::try_from(*at).ok()).map_or(Reading::Never, |at| Reading::At(SystemTime::UNIX_EPOCH + Duration::from_secs(at))),
+    }
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -157,5 +185,24 @@ mod tests {
     fn the_repo_loops_registry_validates_so_north_loops_and_the_tempo_unit_can_read_it() {
         let registry = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../harness/loops.toml")).unwrap();
         assert_eq!(super::validate(&registry), Ok(()));
+    }
+
+    #[test]
+    fn a_graph_loop_is_judged_from_its_writer_s_newest_tick_and_fails_once_that_tick_is_over_twice_its_cadence_old() {
+        use super::{Reading, Role, check, graph_reading, parse};
+        use std::time::{Duration, SystemTime};
+        let registry = "[[loop]]\nname = \"eta\"\ndecision = \"d\"\nsites = [\"s\"]\nsignal = \"p75 wall\"\nupdated_by = \"north tune\"\ncadence_hours = 24\nstore = \"graph\"\nwriter = \"tune\"\n";
+        let loops = parse(registry).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("graph.db");
+        let ticked = 1_800_000_000;
+        north_graph_loops::tell(&db, "tune", &north_graph_loops::Learned::default(), &[("eta_minutes opus feature".to_owned(), serde_json::json!(92.0))].into(), ticked).unwrap();
+        let ticks = north_graph_loops::ticks(&db);
+        let judged = |hours: u64| check(&loops, &|_: Role| true, &|store| match store {
+            super::Store::Graph { writer } => graph_reading(&ticks, writer),
+            super::Store::Record(_) => Reading::Never,
+        }, &|_: &str| None, Vec::new(), SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + hours * 3_600)).failing;
+        assert_eq!((judged(47), judged(49)), (Vec::<String>::new(), vec!["eta".to_owned()]));
+        assert_eq!(graph_reading(&ticks, "flow"), Reading::Never);
     }
 }

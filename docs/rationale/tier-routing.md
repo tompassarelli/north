@@ -31,9 +31,9 @@ dearer on feature than its own arm boxes show (Arm result, 2026-11-05). Sonnet
 runs only at high effort: a launch without an effort takes the account default, medium, so the session registry pins
 Sonnet to high and refuses any other effort.
 
-`north tune` writes each settled category's route to `~/.local/state/north/tune/cells.json` once a day, and dispatch
-follows that cell while the file is under 36 h old (one missed daily tick plus slack); with no cell for the category or
-an older file it settles the same rule live. The decision is `Evidence::settled` in both places, so the cell is a dated
+`north tune` tells each settled category's route to the graph as writer `tune` once a day, and dispatch
+follows that cell, read through harness/graph-rules/effort.json, while the tick is under 36 h old (one missed daily tick plus slack); with no cell for the category or
+an older tick it settles the same rule live. The decision is `Evidence::settled` in both places, so the cell is a dated
 copy of it, not a second rule.
 
 Implemented: arm-stamped run counts (a box on a tier arm carries that one `Arm:` line, because the ledger records only the first), alternation, the cost per closed box decision and the Sonnet effort pin.
