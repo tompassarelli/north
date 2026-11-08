@@ -139,10 +139,9 @@ fn dispatch_session(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["interactive", name] => interactive::run(fleet, name, false),
         ["interactive", name, interactive::AFTER_TURN] => interactive::run(fleet, name, true),
         ["digest", rest @ ..] => digest::run(fleet, rest),
-        ["forget", name, flags @ ..] if !flags.is_empty() => {
-            let (force, successor) = super::forget_flags::parse(flags).ok_or_else(usage)?;
-            forget(fleet, name, force, successor)
-        }
+        ["forget", name, "--force", reason] => forget(fleet, name, Some(reason), None),
+        ["forget", name, "--to", successor] => forget(fleet, name, None, Some(successor)),
+        ["forget", name, "--force", reason, "--to", successor] => forget(fleet, name, Some(reason), Some(successor)),
         [SWEEP_VERB] => claims::sweep(fleet),
         [verb, name] => session_verb(fleet, verb, name),
         ["revive", name, rest @ ..] => revive::revive_with(fleet, name, rest),
