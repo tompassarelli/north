@@ -45,7 +45,7 @@ pub fn lines(reach: &Reach, path: &str) -> Vec<String> {
     lines
 }
 
-fn tests(reach: &Reach, functions: &[&str]) -> Option<String> {
+pub(crate) fn tests(reach: &Reach, functions: &[&str]) -> Option<String> {
     let mut tests: Vec<String> = Vec::new();
     for function in functions.iter().take(FUNCTIONS_READ) {
         if reach.late() {

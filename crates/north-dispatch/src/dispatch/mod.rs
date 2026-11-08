@@ -42,6 +42,7 @@ mod manual;
 mod nearest;
 mod pause;
 pub mod measure;
+mod pack;
 mod plan;
 mod projects;
 mod record;

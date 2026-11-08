@@ -39,7 +39,7 @@ struct Named<'a> {
     issue_verified: usize,
 }
 
-/// Every experiment the window's boxes carry, each arm with its share of the experiment's boxes in its
+/// Every experiment the window's boxes carry, and the pack experiment in each of their categories, each arm with its share of the experiment's boxes in its
 /// category: the arms dispatch draws between when it runs the experiment, else the arms the boxes name.
 pub fn live(report: &ClosedReport) -> Vec<Arm> {
     let mut experiments: BTreeMap<(&str, &'static str), BTreeMap<&str, Named>> = BTreeMap::new();
@@ -48,6 +48,10 @@ pub fn live(report: &ClosedReport) -> Vec<Arm> {
         let kept = armed.closed && !armed.reworked;
         arm.verified += usize::from(kept && armed.verified);
         arm.issue_verified += usize::from(kept && armed.issue_verified);
+    }
+    let categories: std::collections::BTreeSet<&str> = experiments.keys().map(|(category, _)| *category).collect();
+    for category in categories {
+        experiments.entry((category, "pack")).or_default();
     }
     let mut live = Vec::new();
     for ((category, family), named) in experiments {

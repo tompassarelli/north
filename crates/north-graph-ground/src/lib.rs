@@ -6,6 +6,7 @@ mod due;
 mod file;
 mod footprint;
 mod issue;
+mod pack;
 mod ready;
 mod reach;
 mod rules;
@@ -23,5 +24,6 @@ pub use backlog::{Backlog, Entry, Held, Verdict, Worth, priority, read as read_b
 pub use due::{due, landings as due_landings, pending as due_pending};
 pub use rules::{held_query, ready_query};
 pub use ready::command as ready_command;
+pub use pack::lines as pack_lines;
 pub use reach::{Reach, ground, ground_with};
 pub use seed::{Seed, seeds};

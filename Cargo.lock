@@ -1120,6 +1120,7 @@ version = "0.1.0"
 dependencies = [
  "north-code-health",
  "north-coverage",
+ "north-graph-ground",
  "regex",
 ]
 

@@ -127,7 +127,7 @@ Commands:
   graph ingest [SOURCE...]                      Ingest facts from their sources
   graph validate [--db PATH] [--guards DIR] [--shadow]  Validate the graph against its guards
   work brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given
-  work brief pack PATH...   Print, in at most 3,000 characters, each path's public items with lines, its structure.toml module and what it may use, the files that changed with it most in 90 days with any revert within 48 h, and the nextest filter for the tests that reach it
+  work brief pack [--issue REF]... PATH...   Print, in at most 3,000 characters, each path's public items with lines, its structure.toml module and what it may use, the files that changed with it most in 90 days with any revert within 48 h, and the nextest filter for the tests that reach it
   config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
   check harness policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses

@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-code-health = { path = "../north-code-health" }
 north-coverage = { path = "../north-coverage" }
+north-graph-ground = { path = "../north-graph-ground" }
 regex.workspace = true
 
 [lints]

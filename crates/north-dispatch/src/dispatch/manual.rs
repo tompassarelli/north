@@ -82,7 +82,8 @@ fn context_armed(ask: &Ask, prompt: String, route: Route, history: &History, led
     }
     let evidence = ledger.get(&route.category).cloned().unwrap_or_default();
     let (arm, drawn) = tier::context_arm(ask.item, &route.category, history, &evidence);
-    (super::brief::armed(&prompt, &arm), Route { why: format!("{}, context arm {arm} {drawn}", route.why), ..route })
+    let (armed, why) = super::pack::armed(&prompt, (&arm, &drawn), ask.item, &route.category, history, &evidence);
+    (armed, Route { why: format!("{}, {why}", route.why), ..route })
 }
 
 fn named_tier(name: &str) -> Result<(Tier, Option<&'static str>), String> {

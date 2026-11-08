@@ -38,7 +38,7 @@ pub fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds,
     head.extend(grounds.budget(route));
     head.extend(grounds.trace());
     head.push(grounds.rationale(route));
-    head.push(format!("Files: as {reference} names them"));
+    head.push(declared(issue, "Files").map_or_else(|| format!("Files: as {reference} names them"), |files| format!("Files: {files}")));
     format!(
         "{}\n\n{launched_by} staffed this box because a worker slot was free and {reference} was ready: open, unticked, unheld and unblocked. \
          Read it with `gh issue view {} -R {OWNER}/{}` and work {}; each box's evidence is an observation outside you. \

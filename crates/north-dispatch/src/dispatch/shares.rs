@@ -5,6 +5,9 @@ use crate::ledger::closed::ClosedReport;
 use crate::router::settle::{self, Outcome};
 use std::collections::BTreeMap;
 
+pub const PACK: &str = "context-pack";
+pub const NO_PACK: &str = "no-pack";
+
 /// One experiment's arms in a category with each arm's share of the category's next boxes, as
 /// `settle::shares` gives them from the arms' boxes: what the climber prints and what a launch draws.
 #[derive(Clone, Debug, PartialEq)]
@@ -39,6 +42,7 @@ pub fn experiment_arms(category: &str, family: &str) -> Vec<String> {
         "effort" if PLANNED.contains(&category) => [Effort::High, Effort::Xhigh].map(|effort| effort.arm().to_owned()).to_vec(),
         "effort" => Effort::ARMS.map(|effort| effort.arm().to_owned()).to_vec(),
         "context" => CONTEXT_WINDOWS.map(crate::fleet::compaction::arm).to_vec(),
+        "pack" => vec![PACK.to_owned(), NO_PACK.to_owned()],
         _ => Vec::new(),
     };
     arms.sort();

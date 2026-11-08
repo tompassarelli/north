@@ -33,6 +33,7 @@ fn built(path: &std::path::Path) {
     tell(&mut graph, "push-log", OBSERVED, "landed-by", Term::string("n634-hung-slots"));
     tell(&mut graph, "push-log", OBSERVED, "landed-at", Term::instant(1_793_926_432, 0).unwrap());
     tell(&mut graph, "git", OBSERVED, "touched", Term::string("crates/north-capacity/src/slots.rs"));
+    tell(&mut graph, "git", OBSERVED, "touched", Term::string("crates/north-capacity/src/gate.rs"));
     tell(&mut graph, "corrections", "correction:L1", "class", Term::string("class:unanswered"));
     tell(&mut graph, "corrections", "correction:L1", "paraphrase", Term::string("The reply did not answer the question."));
     tell(&mut graph, "corrections", "correction:L1", "in-session", Term::string("n634-hung-slots"));
@@ -58,4 +59,20 @@ fn the_neighborhood_reads_the_layout_ingest_stores_and_marks_claims_apart_from_o
     assert!(ground(&[Seed::Issue("north#999".into()), Seed::File("nowhere/x.rs".into())]).is_empty());
     let directory = tempfile::tempdir().unwrap();
     assert!(ground_with(&directory.path().join("none.db"), &[Seed::Issue("north#1".into())], None).is_empty());
+}
+
+#[test]
+fn the_pack_quotes_an_unobserved_claim_and_leaves_an_observed_one_out() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("graph.db");
+    built(&path);
+    let until = north_base::platform::wait::after(Duration::from_secs(5));
+    let lines = crate::pack::lines_from(&path, "crates/north-capacity/src/slots.rs", &[], until).join("\n");
+    assert!(lines.contains("touched in the same commits: crates/north-capacity/src/gate.rs (1)"), "{lines}");
+    assert!(lines.contains("claims, quoted and unverified"), "{lines}");
+    assert!(lines.contains("n634-gate claims it done at 0aa2d15"), "{lines}");
+    assert!(!lines.contains("n634-hung-slots claims"), "{lines}");
+    assert!(lines.contains("unanswered: The reply did not answer the question."), "{lines}");
+    let missing = crate::pack::lines_from(&directory.path().join("none.db"), "x/y.rs", &[], until).join("\n");
+    assert!(missing.contains("claims and corrections are unavailable"), "{missing}");
 }

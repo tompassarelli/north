@@ -497,6 +497,19 @@ after = ["2026-11-07", "2026-11-21"]
 review = "2026-11-23"
 owner = "tompassarelli/north#641"
 
+[[experiment]]
+id = "context-pack"
+change = "A dispatched or hand-launched local worker box draws Arm: context-pack or Arm: no-pack in seeded equal shares, its own pack experiment beside the context-window one, and on the pack arm its brief carries the Files: line's `north work brief pack` output (items, placement, co-changed files, reaching tests, and the fact graph's unverified claims and correction classes)"
+landed = "efee5751c33c"
+metric = "none"
+measure = "over the closed worker boxes of one category stamped Arm: context-pack and Arm: no-pack in `north ops climb run --dry-run`, the settle rule's cost per kept box with no lower kept share: keep the pack when the pack arm settles ahead, else delete the arm and `north work brief pack` in one lane"
+direction = "down"
+bar = 0.0
+min_n = 15
+after = ["2026-11-09", "2026-12-09"]
+review = "2026-12-11"
+owner = "tompassarelli/north#873"
+
 [[check]]
 id = "n637-day-without-timeouts"
 box = "shows no start timeout for a day after it lands"

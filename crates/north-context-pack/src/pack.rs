@@ -1,16 +1,21 @@
 use crate::{cochange, outline, placement, tests_reaching::Reach};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+const GRAPH_PATIENCE: Duration = Duration::from_millis(120);
+const GRAPH_LINE: usize = 240;
 
 pub fn root() -> Option<PathBuf> {
     let output = Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok().filter(|output| output.status.success())?;
     Some(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
 }
 
-pub fn render(root: &Path, paths: &[String], most: usize) -> String {
+pub fn render(root: &Path, paths: &[String], issues: &[String], most: usize) -> String {
+    let until = Instant::now() + GRAPH_PATIENCE;
     let (reach, facts): (Reach, Vec<Facts>) = std::thread::scope(|scope| {
         let reach = scope.spawn(|| Reach::load(root));
-        let handles: Vec<_> = paths.iter().map(|path| scope.spawn(|| Facts::read(root, path))).collect();
+        let handles: Vec<_> = paths.iter().map(|path| scope.spawn(|| Facts::read(root, path, issues, until))).collect();
         let facts = handles.into_iter().map(|handle| handle.join().expect("pack reader")).collect();
         (reach.join().expect("coverage map reader"), facts)
     });
@@ -22,10 +27,11 @@ struct Facts {
     path: String,
     items: Vec<String>,
     lines: Vec<String>,
+    graph: Vec<String>,
 }
 
 impl Facts {
-    fn read(root: &Path, path: &str) -> Self {
+    fn read(root: &Path, path: &str, issues: &[String], until: Instant) -> Self {
         let source = std::fs::read_to_string(root.join(path)).unwrap_or_default();
         let history = cochange::of(root, path);
         let mut lines = Vec::new();
@@ -35,12 +41,13 @@ impl Facts {
             lines.push(format!("changed with it in 90 days: {}", named.join(", ")));
         }
         lines.extend(history.reverts.iter().map(|revert| format!("revert: {revert}")));
-        Self { path: path.to_owned(), items: outline::items(&source), lines }
+        let graph = north_graph_ground::pack_lines(path, issues, until).into_iter().map(|line| line.chars().take(GRAPH_LINE).collect()).collect();
+        Self { path: path.to_owned(), items: outline::items(&source), lines, graph }
     }
 
     fn block(&self, budget: usize, reach: &Reach) -> String {
         let mut text = format!("{}\n", self.path);
-        for line in self.lines.iter().cloned().chain([reach.line(&self.path)]) {
+        for line in self.lines.iter().cloned().chain([reach.line(&self.path)]).chain(self.graph.iter().cloned()) {
             text.push_str(&format!("  {line}\n"));
         }
         let room = budget.saturating_sub(text.len() + "  outline: \n".len());

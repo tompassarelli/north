@@ -1,7 +1,7 @@
 use super::issues::{self, Issue};
 use super::plan::Launch;
 use super::survey::Survey;
-use super::{brief, tier};
+use super::{brief, pack, tier};
 
 pub(super) fn admitted(survey: &Survey, issue: &Issue, world: &issues::World) -> Result<(), String> {
     if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
@@ -31,6 +31,8 @@ pub(super) fn arm(survey: &Survey, launch: &mut Launch) {
     }
     let evidence = survey.ledger.get(&launch.route.category).cloned().unwrap_or_default();
     let (arm, drawn) = tier::context_arm(&launch.item.to_string(), &launch.route.category, &survey.history, &evidence);
-    launch.brief = brief::armed(&launch.brief, &arm);
-    launch.route.why = format!("{}, context arm {arm} {drawn}", launch.route.why);
+    let item = launch.item.to_string();
+    let (armed, why) = pack::armed(&launch.brief, (&arm, &drawn), &item, &launch.route.category, &survey.history, &evidence);
+    launch.brief = armed;
+    launch.route.why = format!("{}, {why}", launch.route.why);
 }

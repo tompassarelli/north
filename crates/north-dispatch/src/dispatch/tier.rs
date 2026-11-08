@@ -402,6 +402,14 @@ pub fn context_arm(item: &str, category: &str, history: &History, evidence: &Evi
     (arm.to_owned(), drawn)
 }
 
+/// The pack arm this item's next launch draws from the category's pack shares, and the words naming
+/// the share it drew from.
+pub fn pack_arm(item: &str, category: &str, history: &History, evidence: &Evidence) -> (String, String) {
+    let shares = evidence.shares(category, "pack");
+    let (arm, drawn) = shares.draw(&history.seed("pack", item));
+    (arm.to_owned(), drawn)
+}
+
 /// Each context arm's boxes, closed boxes, kept boxes and cost per kept box among the fleet's arm
 /// boxes, each item counted once.
 pub fn context_figures(arm_boxes: &[ArmBox]) -> Vec<String> {

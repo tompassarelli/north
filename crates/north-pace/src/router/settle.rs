@@ -104,6 +104,7 @@ impl SplitMix {
 pub fn family(arm: &str) -> &'static str {
     match arm {
         "no-handoff" => "handoff",
+        "context-pack" | "no-pack" => "pack",
         _ if arm.starts_with("handoff-") => "handoff",
         _ if arm.starts_with("effort-") => "effort",
         _ if arm.starts_with("context-") => "context",
