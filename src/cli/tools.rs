@@ -82,7 +82,6 @@ const DIRECT: &[(&str, Run)] = &[
 pub(super) enum Tool {
     Uniform(&'static str),
     Direct(&'static str),
-    Wisp,
     Pace,
     Capacity,
     SessionUnit,
@@ -99,7 +98,6 @@ const FLEET: &[(&str, Run)] = &[("report", crate::ops::report::run), ("usage", s
 
 const OPERATIONS: &[(&str, Tool)] = &[
     ("test", Tool::Test),
-    ("wisp", Tool::Wisp),
     ("capacity", Tool::Capacity),
     ("session-unit", Tool::SessionUnit),
 ];
@@ -129,9 +127,6 @@ impl Tool {
                 super::in_runtime(async move { Ok(ExitCode::from(run.map_or(2, |run| run(arguments)))) })
             }
             Self::Direct(name) => ExitCode::from(runner(DIRECT, name).map_or(2, |run| run(arguments))),
-            Self::Wisp => super::in_runtime(async move {
-                crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
-            }),
             Self::Dispatch => ExitCode::from(crate::dispatch::run(arguments, super::fleet::roster)),
             Self::Fleet(name) => {
                 let run = runner(FLEET, name);

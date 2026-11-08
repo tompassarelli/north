@@ -170,7 +170,6 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("tune", Bookkeeping),
     ("usage-web-read", Status),
     ("watch-review", Status),
-    ("wisp", Diagnosis),
     ("work brief", Brief),
     ("work claim", Bookkeeping),
     ("work close", Bookkeeping),

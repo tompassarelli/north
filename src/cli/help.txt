@@ -17,7 +17,6 @@ Operator console:
 Work and knowledge:
   work                  List, claim and close work items; write briefs, route reviews
   graph                 Record and query facts, ground prompts, list the ready backlog
-  wisp payoff           Measure Wisp agreement and native utilization
 
 Engineering and landing:
   check                 Citations, goals, boxes, nix, provenance, privacy, the harness

@@ -433,8 +433,8 @@ may_use = ["strategy_types", "foundation", "platform.process", "platform"]
 
 [[module]]
 name = "platform.process"
-paths = ["crates/north-base/src/platform/process.rs", "crates/north-base/src/platform/stdio.rs", "crates/north-base/src/platform/terminal.rs", "crates/north-base/src/platform/session_scope.rs", "crates/north-base/src/platform/north_binary.rs", "crates/north-base/src/platform/private_text.rs", "crates/north-base/src/platform/wayland_idle.rs", "crates/north-base/src/platform/entry_points.rs", "crates/north-base/src/platform/hook_commands.rs", "crates/north-base/src/platform/attribution.rs", "crates/north-base/src/platform/shared_target*.rs"]
-responsibility = "The process adapter: spawning, stdio, terminals, systemd scopes, the north binary, and the commands hooks run."
+paths = ["crates/north-base/src/platform/process.rs", "crates/north-base/src/platform/stdio.rs", "crates/north-base/src/platform/terminal.rs", "crates/north-base/src/platform/session_scope.rs", "crates/north-base/src/platform/north_binary.rs", "crates/north-base/src/platform/private_text.rs", "crates/north-base/src/platform/wayland_idle.rs", "crates/north-base/src/platform/entry_points.rs", "crates/north-base/src/platform/hook_commands.rs", "crates/north-base/src/platform/attribution.rs", "crates/north-base/src/platform/shared_target*.rs", "crates/north-base/src/platform/project_status.rs"]
+responsibility = "The process adapter: spawning, stdio, terminals, systemd scopes, the north binary, the commands hooks run, and the status command each project declares."
 may_use = ["strategy_types", "foundation", "platform.harness"]
 
 [[module]]
@@ -464,7 +464,7 @@ may_use = ["strategy_types", "foundation", "platform.harness", "platform.host"]
 [[module]]
 name = "platform"
 paths = ["crates/north-base/src/platform/**"]
-responsibility = "The platform root and the small pure helpers beside the adapters: clean-up headings, Follows: lines, trials, the twister and the Wisp payoff record."
+responsibility = "The platform root and the small pure helpers beside the adapters: clean-up headings, Follows: lines, trials and the twister."
 may_use = ["strategy_types", "foundation", "platform.git"]
 
 [[module]]

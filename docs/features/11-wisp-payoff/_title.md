@@ -1,1 +1,0 @@
-## Wisp payoff

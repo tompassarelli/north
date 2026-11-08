@@ -129,8 +129,9 @@ which is not written yet, so the pace and account types in `crates/north-core/sr
 - `north policy-replay` sweep, run and promote: gex45 sessions ran them 193 times in 14 days, sweeps were last
   written 2026-11-04 (south `agents/replay/`), and `agents sync` and safe-push read the operating point it
   promotes. The 2026-11-04 E3 arms that found no gain were reverted by that gate, which is the gate working.
-- `north wisp payoff`: it prints no retirement candidate yet (`0 retire`), but it is the measurement that would
-  name one; it feeds the fleet Ctrl+T digest (`crates/north-tui/src/tui/fleet/desk.rs:206`).
+- The measurement of what native runs pay off against Wisp: it prints no retirement candidate yet (`0 retire`), but it is the measurement that would
+  name one. It moved to Wisp as `bun wisp native payoff` (north#906, 2026-11-08), since north should know no
+  project's evidence format, and reaches the fleet Ctrl+T digest through Wisp's declared `status_command`.
 - `north tune`: its dividend lines on 2026-11-03 and 2026-11-04 are all PAYING (cost per closed box $38.49
   against a $42 bar).
 - Planned measurements not yet due: capacity-scheduler W2-0, pstack E1 to E3 (north#524), one-landing-per-change

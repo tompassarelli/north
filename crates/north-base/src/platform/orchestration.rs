@@ -52,3 +52,14 @@ pub fn placed_hosts(path: &Path) -> Option<Vec<String>> {
 pub fn reaches(cfg: &DocumentMut, here: &str, host: &str) -> bool {
     host == here || cfg.get("hosts").and_then(|hosts| hosts.get(here)?.get("reaches")?.as_array()).is_some_and(|names| names.iter().any(|name| name.as_str() == Some(host)))
 }
+
+/// Each `[projects.NAME]` that declares `status_command = ["PROGRAM", "ARG", ...]`: the command whose first line of output the fleet digest shows for it.
+pub fn status_commands(cfg: &DocumentMut) -> Vec<(String, Vec<String>)> {
+    let projects = cfg.get("projects").and_then(Item::as_table_like).into_iter().flat_map(|projects| projects.iter());
+    projects
+        .filter_map(|(name, project)| {
+            let argv = project.get("status_command")?.as_array()?;
+            Some((name.to_owned(), argv.iter().filter_map(|value| value.as_str().map(str::to_owned)).collect()))
+        })
+        .collect()
+}

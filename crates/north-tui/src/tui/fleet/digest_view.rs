@@ -26,7 +26,7 @@ pub fn draw_digest(frame: &mut Frame<'_>, screen: &Screen, area: Rect, now_ms: u
 pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u64, width: usize) -> Vec<Line<'static>> {
     let open = digest.books.open_gates().count();
     let mut lines = vec![Line::from(vec![Span::styled("decisions", BOLD), Span::styled(format!(" · {open} open"), MUTED)])];
-    lines.push(Line::from(digest.wisp_payoff.clone()));
+    lines.extend(digest.project_status.iter().map(|status| Line::from(status.clone())));
     if digest.books.gates.is_empty() {
         lines.push(Line::from(Span::styled("  no decisions waiting on Tom", MUTED)));
     }

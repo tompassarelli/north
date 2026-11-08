@@ -5,7 +5,6 @@ Usage: north [COMMAND]
 Run north --help for the operator and agent commands, or north COMMAND --help for one.
 
 Commands:
-  wisp payoff [--since YYYY-MM-DD] [--json]      Measure Wisp agreement and native utilization
   health [--dry-run]                             Check harness invariants
   check calls [--tree DIR] [--live DIR]         Read every north call on this host (unit Exec lines and the scripts they run, hooks, ssh hops in the --tree source) against this runtime, exit 1 naming each unparsable one; runtime update runs it from the incoming runtime before each swap
   check citations [--root DIR] [--list]         Fail on a doc, skill or hook that cites a north subcommand the CLI does not define

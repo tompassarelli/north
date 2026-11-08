@@ -16,6 +16,7 @@ use crate::fleet::runtime::now_ms;
 
 const UPKEEP_INTERVAL: Duration = Duration::from_secs(30);
 const GATE_RETRY: Duration = Duration::from_secs(2);
+const STATUS_INTERVAL: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSummary {
@@ -32,7 +33,7 @@ pub trait SessionDesk {
     fn sessions(&self) -> Vec<SessionSummary>;
     fn transcript(&self, name: &str) -> Option<&Transcript>;
     fn digest(&self) -> Digest;
-    fn wisp_payoff(&self) -> String { String::new() }
+    fn project_status(&self) -> Vec<String> { Vec::new() }
     fn choices(&self) -> Vec<Choices> { Vec::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
@@ -90,11 +91,12 @@ pub struct FleetDesk {
     digest: Digest,
     digest_read: Option<(Revision, u64)>,
     upkeep: Upkeep,
+    status: ProjectStatus,
 }
 
 impl FleetDesk {
     pub fn new(fleet: Fleet) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default() }
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: ProjectStatus::default() }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -158,7 +160,7 @@ impl SessionDesk for FleetDesk {
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
         let measured = self.upkeep.tend(&self.fleet, &self.digest)?;
-        Ok(changed | measured)
+        Ok(changed | measured | self.status.tend())
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -185,7 +187,7 @@ impl SessionDesk for FleetDesk {
         self.digest.clone()
     }
 
-    fn wisp_payoff(&self) -> String { self.upkeep.summary.clone() }
+    fn project_status(&self) -> Vec<String> { self.status.lines.clone() }
 
     fn choices(&self) -> Vec<Choices> {
         self.fleet.choices()
@@ -198,8 +200,7 @@ impl SessionDesk for FleetDesk {
 
 #[derive(Default)]
 struct Upkeep {
-    job: Option<JoinHandle<NorthResult<String>>>,
-    summary: String,
+    job: Option<JoinHandle<NorthResult<()>>>,
     last: Option<Instant>,
 }
 
@@ -207,7 +208,7 @@ impl Upkeep {
     fn tend(&mut self, fleet: &Arc<Fleet>, digest: &Digest) -> NorthResult<bool> {
         let mut changed = false;
         if let Some(job) = self.job.take_if(|job| job.is_finished()) {
-            self.summary = job.join().map_err(|_| NorthError::State("fleet upkeep panicked".into()))??;
+            job.join().map_err(|_| NorthError::State("fleet upkeep panicked".into()))??;
             changed = true;
         }
         let now = now_ms();
@@ -222,9 +223,30 @@ impl Upkeep {
     }
 }
 
-fn upkeep(fleet: &Fleet) -> NorthResult<String> {
+fn upkeep(fleet: &Fleet) -> NorthResult<()> {
     let undelivered = fleet.sweep_gates()?.into_iter().find_map(|(_, outcome)| outcome.err());
     fleet.observe_landings()?;
-    undelivered.map_or(Ok(()), Err)?;
-    Ok(crate::platform::wisp_payoff::collect(None).map(|report| report.summary()).unwrap_or_else(|error| format!("Wisp payoff unavailable: {error}")))
+    undelivered.map_or(Ok(()), Err)
+}
+
+#[derive(Default)]
+struct ProjectStatus {
+    job: Option<JoinHandle<Vec<String>>>,
+    lines: Vec<String>,
+    last: Option<Instant>,
+}
+
+impl ProjectStatus {
+    fn tend(&mut self) -> bool {
+        let mut changed = false;
+        if let Some(job) = self.job.take_if(|job| job.is_finished()) {
+            self.lines = job.join().unwrap_or_else(|_| vec!["project status panicked".into()]);
+            changed = true;
+        }
+        if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= STATUS_INTERVAL) {
+            self.job = Some(thread::spawn(crate::platform::project_status::lines));
+            self.last = Some(Instant::now());
+        }
+        changed
+    }
 }
