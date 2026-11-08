@@ -17,6 +17,7 @@ const OUTBOX: &str = "outbox";
 const HISTORY_S: f64 = 7.0 * 86_400.0;
 const MIN_CHECKS: usize = 5;
 const VERDICT_LINE: &str = "safe-push: verdict ";
+const LANE_GATES: &str = ".lane-gates.log";
 
 pub(super) fn default_number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
@@ -30,7 +31,6 @@ pub struct Facts {
     pub oldest_queued_at: Option<f64>,
     pub last_landed_at: Option<f64>,
     pub check_started_at: Option<f64>,
-    pub check_after_landing: bool,
     pub check_p90_s: Option<f64>,
     pub main_at: Option<f64>,
     pub last_line: Option<String>,
@@ -48,8 +48,6 @@ pub struct Reading {
     pub stalled: bool,
     pub last_line: Option<String>,
     pub reasons: Vec<String>,
-    #[serde(default)]
-    pub notes: Vec<String>,
 }
 
 fn modified(path: &Path) -> Option<f64> {
@@ -95,11 +93,9 @@ pub fn read(directory: &Path, now: f64) -> Facts {
         })
         .filter_map(|path| modified(&path))
         .reduce(f64::max);
-    let mut logs: Vec<(f64, PathBuf)> = listed(&directory.join("logs"), "log").into_iter().filter_map(|path| Some((started_at(&path)?, path))).collect();
+    let mut logs: Vec<(f64, PathBuf)> = listed(&directory.join("logs"), "log").into_iter().filter(|path| !path.to_string_lossy().ends_with(LANE_GATES)).filter_map(|path| Some((started_at(&path)?, path))).collect();
     logs.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let running = logs.last().filter(|(_, path)| !finished(path));
-    let check_started_at = running.map(|(started, _)| *started);
-    let check_after_landing = running.is_some_and(|(_, path)| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("post-land-")));
+    let check_started_at = logs.last().filter(|(_, path)| !finished(path)).map(|(started, _)| *started);
     let mut durations: Vec<f64> = logs.iter().filter(|(started, path)| now - started <= HISTORY_S && finished(path)).filter_map(|(started, path)| Some(modified(path)? - started)).collect();
     let newest = logs.iter().filter_map(|(_, path)| Some((modified(path)?, path))).max_by(|a, b| a.0.total_cmp(&b.0));
     Facts {
@@ -108,7 +104,6 @@ pub fn read(directory: &Path, now: f64) -> Facts {
         oldest_queued_at,
         last_landed_at,
         check_started_at,
-        check_after_landing,
         check_p90_s: percentile_90(&mut durations),
         main_at: None,
         last_line: newest.and_then(|(_, path)| last_line(path)),
@@ -135,7 +130,6 @@ pub fn judge(facts: &Facts) -> Reading {
         stalled: idle_minutes.is_some_and(|idle| idle > stall_limit_minutes),
         last_line: facts.last_line.clone(),
         reasons: Vec::new(),
-        notes: Vec::new(),
     };
     if let (true, Some(idle)) = (reading.stalled, reading.idle_minutes) {
         reading.reasons.push(format!("{} queued with no landing for {idle:.0}m > {stall_limit_minutes:.0}m", facts.depth));
@@ -143,11 +137,7 @@ pub fn judge(facts: &Facts) -> Reading {
     if let (Some(age), Some(limit)) = (reading.check_minutes, reading.check_limit_minutes)
         && age > limit
     {
-        if facts.check_after_landing {
-            reading.notes.push(format!("after-landing run running {age:.0}m > {limit:.0}m ({multiple:.0} x its p90); it blocks no landing"));
-        } else {
-            reading.reasons.push(format!("lander candidate check running {age:.0}m > {limit:.0}m ({multiple:.0} x its p90)"));
-        }
+        reading.reasons.push(format!("lander candidate check running {age:.0}m > {limit:.0}m ({multiple:.0} x its p90)"));
     }
     reading
 }

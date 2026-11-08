@@ -52,9 +52,7 @@ fn lander(row: &Value) -> String {
     if reading["depth"].as_u64().unwrap_or(0) == 0 && !reading["check_minutes"].is_number() {
         return String::new();
     }
-    let notes: Vec<&str> = reading["notes"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-    let notes = if notes.is_empty() { String::new() } else { format!(" (note: {})", notes.join("; ")) };
-    format!(", lander {} queued oldest {} last landing {} ago check {}{notes}", reading["depth"].as_u64().unwrap_or(0), minutes(&reading["oldest_minutes"]), minutes(&reading["last_landing_minutes"]), minutes(&reading["check_minutes"]))
+    format!(", lander {} queued oldest {} last landing {} ago check {}", reading["depth"].as_u64().unwrap_or(0), minutes(&reading["oldest_minutes"]), minutes(&reading["last_landing_minutes"]), minutes(&reading["check_minutes"]))
 }
 
 fn stall(row: &Value) -> String {
