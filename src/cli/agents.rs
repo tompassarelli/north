@@ -17,7 +17,7 @@ pub(super) fn claude_access() -> RuntimeAccess {
 }
 
 pub(super) fn run(arguments: &[String]) -> u8 {
-    let Some(verb) = arguments.first().and_then(|name| Verb::named(name)) else {
+    let Some(verb) = arguments.first().map_or(Some(Verb::Catalog), |name| Verb::named(name)) else {
         eprintln!("{}", agents::USAGE);
         return 2;
     };
@@ -105,8 +105,5 @@ fn with_harness(work: impl FnOnce(&Path) -> u8) -> u8 {
 }
 
 pub(super) fn config(arguments: &[String]) -> std::process::ExitCode {
-    match arguments.first().map(String::as_str) {
-        Some("plan" | "busy" | "usage" | "routines") => super::in_runtime(async move { Ok(std::process::ExitCode::from(run(arguments))) }),
-        _ => super::in_runtime(async move { agent_catalog::run(arguments).map(|()| std::process::ExitCode::SUCCESS) }),
-    }
+    super::in_runtime(async move { Ok(std::process::ExitCode::from(run(arguments))) })
 }

@@ -22,7 +22,7 @@ pub enum Verb {
 impl Verb {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
-            "status" | "stale" | "inspect" | "path" | "on" | "off" => Self::Catalog,
+            "status" | "stale" | "inspect" | "path" | "on" | "off" | "check-hook-paths" | "check-owners" | "live-refs" => Self::Catalog,
             "sync" => Self::Sync,
             "plan" => Self::Plan,
             "busy" => Self::Busy,
