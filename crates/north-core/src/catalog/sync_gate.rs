@@ -123,14 +123,14 @@ pub(super) fn current_main(
                 say(format!(
                     "agents sync: {name} checkout was {left} at an ancestor of origin/main; switched to main"
                 ));
-                fast_forward(fetched, &git)
+                fast_forward(directory, fetched, &git)
             }
             Err(reason) => Some(reason),
         },
         (branch, _, _) if branch != Some("main") => Some("checkout is not on main".to_owned()),
         (_, ahead, _) if ahead > 0 => Some(format!("diverged with {ahead} local commits")),
         (_, _, true) => Some("uncommitted changes".to_owned()),
-        _ => fast_forward(fetched, &git),
+        _ => fast_forward(directory, fetched, &git),
     };
     let Some(reason) = reason else {
         return Ok(());
@@ -153,9 +153,36 @@ fn reattach<T>(git: &impl Fn(&[&str]) -> Option<T>) -> Result<(), String> {
         .ok_or_else(|| "checkout is off main and git switch main failed".to_owned())
 }
 
-fn fast_forward<T>(fetched: bool, git: &impl Fn(&[&str]) -> Option<T>) -> Option<String> {
-    let merged = !fetched || git(&["merge", "-q", "--ff-only", "origin/main"]).is_some();
-    (!merged).then(|| "git merge --ff-only failed".to_owned())
+fn fast_forward<T>(directory: &Path, fetched: bool, git: &impl Fn(&[&str]) -> Option<T>) -> Option<String> {
+    if !fetched || git(&["merge", "-q", "--ff-only", "origin/main"]).is_some() {
+        return None;
+    }
+    let differing = clear_identical_untracked(directory);
+    if !differing.is_empty() {
+        return Some(format!("untracked files with different bytes block the fast-forward: {}", differing.join(", ")));
+    }
+    git(&["merge", "-q", "--ff-only", "origin/main"]).is_none().then(|| "git merge --ff-only failed".to_owned())
+}
+
+fn clear_identical_untracked(directory: &Path) -> Vec<String> {
+    let lines = |args: &[&str]| -> Vec<String> {
+        git::run(directory, args)
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| output.stdout.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| String::from_utf8_lossy(path).into_owned()).collect())
+            .unwrap_or_default()
+    };
+    let incoming = lines(&["diff", "-z", "--no-renames", "--name-only", "--diff-filter=A", "HEAD", "origin/main"]);
+    let mut differing = Vec::new();
+    for path in lines(&["ls-files", "-z", "--others", "--exclude-standard"]).into_iter().filter(|path| incoming.contains(path)) {
+        let blob = git::run(directory, &["cat-file", "blob", &format!("origin/main:{path}")]).ok().filter(|output| output.status.success());
+        let file = directory.join(&path);
+        let identical = blob.is_some_and(|blob| std::fs::symlink_metadata(&file).is_ok_and(|meta| meta.is_file()) && std::fs::read(&file).is_ok_and(|bytes| bytes == blob.stdout));
+        if !identical || std::fs::remove_file(&file).is_err() {
+            differing.push(path);
+        }
+    }
+    differing
 }
 
 pub(super) fn north_checkout(

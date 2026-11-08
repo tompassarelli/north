@@ -122,3 +122,26 @@ fn stale_locks_a_killed_git_left_in_main_are_cleared_and_main_still_fast_forward
     assert_eq!(head(&pair.clone), head(&pair.origin));
     assert_eq!(said.iter().filter(|line| line.contains("cleared the stale git lock")).count(), 4, "{said:?}");
 }
+
+#[test]
+fn an_untracked_file_identical_to_the_incoming_blob_is_removed_and_main_fast_forwards_but_a_differing_one_still_refuses_north_959() {
+    let pair = pair();
+    fs::write(pair.origin.join("same.rs"), "fn same() {}\n").unwrap();
+    fs::write(pair.origin.join("other.rs"), "fn incoming() {}\n").unwrap();
+    git(&pair.origin, &["add", "."]);
+    commit(&pair.origin, "adds two files");
+    fs::write(pair.clone.join("same.rs"), "fn same() {}\n").unwrap();
+    fs::write(pair.clone.join("other.rs"), "fn local() {}\n").unwrap();
+    let before = head(&pair.clone);
+    let (outcome, _) = sync(&pair);
+    assert_eq!(
+        outcome.unwrap_err(),
+        "south main is behind origin by 1 and not fast-forwardable: untracked files with different bytes block the fast-forward: other.rs"
+    );
+    assert_eq!(head(&pair.clone), before);
+    assert_eq!(fs::read_to_string(pair.clone.join("other.rs")).unwrap(), "fn local() {}\n");
+    fs::remove_file(pair.clone.join("other.rs")).unwrap();
+    let (outcome, said) = sync(&pair);
+    assert_eq!(outcome, Ok(()), "{said:?}");
+    assert_eq!(head(&pair.clone), head(&pair.origin));
+}
