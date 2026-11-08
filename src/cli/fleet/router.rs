@@ -139,7 +139,9 @@ fn dispatch_session(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["interactive", name] => interactive::run(fleet, name, false),
         ["interactive", name, interactive::AFTER_TURN] => interactive::run(fleet, name, true),
         ["digest", rest @ ..] => digest::run(fleet, rest),
-        ["forget", name, "--force", reason] => forget(fleet, name, Some(reason)),
+        ["forget", name, "--force", reason] => forget(fleet, name, Some(reason), None),
+        ["forget", name, "--to", successor] => forget(fleet, name, None, Some(successor)),
+        ["forget", name, "--force", reason, "--to", successor] => forget(fleet, name, Some(reason), Some(successor)),
         [SWEEP_VERB] => claims::sweep(fleet),
         [verb, name] => session_verb(fleet, verb, name),
         ["revive", name, rest @ ..] => revive::revive_with(fleet, name, rest),
@@ -152,7 +154,7 @@ pub(super) fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult
     match verb {
         "interrupt" => controlled(fleet, ControlVerb::Interrupt, name),
         "stop" => controlled(fleet, ControlVerb::Stop, name),
-        "forget" => forget(fleet, name, None),
+        "forget" => forget(fleet, name, None, None),
         "revive" if fleet.session(name).is_err() => controlled(fleet, ControlVerb::Revive, name),
         "revive" => revive::revive(fleet, name, None, None, Overrides::default()),
         "show" => show::show(fleet, name, false),
@@ -181,8 +183,8 @@ fn told(controlled: Controlled, verb: ControlVerb, name: &str) {
 }
 
 
-fn forget(fleet: &Fleet, name: &str, force: Option<&str>) -> NorthResult<()> {
-    let forgotten = fleet.forget_unless_queued(name, force)?;
+fn forget(fleet: &Fleet, name: &str, force: Option<&str>, successor: Option<&str>) -> NorthResult<()> {
+    let forgotten = fleet.forget_unless_queued(name, force, successor)?;
     for lane in &forgotten.overrode {
         eprintln!("forgot {name} with {} (branch {}) still queued: {}", lane.ticket.display(), lane.branch, force.unwrap_or_default());
     }

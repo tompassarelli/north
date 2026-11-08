@@ -74,7 +74,7 @@ impl SessionActions for Fleet {
     }
 
     fn forget(&self, name: &str) -> NorthResult<()> {
-        self.forget_unless_queued(name, None).map(drop)
+        self.forget_unless_queued(name, None, None).map(drop)
     }
 
     fn decide(&self, gate: i64, decision: Decision) -> NorthResult<()> {

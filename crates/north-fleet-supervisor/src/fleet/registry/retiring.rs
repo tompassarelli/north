@@ -30,6 +30,7 @@ const DAY_MS: u64 = 86_400_000;
 
 impl Fleet {
     pub fn retire(&self, name: &str, why: &str, last: Option<&str>) -> NorthResult<PathBuf> {
+        self.hand_over_lanes(&self.record(name)?, None, true)?;
         let note = json!({"why": why, "at_ms": now_ms(), "last": last});
         fs::write(self.session_dir(name)?.join(NOTE), serde_json::to_vec_pretty(&note)?)?;
         let stop = last.and_then(|last| last.lines().rev().map(str::trim).find(|line| line.starts_with("Stop:")));
@@ -83,7 +84,12 @@ impl Fleet {
         if self.session_dir(name)?.exists() || self.known_elsewhere(name)? {
             return Ok(None);
         }
-        let Some(mut record) = self.retired_record(name) else { return Ok(None) };
+        let Some(record) = self.retired_record(name) else { return Ok(None) };
+        self.nearest_heir(record)
+    }
+
+    /// The nearest ancestor of `record` still in the fleet, else the live proxy.
+    pub(super) fn nearest_heir(&self, mut record: SessionRecord) -> NorthResult<Option<String>> {
         for _ in 0..MOST_HOPS {
             let Some(parent) = record.parent.clone() else { break };
             if self.session_dir(&parent)?.exists() || self.known_elsewhere(&parent)? {

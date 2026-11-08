@@ -115,12 +115,16 @@ impl Fleet {
 
     /// Forgets `name` here or spools the forget to its host, unless a land-queue ticket on this host
     /// still reports to it; `force` names why it should go anyway.
-    pub fn forget_unless_queued(&self, name: &str, force: Option<&str>) -> NorthResult<Forgotten> {
-        let cwd = self.session_dir(name)?.exists().then(|| self.record(name)).transpose()?.map(|record| record.cwd);
-        let lanes = forget::queued_lanes(&self.state.join("land-queue"), name, cwd.as_deref());
-        forget::admit(name, &lanes, force)?;
+    pub fn forget_unless_queued(&self, name: &str, force: Option<&str>, successor: Option<&str>) -> NorthResult<Forgotten> {
+        let record = self.session_dir(name)?.exists().then(|| self.record(name)).transpose()?;
+        let lanes = forget::queued_lanes(&self.state.join("land-queue"), name, record.as_ref().map(|record| record.cwd.as_path()));
+        let heir = record.as_ref().map(|record| self.lane_heir(record, successor)).transpose()?.flatten();
+        forget::admit(name, &lanes, heir.as_deref(), force)?;
+        if let (Some(record), Some(_)) = (&record, successor) {
+            self.hand_over_lanes(record, successor, true)?;
+        }
         let controlled = self.control(ControlVerb::Forget, name)?;
-        Ok(Forgotten { controlled, overrode: lanes })
+        Ok(Forgotten { controlled, overrode: if heir.is_some() { Vec::new() } else { lanes } })
     }
 
     pub fn forget(&self, name: &str) -> NorthResult<()> {
@@ -128,6 +132,9 @@ impl Fleet {
     }
 
     pub(super) fn forget_for(&self, name: &str, why: Halt) -> NorthResult<()> {
+        if let Ok(record) = self.record(name) {
+            self.hand_over_lanes(&record, None, false)?;
+        }
         self.archive(name, why, why.label())?;
         self.release_all_claims_of(name)?;
         self.uncache_session(name)
