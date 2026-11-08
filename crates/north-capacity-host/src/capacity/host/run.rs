@@ -228,7 +228,7 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
     } else {
         arguments.extend([format!("--property=RuntimeMaxSec={}", timeout_seconds.map_or_else(|| "infinity".to_owned(), |seconds| format!("{seconds}s"))), "--".to_owned()]);
     }
-    let jobs = field(&scope, "cpus").filter(|cpus| cpus.is_finite()).map_or(1.0, f64::ceil).max(1.0).to_string();
+    let jobs = field(&admitted.value(), "requestedCpus").or_else(|| field(&scope, "cpus")).filter(|cpus| cpus.is_finite() && *cpus > 0.0).map_or(1.0, f64::ceil).max(1.0).to_string();
     if request.name == "native" {
         arguments.extend(dev_shell::bare(&north, command));
     } else {

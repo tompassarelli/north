@@ -63,3 +63,12 @@ fn every_lease_scope_carries_a_cpu_quota_equal_to_its_charge_and_a_land_check_ou
     }
     assert_eq!(scope_properties("heavy", true), ["--property=CPUQuota=600%", "--property=CPUWeight=1000"]);
 }
+
+#[test]
+fn cargo_in_a_lease_runs_as_many_jobs_as_the_lease_holds_cpus_not_its_scopes_ceiling() {
+    let request = Request { name: "heavy".to_owned(), landing: true, ..Request::default() };
+    let admitted = Obj::new().put("lease", "00000000-0000-4000-8000-000000000003").put("requestedCpus", 4).put("scope", serde_json::json!({ "cpus": 20, "memoryMiB": 8192 }));
+    let command = scope_command(std::path::Path::new("/nonexistent"), &request, &admitted, Some(60), &["cargo".to_owned(), "build".to_owned()]);
+    let jobs = command.as_std().get_envs().find(|(name, _)| *name == "CARGO_BUILD_JOBS").and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string));
+    assert_eq!(jobs.as_deref(), Some(std::ffi::OsStr::new("4")), "on 2026-11-08 at 8:02 AM a 4-CPU land-check lease on the laptop ran cargo with CARGO_BUILD_JOBS=20, its scope's ceiling, and held 41 rustc processes at load 86");
+}

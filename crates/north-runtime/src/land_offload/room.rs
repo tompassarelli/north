@@ -160,7 +160,7 @@ pub(super) fn check_host(standing: Standing, here: &str, local: impl FnOnce() ->
     let mut refused = Vec::new();
     let chosen = match standing {
         Standing::Reserved => most_room(remotes.iter().cloned(), taken, cores, &mut refused).map(Chosen::Room).or_else(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)),
-        Standing::Peer => most_room(remotes.into_iter().chain([(here.to_owned(), local())]), taken, cores, &mut refused).map(Chosen::Room),
+        Standing::Peer => most_room(remotes, taken, cores, &mut refused).or_else(|| most_room([(here.to_owned(), local())], taken, cores, &mut refused)).map(Chosen::Room),
         Standing::Fallback => most_room(remotes.iter().cloned(), taken, cores, &mut refused).map(Chosen::Room).or_else(|| least_busy(&remotes, taken, cores).map(Chosen::Queued)).or_else(|| Some(Chosen::Room(here.to_owned()))),
     };
     chosen.ok_or(refused)
@@ -252,7 +252,8 @@ mod tests {
         let gex45 = reading(80 * gib, "3.10", "10.0", "5");
         let full = reading(80 * gib, "3.00", "17.0", "10");
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())));
-        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
+        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(gex45))], &[], 6.0), Ok(Chosen::Room("gex45".to_owned())), "on 2026-11-08 at 8:02 AM the idler laptop out-roomed gex45 and took land checks at load 86 to 115; the desktop comes last while a build host has room");
+        assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())));
         assert_eq!(check_host(Standing::Fallback, "laptop", laptop, vec![("gex45".to_owned(), None)], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())));
         assert_eq!(check_host(Standing::Reserved, "laptop", laptop, vec![("gex45".to_owned(), Some(full))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())), "a laptop off the land checks queues them on a full gex45, never runs them itself");
