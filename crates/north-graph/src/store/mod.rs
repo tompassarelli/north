@@ -93,14 +93,26 @@ impl Graph {
     }
 
     pub fn open_read_only(path: &Path, patience: Duration) -> Result<Self> {
-        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-        connection.busy_timeout(patience)?;
-        hashing(&connection)?;
-        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let (connection, version) = Self::reader(path, patience)?;
+        let (connection, version) = if version == KEYED_BY_VALUE || version == KEYED_BY_HASH {
+            drop(connection);
+            drop(Self::open_patiently(path, patience)?);
+            Self::reader(path, patience)?
+        } else {
+            (connection, version)
+        };
         if version != SCHEMA_VERSION {
             return Err(GraphError::Corrupt(format!("graph schema version {version}, this build reads {SCHEMA_VERSION}")));
         }
         Ok(Self { connection })
+    }
+
+    fn reader(path: &Path, patience: Duration) -> Result<(Connection, i64)> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        connection.busy_timeout(patience)?;
+        hashing(&connection)?;
+        let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        Ok((connection, version))
     }
 
     pub fn open_in_memory() -> Result<Self> {
