@@ -106,3 +106,19 @@ fn a_clean_branch_checkout_with_no_unlanded_commits_returns_to_main_and_publishe
         ]
     );
 }
+
+#[test]
+fn stale_locks_a_killed_git_left_in_main_are_cleared_and_main_still_fast_forwards_north_937() {
+    let pair = pair();
+    git(&pair.clone, &["switch", "-q", "-c", "n706-box"]);
+    commit(&pair.origin, "remote");
+    let dot_git = pair.clone.join(".git");
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    for name in ["refs/remotes/origin/main.lock", "index.lock", "ORIG_HEAD.lock", "HEAD.lock"] {
+        fs::File::create(dot_git.join(name)).unwrap().set_modified(hour_ago).unwrap();
+    }
+    let (outcome, said) = sync(&pair);
+    assert_eq!(outcome, Ok(()), "{said:?}");
+    assert_eq!(head(&pair.clone), head(&pair.origin));
+    assert_eq!(said.iter().filter(|line| line.contains("cleared the stale git lock")).count(), 4, "{said:?}");
+}

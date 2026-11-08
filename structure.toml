@@ -92,6 +92,11 @@ paths = ["crates/north-strategy-types/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-git-locks"
+paths = ["crates/north-git-locks/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
 name = "north-claude-stream"
 paths = ["crates/north-claude-stream/src/**"]
 may_use = []
@@ -169,7 +174,7 @@ may_use = ["north-base", "north-graph-loops", "north-implicit-state"]
 [[crate_dag.crate]]
 name = "north-lanes"
 paths = ["crates/north-lanes/src/**"]
-may_use = ["north-base", "north-github-mirror"]
+may_use = ["north-base", "north-git-locks", "north-github-mirror"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
@@ -334,7 +339,7 @@ may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration",
 [[crate_dag.crate]]
 name = "north-core"
 paths = ["crates/north-core/src/**"]
-may_use = ["north-claude-stream", "north-fleet-supervisor", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-git-locks", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-flow"
@@ -358,7 +363,13 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change"]
+may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change", "git_locks"]
+
+[[module]]
+name = "git_locks"
+paths = ["crates/north-git-locks/src/**"]
+responsibility = "Stale git lock files: the one removal an agent may make in a primary checkout's git directory."
+may_use = []
 
 [[module]]
 name = "strategy_types"
@@ -604,7 +615,7 @@ may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.landing",
 name = "catalog"
 paths = ["crates/north-core/src/catalog/**", "crates/north-core/src/agent_catalog.rs", "crates/north-core/src/agent_policy_contract.rs", "crates/north-core/src/agent_policy_contract/**", "crates/north-core/src/agent_config_check/**"]
 responsibility = "Agent catalog, activation generations, projection port and policy checks."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks"]
 
 [[module]]
 name = "proxy"
@@ -628,7 +639,7 @@ may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "thr
 name = "lanes"
 paths = ["crates/north-lanes/src/**"]
 responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks."
-may_use = ["threads", "foundation", "crate-roots", "github_mirror", "lifecycle", "platform.git", "platform.process", "platform.records", "platform.host"]
+may_use = ["threads", "foundation", "crate-roots", "github_mirror", "lifecycle", "platform.git", "platform.process", "platform.records", "platform.host", "git_locks"]
 
 [[module]]
 name = "github_mirror"

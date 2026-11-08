@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-github-mirror = { path = "../north-github-mirror" }
+north-git-locks = { path = "../north-git-locks" }
 regex.workspace = true
 rustix.workspace = true
 serde.workspace = true

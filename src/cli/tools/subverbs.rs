@@ -52,6 +52,7 @@ const LANE: &[(&str, Run)] = &[
     ("seed", crate::lanes::target_seed),
     ("squash", lane_squash::run),
     ("sweep", crate::ops::cleanup_sweep::run),
+    ("unlock", crate::lanes::unlock),
 ];
 
 pub(super) fn lane(arguments: &[String]) -> u8 {

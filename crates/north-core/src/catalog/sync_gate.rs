@@ -94,6 +94,10 @@ pub(super) fn current_main(
                 .ok()
         })
     };
+    match north_git_locks::clear(directory) {
+        Ok(sweep) => sweep.removed.iter().for_each(|lock| say(format!("agents sync: {name} cleared the stale git lock {}", lock.display()))),
+        Err(error) => say(format!("agents sync: {name} could not clear stale git locks: {error}")),
+    }
     let fetched = git(&["fetch", "-q", "origin", "main"]).is_some();
     let mut behind = 0;
     if fetched {

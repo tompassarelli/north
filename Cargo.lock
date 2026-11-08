@@ -1157,6 +1157,7 @@ dependencies = [
  "north-base",
  "north-claude-stream",
  "north-fleet-supervisor",
+ "north-git-locks",
  "north-graph",
  "north-graph-ground",
  "north-graph-loops",
@@ -1315,6 +1316,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "north-git-locks"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]
@@ -1589,6 +1597,7 @@ name = "north-lanes"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-git-locks",
  "north-github-mirror",
  "regex",
  "rustix 0.38.44",

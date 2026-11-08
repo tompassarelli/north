@@ -9,6 +9,7 @@ mod reference_search;
 mod repo;
 mod rescue;
 mod target_seed;
+mod unlock;
 mod unpushed;
 #[cfg(test)]
 mod test_git;
@@ -21,6 +22,7 @@ pub use pin_retire::run as pin_retire;
 pub use reap::run as wt_reap;
 pub use rescue::run as wt_rescue;
 pub use target_seed::run as target_seed;
+pub use unlock::run as unlock;
 
 #[cfg(test)]
 mod pin_retire_tests;

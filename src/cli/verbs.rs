@@ -108,6 +108,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("lane seed", Bookkeeping),
     ("lane squash", Landing),
     ("lane sweep", Bookkeeping),
+    ("lane unlock", Bookkeeping),
     ("lane", Bookkeeping),
     ("language-gate", Diagnosis),
     ("laptop-runner", Diagnosis),
