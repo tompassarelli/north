@@ -51,3 +51,25 @@ fn a_build_host_that_dials_no_remote_host_needs_none_of_their_ssh_aliases() {
     assert_eq!(run(&needs.dialed_from("cpx62", |_| false), &home, &bin), Vec::<String>::new(), "on 2026-11-08 at 7:20 AM cpx62, which reaches no other host, so a mutant kill in its slot runs there and dials no gex45, left the land checks for lacking the gex45 alias and the build slots fell from 17 to 10");
     assert_eq!(run(&needs.dialed_from("cpx62", |alias| alias == "gex45"), &home, &bin), ["the ssh alias gex45"]);
 }
+
+// KEEP(bug): on 2026-11-08 at 9:2x AM the after-landing run of 78d8e9c920 placed .safe-push's graph guards line on cpx62b, which had no ~/.local/state/north/graph.db, and called main red; at 9:13 AM makgora's map-build line ran on cpx62 without the input store entry it reads (north#892)
+#[test]
+fn a_build_host_without_an_input_a_check_declares_is_left_out_of_that_check() {
+    let root = tempfile::tempdir().unwrap();
+    let (cpx62b, gex45, bin) = (root.path().join("cpx62b"), root.path().join("gex45"), root.path().join("bin"));
+    for home in [&cpx62b, &gex45] {
+        std::fs::create_dir_all(home.join("code/north/main/.git")).unwrap();
+    }
+    for input in [".local/state/north/graph.db", ".local/share/makgora-build-inputs/store"] {
+        std::fs::create_dir_all(gex45.join(input)).unwrap();
+    }
+    std::fs::create_dir_all(&bin).unwrap();
+    let graph = super::super::Placement::parse(&["--needs", "~/.local/state/north/graph.db"]).unwrap();
+    let map = super::super::Placement::parse(&["--needs", "~/.local/share/makgora-build-inputs/store"]).unwrap();
+    let (graph, map) = (Needs::default().with_inputs(&graph.needs), Needs::default().with_inputs(&map.needs));
+    assert_eq!(run(&graph, &cpx62b, &bin), ["~/.local/state/north/graph.db"], "the graph guards line never goes to a host without graph.db");
+    assert_eq!(run(&map, &cpx62b, &bin), ["~/.local/share/makgora-build-inputs/store"], "makgora's map-build line never goes to a host without its input store");
+    assert_eq!(run(&graph, &gex45, &bin), Vec::<String>::new());
+    assert_eq!(run(&map, &gex45, &bin), Vec::<String>::new());
+    assert_eq!(run(&Needs::default(), &cpx62b, &bin), Vec::<String>::new(), "a check that declares no input takes any host");
+}

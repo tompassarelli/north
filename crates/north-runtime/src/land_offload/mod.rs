@@ -11,7 +11,7 @@ pub mod room;
 pub mod ship;
 pub(crate) mod slot_lock;
 
-const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, and each --avoid leaves HOST out; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
+const USAGE: &str = "usage: north capacity offload choose [--any [--taken HOST]... [--avoid HOST]... [--needs PATH]... [--prefer HOST] [--count N]] (prints the host to run on, nothing when this host has the most room; each --taken counts one land check already on its way to HOST, each --avoid leaves HOST out, and each --needs names a host input the land check reads, a path such as ~/.local/state/north/graph.db that a host must hold to take it, and --prefer prints HOST itself when it answers and holds every input; --count prints a host for each of N land checks, this host by name, each counted as taken for the next) | cost | hosts (prints each offload host this host reaches and its ssh destination, one per line) | take [--once] (polls the hosts this host reaches and runs their oldest queued agent heavy run when it has room) | slots (prints the free then total land checks the reachable build hosts take at once, each host's free cores over the cores one check uses) | free --host NAME (prints how many of the host's slots for this checkout are free) | reap --owner OWNER | run [--background] --host NAME (this host's own name runs it in this host's slots) --base BASE --head HEAD --timeout SECONDS -- COMMAND (--background runs it in the checkout's one background slot, behind every land check and outside their job cap) | warm (brings this host's land-check slot furthest behind origin/main to that head and builds the repository's landing.warm command there under a heavy lease, while at most two land checks hold slots here) | verdict hit KEY... | verdict record --host NAME --key KEY (--pass SHA | --fail) | verdict sync [--host NAME]...";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -173,6 +173,8 @@ fn reap(owner: &str) -> u8 {
 struct Placement {
     taken: Vec<String>,
     avoid: Vec<String>,
+    needs: Vec<String>,
+    prefer: Option<String>,
     count: Option<usize>,
 }
 
@@ -183,6 +185,8 @@ impl Placement {
             match pair {
                 ["--taken", host] if !host.is_empty() => placement.taken.push((*host).to_owned()),
                 ["--avoid", host] if !host.is_empty() => placement.avoid.push((*host).to_owned()),
+                ["--needs", input] if !input.is_empty() => placement.needs.push((*input).to_owned()),
+                ["--prefer", host] if !host.is_empty() => placement.prefer = Some((*host).to_owned()),
                 ["--count", count] => placement.count = Some(count.parse().ok().filter(|count| *count > 0)?),
                 _ => return None,
             }
@@ -225,7 +229,11 @@ fn choose(any: bool, placement: &Placement) -> u8 {
         eprintln!("north capacity offload: this host keeps its game CPUs to game-reserve.slice and confines agent slices to the rest, so the land check runs here");
         return 1;
     }
-    let Survey { here, reserved, standing, others, remotes } = survey(in_reserve, placement);
+    let Survey { here, reserved, holds_here, standing, others, remotes } = survey(in_reserve, placement);
+    if let Some(preferred) = placement.prefer.as_ref().filter(|preferred| if **preferred == here { holds_here } else { remotes.iter().any(|(name, room)| name == *preferred && room.is_some()) }) {
+        println!("{preferred}");
+        return 0;
+    }
     if let Some(count) = placement.count {
         return spread(standing, &here, remotes, placement, count);
     }
@@ -268,6 +276,7 @@ fn choose(any: bool, placement: &Placement) -> u8 {
 struct Survey {
     here: String,
     reserved: bool,
+    holds_here: bool,
     standing: room::Standing,
     others: Vec<gate::Machine>,
     remotes: Vec<(String, Option<room::Room>)>,
@@ -276,16 +285,21 @@ struct Survey {
 /// The hosts a land check may run on and what each reports, read over ssh at once.
 fn survey(in_reserve: bool, placement: &Placement) -> Survey {
     let here = crate::platform::host::name();
-    let reserved = in_reserve || checks_confined_here() || !placement.admits(&here);
+    let needs = readiness::Needs::here().with_inputs(&placement.needs);
+    let lacks = needs.lacks_here();
+    if !lacks.is_empty() {
+        eprintln!("north capacity offload: {here} lacks {}, which this land check reads, so it runs the check only when no host that holds it answers", lacks.join(" and "));
+    }
+    let reserved = in_reserve || checks_confined_here() || !placement.admits(&here) || !lacks.is_empty();
+    let reached = |name: &str| config().is_ok_and(|cfg| crate::platform::orchestration::reaches(&cfg, &here, name));
     let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
     let standing = standing(reserved, on_battery(), builds(&here) || (mode::takes_land_checks() && seat_idle()));
-    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
-    let needs = readiness::Needs::here();
+    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && reached(&machine.name) && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
     let remotes = std::thread::scope(|scope| {
         let reads: Vec<_> = others.iter().map(|machine| (machine.name.clone(), scope.spawn(|| room::read(&machine.ssh)), scope.spawn(|| readiness::admits(&needs, &machine.name, &machine.ssh)))).collect();
         reads.into_iter().map(|(name, room, ready)| (name, room.join().ok().flatten().filter(|_| ready.join().unwrap_or(false)))).collect::<Vec<_>>()
     });
-    Survey { here, reserved, standing, others, remotes }
+    Survey { here, reserved, holds_here: lacks.is_empty(), standing, others, remotes }
 }
 
 /// Prints the land checks the reachable build hosts take at once, free then total, from each host's free cores over the cores one check uses.

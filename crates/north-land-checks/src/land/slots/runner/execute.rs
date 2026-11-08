@@ -133,7 +133,7 @@ impl Shared {
     }
 
     fn spawn_batch(self: &Arc<Self>, ordered: &[String], plan: &Plan, stop: &Arc<watch::Sender<bool>>, offloaded: &mut JoinSet<Vec<(usize, i32)>>) -> Vec<usize> {
-        let joined: Vec<usize> = ordered.iter().enumerate().filter(|(_, command)| self.offload_host_for(command).is_some() && !plan.is_expensive(command) && batch::joins(command)).map(|(index, _)| index).collect();
+        let joined: Vec<usize> = ordered.iter().enumerate().filter(|(_, command)| self.batches(command, plan)).map(|(index, _)| index).collect();
         let Some(host) = joined.first().filter(|_| joined.len() >= 2).and_then(|first| self.offload_host_for(&ordered[*first])) else { return Vec::new() };
         let (shared, stop, indices) = (Arc::clone(self), Arc::clone(stop), joined.clone());
         let commands: Vec<String> = joined.iter().map(|index| ordered[*index].clone()).collect();
@@ -147,9 +147,33 @@ impl Shared {
         joined
     }
 
+    fn batches(&self, command: &str, plan: &Plan) -> bool {
+        self.offload_host_for(command).is_some() && !plan.is_expensive(command) && batch::joins(command) && self.config.host_inputs(command).is_empty()
+    }
+
+    async fn place_inputs(self: &Arc<Self>, ordered: &[String]) -> Arc<Self> {
+        let needing: Vec<(&String, String, Vec<String>)> = ordered.iter().filter_map(|command| Some((command, self.offload_host_for(command)?, self.config.host_inputs(command)))).filter(|(_, _, inputs)| !inputs.is_empty()).collect();
+        if needing.is_empty() || !self.environment.offload_host.is_empty() {
+            return Arc::clone(self);
+        }
+        let here = north_base::platform::host::name();
+        let mut placed = (*self.placed).clone();
+        for (command, assigned, inputs) in needing {
+            let mut choose = vec!["capacity", "offload", "choose", "--any", "--count", "1", "--prefer", assigned.as_str()];
+            choose.extend(inputs.iter().flat_map(|input| ["--needs", input.as_str()]));
+            let chosen = self.north(&choose).await.filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|host| !host.is_empty());
+            let host = chosen.unwrap_or_else(|| here.clone());
+            if host == here {
+                say(&format!("safe-push: {command} runs on {here}, the lander host, since no build host that answers holds {}", inputs.join(" and ")));
+            }
+            placed.insert(command.clone(), host);
+        }
+        Arc::new(Self { placed: Arc::new(placed), ..(**self).clone() })
+    }
+
     async fn spread(self: &Arc<Self>, ordered: &[String], plan: &Plan) -> Arc<Self> {
         let movable = |command: &String| self.offload_host_for(command).is_some() && !shared_build::uses_head_north(command);
-        let joined: Vec<&String> = ordered.iter().filter(|command| self.offload_host_for(command).is_some() && !plan.is_expensive(command) && batch::joins(command)).collect();
+        let joined: Vec<&String> = ordered.iter().filter(|command| self.batches(command, plan)).collect();
         let joined = if joined.len() >= 2 { joined } else { Vec::new() };
         let mut jobs: Vec<Vec<&String>> = Vec::new();
         let batched_here = !joined.is_empty() && !joined.iter().all(|command| movable(command));
@@ -188,7 +212,7 @@ impl Shared {
             say(&format!("safe-push: {} expensive land check(s) run in fail-fast order and are cancelled at the first failure: {}", plan.expensive.len(), plan.expensive.join("; ")));
         }
         let ordered: Vec<String> = plan.ordered().cloned().collect();
-        let this = self.spread(&ordered, &plan).await;
+        let this = self.spread(&ordered, &plan).await.place_inputs(&ordered).await;
         let (stop, stopped) = watch::channel(false);
         let stop = Arc::new(stop);
         tokio::spawn(forward_cancel(this.cancel.clone(), Arc::clone(&stop)));

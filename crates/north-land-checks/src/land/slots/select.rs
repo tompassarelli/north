@@ -19,6 +19,7 @@ pub struct Config {
     after: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
+    host_inputs: Vec<String>,
     deadlines: Vec<String>,
     inferred: Vec<String>,
     local_checks: bool,
@@ -54,6 +55,7 @@ impl Config {
             after: blob_values(repo, head, "land.after"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
+            host_inputs: blob_values(repo, head, "land.host-input"),
             deadlines: blob_values(repo, head, "land.deadline"),
             inferred,
             local_checks: first("land.check-local").is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "yes" | "on" | "1")),
@@ -104,6 +106,10 @@ impl Config {
 
     pub fn deadline_seconds(&self, command: &str) -> Option<u64> {
         reason(&self.deadlines, command).and_then(|seconds| seconds.trim().parse().ok())
+    }
+
+    pub fn host_inputs(&self, command: &str) -> Vec<String> {
+        reason(&self.host_inputs, command).map(|inputs| inputs.split_whitespace().map(str::to_owned).collect()).unwrap_or_default()
     }
 
     pub fn off_actions_reason(&self, command: &str) -> Option<&str> {
