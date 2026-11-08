@@ -11,7 +11,7 @@ const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const STATUS_MARK: &str = "@ADMISSION@";
 const SLOTS_MARK: &str = "@SLOTS@";
 const SLOTS_PROBE: &str = r#"root=$1
-@JOBS@n=$(host_jobs); q=$(ls "$root/queue" 2>/dev/null | grep -c "^[01]-" || true); echo "$n $q $(nproc)""#;
+@JOBS@n=$(host_jobs); q=$(ls "$root/queue" 2>/dev/null | grep -c "^[012]-" || true); echo "$n $q $(nproc)""#;
 const STATUS_PROBE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host status"#;
 const CLAIM: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host land-waiting"#;
 
@@ -121,11 +121,15 @@ fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {
     (room.disk_free_gib < disk).then(|| format!("{:.1} GiB disk free, needs {disk}", room.disk_free_gib))
 }
 
-/// The land checks of `cores` the hosts take at once, free and total: each readable host counts the checks its free CPUs hold, and a host its admission refuses for a check of `cores` counts none free.
+/// The land checks of `cores` the hosts take at once, free for the lander and total: each readable host counts the checks its free CPUs hold, capped at the checks it keeps for the lander (its total less the slots other jobs may hold), and a host its admission refuses for a check of `cores` counts none free.
 pub(super) fn check_slots<'a>(rooms: impl IntoIterator<Item = &'a Room>, cores: f64) -> (usize, usize) {
     let cores = cores.max(1.0);
     let held = |cpus: f64| (cpus.max(0.0) / cores).floor() as usize;
-    rooms.into_iter().fold((0, 0), |(free, total), room| (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()) } else { 0 }, total + held(room.admission.limit_cpus)))
+    rooms.into_iter().fold((0, 0), |(free, total), room| {
+        let all = held(room.admission.limit_cpus);
+        let lander = all.saturating_sub(super::ship::OTHER_JOBS as usize);
+        (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()).min(lander) } else { 0 }, total + all)
+    })
 }
 
 pub(super) fn first_with_room(hosts: impl IntoIterator<Item = (String, Option<Room>)>) -> Result<String, Vec<String>> {
@@ -196,21 +200,21 @@ mod tests {
     }
 
     #[test]
-    fn a_host_reporting_24_free_cores_at_4_per_check_offers_6_slots_and_two_such_hosts_offer_12() {
+    fn a_host_reporting_24_free_cores_at_4_per_check_offers_the_lander_5_of_its_6_slots_and_two_such_hosts_10_of_12() {
         let gib = 1024 * 1024;
         let mut host = reading(80 * gib, "3.00", "0.0", "1");
         host.admission.limit_cpus = 24.0;
-        assert_eq!(check_slots([&host], 4.0), (6, 6));
-        assert_eq!(check_slots([&host, &host], 4.0), (12, 12));
+        assert_eq!(check_slots([&host], 4.0), (5, 6), "one of its six checks is kept for lane pre-checks and worker builds");
+        assert_eq!(check_slots([&host, &host], 4.0), (10, 12));
         let mut small = host;
         small.admission.limit_cpus = 8.0;
-        assert_eq!(check_slots([&small], 4.0), (2, 2));
+        assert_eq!(check_slots([&small], 4.0), (1, 2));
         let mut loaded = host;
         loaded.admission.committed_cpus = 10.0;
-        assert_eq!(check_slots([&loaded, &host], 4.0), (9, 12), "a host with 14 of 24 cores free holds 3 more checks");
+        assert_eq!(check_slots([&loaded, &host], 4.0), (8, 12), "a host with 14 of 24 cores free holds 3 more checks");
         let mut pressed = reading(80 * gib, "3.00", "0.0", "90");
         pressed.admission.limit_cpus = 24.0;
-        assert_eq!(check_slots([&pressed, &host], 4.0), (6, 12), "a host its admission refuses offers no free slot");
+        assert_eq!(check_slots([&pressed, &host], 4.0), (5, 12), "a host its admission refuses offers no free slot");
     }
 
     #[test]

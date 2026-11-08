@@ -142,7 +142,7 @@ fn job_ref(head: &CommitId) -> String {
 pub(super) mod beside;
 mod script;
 pub(super) use script::jobs_part;
-pub use script::{SlotClass, is_lander_slot};
+pub use script::{OTHER_JOBS, SlotClass, is_lander_slot};
 pub(crate) use script::slot_ports;
 use script::remote_script;
 mod bundle;
@@ -262,3 +262,6 @@ pub(super) fn reap(ssh: &str, owner: &str) -> u8 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod replay_tests;

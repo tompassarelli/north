@@ -643,3 +643,52 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
     let ran = job();
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
 }
+
+// KEEP(bug): on 2026-11-08 lane checks ranked level with the lander's probe jobs took free code-north-main slots on gex45, and probe jobs queued behind them
+#[test]
+fn a_lane_check_waits_while_lane_checks_hold_their_share_of_a_hosts_slots_and_a_lander_job_queued_after_it_takes_a_free_slot_first() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let log = home.path().join("order.log");
+    let release = home.path().join("release");
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let spawn = |label: &str, lander: &str, hold: bool| {
+        let gate = if hold { format!("while [ ! -e {} ]; do sleep 0.02; done", release.display()) } else { ":".to_owned() };
+        let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", log = log.display());
+        Command::new("setsid")
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LANDING='1'", "", "", "0", "", "", "", lander])
+            .env("HOME", home.path())
+            .env("PATH", &path)
+            .env("NORTH_OFFLOAD_MAX_JOBS", (super::OTHER_JOBS + 2).to_string())
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .stdin(fs::File::open(&bundle).unwrap())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    };
+    let lanes: Vec<std::process::Child> = (0..super::OTHER_JOBS).map(|index| {
+        let child = spawn(&format!("lane-{index}"), "", true);
+        wait_until_in_line(home.path(), &log, index as usize + 1);
+        child
+    }).collect();
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.matches("start-lane-").count() == super::OTHER_JOBS as usize)), "the lane checks never took their slots");
+    let queued = spawn("queued-lane", "", false);
+    wait_until_in_line(home.path(), &log, super::OTHER_JOBS as usize + 1);
+    let mut holding = spawn("lander", "1", true);
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.contains("start-lander"))), "the lander job never took its reserved slot");
+    let second = spawn("second-lander", "1", false).wait().unwrap();
+    assert!(second.success(), "a lander job queued after the lane check takes the slot under the job cap while the lander's reserved slot is held");
+    assert!(!fs::read_to_string(&log).unwrap().contains("start-queued-lane"), "the lane check stays queued while lane checks hold their share, though the job cap has room");
+    fs::write(&release, "").unwrap();
+    for mut lane in lanes {
+        assert!(lane.wait().unwrap().success());
+    }
+    assert!(holding.wait().unwrap().success());
+    assert!(queued.wait_with_output().unwrap().status.success());
+    let order: Vec<String> = fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect();
+    assert_eq!(order.iter().filter(|event| event.contains("lander")).count(), 4, "both lander jobs ran while the lane checks held their slots: {order:?}");
+    assert_eq!(order.last().map(String::as_str), Some("end-queued-lane"), "{order:?}");
+}

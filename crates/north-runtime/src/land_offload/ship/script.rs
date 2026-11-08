@@ -2,6 +2,10 @@ use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, PO
 
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
+const LANDER_SUFFIX: &str = ".lander";
+
+/// The slots of a build host that jobs other than the lander's (lane pre-checks, worker builds) may hold at once, so the rest of its job cap stays free for the lander's probes and red fixes, which never wait behind them: on 2026-11-08 lane checks held at most one slot in 87% of the probes' slot readings, and a probe's 7 jobs need the other 4 of gex45's 5 and 3 of cpx62's 4.
+pub const OTHER_JOBS: u32 = 1;
 
 pub(super) const CAP: &str = r#"cores=${AGENT_CAPACITY_CORES:-$(nproc 2>/dev/null || echo 1)}
 host_cap=${NORTH_OFFLOAD_MAX_JOBS:-}
@@ -39,9 +43,13 @@ host_jobs() {
   count=0
   for lock in "$root"/*.lock; do
     case ${lock##*/} in *@BACKGROUND_SUFFIX@.lock | @WARM_LOCK@) continue ;; esac
+    [ -z "${1:-}" ] || [ ! -e "${lock%.lock}@LANDER_SUFFIX@" ] || continue
     ! slot_held "$lock" || count=$((count + 1))
   done
   echo "$count"
+}
+other_jobs() {
+  host_jobs others
 }
 "#;
 
@@ -87,14 +95,21 @@ reserved=$name
 nearest=$(printf '%s\n' $nearest | { grep -vx "$reserved" || true; }; echo "$reserved")
 queue=$root/queue
 mkdir -p "$queue"
-rank=2
-case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=1 ;; esac
+rank=3
+case " $carried " in *" SAFE_PUSH_LANDING='1' "*) rank=2 ;; esac
+[ "$lander_slot" != 1 ] || rank=1
 [ -z "$red_fix" ] || rank=0
-[ -z "@BACKGROUND@" ] || rank=3
+[ -z "@BACKGROUND@" ] || rank=4
+lander=
+[ "$rank" -gt 1 ] || lander=1
 ticket=$queue/$rank-$(date +%s%N)-$$@$name
 [ -n "$nested" ] || { exec 8>"$ticket"; flock 8; }
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
-@JOBS@@CAP@served=$root/served
+@JOBS@@CAP@
+others_full() {
+  [ "$(other_jobs)" -ge @OTHER_JOBS@ ]
+}
+served=$root/served
 mkdir -p "$served"
 turn_order() {
   for t in $(ls "$queue"); do
@@ -124,7 +139,7 @@ while :; do
     if flock -n 9; then s=$reserved; break; fi
     exec 9>&-
   fi
-  if [ -n "$nested" ] || { first_in_line && { [ -n "@BACKGROUND@" ] || { [ "$(slot_jobs "$name")" -lt "$cap" ] && [ "$(host_jobs)" -lt "$host_cap" ]; }; }; }; then
+  if [ -n "$nested" ] || { first_in_line && { [ -n "@BACKGROUND@" ] || { [ "$(slot_jobs "$name")" -lt "$cap" ] && [ "$(host_jobs)" -lt "$host_cap" ] && { [ -n "$lander" ] || ! others_full; }; }; }; }; then
     for s in $nearest; do
       exec 9>"$root/$s.lock"
       if flock -n 9; then break 2; fi
@@ -137,6 +152,7 @@ while :; do
   polled=1
   sleep @POLL@
 done
+if [ -n "$lander" ]; then : >"$root/$s@LANDER_SUFFIX@"; else rm -f "$root/$s@LANDER_SUFFIX@"; fi
 if [ -n "$polled" ]; then
   waited=$(( ($(date +%s%N) - started) / 1000000 ))
   echo "@WAITED@$((waited / 1000)).$((waited % 1000 / 100))s in line for $s" >&2
@@ -154,7 +170,7 @@ printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$
 printf '%s\n' "$owner" >"$root/$s.owner"
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
-  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder"
+  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder" "$root/$s@LANDER_SUFFIX@"
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
   if [ -e "$slot/.git" ]; then git -C "$slot" clean -ffdxq -e /target 2>/dev/null || true; fi
 }
@@ -243,11 +259,11 @@ pub(super) fn run_part() -> String {
 }
 
 pub(crate) fn jobs_part() -> String {
-    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK).replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH)
+    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK).replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH).replace("@LANDER_SUFFIX@", LANDER_SUFFIX)
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string()).replace("@LANDER_SUFFIX@", LANDER_SUFFIX).replace("@OTHER_JOBS@", &OTHER_JOBS.to_string())
 }
 
 pub(super) fn beside_part() -> String {

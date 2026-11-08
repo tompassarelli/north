@@ -51,7 +51,6 @@ impl Suspects {
         if self.stalls >= STALLS_BEFORE_ALONE && let Some(first) = named.first() {
             return vec![vec![*first]];
         }
-        let room = if ids.len() > 1 { room.max(2) } else { room };
         plan(&(0..ids.len()).collect::<Vec<_>>(), room, usize::MAX, &named)
     }
 
@@ -118,7 +117,7 @@ impl Probing for Lander {
     fn probe_round(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry]) -> Result<Flow, String> {
         let ids = Strikes::lanes(lanes);
         let strikes = Strikes::load(&self.queue, &ids)?;
-        let (room, read) = probe_slots::slots(&self.repo);
+        let (room, read) = probe_slots::slots(&self.repo, attempt.logs);
         let mut suspects = Suspects::load(&self.queue);
         let planned = suspects.plan(&ids, room, check_environment::active(&self.queue).is_local());
         let id = steps::batch(&pass.round(attempt, strikes.streaks(), room), lanes, None);
