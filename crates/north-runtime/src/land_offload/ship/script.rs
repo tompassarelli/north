@@ -1,31 +1,33 @@
-use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TARGET_KEEP_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, job_mib, quote};
+use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TARGET_KEEP_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, quote};
 
 /// Minutes a run whose client lost its connection keeps going with no client reattached, so a caller killed on purpose does not leave the run holding its slot to its deadline; the runner reattaches within `REATTACH_WINDOW`, which is shorter.
 const REATTACH_MINUTES: u32 = 3;
 const DRAIN_POLL: &str = "0.1";
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
-const LANDER_SUFFIX: &str = ".lander";
 
-/// The slots of a build host kept for the lander's own jobs (its after-landing runs, red fixes and culprit probes); lane pre-checks and worker builds may hold the rest of its job cap: on 2026-11-08 under land-first, lanes waited for slots with 12 queued while a cap of one slot for them per host left gex45 and cpx62 at a load of 6.5 on 16 threads.
-pub const LANDER_JOBS: u32 = 2;
-
-/// The jobs other than the lander's a host whose job cap is `cap` runs at once: all but `LANDER_JOBS`, and at least one.
-pub fn others_cap(cap: u32) -> u32 {
-    cap.saturating_sub(LANDER_JOBS).max(1)
+/// Whether the host starts this job now: a lander job (a red fix, an after-landing run, a culprit probe) at once, its floor; any other job while the host's `capacity host admit-job` admits one and the job last admitted here has settled, so the next pressure reading includes it; `NORTH_OFFLOAD_MAX_JOBS` caps the host's jobs for safety.
+pub(super) const ADMIT: &str = r#"host_cap=${NORTH_OFFLOAD_MAX_JOBS:-}
+admitted=$root/admitted why=
+north_bin=
+[ -z "${runtime:-}" ] || north_bin=$HOME/.local/state/north/runtimes/$runtime/north
+[ -x "$north_bin" ] || north_bin=${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}
+[ -x "$north_bin" ] || north_bin=$(command -v north 2>/dev/null) || north_bin=
+admits() {
+  [ -z "$host_cap" ] || [ "$(host_jobs)" -lt "$host_cap" ] || { why="the host runs at most $host_cap jobs"; return 1; }
+  [ "${1:-}" != floor ] || return 0
+  last=0
+  [ ! -r "$admitted" ] || read -r last <"$admitted" || last=0
+  since=$(($(date +%s) - last))
+  settle=${NORTH_OFFLOAD_SETTLE_SECONDS:-@SETTLE@}
+  [ "$since" -ge "$settle" ] || { why="the job admitted ${since}s ago settles for $settle s"; return 1; }
+  if [ -n "$north_bin" ]; then
+    rc=0
+    why=$("$north_bin" capacity host admit-job 2>/dev/null) || rc=$?
+    case $rc in 0) return 0 ;; 75) return 1 ;; esac
+  fi
+  [ "$(host_jobs)" -eq 0 ] || { why="this host's north answers no admit-job, so it runs one job at a time"; return 1; }
 }
-
-pub(super) const CAP: &str = r#"cores=${AGENT_CAPACITY_CORES:-$(nproc 2>/dev/null || echo 1)}
-host_cap=${NORTH_OFFLOAD_MAX_JOBS:-}
-if [ -z "$host_cap" ]; then
-  host_cap=$cores
-  [ "$per" -le 1 ] || host_cap=$((cores / per))
-  memory=$(awk '/^MemTotal:/ { print int($2 / 1024) }' "${AGENT_CAPACITY_MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)
-  [ @JOB_MIB@ -eq 0 ] || [ "$memory" -lt @JOB_MIB@ ] || [ $((memory / @JOB_MIB@)) -ge "$host_cap" ] || host_cap=$((memory / @JOB_MIB@))
-  [ "$host_cap" -ge 1 ] || host_cap=1
-fi
-cap=$host_cap
-[ "$cap" -le @SLOTS@ ] || cap=@SLOTS@
 "#;
 
 pub(super) const JOBS: &str = r#"slot_lock() {
@@ -51,18 +53,14 @@ host_jobs() {
   count=0
   for lock in "$root"/*.lock; do
     case ${lock##*/} in *@BACKGROUND_SUFFIX@.lock | @WARM_LOCK@) continue ;; esac
-    [ -z "${1:-}" ] || [ ! -e "${lock%.lock}@LANDER_SUFFIX@" ] || continue
     ! slot_held "$lock" || count=$((count + 1))
   done
   echo "$count"
 }
-other_jobs() {
-  host_jobs others
-}
 "#;
 
 pub(super) const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} per=${11:-0} red_fix=${12:-} ran=${13:-} pins=${14:-} lander_slot=${15:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 carried=${8:-} owner=${9:-} runtime=${10:-} red_fix=${11:-} ran=${12:-} pins=${13:-} lander_slot=${14:-}
 root=@ROOT@
 mkdir -p "$root"
 if [ -n "$runtime" ] && { [ ! -x "$HOME/.local/state/north/runtimes/$runtime/north" ] || [ ! -f "$HOME/.local/state/north/runtimes/$runtime/@TREE_MARKER@" ]; }; then echo "offload: the lander runtime $runtime is not on this host yet" >&2; exit @RUNTIME_MISSING@; fi
@@ -113,13 +111,7 @@ lander=
 ticket=$queue/$rank-$(date +%s%N)-$$@$name
 [ -n "$nested" ] || { exec 8>"$ticket"; flock 8; }
 trap 'rm -f "$bundle" "$ticket"; git -C "$repo" update-ref -d "$ref" 2>/dev/null || true' EXIT
-@JOBS@@CAP@
-others_full() {
-  others_cap=$((host_cap - @LANDER_JOBS@))
-  [ "$others_cap" -ge 1 ] || others_cap=1
-  [ "$(other_jobs)" -ge "$others_cap" ]
-}
-served=$root/served
+@JOBS@@ADMIT@served=$root/served
 mkdir -p "$served"
 turn_order() {
   for t in $(ls "$queue"); do
@@ -136,7 +128,7 @@ first_in_line() {
     [ "$f" != "$ticket" ] || return 0
     stamp=${t#*-}
     if [ $((now - ${stamp%%-*})) -gt 5000000000 ] && (exec 7>>"$f"; flock -n 7) 2>/dev/null; then rm -f "$f"; continue; fi
-    case $t in *@*) [ -n "@BACKGROUND@" ] || [ "${t#*@}" = "$name" ] || [ "$(slot_jobs "${t#*@}")" -lt "$cap" ] || continue ;; esac
+    case $t in *@*) [ -n "@BACKGROUND@" ] || [ "${t#*@}" = "$name" ] || [ "$(slot_jobs "${t#*@}")" -lt @SLOTS@ ] || continue ;; esac
     return 1
   done
   return 1
@@ -149,7 +141,8 @@ while :; do
     if flock -n 9; then s=$reserved; break; fi
     exec 9>&-
   fi
-  if [ -n "$nested" ] || { first_in_line && { [ -n "@BACKGROUND@" ] || { [ "$(slot_jobs "$name")" -lt "$cap" ] && [ "$(host_jobs)" -lt "$host_cap" ] && { [ -n "$lander" ] || ! others_full; }; }; }; }; then
+  why="behind earlier jobs in line"
+  if [ -n "$nested" ] || { first_in_line && { [ -n "@BACKGROUND@" ] || admits ${lander:+floor}; }; }; then
     for s in $nearest; do
       exec 9>"$root/$s.lock"
       if flock -n 9; then break 2; fi
@@ -157,12 +150,12 @@ while :; do
     done
   fi
   waited=$(( ($(date +%s%N) - started) / 1000000000 ))
-  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: queued behind other jobs for @LOCK_WAIT@ s ($name runs $cap at once in @SLOTS@ slots, the host $host_cap)" >&2; exit @SLOTS_BUSY@; }
-  [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); echo "offload: waiting for a slot for ${waited}s, in order; $name runs $(slot_jobs "$name") of $cap jobs at once, the host $(host_jobs) of $host_cap; $(ls "$queue" | grep -c .) queued; held by: $(slot_holders "$name")" >&2; }
+  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: queued behind other jobs for @LOCK_WAIT@ s ($why)" >&2; exit @SLOTS_BUSY@; }
+  [ "$waited" -lt "$noted" ] || { noted=$((waited + 60)); echo "offload: waiting for a slot for ${waited}s, in order; $name runs $(slot_jobs "$name") of its @SLOTS@ slots, the host $(host_jobs) jobs; $why; $(ls "$queue" | grep -c .) queued; held by: $(slot_holders "$name")" >&2; }
   polled=1
   sleep @POLL@
 done
-if [ -n "$lander" ]; then : >"$root/$s@LANDER_SUFFIX@"; else rm -f "$root/$s@LANDER_SUFFIX@"; fi
+[ -n "$lander" ] || [ -n "@BACKGROUND@" ] || [ -n "$nested" ] || date +%s >"$admitted"
 if [ -n "$polled" ]; then
   waited=$(( ($(date +%s%N) - started) / 1000000 ))
   echo "@WAITED@$((waited / 1000)).$((waited % 1000 / 100))s in line for $s" >&2
@@ -181,7 +174,7 @@ printf '%s\n' "$owner" >"$root/$s.owner"
 printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
   [ -z "${exited:-}" ] || [ -e "$exited" ] || echo 143 >"$exited" 2>/dev/null || true
-  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder" "$root/$s@LANDER_SUFFIX@"
+  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid" "$root/$s.holder"
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
   if [ -e "$slot/.git" ]; then git -C "$slot" clean -ffdxq -e /target 2>/dev/null || true; fi
 }
@@ -234,12 +227,6 @@ if [ -n "${runtime:-}" ]; then
 fi
 @SLOT_ENV@=$slot; export @SLOT_ENV@
 if [ -n "${carried:-}" ]; then eval "export $carried"; fi
-if [ -n "${cap:-}" ]; then
-  share=$((${cores:-1} / cap)); [ "$share" -ge 1 ] || share=1
-  CARGO_BUILD_JOBS=$share RUST_TEST_THREADS=$share NEXTEST_TEST_THREADS=$share; export CARGO_BUILD_JOBS RUST_TEST_THREADS NEXTEST_TEST_THREADS
-  case ${SAFE_PUSH_LAND_CPUS:-} in "" | *[!0-9]*) SAFE_PUSH_LAND_CPUS=$share ;; *) [ "$SAFE_PUSH_LAND_CPUS" -le "$share" ] || SAFE_PUSH_LAND_CPUS=$share ;; esac
-  export SAFE_PUSH_LAND_CPUS
-fi
 lease_owner=land-offload
 [ -z "${SAFE_PUSH_LAND_HEAD:-}" ] || lease_owner=land-check
 leased() {
@@ -348,11 +335,11 @@ pub(super) fn run_part() -> String {
 }
 
 pub(crate) fn jobs_part() -> String {
-    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK).replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH).replace("@LANDER_SUFFIX@", LANDER_SUFFIX)
+    JOBS.replace("@LAND_SLOTS@", &SLOTS.to_string()).replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX).replace("@WARM_LOCK@", super::super::warm::LOCK).replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH)
 }
 
 pub(super) fn slot_part() -> String {
-    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string()).replace("@LANDER_SUFFIX@", LANDER_SUFFIX).replace("@LANDER_JOBS@", &LANDER_JOBS.to_string())
+    format!("{REMOTE}{NESTED}{TAKE}fi\n").replace("@SLOT_ENV@", north_base::foundation::offload::SLOT_ENV).replace("@TREE_MARKER@", &crate::runtime::layout::tree_marker()).replace("@RUNTIME_MISSING@", &RUNTIME_MISSING.to_string())
 }
 
 pub(super) fn beside_part() -> String {
@@ -375,6 +362,10 @@ pub(crate) fn slot_ports(name: &str) -> Vec<(String, u32)> {
     (0..SLOTS).map(|index| (slot_name(name, index), SCCACHE_FIRST_PORT + block + index)).collect()
 }
 
+fn settle_seconds() -> u64 {
+    crate::capacity::pressure_target::settle_seconds().round() as u64
+}
+
 pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
     let (slots, wait, background) = match class {
         SlotClass::LandCheck => (SLOTS, LOCK_WAIT_SECONDS, ""),
@@ -383,13 +374,13 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
     let ports: String = slot_ports(name).iter().map(|(slot, port)| format!("{}) SCCACHE_SERVER_PORT={port} ;; ", quote(slot))).collect();
     format!("{}{VERIFY}{}{}", slot_part(), beside_part(), run_part())
         .replace("@JOBS@", &jobs_part())
-        .replace("@CAP@", CAP)
+        .replace("@ADMIT@", ADMIT)
+        .replace("@SETTLE@", &settle_seconds().to_string())
         .replace("@SLOT_PORTS@", &ports)
         .replace("@ROOT@", OFFLOAD_ROOT)
         .replace("@LOCK_WAIT@", &wait.to_string())
         .replace("@POLL@", POLL_SECONDS)
         .replace("@SLOTS@", &slots.to_string())
-        .replace("@JOB_MIB@", &job_mib().to_string())
         .replace("@BACKGROUND_SUFFIX@", BACKGROUND_SUFFIX)
         .replace("@BACKGROUND@", background)
         .replace("@TARGET_CAP@", &TARGET_CAP_MIB.to_string())

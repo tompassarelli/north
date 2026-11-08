@@ -190,6 +190,7 @@ Commands:
   capacity host estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...  Size a command's capacity request before it runs
   capacity host status                          Show the host's capacity leases and pressure
   capacity host backlog                         Show the work queued for capacity
+  capacity host admit-job                       Exit 0 when this host starts another offloaded job now, else print why and exit 75
   capacity host land-waiting                    Claim the landing check's place in the capacity queue
   capacity host hand-over [--wait-seconds N]    Run the build hand-over
   capacity host probe ...                       Probe the host's capacity

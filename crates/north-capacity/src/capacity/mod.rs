@@ -18,6 +18,7 @@ mod client_reserve;
 mod run_queue;
 mod queued_ahead;
 pub mod pressure_target;
+pub mod job_admission;
 mod gpu_admission;
 pub mod deadline;
 mod process_tree;

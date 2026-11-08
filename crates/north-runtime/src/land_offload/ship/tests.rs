@@ -13,7 +13,10 @@ const FLAKE_WITHOUT_DEV_SHELL: &str = "{ outputs = { checks = 1; }; }";
 
 const NIX_SHIM: &str = "echo \"nix $*\"\n";
 
-const NORTH_SHIM: &str = r#"case "$1 $2" in
+const NORTH_SHIM: &str = r#"case "$1 $2 $3" in
+  "capacity host admit-job") [ ! -e "$HOME/refuse" ] || { echo "refused for the test"; exit 75; }; exit 0 ;;
+esac
+case "$1 $2" in
   "capacity deadline") shift; while [ "$1" != -- ]; do shift; done; shift; exec "$@" ;;
   "capacity host")
     shift 2
@@ -27,10 +30,10 @@ exit 64
 "#;
 
 fn remote_run_flake(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>) -> String {
-    remote_run(command, flake, caller, home, "").0
+    remote_run(command, flake, caller, home).0
 }
 
-fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>, prelude: &str) -> (String, String) {
+fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home: Option<&Path>) -> (String, String) {
     let slot = tempfile::tempdir().unwrap();
     let bin = tempfile::tempdir().unwrap();
     if let Some(text) = flake {
@@ -42,7 +45,7 @@ fn remote_run(command: &str, flake: Option<&str>, caller: &[(&str, &str)], home:
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let fresh_home = tempfile::tempdir().unwrap();
     let output = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{prelude}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
+        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h carried={}\n{}", shell(slot.path()), shell(Path::new(command)), super::quote(&carried_from(caller)), run_part())])
         .env("PATH", path)
         .env_remove("SAFE_PUSH_LAND_BASE")
         .env_remove("SAFE_PUSH_LAND_HEAD")
@@ -119,21 +122,10 @@ fn reaping_an_owner_kills_its_remote_runs_and_leaves_every_other_run_alone() {
 #[test]
 fn a_flake_without_a_dev_shell_runs_the_command_plainly() {
     assert_eq!(remote_run_flake("echo plain", Some(FLAKE_WITHOUT_DEV_SHELL), &[], None), "plain\n");
-    let (stdout, stderr) = remote_run("printf '%s' \"$SAFE_PUSH_LAND_CPUS\"", None, &[("SAFE_PUSH_LANDING", "1")], None, "cores=16 cap=4");
-    assert_eq!(stdout, "4", "a slot command's lease is charged its share of the host's cores");
+    let (_, stderr) = remote_run("true", None, &[("SAFE_PUSH_LANDING", "1")], None);
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-check --timeout-seconds 10"), "{stderr}");
-    let (_, stderr) = remote_run("true", None, &[], None, "");
+    let (_, stderr) = remote_run("true", None, &[], None);
     assert!(stderr.lines().any(|line| line == "lease run --class heavy --owner land-offload --timeout-seconds 10"), "{stderr}");
-    let job = super::job_mib();
-    let cases = [(8, 4, 31_000, 2, 2, "ccx33 at 4 cores a land check: its heavy leases keep the CPU headroom, so no 4/5 cut leaves it one job"), (20, 3, 64_000, 6, 6, "gex45 at 3 cores a land check"), (48, 4, 192_000, 12, super::SLOTS, "a host with room for more jobs than one checkout has slots runs that many across its checkouts"), (8, 1, 3 * job, 3, 3, "memory caps a host whose land checks charge one core"), (2, 4, 64_000, 1, 1, "a host smaller than one land check still runs one")];
-    for (cores, per, memory, host, expected, why) in cases {
-        let meminfo = tempfile::NamedTempFile::new().unwrap();
-        fs::write(meminfo.path(), format!("MemTotal:       {} kB\n", memory * 1024)).unwrap();
-        let script = format!("per={per}\n{}echo \"$host_cap $cap\"", super::script::CAP.replace("@SLOTS@", &super::SLOTS.to_string()).replace("@JOB_MIB@", &job.to_string()));
-        let output = Command::new("sh").args(["-c", &script]).env("AGENT_CAPACITY_CORES", cores.to_string()).env("AGENT_CAPACITY_MEMINFO", meminfo.path()).env_remove("NORTH_OFFLOAD_MAX_JOBS").output().unwrap();
-        let shell: Vec<u32> = String::from_utf8_lossy(&output.stdout).split_whitespace().map(|word| word.parse().unwrap()).collect();
-        assert_eq!((shell, super::host_job_cap(cores, per, memory)), (vec![host, expected], host), "{why}");
-    }
 }
 
 #[test]
@@ -210,10 +202,11 @@ fn shipping_a_job_recovers_its_slots_stale_worktree_entry_and_prunes_no_other_en
     let slot = home.path().join(".cache/land-offload/code-p-main");
     git(&repo, &["worktree", "add", "-q", "--detach", slot.to_str().unwrap(), &head]);
     fs::remove_dir_all(&slot).unwrap();
-    let script = super::script::slot_part().replace("@JOBS@", &super::script::jobs_part()).replace("@CAP@", super::script::CAP).replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@JOB_MIB@", "0").replace("@SLOT_PORTS@", "");
+    let script = super::script::slot_part().replace("@JOBS@", &super::script::jobs_part()).replace("@ADMIT@", super::script::ADMIT).replace("@SETTLE@", "0").replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1").replace("@SLOT_PORTS@", "");
     let output = Command::new("sh")
         .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
         .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env_remove("NORTH_OFFLOAD_ROOT")
         .stdin(fs::File::open(&bundle).unwrap())
         .output()
@@ -279,8 +272,9 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
             let release = home.path().join("release");
             let command = format!("echo start-{label} >>{log}; while [ ! -e {release} ]; do sleep 0.02; done; echo end-{label} >>{log}", log = log.display(), release = release.display());
             let child = Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", ""])
                 .env("HOME", home.path())
+                .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
                 .env("PATH", &path)
                 .env("NORTH_OFFLOAD_MAX_JOBS", "1")
                 .env_remove("NORTH_OFFLOAD_ROOT")
@@ -305,7 +299,7 @@ fn offload_jobs_past_the_host_cap_wait_their_turn_in_arrival_order() {
     let waiting = fs::read_to_string(home.path().join("b.err")).unwrap();
     let line = waiting.lines().find(|line| line.starts_with("offload: waiting for a slot")).unwrap_or_else(|| panic!("{waiting}"));
     let held = line.split_once("held by: ").map_or("", |(_, held)| held);
-    assert!(line.contains("code-p-main runs 1 of 1 jobs at once, the host 1 of 1;") && held.starts_with(&format!("code-p-main.lock {} since ", &head[..12])) && held.matches(';').count() == 1, "the warm job's lock counts as no job, and the line names the one job the cap counts: {line}");
+    assert!(line.contains("code-p-main runs 1 of its 6 slots, the host 1 jobs; the host runs at most 1 jobs;") && held.starts_with(&format!("code-p-main.lock {} since ", &head[..12])) && held.matches(';').count() == 1, "the warm job's lock counts as no job, and the line names the one job the cap counts: {line}");
     assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "every job left the queue");
 }
 
@@ -334,8 +328,9 @@ fn order_through_one_slot(jobs: &[Queued]) -> Vec<String> {
             let gate = if job.hold { format!("while [ ! -e {}/release-{} ]; do sleep 0.02; done", home.path().display(), job.label) } else { ":".to_owned() };
             let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", label = job.label, log = log.display());
             let child = Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, "", "", "0", job.red_fix])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", &name, &command, "refs/land-offload/job", job.carried, "", "", job.red_fix])
                 .env("HOME", home.path())
+                .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
                 .env("PATH", &path)
                 .env("NORTH_OFFLOAD_MAX_JOBS", "1")
                 .env_remove("NORTH_OFFLOAD_ROOT")
@@ -399,8 +394,9 @@ fn a_dead_job_leaves_no_ticket_that_blocks_the_queue() {
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let output = Command::new("sh")
-        .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", "", "0"])
+        .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", ""])
         .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
         .env("NORTH_OFFLOAD_MAX_JOBS", "1")
         .env_remove("NORTH_OFFLOAD_ROOT")
@@ -416,14 +412,14 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
-    crate::foundation::shim::write_script(&bin.path().join("nproc"), "echo ${NPROC:-4}\n");
     crate::foundation::shim::write_script(&bin.path().join("ssh"), &format!("echo \"$*\" >>{}\nexit 255\n", home.path().join("ssh-calls").display()));
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let seen = home.path().join("seen");
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let job = |command: String, lander: &str| {
-        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "0", "", "", "", lander], &[])
+        super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LAND_CPUS='6'", "", "", "", "", "", lander], &[])
             .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
             .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
@@ -438,7 +434,7 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let holding = home.path().join("holder-started");
     let holder = job(format!("mkdir -p target && echo built >target/marker && touch {} && sleep 2", holding.display()), "");
     assert!(north_base::platform::wait::until(std::time::Duration::from_secs(30), || holding.exists()), "the holder never took its slot");
-    let queued = job(format!("cat target/marker >>{} && printf '%s %s %s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" \"$CARGO_BUILD_JOBS $RUST_TEST_THREADS $NEXTEST_TEST_THREADS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", home.path().join("marker").display(), north_base::foundation::offload::SLOT_ENV, seen.display()), "");
+    let queued = job(format!("cat target/marker >>{} && printf '%s %s %s' \"${}\" \"$SCCACHE_BASEDIRS\" \"$SCCACHE_SERVER_PORT\" >{}", home.path().join("marker").display(), north_base::foundation::offload::SLOT_ENV, seen.display()), "");
     let lander_seen = home.path().join("lander-seen");
     let lander = job(format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, lander_seen.display()), "1").wait_with_output().unwrap();
     assert!(lander.status.success(), "{}", String::from_utf8_lossy(&lander.stderr));
@@ -450,27 +446,9 @@ fn a_queued_job_reports_its_wait_and_runs_with_its_slot_as_the_slot_marker_and_t
     let stderr = String::from_utf8_lossy(&queued.stderr);
     assert!(stderr.lines().any(|line| line.starts_with(super::WAITED) && line.ends_with("s in line for code-p-main")), "{stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main");
-    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1} 4 4 4 4", slot.display(), super::script::slot_ports("code-p-main")[0].1), "a slot job builds and tests on the host's cores divided by its job cap");
+    assert_eq!(fs::read_to_string(&seen).unwrap(), format!("{0} {0} {1}", slot.display(), super::script::slot_ports("code-p-main")[0].1));
     assert_eq!(fs::read_to_string(home.path().join("marker")).unwrap(), "built\n", "a later job in the slot builds on the target the job before it left");
     assert!(!home.path().join("ssh-calls").exists(), "a job for this host runs the slot script here and never reaches ssh");
-    let sized = home.path().join("sized");
-    let meminfo = home.path().join("meminfo");
-    fs::write(&meminfo, "MemTotal:       67108864 kB\n").unwrap();
-    let command = format!("printf '%s %s' \"$CARGO_BUILD_JOBS\" \"$SAFE_PUSH_LAND_CPUS\" >{}", sized.display());
-    let thirty = Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "4"])
-        .env("HOME", home.path())
-        .env("PATH", &path)
-        .env("NPROC", "30")
-        .env("AGENT_CAPACITY_MEMINFO", &meminfo)
-        .env_remove("NORTH_OFFLOAD_MAX_JOBS")
-        .env_remove("NORTH_OFFLOAD_ROOT")
-        .env_remove("SAFE_PUSH_LAND_CPUS")
-        .stdin(fs::File::open(&bundle).unwrap())
-        .output()
-        .unwrap();
-    assert!(thirty.status.success(), "{}", String::from_utf8_lossy(&thirty.stderr));
-    assert_eq!(fs::read_to_string(&sized).unwrap(), "5 5", "30 cores and 64 GiB run their six slots at once with 5 cores each, every job under a lease that keeps the host admission headroom, not six 4-core jobs under a fifth held back as well");
 }
 
 #[test]
@@ -499,8 +477,9 @@ fn a_lander_job_takes_its_reserved_slot_with_no_waited_line_while_another_job_te
     let seen = home.path().join("lander-seen");
     let command = format!("printf '%s' \"${}\" >{}", north_base::foundation::offload::SLOT_ENV, seen.display());
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
-    let lander = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0", "", "", "", "1"], &[])
+    let lander = super::on_host("", &script, &["code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "", "", "", "1"], &[])
         .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", format!("{}:{path}", clock.path().display()))
         .env("NORTH_OFFLOAD_MAX_JOBS", "1")
         .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
@@ -588,8 +567,9 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     let ran_elsewhere = home.path().join("inner-ran-elsewhere");
     let command = format!("{} && {}", nested(&head, &ran), nested(&other, &ran_elsewhere));
     let mut outer = Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", "", "0"])
+        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "", "", ""])
         .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
         .env("NORTH_OFFLOAD_MAX_JOBS", "1")
         .env_remove(north_base::foundation::offload::SLOT_ENV)
@@ -623,8 +603,9 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
     let runtime = "0123456789abcdef0123456789abcdef01234567";
     let job = || {
         Command::new("sh")
-            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", runtime, "0"])
+            .args(["-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", "refs/land-offload/job", "", "", runtime])
             .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
             .env_remove(north_base::foundation::offload::SLOT_ENV)
             .env_remove("NORTH_OFFLOAD_ROOT")
@@ -646,7 +627,7 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
 
 // KEEP(bug): on 2026-11-08 lane checks ranked level with the lander's probe jobs took free code-north-main slots on gex45, and probe jobs queued behind them
 #[test]
-fn a_lane_check_waits_while_lane_checks_hold_their_share_of_a_hosts_slots_and_a_lander_job_queued_after_it_takes_a_free_slot_first() {
+fn a_lane_check_waits_while_the_hosts_admission_refuses_and_a_lander_job_queued_after_it_takes_a_free_slot_first() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
     let bin = tempfile::tempdir().unwrap();
     crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
@@ -658,10 +639,10 @@ fn a_lane_check_waits_while_lane_checks_hold_their_share_of_a_hosts_slots_and_a_
         let gate = if hold { format!("while [ ! -e {} ]; do sleep 0.02; done", release.display()) } else { ":".to_owned() };
         let command = format!("echo start-{label} >>{log}; {gate}; echo end-{label} >>{log}", log = log.display());
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LANDING='1'", "", "", "0", "", "", "", lander])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", &command, "refs/land-offload/job", "SAFE_PUSH_LANDING='1'", "", "", "", "", "", lander])
             .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
-            .env("NORTH_OFFLOAD_MAX_JOBS", (super::LANDER_JOBS + 2).to_string())
             .env_remove("NORTH_OFFLOAD_ROOT")
             .stdin(fs::File::open(&bundle).unwrap())
             .stdout(std::process::Stdio::null())
@@ -669,27 +650,23 @@ fn a_lane_check_waits_while_lane_checks_hold_their_share_of_a_hosts_slots_and_a_
             .spawn()
             .unwrap()
     };
-    let lanes: Vec<std::process::Child> = (0..super::others_cap(super::LANDER_JOBS + 2)).map(|index| {
-        let child = spawn(&format!("lane-{index}"), "", true);
-        wait_until_in_line(home.path(), &log, index as usize + 1);
-        child
-    }).collect();
-    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.matches("start-lane-").count() == super::others_cap(super::LANDER_JOBS + 2) as usize)), "the lane checks never took their slots");
+    let mut lane = spawn("lane", "", true);
+    assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.contains("start-lane"))), "the admitted lane check never took its slot");
+    fs::write(home.path().join("refuse"), "").unwrap();
     let queued = spawn("queued-lane", "", false);
-    wait_until_in_line(home.path(), &log, super::others_cap(super::LANDER_JOBS + 2) as usize + 1);
+    wait_until_in_line(home.path(), &log, 2);
     let mut holding = spawn("lander", "1", true);
     assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || fs::read_to_string(&log).is_ok_and(|text| text.contains("start-lander"))), "the lander job never took its reserved slot");
     let second = spawn("second-lander", "1", false).wait().unwrap();
-    assert!(second.success(), "a lander job queued after the lane check takes the slot under the job cap while the lander's reserved slot is held");
-    assert!(!fs::read_to_string(&log).unwrap().contains("start-queued-lane"), "the lane check stays queued while lane checks hold their share, though the job cap has room");
+    assert!(second.success(), "a lander job queued after the lane check takes a free slot while the host's admission refuses other jobs and the lander's reserved slot is held");
+    assert!(!fs::read_to_string(&log).unwrap().contains("start-queued-lane"), "the lane check stays queued while the host's admission refuses, though its checkout has free slots");
     fs::write(&release, "").unwrap();
-    for mut lane in lanes {
-        assert!(lane.wait().unwrap().success());
-    }
+    assert!(lane.wait().unwrap().success());
     assert!(holding.wait().unwrap().success());
+    fs::remove_file(home.path().join("refuse")).unwrap();
     assert!(queued.wait_with_output().unwrap().status.success());
     let order: Vec<String> = fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect();
-    assert_eq!(order.iter().filter(|event| event.contains("lander")).count(), 4, "both lander jobs ran while the lane checks held their slots: {order:?}");
+    assert_eq!(order.iter().filter(|event| event.contains("lander")).count(), 4, "both lander jobs ran while the admission refused the lane check: {order:?}");
     assert_eq!(order.last().map(String::as_str), Some("end-queued-lane"), "{order:?}");
 }
 
@@ -703,8 +680,9 @@ fn a_run_whose_connection_is_killed_in_the_middle_still_reports_its_real_exit_an
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let command = "echo before; sleep 2; echo after; exit 3";
     let mut remote = Command::new("setsid")
-        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "0", "", marker])
+        .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "", marker])
         .env("HOME", home.path())
+        .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
         .env("PATH", &path)
         .env_remove(north_base::foundation::offload::SLOT_ENV)
         .env_remove("NORTH_OFFLOAD_ROOT")
@@ -773,8 +751,9 @@ fn a_slot_target_past_its_cap_is_trimmed_and_kept_warm_instead_of_removed() {
     let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
     let job = |command: &str| {
         Command::new("setsid")
-            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "0"])
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", ""])
             .env("HOME", home.path())
+            .env("NORTH_OFFLOAD_SETTLE_SECONDS", "0")
             .env("PATH", &path)
             .env("NORTH_OFFLOAD_MAX_JOBS", "1")
             .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")

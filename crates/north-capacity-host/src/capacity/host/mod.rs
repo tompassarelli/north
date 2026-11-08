@@ -66,7 +66,7 @@ mod unleased_native;
 #[cfg(test)]
 mod unleased_native_tests;
 
-const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
+const USAGE: &str = "usage: offload-cost [--last N]|admit-job|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|backlog|land-waiting|hand-over [--wait-seconds N]|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 
 pub use actions_pull::run as actions_pull;
 pub use fleet_pull::run as pull;
@@ -74,6 +74,38 @@ pub use fleet_pull::run as pull;
 /// The cores a land check asks of a check host: its highest measured peak once enough newest land-check runs all peaked under the heavy class, else `land_offload_cpus`.
 pub fn land_check_cpus() -> f64 {
     land_check_charge(admission_default("land_offload_cpus"), &database::recent_usage(5000, |entry| entry["owner"].as_str() == Some("land-check") && entry["class"].as_str() == Some("heavy") && entry["wallSeconds"].as_f64().is_some_and(|wall| wall > 0.0)))
+}
+
+/// The MiB one offloaded job peaks at on this host: the 90th percentile of the newest measured lander runs' peaks once `heavy_peak_charge_runs` of them are recorded, else `dispatch_heavy_memory_mib`.
+pub fn job_peak_mib() -> f64 {
+    let runs = database::recent_usage(5000, |entry| matches!(entry["owner"].as_str(), Some("land-check" | "land-offload")) && entry["class"].as_str() == Some("heavy") && entry["wallSeconds"].as_f64().is_some_and(|wall| wall > 0.0));
+    let mut peaks: Vec<f64> = runs.iter().filter_map(|run| run["peakMemoryMiB"].as_f64()).collect();
+    if (peaks.len() as f64) < policy::default_number("heavy_peak_charge_runs") {
+        return crate::capacity::admission::dispatch_request_mib(crate::capacity::admission::Class::Heavy);
+    }
+    peaks.sort_by(f64::total_cmp);
+    peaks[(peaks.len() * 9 / 10).min(peaks.len() - 1)]
+}
+
+/// Why this host starts no other offloaded job now, read from its whole-host CPU pressure and available memory; None when it starts one.
+pub fn job_refusal() -> Option<String> {
+    let signals = machine::read_signals();
+    let load = crate::capacity::job_admission::HostLoad { cpu_some_percent: signals.host_cpu_some / 100.0, memory_total_mib: signals.memory_total_mib, memory_available_mib: signals.memory_available_mib };
+    crate::capacity::job_admission::refusal(&load, job_peak_mib())
+}
+
+/// `admit-job`: exits 0 when this host starts another offloaded job now, else prints why and exits 75, the answer the slot script and the slot warmer act on.
+fn admit_job(argv: &[String]) -> u8 {
+    if argv.len() != 1 {
+        fail("admit-job accepts no arguments", 2);
+    }
+    match job_refusal() {
+        None => 0,
+        Some(why) => {
+            println!("{why}");
+            75
+        }
+    }
 }
 
 pub(super) fn land_check_charge(declared: f64, runs: &[Value]) -> f64 {
@@ -405,6 +437,7 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
         "estimate" => return estimate(argv),
         "fixture" => return fixture(argv, host),
         "offload-cost" => return offload_cost::print(argv),
+        "admit-job" => return admit_job(argv),
         _ => {}
     }
     let root = runtime_root();

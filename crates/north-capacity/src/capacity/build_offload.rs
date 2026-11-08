@@ -15,6 +15,9 @@ pub struct Admission {
     pub pressure_high_percent: f64,
     pub land_check_waiting: bool,
     pub heavy_settling_seconds: f64,
+    /// The whole host's CPU pressure and the MiB one offloaded job peaks at there, which `job_admission` reads; a host whose status lacks them reads 0% and `dispatch_heavy_memory_mib`.
+    pub host_cpu_pressure_percent: f64,
+    pub job_peak_mib: f64,
 }
 
 impl Admission {
@@ -25,7 +28,7 @@ impl Admission {
             "unattended" => "admit_psi_unattended_high",
             _ => return None,
         };
-        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, queued_heavy_cpus: queued_heavy_cpus(status), cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false), heavy_settling_seconds: number("heavySettlingSeconds").unwrap_or(0.0) })
+        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, queued_heavy_cpus: queued_heavy_cpus(status), cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band), land_check_waiting: status.get("landCheckWaiting").and_then(serde_json::Value::as_bool).unwrap_or(false), heavy_settling_seconds: number("heavySettlingSeconds").unwrap_or(0.0), host_cpu_pressure_percent: number("hostCpuSomeAvg10").unwrap_or(0.0), job_peak_mib: number("jobPeakMiB").unwrap_or_else(|| super::admission::dispatch_request_mib(super::admission::Class::Heavy)) })
     }
 
     /// The CPUs left once the committed ones and the heavy jobs already waiting in this host's admission queue are counted as taken; a job the land-check claim holds back is no demand for cores and does not count, because counting it leaves the lander no room, which renews the claim that holds it.

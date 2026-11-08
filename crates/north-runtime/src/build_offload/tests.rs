@@ -147,7 +147,7 @@ fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_
 }
 
 fn laptop_room(committed: f64) -> Room {
-    let admission = Admission { limit_cpus: 14.0, committed_cpus: committed, queued_heavy_cpus: 0.0, cpu_pressure_percent: 1.0, pressure_high_percent: 25.0, land_check_waiting: false, heavy_settling_seconds: 0.0 };
+    let admission = Admission { limit_cpus: 14.0, committed_cpus: committed, queued_heavy_cpus: 0.0, cpu_pressure_percent: 1.0, pressure_high_percent: 25.0, land_check_waiting: false, heavy_settling_seconds: 0.0, host_cpu_pressure_percent: 0.0, job_peak_mib: 8192.0 };
     Room { measure: Measure { cores: 20.0, memory_total_mib: 64_000.0, memory_available_mib: 50_000.0, load: 1.0 }, admission, disk_free_gib: 200.0, slots: None }
 }
 

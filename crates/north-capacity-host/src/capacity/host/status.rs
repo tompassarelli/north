@@ -106,6 +106,8 @@ pub fn status(root: &Path) -> Obj {
             .put("aggregateCpuLimit", num(aggregate_cpus(profile, signals.cores, signals.slice_cpus)))
             .put("protectedCpuSomeAvg10", num(signals.protected_cpu_some / 100.0))
             .put("cpuSomeAvg10", num(signals.cpu_some / 100.0))
+            .put("hostCpuSomeAvg10", num(signals.host_cpu_some / 100.0))
+            .put("jobPeakMiB", num(super::job_peak_mib()))
             .put("committedBatchCpus", num(accounting.committed_batch_cpus))
             .put("committedNativeCpus", num(accounting.committed_native_cpus))
             .put("landCheckWaiting", super::state::land_check_waiting(root, now))

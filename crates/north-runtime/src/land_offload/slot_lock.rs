@@ -18,10 +18,6 @@ fn busy(lock: &Path) -> PathBuf {
     lock.with_extension(BUSY)
 }
 
-pub(crate) fn held(lock: &Path) -> bool {
-    File::open(busy(lock)).is_ok_and(|file| flock(&file, FlockOperation::NonBlockingLockExclusive).is_err())
-}
-
 pub(crate) fn take(lock: &Path) -> Option<Hold> {
     let owned = OpenOptions::new().create(true).append(true).open(lock).ok()?;
     flock(&owned, FlockOperation::NonBlockingLockExclusive).ok()?;

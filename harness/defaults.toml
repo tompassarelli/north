@@ -973,6 +973,14 @@ source = "measured: after 10 s the average has reached 63% of its final value, a
 fallback = "none: with no heavy lease younger than this the next ticket is free to start"
 consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]
 
+[offload_job_cpu_psi]
+value = 40
+allowed = { min = 0, max = 100 }
+unit = "percent of the whole host's CPU pressure (/proc/pressure/cpu some avg10, the jobs in its batch slices included) at or above which a build host starts no offloaded job but the lander's own"
+source = "measured: at 2:44 PM +07 on 2026-11-08, with 12, 7 and 5 jobs queued behind fixed slot counts, the three build hosts read 68.7% at load 18.3 on 20 threads, 6.7% at load 9.6 on 16 and 0.03% at load 5.3 on 16 with one job running; 40 admits jobs until a host's threads are near full and matches the unattended heavy-build mark (admit_psi_unattended_high)"
+fallback = "a host whose north answers no admit-job runs one offloaded job at a time"
+consumers = ["crates/north-capacity/src/capacity/job_admission.rs"]
+
 [admit_memory_ramp_seconds]
 value = 60
 allowed = { min = 0, max = 604800 }

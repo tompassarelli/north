@@ -4,7 +4,7 @@ use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
 
-use super::ship::{OFFLOAD_ROOT, SLOTS, host_job_cap, others_cap, jobs_part, quote};
+use super::ship::{OFFLOAD_ROOT, SLOTS, jobs_part, quote};
 
 const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
@@ -50,7 +50,12 @@ impl Room {
     fn busy(&self, cores: f64, taken: usize) -> f64 {
         let limit = self.admission.limit_cpus.max(1.0);
         let committed = (limit - self.admission.free_cpus() + cores * taken as f64) / limit;
-        self.slots.map_or(committed, |slots| slots.backlog(host_job_cap(slots.cores, cores.ceil() as u32, self.measure.memory_total_mib as u32), taken).max(committed))
+        self.slots.map_or(committed, |slots| slots.backlog(self.jobs_at_once(cores), taken).max(committed))
+    }
+
+    /// The land checks of `cores` the host runs at once: those its admission's CPU limit holds, at least one and at most the `SLOTS` of one checkout.
+    fn jobs_at_once(&self, cores: f64) -> u32 {
+        ((self.admission.limit_cpus.max(0.0) / cores.max(1.0)).floor() as u32).clamp(1, SLOTS)
     }
 }
 
@@ -122,16 +127,14 @@ fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {
     (room.disk_free_gib < disk).then(|| format!("{:.1} GiB disk free, needs {disk}", room.disk_free_gib))
 }
 
-/// The land checks of `cores` the hosts take at once, free for the lander and total: a host's total is the job cap its slot script enforces (its cores over the cores a check is charged, its memory over a job's, at most `SLOTS`) within the checks its admission limit holds; its free checks are those its free CPUs hold, capped at the checks it keeps for the lander (its total less the slots other jobs may hold) and at the slots its running jobs and the red fixes and lander jobs queued ahead leave; a host its admission refuses for a check of `cores` counts none free.
+/// The land checks of `cores` the hosts take at once, free for the lander and total: a host's total is the checks it runs at once (`Room::jobs_at_once`); its free checks are those its free CPUs hold within the slots its running jobs and the red fixes and lander jobs queued ahead leave, since the lander's jobs never wait on the pressure other jobs wait on; a host its admission refuses for a check of `cores` counts none free.
 pub(super) fn check_slots<'a>(rooms: impl IntoIterator<Item = &'a Room>, cores: f64) -> (usize, usize) {
     let cores = cores.max(1.0);
     let held = |cpus: f64| (cpus.max(0.0) / cores).floor() as usize;
     rooms.into_iter().fold((0, 0), |(free, total), room| {
-        let host_cores = room.slots.map_or(room.measure.cores as u32, |slots| slots.cores);
-        let all = held(room.admission.limit_cpus).min(host_job_cap(host_cores, cores.ceil() as u32, room.measure.memory_total_mib as u32).min(SLOTS) as usize);
-        let lander = all.saturating_sub(others_cap(all as u32) as usize);
+        let all = room.jobs_at_once(cores) as usize;
         let open = room.slots.map_or(all, |slots| all.saturating_sub((slots.running + slots.ahead) as usize));
-        (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()).min(lander).min(open) } else { 0 }, total + all)
+        (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()).min(open) } else { 0 }, total + all)
     })
 }
 
@@ -185,7 +188,7 @@ fn least_busy(remotes: &[(String, Option<Room>)], taken: &[String], cores: f64) 
 fn behind_a_round(remotes: &[(String, Option<Room>)], taken: &[String], cores: f64) -> bool {
     let on = |name: &str| taken.iter().filter(|host| *host == name).count() as u32;
     remotes.iter().any(|(_, room)| room.is_some())
-        && remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, room))).all(|(name, room)| room.slots.is_some_and(|slots| slots.queued + on(name) > host_job_cap(slots.cores, cores.ceil() as u32, room.measure.memory_total_mib as u32)))
+        && remotes.iter().filter_map(|(name, room)| room.as_ref().map(|room| (name, room))).all(|(name, room)| room.slots.is_some_and(|slots| slots.queued + on(name) > room.jobs_at_once(cores)))
 }
 
 fn most_room(hosts: impl IntoIterator<Item = (String, Option<Room>)>, taken: &[String], cores: f64, refused: &mut Vec<String>) -> Option<String> {
@@ -213,28 +216,28 @@ mod tests {
     }
 
     #[test]
-    fn a_host_reporting_24_free_cores_at_4_per_check_offers_the_lander_2_of_its_6_slots_and_two_such_hosts_4_of_12() {
+    fn a_host_reporting_24_free_cores_at_4_per_check_offers_the_lander_all_6_of_its_slots_and_two_such_hosts_12() {
         let gib = 1024 * 1024;
         let mut host = reading(80 * gib, "3.00", "0.0", "1");
         host.admission.limit_cpus = 24.0;
         host.measure.cores = 24.0;
-        assert_eq!(check_slots([&host], 4.0), (2, 6), "four of its six checks may go to lane pre-checks and worker builds");
-        assert_eq!(check_slots([&host, &host], 4.0), (4, 12));
+        assert_eq!(check_slots([&host], 4.0), (6, 6), "the lander's jobs never wait behind other jobs' share of a host");
+        assert_eq!(check_slots([&host, &host], 4.0), (12, 12));
         let mut small = host;
         small.admission.limit_cpus = 8.0;
-        assert_eq!(check_slots([&small], 4.0), (1, 2));
+        assert_eq!(check_slots([&small], 4.0), (2, 2));
         let mut loaded = host;
         loaded.admission.committed_cpus = 10.0;
-        assert_eq!(check_slots([&loaded, &host], 4.0), (4, 12), "a host with 14 of 24 cores free still holds the 2 checks it keeps for the lander");
+        assert_eq!(check_slots([&loaded, &host], 4.0), (9, 12), "a host with 14 of 24 cores free holds 3 more checks");
         let mut pressed = reading(80 * gib, "3.00", "0.0", "90");
         pressed.admission.limit_cpus = 24.0;
         pressed.measure.cores = 24.0;
-        assert_eq!(check_slots([&pressed, &host], 4.0), (2, 12), "a host its admission refuses offers no free slot");
+        assert_eq!(check_slots([&pressed, &host], 4.0), (6, 12), "a host its admission refuses offers no free slot");
     }
 
     // KEEP(bug): at 10:20 AM on 2026-11-08 the lander read 33 free slots with land checks charged one core, and planned 33 probes of about 6 offload jobs each, while gex45 held its 6 slots with 35 jobs queued for them
     #[test]
-    fn a_replay_of_the_1020_am_reading_offers_the_lander_only_the_slots_the_build_hosts_job_caps_and_queues_leave() {
+    fn a_replay_of_the_1020_am_reading_offers_the_lander_only_the_slots_the_build_hosts_running_and_queued_jobs_leave() {
         let gib = 1024 * 1024;
         let host = |cores: u32, memory_kib: u64, committed: &str, slots: &str| {
             let text = format!("{cores}\n{}@SLOTS@\n{slots}\n", PROBE[3..].replace("65536000", &memory_kib.to_string()).replace("40000000", &(memory_kib / 2).to_string()).replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", committed).replace("%PRESSURE%", "1"));
@@ -245,10 +248,11 @@ mod tests {
         let gex45 = host(20, 65_536_000, "1.0", "6 35 20 35");
         let cpx62 = host(16, 32_505_856, "2.0", "3 0 16 0");
         let charge = 1.0;
-        assert_eq!(check_slots([&gex45, &cpx62], charge), (0, 9), "gex45 caps its jobs at 6 and cpx62 at 3 by memory, every slot is held and 35 lander jobs wait for gex45's, where the free cores read 19 + 14 = 33");
+        assert_eq!(check_slots([&gex45, &cpx62], charge), (3, 12), "gex45 holds its 6 slots with 35 lander jobs waiting for them and cpx62 runs 3 of its 6, where the free cores read 19 + 14 = 33");
         let idle = |room: Room| Room { slots: room.slots.map(|slots| Slots { running: 0, queued: 0, ahead: 0, ..slots }), ..room };
         let (free, _) = check_slots([&idle(gex45), &idle(cpx62)], charge);
-        assert_eq!(free, 4, "idle, the hosts keep 2 slots each for the lander, the rest for other jobs");    }
+        assert_eq!(free, 12, "idle, each host offers the lander the 6 slots of one checkout");
+    }
 
     #[test]
     fn a_runtime_build_has_room_on_gex45_at_its_4_20_pm_reading_whose_load_average_is_the_ci_farm() {

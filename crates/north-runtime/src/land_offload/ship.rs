@@ -23,29 +23,13 @@ const TARGET_KEEP_MIB: u32 = 24 * 1024;
 use north_base::foundation::offload::{LANDER_SLOT_ENV, OWNER_ENV, RED_FIX_ENV};
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
-pub(super) fn job_mib() -> u32 {
-    crate::capacity::admission::dispatch_request_mib(crate::capacity::admission::Class::Heavy) as u32
-}
-
-pub(super) fn host_job_cap(cores: u32, per_check: u32, memory_mib: u32) -> u32 {
-    let by_cores = if per_check <= 1 { cores } else { cores / per_check };
-    let by_memory = match job_mib() {
-        0 => by_cores,
-        job if memory_mib < job => by_cores,
-        job => memory_mib / job,
-    };
-    by_cores.min(by_memory).max(1)
-}
-
 const FREE: &str = r#"set -eu
-root=@ROOT@ name=$1 per=${2:-0}
+root=@ROOT@ name=$1 runtime=
 mkdir -p "$root"
-@JOBS@@CAP@own=$(slot_jobs "$name")
-free=$((@SLOTS@ - own))
-room=$((cap - own)) host_room=$((host_cap - $(host_jobs)))
-[ "$room" -le "$host_room" ] || room=$host_room
-[ "$room" -ge 0 ] || room=0
-[ "$free" -le "$room" ] || free=$room
+@JOBS@@ADMIT@
+free=$((@SLOTS@ - 1 - $(slot_jobs "$name")))
+[ "$free" -ge 0 ] || free=0
+admits || free=0
 echo "$free"
 "#;
 
@@ -143,7 +127,7 @@ fn job_ref(head: &CommitId) -> String {
 pub(super) mod beside;
 mod script;
 pub(super) use script::jobs_part;
-pub use script::{LANDER_JOBS, SlotClass, is_lander_slot, others_cap};
+pub use script::{SlotClass, is_lander_slot};
 pub(crate) use script::slot_ports;
 use script::remote_script;
 mod bundle;
@@ -182,13 +166,12 @@ fn attempt(land: &Land, relative: &str, name: &str, runtime: Option<&str>) -> Re
     let script = remote_script(&name, land.class);
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let owner = std::env::var(OWNER_ENV).unwrap_or_default();
-    let cpus = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
     let red_fix = std::env::var(RED_FIX_ENV).unwrap_or_default();
     let lander_slot = std::env::var(LANDER_SLOT_ENV).unwrap_or_default();
     let marker = ran_marker(&reference);
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let beside = beside::pin(land.command, relative, &home, |checkout| CommitId::resolve(checkout, "HEAD").ok());
-    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, runtime.unwrap_or_default(), &cpus, &red_fix, &marker, &beside.pins, &lander_slot];
+    let words = [relative, base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, &beside.command, &reference, &carried(land, |name| std::env::var(name).ok()), &owner, runtime.unwrap_or_default(), &red_fix, &marker, &beside.pins, &lander_slot];
     let mut waiting = crate::capacity::deadline::SlotWait::begin(&crate::capacity::local_machine::runtime_root());
     let master = master::options(land.ssh);
     let options: Vec<&str> = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4"].into_iter().chain(master.iter().map(String::as_str)).collect();
@@ -250,11 +233,10 @@ fn ran_marker(reference: &str) -> String {
 
 pub(super) fn free_slots(ssh: &str, directory: &Path) -> Result<u32, String> {
     let (_, name) = checkout(directory)?;
-    let script = FREE.replace("@JOBS@", &script::jobs_part()).replace("@CAP@", script::CAP).replace("@ROOT@", OFFLOAD_ROOT).replace("@SLOTS@", &SLOTS.to_string()).replace("@JOB_MIB@", &job_mib().to_string());
-    let per = (crate::capacity::host::land_check_cpus().ceil() as u32).to_string();
-    let remote = format!("sh -c {} offload-free {} {per}", quote(&script), quote(&name));
+    let script = FREE.replace("@JOBS@", &script::jobs_part()).replace("@ADMIT@", script::ADMIT).replace("@ROOT@", OFFLOAD_ROOT).replace("@SLOTS@", &SLOTS.to_string()).replace("@SETTLE@", "0");
+    let remote = format!("sh -c {} offload-free {}", quote(&script), quote(&name));
     let (counted, host) = if ssh.is_empty() {
-        (crate::platform::process::run_within("sh", &["-c", &script, "offload-free", &name, &per], FREE_LIMIT), "this host")
+        (crate::platform::process::run_within("sh", &["-c", &script, "offload-free", &name], FREE_LIMIT), "this host")
     } else {
         (crate::platform::process::run_within("ssh", &["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &remote], FREE_LIMIT), ssh)
     };

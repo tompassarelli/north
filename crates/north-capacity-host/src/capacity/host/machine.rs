@@ -192,6 +192,8 @@ pub struct Signals {
     pub memory_total_mib: f64,
     pub memory_available_mib: f64,
     pub cpu_some: f64,
+    /// The whole host's CPU stall in avg10 basis points, the jobs in its batch slices included, which `cpu_some` leaves out.
+    pub host_cpu_some: f64,
     pub protected_cpu_some: f64,
     pub memory_full: f64,
 }
@@ -233,6 +235,7 @@ pub fn read_signals() -> Signals {
         memory_total_mib,
         memory_available_mib,
         cpu_some,
+        host_cpu_some: parse_psi(Path::new(&env("AGENT_CAPACITY_HOST_CPU_PRESSURE").unwrap_or_else(|| "/proc/pressure/cpu".to_owned())), "some"),
         protected_cpu_some: slice_pressure("session.slice").max(slice_pressure(&native)),
         memory_full: parse_psi(Path::new("/proc/pressure/memory"), "full"),
     }

@@ -1,5 +1,5 @@
 //! Keeps a host's land-check slots warm between landings: a build host's, and the lander host's own, which its after-landing runs use when no
-//! build host has room. While at most `BUSY_SLOTS` land checks hold slots here and none waits in the slot queue, the lease reaper (the laptop-auto tick on the laptop) starts
+//! build host has room. While the host's job admission (`north capacity host admit-job`) starts another job and no land check waits in the slot queue, the lease reaper (the laptop-auto tick on the laptop) starts
 //! one warm job: it takes the unlocked slot whose last warm build is furthest behind its repository's origin/main (a land check that left a
 //! slot at the head may not have built what the next one needs), a slot that has never built while the disk keeps its eviction line with one
 //! more of the largest target here, never the lander's reserved one, checks it out at
@@ -27,7 +27,6 @@ const UNIT: &str = "north-slot-warm";
 const SETTING: &str = "landing.warm";
 const DEADLINE: Duration = Duration::from_secs(1800);
 const POLL: Duration = Duration::from_millis(500);
-const BUSY_SLOTS: usize = 2;
 const QUEUE: &str = "queue";
 const BACKGROUND_TICKET: &str = "3-";
 const GIB: f64 = (1u64 << 30) as f64;
@@ -50,20 +49,15 @@ fn take(lock: &Path) -> Option<File> {
 }
 
 fn too_busy(root: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(root) else { return false };
-    let held_slots = entries.flatten().map(|entry| entry.path()).filter(|path| {
-        let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        name.ends_with(".lock") && name != LOCK && !name.ends_with(".background.lock") && slot_lock::held(path)
-    });
-    held_slots.count() > BUSY_SLOTS || checks_waiting(root)
+    checks_waiting(root) || crate::capacity::host::job_refusal().is_some()
 }
 
 fn checks_waiting(root: &Path) -> bool {
     fs::read_dir(root.join(QUEUE)).into_iter().flatten().flatten().any(|entry| !entry.file_name().to_string_lossy().starts_with(BACKGROUND_TICKET) && held(&entry.path()))
 }
 
-/// The lease reaper's step: starts the warm job as its own transient user unit when none is in flight, at most `BUSY_SLOTS` land checks
-/// hold slots here and none waits for one. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
+/// The lease reaper's step: starts the warm job as its own transient user unit when none is in flight, the host's job admission starts
+/// another job and no land check waits for a slot. The reaper is a oneshot unit, and systemd ends every process left in its cgroup when it exits, so a child of the reaper
 /// would die with it; the fixed unit name also keeps a second warm job from starting beside a running one.
 pub fn tend() {
     let Some(root) = offload::root().filter(|root| root.is_dir()) else { return };
