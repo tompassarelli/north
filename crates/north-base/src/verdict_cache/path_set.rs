@@ -66,8 +66,39 @@ fn parse_line(line: usize, text: &str) -> Result<Entry, ParseError> {
     if kind == Kind::Unreusable {
         return if path.is_empty() || path.contains(['\t', '\n']) { Err(fail("unreusable needs a one-line reason")) } else { Ok(Entry { kind, path: path.to_owned() }) };
     }
-    if path.is_empty() || path.starts_with('/') || path.contains('\t') || path.split('/').any(|part| part == ".." || part.is_empty()) {
-        return Err(fail("path must be relative to the tree, without empty or .. parts"));
+    if !well_formed(path) {
+        return Err(fail("path must be relative to the tree or absolute, without empty or .. parts"));
     }
     Ok(Entry { kind, path: path.to_owned() })
+}
+
+fn well_formed(path: &str) -> bool {
+    let parts = path.strip_prefix('/').unwrap_or(path);
+    path == "/" || !parts.is_empty() && !path.contains('\t') && parts.split('/').all(|part| part != ".." && !part.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(kind: Kind, path: &str) -> Entry {
+        Entry { kind, path: path.to_owned() }
+    }
+
+    #[test]
+    fn an_absolute_entry_renders_as_is_and_parses_back_beside_a_tree_entry() {
+        let entries = vec![entry(Kind::Content, "/etc/terminfo/x/xterm"), entry(Kind::Absent, "/home/tom/.terminfo"), entry(Kind::Listing, "/"), entry(Kind::Content, "a.txt")];
+        let text = render(&entries);
+        assert!(text.contains("content\t/etc/terminfo/x/xterm\n") && text.contains("listing\t/\n"), "{text}");
+        let mut sorted = entries;
+        sorted.sort();
+        assert_eq!(parse(&text), Ok(sorted));
+    }
+
+    #[test]
+    fn an_absolute_entry_with_an_empty_or_parent_part_is_refused() {
+        for bad in ["content\t/etc//hosts", "content\t/etc/../hosts", "content\t//", "content\t/etc/", "content\t"] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
 }

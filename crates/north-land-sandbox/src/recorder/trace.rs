@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use nix::errno::Errno;
@@ -12,6 +13,7 @@ use super::arch;
 use super::calls::{Plan, RoleSource, Target, open_role, plan};
 use super::memory::{fd_path, read_path, read_u64, resolve};
 use crate::classify::Role;
+use crate::not_inputs;
 
 const OPTIONS: Options = Options::PTRACE_O_TRACESECCOMP
     .union(Options::PTRACE_O_TRACEFORK)
@@ -20,6 +22,7 @@ const OPTIONS: Options = Options::PTRACE_O_TRACESECCOMP
     .union(Options::PTRACE_O_TRACEEXEC)
     .union(Options::PTRACE_O_EXITKILL);
 
+const AT_EMPTY_PATH: u64 = 0x1000;
 const STOPS: [Signal; 4] = [Signal::SIGSTOP, Signal::SIGTSTP, Signal::SIGTTIN, Signal::SIGTTOU];
 const HELD_WAIT: Duration = Duration::from_micros(200);
 const HELD_CHECK: Duration = Duration::from_millis(5);
@@ -116,17 +119,19 @@ fn record(recorder: &mut Recorder, pid: Pid, name: &str, call: &arch::Call) -> R
     let process = u32::try_from(pid.as_raw()).map_err(|error| error.to_string())?;
     let io = |error: std::io::Error| error.to_string();
     match plan(name, &call.args) {
+        Plan::Ambient if not_inputs::is_call(name) => {}
         Plan::Ambient => recorder.mark_unreusable(format!("ambient call {name}")),
         Plan::Listing(fd) => recorder.observe(process, Role::Listing, fd_path(process, fd).map_err(io)?),
         Plan::Paths(targets) => {
-            for Target { dirfd, pointer, role } in targets {
+            for Target { dirfd, pointer, role, fd_flags } in targets {
                 let role = match role {
                     RoleSource::Fixed(role) => role,
                     RoleSource::Flags(flags) => open_role(flags),
                     RoleSource::How(address) => open_role(read_u64(process, address).map_err(io)?),
                 };
-                let raw = read_path(process, pointer).map_err(io)?;
-                if let Some(path) = resolve(process, dirfd, &raw).map_err(io)? {
+                let raw = if pointer == 0 { PathBuf::new() } else { read_path(process, pointer).map_err(io)? };
+                let on_fd = fd_flags.is_some_and(|flags| flags & AT_EMPTY_PATH != 0);
+                if let Some(path) = resolve(process, dirfd, &raw, on_fd).map_err(io)? {
                     recorder.observe(process, role, path);
                 }
             }

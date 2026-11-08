@@ -8,7 +8,7 @@ use north_base::verdict_cache::path_set::{self, Entry};
 use crate::classify::Roots;
 use crate::options::Options;
 use crate::recorder::{self, Recorder};
-use crate::{CHILD_VERB, SANDBOX_FAILED, USAGE, fence};
+use crate::{CHILD_VERB, SANDBOX_FAILED, USAGE, fence, not_inputs};
 
 pub fn run(arguments: &[String]) -> u8 {
     let options = match Options::parse(arguments) {
@@ -53,7 +53,7 @@ fn supervise(options: &Options) -> Result<u8, String> {
         return Ok(exit_code(child.status().map_err(|error| format!("spawn child: {error}"))?));
     }
     let target = fence::target_dir(&tree);
-    let roots = Roots { target: target.canonicalize().unwrap_or(target), tree, scratch: scratch_path, program: options.command.first().and_then(|program| fence::resolved(Path::new(program))) };
+    let roots = Roots { target: target.canonicalize().unwrap_or(target), tree, scratch: scratch_path, program: options.command.first().and_then(|program| fence::resolved(Path::new(program))), library_dirs: not_inputs::library_dirs(std::env::var_os("LD_LIBRARY_PATH")) };
     let mut recorder = Recorder::new(roots, allowed);
     let process = child.spawn().map_err(|error| format!("spawn child: {error}"))?;
     let pid = Pid::from_raw(i32::try_from(process.id()).map_err(|error| error.to_string())?);

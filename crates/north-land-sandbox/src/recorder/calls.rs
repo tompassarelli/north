@@ -14,6 +14,7 @@ pub struct Target {
     pub dirfd: i32,
     pub pointer: u64,
     pub role: RoleSource,
+    pub fd_flags: Option<u64>,
 }
 
 pub enum Plan {
@@ -24,7 +25,7 @@ pub enum Plan {
 
 pub fn plan(name: &str, args: &[u64; 6]) -> Plan {
     let dirfd = |index: usize| args[index] as u32 as i32;
-    let one = |dirfd: i32, pointer: u64, role: RoleSource| Plan::Paths(vec![Target { dirfd, pointer, role }]);
+    let one = |dirfd: i32, pointer: u64, role: RoleSource| Plan::Paths(vec![Target { dirfd, pointer, role, fd_flags: None }]);
     let fixed = |role: Role| RoleSource::Fixed(role);
     match name {
         "open" => one(AT_FDCWD, args[0], RoleSource::Flags(args[1])),
@@ -34,7 +35,9 @@ pub fn plan(name: &str, args: &[u64; 6]) -> Plan {
         "execve" => one(AT_FDCWD, args[0], fixed(Role::Exec)),
         "execveat" => one(dirfd(0), args[1], fixed(Role::Exec)),
         "stat" | "lstat" | "access" | "readlink" => one(AT_FDCWD, args[0], fixed(Role::Probe)),
-        "newfstatat" | "statx" | "faccessat" | "faccessat2" | "readlinkat" => one(dirfd(0), args[1], fixed(Role::Probe)),
+        "faccessat" | "readlinkat" => one(dirfd(0), args[1], fixed(Role::Probe)),
+        "statx" => Plan::Paths(vec![Target { dirfd: dirfd(0), pointer: args[1], role: fixed(Role::Probe), fd_flags: Some(args[2]) }]),
+        "newfstatat" | "faccessat2" => Plan::Paths(vec![Target { dirfd: dirfd(0), pointer: args[1], role: fixed(Role::Probe), fd_flags: Some(args[3]) }]),
         "getdents" | "getdents64" => Plan::Listing(dirfd(0)),
         "inotify_add_watch" => one(AT_FDCWD, args[1], fixed(Role::Watch)),
         "mkdir" => one(AT_FDCWD, args[0], fixed(Role::MakeDir)),
@@ -42,8 +45,8 @@ pub fn plan(name: &str, args: &[u64; 6]) -> Plan {
         "symlink" | "link" => one(AT_FDCWD, args[1], fixed(Role::Place)),
         "symlinkat" => one(dirfd(1), args[2], fixed(Role::Place)),
         "linkat" => one(dirfd(2), args[3], fixed(Role::Place)),
-        "rename" => Plan::Paths(vec![Target { dirfd: AT_FDCWD, pointer: args[0], role: fixed(Role::Write) }, Target { dirfd: AT_FDCWD, pointer: args[1], role: fixed(Role::Place) }]),
-        "renameat" | "renameat2" => Plan::Paths(vec![Target { dirfd: dirfd(0), pointer: args[1], role: fixed(Role::Write) }, Target { dirfd: dirfd(2), pointer: args[3], role: fixed(Role::Place) }]),
+        "rename" => Plan::Paths(vec![Target { dirfd: AT_FDCWD, pointer: args[0], role: fixed(Role::Write), fd_flags: None }, Target { dirfd: AT_FDCWD, pointer: args[1], role: fixed(Role::Place), fd_flags: None }]),
+        "renameat" | "renameat2" => Plan::Paths(vec![Target { dirfd: dirfd(0), pointer: args[1], role: fixed(Role::Write), fd_flags: None }, Target { dirfd: dirfd(2), pointer: args[3], role: fixed(Role::Place), fd_flags: None }]),
         "unlink" | "rmdir" | "truncate" => one(AT_FDCWD, args[0], fixed(Role::Write)),
         "unlinkat" => one(dirfd(0), args[1], fixed(Role::Write)),
         _ => Plan::Ambient,

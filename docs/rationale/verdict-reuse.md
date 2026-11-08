@@ -231,7 +231,11 @@ inside the longer scratch `TMPDIR`; the scratch directory now lives under `/tmp`
 
 ### Path set
 
-The recorder classifies each observed path relative to the tree root:
+The recorder classifies each observed path (classification v2). A path is relative to the tree root when
+it lies in the tree and absolute otherwise. A call on an open file (`statx`, `newfstatat` or `faccessat2`
+with `AT_EMPTY_PATH` and a NULL or empty path) acts on its fd. The recorder resolves it through
+`/proc/PID/fd/N`, drops it when the fd is not a file path (a pipe, a socket, `/dev`, a deleted file), and
+never reports it as a recorder error.
 
 - **Tree** (not under `target/` or `.git/`):
   - A file is identified by its git blob id at the checked tree (one `git ls-tree -r` per tree).
@@ -247,10 +251,29 @@ The recorder classifies each observed path relative to the tree root:
   Any other read under `target/` makes the unit unreusable.
 - **`/nix/store`:** the store hash in the path names the content, and `flake.lock` in the weak fingerprint
   covers it.
-- **Scratch, `/dev/null` and `/proc/self`:** not inputs.
-- **Unreusable:** reading the checked tree's `.git`, writing into the tree, an ambient path or an ambient
-  system call each make the unit unreusable, with the reason recorded. The recorder writes each as an `unreusable<TAB>REASON` line after the entries (`ambient path /home/…`, `ambient call statfs`, `wrote PATH`, `read of the checked tree's .git: PATH`). The report names the files that
+- **Scratch, `/dev/null`, `/dev/tty` and the process's own `/proc/self/{exe,cwd,root,fd,maps}`:** not inputs. `maps` is there because glibc reads it to find the main thread's stack when std starts, so every Rust program does.
+- **Not inputs, because the build key or the test harness fixes them.** The recorder keeps them in one
+  const, `NOT_INPUTS` in `north-land-sandbox`, with a reason each:
+  - the dynamic loader's absent library probes (`glibc-hwcaps/` and `lib*.so*`) under the directories of
+    `LD_LIBRARY_PATH`, which cargo points into `target/`;
+  - libtest and std's parallelism probes: `sched_getaffinity`, `/proc/self/cgroup`,
+    `/proc/self/mountinfo` and `/sys/fs/cgroup/**/cpu.max`. Test code that reads host parallelism stays
+    caught by the static ambient-test-input rule.
+- **Stable host paths** (outside the tree, `target/`, scratch and `/nix/store`) are entries with their
+  absolute path, of kind `content`, `absent`, `exec` or `listing`. In the text form an absolute entry is
+  `KIND<TAB>/abs/path`, rendered as is; a tree entry stays relative, and an entry whose path starts with
+  `/` is absolute. This covers `/etc/*`, `/run/current-system` and its symlink targets, `$HOME` files such
+  as `~/.terminfo` and `~/.gitconfig`, and `/proc/sys/*`. The lookup hashes their answers on the lookup
+  host, so reuse needs the same host answers, which is sound.
+- **Unreusable:** these stay unreusable, with the reason recorded. The recorder writes each as an `unreusable<TAB>REASON` line after the entries (`volatile read: /proc/loadavg`, `ambient call statfs`, `wrote PATH`, `read of the checked tree's .git: PATH`). The report names the files that
   keep tests unreusable, the way `ambient-test-inputs.tsv` does.
+  - Volatile reads: files of `/proc/[0-9]*/` and `/proc/self/` other than the not-input ones above;
+    `/proc/loadavg`, `meminfo`, `stat`, `uptime`, `cpuinfo`, `vmstat`, `diskstats`, `interrupts`,
+    `softirqs`, `schedstat`, `pressure/*` and `sys/kernel/random/*`; a `/tmp` path that is neither scratch
+    nor made by the unit; a device or other special file.
+  - `statfs`, `fstatfs` and `sysinfo`.
+  - A read under the checked tree's `.git`.
+  - A write into the tree, or to any existing path outside scratch.
 
 ### Key and store
 

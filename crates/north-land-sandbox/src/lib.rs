@@ -1,7 +1,9 @@
 mod child;
 mod classify;
 mod fence;
+mod not_inputs;
 mod options;
+mod paths;
 mod recorder;
 mod supervisor;
 

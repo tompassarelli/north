@@ -32,8 +32,12 @@ impl Scene {
     }
 
     fn record(&self, script: &str) -> Vec<Entry> {
+        self.record_with(&mut self.sandbox(), script)
+    }
+
+    fn record_with(&self, sandbox: &mut Command, script: &str) -> Vec<Entry> {
         let file = self.root.path().join("recorded");
-        let output = self.sandbox().arg("--record").arg(&file).args(["--", "sh", "-c", script]).output().unwrap();
+        let output = sandbox.arg("--record").arg(&file).args(["--", "sh", "-c", script]).output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         path_set::parse(&std::fs::read_to_string(file).unwrap()).unwrap()
     }
@@ -86,6 +90,42 @@ fn a_read_outside_every_root_makes_the_set_unreusable_naming_the_path() {
     let entries = scene.record(&format!("cat {}", outside.display()));
     let reasons = unreusable_reasons(&entries);
     assert!(reasons.iter().any(|reason| reason.contains(outside.to_str().unwrap())), "{reasons:?}");
+}
+
+#[test]
+fn an_fstat_of_an_open_tree_file_adds_nothing_but_its_content() {
+    let scene = Scene::new();
+    let tree = scene.tree();
+    let entries = scene.record(&format!("cat < {}/a.txt", tree.display()));
+    assert!(entries.contains(&entry(Kind::Content, "a.txt")) && unreusable_reasons(&entries).is_empty(), "{entries:?}");
+}
+
+#[test]
+fn the_loaders_library_probes_under_ld_library_path_are_not_inputs() {
+    let scene = Scene::new();
+    let deps = scene.tree().join("target/debug/deps");
+    std::fs::create_dir_all(&deps).unwrap();
+    let entries = scene.record_with(scene.sandbox().env("LD_LIBRARY_PATH", &deps), &format!("cat {}/a.txt; test -e {}/libnever.so.1; true", scene.tree().display(), deps.display()));
+    assert!(entries.contains(&entry(Kind::Content, "a.txt")) && unreusable_reasons(&entries).is_empty(), "{entries:?}");
+    assert!(entries.iter().all(|entry| !entry.path.contains("target") && !entry.path.contains("libnever")), "{entries:?}");
+}
+
+#[test]
+fn a_stable_host_path_is_recorded_with_its_absolute_path() {
+    let scene = Scene::new();
+    let entries = scene.record("cat /etc/passwd; test -e /etc/north-absent-probe; ls /etc/ssl; true");
+    for wanted in [entry(Kind::Content, "/etc/passwd"), entry(Kind::Absent, "/etc/north-absent-probe"), entry(Kind::Listing, "/etc/ssl")] {
+        assert!(entries.contains(&wanted), "{wanted:?} not in {entries:?}");
+    }
+    assert!(unreusable_reasons(&entries).is_empty(), "{entries:?}");
+}
+
+#[test]
+fn the_hosts_parallelism_probes_are_not_inputs() {
+    let scene = Scene::new();
+    let entries = scene.record("nproc");
+    assert!(unreusable_reasons(&entries).is_empty(), "{entries:?}");
+    assert!(entries.iter().all(|entry| !entry.path.ends_with("cpu.max") && !entry.path.ends_with("mountinfo") && !entry.path.ends_with("cgroup")), "{entries:?}");
 }
 
 #[test]

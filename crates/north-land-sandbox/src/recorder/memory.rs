@@ -5,7 +5,7 @@ use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use crate::classify::normalize;
+use crate::paths::normalize;
 
 const PATH_MAX: usize = 4096;
 const PAGE: u64 = 4096;
@@ -41,9 +41,9 @@ pub fn read_u64(pid: u32, address: u64) -> io::Result<u64> {
     Ok(u64::from_ne_bytes(bytes))
 }
 
-pub fn resolve(pid: u32, dirfd: i32, raw: &Path) -> io::Result<Option<PathBuf>> {
+pub fn resolve(pid: u32, dirfd: i32, raw: &Path, on_fd: bool) -> io::Result<Option<PathBuf>> {
     if raw.as_os_str().is_empty() {
-        return Ok(None);
+        return Ok(if on_fd { open_file(pid, dirfd) } else { None });
     }
     if raw.is_absolute() {
         return Ok(Some(normalize(raw)));
@@ -54,4 +54,11 @@ pub fn resolve(pid: u32, dirfd: i32, raw: &Path) -> io::Result<Option<PathBuf>> 
 
 pub fn fd_path(pid: u32, fd: i32) -> io::Result<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/fd/{fd}"))
+}
+
+fn open_file(pid: u32, dirfd: i32) -> Option<PathBuf> {
+    let link = if dirfd == AT_FDCWD { format!("/proc/{pid}/cwd") } else { format!("/proc/{pid}/fd/{dirfd}") };
+    let path = std::fs::read_link(link).ok()?;
+    let gone = path.to_str().is_none_or(|name| name.ends_with(" (deleted)"));
+    (path.is_absolute() && !path.starts_with("/dev") && !gone).then(|| normalize(&path))
 }
