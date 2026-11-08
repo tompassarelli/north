@@ -228,7 +228,10 @@ const TEST: &[(&str, Run)] = &[
 
 fn work(arguments: &[String]) -> u8 {
     match arguments.split_first() {
-        Some((verb, rest)) if verb == "brief" => crate::guard::brief_skeleton::run(rest),
+        Some((verb, rest)) if verb == "brief" => match rest.split_first() {
+            Some((noun, paths)) if noun == "pack" => north_context_pack::run(paths),
+            _ => crate::guard::brief_skeleton::run(rest),
+        },
         Some((_, rest)) => review_items(rest),
         None => 2,
     }

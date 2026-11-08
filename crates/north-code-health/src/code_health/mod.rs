@@ -24,6 +24,7 @@ mod imports;
 #[cfg(test)]
 mod imports_tests;
 mod layers;
+pub use layers::{Placement, placement};
 mod report;
 mod resolver;
 mod rust_modules;

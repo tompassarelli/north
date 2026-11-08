@@ -12,6 +12,17 @@ use std::process::{Command, Stdio};
 const USAGE: &str = "usage: north code-health layers [--repo DIR] BASE HEAD";
 const PLAN: &str = "docs/rationale/crate-split.md#next-cuts";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Placement {
+    pub module: String,
+    pub may_use: Vec<String>,
+}
+
+pub fn placement(structure: &str, path: &str) -> Option<Placement> {
+    let rules = Rules::parse(structure).ok()?;
+    rules.module_of(path).map(|(module, may_use)| Placement { module: module.to_owned(), may_use: may_use.to_vec() })
+}
+
 pub(super) fn run(arguments: &[String]) -> u8 {
     let (repo, range) = match arguments {
         [flag, dir, rest @ ..] if flag == "--repo" => (PathBuf::from(dir), rest),

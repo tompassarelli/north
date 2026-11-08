@@ -953,6 +953,7 @@ dependencies = [
  "north-check-environment",
  "north-climb",
  "north-code-health",
+ "north-context-pack",
  "north-convo",
  "north-core",
  "north-coverage",
@@ -1111,6 +1112,15 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
+]
+
+[[package]]
+name = "north-context-pack"
+version = "0.1.0"
+dependencies = [
+ "north-code-health",
+ "north-coverage",
+ "regex",
 ]
 
 [[package]]

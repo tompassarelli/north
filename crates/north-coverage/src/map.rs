@@ -29,6 +29,10 @@ impl Map {
         self.functions.iter().filter(move |function| function.file == file)
     }
 
+    pub fn reaching(&self, file: &str) -> std::collections::BTreeSet<Test> {
+        self.in_file(file).flat_map(|function| function.reached_by.iter()).filter_map(|index| self.tests.get(*index as usize).cloned()).collect()
+    }
+
     pub fn load(path: &Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path).map_err(|error| format!("cannot read the coverage map {}: {error}", path.display()))?;
         serde_json::from_str(&text).map_err(|error| format!("cannot parse the coverage map {}: {error}", path.display()))

@@ -91,6 +91,10 @@ impl Rules {
         self
     }
 
+    pub(super) fn module_of(&self, path: &str) -> Option<(&str, &[String])> {
+        first(&self.modules, path).map(|group| (group.name.as_str(), group.may_use.as_slice()))
+    }
+
     pub(super) fn plans_crate(&self, path: &str) -> bool {
         self.crates.is_empty() || first(&self.crates, path).is_some()
     }
