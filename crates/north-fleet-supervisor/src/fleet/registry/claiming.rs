@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::claims::{self, Rows};
 use crate::fleet::model::{Account, LaunchRequest, SessionRecord, Status};
 use crate::fleet::records::{CLAIMS_RELEASED, CLAIMS_SWEEP_LOG, read_record, write_record};
@@ -74,6 +74,13 @@ impl Fleet {
             }
         }
         Ok(released)
+    }
+
+    /// Gives up every claim `name` holds in the ledger, the boxes it claimed itself as well as those its launch named, because a forgotten session leaves no directory for the exited sweep to find it by.
+    pub(super) fn release_all_claims_of(&self, name: &str) -> NorthResult<()> {
+        let owners = BTreeSet::from([name.to_owned()]);
+        let swept = claims::release_exited(self.claims.as_ref(), &owners, Rows::Owners(&owners))?;
+        if swept.unreleased.is_empty() { Ok(()) } else { Err(NorthError::State(format!("{name} is forgotten but the threads ledger did not release all of its claims"))) }
     }
 
     /// The exited sessions whose claims no sweep has cleared yet, read from their session directories alone.

@@ -129,6 +129,7 @@ impl Fleet {
 
     pub(super) fn forget_for(&self, name: &str, why: Halt) -> NorthResult<()> {
         self.archive(name, why, why.label())?;
+        self.release_all_claims_of(name)?;
         self.uncache_session(name)
     }
 
@@ -202,5 +203,22 @@ mod tests {
         fs::remove_file(tests).unwrap();
         fleet.run_control(ControlVerb::Stop, "n757-leases", None).unwrap();
         assert!(fleet.record("n757-leases").unwrap().ended(), "the stop never ran once the builds had");
+    }
+
+    // KEEP(bug): north-870-d0106 and north-870-d0111 were forgotten on 2026-11-08 and kept the north#870 boxes they had claimed themselves until the proxy released them by hand; north#888
+    #[test]
+    fn a_forgotten_session_holds_no_claim_in_the_ledger_including_boxes_it_claimed_itself() {
+        use crate::fleet::claims::Rows;
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        live(&fleet, "n870-a");
+        fleet.claims.hold("north#870@the first box", "n870-a").unwrap();
+        fleet.claims.hold("north#870@the second box", "n870-a").unwrap();
+        fleet.claims.hold("north#871@another box", "n871-b").unwrap();
+
+        fleet.forget("n870-a").unwrap();
+
+        let items = ["north#870".to_owned(), "north#871".to_owned()];
+        assert_eq!(fleet.claims.holders(Rows::Items(&items)).unwrap(), [("north#871@another box".to_owned(), "n871-b".to_owned())]);
     }
 }
