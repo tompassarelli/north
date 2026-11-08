@@ -2,7 +2,7 @@ use super::git::{git_read_form, push_deletes, takes_only_origin_main, wip_destro
 use super::patch::{excise_sanctioned, find_envelope};
 use super::shell::{record_assignments, redirect_targets, resolve, tokens, union};
 use super::writes::cargo_target_paths;
-use super::{INTERPRETERS, MUTATING_GIT, Policy, SHELLS};
+use super::{INTERPRETERS, MUTATING_GIT, Policy, SHELLS, TEMPORARY, TEMPORARY_DIRECTORY};
 use crate::hook::HookInput;
 use crate::shell::{basename, heredoc_bodies, shell_substitutions, strip_heredoc_bodies};
 use regex::Regex;
@@ -69,7 +69,9 @@ impl Policy {
         }
         let mut nested = Vec::new();
         for body in shell_substitutions(&scan) {
-            for here in &visited {
+            let written = TEMPORARY.replace_all(&body, TEMPORARY_DIRECTORY);
+            let holders = segments.iter().filter(|segment| segment.text.contains(written.as_ref())).fold(Vec::new(), |all, segment| union(&all, &segment.cwds));
+            for here in if holders.is_empty() { &visited } else { &holders } {
                 nested.extend(self.segments(&body, &final_env, here));
             }
         }

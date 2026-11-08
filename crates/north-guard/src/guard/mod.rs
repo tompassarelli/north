@@ -75,7 +75,6 @@ pub mod correction_capture;
 pub mod gate_digest;
 pub mod question_box;
 mod monitor_call_tests;
-pub mod monitor_call;
 mod modern_search_tests;
 mod native_evidence_tests;
 mod nix_activity_tests;

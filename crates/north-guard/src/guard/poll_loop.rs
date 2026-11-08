@@ -26,10 +26,7 @@ pub(super) fn verdict(input: &HookInput) -> Verdict {
         .iter()
         .find_map(|field| input.tool_input[*field].as_f64())
         .map_or(f64::INFINITY, |ms| ms / 1000.0);
-    match decide_with(command, bound, &poll_loop_measured::database()) {
-        Some(reason) if !input.is_monitor_in_transcript() => Verdict::Deny(reason),
-        _ => Verdict::Allow,
-    }
+    decide_with(command, bound, &poll_loop_measured::database()).map_or(Verdict::Allow, Verdict::Deny)
 }
 
 pub(super) fn decide_with(command: &str, bound: f64, capacity: &Path) -> Option<String> {

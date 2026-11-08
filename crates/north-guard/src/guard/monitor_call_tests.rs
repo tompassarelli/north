@@ -1,38 +1,27 @@
 #![cfg(test)]
 
-use super::{poll_loop, worker_wait};
+use super::{blind_stage, poll_loop, worker_wait};
 use crate::hook::{HookInput, Verdict};
 
 const COMMAND: &str = "until grep -q '^exit ' /tmp/n719-push.txt; do sleep 3; done; tail -8 /tmp/n719-push.txt | cut -c1-250";
 const CALL: &str = "toolu_01BZE2MzCWhRZqNh3uvmTgBK";
 
-fn hook_call(transcript: Option<&std::path::Path>) -> HookInput {
-    let mut data = serde_json::json!({
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
-        "agent_type": "worker",
-        "tool_use_id": CALL,
-        "tool_input": {"command": COMMAND, "description": "safe-push landing result"},
-    });
-    if let Some(path) = transcript {
-        data["transcript_path"] = path.to_string_lossy().into_owned().into();
-    }
+fn hook_call(tool: &str, input: serde_json::Value) -> HookInput {
+    let data = serde_json::json!({"hook_event_name": "PreToolUse", "tool_name": tool, "agent_type": "worker", "tool_use_id": CALL, "tool_input": input});
     HookInput::parse(data.to_string().as_bytes()).unwrap()
 }
 
 #[test]
-fn a_monitor_until_loop_handed_to_the_bash_hooks_without_timeout_ms_is_allowed_once_the_transcript_names_it_monitor() {
-    let directory = tempfile::tempdir().unwrap();
-    let transcript = directory.path().join("7d250abd-5894-4e53-9594-cd0b79c7d9b9.jsonl");
-    let call = serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [
-        {"type": "tool_use", "id": CALL, "name": "Monitor", "input": {"command": COMMAND, "description": "safe-push landing result", "timeout_ms": 900000}}
-    ]}});
-    std::fs::write(&transcript, format!("{call}\n")).unwrap();
+fn a_monitor_call_is_judged_as_a_background_shell_call_so_its_wait_passes_and_its_command_is_still_guarded() {
+    let monitor = hook_call("Monitor", serde_json::json!({"command": COMMAND, "description": "safe-push landing result", "timeout_ms": 900000}));
+    let foreground = hook_call("Bash", serde_json::json!({"command": COMMAND, "description": "safe-push landing result"}));
 
-    assert!(matches!(poll_loop::verdict(&hook_call(None)), Verdict::Deny(_)));
-    assert!(worker_wait::refusal(&hook_call(None)).is_some());
-    assert_eq!(poll_loop::verdict(&hook_call(Some(&transcript))), Verdict::Allow);
-    assert_eq!(worker_wait::refusal(&hook_call(Some(&transcript))), None);
+    assert_eq!(poll_loop::verdict(&monitor), Verdict::Allow);
+    assert_eq!(worker_wait::refusal(&monitor), None);
+    assert!(matches!(poll_loop::verdict(&foreground), Verdict::Deny(_)));
+    assert!(worker_wait::refusal(&foreground).is_some());
+    let staged = hook_call("Monitor", serde_json::json!({"command": "git add -A && until git diff --cached --quiet; do sleep 5; done", "timeout_ms": 900000}));
+    assert!(matches!(blind_stage::decide(&staged), Verdict::Deny(_)));
 }
 
 #[test]

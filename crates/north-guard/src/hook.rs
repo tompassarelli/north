@@ -55,17 +55,9 @@ impl HookInput {
         self.tool_input["run_in_background"].as_bool() == Some(true) || self.is_monitor()
     }
 
-    // Claude Code hands a Monitor call to Bash hooks as tool Bash; only Monitor's input carries timeout_ms.
+    // Claude Code hands a Monitor call to a hook matched on Bash as tool Bash without timeout_ms, so the matcher must name Monitor.
     fn is_monitor(&self) -> bool {
-        self.data["tool_name"] == "Bash" && self.tool_input.get("timeout_ms").is_some()
-    }
-
-    pub fn is_monitor_in_transcript(&self) -> bool {
-        let Some(command) = self.command().and_then(|text| text.as_str()) else {
-            return false;
-        };
-        let transcripts = ["agent_transcript_path", "transcript_path"].map(|field| self.data[field].as_str());
-        crate::guard::monitor_call::in_transcripts(transcripts.into_iter().flatten(), self.data["tool_use_id"].as_str(), command)
+        self.tool_name() == "Monitor"
     }
 
     pub fn is_shell(&self) -> bool {

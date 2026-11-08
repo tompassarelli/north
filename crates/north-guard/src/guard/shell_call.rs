@@ -1,6 +1,6 @@
 use crate::platform::pyjson::{PyString, Value};
 
-const SHELL_TOOLS: [&str; 5] = ["Bash", "exec_command", "shell", "shell_command", "local_shell"];
+const SHELL_TOOLS: [&str; 6] = ["Bash", "Monitor", "exec_command", "shell", "shell_command", "local_shell"];
 
 pub fn is_shell_tool(name: &str) -> bool {
     SHELL_TOOLS.contains(&name)

@@ -77,9 +77,6 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
         input.command()?.as_str()?,
         timeout_seconds(&input.tool_input["timeout"]),
     )?;
-    if input.is_monitor_in_transcript() {
-        return None;
-    }
     Some(format!(
         "Workers never block in the foreground on {reason}: the lead's messages reach you only between tool calls and must arrive at once. Rerun it with run_in_background: true and wait for its completion notification or a Monitor event, checking messages in between."
     ))

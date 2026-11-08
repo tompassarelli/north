@@ -290,6 +290,8 @@ pub fn fixture() -> Fixture {
         ("git checkout -q --detach origin/main 2>&1 | tail -1".into(), true),
         ("python3 - <<'EOF'\np='src/kept.txt'\nopen(p,'w').write('x')\nEOF".into(), true),
         ("git push -q origin main".into(), true),
+        ("sed -i s/a/b/ /tmp/lc.sh && cd /tmp && for m in a b; do echo \"$m: $(echo x | tee -a lc.jsonl | wc -l)\"; done".into(), false),
+        ("echo \"$(echo x | tee -a src/kept.txt | wc -l)\" && cd /tmp".into(), true),
     ] {
         cases.push((command.clone(), bash(command, &main), denied));
     }

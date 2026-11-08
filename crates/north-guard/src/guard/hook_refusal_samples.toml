@@ -4413,3 +4413,157 @@ drawn = "the 1 of its sampled refused calls the guard still refuses after its no
 [[sample.row]]
 command = "niri msg action screenshot-window --id 161 --write-to-disk true 2>&1 | head -3; sleep 1; ls -t ~/Pictures/Screenshots 2>/dev/null | head -2"
 label = "true"
+
+
+[[sample]]
+rule = "poll-loop"
+window = "2026-11-07 to 2026-11-08, gex45"
+drawn = "1 in 7 of the 69 distinct calls poll-loop refused on gex45 in the 20 h to 2026-11-08, with the north#706 lane's own Monitor wait"
+narrowed = "2026-11-08 north#706: firn hands dispatch a Monitor call as tool Monitor under a Bash|Monitor matcher, and north judges it as a background shell call"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until [ -s /tmp/claude-1000/-home-tom-code-north-main/de989a46/tasks/bvn9i15ua.output ] || [ -s /tmp/claude-1000/-home-tom-code-no"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"L=~/.local/state/north/records-mirror/north/land-queue/de2e0e8479546ba9/logs; seen=\\\" $(ls $L/post-land-*.log | tr '\\\\n' ' ') \\\"; "
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/15ab3d75-e140-44f2-9873-7634886ed3cc/tasks/b7b4d29iu.output; until grep -qE 'test res"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/991d2e19-b118-4318-9cd6-117cc4ecc5c0/tasks/bfwz9kcxd.output; until rg -q 'test result"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"f=/tmp/claude-1000/-home-tom-code-north-main/ee9607d8-b59d-43aa-9702-59ec028cad8b/tasks/bj59q59gb.output; until [ -s $f ]; do slee"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until [ -s /tmp/claude-1000/-home-tom-code-north-main/de989a46-4544-434e-9bca-ff2fea81bb7b/tasks/bvn9i15ua.output ] || [ -s /tmp/c"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q '^EXIT' /tmp/n867/clippy.log; do sleep 5; done; echo CLIPPY_DONE; grep -E '^(error|warning: unused)' /tmp/n867/clipp"
+label = "false"
+
+[[sample.row]]
+command = "Monitor {\"command\":\"until grep -q 'exit=' /tmp/claude-1000/-home-tom-code-north-main/9c829281-afb5-49d4-b791-9468ba553036/tasks/bks87ptdb.output; do s"
+label = "false"
+
+[[sample.row]]
+command = "sleep 240; tail -3 /tmp/n716-build.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 240; tail -c 300 /tmp/claude-1000/-home-tom-code-north-main/8a3a8fb6-cba7-4258-8b32-bf0febf5e0a4/tasks/bc8n8yywl.output"
+label = "true"
+
+
+[[sample]]
+rule = "poll-loop"
+window = "2026-11-07 to 2026-11-08, gex45"
+drawn = "the 2 of the 69 distinct refused calls poll-loop still refuses after its north#706 Monitor narrowing, replayed through the lane as tool Monitor"
+
+[[sample.row]]
+command = "sleep 240; tail -3 /tmp/n716-build.log"
+label = "true"
+
+[[sample.row]]
+command = "sleep 240; tail -c 300 /tmp/claude-1000/-home-tom-code-north-main/8a3a8fb6-cba7-4258-8b32-bf0febf5e0a4/tasks/bc8n8yywl.output"
+label = "true"
+
+
+[[sample]]
+rule = "launch-critical"
+window = "2026-11-08"
+drawn = "the north#706 lane's own refused call and its true twin"
+narrowed = "2026-11-08 north#706: a command substitution is judged only in the working directories of the segment that holds it"
+
+[[sample.row]]
+command = "sed -i '…' /tmp/g706/bin/sample.sh && cd /tmp/g706 && for m in a b; do echo \"$m: $(/tmp/g706/bin/sample.sh \"$m\" 48 | tee -a issue-group.jsonl | wc -l)"
+label = "false"
+
+[[sample.row]]
+command = "echo \"$(echo x | tee -a src/kept.txt | wc -l)\" && cd /tmp"
+label = "true"
+
+
+[[sample]]
+rule = "launch-critical"
+window = "2026-11-07 to 2026-11-08, after 786ac1b9d4"
+drawn = "the rows of the 1 in 3 sample of 103 distinct refused calls that launch-critical still refuses after its north#706 substitution narrowing, replayed through the lane; Edit rows kept, their path is unchanged"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-capacity-host/src/capacity/host/offering_tests.rs\",\"old_string\":\"    let running = Host { bu"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-fleet/src/fleet/host.rs\",\"old_string\":\"pub const SOCKET: &str = \\\"host.sock\\\";\\n\",\"new_strin"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-ops/src/ops/remote_serve/guards.rs\",\"new_string\":\"fn incident_record(words: &[&str], grants:"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-threads/src/threads/calibration/read.rs\",\"old_string\":\"            ended: row.get::<_, Optio"
+label = "true"
+
+[[sample.row]]
+command = "Edit {\"file_path\":\"/home/tom/code/north/main/crates/north-threads/src/threads/calibration/read.rs\",\"old_string\":\"pub fn raw_runs(db: &Connection, cond"
+label = "true"
+
+[[sample.row]]
+command = "Write {\"file_path\":\"/home/tom/code/north/main/crates/north-landing/src/land/probe.rs\",\"content\":\"#[derive(Debug, PartialEq, Eq)]\\npub struct Settled<L"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && cat > crates/north-replay/src/refused.rs <<'EOF' //! `north strategy refusals`: launches placement refused in a window"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git branch keep/n791-placement-61a7d0905 61a7d0905a && git reset -q --keep origin/main && git log -1 --format='%h %s' "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git diff > /tmp/stray.patch && git apply -R /tmp/stray.patch && git status -sb | head -3 && git worktree add /home/tom"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git pull -q --ff-only 2>&1 | tail -2; sqlite3 -readonly ~/.local/state/threads/snapshot.db \".schema landings\" \".schema"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git pull -q --ff-only; wc -l crates/north-land-scans/src/strategy_replay.rs; grep -n \"head-north\\|cargo\\|fn \\|Command:"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git rebase origin/main 2>&1 | tail -5; git log --oneline -2 | cut -c1-100; git diff --stat HEAD~1 | tail -15"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && python3 - <<'EOF' 2>/dev/null || echo nopython EOF perl -0pi -e 's|(const ADMITTED: &str = \"\\[north: your queued run w"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; cat > crates/north-runtime/src/runtime/history.rs <<'EOF' //! The problems each host showed while it ran each runtime, s"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git status --porcelain | head -5; git reset -q --keep origin/main && git log -1 --format='%h %s' | cut -c1-80; git statu"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/south/main && git pull -q --ff-only; cat agents/routines/ssh-master-probe.md; ssh gex45 'systemctl --user list-timers --all --no-pag"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/wisp/main && git status --short; git checkout -- . 2>&1 | head -2; mkdir -p /home/tom/code/wisp/worktrees && git worktree add /home/"
+label = "true"
+
+[[sample.row]]
+command = "cd ~/code && git -C south/main pull -q --ff-only 2>/dev/null; git -C nixos-config/main pull -q --ff-only 2>/dev/null; rg -n --no-heading '\\bnorth (gh-"
+label = "true"

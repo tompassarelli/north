@@ -68,9 +68,15 @@ b73718aa85 (2026-11-01) had let a Monitor call through by reading `timeout_ms` f
 under runtimes that held that commit; the last was at 20:58 UTC on 2026-11-07 on gex45. So Claude Code runs the Bash hooks for a
 Monitor call as tool Bash without Monitor's `timeout_ms`, and the input alone cannot tell it from a foreground Bash call.
 
-The fix: when either guard is about to refuse, it looks for a Monitor tool_use with the same id and command in the tail of
-the session transcript (`guard/monitor_call.rs`), and allows the call if it finds one. The check runs only on the refusal
-path, so allowed calls pay nothing. If the transcript lacks the entry, the guard refuses exactly as before.
+The transcript check that followed never fired. Claude Code writes a call's tool_use line to the transcript only after the
+call returns, so the running call is never in its own transcript; poll-loop refused 67 distinct Monitor calls on gex45 in
+the 20 h before 2026-11-08 with that check live, all false.
+
+A capture of hook inputs under Claude Code 2.1.319 settled what the hook can see. Under a `Bash` matcher a Monitor call
+arrives as tool `Bash` with only `command` and `description`. Under a matcher that names Monitor (`Bash|Monitor`) the same
+call arrives once, as tool `Monitor` with `timeout_ms`. So firn's `claude-hooks.json` gives `north hook dispatch` the
+`Bash|Monitor` matcher, and north judges a `Monitor` call as a background shell call: every shell guard reads its command,
+and its wait passes poll-loop and worker-wait, which refuse only foreground waits.
 
 poll-loop is active on gex45 and not on the laptop (`~/.local/state/north/agents/current/activation.active`), which is why
 laptop sessions never saw it.
