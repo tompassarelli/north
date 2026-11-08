@@ -98,6 +98,23 @@ query can join a claim to the checks of the commit it names.
 
 A predicate belongs to one source: a run refuses a source that replaces a predicate another source of the run replaces.
 
+### Which host ingests what
+
+The graph is per host. The laptop's is built by `north land follow` after each landing, from every source. The ledger host
+(nexus) keeps its own, built every five minutes by south's `north-graph-ingest` timer
+(`modules/north-graph-ingest.nix`), so `north graph ready`, dispatch's backlog read and the learning loops that read the graph
+run where the ledger, the mirror and the threads database are. It runs `north graph ingest mirror ranking ledger losses` and
+no other source, each read from a copy the ledger host already holds: `mirror` from its own `github-mirror.db`, `ranking`
+from the `~/code/north/main` checkout that checkout-sync keeps current, `ledger` from its `ledger.db`, `losses` from its
+threads database. A named source that cannot be read fails the unit, which notifies through `update-notify`.
+
+The rest stay laptop-only, so a ledger-host graph holds no fact from them:
+
+- `pushes` and `touches`: the push log (`safe-push/pushes.tsv`) is written where `safe-push` runs, the lander is the laptop,
+  and `records-mirror` does not carry it. `:landed-as` and `:works-on` reach the ledger host's graph through `ledger`.
+- `corrections`: `grounding/ledger.jsonl` is written and read on the laptop, and no copy is mirrored to the ledger host.
+- `coverage`: the coverage map is built on the laptop and no copy is mirrored to the ledger host.
+
 Which Done claims on north#634 have no checker observation, as one `ask` (`claim` joins each worker's quoted claim to the boxes
 of the issue; `observed` is a commit `checker` passed):
 
