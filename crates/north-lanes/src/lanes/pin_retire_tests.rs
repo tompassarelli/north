@@ -178,3 +178,32 @@ fn a_dirty_pin_an_empty_sidecar_and_a_misnamed_pin_are_refused() {
     assert!(world.untouched(&pin));
 }
 
+#[test]
+fn an_unconsumed_pin_is_retired_with_its_proof_and_a_dirty_or_referenced_one_is_kept() {
+    let world = World::new();
+    let pin = world.new_pin("unconsumed");
+    fs::remove_file(sidecar(&pin)).unwrap();
+    let pin_arg = text(&pin);
+    let leaf = pin.file_name().unwrap().to_string_lossy().into_owned();
+    fs::write(world.consumer().join("asset.bin"), [&[0u8; 16][..], leaf.as_bytes()].concat()).unwrap();
+
+    fs::write(pin.join("untracked.txt"), "untracked\n").unwrap();
+    let dirty = world.retire(&["--unconsumed", "--", &pin_arg]).unwrap_err();
+    assert!(dirty.contains("tracked or untracked changes"), "{dirty}");
+    fs::remove_file(pin.join("untracked.txt")).unwrap();
+
+    fs::write(world.consumer().join("pin.ref"), format!("pin {leaf}\n")).unwrap();
+    let referenced = world.retire(&["--unconsumed", "--", &pin_arg]).unwrap_err();
+    assert!(referenced.contains("still reference"), "{referenced}");
+    assert!(pin.is_dir());
+    fs::write(world.consumer().join("pin.ref"), "current\n").unwrap();
+
+    let dry = world.retire(&["--unconsumed", "--dry-run", "--", &pin_arg]).unwrap();
+    assert!(dry.iter().any(|line| line.contains("DRY RUN")), "{dry:?}");
+    assert!(pin.is_dir());
+
+    let retired = world.retire(&["--unconsumed", "--", &pin_arg]).unwrap();
+    assert!(retired.last().is_some_and(|line| line.starts_with("retired pin")), "{retired:?}");
+    assert!(!pin.exists());
+}
+

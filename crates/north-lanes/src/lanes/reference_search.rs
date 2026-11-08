@@ -79,12 +79,13 @@ fn mentions(path: &Path, needle: &Regex, scope: &Scope) -> Result<bool, String> 
     if !metadata.is_file() || scope.max_file_size.is_some_and(|limit| metadata.len() > limit) {
         return Ok(false);
     }
+    let unreadable = |error: std::io::Error| format!("cannot read {}: {error}", path.display());
+    let mut file = fs::File::open(path).map_err(unreadable)?;
     let mut content = Vec::new();
-    fs::File::open(path)
-        .and_then(|mut file| file.read_to_end(&mut content))
-        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    if content.iter().take(BINARY_PROBE).any(|byte| *byte == 0) {
+    (&mut file).take(BINARY_PROBE as u64).read_to_end(&mut content).map_err(unreadable)?;
+    if content.contains(&0) {
         return Ok(false);
     }
+    file.read_to_end(&mut content).map_err(unreadable)?;
     Ok(needle.is_match(&content))
 }
