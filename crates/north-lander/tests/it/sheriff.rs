@@ -61,9 +61,10 @@ fn a_red_main_run_whose_previous_runs_were_not_green_reverts_exactly_the_culprit
     let head = commit(&north, "e.txt", "e\n");
     git(&north.checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
     sheriff::file(&north.checkout, &head, &green, &BTreeSet::from([Failure::Harness("check.sh".to_owned())]), Path::new("post-land.log")).unwrap();
+    let answered = world.lander(&north, None).wait_with_output().unwrap();
     north.lane("north-lane");
     git(&north.checkout.parent().unwrap().join("worktrees/north-lane"), &["push", "-q", "origin", "north-lane"]);
-    let landers = [world.lander(&north, None).wait_with_output().unwrap(), world.lander(&north, None).wait_with_output().unwrap()];
+    let landers = [answered, world.lander(&north, None).wait_with_output().unwrap()];
     let transcript = landers.iter().map(report).collect::<Vec<_>>().join("\n");
     println!("{transcript}");
     let log = git(&north.origin, &["log", "--first-parent", "--format=%H %s", &format!("{head}..refs/heads/main")]);
