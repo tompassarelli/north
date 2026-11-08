@@ -5,15 +5,51 @@
 use std::collections::HashMap;
 
 use rusqlite::Connection;
+use serde::Deserialize;
 
 use super::{Reading, Window, state_root};
 use crate::foundation::clock::Timestamp;
 use crate::platform::watch_named;
 
-const UNJUDGED: [&str; 3] = ["cancelled", "skipped", "neutral"];
 const WORKFLOW: &str = "cargo.yml";
 
 pub(super) type Reds = Vec<(i64, i64)>;
+
+#[derive(Deserialize)]
+struct Runs {
+    workflow_runs: Vec<Run>,
+}
+
+#[derive(Deserialize)]
+struct Run {
+    path: Option<String>,
+    head_branch: Option<String>,
+    event: Option<String>,
+    status: Status,
+    conclusion: Option<Conclusion>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Status {
+    Completed,
+    #[serde(other)]
+    Running,
+}
+
+/// How a finished run ended; a run that was cancelled, skipped or neutral says nothing about main.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Conclusion {
+    Success,
+    Cancelled,
+    Skipped,
+    Neutral,
+    #[serde(other)]
+    Failed,
+}
 
 pub(super) fn lander(db: &Connection, now: i64) -> Result<HashMap<String, Reds>, String> {
     let Ok(mut statement) = db.prepare("SELECT repo, red_at, coalesce(green_at, '') FROM main_red") else { return Ok(HashMap::new()) };
@@ -34,14 +70,18 @@ pub(super) fn github(repo: &str, now: i64) -> Option<Reds> {
 }
 
 fn episodes(runs: &str, now: i64) -> Option<Reds> {
-    let body: serde_json::Value = serde_json::from_str(runs).ok()?;
-    let mut judged: Vec<(String, i64, bool)> = body["workflow_runs"]
-        .as_array()?
-        .iter()
-        .filter(|run| run["path"].as_str().is_some_and(|path| path.ends_with(WORKFLOW)) && run["head_branch"] == "main" && run["event"] == "push" && run["status"] == "completed")
+    let body: Runs = serde_json::from_str(runs).ok()?;
+    let mut judged: Vec<(String, i64, bool)> = body
+        .workflow_runs
+        .into_iter()
+        .filter(|run| run.path.as_deref().is_some_and(|path| path.ends_with(WORKFLOW)) && run.head_branch.as_deref() == Some("main") && run.event.as_deref() == Some("push") && matches!(run.status, Status::Completed))
         .filter_map(|run| {
-            let conclusion = run["conclusion"].as_str().filter(|conclusion| !UNJUDGED.contains(conclusion))?;
-            Some((run["created_at"].as_str()?.to_owned(), i64::try_from(watch_named::run_time(run["updated_at"].as_str()?)?).ok()?, conclusion == "success"))
+            let green = match run.conclusion? {
+                Conclusion::Success => true,
+                Conclusion::Cancelled | Conclusion::Skipped | Conclusion::Neutral => return None,
+                Conclusion::Failed => false,
+            };
+            Some((run.created_at?, i64::try_from(watch_named::run_time(&run.updated_at?)?).ok()?, green))
         })
         .collect();
     judged.sort();

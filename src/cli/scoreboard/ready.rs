@@ -492,6 +492,15 @@ pub fn report(now: i64) -> Vec<String> {
 
 /// One readiness bar of one repository as `north dash` shows it: its target, the verdict on the last 1 h, and its
 /// reading over the last 1 h and over the dash window.
+/// Where a target stands: missed over the last 1 h, met now but missed over the window, or met on both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    Missed,
+    Slipping,
+    Met,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Line {
     pub repo: &'static str,
@@ -499,13 +508,11 @@ pub struct Line {
     #[serde(skip)]
     pub plain: &'static str,
     pub target: String,
-    pub passed: bool,
+    pub verdict: Verdict,
     pub hour: Option<f64>,
     pub hour_n: Option<usize>,
     pub window: Option<f64>,
     pub window_n: Option<usize>,
-    #[serde(skip)]
-    pub window_passed: bool,
     #[serde(skip)]
     pub five_text: String,
     #[serde(skip)]
@@ -531,12 +538,15 @@ pub fn lines(now: i64, span: i64) -> Result<Vec<Line>, String> {
                 bar: bar.label(),
                 plain: bar.plain(),
                 target: table::threshold(goal),
-                passed: counts(Standing::of(goal.bound, hour), bar),
+                verdict: match (counts(Standing::of(goal.bound, hour), bar), counts(Standing::of(goal.bound, window), bar)) {
+                    (false, _) => Verdict::Missed,
+                    (true, false) => Verdict::Slipping,
+                    (true, true) => Verdict::Met,
+                },
                 hour: hour.map(|reading| reading.value),
                 hour_n: hour.map(|reading| reading.sample),
                 window: window.map(|reading| reading.value),
                 window_n: window.map(|reading| reading.sample),
-                window_passed: counts(Standing::of(goal.bound, window), bar),
                 five_text: table::cell(goal, five, true),
                 fifteen_text: table::cell(goal, fifteen, true),
                 hour_text: table::cell(goal, hour, true),

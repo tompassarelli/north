@@ -4,6 +4,7 @@
 use super::Screen;
 use super::billing::{self, Billing, Machine};
 use super::dispatch::Mixes;
+use super::ready::Verdict;
 use super::spend::Spend;
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::{self, Runway};
@@ -142,29 +143,29 @@ fn bars(screen: &Screen, window: &str, fold: bool) -> Section {
     let several = lines.iter().map(|line| line.repo).collect::<std::collections::BTreeSet<_>>().len() > 1;
     let name = |line: &super::ready::Line| if several { format!("{} {}", line.repo, line.plain) } else { line.plain.to_owned() };
     let mut ordered: Vec<&super::ready::Line> = lines.iter().collect();
-    ordered.sort_by_key(|line| (line.passed, line.window_passed));
-    let missed: Vec<String> = ordered.iter().filter(|line| !line.passed).map(|line| name(line)).collect();
-    let slipping = ordered.iter().filter(|line| line.passed && !line.window_passed).count();
+    ordered.sort_by_key(|line| line.verdict);
+    let missed: Vec<String> = ordered.iter().filter(|line| line.verdict == Verdict::Missed).map(|line| name(line)).collect();
+    let slipping = ordered.iter().filter(|line| line.verdict == Verdict::Slipping).count();
     let named: Vec<String> = missed.iter().take(NAMED_FAILURES).cloned().chain((missed.len() > NAMED_FAILURES).then(|| format!("{} more", missed.len() - NAMED_FAILURES))).collect();
     let slipping_words = if slipping > 0 { format!("; {slipping} more slipping over the last {window}") } else { String::new() };
     let summary = if missed.is_empty() { format!("every target is met right now{slipping_words}") } else { format!("{} of {} targets missed right now, first {}{slipping_words}", missed.len(), lines.len(), listed(&named)) };
     let mut section = Section::headed("Key metrics", summary);
     let mut rows = vec![header(&["", "measure", "target", "last 5 min", "last 15 min", "last 1 h", &format!("last {window}")])];
     let first = section.lines.len();
-    let (shown, met): (Vec<&super::ready::Line>, Vec<&super::ready::Line>) = ordered.iter().copied().partition(|line| !fold || !line.passed || !line.window_passed);
+    let (shown, met): (Vec<&super::ready::Line>, Vec<&super::ready::Line>) = ordered.iter().copied().partition(|line| !fold || line.verdict != Verdict::Met);
     rows.extend(shown.iter().map(|line| {
-        let mark = match (line.passed, line.window_passed) {
-            (false, _) => "FAIL",
-            (true, false) => "warn",
-            (true, true) => "pass",
+        let mark = match line.verdict {
+            Verdict::Missed => "FAIL",
+            Verdict::Slipping => "warn",
+            Verdict::Met => "pass",
         };
         vec![mark.to_owned(), name(line), line.target.clone(), line.five_text.clone(), line.fifteen_text.clone(), line.hour_text.clone(), line.window_text.clone()]
     }));
     for (index, line) in shown.iter().enumerate() {
-        let tone = match (line.passed, line.window_passed) {
-            (false, _) => Tone::Bad,
-            (true, false) => Tone::Warn,
-            (true, true) => Tone::Good,
+        let tone = match line.verdict {
+            Verdict::Missed => Tone::Bad,
+            Verdict::Slipping => Tone::Warn,
+            Verdict::Met => Tone::Good,
         };
         section.mark_row(first + 1 + index, 0, 4, tone);
     }
