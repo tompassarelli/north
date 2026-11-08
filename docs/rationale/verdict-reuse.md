@@ -186,7 +186,7 @@ checks. It works in three layers.
 - It resolves relative paths through `/proc/PID/cwd` and `/proc/PID/fd/N` at each call.
 - It traces creates and writes (`mkdir`, `mkdirat`, `rename`, `renameat2`, `link`, `symlink`, `unlink`, and
   `open` with a write or create flag) to classify paths as scratch.
-- It also traces `statfs`, `fstatfs`, `sysinfo` and `sched_getaffinity` as ambient reads.
+- It also traces `statfs`, `fstatfs` and `sysinfo` as ambient reads. `sched_getaffinity` is not ambient: libtest calls it in every test binary, and test code that reads host parallelism is caught by the static ambient-test-input rule (ec1231f242).
 - It refuses `io_uring_setup` with ENOSYS, because io_uring opens files without a system call the filter
   sees.
 - The supervisor is an ancestor of every process it watches, so a ptrace scope limited to descendants
@@ -204,8 +204,7 @@ ambient root. The supervisor reads the same set and tells a refused open, exec o
 `sandbox refused read of PATH` whatever the test returned. The replay test plants a read outside the set
 and a read of an ambient root.
 
-**Fallback.** If the recorder adds more than 10% to the nextest check's wall time on gex45, the recorder
-becomes a FUSE view of the tree inside a user and mount namespace (tup), and the reason is written here.
+**Where it records.** Only runs off the land path record: the shadow tick's lane runs on idle hosts, and a background-slot run of each landed main. Probes and pre-land checks never record; they only look up path sets and passes. Recording roughly doubles a run (readings below), so it must not sit where the queue waits.
 
 **Readings (2026-11-08, host gex45, Linux 6.18.60, 20 CPUs, debug build, exclusive capacity lease).**
 Each cell is nextest's own `Summary` wall time; the figure is the median of 3 runs, with the runner
@@ -221,20 +220,14 @@ Each cell is nextest's own `Summary` wall time; the figure is the median of 3 ru
 
 The cost is paid per traced call and per spawned process (about 2 ms each), so a unit that spawns many
 processes pays the most. The earlier seccomp user-notification build measured the same range, so the
-mechanism is not the cause. The limit of 10% is exceeded on every module that spawns processes, so the
-fallback applies.
+mechanism is not the cause. Every module that spawns processes is over the 10% limit, so recording moved off the land path.
 
 Of the 22 failures, 12 are the sandbox crate's own tests: they run a recorder inside the recorder, and
 `PTRACE_TRACEME` of the inner child fails with EPERM while the outer supervisor traces it, so ptrace
 cannot nest. The remaining 10 (fleet-supervisor, providers, land_chaos) were unix-socket tests whose path exceeded the 108-byte `sun_path` limit
 inside the longer scratch `TMPDIR`; the scratch directory now lives under `/tmp` with a short name.
 
-**Finding for the reuse rule.** libtest calls `sched_getaffinity` in every Rust test binary, and the plan
-classifies that call as an ambient read, so every Rust test unit is unreusable under the rule as written.
-The ambient list needs a decision on that call before the shadow runs can report reuse.
-
-**Recommendation.** Build the FUSE view of the tree: it sees tree lookups only, where ptrace stops every
-call of every process, and the ptrace recorder stays as the oracle that its tests compare against.
+**Decision (2026-11-08, gate 195).** The ptrace recorder stays and records only off the land path, as above, so the queue pays nothing for it. A FUSE view of the tree was rejected: it is blind to reads outside the tree, so it would be sound only if Landlock refused those reads. That changes what tests see, costs first tries, and adds user and mount namespaces on every host. The sandbox crate's own tests never run under the recorder, because ptrace cannot nest.
 
 ### Path set
 
@@ -356,8 +349,10 @@ The lanes:
 3. **Store.** The two-phase verdict cache and the host merge. Runs in parallel with lanes 1 and 2.
 4. **Shadow-tick fold.** The tick records under the verdict-cache key, and the `LANE_HEAD:MAIN:INPUT` store is
    deleted. Runs in parallel with every other lane.
-5. **Runner and shadow.** The target runner wired into the nextest land check, path-set hashing (tree, git
-   blob ids, dep-info closure), the shadow log and `north land reuse report`. Starts after lanes 2 and 3.
+5. **Runner and shadow.** Recording runs (shadow-tick lane runs and a background-slot run of each landed
+   main) wrap each test in the recorder and store path sets and passes. Probes and pre-land checks only look
+   up, through path-set hashing (tree, git blob ids, dep-info closure), and log would-reuse beside the real
+   verdict. The lane also adds `north land reuse report`. Starts after lanes 2 and 3.
 6. **On.** Starts after the report shows 100 landings with 0 disagreements. The runner reuses, and the 1 h
    scoreboard is read for the reused share and queue p90. Closes the shadow box and the turned-on box.
 7. **Later.** Clippy per crate keyed on dep-info, and test selection by path set. Scans are left out (see
