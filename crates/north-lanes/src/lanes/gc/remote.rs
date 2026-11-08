@@ -134,7 +134,7 @@ impl Gc {
         let branches = remote_branches(&repo)?;
         let prs = open_pull_heads(&repo)?;
         let (active, active_tips) = active_runs(&repo)?;
-        let pushes = self.pushed_refs(&repo);
+        let pushes = if branches.iter().any(|node| node.get("name").and_then(Value::as_str).is_some_and(|name| name.starts_with(LANDING))) { self.pushed_refs(&repo) } else { None };
         let evidence = Evidence { repo, branches, prs, active, active_tips, pushes };
         let report = self.stale.repo(&name);
         report.remote_landed.clear();
