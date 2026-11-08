@@ -133,6 +133,9 @@ impl Sandbox {
         }
         argv.extend(["--bind".into(), self.root.display().to_string(), self.root.display().to_string()]);
         argv.extend(self.view()[4..].iter().cloned());
+        if let Some(runtimes) = self.shims.join("north").is_file().then(real_north).and_then(Result::ok).and_then(|north| north.ancestors().find(|dir| dir.file_name().is_some_and(|name| name == "runtimes")).map(Path::to_path_buf)) {
+            argv.extend(["--ro-bind".into(), runtimes.display().to_string(), runtimes.display().to_string()]);
+        }
         let real = fs::canonicalize(key).unwrap_or_else(|_| key.to_owned());
         let generation = real.parent().unwrap_or(Path::new("/run"));
         let secrets = generation.parent().filter(|dir| dir.file_name().is_some_and(|name| name == "secrets.d")).unwrap_or(generation);
