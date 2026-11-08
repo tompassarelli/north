@@ -1,5 +1,4 @@
-use super::finding::Finding;
-use super::fix::Fix;
+use super::finding::{Finding, Fix};
 use super::rust_text::RustFile;
 use regex::Regex;
 use std::collections::BTreeMap;

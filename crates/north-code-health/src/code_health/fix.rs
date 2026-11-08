@@ -1,15 +1,10 @@
-use super::finding::Finding;
+use super::finding::{Finding, Fix};
 use regex::Regex;
 use std::sync::LazyLock;
 
 static AGED_FROM_NOW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:std\s*::\s*time\s*::\s*)?SystemTime\s*::\s*now\s*\(\s*\)(\s*-)").unwrap());
 
 const FIXED_NOW: &str = "std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000)";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Fix {
-    AgeFromFixedMoment,
-}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Rewrite {

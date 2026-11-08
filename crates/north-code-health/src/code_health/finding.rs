@@ -1,4 +1,7 @@
-use super::fix::Fix;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Fix {
+    AgeFromFixedMoment,
+}
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Finding {
