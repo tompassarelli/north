@@ -342,3 +342,49 @@ The reader opens the graph read-only and never ingests, so a missing, locked or 
 lines. `north land follow` runs `north graph ingest` after each landing, and ingests take a lock so concurrent follows run one
 at a time. Started 2026-11-06: the week of ungrounded-design corrections and the scoreboard's rework rate are compared with the
 week before once a week of data exists.
+
+## Change queries
+
+`north graph ask affected|overlap|blame` (`crates/north-graph-change`) answer, for landing lanes, which tests a change can
+affect, read from the graph's facts; any other `north graph ask` stays the kernel's JSON query. Each takes `[--db PATH]`,
+`[--repo DIR]` (default the working directory) and `[--json]`. A lane is `NAME=BASE..HEAD`, a test id is nextest's
+`BINARY_ID TEST_NAME`, split back from the node `test:BINARY_ID::TEST_NAME` by its `:in-binary` fact.
+
+A lane's cone, from `git diff --name-status --no-renames BASE HEAD`:
+
+- Untraced at once on `rust-toolchain(.toml)`, `.cargo/`, `flake.nix`, `flake.lock`, `bin/cargo` or `.config/nextest.toml`.
+- `Cargo.lock` is diffed by its `[[package]]` entries: each workspace member whose own entry changed, and each member that
+  depends through the lock's dependency lists on a changed or added package, takes the crate fallback; it is untraced only
+  when either lock does not parse. The root `Cargo.toml` is diffed by table: added or removed `[workspace] members` take
+  the crate fallback, `default-members` affect no test, the root package's own dependency tables take the crate fallback
+  for that package, and a changed `[workspace.dependencies]` entry takes it for every member whose manifest inherits that
+  dependency with `workspace = true`; any other table leaves the lane untraced.
+- Each changed path selects the tests that recorded reading it (`:reads`), listing its directory when it is added or deleted
+  (`:lists`), or expecting it absent when it is added (`:expects-absent`).
+- A Rust path carries its coverage regions (`fn:P:START-END`, `:in-file`) from the coverage commit to BASE
+  (`north_coverage::hunks::carry`) and runs north-coverage's own region selection (`pick::touched_regions`): a hunk inside a
+  region selects the innermost region's `:reaches` tests, a hunk outside every carried region every test reaching the file.
+  A file with no region, or a coverage commit the repository lacks, takes the crate fallback.
+- A source that embeds a changed path (`:embeds`) counts as wholly changed; a crate's own `Cargo.toml` or `build.rs`
+  (`:root`) takes the crate fallback, every known test whose package is that crate or depends on it through `:depends-on`.
+- A non-Rust path nothing reads, embeds or roots selects nothing, but only while the graph holds recorded reads
+  (`reads:north :reads-commit`); with none it is untraced.
+- `added` lists the `#[test]` functions the lane adds, with their package. `always` lists, for a lane that changes a non-Rust
+  path, the tests the graph knows (`:in-binary`) with no `:read-set`, since their data reads are unknown; with full recording
+  it is empty. Reads outside the tree (terminfo, the loader, `$HOME` state, the host checkout) select nothing, because a
+  diff changes only tree paths.
+
+`affected BASE HEAD` prints the cone's tests then `always`, one per line, and exits 0, or exits 3 with the reason on stderr
+when untraced; `--json` prints `{"tests","always","added","files","untraced"}`. `overlap LANE...` prints one line per
+independent group: lanes in different groups share no traced test, an `always` test links none, and an untraced lane joins
+every group; `--json` adds each sharing pair with its tests and `always`, which then holds every known test. `blame
+[--failed "BIN NAME"]... [--compile FILE]... [--log FILE]... LANE...` prints the lanes that hold a failure, most failures
+explained first, and exits 3 when no lane holds any. A lane holds a failed test when its traced cone holds it, when the test's
+name ends with a test the lane adds, or when the lane is untraced, since an untraced lane cannot be ruled out for any
+failure. A `--log` is a nextest or cargo log: its failed tests (`north_base::foundation::check_log::failures`) and the `-->`
+location of each compile error. A compile failure points at untraced lanes and at the lanes that change its file, the
+file's crate or a crate it depends on, a workspace manifest or a toolchain input. Among the lanes holding a failure, those
+whose changed path the failure's own output names are kept when at least one is, so a tree-wide test every cone holds still
+points at the lane its message names. A failure's output is its block in the log, from its status line to the next status
+line or the first line indented less than the block's body, without the `panicked at FILE:LINE` location, which names where
+the test asserted rather than what broke.

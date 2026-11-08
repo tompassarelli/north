@@ -60,9 +60,10 @@ pub fn select(change: &Change) -> Selection {
             continue;
         }
         let stale = since_map.get(file).map_or(&[][..], Vec::as_slice);
-        match reached_by_functions(&functions, stale, hunks) {
-            Reached::Functions(reached) => indices.extend(reached),
-            Reached::ChangedSinceMap => {
+        let spans: Vec<(u32, u32)> = functions.iter().map(|function| (function.start, function.end)).collect();
+        match touched_regions(&spans, stale, hunks) {
+            Touched::Regions(touched) => indices.extend(touched.into_iter().flat_map(|index| functions[index].reached_by.iter().copied())),
+            Touched::Outside => {
                 file_level.push(file.clone());
                 indices.extend(functions.iter().flat_map(|function| function.reached_by.iter().copied()));
             }
@@ -113,26 +114,28 @@ fn crate_prefix(file: &str) -> String {
     }
 }
 
-enum Reached {
-    Functions(BTreeSet<u32>),
-    ChangedSinceMap,
+pub enum Touched {
+    Regions(BTreeSet<usize>),
+    Outside,
 }
 
-fn reached_by_functions(functions: &[&Function], stale: &[Hunk], lane: &[Hunk]) -> Reached {
-    let fresh: Vec<(u32, u32, &Function)> = functions.iter().filter_map(|function| carry(function.start, function.end, stale).map(|(start, end)| (start, end, *function))).collect();
-    let mut reached = BTreeSet::new();
-    let mut outdated = false;
+pub fn touched_regions(regions: &[(u32, u32)], stale: &[Hunk], lane: &[Hunk]) -> Touched {
+    let fresh: Vec<(u32, u32, usize)> = regions.iter().enumerate().filter_map(|(index, &(start, end))| carry(start, end, stale).map(|(start, end)| (start, end, index))).collect();
+    let mut touched = BTreeSet::new();
+    let mut outside = false;
     for hunk in lane {
         let probes: Vec<u32> = if hunk.old_count == 0 { vec![hunk.old_start] } else { hunk.lines().collect() };
         for line in probes {
             let inside = |start: u32, end: u32| if hunk.old_count == 0 { start <= line && line < end } else { start <= line && line <= end };
             match fresh.iter().filter(|(start, end, _)| inside(*start, *end)).min_by_key(|(start, end, _)| end - start) {
-                Some(innermost) => reached.extend(innermost.2.reached_by.iter().copied()),
-                None => outdated = true,
+                Some(innermost) => {
+                    touched.insert(innermost.2);
+                }
+                None => outside = true,
             }
         }
     }
-    if outdated { Reached::ChangedSinceMap } else { Reached::Functions(reached) }
+    if outside { Touched::Outside } else { Touched::Regions(touched) }
 }
 
 fn short(commit: &str) -> &str {

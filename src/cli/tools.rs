@@ -1,7 +1,8 @@
 use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
-use self::subverbs::{Run, code_health, graph, lane, land, ledger_verb, ops, runner, runtime};
+use self::graph::graph;
+use self::subverbs::{Run, code_health, lane, land, ledger_verb, ops, runner, runtime};
 pub(super) use self::subverbs::ledger_runner;
 use crate::timers::{self, Timer};
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
     provenance,
 };
 
+mod graph;
 mod subverbs;
 
 const UNIFORM: &[(&str, Run)] = &[

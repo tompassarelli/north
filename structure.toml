@@ -30,6 +30,11 @@ reason = "privacy-judge.pending is the name of one refusal rule in the guard tab
 
 [[implicit_state.allow]]
 shape = "status-string"
+path = "crates/north-base/src/foundation/check_log.rs"
+reason = "exited and was killed are words of a land check's log line, an external text format read once to find the failed check, never held as state (moved from red_check.rs, north#917)"
+
+[[implicit_state.allow]]
+shape = "status-string"
 path = "src/cli/scoreboard/workers.rs"
 reason = "the run outcome is the text column the ledger's runs table stores, read here as rows and never held as state"
 
@@ -227,6 +232,11 @@ paths = ["crates/north-graph-ingest/src/**"]
 may_use = ["north-base", "north-coverage", "north-fleet", "north-github-mirror", "north-graph", "north-threads"]
 
 [[crate_dag.crate]]
+name = "north-graph-change"
+paths = ["crates/north-graph-change/src/**"]
+may_use = ["north-base", "north-coverage", "north-graph"]
+
+[[crate_dag.crate]]
 name = "north-graph-ground"
 paths = ["crates/north-graph-ground/src/**"]
 may_use = ["north-base", "north-graph"]
@@ -353,7 +363,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "landing.probes", "graph_loops"]
+may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "landing.probes", "graph_loops", "graph_change"]
 
 [[module]]
 name = "strategy_types"
@@ -686,6 +696,12 @@ responsibility = "Loading what north already records into the fact graph: the Gi
 may_use = ["coverage", "crate-roots", "fleet", "foundation", "github_mirror", "graph", "threads", "lifecycle", "platform.harness", "platform.store", "platform.records", "verdict_cache"]
 
 [[module]]
+name = "graph_change"
+paths = ["crates/north-graph-change/src/**"]
+responsibility = "The change queries the lander asks of the fact graph: the tests a lane's diff can affect, which lanes share a test, and which lanes a failure points at."
+may_use = ["coverage", "crate-roots", "foundation", "graph", "lifecycle"]
+
+[[module]]
 name = "graph_ground"
 paths = ["crates/north-graph-ground/src/**"]
 responsibility = "Reading the fact graph around the issues and files a message names, as the lines the prompt hook and a brief show."
@@ -756,7 +772,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "climb", "context_pack", "graph_loops"]
+may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "climb", "context_pack", "graph_loops", "graph_change"]
 
 [[module]]
 name = "verify"

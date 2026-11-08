@@ -7,13 +7,6 @@ pub(super) fn runner(table: &[(&str, Run)], name: &str) -> Option<Run> {
     table.iter().find(|(known, _)| *known == name).map(|(_, run)| *run)
 }
 
-pub(super) fn graph(arguments: &[String]) -> u8 {
-    match arguments.split_first() {
-        Some((verb, rest)) if verb == "ready" => north_graph_ground::ready_command(rest),
-        _ => north_graph_ingest::run(arguments),
-    }
-}
-
 pub(super) fn code_health(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("build-time") => crate::build_time::run(&arguments[1..]),

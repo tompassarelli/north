@@ -145,7 +145,7 @@ fn mentions(root: &Path, head: &str, paths: &[String]) -> BTreeMap<String, Vec<S
         .collect()
 }
 
-fn placement(root: &Path, head: &str, file: &str) -> Option<(String, String)> {
+pub fn placement(root: &Path, head: &str, file: &str) -> Option<(String, String)> {
     let mut directory = file;
     while let Some((parent, _)) = directory.rsplit_once('/') {
         directory = parent;
@@ -185,7 +185,7 @@ fn diff_text(root: &Path, from: &str, to: &str, paths: &[&str]) -> Result<String
     git(root, &arguments)
 }
 
-pub(crate) fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
+pub fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
     let output = Command::new("git").arg("-C").arg(root).args(arguments).output().map_err(|error| format!("git: {error}"))?;
     if output.status.success() { Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_owned()) } else { Err(format!("git {} failed: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim())) }
 }
