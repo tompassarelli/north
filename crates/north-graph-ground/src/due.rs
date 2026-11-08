@@ -10,6 +10,15 @@ static DATED: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:not before|on or after|after|from|by|reviewed on|review on|due on|due)\s+(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}Z)?)").unwrap_or_else(|error| panic!("{error}"))
 });
 
+static STAMPED: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:not before|on or after|after|reviewed on|review on)\s+\d{4}-\d{2}-\d{2}").unwrap_or_else(|error| panic!("{error}"))
+});
+
+/// Whether `text` stamps its wait with a start date (`not before`, `on or after`, `after`, `review on`), not merely mentions one (`from`, `by`, `due`).
+pub fn stamped(text: &str) -> bool {
+    STAMPED.is_match(text)
+}
+
 /// The latest date `text` names its check for, as unix seconds and as written.
 pub fn due(text: &str) -> Option<(i64, String)> {
     DATED.captures_iter(text).filter_map(|found| {

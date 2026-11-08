@@ -24,6 +24,13 @@ static ANY_BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[[
 static WINDOW: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(\d+)\s*(min|minutes?|h|hours?|d|days?)\s+(?:cells?|windows?)\b|\b(?:over|after|within)\s+(?:the\s+(?:next|last)\s+)?(\d+)\s*(h|hours?|d|days?)\b").expect("window pattern")
 });
+static RELATIVE_TIME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bafter\s+(?:the\s+(?:next|last)\s+)?\d+\s*(?:min|minutes?|h|hours?|d|days?)\b|\b\d+\s*(?:min|minutes?|h|hours?|d|days?)\s+after\b|\b(?:a|an|one)\s+(?:day|hour)\s+after\b").expect("relative time pattern")
+});
+static COUNTED_WAIT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bafter\s+\d+\s+(?:landed|landings?|decisions?|rows?|runs?|reports?|samples?)\b|\b(?:after|reads?)\s+\d+\s*(?:h|hours?|d|days?)\s+or\s+\d+\b").expect("counted wait pattern")
+});
+static MISSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<!--\s*check\s[^>]*\bmissed\b[^>]*-->").expect("missed pattern"));
 static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{9,12}\b").expect("sha pattern"));
 static OWNERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\(owners?:\s*([^)]*)\)|\bowner:\s*([A-Za-z0-9][\w.:-]*)").expect("owner pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
@@ -115,7 +122,20 @@ impl Issue {
 
     /// The unticked product boxes whose dated check, if any, has come by `at`: the boxes a session launched now can take.
     pub fn takeable(&self, at: f64) -> impl Iterator<Item = &str> {
-        self.product_lines().filter(move |line| !self.awaits_check(line, at))
+        self.product_holds().filter(move |(line, hold)| hold.is_none() && !self.awaits_check(line, at)).map(|(line, _)| line)
+    }
+
+    /// Each unticked product box with what its relative wait counts from: a box above it that is still unticked, or a count with no date.
+    fn product_holds(&self) -> impl Iterator<Item = (&str, Option<Hold<'_>>)> {
+        let mut above: Option<&str> = None;
+        self.product_lines().map(move |line| {
+            let hold = relative_wait(line).and_then(|wait| match above {
+                Some(before) => Some(Hold::Behind(before)),
+                None => (wait.counts || MISSED.is_match(line)).then_some(Hold::Undated),
+            });
+            above = Some(line);
+            (line, hold)
+        })
     }
 
     /// Whether the box `line` still waits for its check: a date ahead of `at`, or more landings than have cited the issue since its last report.
@@ -153,16 +173,18 @@ impl Issue {
         found
     }
 
-    /// The earliest dated check among the unticked product boxes, else the fewest landings still missing, when every one of them is still waiting.
+    /// What the first box waiting on an undated count or an unticked box above it counts from, which outranks a date a box names in passing (`from 2026-11-06 to 08`);
+    /// else the earliest dated check among the unticked product boxes, else the fewest landings still missing, when every one of them is still waiting.
     pub fn gated_until(&self, at: f64) -> Option<String> {
         if self.takeable(at).next().is_some() {
             return None;
         }
         let dated = self.product_lines().filter_map(north_graph_ground::due).min().map(|(_, written)| written);
-        dated.or_else(|| {
+        let counted = || {
             let missing = self.product_lines().filter_map(north_graph_ground::due_landings).min()?.saturating_sub(self.landings);
             Some(format!("{missing} more landings cite it"))
-        })
+        };
+        self.product_holds().find_map(|(_, hold)| hold).map(|hold| hold.to_string()).or(dated).or_else(counted)
     }
 
     /// The commits the body cites, which the survey dates to anchor a windowed box.
@@ -214,6 +236,37 @@ impl Issue {
     pub fn priority(&self) -> usize {
         north_graph_ground::priority(self.labels.iter().map(String::as_str))
     }
+}
+
+/// What an unticked box's relative wait counts from when that is not a date.
+enum Hold<'a> {
+    Behind(&'a str),
+    Undated,
+}
+
+impl fmt::Display for Hold<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Behind(text) => {
+                let named: String = text.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim().chars().take(60).collect();
+                write!(f, "the unticked box above it is done: `{named}`")
+            }
+            Self::Undated => write!(f, "it is stamped `(not before YYYY-MM-DDTHH:MMZ)`: it counts something with no date"),
+        }
+    }
+}
+
+struct Relative {
+    counts: bool,
+}
+
+/// The relative wait a box line names (`7 days after`, `a day after`, `after 24 h`, `after 30 landed`, `reads 24 h or 20 of`) while it carries no start date.
+fn relative_wait(line: &str) -> Option<Relative> {
+    if north_graph_ground::due_stamped(line) || north_graph_ground::due_landings(line).is_some() {
+        return None;
+    }
+    let counts = COUNTED_WAIT.is_match(line);
+    (counts || RELATIVE_TIME.is_match(line)).then_some(Relative { counts })
 }
 
 /// The longest window over readings a box line names, in seconds.

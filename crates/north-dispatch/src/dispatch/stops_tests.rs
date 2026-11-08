@@ -379,3 +379,49 @@ fn a_mirrored_session_keeps_what_dispatch_reads_and_reads_the_same_stop_as_the_w
     assert_eq!(super::stops::stop(&read, &launch), super::stops::stop(&whole, &launch));
     assert_eq!(super::tries::unspent(&read), super::tries::unspent(&whole));
 }
+
+/// north#903: on 2026-11-07 and 08 four first tries were lost to boxes staffed before they could be done: their wait counted from a box above that was still unticked, or from a count with no date.
+#[test]
+fn a_box_whose_wait_counts_from_an_unticked_box_above_or_from_an_undated_count_is_not_staffed_while_a_plain_box_beside_it_is() {
+    let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
+    let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
+    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
+    let ticked = "- [x] A verb lands and its test passes, fixed by 2d663c0f2e";
+    let plain = "- [ ] the cache keeps the newest row";
+    let enforce_865 = "- [ ] After 24 h or 20 decisions in shadow, a sample of 20 of its reports reads at most 2 false, recorded in harness/gates.toml's review table, and it enforces.";
+    let revert_865 = "- [ ] Keep-or-revert, read 7 days after it enforces: the Rust commits of those 7 days add comment lines net of those they remove at no more than 2 lines per 100 commits (13 per 100 from 2026-11-06 to 08). Otherwise revert the rule.";
+    let enforce_872 = "- [ ] Enforce after review: a reviewer reads 24 h or 20 of the shadow rows, fixes any false refusal and records `[gate.unrunnable-box.review]`. Done when: `rg -q mode harness/gates.toml`.";
+    let shadow_872 = "- [ ] Shadow: the issue-filing hook logs each new unticked box that names no runnable command. Done when: `rg -q unrunnable-box harness/gates.toml`.";
+    let report_877 = "- [ ] After 30 landed per arm, `north test frontier ab-report` writes into docs/rationale/frontier.md, per arm, the median assignment-to-landed time.";
+    let assign_877 = "- [ ] A verb picks open boxes with a runnable Done when and assigns each by a recorded seeded coin flip to an arm.";
+    let journal_637 = "- [ ] `journalctl --user -u fleet-tick.service` on the laptop shows no start timeout for a day after it lands. Check missed on 2026-11-07, printed \"38\", expected \"0\" <!-- check n637-day-without-timeouts@2026-11-07 missed -->";
+    let landed = at("2026-11-05T23:02Z");
+    let takeable = |number: u64, body: &str, now: &str| {
+        let candidate = Issue { landed, touched: landed, ..issue("north", number, body, &[]) };
+        candidate.takeable(at(now)).map(|line| line.trim().chars().take(24).collect::<String>()).collect::<Vec<_>>()
+    };
+    let head = |line: &str| line.chars().take(24).collect::<String>();
+
+    let launch_865 = format!("{ticked}\n{enforce_865}\n{revert_865}\n{plain}");
+    assert_eq!(takeable(865, &launch_865, "2026-11-07T23:26Z"), [head(plain)], "north-865-d2326 was staffed on the keep-or-revert box while the enforce box above it was unticked");
+    let launch_872 = format!("{ticked}\n{shadow_872}\n{enforce_872}\n{plain}");
+    assert_eq!(takeable(872, &launch_872, "2026-11-08T00:09Z"), [head(shadow_872), head(plain)], "north-872-d0006 was staffed on the enforce box while the shadow box above it had not landed");
+    let launch_877 = format!("{ticked}\n{assign_877}\n{report_877}\n{plain}");
+    assert_eq!(takeable(877, &launch_877, "2026-11-08T01:13Z"), [head(assign_877), head(plain)], "north-877-d0111 was staffed on the report box while the assign-and-record box above it had not landed");
+    let launch_637 = format!("{ticked}\n{journal_637}\n{plain}");
+    assert_eq!(takeable(637, &launch_637, "2026-11-07T18:29Z"), [head(plain)], "north-637-d1828 was staffed on a box reopened by a missed check the same day");
+
+    assert_eq!(issues::readiness(&Issue { landed, ..issue("north", 872, &format!("{ticked}\n{shadow_872}\n{enforce_872}"), &[]) }, &world("2026-11-08T00:09Z")), Ok(()), "the shadow box is staffable");
+    let waiting = |body: &str| issues::readiness(&Issue { landed, ..issue("north", 903, body, &[]) }, &world("2026-11-08T00:09Z"));
+    assert_eq!(
+        waiting(&format!("{ticked}\n{enforce_865}\n{revert_865}")),
+        Err("every open box waits, the first until it is stamped `(not before YYYY-MM-DDTHH:MMZ)`: it counts something with no date".into())
+    );
+    assert_eq!(waiting(&format!("{ticked}\n{journal_637}")), Err("only open box waits until it is stamped `(not before YYYY-MM-DDTHH:MMZ)`: it counts something with no date".into()));
+    let stamped = "- [ ] Keep-or-revert, read 7 days after it enforces (not before 2026-11-16T00:00Z): the commits add no more comments";
+    let behind = waiting(&format!("{ticked}\n{stamped}\n{revert_865}")).unwrap_err();
+    assert!(behind.contains("the unticked box above it is done: `Keep-or-revert, read 7 days after it enforces (not before"), "{behind}");
+
+    assert_eq!(takeable(865, &format!("{enforce_865}\n{stamped}"), "2026-11-16T00:00Z"), [head(stamped)], "a box stamped with its own date is read from that date, as before");
+    assert_eq!(takeable(865, "- [ ] the cache keeps the newest row, read over 6 h\n- [ ] the debt is read after the next 10 landings", "2026-11-16T00:00Z"), [head(plain)], "a window over readings is not a wait on the box above");
+}
