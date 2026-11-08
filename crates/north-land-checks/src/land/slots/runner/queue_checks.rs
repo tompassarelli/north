@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use super::super::clippy_first;
+use super::super::it_modules::{self, Selection};
+use super::super::verdict_key;
 use super::{Arguments, Config, affected, block_on, run_added_avoiding, say, shared_build, warn};
 use north_base::foundation::exit::{NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 
@@ -12,7 +14,8 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
     let queued: Vec<String> = queued_lines.iter().map(|command| shared_build::built(command)).collect();
-    let commands: Vec<String> = clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).collect();
+    let traced = traced_tests(root, base, head, &landing);
+    let commands: Vec<String> = clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).chain(traced).collect();
     if commands.is_empty() {
         return Ok(());
     }
@@ -56,4 +59,9 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
         None => String::new(),
     };
     Err(format!("a check before queueing exited {status}; fix the failure above{rerun}"))
+}
+
+fn traced_tests(root: &Path, base: &str, head: &str, landing: &[String]) -> Option<String> {
+    let command = landing.iter().find(|command| verdict_key::reads_it(std::slice::from_ref(command)))?;
+    matches!(it_modules::selection(root, base, head), Ok(Selection::Tests(_))).then(|| command.clone())
 }
