@@ -761,3 +761,37 @@ fn the_offload_master_starts_as_the_main_process_of_a_unit_of_its_own_and_a_clie
     let client = super::master::options("");
     assert!(client.contains(&"ControlMaster=no".to_owned()) && !client.iter().any(|option| option.starts_with("ControlPersist") || option == "ControlMaster=auto"), "{client:?}");
 }
+
+#[test]
+fn a_slot_target_past_its_cap_is_trimmed_and_kept_warm_instead_of_removed() {
+    let (home, head, bundle) = host_with_a_shipped_bundle();
+    let bin = tempfile::tempdir().unwrap();
+    let trims = home.path().join("trims");
+    let trimmer = format!("if [ \"$1 $2 $3\" = 'capacity offload trim-target' ]; then echo \"$4 $5\" >>{}; rm -rf \"$4/debug/incremental\"; exit 0; fi\n", shell(&trims));
+    crate::foundation::shim::write_script(&bin.path().join("north"), &format!("{trimmer}{NORTH_SHIM}"));
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let job = |command: &str| {
+        Command::new("setsid")
+            .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", command, "refs/land-offload/job", "", "", "", "0"])
+            .env("HOME", home.path())
+            .env("PATH", &path)
+            .env("NORTH_OFFLOAD_MAX_JOBS", "1")
+            .env("AGENT_CAPACITY_DISK_FREE_GIB", "1000")
+            .env("NORTH_OFFLOAD_TARGET_CAP_MIB", "3")
+            .env("NORTH_OFFLOAD_TARGET_KEEP_MIB", "2")
+            .env_remove("NORTH_OFFLOAD_ROOT")
+            .env_remove(north_base::foundation::offload::SLOT_ENV)
+            .stdin(fs::File::open(&bundle).unwrap())
+            .output()
+            .unwrap()
+    };
+    let built = job("mkdir -p target/debug/deps target/debug/incremental/old && head -c 1048576 /dev/zero >target/debug/deps/libkept.rlib && head -c 4194304 /dev/zero >target/debug/incremental/old/session");
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let reused = job("test -f target/debug/deps/libkept.rlib");
+    let stderr = String::from_utf8_lossy(&reused.stderr);
+    assert!(reused.status.success(), "a slot whose target passed its cap kept the build the next check reuses, not a cold target (north#935): {stderr}");
+    assert!(!stderr.contains("offload: removing"), "{stderr}");
+    let slot = home.path().join(".cache/land-offload/code-p-main/target");
+    assert_eq!(fs::read_to_string(&trims).unwrap(), format!("{} 2\n", slot.display()));
+}

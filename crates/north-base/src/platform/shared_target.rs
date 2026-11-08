@@ -47,6 +47,13 @@ pub fn sweep_mutant(cache: &Path, now: SystemTime, cap: u64) -> io::Result<Vec<(
     Ok(trimmed)
 }
 
+/// Trims one cargo target that no build holds down to `keep` bytes when it passes them, least recently used output first: stale incremental
+/// state and test binaries, then libraries, then a whole profile, so a target over its cap keeps what the next build reuses instead of going cold.
+pub fn trim_target(target: &Path, keep: u64, now: SystemTime) -> io::Result<(u64, u64)> {
+    let before = profile_size(target)?;
+    Ok((before, sweep(target, keep, Duration::ZERO, now)?))
+}
+
 pub fn run_sweep(cache: &Path, cap: u64) -> u8 {
     let mut status = 0;
     for target in shared_targets(cache) {

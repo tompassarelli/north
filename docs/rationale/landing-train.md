@@ -433,7 +433,11 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
 4. **Warm build slots, selection by changed paths, Actions confirms.** Candidate checks run in
    persistent slots: on the laptop, the lander's stable worktrees (one per speculation depth), so
    `target/` survives and compiles are incremental; on gex45, the offload slots, whose clean keeps
-   `/target` (crates/north-runtime/src/land_offload/ship.rs, `git clean -ffdxq -e /target`). The
+   `/target` (crates/north-runtime/src/land_offload/ship/script.rs, `git clean -ffdxq -e /target`). A slot
+   target past its 40 GiB cap is trimmed to 24 GiB, stale incremental state and test binaries first, by
+   `north capacity offload trim-target`, and removed only when that cannot bring it under: on 2026-11-08
+   whole targets of about 41 GiB were removed on hosts with 130 to 250 GiB free, so the next check
+   compiled up to 235 crates cold (north#935). The
    `land.check` path filters select checks from base..candidate as today. The full suite runs on main
    after the push (Cargo and Harness workflows), and the sheriff reverts a confirmed culprit through a
    red-fix ticket, so Actions confirms rather than gates.

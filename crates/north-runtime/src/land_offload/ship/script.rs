@@ -1,4 +1,4 @@
-use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, job_mib, quote};
+use super::{BESIDE_MISSING, LOCK_WAIT_SECONDS, RUNTIME_MISSING, OFFLOAD_ROOT, POLL_SECONDS, SCCACHE_FIRST_PORT, SCCACHE_PORTS, SLOTS, SLOTS_BUSY, TARGET_CAP_MIB, TARGET_FLOOR_MIB, TARGET_KEEP_MIB, TRANSPORT_FAILED, WAITED, WRONG_TREE, beside, job_mib, quote};
 
 /// Minutes a run whose client lost its connection keeps going with no client reattached, so a caller killed on purpose does not leave the run holding its slot to its deadline; the runner reattaches within `REATTACH_WINDOW`, which is shorter.
 const REATTACH_MINUTES: u32 = 3;
@@ -180,10 +180,15 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
-if [ -d "$slot/target" ]; then
+target_fits() {
   used=$(du -sm "$slot/target" | cut -f1)
   if [ -n "${AGENT_CAPACITY_DISK_FREE_GIB:-}" ]; then free=$(awk -v gib="$AGENT_CAPACITY_DISK_FREE_GIB" 'BEGIN { printf "%d", gib * 1024 }'); else free=$(df -Pm "$root" | awk 'NR == 2 { print $4 }'); fi
-  if [ "$used" -gt "${NORTH_OFFLOAD_TARGET_CAP_MIB:-@TARGET_CAP@}" ] || [ "$free" -lt "${NORTH_OFFLOAD_TARGET_FLOOR_MIB:-@TARGET_FLOOR@}" ]; then
+  [ "$used" -le "${NORTH_OFFLOAD_TARGET_CAP_MIB:-@TARGET_CAP@}" ] && [ "$free" -ge "${NORTH_OFFLOAD_TARGET_FLOOR_MIB:-@TARGET_FLOOR@}" ]
+}
+if [ -d "$slot/target" ] && ! target_fits; then
+  trimmer=$(command -v north 2>/dev/null) || trimmer=
+  [ -z "$runtime" ] || trimmer=$HOME/.local/state/north/runtimes/$runtime/north
+  if [ -z "$trimmer" ] || ! "$trimmer" capacity offload trim-target "$slot/target" "${NORTH_OFFLOAD_TARGET_KEEP_MIB:-@TARGET_KEEP@}" >&2 || ! target_fits; then
     echo "offload: removing $s/target ($used MiB, $free MiB free on the host)" >&2
     rm -rf -- "$slot/target"
   fi
@@ -382,6 +387,7 @@ pub(super) fn remote_script(name: &str, class: SlotClass) -> String {
         .replace("@BACKGROUND@", background)
         .replace("@TARGET_CAP@", &TARGET_CAP_MIB.to_string())
         .replace("@TARGET_FLOOR@", &TARGET_FLOOR_MIB.to_string())
+        .replace("@TARGET_KEEP@", &TARGET_KEEP_MIB.to_string())
         .replace("@SLOTS_BUSY@", &SLOTS_BUSY.to_string())
         .replace("@WAITED@", WAITED)
         .replace("@WRONG_TREE@", &WRONG_TREE.to_string())
