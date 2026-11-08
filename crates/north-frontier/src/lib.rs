@@ -27,12 +27,10 @@ mod task;
 #[cfg(test)]
 mod tests;
 
-const USAGE: &str = "usage: north test frontier tasks --since DATE --until DATE --repo DIR --briefs DIR | oracle TASKS.json --out DIR [--only ID]... | run TASKS.json --briefs DIR --out DIR [--arm north|plain|t3code]... [--t3 DIR --t3-node PATH] [--plan ACCOUNT] [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M] | box ISSUE --box TEXT --tree DIR --base DIR --t3 DIR --t3-node PATH --account LABEL [--header FILE] [--config DIR] [--wall-min M] | grade TASKS.json --out DIR [--only ID]... | report TASKS.json --out DIR [--rows FILE] | ab-report [--rows FILE] [--doc FILE] [--ledger FILE] [--ref REV] | ab-assign [--root DIR] [--rows FILE] [--repo OWNER/REPO]... [--seed N] [--count N] | ab-record BOX --sha SHA --at UNIX_SECONDS [--tokens-in N] [--tokens-out N] [--cost-usd X] [--model ID] [--effort LEVEL] [--root DIR] [--rows FILE]";
+const USAGE: &str = "usage: north test frontier tasks --since DATE --until DATE --repo DIR --briefs DIR | oracle TASKS.json --out DIR [--only ID]... | run TASKS.json --briefs DIR --out DIR [--arm north|plain|t3code]... [--t3 DIR --t3-node PATH] [--plan ACCOUNT] [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M] | box ISSUE --box TEXT --tree DIR --base DIR --t3 DIR --t3-node PATH --account LABEL [--owner DIR] [--wall-min M] | grade TASKS.json --out DIR [--only ID]... | report TASKS.json --out DIR [--rows FILE] | ab-report [--rows FILE] [--doc FILE] [--ledger FILE] [--ref REV] | ab-assign [--root DIR] [--rows FILE] [--repo OWNER/REPO]... [--seed N] [--count N] | ab-record BOX --sha SHA --at UNIX_SECONDS [--tokens-in N] [--tokens-out N] [--cost-usd X] [--model ID] [--effort LEVEL] [--root DIR] [--rows FILE]";
 
-pub use live::Route;
-
-pub fn run(arguments: &[String], route: Route) -> u8 {
-    match cli::dispatch(arguments, route) {
+pub fn run(arguments: &[String]) -> u8 {
+    match cli::dispatch(arguments) {
         Ok(text) => {
             print!("{text}");
             0

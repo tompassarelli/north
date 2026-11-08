@@ -175,3 +175,17 @@ fn an_assigned_box_is_an_ab_row_the_report_parses_and_the_seeded_coin_never_chan
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!((rows[0].landed_sha.as_deref(), rows[0].landed_at, rows[0].usage.cost_usd), (Some("abc1234"), Some(1_794_000_600), 1.0));
 }
+
+#[test]
+fn a_box_thread_runs_on_t3_codes_own_default_with_the_box_text_as_its_brief() {
+    let base = std::env::temp_dir().join(format!("north-live-settings-{}", std::process::id()));
+    crate::t3code::write_settings(&base, crate::live::MODEL, crate::live::EFFORT).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(base.join("userdata/settings.json")).unwrap()).unwrap();
+    assert_eq!(saved["defaultModelSelection"], serde_json::json!({"instanceId": "claudeAgent", "model": "claude-opus-5-5", "options": [{"id": "effort", "value": "medium"}]}));
+    assert_eq!(crate::live::brief("  the box text\n"), "the box text");
+    std::fs::remove_dir_all(&base).unwrap();
+    for flag in ["--model", "--effort", "--header"] {
+        let arguments: Vec<String> = ["box", "wisp#1", flag, "x"].map(str::to_owned).to_vec();
+        assert!(crate::cli::dispatch(&arguments).unwrap_err().to_string().contains("T3 Code's own default"));
+    }
+}

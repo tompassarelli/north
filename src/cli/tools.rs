@@ -138,7 +138,7 @@ impl Tool {
             Self::Config => super::in_runtime(async move { Ok(ExitCode::from(config(arguments))) }),
             Self::Work => super::in_runtime(async move { Ok(ExitCode::from(work(arguments))) }),
             Self::Test => match arguments.split_first() {
-                Some((verb, rest)) if verb == "frontier" => ExitCode::from(north_frontier::run(rest, box_route)),
+                Some((verb, rest)) if verb == "frontier" => ExitCode::from(north_frontier::run(rest)),
                 Some((verb, rest)) if let Some(run) = runner(TEST, verb) => super::in_runtime(async move { Ok(ExitCode::from(run(rest))) }),
                 _ => {
                     eprintln!("usage: north test (coverage|frontier|mutant) ...; north test --help lists each");
@@ -253,11 +253,4 @@ fn desktop(arguments: &[String]) -> u8 {
             2
         }
     }
-}
-
-fn box_route(issue: &str, header: &str) -> Result<(String, String), String> {
-    let ask = crate::dispatch::Ask { item: issue, brief: header, prompt: header, model: None, reason: None, worker: true, places: false };
-    let start = crate::dispatch::start_hand(&ask)?;
-    let effort = start.effort.ok_or_else(|| format!("the route for {issue} names no effort"))?;
-    Ok((start.model, effort))
 }

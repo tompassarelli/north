@@ -342,7 +342,10 @@ fn candidates(flags: &Flags) -> Result<String, NorthError> {
     Ok(serde_json::to_string_pretty(&tasks).map_err(NorthError::Json)? + "\n")
 }
 
-fn live_box(flags: &Flags, route: live::Route) -> Result<String, NorthError> {
+fn live_box(flags: &Flags) -> Result<String, NorthError> {
+    if let Some(name) = ["model", "effort", "header"].into_iter().find(|name| flags.one(name).is_some()) {
+        return Err(refusal(format!("--{name} is not a flag here: every box thread runs on T3 Code's own default for Claude, {} at {} effort, never on a pick of north's", live::MODEL, live::EFFORT)));
+    }
     let need = |name: &str| flags.one(name).ok_or_else(|| refusal(String::new()));
     let issue = flags.positional.get(1).ok_or_else(|| refusal(String::new()))?;
     let account = need("account")?;
@@ -350,23 +353,22 @@ fn live_box(flags: &Flags, route: live::Route) -> Result<String, NorthError> {
     if !token.is_file() {
         return Err(refusal(format!("no subscription login for account {account} at {}; this arm runs on subscription accounts only", token.display())));
     }
-    let header = flags.one("header").map(fs::read_to_string).transpose().map_err(NorthError::Io)?.unwrap_or_default();
     let install = Install::new(need("t3")?, flags.one("t3-node"));
     let owner = flags.one("owner").map_or_else(|| home().join(".claude"), PathBuf::from);
     let (tree, base) = (PathBuf::from(need("tree")?), PathBuf::from(need("base")?));
     let wall = Duration::from_secs_f64(flags.number("wall-min", 120.0)? * 60.0);
-    let job = live::Job { issue, text: need("box")?, header: &header, tree: &tree, base: &base, token: &token, account, owner: &owner, wall, route };
+    let job = live::Job { issue, text: need("box")?, tree: &tree, base: &base, token: &token, account, owner: &owner, wall };
     let record = live::run(&job, &install)?;
     Ok(serde_json::to_string_pretty(&record).map_err(NorthError::Json)? + "\n")
 }
 
-pub fn dispatch(arguments: &[String], route: live::Route) -> Result<String, NorthError> {
+pub fn dispatch(arguments: &[String]) -> Result<String, NorthError> {
     let flags = Flags::parse(arguments);
     match flags.positional.first().map(String::as_str) {
         Some("tasks") => candidates(&flags),
         Some("oracle") => oracles(&flags),
         Some("run") => run(&flags),
-        Some("box") => live_box(&flags, route),
+        Some("box") => live_box(&flags),
         Some("grade") => grade_all(&flags),
         Some("report") => report(&flags),
         Some("ab-report") => ab_report(&flags),

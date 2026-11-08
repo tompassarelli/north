@@ -1,5 +1,5 @@
 //! The equipped T3 Code arm on a real box (north#876): T3 Code's headless server runs on the host against a worktree, and the box text is the thread's brief.
-//! The model and effort are the pick `north fleet launch` makes for the box (the caller's `Route`), written as the server's default selection.
+//! Every thread runs on one fixed model and effort, T3 Code's own default for Claude as a user would leave it, written as the server's default selection; north's routing never touches this arm.
 //! The login is a subscription account's token and nothing else: the environment starts empty, so no API key reaches the server or the claude it spawns.
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -17,21 +17,20 @@ use super::t3code::{self, Install};
 
 const KEPT_ENV: [&str; 7] = ["HOME", "USER", "LOGNAME", "LANG", "TZ", "SSL_CERT_FILE", "PATH"];
 
-/// The model and effort north's own routing gives a box, from its issue and brief header; the caller owns that routing.
-pub type Route = fn(&str, &str) -> Result<(String, String), String>;
+/// T3 Code's own default for the Claude provider at the pinned head: `providers.claudeAgent.defaults.chat` and the `isDefault` effort of that model's profile in apps/server/src/provider/model-manifest.json.
+pub const MODEL: &str = "claude-opus-5-5";
+pub const EFFORT: &str = "medium";
 
 /// One real box handed to the T3 Code arm.
 pub struct Job<'a> {
     pub issue: &'a str,
     pub text: &'a str,
-    pub header: &'a str,
     pub tree: &'a Path,
     pub base: &'a Path,
     pub token: &'a Path,
     pub account: &'a str,
     pub owner: &'a Path,
     pub wall: Duration,
-    pub route: Route,
 }
 
 /// What the arm did, written to `run.json` under the base directory.
@@ -49,9 +48,9 @@ pub struct Record {
     pub reply: Option<String>,
 }
 
-/// The thread's brief: the box text under the line that names its issue.
-pub fn brief(issue: &str, text: &str) -> String {
-    format!("{issue}\n\n{}", text.trim())
+/// The thread's brief: the box text as given.
+pub fn brief(text: &str) -> &str {
+    text.trim()
 }
 
 fn t3(job: &Job, install: &Install, arguments: &[&str]) -> Command {
@@ -65,10 +64,9 @@ fn t3(job: &Job, install: &Install, arguments: &[&str]) -> Command {
 }
 
 pub fn run(job: &Job, install: &Install) -> Result<Record, NorthError> {
-    let (model, effort) = (job.route)(job.issue, job.header).map_err(refusal)?;
     fs::create_dir_all(job.base).map_err(NorthError::Io)?;
     let config_sha256 = config::assemble(job.owner, &job.base.join("config"))?;
-    t3code::write_settings(job.base, &model, &effort)?;
+    t3code::write_settings(job.base, MODEL, EFFORT)?;
     let log = job.base.join("t3-server.log");
     let port = t3code::free_port()?.to_string();
     let tree = job.tree.display().to_string();
@@ -80,7 +78,7 @@ pub fn run(job: &Job, install: &Install) -> Result<Record, NorthError> {
     let outcome = thread(job, install, &mut server, &log, &tree);
     process::kill(&mut server);
     let (thread, status, reply) = outcome?;
-    let record = Record { issue: job.issue.to_owned(), box_text: job.text.to_owned(), model, effort, account: job.account.to_owned(), config_sha256, thread, status, wall_s: started.elapsed().as_secs_f64(), reply };
+    let record = Record { issue: job.issue.to_owned(), box_text: job.text.to_owned(), model: MODEL.to_owned(), effort: EFFORT.to_owned(), account: job.account.to_owned(), config_sha256, thread, status, wall_s: started.elapsed().as_secs_f64(), reply };
     fs::write(job.base.join("run.json"), serde_json::to_string_pretty(&record).map_err(NorthError::Json)?).map_err(NorthError::Io)?;
     Ok(record)
 }
@@ -92,8 +90,7 @@ fn thread(job: &Job, install: &Install, server: &mut std::process::Child, log: &
         return Err(refusal(format!("t3 project add: {}", String::from_utf8_lossy(&added.stderr).trim())));
     }
     let reply = job.base.join("thread.json");
-    let brief = brief(job.issue, job.text);
-    let mut start = t3(job, install, &["thread", "start", tree, &brief, "--wait", "--json"]);
+    let mut start = t3(job, install, &["thread", "start", tree, brief(job.text), "--wait", "--json"]);
     start.stdout(File::create(&reply).map_err(NorthError::Io)?).stderr(Stdio::null());
     let mut child = process::spawn(&mut start).map_err(NorthError::Io)?;
     let ended = process::wait_until(&mut child, Instant::now() + job.wall);
