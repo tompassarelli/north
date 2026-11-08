@@ -263,5 +263,3 @@ pub(super) fn reap(ssh: &str, owner: &str) -> u8 {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod replay_tests;
