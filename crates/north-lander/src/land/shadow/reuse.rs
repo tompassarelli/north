@@ -36,6 +36,7 @@ pub fn summarize(records: &[Record]) -> Summary {
                     }
                 }
             }
+            Record::Recorded { .. } => {}
             Record::SetDiffers { probe, unit, reused, real, path } => {
                 probes.insert(probe.as_str());
                 summary.disagreements.push(format!("{unit} in {probe}: every answer matched path set {} and the real run read set {}; first difference: {path}", short(reused), short(real)));

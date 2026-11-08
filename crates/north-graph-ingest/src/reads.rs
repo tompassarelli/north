@@ -31,7 +31,10 @@ pub fn read(places: &Places) -> Result<Sourced, String> {
     let mut newest: BTreeMap<(&str, &str), Unit> = BTreeMap::new();
     let mut probe: Option<(f64, &str)> = None;
     for fields in bodies.iter().flat_map(|body| body.lines()).map(|line| line.split('\t').collect::<Vec<_>>()) {
-        let [epoch, "unit", line_probe, unit, set, "pass" | "fail", _seconds] = fields.as_slice() else { continue };
+        let (epoch, line_probe, unit, set) = match fields.as_slice() {
+            [epoch, "unit", probe, unit, set, "pass" | "fail", _] | [epoch, "recorded", probe, unit, set] => (epoch, probe, unit, set),
+            _ => continue,
+        };
         let (Ok(epoch), Some((binary, name))) = (epoch.parse::<f64>(), unit.split_once(' ')) else { continue };
         if probe.is_none_or(|(at, _)| epoch >= at) {
             probe = Some((epoch, line_probe));

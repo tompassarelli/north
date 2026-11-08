@@ -165,7 +165,8 @@ query can join a claim to the checks of the commit it names.
   a string literal or of `concat!(env!("CARGO_MANIFEST_DIR"), "...")`, PATH relative to the repository, and
   `(crates:north :crates-commit SHA)`. It reads `~/code/north/main` at the commit `origin/main` names there, through
   `git show` and `git grep`, never the working tree, and replaces its four predicates whole.
-- `reads` (writer `recorder`): per test, from its newest verdict-reuse shadow line (`land-reuse/*.tsv`) that names a path set
+- `reads` (writer `recorder`): per test, from its newest verdict-reuse line (`land-reuse/*.tsv`) that names a path set: a `unit` line with a reusable set,
+  or a `recorded` line, which a recording run writes for every unit it traced whether or not its set is reusable
   (`verdict-cache/v2/*/sets/SETID`), `(test:BINARY::NAME :reads PATH)` for each `content` and `exec` entry, `:lists DIR`
   (`.` for the tree root) and `:expects-absent PATH`, skipping paths under `target/`, one `:read-set SETID` and one
   `:recorded-in BINARY_ID` (the binary its shadow line names) per recorded test, so a recorded test with no in-tree reads

@@ -103,10 +103,11 @@ impl Lookup<'_> {
         path_set::parse(&String::from_utf8_lossy(bytes)).ok()
     }
 
-    fn record(&mut self, looked: &Looked, outcome: &Outcome, bytes: &[u8], sha: &str, probe: &str) -> Option<Record> {
-        let entries = Self::entries(bytes)?;
+    fn record(&mut self, looked: &Looked, outcome: &Outcome, bytes: &[u8], sha: &str, probe: &str) -> Vec<Record> {
+        let Some(entries) = Self::entries(bytes) else { return Vec::new() };
         let real = set_id(bytes);
         let _ = self.store.record_set(&looked.weak, bytes);
+        let mut found = vec![Record::Recorded { probe: probe.to_owned(), unit: looked.unit.clone(), set: real.clone() }];
         if fingerprint::reusable(&entries)
             && let Some(strong) = fingerprint::strong(&looked.weak, &entries, self.tree, self.artifacts)
         {
@@ -116,8 +117,10 @@ impl Lookup<'_> {
                 let _ = self.store.clear(&looked.weak, &strong);
             }
         }
-        let (reused, before) = looked.reused.as_ref()?;
-        (*reused != real).then(|| Record::SetDiffers { probe: probe.to_owned(), unit: looked.unit.clone(), reused: reused.clone(), real, path: fingerprint::first_difference(before, &entries).unwrap_or_default() })
+        if let Some((reused, before)) = looked.reused.as_ref() && *reused != real {
+            found.push(Record::SetDiffers { probe: probe.to_owned(), unit: looked.unit.clone(), reused: reused.clone(), real, path: fingerprint::first_difference(before, &entries).unwrap_or_default() });
+        }
+        found
     }
 }
 

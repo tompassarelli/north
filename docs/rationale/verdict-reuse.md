@@ -338,7 +338,11 @@ The nextest land line (a check line that runs `cargo nextest run`, not `--no-run
   computes weak, strong for each path set stored under weak, and whether any set has a pass. It prints one
   `north-reuse` line per test: probe, unit, the set id that would be reused or `-`, the real verdict and test
   seconds. `north land checks` moves those lines out of the check log into the lander's
-  `north/land-reuse/DAY.tsv` (14 days kept), where `north land reuse report --since D` reads them. Probes and
+  `north/land-reuse/DAY.tsv` (14 days kept), where `north land reuse report --since D` reads them. A recording
+  run also prints a `recorded` line per traced unit (probe, unit, the id of the path set it stored), because the `unit` line names a set
+  only when it is reusable and every set so far carries an environment-only `unreusable` entry; the lander harvests them from the
+  log the offload host passes back and `verdict sync` brings the sets, so the laptop holds both with no copy, and `north land follow`'s
+  ingest tells them to the change graph (north#917). Probes and
   pre-land checks still run every unit.
 - **Recording (the shadow tick's lane runs and a background-slot run of each landed main).** The tick passes
   `NORTH_LAND_REUSE_RECORD=1` to its lane runs, and runs the nextest lines of a main it has not yet recorded
