@@ -40,6 +40,7 @@ jobs:
         id: tools
         uses: ./.github/actions/harness
         with:
+          cache-key: cargo-ubuntu
           force-slow-download: ${{ inputs.slow_browser_download && 'true' || 'false' }}
       - name: Shell and Python tests
         env:
