@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{OnceLock, mpsc};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::candidate::{self, Pick};
 use super::checks::{self, Verdict};
@@ -11,8 +11,17 @@ use super::queue::Ticket;
 use super::watch::Watch;
 
 const POLL: Duration = Duration::from_millis(100);
+const JOIN_WINDOW: Duration = Duration::from_secs(60);
+const JOIN_LOOK: Duration = Duration::from_secs(1);
 
 type Entry<'a> = (&'a PathBuf, &'a Ticket);
+
+pub type Arrivals<'a> = &'a dyn Fn() -> Vec<(PathBuf, Ticket)>;
+
+pub struct Placement<'a> {
+    pub local: bool,
+    pub arrivals: Option<Arrivals<'a>>,
+}
 
 pub enum End {
     Checked(Verdict),
@@ -74,12 +83,12 @@ fn refusal_of_build(picks: &[Pick], set: &[Entry]) -> Option<String> {
 }
 
 impl Round<'_> {
-    fn probe(&self, offset: usize, lanes: Vec<usize>, cancel: &AtomicBool) -> Probe {
+    fn probe(&self, entries: &[Entry], offset: usize, lanes: Vec<usize>, cancel: &AtomicBool) -> Probe {
         let worktree = match candidate::lander_worktree(&self.lander.repo, &format!("lander-probe-{offset}")) {
             Ok(worktree) => worktree,
             Err(error) => return unbuilt(PathBuf::new(), PathBuf::new(), lanes, String::new(), error),
         };
-        let set: Vec<Entry> = lanes.iter().map(|lane| self.entries[*lane]).collect();
+        let set: Vec<Entry> = lanes.iter().map(|lane| entries[*lane]).collect();
         let name = set.last().and_then(|(path, _)| path.file_stem()).and_then(|stem| stem.to_str()).unwrap_or("lane");
         let log = self.logs.join(format!("{}-{name}-{}-probe{offset}-candidate.log", micros(), set.len()));
         let tickets: Vec<(PathBuf, Ticket)> = set.iter().map(|(path, ticket)| ((*path).clone(), (*ticket).clone())).collect();
@@ -112,19 +121,23 @@ impl Round<'_> {
 
 /// Runs every probe at once on its own worktree and returns them in plan order. When a probe comes back refused, the
 /// probes still running that contain its red stride are cancelled, since they would be refused for the same lanes.
-pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries: &[Entry], plan: &[Vec<usize>], local: bool) -> Vec<Probe> {
+pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries: &[Entry], plan: &[Vec<usize>], placement: Placement) -> (Vec<Probe>, Vec<(PathBuf, Ticket)>) {
+    let Placement { local, arrivals } = placement;
     let round = Round { lander, base, logs, entries, local };
-    let cancels: Vec<AtomicBool> = plan.iter().map(|_| AtomicBool::new(false)).collect();
+    let mut plan = plan.to_vec();
+    let cancels: Vec<AtomicBool> = (0..=plan.len()).map(|_| AtomicBool::new(false)).collect();
     let (sender, receiver) = mpsc::channel();
-    let mut finished: Vec<Option<Probe>> = plan.iter().map(|_| None).collect();
+    let mut finished: Vec<Option<Probe>> = (0..=plan.len()).map(|_| None).collect();
+    let joined: OnceLock<Vec<(PathBuf, Ticket)>> = OnceLock::new();
+    let extended: OnceLock<Vec<Entry>> = OnceLock::new();
+    let (started, mut looked) = (Instant::now(), Instant::now());
     std::thread::scope(|scope| {
-        for (offset, lanes) in plan.iter().enumerate() {
+        for (offset, lanes) in plan.clone().into_iter().enumerate() {
             let (round, cancel, sender) = (&round, &cancels[offset], sender.clone());
             scope.spawn(move || {
-                let _ = sender.send((offset, round.probe(offset, lanes.clone(), cancel)));
+                let _ = sender.send((offset, round.probe(round.entries, offset, lanes, cancel)));
             });
         }
-        drop(sender);
         let mut waiting = plan.len();
         while waiting > 0 {
             match receiver.recv_timeout(POLL) {
@@ -132,9 +145,9 @@ pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries:
                     waiting -= 1;
                     let running: Vec<bool> = finished.iter().zip(&cancels).map(|(done, cancel)| done.is_none() && !cancel.load(Ordering::Relaxed)).collect();
                     let stopping = if probe.refused() {
-                        north_land_probes::cancelled(plan, offset, &running)
+                        north_land_probes::cancelled(&plan, offset, &running)
                     } else if probe.green() {
-                        north_land_probes::superseded(plan, offset, &running)
+                        north_land_probes::superseded(&plan, offset, &running)
                     } else {
                         Vec::new()
                     };
@@ -146,10 +159,30 @@ pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries:
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     watch.settle(lander);
+                    let Some(arrivals) = arrivals.filter(|_| joined.get().is_none() && started.elapsed() < JOIN_WINDOW && looked.elapsed() >= JOIN_LOOK) else { continue };
+                    looked = Instant::now();
+                    if finished.iter().flatten().any(Probe::refused) {
+                        continue;
+                    }
+                    let arrived = arrivals();
+                    if arrived.is_empty() {
+                        continue;
+                    }
+                    let tickets = joined.get_or_init(|| arrived);
+                    let set = extended.get_or_init(|| entries.iter().copied().chain(tickets.iter().map(|(path, ticket)| (path, ticket))).collect());
+                    let (offset, lanes) = (plan.len(), (0..set.len()).collect::<Vec<usize>>());
+                    println!("north land: {} ticket(s) queued while this round runs join it: a probe of {} lanes checks them with the round's {}", tickets.len(), set.len(), entries.len());
+                    plan.push(lanes.clone());
+                    waiting += 1;
+                    let (round, cancel, sender) = (&round, &cancels[offset], sender.clone());
+                    scope.spawn(move || {
+                        let _ = sender.send((offset, round.probe(set, offset, lanes, cancel)));
+                    });
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
     });
-    finished.into_iter().flatten().collect()
+    drop(extended);
+    (finished.into_iter().flatten().collect(), joined.into_inner().unwrap_or_default())
 }

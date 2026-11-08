@@ -1,5 +1,5 @@
 use std::ops::ControlFlow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use north_check_environment::{self as check_environment, Reading};
 use north_land_probes::{Settled, plan, settle};
@@ -20,7 +20,7 @@ use crate::land::queue;
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::telemetry::Stages;
 use crate::land::watch::{LandedLane, Watch};
-use crate::land::{incidents, pause, red, steps};
+use crate::land::{incidents, jobs, pause, red, steps};
 
 const SUSPECTS: &str = "suspects";
 const STALLS_BEFORE_ALONE: u32 = 2;
@@ -116,7 +116,7 @@ pub(super) trait Probing {
 impl Probing for Lander {
     fn probe_round(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry]) -> Result<Flow, String> {
         let ids = Strikes::lanes(lanes);
-        let mut strikes = Strikes::load(&self.queue, &ids)?;
+        let strikes = Strikes::load(&self.queue, &ids)?;
         let (room, read) = probe_slots::slots(&self.repo);
         let mut suspects = Suspects::load(&self.queue);
         let planned = suspects.plan(&ids, room, check_environment::active(&self.queue).is_local());
@@ -125,11 +125,21 @@ impl Probing for Lander {
         println!("north land: probing {} lanes of main@{} with candidates of {} lanes", lanes.len(), attempt.base, planned.iter().map(|probe| probe.len().to_string()).collect::<Vec<_>>().join(", "));
         let mut stages = Stages::start();
         self.heartbeat.enter(Step::Check);
-        let mut finished = check_environment::judge(&self.queue, |environment| {
-            let finished = probes::run(self, watch, attempt.base, attempt.logs, lanes, &planned, environment.is_local());
+        let taken: Vec<&PathBuf> = lanes.iter().map(|(path, _)| *path).collect();
+        let arrivals = || {
+            let claimed = jobs::claimed(self);
+            queue::collect(&self.queue).map(|queued| queued.into_iter().filter(|(path, _)| !taken.contains(&path) && !claimed.contains(path)).collect()).unwrap_or_default()
+        };
+        let (mut finished, joined) = check_environment::judge(&self.queue, |environment| {
+            let joins = (!pass.red_only && !environment.is_local()).then_some(&arrivals as probes::Arrivals);
+            let placement = probes::Placement { local: environment.is_local(), arrivals: joins };
+            let (finished, joined) = probes::run(self, watch, attempt.base, attempt.logs, lanes, &planned, placement);
             let reading = reading(&finished);
-            (finished, reading)
+            ((finished, joined), reading)
         });
+        let lanes: &[Entry] = &lanes.iter().copied().chain(joined.iter().map(|(path, ticket)| (path, ticket))).collect::<Vec<_>>();
+        let ids = Strikes::lanes(lanes);
+        let mut strikes = if joined.is_empty() { strikes } else { Strikes::load(&self.queue, &ids)? };
         for probe in &finished {
             if let (Some(verdict), Some(&(path, ticket))) = (probe.verdict(), probe.lanes.first().map(|lane| &lanes[*lane])) {
                 records::unsettled(&self.queue, path, ticket, &probe.head, attempt.base, verdict.class(), &probe.log);

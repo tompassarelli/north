@@ -20,7 +20,7 @@ const DRAIN_LIMIT: Duration = Duration::from_secs(60);
 const SCENARIO_DEADLINE: Duration = Duration::from_secs(180);
 const LANDER_LIFETIME: Duration = Duration::from_secs(120);
 
-const CHECKER: &str = r#"plan="$1/plan"; calls="$1/calls"
+const CHECKER: &str = r#"dir="$1"; plan="$1/plan"; calls="$1/calls"
 shift
 mkdir -p "$calls"
 n=1
@@ -29,6 +29,7 @@ step=$(sed -n "${n}p" "$plan" 2>/dev/null)
 case "$step" in
 lost) echo "ssh: connect to host gex45 port 22: Connection reset by peer" >&2; exit 255 ;;
 slow) sleep 1; echo "safe-push: verdict green" ;;
+hold) while [ ! -e "$dir/release" ]; do sleep 0.05; done; echo "safe-push: verdict green" ;;
 *) echo "safe-push: verdict green" ;;
 esac
 "#;
@@ -469,4 +470,27 @@ fn stalled_chores(world: &World) {
 #[test]
 fn chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_each_stall_five_minutes() {
     isolated("land_chaos::chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_each_stall_five_minutes", stalled_chores);
+}
+
+fn queued_mid_round(world: &World) {
+    world.plan(&["hold", "green"]);
+    let lander = world.lander();
+    let a = world.enqueue(&lander, &world.lane("a"));
+    let b = std::thread::scope(|scope| {
+        let round = scope.spawn(|| format!("{:?}", lander.round(&mut Watch::default())));
+        wait_for("the round's probe to start its check", || world.plan.join("calls/1").exists());
+        let b = world.enqueue(&lander, &world.lane("b"));
+        wait_for("a probe carrying the ticket queued mid-round", || world.plan.join("calls/2").exists());
+        let ended = round.join().unwrap();
+        fs::write(world.plan.join("release"), "").unwrap();
+        assert!(ended.contains("Progress"), "{ended}");
+        b
+    });
+    let verdicts = world.settled(&lander, &[&a, &b]);
+    assert!(verdicts[0].starts_with("landed ") && verdicts[0] == verdicts[1], "on 2026-11-08 a ticket queued while a round ran waited for that whole round and then its own, 57% of queued-to-push time; queued mid-round, it lands with the round: {verdicts:?}");
+}
+
+#[test]
+fn chaos_a_ticket_queued_mid_round_lands_with_that_round() {
+    isolated("land_chaos::chaos_a_ticket_queued_mid_round_lands_with_that_round", queued_mid_round);
 }
