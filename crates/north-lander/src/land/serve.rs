@@ -14,6 +14,7 @@ use super::hold::{self, Hold};
 use super::watch::Watch;
 use super::heartbeat::{self, Step};
 use super::watchdog;
+use super::build_lag::LANDER_INPUTS;
 use super::repositories;
 use north_base::foundation::exit::NO_VERDICT;
 use options::{Options, lander_for, parse};
@@ -53,8 +54,6 @@ fn runtime_link() -> PathBuf {
 fn runtime_target(link: &Path) -> Option<PathBuf> {
     std::fs::read_link(link).ok()
 }
-
-const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
 
 struct Serving {
     lander: Arc<Lander>,
@@ -186,7 +185,13 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::W
     }
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
+    let mut shown = String::new();
     loop {
+        let note = super::build_lag::report();
+        if note != shown {
+            println!("north land: {note}");
+            shown = note;
+        }
         if retire.load(Ordering::Relaxed) {
             return handover::hand_over(lander, &watch);
         }

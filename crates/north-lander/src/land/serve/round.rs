@@ -5,6 +5,7 @@ use super::batch::{Attempt, Entry, Flow, Pass};
 use super::{Pushed, Round, Serve};
 use crate::land::after;
 use crate::land::bisect::{self, Judgement};
+use crate::land::build_lag;
 use crate::land::candidate::git;
 use crate::land::checks::Verdict;
 use crate::land::heartbeat::Step;
@@ -29,7 +30,7 @@ pub(super) trait Pushing {
 impl Pushing for Lander {
     fn land_batch(&self, watch: &mut Watch, pass: &mut Pass, attempt: &Attempt, lanes: &[Entry], landing: &Landing) -> Result<Flow, String> {
         let id = steps::batch(&pass.round(attempt, std::collections::BTreeMap::new(), 0), lanes, None);
-        println!("north land: candidate {} carries {} lanes that passed their checks before queueing, onto main@{}; pushing it", landing.head, lanes.len(), attempt.base);
+        println!("north land: candidate {} carries {} lanes that passed their checks before queueing, onto main@{}; pushing it; {}", landing.head, lanes.len(), attempt.base, build_lag::report());
         let mut stages = Stages::start();
         stages.attempts = pass.rebuilds + 1;
         stages.checked(landing.head);
