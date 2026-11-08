@@ -1,7 +1,7 @@
-diff --git a/agent-machinery/skills/verification/SKILL.md b/agent-machinery/skills/verification/SKILL.md
+diff --git a/harness/skills/verification/SKILL.md b/harness/skills/verification/SKILL.md
 index ddcc76775..c328be891 100644
---- a/agent-machinery/skills/verification/SKILL.md
-+++ b/agent-machinery/skills/verification/SKILL.md
+--- a/harness/skills/verification/SKILL.md
++++ b/harness/skills/verification/SKILL.md
 @@ -31,3 +31,4 @@ metadata:
  - Deleting, merging or auditing tests or a suite, touching a committed snapshot, baseline or record, or doubting a test is the only guard (mutants): [pruning tests](references/pruning-tests.md).
  - Placing a test in a tier, choosing what to run before landing or what the landing gate or CI runs, or a build, test or landing is slow: [tiers and landing](references/tiers-and-landing.md).

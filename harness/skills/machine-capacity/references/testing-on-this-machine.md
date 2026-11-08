@@ -1,7 +1,7 @@
 # Testing on this machine
 
 Read with the test rules of the `verification` skill
-(`agent-machinery/skills/verification/SKILL.md`) when a test run, mutant or
+(`harness/skills/verification/SKILL.md`) when a test run, mutant or
 landing on this machine needs its local tool names.
 
 - To check a doubted kill on demand, record the mutant with `mutant record <id>` in the scratch copy and run `north test mutant verify <base> <head>`, which refuses an empty record or a patch that applies to neither and, where `.safe-push` sets `mutant.run`, runs every claimed test once on the change and on each mutant under one lease, so do not hand-run kills; the runner writes `pass<TAB><name>` or `fail<TAB><name>` lines to `<tree>/.mutant-results` for each tree in `MUTANT_TREES`.

@@ -109,7 +109,7 @@ pub(crate) fn notebook_markdown(text: &str) -> Result<String, String> {
 
 fn fetch(url: &str) -> Result<String, String> {
     let output = Command::new("curl")
-        .args(["-fsSL", "--max-time", "60", "-A", "agent-machinery-refresh-guides", url])
+        .args(["-fsSL", "--max-time", "60", "-A", "north-refresh-guides", url])
         .output()
         .map_err(|error| format!("{url}: curl: {error}"))?;
     if !output.status.success() {

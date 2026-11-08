@@ -9,13 +9,12 @@ mod reach;
 pub use config_keys::MissingKey;
 pub use metric_sources::{CitedMetric, cited_metrics};
 
-const ROOTS: &[&str] = &["docs/", "harness/", "bin/", ".claude/", "agent-machinery/", "README.md", "AGENTS.md"];
+const ROOTS: &[&str] = &["docs/", "harness/", "bin/", ".claude/", "README.md", "AGENTS.md"];
 const SKIPPED: &[&str] = &["docs/rationale/", "/fixtures/", ".test.", "node_modules/"];
 const SEPARATORS: &[&str] = &["&&", "||", "$(", ";", "|", "(", "`"];
-const NAMED_PATHS: &[&str] = &["docs/", "agent-machinery/", "README.md", "AGENTS.md"];
-const LINKS_ONLY: &[&str] = &["docs/references/", "agent-machinery/skills/", "agent-machinery/PROVENANCE.md"];
+const NAMED_PATHS: &[&str] = &["docs/", "README.md", "AGENTS.md"];
+const LINKS_ONLY: &[&str] = &["docs/references/"];
 const UNSCANNED: &[&str] = &["docs/features/"];
-const SKILL_ROOTS: &[&str] = &["harness/skills/", "agent-machinery/skills/"];
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Citation {
@@ -205,13 +204,7 @@ fn normalized(dir: &str, target: &str) -> Option<String> {
 
 fn resolved(known: &BTreeSet<String>, dir: &str, target: &str) -> Option<String> {
     let path = normalized(dir, target.split('#').next().unwrap_or(""))?;
-    if known.contains(&path) {
-        return Some(path);
-    }
-    SKILL_ROOTS.iter().find_map(|from| {
-        let rest = path.strip_prefix(from)?;
-        SKILL_ROOTS.iter().filter(|to| *to != from).map(|to| format!("{to}{rest}")).find(|other| known.contains(other))
-    })
+    known.contains(&path).then_some(path)
 }
 
 fn resolves(known: &BTreeSet<String>, dir: &str, target: &str) -> bool {

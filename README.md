@@ -50,10 +50,9 @@ Read in three rings and stop at the first one that answers:
   authorized host effects; [docs/architecture.md](docs/architecture.md) maps the owning boundaries.
 - [bin/](bin/): every harness command (`agents`, `threads`, `safe-push` and more);
   [docs/features.md](docs/features.md) says what each one is for.
-- [harness/](harness/): hooks, skills, defaults and policy owners;
-  [docs/harness.md](docs/harness.md) follows them end to end.
-- [agent-machinery/](agent-machinery/): provider-independent doctrine, contracts and skills;
-  [agent-machinery/README.md](agent-machinery/README.md) introduces the package.
+- [harness/](harness/): hooks, skills, the delivery doctrine, defaults and policy owners;
+  [docs/harness.md](docs/harness.md) follows them end to end, and
+  [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md) says how skills are laid out.
 - [docs/](docs/): the concept documents, the feature entries and the rationale notes.
 
 ## Concept documents
@@ -67,7 +66,7 @@ Read in three rings and stop at the first one that answers:
 - [docs/nexus-run.md](docs/nexus-run.md): running a CPU job on Nexus from an owned worktree.
 - [docs/graph.md](docs/graph.md): the fact graph behind `north graph`: terms, occurrences, the ask query and its timing.
 - [docs/rationale/review-triggers.md](docs/rationale/review-triggers.md): why review is triggered by risk, not a landing trailer.
-- [agent-machinery/skills/verification/SKILL.md](agent-machinery/skills/verification/SKILL.md): how tests are kept and run.
+- [harness/skills/verification/SKILL.md](harness/skills/verification/SKILL.md): how tests are kept and run.
 
 ## Keeping the docs true
 

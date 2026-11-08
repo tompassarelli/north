@@ -7,9 +7,9 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 const ID: &str = "north-hook";
-const POLICY: &str = "Never hand-edit generated agent policy (~/.claude/CLAUDE.md, ~/.codex). Edit south:agents/ or north:agent-machinery/ and run `agents sync`.";
+const POLICY: &str = "Never hand-edit generated agent policy (~/.claude/CLAUDE.md, ~/.codex). Edit south:agents/ or north:harness/ and run `agents sync`.";
 const NIX: &str = "Never hand-edit a .nix generated from .bnix. Edit the .bnix and regenerate the .nix from it.";
-const UNKNOWN_DIR: &str = "Can't resolve the directory after `cd`/`popd`, so this write to a CLAUDE.md, AGENTS.md or SKILL.md may hit generated agent policy. Use an absolute path; for ~/.claude or ~/.codex edit south:agents/ or north:agent-machinery/ and run `agents sync`.";
+const UNKNOWN_DIR: &str = "Can't resolve the directory after `cd`/`popd`, so this write to a CLAUDE.md, AGENTS.md or SKILL.md may hit generated agent policy. Use an absolute path; for ~/.claude or ~/.codex edit south:agents/ or north:harness/ and run `agents sync`.";
 const MENTIONS: [&str; 6] = ["CLAUDE.md", "AGENTS.md", "SKILL.md", ".claude", ".codex", ".nix"];
 const PROTECTED_NAMES: [&str; 3] = ["CLAUDE.md", "AGENTS.md", "SKILL.md"];
 const EVERY_OPERAND: [&str; 8] = ["sed", "sd", "tee", "truncate", "perl", "ruby", "ed", "ex"];

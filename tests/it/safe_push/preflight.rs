@@ -36,16 +36,16 @@ fn backdate(path: &Path, days: u64) {
 }
 
 #[test]
-fn a_fresh_north_worktree_installs_agent_machinery_before_its_land_check() {
+fn a_fresh_north_worktree_installs_a_web_project_before_its_land_check() {
     let fixture = Fixture::new();
     fixture.origin_named_north();
-    fs::create_dir_all(fixture.repo.join("agent-machinery")).unwrap();
-    fs::write(fixture.repo.join("agent-machinery/package.json"), "{}\n").unwrap();
-    fs::write(fixture.repo.join("agent-machinery/bun.lock"), "{\n  \"lockfileVersion\": 1,\n  \"workspaces\": {\"\": {\"name\": \"agent-machinery\"}},\n  \"packages\": {}\n}\n").unwrap();
-    fixture.git(&["add", "agent-machinery"]);
-    fixture.land_checks(&["agent-machinery/ :: test -d agent-machinery/node_modules"], "agent-machinery project");
+    fs::create_dir_all(fixture.repo.join("web")).unwrap();
+    fs::write(fixture.repo.join("web/package.json"), "{}\n").unwrap();
+    fs::write(fixture.repo.join("web/bun.lock"), "{\n  \"lockfileVersion\": 1,\n  \"workspaces\": {\"\": {\"name\": \"web\"}},\n  \"packages\": {}\n}\n").unwrap();
+    fixture.git(&["add", "web"]);
+    fixture.land_checks(&["web/ :: test -d web/node_modules"], "web project");
     shim::write_script(&fixture.bin.join("bun"), "[ \"$*\" = \"install --frozen-lockfile\" ] || exit 2\nmkdir -p node_modules\n");
-    let installing = format!("safe-push: no node_modules — bun install --frozen-lockfile in {}/agent-machinery", fixture.repo.display());
+    let installing = format!("safe-push: no node_modules — bun install --frozen-lockfile in {}/web", fixture.repo.display());
     fixture.run(&["--dry-run", "--to", "main"]).expect(true, &[&installing, CLEAN]);
 }
 

@@ -41,7 +41,7 @@ data.
   tests, sort each special case as a missing concept, a real requirement or a workaround for something outside the
   code, log bugs instead of fixing them, staff fresh reviewers, and stop after a clean round, when fixes undo each
   other, or after three rounds.
-- Doctrine, `agent-machinery/skills/program-craftsmanship/references/structure.md`: the change-together question and
+- Doctrine, `harness/skills/program-craftsmanship/references/structure.md`: the change-together question and
   the three kinds of coupling it catches (hidden links, needless links, surplus).
 
 ## Left where it already lives

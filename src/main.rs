@@ -33,7 +33,7 @@ static RUN_TIME_READERS: [run_time_data::Consumer; 6] = [
     run_time_data::Consumer { path: "north-data/expectations.toml", validate: ops::check::validate },
     run_time_data::Consumer { path: "north-data/private-checks.toml", validate: ops::private_check::validate },
     run_time_data::Consumer { path: "harness/nix/cards.toml", validate: guard::nix_activity::validate },
-    run_time_data::Consumer { path: "agent-machinery/file-skills.toml", validate: guard::file_skill::validate },
+    run_time_data::Consumer { path: "harness/file-skills.toml", validate: guard::file_skill::validate },
 ];
 
 fn main() -> std::process::ExitCode {

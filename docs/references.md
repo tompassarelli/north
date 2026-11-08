@@ -13,7 +13,7 @@ values live where their consumers read them: thresholds and priors in
 [harness/model-catalog.toml](../harness/model-catalog.toml).
 
 A worker that adopts or tests an outside source adds its entry here in the same commit
-([external-code](../agent-machinery/skills/external-code/SKILL.md)).
+([external-code](../harness/skills/external-code/SKILL.md)).
 
 ## Sources
 
@@ -81,7 +81,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   `2ee14df` on 2026-07-10 and at `4ae2317` on 2026-11-04. A followed source
   ([watching](../harness/skills/agent-policy/references/watching.md)).
   Informed: the 2026-07-10 authoring norms (done-bars, leading words, the information hierarchy) in `684e72bfc`,
-  credited in [agent-machinery/PROVENANCE.md](../agent-machinery/PROVENANCE.md); the 2026-11-04 review
+  credited in [docs/rationale/skill-provenance.md](rationale/skill-provenance.md); the 2026-11-04 review
   [rationale/watch/2026-11-04-mattpocock-skills.md](rationale/watch/2026-11-04-mattpocock-skills.md) and north#525.
   Outcome: adopted as ideas, no code copied. Done-bars are live in code and the information hierarchy as practice;
   leading words, the no-op test and positive phrasing were cut on 2026-08-02. Of the 2026-11-04 mechanisms the
@@ -259,8 +259,8 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="threejs-skills"></a>**CloudAI-X/threejs-skills**,
   https://github.com/CloudAI-X/threejs-skills/blob/b1c623076c661fc9b03dac19292e825a5d106823/README.md; accessed:
   not recorded.
-  Informed: [agent-machinery/skills/threejs/](../agent-machinery/skills/threejs/),
-  [agent-machinery/PROVENANCE.md](../agent-machinery/PROVENANCE.md).
+  Informed: [harness/skills/threejs/](../harness/skills/threejs/),
+  [docs/rationale/skill-provenance.md](rationale/skill-provenance.md).
   Outcome: adopted under its stated MIT terms, with corrections and rationale added.
 
 ### Nix
@@ -410,7 +410,7 @@ Skills that cite many sources keep them beside the skill, so they are not repeat
 
 - [harness/skills/agent-policy/references/guides.md](../harness/skills/agent-policy/references/guides.md):
   instruction, skill and hook writing guides.
-- [agent-machinery/skills/verification/references/testing-sources.md](../agent-machinery/skills/verification/references/testing-sources.md): testing
+- [harness/skills/verification/references/testing-sources.md](../harness/skills/verification/references/testing-sources.md): testing
   practice.
 - [harness/skills/github/references/actions-sources.md](../harness/skills/github/references/actions-sources.md):
   GitHub Actions and REST limits.

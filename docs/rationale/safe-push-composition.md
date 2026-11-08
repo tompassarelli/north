@@ -382,7 +382,7 @@ the per-lane code still exists.
     `publication::a_language_gate_pass_publishes_to_another_branch` (2),
     `gates::an_initial_push_hands_the_language_gate_the_empty_tree_as_base` (4),
     `publication::a_failed_fetch_of_the_destination_is_refused_before_any_check_runs` (5),
-    `preflight::a_fresh_north_worktree_installs_agent_machinery_before_its_land_check` (7),
+    `preflight::a_fresh_north_worktree_installs_a_web_project_before_its_land_check` (7),
     `preflight::a_landing_that_undoes_recent_main_is_refused_with_its_land_checks_still_run` (8),
     `gates::a_failing_land_check_and_a_secret_are_refused_once_naming_both` (9),
     `preflight::a_land_check_failure_keeps_its_output_in_a_state_log_a_pass_keeps_none_and_only_committed_matching_checks_run`

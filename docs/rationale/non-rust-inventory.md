@@ -8,7 +8,7 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 
 | File | Lines | Disposition | Reason / note |
 |---|---|---|---|
-| agent-machinery/scripts/effect-kit.mjs | 322 | stay | drives the target project's own TypeScript compiler and Effect language service (createRequire into the project's node_modules); only JS can load them |
+| harness/skills/effect-development/scripts/effect-kit.mjs | 322 | stay | drives the target project's own TypeScript compiler and Effect language service (createRequire into the project's node_modules); only JS can load them |
 | bin/agy | 6 | stay | 6-line launcher for the downloaded agy runtime (exports env then execs a vendor binary) |
 | bin/automation-chrome | 9 | stay | 9-line flock wrapper that execs the Playwright CLI in lib/automation-chrome |
 | bin/automation-chrome.test.sh | 9 | stay | test of the Playwright wrapper |
@@ -16,7 +16,7 @@ Rows say `port: ...` (a box on north#88, family named), `stay` (with the reason)
 | bin/cargo | 17 | stay | same admission shadow for cargo |
 | bin/cargo-nextest | 17 | stay | same admission shadow for cargo-nextest |
 | bin/depbox | 79 | stay | execs bwrap/unshare sandbox around an arbitrary command (namespace setup before any runtime exists); glue under 80 code lines |
-| bin/effect-kit | 4 | stay | 4-line PATH name for agent-machinery/scripts/effect-kit.mjs |
+| bin/effect-kit | 4 | stay | 4-line PATH name for harness/skills/effect-development/scripts/effect-kit.mjs |
 | bin/gh | 19 | stay | 19-line PATH shim: finds the real gh and runs it through `north gh-session` in a fleet session; glue |
 | bin/gh-as-app | 4 | stay | 4-line glue: runs gh with the token printed by gh-app-token |
 | bin/head-north | 105 | stay | bootstrap: builds, caches per tree and execs the north binary that every land check in `.safe-push` runs, so it cannot be that north; over 80 lines because of the per-tree cache and its lease pruning, which the Rust it launches cannot own |

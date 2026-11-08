@@ -20,15 +20,18 @@ unless the destination needs them, because an external skill cannot grant
 permissions, override local policy or silently install its tools.
 
 Record the exact source, license, adapted scope and required notices in
-`agent-machinery/NOTICE` and `agent-machinery/PROVENANCE.md`, and keep any
+`NOTICE` and `docs/rationale/skill-provenance.md`, and keep any
 license file whose terms require it, because attribution is a license
 condition.
 
 ## Register once
 
-Portable shared skills live under `agent-machinery/skills/<slug>/` with one
-unit in `agent-machinery/catalog.json` naming its entrypoint. Machine-specific
-skills belong to the machine owner selected by the active catalog. The path is
+Every skill lives under `harness/skills/<slug>/` with a `[[registered]]` entry
+in `structure.toml` that South's catalog names by id. A skill that holds only
+procedures for any project and provider carries `portable: true` in its
+frontmatter, and `north check harness tree-policy` enforces that boundary.
+Machine-specific skills belong to the machine owner selected by the active
+catalog. The path is
 source package, consumer composition, shared generation, provider
 projections; a copied projection is neither source nor registration.
 

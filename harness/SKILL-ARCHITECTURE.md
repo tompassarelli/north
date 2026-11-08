@@ -5,7 +5,7 @@ The live catalog is authoritative: `agents status --json`, `agents inspect
 
 ## Source and activation
 
-- `north:agent-machinery/` owns reusable workflows and the work-ownership contract.
+- `north:harness/skills/` and `north:harness/doctrine.md` own reusable workflows and the work-ownership contract.
 - `south:agents/` owns operator policy; `north:harness/` owns local hook sources.
 - `nixos-config:modules/north-profile/firn/skills/` owns configuration workflows.
 - `south:agents/catalog-config.json` declares owner registrations,
@@ -24,7 +24,9 @@ that a provider invokes an event.
 
 Each idea is one skill with a plain name. Its `SKILL.md` contains the complete
 ordinary workflow; its `references/` folder (`notes.md` plus topic files) holds
-detail for a specific unresolved question. Keep scripts, fixtures, and UI
+detail for a specific unresolved question. A skill marked `portable: true` in
+its frontmatter holds only procedures that work for any project and provider,
+and `north check harness tree-policy` enforces that. Keep scripts, fixtures, and UI
 metadata with their consuming skill. Reference files are not additional skills
 or a second routinely loaded instruction set.
 

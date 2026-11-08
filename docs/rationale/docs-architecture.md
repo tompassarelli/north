@@ -62,7 +62,7 @@ An agent reads in three rings and stops at the first that answers.
 | What a feature is for | one file per feature under `docs/features/<NN-section>/` | be one short paragraph; detail goes to `--help` |
 | Feature index | `docs/features.md`, generated | never be edited by hand |
 | How parts fit | concept docs under `docs/` | link owners; no numbers |
-| Procedures | skills under `harness/skills/` and `agent-machinery/skills/` | link the skill |
+| Procedures | skills under `harness/skills/` | link the skill |
 | Why, with dates and measurements | `docs/rationale/<topic>.md` | quote numbers as measured on a date |
 | Outside sources | `docs/references.md` | cite |
 | Tom-specific facts | south `agents/decisions` | not appear in north |
@@ -112,8 +112,7 @@ The same scan runs as a land check in `.safe-push` and in `north health`. It fai
 
 - a `north SUB` in a code span or fence where the CLI does not define `SUB` (existing);
 - a relative Markdown link in any scanned `.md` file whose target is not a tracked file or
-  directory; a link between skills resolves in either skill root, because `agents sync` publishes
-  `harness/skills/` and `agent-machinery/skills/` side by side;
+  directory; a link between skills resolves because every skill sits in `harness/skills/`;
 - a backticked repository path (one starting with a tracked top-level directory such as `bin/`,
   `crates/`, `docs/` or `harness/`) in `README.md`, `AGENTS.md` or a living doc under `docs/` that
   is tracked neither from the repository root nor from the doc's directory. Placeholders (an

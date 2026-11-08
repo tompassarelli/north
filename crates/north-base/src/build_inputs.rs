@@ -18,7 +18,7 @@ pub const RUN_TIME_DATA: [&str; 18] = [
     "harness/claude/agents/worker-high.md",
     "harness/claude/agents/worker-sonnet.md",
     "harness/claude/agents/worker-xhigh.md",
-    "agent-machinery/file-skills.toml",
+    "harness/file-skills.toml",
     "north-data/private-checks.toml",
     "north-data/expectations.toml",
     "harness/merge-sets.toml",

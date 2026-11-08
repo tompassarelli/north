@@ -2,7 +2,7 @@
 pub const FEEDBACK_LOOP: &str = "docs/feedback-loop.md";
 pub const LOOPS: &str = "harness/loops.toml";
 
-const ROOTS: &[&str] = &["bin/", "crates/", "harness/", "src/", "docs/", "agent-machinery/", "lib/"];
+const ROOTS: &[&str] = &["bin/", "crates/", "harness/", "src/", "docs/", "lib/"];
 
 pub trait Tree {
     fn exists(&self, path: &str) -> bool;

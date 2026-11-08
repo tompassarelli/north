@@ -27,7 +27,7 @@ Adopted:
    budget, one change at a time, including the fleet system prompt against vanilla Claude Code and Codex.
 6. No number is reported without its run count, spread, limiting resource and a paired vanilla comparison.
 7. After two failed fixes, the shared assumption is written down and tested before a third fix or a model
-   escalation ([debugging skill](../../agent-machinery/skills/debugging/SKILL.md)).
+   escalation ([debugging skill](../../harness/skills/debugging/SKILL.md)).
 8. The operator surface is derived from state: what changed and which decisions are the owner's. Every question
    carries options, a recommendation, a default and when the default applies, and the agent keeps working.
 

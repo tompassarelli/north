@@ -6,7 +6,7 @@ use toml_edit::DocumentMut;
 const DEFAULTS: &str = "harness/defaults.toml";
 const SAFE_PUSH: &str = ".safe-push";
 const SAFE_PUSH_READERS: &[&str] = &["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-safe-push/"];
-const CODE: &[(&str, &str)] = &[("src/", ".rs"), ("crates/", ".rs"), ("harness/", ".ts"), ("agent-machinery/", ".ts")];
+const CODE: &[(&str, &str)] = &[("src/", ".rs"), ("crates/", ".rs"), ("harness/", ".ts")];
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct MissingKey {

@@ -4,9 +4,16 @@
 
 North imported this complete first-party package from
 `agent-machinery@672ea2f0cfe6c6323423fe7e2a89e6789435ced5` under its existing
-MIT OR Apache-2.0 license. The package remains provider-independent, but
-`north:agent-machinery/` is now its authoritative live source. The former
+MIT OR Apache-2.0 license. The package remained provider-independent, with
+`north:agent-machinery/` as its authoritative live source. The former
 standalone repository and North-v1 copy are migration inputs only.
+
+The package was dissolved into `north:harness/` on 2026-11-08 (north#868): its
+skills now live in `north:harness/skills/`, its doctrine and file-skill table
+in `north:harness/`, and its license texts and NOTICE at the repository root.
+`north:harness/skills/` is the authoritative live source from that date; the
+`agent-machinery` paths below name the package as it stood at each recorded
+revision.
 
 Portable deltas that had accumulated in North-v1 through
 `north@fced2d40016e63eb84fa1c99be6659c6b284dae5` were reconciled during the
@@ -33,9 +40,10 @@ Passarelli`. Neither revision contains a top-level `NOTICE` file. North does
 contain `north:THIRD_PARTY_NOTICES.md`. Its Caveman adapter and Three.js
 sections were outside the initial extraction; Three.js material later entered
 through the consolidation described above and is documented below. Copying the
-unrelated Caveman notice is not required. The package license texts are retained as
+unrelated Caveman notice is not required. The package license texts were retained as
 `agent-machinery:LICENSE-MIT` and `agent-machinery:LICENSE-APACHE`; factual
-credits appear in `agent-machinery:NOTICE`.
+credits appeared in `agent-machinery:NOTICE`. They now sit at the repository
+root as `north:LICENSE-MIT`, `north:LICENSE-APACHE` and `north:NOTICE`.
 
 Provider adapters, runtime coordination, hooks, personal and machine policy,
 secrets, and non-portable project procedures were not imported.
@@ -51,7 +59,7 @@ Its license section states “MIT License - Feel free to use, modify, and
 distribute.” The tracked revision contains no standalone license file or
 copyright notice. Permission is grounded in that express upstream statement,
 not North's former local default for unlicensed material. Preserve the source
-and statement in this record and `north:agent-machinery/NOTICE`.
+and statement in this record and `north:NOTICE`.
 
 The clarity revision preserves the ten topic identities, separates routine
 guides from topic-specific full notes, adds rationale and version assumptions,
@@ -60,14 +68,14 @@ of runtime verification against every Three.js release.
 
 ## Astro skill documentation
 
-`skills/astro/` derives from the `astro` skill in astrolicious/agent-skills at
+`harness/skills/astro/` derives from the `astro` skill in astrolicious/agent-skills at
 `cb4839f3794189ebf35c55d3ba5d3876dff7acf0`:
 https://github.com/astrolicious/agent-skills/blob/cb4839f3794189ebf35c55d3ba5d3876dff7acf0/skills/astro/SKILL.md
 
 Its frontmatter states `license: MIT` with `authors: "Astro Team"`. The
 revision contains no standalone license file or copyright notice. Permission is
 grounded in that express statement, as with the Three.js import; preserve the
-source and statement here and in `north:agent-machinery/NOTICE`.
+source and statement here and in `north:NOTICE`.
 
 Tom supplied the upstream text on 2026-10-19 and asked for it to be updated to
 current conventions. The import keeps its scope (CLI, project structure,
@@ -121,9 +129,9 @@ for idea-level inspiration alone.
 
 ## Harness authoring guides
 
-The host repository's guide refresher vendors openly licensed guides for writing agent
-instructions and skills into the host repository's
-`harness/skills/agent-policy/references/guides/`, outside this package. It
+North's guide refresher vendors openly licensed guides for writing agent
+instructions and skills into
+`harness/skills/agent-policy/references/guides/`. It
 fetches each source at its upstream `HEAD`, records the exact commit URL,
 license and retrieval date in each file's header and in
 `guides/sources.json`, and converts the one Jupyter notebook to Markdown.

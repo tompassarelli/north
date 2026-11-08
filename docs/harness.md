@@ -11,9 +11,8 @@ North is the harness layer. Socrates, the workforce, is a flat set of fleet sess
 Tom's proxy. A parent is each session's `--parent` link; `north fleet tree` shows the org. Three
 repositories take part:
 
-- **north** (this one, public): the harness commands in [bin/](../bin/), the hooks, skills and
-  defaults in [harness/](../harness/), the shared procedures in
-  [agent-machinery/](../agent-machinery/), and the `north` app.
+- **north** (this one, public): the harness commands in [bin/](../bin/), the hooks, skills,
+  defaults and shared procedures in [harness/](../harness/), and the `north` app.
 - **south** (private): Tom's operator policy, read from `~/code/south/main/agents` unless
   `AGENTS_OPERATOR_DIR` names another directory.
 - **firn**, the `nixos-config` repository: Tom's machine configuration, which puts the harness on
@@ -81,8 +80,7 @@ one way to reach agents:
 - Rules for one repository: that repository's `AGENTS.md`, such as [this one](../AGENTS.md), read in
   the checkout.
 
-- Procedures: skills in [harness/skills/](../harness/skills/) and
-  [agent-machinery/skills/](../agent-machinery/skills/), linked by `agents sync`.
+- Procedures: skills in [harness/skills/](../harness/skills/), linked by `agents sync`.
 
 - Guards on tool calls: `north hook` verbs (`dispatch`, `language-guard`, `codex-conduct`,
   `firn-system-policy`, `prompt-grounding`), bound to events by
@@ -173,7 +171,7 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
 
 3. it runs the checks the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness
-   scripts, agent-machinery and the docs) through `safe-push --check-candidate`, sending each where
+   scripts, skills and the docs) through `safe-push --check-candidate`, sending each where
    it can run: with a `land.workflow`, every check except the `land.local-only` and
    `land.machine-bound` ones runs as one GitHub Actions job through `north land actions`;
    machine-bound checks run on the `land.runner` build host; and a host in game-reserve ships the

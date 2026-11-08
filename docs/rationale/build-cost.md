@@ -73,7 +73,7 @@ Rejected, one line each:
 
 - A faster linker: rust-lld is already in use.
 - sccache: measured slower than `north lane seed` on 31 Oct
-  (`agent-machinery/skills/rust-development/references/compile-times.md`, both tables).
+  (`harness/skills/rust-development/references/compile-times.md`, both tables).
 - Shared `CARGO_TARGET_DIR` for lanes: every lane waits on Cargo's build-directory lock.
 - An Actions-built runtime: the runner is Ubuntu, so the binary links FHS glibc while promotion realises Nix store
   references; it needs Nix and a binary cache on Actions, a new dependency.

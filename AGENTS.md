@@ -13,10 +13,10 @@ Build output stays in the worktree's `target/`.
 - Keep fleet screen state and rendering in `crates/north-tui/src/tui/fleet`; the Rust host performs authorized effects and renders projections.
 
 - Change Rust build settings (profiles, linker, caches, crate splits) only after
-  measuring them per [compile-times](agent-machinery/skills/rust-development/references/compile-times.md).
-- Follow [verification](agent-machinery/skills/verification/SKILL.md) for test retention, mutation evidence and execution.
+  measuring them per [compile-times](harness/skills/rust-development/references/compile-times.md).
+- Follow [verification](harness/skills/verification/SKILL.md) for test retention, mutation evidence and execution.
 - Before landing, check only the crates you touched, `depbox run -- nix develop -c cargo clippy -p CRATE --all-targets --locked --offline -- -D warnings` (the land check refuses any warning), and the tests that exercise the change by name filter, plus
-  `north check harness tree-policy` for its skills. Never run the workspace suite or workspace clippy first: the lander runs them once on the merged tree, so a pre-run doubles the work ([tiers and landing](agent-machinery/skills/verification/references/tiers-and-landing.md)). The exception is a change to the landing machinery, which runs its own tests first.
+  `north check harness tree-policy --tree .` for its procedures. Never run the workspace suite or workspace clippy first: the lander runs them once on the merged tree, so a pre-run doubles the work ([tiers and landing](harness/skills/verification/references/tiers-and-landing.md)). The exception is a change to the landing machinery, which runs its own tests first.
 - Run `verify-north` in your worktree before claiming a north change works; it builds north, walks the spine (a brief, a worker, a landed commit, a ledger row) on a scratch repository, and cleans up.
 - Edit in `worktrees/<slug>`, never `main/`, and land through `safe-push --to main`.
 - Run the affected `*.test.sh` or `*.test.py` under `bin/`, `lib/` or `harness/` for a harness change; the `harness.yml` workflow runs them all except its listed machine-bound ones.
@@ -35,4 +35,4 @@ Build output stays in the worktree's `target/`.
 - Before changing `crates/north-core/src/grounding/sources/repos.rs` or `crates/north-core/src/grounding/prompt_hook.rs`, read the [policy measurement](docs/features.md#policy-measurement) features, since docs lines feed that index.
 - Before changing what `crates/north-threads/src/threads/runs/record.rs` or `crates/north-providers/src/ledger/mod.rs` records, read [docs/feedback-loop.md](docs/feedback-loop.md) for each signal and the reader that acts on it.
 - Before adding or changing a command, add its entry under `docs/features/` and run `north docs features-index`, because [docs/features.md](docs/features.md) is generated and never edited by hand.
-- Before changing provider-independent doctrine, contracts or procedures, read [agent-machinery/README.md](agent-machinery/README.md); [docs/terms.md](docs/terms.md) names the layers.
+- Before changing provider-independent doctrine, contracts or procedures, read [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md); [docs/terms.md](docs/terms.md) names the layers.

@@ -1,17 +1,17 @@
-agent-machinery
+North
 Copyright 2026 Tom Passarelli
 
-This distribution contains material adapted from North and Firn, each
-Copyright 2026 Tom Passarelli and available under MIT OR Apache-2.0. The
+This repository contains material adapted from earlier North sources and
+Firn, each Copyright 2026 Tom Passarelli and available under MIT OR Apache-2.0. The
 applicable license texts are distributed as LICENSE-MIT and LICENSE-APACHE.
 
 North's source documentation credits Julius Brussee's cavecrew agents as
 inspiration for scope-refusal, redirect, and compact-report patterns. It also
 credits Matt Pocock's MIT-licensed "writing great skills" material as
 inspiration for its skill-authoring method. These credits are retained for
-provenance; this package does not copy a NOTICE file from either project.
+provenance; North does not copy a NOTICE file from either project.
 
-Three.js skill notes include material adapted from CloudAI-X/threejs-skills,
+The Three.js skill notes (harness/skills/threejs/) include material adapted from CloudAI-X/threejs-skills,
 revision b1c623076c661fc9b03dac19292e825a5d106823.
 Source: https://github.com/CloudAI-X/threejs-skills
 That revision's README states:
@@ -21,7 +21,7 @@ upstream statement is preserved as provided; no copyright holder is invented.
 This revision restructures the notes, adds decision rationale, and corrects
 examples. It does not claim the illustrative examples were browser-tested.
 
-Astro skill notes include material adapted from astrolicious/agent-skills,
+The Astro skill notes (harness/skills/astro/) include material adapted from astrolicious/agent-skills,
 revision cb4839f3794189ebf35c55d3ba5d3876dff7acf0, file skills/astro/SKILL.md.
 Source: https://github.com/astrolicious/agent-skills
 That file's frontmatter declares "license: MIT" and names its authors as
@@ -29,7 +29,6 @@ That file's frontmatter declares "license: MIT" and names its authors as
 notice; the upstream statement is preserved as provided and no copyright
 holder is invented. This revision rewrites the guide for Astro 7 conventions.
 
-The harness-authoring guides that the host repository's guide refresher
-vendors live outside this package, at harness/skills/agent-policy/references/guides/
-in its host repository; their attribution, license texts and NOTICE are kept in
-that directory.
+The harness-authoring guides that North's guide refresher vendors live
+at harness/skills/agent-policy/references/guides/; their attribution, license
+texts and NOTICE are kept in that directory.
