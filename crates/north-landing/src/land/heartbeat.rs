@@ -29,7 +29,7 @@ impl Step {
         match self {
             Step::Between => "waiting between rounds",
             Step::Settle => "settling finished after-landing runs and jobs",
-            Step::Jobs => "starting the sheriff, recovery and outbox pull jobs",
+            Step::Jobs => "starting the sheriff and recovery jobs",
             Step::Prepare => "fetching main",
             Step::Build => "building the candidate",
             Step::Check => "checking the candidate",

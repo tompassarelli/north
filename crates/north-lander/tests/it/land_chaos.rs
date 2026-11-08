@@ -402,28 +402,23 @@ fn stalled_recovery(_: &Lander, _: &Path) -> Result<Option<after::Recovered>, St
     Ok(None)
 }
 
-fn stalled_pull(_: &Lander) -> Vec<String> {
-    wait::hang();
-    Vec::new()
-}
-
 fn stalled_chores(world: &World) {
-    let lander = Lander { chores: Chores { patrol: stalled_patrol, recover: stalled_recovery, pull: stalled_pull }, ..world.lander() };
+    let lander = Lander { chores: Chores { patrol: stalled_patrol, recover: stalled_recovery }, ..world.lander() };
     after::begin(&lander, "interrupted", "base", &[], &[]).unwrap();
     let a = world.enqueue(&lander, &world.lane("a"));
     let mut watch = Watch::default();
     assert!(wait::until(Duration::from_secs(30), || {
         let _ = lander.round(&mut watch);
         queue::pending(&lander.queue).unwrap().is_empty()
-    }), "the queued lane waited 30 s behind the sheriff, the recovery and the outbox pull");
+    }), "the queued lane waited 30 s behind the sheriff and the recovery");
     landed(&world.settled(&lander, &[&a]));
     let mut running: Vec<&str> = watch.jobs.running().into_iter().map(|(kind, _)| kind.name()).collect();
     running.sort_unstable();
-    assert_eq!(running, ["outbox pull", "recovery", "sheriff"], "the lane landed only because a stalled job never started");
+    assert_eq!(running, ["recovery", "sheriff"], "the lane landed only because a stalled job never started");
 }
 
 #[test]
-fn chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_each_stall_five_minutes() {
-    isolated("land_chaos::chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_each_stall_five_minutes", stalled_chores);
+fn chaos_a_queued_lane_lands_while_the_sheriff_and_a_recovery_each_stall_five_minutes() {
+    isolated("land_chaos::chaos_a_queued_lane_lands_while_the_sheriff_and_a_recovery_each_stall_five_minutes", stalled_chores);
 }
 

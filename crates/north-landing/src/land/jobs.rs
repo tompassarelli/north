@@ -10,26 +10,23 @@ use super::sheriff;
 pub struct Chores {
     pub patrol: fn(&Lander) -> Result<(), String>,
     pub recover: fn(&Lander, &Path) -> Result<Option<Recovered>, String>,
-    pub pull: fn(&Lander) -> Vec<String>,
 }
 
 impl Default for Chores {
     fn default() -> Self {
-        Self { patrol: sheriff::patrol, recover: after::recover, pull: Lander::pull_remote }
+        Self { patrol: sheriff::patrol, recover: after::recover }
     }
 }
 
 enum Done {
     Patrolled,
     Recovered(Option<Recovered>),
-    Pulled(Vec<String>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Sheriff,
     Recovery,
-    OutboxPull,
 }
 
 impl Kind {
@@ -37,7 +34,6 @@ impl Kind {
         match self {
             Kind::Sheriff => "sheriff",
             Kind::Recovery => "recovery",
-            Kind::OutboxPull => "outbox pull",
         }
     }
 }
@@ -76,7 +72,6 @@ impl Jobs {
         if let Some(claim) = after::claim(lander) {
             self.spawn(lander, Kind::Recovery, move |lander| (chores.recover)(lander, &claim).map(Done::Recovered));
         }
-        self.spawn(lander, Kind::OutboxPull, move |lander| Ok(Done::Pulled((chores.pull)(lander))));
     }
 
     pub fn settle(&mut self) -> Vec<Recovered> {
@@ -88,7 +83,6 @@ impl Jobs {
             self.ended.push((job.kind, Instant::now()));
             match job.run.join() {
                 Ok(Ok(Done::Recovered(Some(landing)))) if !landing.lanes.is_empty() => recovered.push(landing),
-                Ok(Ok(Done::Pulled(reasons))) => reasons.iter().for_each(|reason| println!("north land: waiting: {reason}")),
                 Ok(Ok(Done::Patrolled | Done::Recovered(_))) => {}
                 Ok(Err(error)) => println!("north land: waiting: {}: {error}", job.kind.name()),
                 Err(_) => println!("north land: the {} thread panicked", job.kind.name()),

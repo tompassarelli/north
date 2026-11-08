@@ -863,12 +863,16 @@ then S2b and S2c in parallel; then S3 and S4.
   push: writing tickets to the laptop over ssh would need a new inbound command on the laptop, while
   the laptop already reaches gex45 over ssh for build offloads (redesigned 2026-11-04). On a host
   that is not the committed `landing.lander-host`, `north land enqueue` writes the same ticket under
-  the same queue key into `outbox/` and prints `Done: queued (outbox) <root> <branch> <sha>`. At the
-  start of each round the lander lists the outbox of each ssh host of orchestration.toml's `[hosts]` and each host in
-  `landing.remote-hosts` (space-separated) over ssh with `ConnectTimeout=5`, fetches each lane from
+  the same queue key into `outbox/` and prints `Done: queued (outbox) <root> <branch> <sha>`. The
+  lander watches the outbox of each ssh host of orchestration.toml's `[hosts]` and each host in
+  `landing.remote-hosts` (space-separated) from its own thread, independent of rounds: an ssh with
+  `ConnectTimeout=5` waits on the host up to 10 s for a ticket, polling every 200 ms, and lists it;
+  the lander then fetches each lane from
   `ssh://<host><root>` into `refs/land-remote/<host>/<branch>`, copies the ticket into its own queue
   with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages and
-  verdicts are unchanged. An unreachable host is skipped for the round with a waiting line. The
+  verdicts are unchanged. An unreachable host gets a waiting line and is tried again 5 s later. A pulled ticket wakes the
+  serve loop, so a build host's ticket enters a round within about a second of being queued
+  (2026-11-08: the round-start pull left one waiting 19 s). The
   outbox key is the hash of the origin URL, so a remote host's origin must be spelled as the
   lander's. No host gains an inbound verb or key. Done when: `cargo test --test it land_serve remote`
   passes remote-outbox-lands, remote-outbox-unreachable and remote-enqueue-off-lander-host. The live

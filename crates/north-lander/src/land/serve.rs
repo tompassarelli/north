@@ -21,6 +21,7 @@ use options::{Options, lander_for, parse};
 mod batch;
 mod handover;
 mod options;
+mod outbox;
 mod round;
 
 pub const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--app-token PROGRAM]";
@@ -158,10 +159,19 @@ fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &Atomi
 }
 
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
-    heartbeat::watched(lander, || serve_loop(lander, once, retire))
+    let wake = Arc::new(outbox::Wake::default());
+    let _watchers = if once {
+        for reason in lander.pull_remote() {
+            println!("north land: waiting: {reason}");
+        }
+        None
+    } else {
+        Some(outbox::watch(lander, &wake))
+    };
+    heartbeat::watched(lander, || serve_loop(lander, once, retire, &wake))
 }
 
-fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
+fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::Wake) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     match super::queue::adopt(&lander.queue) {
         Ok(0) => {}
@@ -214,7 +224,7 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
                 continue;
             }
         }
-        std::thread::sleep(POLL);
+        wake.wait(POLL);
     }
 }
 

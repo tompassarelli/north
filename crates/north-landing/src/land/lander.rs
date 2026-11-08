@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use super::candidate::{self, git};
 use super::heartbeat::Heartbeat;
@@ -12,6 +13,7 @@ use north_base::land_ticket::Phase;
 
 pub const OFFLOAD_OWNER: &str = "north-land";
 const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
+const WAIT_TICK: Duration = Duration::from_millis(200);
 
 pub struct Lander {
     pub repo: PathBuf,
@@ -33,7 +35,7 @@ pub fn offload_owner(queue: &Path) -> String {
     format!("{OFFLOAD_OWNER}-{}", queue.file_name().and_then(|name| name.to_str()).unwrap_or_default())
 }
 
-fn plain(text: &str) -> bool {
+pub fn plain(text: &str) -> bool {
     !text.is_empty() && !text.starts_with('-') && text.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | '@'))
 }
 
@@ -89,7 +91,7 @@ impl Lander {
         }
     }
 
-    fn remote_hosts(&self) -> Vec<String> {
+    pub fn remote_hosts(&self) -> Vec<String> {
         setting::outbox_hosts(&self.repo, "refs/remotes/origin/main")
     }
 
@@ -104,12 +106,13 @@ impl Lander {
         Ok(())
     }
 
-    fn pull_host(&self, host: &str) -> Result<usize, String> {
+    pub fn pull_host(&self, host: &str, wait: Duration) -> Result<usize, String> {
         let key = self.queue.file_name().and_then(|name| name.to_str()).ok_or_else(|| format!("{} has no queue key", self.queue.display()))?;
         let home = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}\"");
         let outbox = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}/{}\"", queue::OUTBOX);
         let mirror = format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER);
-        let listing = ssh_with_input(host, &format!("{mirror}d={outbox}; [ -d \"$d\" ] || exit 0; for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done"), ledger_tail().as_bytes())?;
+        let ticks = wait.as_millis() / WAIT_TICK.as_millis();
+        let listing = ssh_with_input(host, &format!("{mirror}d={outbox}; n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; [ -d \"$d\" ] || exit 0; for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
         let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
         let mut taken = Vec::new();
         let mut failures = Vec::new();
@@ -179,7 +182,7 @@ impl Lander {
                 waiting.push(format!("the outbox hosts name {host:?}, which is not an ssh host name; skipped"));
                 continue;
             }
-            match self.pull_host(&host) {
+            match self.pull_host(&host, Duration::ZERO) {
                 Ok(0) => {}
                 Ok(pulled) => println!("north land: pulled {pulled} tickets from {host}'s outbox"),
                 Err(error) => waiting.push(format!("{host}'s outbox skipped this round: {error}")),
