@@ -1,0 +1,45 @@
+//! `north --worker-sandbox COMMAND`: runs one worker shell command under a Landlock domain in which a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere: the domain guards removal, not edits. See docs/rationale/worker-sandbox.md.
+mod removable;
+
+use std::ffi::OsString;
+use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
+use std::process::Command;
+
+use landlock::{AccessFs, BitFlags, CompatLevel, Compatible, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
+
+pub use removable::{Context, removable};
+
+pub const FLAG: &str = "--worker-sandbox";
+const USAGE: &str = "usage: north --worker-sandbox COMMAND";
+
+fn removal() -> BitFlags<AccessFs> {
+    AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer
+}
+
+/// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots`.
+pub fn confine(roots: &[PathBuf]) -> Result<RulesetStatus, String> {
+    let ruleset = landlock::Ruleset::default().set_compatibility(CompatLevel::HardRequirement).handle_access(removal()).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.create().map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(["/"], AccessFs::Refer)).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(roots.iter().filter(|root| root.is_dir()), removal())).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.set_compatibility(CompatLevel::BestEffort).log_new_exec(true).map_err(|error| error.to_string())?;
+    ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
+}
+
+pub fn shell(arguments: &[String]) -> std::process::ExitCode {
+    let [command] = arguments else {
+        eprintln!("{USAGE}");
+        return std::process::ExitCode::from(2);
+    };
+    let context = Context::from_env();
+    match confine(&removable(&context)) {
+        Ok(RulesetStatus::FullyEnforced) => {}
+        Ok(status) => eprintln!("north worker-sandbox: Landlock {status:?} on this kernel, so removal is not confined"),
+        Err(error) => eprintln!("north worker-sandbox: Landlock unavailable ({error}), so removal is not confined"),
+    }
+    let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
+    let error = Command::new(shell).arg("-c").arg(command).exec();
+    eprintln!("north worker-sandbox: {error}");
+    std::process::ExitCode::from(126)
+}

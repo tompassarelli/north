@@ -17,6 +17,7 @@ runtime_update north-runtime
 safe_push_entry north-base north-safe-push north
 safe_push_remote_land north north-safe-push
 stdio north-fleet
+worker_sandbox north-runtime north
 support north
 threads_ingest_lock north-threads
 threads_ledger north-threads

@@ -21,6 +21,7 @@ tempfile.workspace = true
 base64.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
+landlock = "0.4.7"
 
 [dev-dependencies]
 north-pacing = { path = "../north-pacing", features = ["test-support"] }

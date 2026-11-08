@@ -59,3 +59,4 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Tier routing rationale](tier-routing.md): Cold-path reasoning behind which model tier a box starts on.
 - [Verdict reuse by recorded inputs: a test's pass carries to every tree where the files it read are the same](verdict-reuse.md): Plan of 2026-11-08 for the "Verdict reuse by recorded inputs" section of north#842.
 - [Wake paths: what wakes an agent turn, and what to cut](wake-paths.md): Measured 2026-11-04 over the 7 days 2026-10-28 to 2026-11-04 (UTC).
+- [Worker sandbox: removal confined by the kernel](worker-sandbox.md): North#706, 2026-11-08.

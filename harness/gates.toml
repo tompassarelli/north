@@ -27,3 +27,7 @@ mode = "shadow"
 # A filed or edited issue's new unticked box that names no backticked `Done when:` command and says neither `Needs:` nor `not before` (north#872), since only its own worker can tick it. Would-be refusals: $XDG_STATE_HOME/north/gates/unrunnable-box.jsonl on the filing host.
 [gate.unrunnable-box]
 mode = "shadow"
+
+# Each Bash command, hook and MCP server of a fleet worker runs under `north --worker-sandbox` (CLAUDE_CODE_SHELL_PREFIX), a Landlock domain that confines file removal to the worker's own trees (north#706, docs/rationale/worker-sandbox.md). Landlock has no permissive mode, so while in shadow only a canary launch made with NORTH_WORKER_SANDBOX=1 carries it; the review counts canary worker runs and the "Permission denied" removals in their Bash tool results.
+[gate.worker-sandbox]
+mode = "shadow"

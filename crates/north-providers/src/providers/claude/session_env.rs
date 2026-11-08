@@ -14,6 +14,7 @@ const COMPACT_WINDOW_ENV: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; export CLAUDE_CODE_OAUTH_TOKEN; exec "$@""#;
 const READ_API_KEY: &str = r#"ANTHROPIC_API_KEY=$(cat -- "$0") || exit; export ANTHROPIC_API_KEY; exec "$@""#;
 const API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
+const SHELL_PREFIX_ENV: &str = "CLAUDE_CODE_SHELL_PREFIX";
 
 fn account_env(account: &Account) -> Vec<(String, OsString)> {
     (!at_default(account)).then(|| (CONFIG_ENV.into(), account.home.clone().into())).into_iter().collect()
@@ -38,7 +39,14 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
     env.extend(request.window().map(|window| (COMPACT_WINDOW_ENV.into(), window.to_string().into())));
     env.extend(git_credential::session_env().into_iter().map(|(name, value)| (name, value.into())));
+    env.extend(worker_sandbox(request));
     env
+}
+
+/// The shell prefix that runs each Bash command, hook and MCP server of a worker under `north --worker-sandbox`, once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706).
+fn worker_sandbox(request: &LaunchRequest) -> Option<(String, OsString)> {
+    let applies = north_base::platform::harness::document("harness/gates.toml")["gate"]["worker-sandbox"]["mode"].as_str() == Some("enforce") || std::env::var_os("NORTH_WORKER_SANDBOX").is_some_and(|canary| canary == "1");
+    (applies && request.role() == Role::Worker).then(|| (SHELL_PREFIX_ENV.into(), format!("{} --worker-sandbox", north_base::platform::north_binary::north_binary().display()).into()))
 }
 
 pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {

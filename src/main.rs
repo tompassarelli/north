@@ -21,7 +21,7 @@ use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint,
 use north_github_mirror as github_mirror;
 use north_tui::tui;
 use north_ops::ops;
-use north_runtime::{agent_contain, build_offload, land_offload, laptop_runner, offload_cache, privacy, runtime, runtime_access, timers};
+use north_runtime::{agent_contain, build_offload, land_offload, laptop_runner, offload_cache, privacy, runtime, runtime_access, timers, worker_sandbox};
 use north_dispatch::{dispatch, laptop, pacing, resident_cap, spend};
 use north_tune::{loops, tune};
 use north_flow::{agents, experiments, flow, tempo, tool_mine};
@@ -47,6 +47,9 @@ fn main() -> std::process::ExitCode {
         let arguments = std::env::args().skip(1).collect::<Vec<_>>();
         if let Some(point) = std::env::args_os().next().and_then(|argv0| entry_points::named(&argv0)) {
             return enter(point, &arguments);
+        }
+        if arguments.first().is_some_and(|flag| flag == worker_sandbox::FLAG) {
+            return worker_sandbox::shell(&arguments[1..]);
         }
         arguments
             .first()
