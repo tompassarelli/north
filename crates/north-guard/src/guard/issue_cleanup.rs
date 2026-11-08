@@ -5,15 +5,15 @@ use crate::hook::{HookInput, Verdict};
 use crate::platform::{box_oracles, cleanup};
 
 const OWNER: &str = "tompassarelli/";
+const READ_TRIES: u32 = 3;
+const READ_PAUSE: std::time::Duration = std::time::Duration::from_secs(1);
 
 pub(super) fn append(new: &Ref) -> Result<bool, String> {
     let (repo, number) = (&new.0, new.1.to_string());
     if !cleanup::covers(repo) {
         return Ok(false);
     }
-    let issue = gh(None, &["api", &format!("repos/{repo}/issues/{number}"), "--jq", "{body: (.body // \"\"), labels: [.labels[].name]}"])
-        .and_then(|out| serde_json::from_str::<serde_json::Value>(&out).ok())
-        .ok_or("the new issue could not be read")?;
+    let issue = created(repo, &number)?;
     let Some(body) = amended(&issue) else {
         return Ok(false);
     };
@@ -21,6 +21,25 @@ pub(super) fn append(new: &Ref) -> Result<bool, String> {
     std::fs::write(file.path(), body).map_err(|error| error.to_string())?;
     let path = file.path().to_string_lossy();
     gh(None, &["issue", "edit", &number, "-R", repo, "--body-file", &path]).map(|_| true).ok_or_else(|| "gh issue edit failed".to_owned())
+}
+
+/// The issue just filed; GitHub can answer 404 for a second or two after the create returns its URL.
+fn created(repo: &str, number: &str) -> Result<serde_json::Value, String> {
+    let mut last = String::new();
+    for attempt in 0..READ_TRIES {
+        if attempt > 0 {
+            std::thread::sleep(READ_PAUSE);
+        }
+        let out = std::process::Command::new("gh")
+            .args(["api", &format!("repos/{repo}/issues/{number}"), "--jq", "{body: (.body // \"\"), labels: [.labels[].name]}"])
+            .output()
+            .map_err(|error| error.to_string())?;
+        if let Some(issue) = out.status.success().then(|| serde_json::from_slice(&out.stdout).ok()).flatten() {
+            return Ok(issue);
+        }
+        last = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+    }
+    Err(format!("the new issue could not be read after {READ_TRIES} tries: {last}"))
 }
 
 fn amended(issue: &serde_json::Value) -> Option<String> {

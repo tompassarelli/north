@@ -4090,3 +4090,28 @@ label = "true"
 command = "Agent {\"description\":\"Test-review two added tests\",\"subagent_type\":\"worker-haiku\",\"prompt\":\"Item: north#634 Verification runs 10 to 100 times faster ("
 label = "true"
 
+
+[[sample]]
+rule = "worktree-remove"
+window = "2026-11-01 to 2026-11-08"
+drawn = "every one of 1 distinct refused call (gex45 transcripts)"
+
+[[sample.row]]
+command = "cd ~/code/north/main && gh issue comment 838 -R tompassarelli/north --body \"Proxy-routing box: the hook landed as 2aa785df4 (\\`git merge-base --is-anc"
+label = "true"
+
+
+[[sample]]
+rule = "issue-filing"
+window = "2026-11-07 22:37 UTC to 2026-11-08, after 22f4b4c5c9"
+narrowed = "2026-11-08 north#706: a body file the same command builds by redirection is judged by its printf and echo text and the files it reads; 2 of the 4 refusals were such bodies"
+drawn = "the 2 of 4 distinct refused calls (gex45 transcripts) the guard still refuses with this change"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/north --title \"canary.sh fails locally for a land-kind canary whose check must build north\" --label bug --label prior"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north --label bug --label area:landing --label priority:next --title \"Revert guard fl"
+label = "true"
+

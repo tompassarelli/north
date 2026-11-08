@@ -15,6 +15,7 @@ const API_VALUE_FLAGS: &[&str] = &[
     "-X", "--method", "-H", "--header", "-q", "--jq", "-t", "--template", "--hostname", "-p", "--preview", "--cache",
 ];
 const GITHUB_URL: &str = "https://github.com/";
+const READERS: &[&str] = &["cat", "sed", "head", "tail", "awk", "cut", "grep", "rg"];
 
 static CAT_SUBSTITUTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\$\(\s*(?:cat\s+|<\s*)["']?([^)\s"']+)["']?\s*\)"#).unwrap());
@@ -81,6 +82,9 @@ struct Walk {
     last: String,
     pending: Option<usize>,
     written: Vec<(PathBuf, usize)>,
+    built: Vec<PathBuf>,
+    read: Vec<PathBuf>,
+    printed: Vec<String>,
 }
 
 impl Walk {
@@ -108,6 +112,9 @@ impl Walk {
             .map(str::to_owned);
         let parsed = parse(args, self.dir.as_deref());
         self.note_written(args, &preceded, operator, heredoc, parsed.is_some());
+        if parsed.is_none() {
+            self.note_source(args);
+        }
         let Some(mut write) = parsed else {
             return;
         };
@@ -123,6 +130,11 @@ impl Walk {
             for file in write.files.clone() {
                 match self.written.iter().find(|(path, _)| *path == file) {
                     Some((_, index)) => write.bodies.push(self.heredocs[*index].clone()),
+                    None if self.built.contains(&file) => {
+                        write.unread = true;
+                        write.bodies.extend(self.printed.iter().cloned());
+                        write.bodies.extend(self.read.iter().filter(|path| **path != file && path.is_file()).filter_map(|path| read_bounded(path)));
+                    }
                     None => write.unread |= read_bounded(&file).is_none(),
                 }
             }
@@ -130,6 +142,20 @@ impl Walk {
             write.bodies.extend(self.heredocs.iter().cloned());
         }
         self.out.push(write);
+    }
+
+    fn note_source(&mut self, args: &[String]) {
+        let args = args.strip_prefix(&["{".to_owned()]).or_else(|| args.strip_prefix(&["(".to_owned()])).unwrap_or(args);
+        let Some((name, operands)) = args.split_first() else { return };
+        let operands = operands.iter().filter(|word| !word.starts_with('-'));
+        match basename(name) {
+            "printf" | "echo" => self.printed.extend(operands.map(|word| word.replace("\\n", "\n"))),
+            name if READERS.contains(&name) => {
+                let dir = self.dir.clone();
+                self.read.extend(operands.filter(|word| !word.contains('$')).map(|word| resolve(word, dir.as_deref())));
+            }
+            _ => {}
+        }
     }
 
     fn note_written(&mut self, args: &[String], preceded: &str, operator: &str, heredoc: Option<usize>, is_gh: bool) {
@@ -149,6 +175,8 @@ impl Walk {
                 }
                 None => self.pending = Some(index),
             }
+        } else if redirected && let Some(file) = args.first() {
+            self.built.push(resolve(file, self.dir.as_deref()));
         }
         if !matches!(operator, ">" | ">>" | "<<") {
             self.pending = None;

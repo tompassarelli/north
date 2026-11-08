@@ -81,3 +81,43 @@ fn a_create_with_a_category_dispatch_cannot_read_is_refused_naming_the_valid_one
     let labelled = GhWrite { labels: vec!["category:harness".into()], ..write };
     assert_eq!(shape(&labelled, "## Done when\n- [ ] the gate holds").len(), 1);
 }
+
+struct Repo;
+
+impl World for Repo {
+    fn repo(&mut self, named: Option<&str>) -> Option<String> {
+        named.map(str::to_owned)
+    }
+
+    fn claimed(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn open(&mut self, _: &str) -> Vec<(u64, String)> {
+        Vec::new()
+    }
+
+    fn worker_brief(&mut self) -> Option<String> {
+        None
+    }
+}
+
+fn creating(command: &str) -> HookInput {
+    let payload = serde_json::json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command}, "cwd": "/"});
+    HookInput::parse(payload.to_string().as_bytes()).unwrap()
+}
+
+#[test]
+fn a_body_file_the_command_builds_from_a_file_with_boxes_is_judged_by_both_n867() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("body.md"), "Category: tooling\n\n## Done when\n\n- [ ] the revert guard passes a moved import\n").unwrap();
+    std::fs::write(dir.path().join("note.md"), "Category: tooling\n\nNo checks yet.\n").unwrap();
+    let built = |source: &str| {
+        let dir = dir.path().display();
+        format!("cd {dir} && {{ printf 'Class: revert guard false positive on a moved import line\\n'; cat {source}; }} > body2.md && cd / && gh issue create -R tompassarelli/north --label bug --title 'Revert guard flags a moved import' --body-file {dir}/body2.md 2>&1 | tail -n 2")
+    };
+    assert_eq!(decide_with(&creating(&built("body.md")), &mut Repo), Verdict::Allow);
+    assert!(matches!(decide_with(&creating(&built("note.md")), &mut Repo), Verdict::Deny(reason) if reason.contains("no `- [ ]` box")));
+    let rewritten = format!("cd {} && {{ printf 'Class: revert guard false positive\\n'; sed '/^Done when:$/,$d' note.md; printf '## Done when\\n\\n- [ ] the revert guard passes a moved import\\n'; }} > body3.md && gh issue create -R tompassarelli/north --label bug --title 'Revert guard flags a moved import' --body-file {}/body3.md", dir.path().display(), dir.path().display());
+    assert_eq!(decide_with(&creating(&rewritten), &mut Repo), Verdict::Allow);
+}
