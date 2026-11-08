@@ -123,7 +123,7 @@ fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
 fn nextest(root: &Path, tools: &Path, work: &Work, arguments: &[&str]) -> Result<std::process::Output, String> {
     let north = std::env::current_exe().map_err(|error| format!("cannot find this north: {error}"))?;
     let flags = format!("{} -C instrument-coverage", std::env::var("RUSTFLAGS").unwrap_or_default()).trim().to_owned();
-    let runner = format!("{} coverage exec", north.display());
+    let runner = format!("{} test coverage exec", north.display());
     let mut command = Command::new("cargo");
     command.current_dir(root).args(["nextest"]).args(arguments).args(["--locked", "--offline"]);
     command.env("CARGO_TARGET_DIR", root.join(TARGET)).env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "llvm").env("RUSTFLAGS", flags);

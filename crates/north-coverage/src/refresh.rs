@@ -7,7 +7,7 @@ use crate::record::MAP_LINE;
 use crate::run_selected::{host, north, repository};
 
 const TIMEOUT: &str = "3600";
-const RECORD: &str = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- ./bin/head-north --code crates/north-coverage/ coverage record";
+const RECORD: &str = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- ./bin/head-north --code crates/north-coverage/ test coverage record";
 
 pub fn run(arguments: &[String]) -> u8 {
     let mut host_name = None;
