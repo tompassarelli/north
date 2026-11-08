@@ -54,7 +54,7 @@ fn rank(labels: &[Label]) -> u8 {
         .map_or(3, |index| index as u8)
 }
 
-/// Unticked boxes of an issue's Done when whose text names a command in backticks and whose labels do not hand the close to Tom or a native client.
+/// Unticked boxes of an issue's Done when whose text names a command in backticks and whose labels do not hand the close to Tom or a native client, and which carry no `Needs:` host line and no not-before date.
 fn runnable_boxes(repo: &str, issue: &Issue) -> Vec<Box> {
     if issue
         .labels
@@ -73,6 +73,8 @@ fn runnable_boxes(repo: &str, issue: &Issue) -> Vec<Box> {
             && let Some(text) = line.trim_start().strip_prefix("- [ ] ")
             && text.matches('`').count() >= 2
             && !text.starts_with("(decision)")
+            && !text.starts_with("(not before")
+            && !text.contains("Needs:")
         {
             found.push(Box {
                 id: format!("{name}#{}:{}", issue.number, slug(text)),
