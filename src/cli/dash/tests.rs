@@ -68,12 +68,13 @@ fn run(account: &str, mix: (&str, &str), started: &str, usd: f64) -> crate::ledg
 fn a_class_uses_the_share_of_a_week_its_dollars_are_of_the_week_sized_from_the_spend_so_far_and_api_credit_runs_stay_apart() {
     let resets = Timestamp::from_unix_seconds(1_794_000_000);
     let in_week = Timestamp::from_unix_seconds(1_794_000_000 - 86_400).iso();
-    let week_runs = vec![run("claude-b", ("opus", "high"), &in_week, 100.0), run("claude-b", ("opus", "high"), "2000-01-01T00:00:00Z", 900.0)];
+    let week_runs = vec![run("claude-c", ("opus", "high"), &in_week, 40.0), run("claude-b", ("opus", "high"), &in_week, 100.0), run("claude-b", ("opus", "high"), "2000-01-01T00:00:00Z", 900.0)];
     let window_runs = vec![run("claude-b", ("opus", "high"), &in_week, 10.0), run("claude-api", ("sonnet", "high"), &in_week, 7.0)];
-    let account = AccountOutlook { account: "b".to_owned(), week_used: Some(50.0), week_resets: Some(resets), burn_per_hour: None, runway: Runway::Lasts };
-    let screen = Screen { window: "24h".to_owned(), now: 0, bars: Err(String::new()), accounts: Ok(vec![account]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), attempts: Err(String::new()), week_runs: Ok(week_runs), billing: Err(String::new()) };
+    let account = |letter: &str, used: f64| AccountOutlook { account: letter.to_owned(), week_used: Some(used), week_resets: Some(resets), burn_per_hour: None, runway: Runway::Lasts };
+    let screen = Screen { window: "24h".to_owned(), now: 0, bars: Err(String::new()), accounts: Ok(vec![account("b", 50.0), account("c", 99.0)]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), attempts: Err(String::new()), week_runs: Ok(week_runs), billing: Err(String::new()) };
     let spent = super::spend::Spend::of(&screen).unwrap();
     assert_eq!(spent.classes.len(), 1);
     assert!((spent.classes[0].week_pct["b"] - 5.0).abs() < 1e-9, "{:?}", spent.classes[0]);
+    assert_eq!(spent.classes[0].week_pct["c"], 0.0, "a sized week the class did not touch reads 0, not absent");
     assert_eq!((spent.api.runs, spent.api.usd), (1, 7.0));
 }

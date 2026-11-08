@@ -17,7 +17,7 @@ pub struct Class {
     pub mix: String,
     pub runs: usize,
     pub usd: f64,
-    /// The share of each subscription's week this class used, by account letter; absent when that week cannot be sized.
+    /// The share of each subscription's week this class used, by account letter: 0 where the week is sized and the class ran nothing on it, absent where the week cannot be sized.
     pub week_pct: BTreeMap<String, f64>,
     pub all_pct: Option<f64>,
 }
@@ -74,6 +74,9 @@ impl Spend {
                     if let Some(week) = capacity.get(letter) {
                         class.week_pct.insert(letter.clone(), usd / week * 100.0);
                     }
+                }
+                for letter in capacity.keys() {
+                    class.week_pct.entry(letter.clone()).or_insert(0.0);
                 }
                 let sized: f64 = by_account.iter().filter(|(letter, _)| capacity.contains_key(*letter)).map(|(_, usd)| usd).sum();
                 class.all_pct = (total_capacity > 0.0).then(|| sized / total_capacity * 100.0);
