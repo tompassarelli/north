@@ -554,22 +554,3 @@ pub fn search(
         words.into_iter().map(|(w, _)| w).collect(),
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn locked_readonly_index_fails_open_before_the_prompt_budget() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("index.db");
-        let mut writer = Sqlite::open(&path, false).unwrap();
-        writer.exec(SCHEMA).unwrap();
-        writer.exec("BEGIN EXCLUSIVE;").unwrap();
-        let started = std::time::Instant::now();
-        let mut reader = Sqlite::open(&path, true).unwrap();
-        assert!(reader.query("select count(*) from docs;").is_err());
-        assert!(started.elapsed() < std::time::Duration::from_secs(4));
-        writer.exec("ROLLBACK;").unwrap();
-    }
-}

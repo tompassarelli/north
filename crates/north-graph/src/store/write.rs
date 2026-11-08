@@ -1,6 +1,7 @@
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::resolve::Terms;
+use super::text::{self, Reindex};
 use super::Graph;
 use crate::error::{GraphError, Result};
 use crate::key::{Key, atom_key, decode_key, triple_key};
@@ -114,6 +115,7 @@ struct Writer<'t> {
     op_ordinal_id: i64,
     writer_id: i64,
     transaction_coordinate: (Term, i64),
+    reindex: Reindex,
 }
 
 impl<'t> Writer<'t> {
@@ -131,6 +133,7 @@ impl<'t> Writer<'t> {
             op_ordinal_id: terms.intern(&Term::keyword(OP_ORDINAL))?,
             transaction_coordinate: (coordinate, coordinate_id),
             terms,
+            reindex: Reindex::default(),
         })
     }
 
@@ -144,11 +147,20 @@ impl<'t> Writer<'t> {
             let proposition = self.terms.intern(&Term::from(action.triple.clone()))?;
             let (state_changed, withdrew) = match action.kind {
                 ActionKind::Assert => (self.assert(coordinate_id, proposition, &action.triple)?, None),
-                ActionKind::Retract => self.retract(coordinate_id, proposition)?,
+                ActionKind::Retract => self.retract(coordinate_id, proposition, &action.triple)?,
             };
             receipts.push(Receipt { kind: action.kind, coordinate, state_changed, withdrew });
         }
+        self.reindex.run(&mut self.terms)?;
         Ok(receipts)
+    }
+
+    fn mark_text(&mut self, triple: &Triple) -> Result<()> {
+        if text::indexed(&triple.t2, &triple.t3) {
+            let subject = self.terms.intern(&triple.t1)?;
+            self.reindex.mark(subject);
+        }
+        Ok(())
     }
 
     fn record(&self, coordinate: i64, action: i64, proposition: i64, live: bool) -> Result<i64> {
@@ -161,13 +173,17 @@ impl<'t> Writer<'t> {
     fn assert(&mut self, coordinate: i64, proposition: i64, triple: &Triple) -> Result<bool> {
         self.record(coordinate, self.assert_id, proposition, true)?;
         let [t1, t2, t3] = [&triple.t1, &triple.t2, &triple.t3].map(|term| self.terms.intern(term));
-        self.connection
-            .prepare_cached("INSERT INTO live_props (prop, t1, t2, t3, n) VALUES (?1, ?2, ?3, ?4, 1) ON CONFLICT (prop) DO UPDATE SET n = n + 1")?
-            .execute(params![proposition, t1?, t2?, t3?])?;
+        let live: i64 = self
+            .connection
+            .prepare_cached("INSERT INTO live_props (prop, t1, t2, t3, n) VALUES (?1, ?2, ?3, ?4, 1) ON CONFLICT (prop) DO UPDATE SET n = n + 1 RETURNING n")?
+            .query_row(params![proposition, t1?, t2?, t3?], |row| row.get(0))?;
+        if live == 1 {
+            self.mark_text(triple)?;
+        }
         Ok(true)
     }
 
-    fn retract(&mut self, coordinate: i64, proposition: i64) -> Result<(bool, Option<Term>)> {
+    fn retract(&mut self, coordinate: i64, proposition: i64, triple: &Triple) -> Result<(bool, Option<Term>)> {
         self.record(coordinate, self.retract_id, proposition, false)?;
         let target: Option<(i64, i64)> = self
             .connection
@@ -180,7 +196,9 @@ impl<'t> Writer<'t> {
         self.connection.prepare_cached("UPDATE occurrences SET live = 0 WHERE seq = ?1")?.execute([sequence])?;
         self.connection.prepare_cached("INSERT INTO withdrawals (retraction, assertion) VALUES (?1, ?2)")?.execute([coordinate, assertion])?;
         self.connection.prepare_cached("UPDATE live_props SET n = n - 1 WHERE prop = ?1")?.execute([proposition])?;
-        self.connection.prepare_cached("DELETE FROM live_props WHERE prop = ?1 AND n = 0")?.execute([proposition])?;
+        if self.connection.prepare_cached("DELETE FROM live_props WHERE prop = ?1 AND n = 0")?.execute([proposition])? == 1 {
+            self.mark_text(triple)?;
+        }
         Ok((true, Some(self.terms.term(assertion)?.as_ref().clone())))
     }
 }

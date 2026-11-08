@@ -1,6 +1,8 @@
+mod described;
 mod read;
 mod resolve;
 mod validate;
+mod text;
 mod write;
 
 use std::path::{Path, PathBuf};
@@ -13,6 +15,7 @@ use crate::error::{GraphError, Result};
 pub use read::{Live, Told};
 pub use resolve::Terms;
 pub use validate::Report;
+pub use text::{Field, TextHit, TextSearch};
 pub use write::{Action, ActionKind, Receipt};
 
 const SCHEMA_VERSION: i64 = 2;
@@ -88,7 +91,7 @@ impl Graph {
         Self::prepare(Connection::open_in_memory()?)
     }
 
-    fn prepare(connection: Connection) -> Result<Self> {
+    fn prepare(mut connection: Connection) -> Result<Self> {
         connection.busy_timeout(PATIENCE)?;
         connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
@@ -97,6 +100,7 @@ impl Graph {
         }
         connection.execute_batch(SCHEMA)?;
         connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        text::prepare(&mut connection)?;
         Ok(Self { connection })
     }
 

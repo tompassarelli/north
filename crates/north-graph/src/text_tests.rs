@@ -1,0 +1,40 @@
+use crate::store::{Graph, TextSearch};
+use crate::term::{Term, Triple};
+
+fn doc(id: &str, predicate: &str, text: &str) -> Triple {
+    Triple::new(Term::string(id), Term::keyword(predicate), Term::string(text))
+}
+
+fn subjects(graph: &Graph, query: &str) -> Vec<Term> {
+    let search = TextSearch { query, field: None, weights: [4.0, 1.0], facets: &["doc-source"], cap: Some(1) };
+    let mut found: Vec<Term> = graph.text_search(&search).unwrap().into_iter().map(|hit| hit.subject).collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn the_text_index_follows_every_assertion_and_retraction_and_survives_a_rebuild() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("graph.db");
+    let mut graph = Graph::open(&path).unwrap();
+    for (id, source, title) in [("doc:a", "policy", "landing queue"), ("doc:b", "policy", "lander probes"), ("doc:c", "commits", "queued landings")] {
+        graph.tell("grounding", doc(id, "doc-source", source)).unwrap();
+        graph.tell("grounding", doc(id, "doc-title", title)).unwrap();
+    }
+    graph.tell("grounding", doc("doc:b", "doc-text", "the landing queue p90")).unwrap();
+    graph.tell("other", doc("doc:b", "doc-text", "the landing queue p90")).unwrap();
+    assert_eq!(subjects(&graph, "\"land\""), [Term::string("doc:a"), Term::string("doc:c")], "one hit per source, the title-weighted one for policy");
+    graph.retract("grounding", doc("doc:a", "doc-title", "landing queue")).unwrap();
+    graph.retract("grounding", doc("doc:b", "doc-text", "the landing queue p90")).unwrap();
+    assert_eq!(subjects(&graph, "\"land\""), [Term::string("doc:b"), Term::string("doc:c")], "a text another writer still asserts stays indexed");
+    graph.retract("other", doc("doc:b", "doc-text", "the landing queue p90")).unwrap();
+    assert_eq!(subjects(&graph, "\"p90\""), Vec::<Term>::new());
+    graph.connection().execute("DELETE FROM meta WHERE key = 'text-index'", []).unwrap();
+    drop(graph);
+    let graph = Graph::open(&path).unwrap();
+    assert_eq!(graph.text_rows().unwrap(), 2);
+    assert_eq!(subjects(&graph, "\"probe\""), [Term::string("doc:b")]);
+    let reader = Graph::open_read_only(&path, std::time::Duration::from_secs(1)).unwrap();
+    assert_eq!(reader.text_stems(&["landings", "probes"]).unwrap(), [Some("land".to_string()), Some("probe".to_string())]);
+    assert_eq!(reader.text_frequencies(&["queu"]).unwrap().get("queu"), Some(&1));
+}
