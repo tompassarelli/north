@@ -26,8 +26,9 @@ impl Graph {
         let schema = check::check(query)?;
         let snapshot = self.connection().unchecked_transaction()?;
         let mut terms = Terms::new(&snapshot);
+        let window = base::Window::resolve(&snapshot, &mut terms, query.view)?;
         let plan = plan::lower(query, &schema, &mut terms)?;
-        let mut evaluator = eval::Evaluator { connection: &snapshot, terms: &mut terms, budget: &budget };
+        let mut evaluator = eval::Evaluator { connection: &snapshot, terms: &mut terms, budget: &budget, window: window.as_ref() };
         let relations = eval::run(&mut evaluator, &plan)?;
         let relation = match &query.find {
             ast::Find::Relation(name) => schema.ids[name.as_str()],

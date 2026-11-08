@@ -82,9 +82,17 @@ pub struct Order {
     pub descending: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum View {
+    Current,
+    AsOf(i64),
+    Since { from: i64, to: i64 },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Query {
     pub find: Find,
+    pub view: View,
     pub strata: Vec<Vec<Rule>>,
     pub order_by: Vec<Order>,
     pub limit: Option<usize>,

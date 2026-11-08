@@ -15,7 +15,7 @@ fn chain(graph: &mut Graph, edges: &[(&str, &str)]) {
 }
 
 fn answer(graph: &Graph, query: Value) -> Result<Vec<Vec<Term>>, GraphError> {
-    graph.ask(&parse_query(&query.to_string()).unwrap()).map(|answer| answer.rows)
+    graph.ask(&parse_query(&query.to_string())?).map(|answer| answer.rows)
 }
 
 fn strings(rows: Vec<Vec<Term>>) -> Vec<String> {
@@ -150,4 +150,70 @@ fn arithmetic_is_allowed_in_a_rule_that_does_not_read_its_own_relation_even_besi
             {"rel": "h", "args": [{"var": "y"}, {"var": "n"}]}]}
     ]});
     assert_eq!(answer(&graph, query).unwrap(), vec![vec![Term::string("a"), Term::int(2)]]);
+}
+
+fn restored_edge_history(graph: &mut Graph) {
+    let filler = |n: i64| crate::Action::assert(Triple::new("x", Term::keyword("edge"), n));
+    let actions = [
+        crate::Action::assert(edge("a", "b")),
+        filler(1),
+        filler(2),
+        filler(3),
+        crate::Action::retract(edge("a", "b")),
+        filler(4),
+        filler(5),
+        crate::Action::assert(edge("a", "b")),
+    ];
+    graph.apply("test", &actions).unwrap();
+}
+
+fn viewed(graph: &Graph, relation: Value, view: (&str, Value)) -> Result<Vec<Vec<Term>>, GraphError> {
+    let head: Vec<Value> = relation["args"].as_array().unwrap().iter().filter(|arg| arg.get("var").is_some()).cloned().collect();
+    let mut query = json!({"find": "seen", "rules": [{"head": {"rel": "seen", "args": head}, "body": [relation]}]});
+    if !view.0.is_empty() {
+        query[view.0] = view.1;
+    }
+    answer(graph, query)
+}
+
+fn all(relation: &str, arity: usize) -> Value {
+    json!({"rel": relation, "args": (0..arity).map(|column| json!({"var": format!("v{column}")})).collect::<Vec<_>>()})
+}
+
+#[test]
+fn as_of_cuts_show_a_retracted_then_restored_edge_at_each_sequence() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    restored_edge_history(&mut graph);
+    let from_a = edge_pattern(json!("a"), json!({"var": "y"}));
+    let b_at = |cut: i64| viewed(&graph, from_a.clone(), ("asOf", json!(cut))).unwrap().len();
+    assert_eq!([b_at(4), b_at(5), b_at(7), b_at(8)], [1, 0, 0, 1], "asserted at 1, retracted at 5, restored at 8");
+    let assertions_at = |cut: i64| viewed(&graph, all("assertion", 4), ("asOf", json!(cut))).unwrap().len();
+    assert_eq!([assertions_at(4), assertions_at(5), assertions_at(8)], [4, 3, 6]);
+    let withdrawals_at = |cut: i64| viewed(&graph, all("withdrawal", 2), ("asOf", json!(cut))).unwrap().len();
+    assert_eq!([withdrawals_at(4), withdrawals_at(5)], [0, 1]);
+    assert_eq!(viewed(&graph, all("occurrence", 3), ("asOf", json!(6))).unwrap().len(), 6);
+    assert_eq!(viewed(&graph, all("triple", 3), ("asOf", json!(8))).unwrap(), viewed(&graph, all("triple", 3), ("", Value::Null)).unwrap());
+}
+
+#[test]
+fn as_of_since_window_keeps_what_happened_between_its_bounds() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    restored_edge_history(&mut graph);
+    let since = |relation: Value, from: i64, to: i64| strings(viewed(&graph, relation, ("since", json!([from, to]))).unwrap());
+    assert_eq!(since(all("triple", 3), 6, 8), vec!["\"a\" :edge \"b\"", "\"x\" :edge 4", "\"x\" :edge 5"]);
+    assert_eq!([since(all("triple", 3), 1, 4).len(), since(all("triple", 3), 1, 5).len()], [4, 3], "a to b is withdrawn at 5");
+    assert_eq!(since(all("occurrence", 3), 5, 6).len(), 2);
+    assert_eq!([since(all("withdrawal", 2), 5, 8).len(), since(all("withdrawal", 2), 6, 8).len()], [1, 0]);
+}
+
+#[test]
+fn as_of_and_since_refuse_negative_future_and_reversed_bounds() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    restored_edge_history(&mut graph);
+    for (view, bound) in [("asOf", json!(-1)), ("asOf", json!(9)), ("since", json!([5, 4])), ("since", json!([-2, 3])), ("since", json!([1, 9]))] {
+        let outcome = viewed(&graph, all("triple", 3), (view, bound.clone()));
+        assert!(matches!(outcome, Err(GraphError::Query(QueryError::InvalidSnapshot(_)))), "{view} {bound}: {outcome:?}");
+    }
+    let both = json!({"find": "seen", "asOf": 3, "since": [1, 3], "rules": [{"head": {"rel": "seen", "args": []}, "body": []}]});
+    assert!(matches!(answer(&graph, both), Err(GraphError::Query(QueryError::Invalid(_)))));
 }

@@ -39,13 +39,18 @@ One JSON query (argument, `--file PATH` or `-` for stdin), Beagle's structured q
   Variables are `{"var": "x"}`. Constants are JSON strings, integers, floats and booleans, or tagged
   `["keyword","edge"]`, `["instant",secs,nanos]`, `["triple",a,b,c]`.
 - `orderBy: [{column, direction: asc|desc}]`, `limit` (1 to 100000, applied after ordering) and `timeoutMs`.
+- At most one view over the occurrence sequence `seq`: `asOf: U` reads the store after occurrence `U`, so `triple` and
+  `assertion` hold what was asserted through `U` and not withdrawn by a retraction through `U`, `occurrence` stops at `U`
+  and `withdrawal` keeps retractions through `U`. `since: [L, U]` keeps that upper state and bounds every one of those
+  relations below by `L`, inclusive: assertions and occurrences from `L`, withdrawals whose retraction is from `L`.
+  `quoted` is not cut, since terms carry no sequence. A negative, reversed or past-the-head bound is an invalid snapshot.
 
 Relations: `triple(t1,t2,t3)` has one row per distinct live proposition; `occurrence(coordinate, action, proposition)`
 is the signed history with `:assert` and `:retract`; `assertion(writer, t1, t2, t3)` has a row per live assertion and the String that wrote it;
 `quoted(term, t1, t2, t3)` has a row per triple term, asserted or only nested; `withdrawal(retraction, assertion)` has a row per successful
 retraction. Clauses run in order; negation needs bound variables and a relation from an earlier stratum or SQLite;
 arithmetic that overflows, divides by zero or yields a non-finite number drops the row and may not appear in a recursive
-rule. Budgets are 10,000,000 steps and a 5 s timeout (60 s cap). Text relations and as-of or since views are not built.
+rule. Budgets are 10,000,000 steps and a 5 s timeout (60 s cap). Text relations are not built.
 
 Output is one tab-separated row per line in the term syntax above, or with `--json` an object with `columns`, `rows`
 (tagged terms) and `steps`.

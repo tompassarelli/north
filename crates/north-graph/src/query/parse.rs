@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-use super::ast::{Aggregate, AggregateFind, AggregateOp, Arg, Arith, Clause, Compare, Find, Having, Order, Query, Rule};
+use super::ast::{Aggregate, AggregateFind, AggregateOp, Arg, Arith, Clause, Compare, Find, Having, Order, Query, Rule, View};
 use crate::error::QueryError;
 use crate::json::term_from_json;
 
@@ -16,7 +16,7 @@ pub fn parse_query(text: &str) -> Parsed<Query> {
 }
 
 pub fn from_value(value: &Value) -> Parsed<Query> {
-    let object = object(value, "query", &["find", "rules", "strata", "orderBy", "limit", "timeoutMs"])?;
+    let object = object(value, "query", &["find", "rules", "strata", "orderBy", "limit", "timeoutMs", "asOf", "since"])?;
     let find = match object.get("find") {
         Some(Value::String(name)) => Find::Relation(name.clone()),
         Some(value) => Find::Aggregate(aggregate_find(value)?),
@@ -34,7 +34,8 @@ pub fn from_value(value: &Value) -> Parsed<Query> {
     };
     let limit = object.get("limit").map(|value| unsigned(value, "limit")).transpose()?;
     let timeout_ms = object.get("timeoutMs").map(|value| unsigned(value, "timeoutMs")).transpose()?;
-    Ok(Query { find, strata, order_by, limit: limit.map(|limit| limit as usize), timeout_ms })
+    let view = view(object)?;
+    Ok(Query { find, strata, order_by, limit: limit.map(|limit| limit as usize), timeout_ms, view })
 }
 
 fn object<'a>(value: &'a Value, what: &str, allowed: &[&str]) -> Parsed<&'a Map<String, Value>> {
@@ -203,4 +204,26 @@ fn having(value: &Value) -> Parsed<Having> {
     let aggregate = unsigned(map.get("agg").unwrap_or(&Value::Null), "having agg")? as usize;
     let value = term_from_json(map.get("val").unwrap_or(&Value::Null)).map_err(|why| QueryError::Invalid(format!("bad having value: {why}")))?;
     Ok(Having { op: compare(name(map, "op", "having clause")?)?, aggregate, value })
+}
+
+fn view(object: &Map<String, Value>) -> Parsed<View> {
+    let view = match (object.get("asOf"), object.get("since")) {
+        (None, None) => return Ok(View::Current),
+        (Some(upper), None) => View::AsOf(sequence(upper, "asOf")?),
+        (None, Some(Value::Array(bounds))) if bounds.len() == 2 => View::Since { from: sequence(&bounds[0], "since")?, to: sequence(&bounds[1], "since")? },
+        (None, Some(_)) => return invalid("since is [LOWER, UPPER]"),
+        (Some(_), Some(_)) => return invalid("a query takes at most one of asOf and since"),
+    };
+    match view {
+        View::Since { from, to } if from > to => Err(QueryError::InvalidSnapshot(format!("since [{from}, {to}] is reversed"))),
+        view => Ok(view),
+    }
+}
+
+fn sequence(value: &Value, what: &str) -> Parsed<i64> {
+    match value.as_i64() {
+        Some(sequence) if sequence >= 0 => Ok(sequence),
+        Some(sequence) => Err(QueryError::InvalidSnapshot(format!("{what} bound {sequence} is negative"))),
+        None => invalid(format!("{what} bounds are occurrence sequence integers")),
+    }
 }

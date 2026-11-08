@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use rusqlite::Connection;
 
-use super::base;
+use super::base::{self, Window};
 use super::budget::Budget;
 use super::ops;
 use super::plan::{Plan, RulePlan, Slot, Source, Step, StratumPlan};
@@ -16,6 +16,7 @@ pub struct Evaluator<'a, 'c> {
     pub connection: &'a Connection,
     pub terms: &'a mut Terms<'c>,
     pub budget: &'a Budget,
+    pub window: Option<&'a Window>,
 }
 
 pub fn run(evaluator: &mut Evaluator<'_, '_>, plan: &Plan) -> Result<Vec<DerivedRelation>> {
@@ -87,7 +88,7 @@ impl Evaluator<'_, '_> {
         let (source, args, negated) = read;
         let key: Vec<Option<i64>> = args.iter().map(|slot| Some(value(slot, binding)).filter(|id| *id != UNBOUND)).collect();
         let rows = match source {
-            Source::Base(relation) => base::fetch(self.connection, relation, &key, self.budget)?,
+            Source::Base(relation) => base::fetch(self.connection, relation, self.window, &key, self.budget)?,
             Source::Derived(id) => {
                 let relation = if scope.delta_at == Some(at) { &scope.delta[id] } else { &scope.full[id] };
                 relation.lookup(&key)

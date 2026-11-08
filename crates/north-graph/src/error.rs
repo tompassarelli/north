@@ -15,6 +15,7 @@ pub enum QueryError {
     Invalid(String),
     StepBudgetExceeded { steps: u64 },
     Timeout { milliseconds: u64 },
+    InvalidSnapshot(String),
 }
 
 impl fmt::Display for GraphError {
@@ -34,6 +35,7 @@ impl fmt::Display for QueryError {
             Self::Invalid(why) => write!(formatter, "invalid query: {why}"),
             Self::StepBudgetExceeded { steps } => write!(formatter, "query exceeded its step budget of {steps}"),
             Self::Timeout { milliseconds } => write!(formatter, "query exceeded its timeout of {milliseconds} ms"),
+            Self::InvalidSnapshot(why) => write!(formatter, "invalid query snapshot: {why}"),
         }
     }
 }
