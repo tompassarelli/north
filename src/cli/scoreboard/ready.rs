@@ -22,6 +22,7 @@ use crate::flow::usage_yield::{self, Facts};
 use crate::threads::calibration::rework::Sources as ReworkSources;
 
 mod main_green;
+mod plain;
 mod table;
 
 pub const REPOS: [&str; 2] = ["north", "makgora"];
@@ -108,27 +109,6 @@ impl Bar {
             Self::StrandedUsage => "usage stranded while work waited (all)",
             Self::MainGreenLander => "main green by the lander's verdicts",
             Self::MainGreenCi => "main green by GitHub Cargo",
-        }
-    }
-
-    /// The label in words a reader needs no statistics for, as `north dash` prints it.
-    fn plain(self) -> &'static str {
-        match self {
-            Self::LandingP90 => "landing wait, slowest 1 in 10",
-            Self::VerificationP50 => "checks after landing, typical",
-            Self::VerificationP90 => "checks after landing, slowest 1 in 10",
-            Self::Rework => "landed work redone within 48 h",
-            Self::FirstTry => "first tries that land",
-            Self::HarnessLoss => "first tries lost to tooling",
-            Self::AskToLanding => "ask to landed, typical",
-            Self::Corrections => "Tom's corrections per hour",
-            Self::PriorityNow => "urgent issues open",
-            Self::IdleAccount => "longest an account sat idle",
-            Self::LiveP90 => "landing to live, slowest 1 in 10",
-            Self::UsagePerLanding => "usage per first try landed",
-            Self::StrandedUsage => "usage wasted while work waited",
-            Self::MainGreenLander => "main green, landing checks",
-            Self::MainGreenCi => "main green, GitHub checks",
         }
     }
 
