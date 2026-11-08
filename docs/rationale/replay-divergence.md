@@ -45,7 +45,10 @@ said nothing about the candidate, so `north land promote` neither holds the link
 it when it is the only evidence. When no round diverged and at least 2 rounds matched, the
 promotion reports each transient round and moves the link: on 2026-11-08 all 19 promotions held on
 one to three transient replays of 8 while 4 to 7 rounds matched, under slot contention, and the
-lander ran 3efa5a3d for an hour after newer lander fixes landed (north#842). With fewer than 2
+lander ran 3efa5a3d for an hour after newer lander fixes landed (north#842). A replay that exits on an error (on 2026-11-08 a git index.lock another replay held in the one
+shared `lander-replay` worktree) is no verdict too, and each replay now takes the first free of four
+worktrees, `lander-replay` and `lander-replay-2` to `-4`, under a lock beside it, so two replays
+never share an index. With fewer than 2
 matched rounds it writes `~/.local/state/north/lander-unreached` with the candidate and the count of
 promotions in a row that reached no verdict, exits 75, and the next promotion retries; a promotion
 that settles clears the record. At about 4:10 PM on 2026-11-06 a replay of round

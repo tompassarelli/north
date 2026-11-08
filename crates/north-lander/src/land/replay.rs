@@ -3,12 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::candidate::{self, Pick, git};
+use super::hold::{self, Locked};
 use super::checks::{self, Verdict};
 use super::queue::{self, Ticket};
 use crate::landing::red_check::{self, Failure};
 
 const USAGE: &str = "usage: north land replay --base REV [--repo DIR] [--checker PROGRAM] TICKET...";
 pub const WORKTREE: &str = "lander-replay";
+const WORKTREES: usize = 4;
 pub const PREFIX: &str = "replay: verdict ";
 const FAILURE: &str = "replay: failure ";
 
@@ -57,7 +59,7 @@ impl Replayed {
 
 fn replay(options: &Options) -> Result<Replayed, String> {
     let checkout = super::repositories::checkout(&options.repo)?;
-    let worktree = candidate::lander_worktree(&checkout, WORKTREE)?;
+    let (worktree, _held) = free_worktree(&candidate::lander_worktree(&checkout, WORKTREE)?)?;
     candidate::ensure(&checkout, &worktree)?;
     git(&worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"])?;
     let base = git(&worktree, &["rev-parse", &format!("{}^{{commit}}", options.base)])?;
@@ -89,6 +91,19 @@ fn replay(options: &Options) -> Result<Replayed, String> {
         _ => BTreeSet::new(),
     };
     Ok(Replayed { verdict: class, failures })
+}
+
+pub fn free_worktree(first: &Path) -> Result<(PathBuf, Locked), String> {
+    let numbered = |slot: usize| if slot == 1 { first.to_owned() } else { first.with_file_name(format!("{WORKTREE}-{slot}")) };
+    for worktree in (1..=WORKTREES).map(numbered) {
+        let lock = worktree.with_extension("lock");
+        fs::create_dir_all(lock.parent().unwrap_or(Path::new("."))).map_err(|error| format!("{}: {error}", lock.display()))?;
+        let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(&lock).map_err(|error| format!("{}: {error}", lock.display()))?;
+        if let Some(held) = hold::try_lock(file) {
+            return Ok((worktree, held));
+        }
+    }
+    Err(format!("all {WORKTREES} replay worktrees beside {} are in use by other replays", first.display()))
 }
 
 fn kept_log(checkout: &Path, base: &str) -> Result<PathBuf, String> {
@@ -153,4 +168,21 @@ pub fn same(recorded: &str, replayed: &str) -> bool {
 
 pub fn lands_what_was_refused(recorded: &str, replayed: &str) -> bool {
     recorded_class(recorded).is_some_and(|class| class != "landed") && replayed.split_whitespace().next() == Some("landed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_replay_takes_the_next_worktree_while_another_replay_holds_the_first() {
+        let container = tempfile::tempdir().unwrap();
+        let first = container.path().join(WORKTREE);
+        let (taken, held) = free_worktree(&first).unwrap();
+        assert_eq!(taken, first);
+        let (next, _next_held) = free_worktree(&first).unwrap();
+        assert_eq!(next, container.path().join(format!("{WORKTREE}-2")));
+        drop(held);
+        assert_eq!(free_worktree(&first).unwrap().0, first, "a finished replay frees its worktree");
+    }
 }

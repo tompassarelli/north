@@ -503,3 +503,19 @@ fn a_transient_replay_beside_matched_rounds_moves_the_lander_link_and_a_divergen
     assert!(!stdout.contains("reported, not held on"), "{stdout}");
     assert_eq!(chain.lander(), format!("runtimes/{}", chain.held), "a divergence beside a transient round moved the link: {stdout}");
 }
+
+// KEEP(bug): on 2026-11-08 the proxy's promotion to 77bae4cb4f held the lander link because its replay of round n882-loop-score exited 1 on an index.lock another replay held in the shared lander-replay worktree, and promote judged that error a divergence (north#842)
+#[test]
+fn a_replay_that_hits_a_held_index_lock_beside_matched_rounds_does_not_hold_the_link() {
+    let chain = Chain::new();
+    chain.land(2, "lane-b");
+    chain.land(3, "lane-c");
+    let candidate = chain.commit("crates/north-landing/src/land/rule.rs", "Count a dropped connection as no verdict");
+    chain.runtime(&candidate, "case \"$*\" in *lane-c*) echo 'north land replay: Another git process seems to be running in this repository, or the lock file may be stale' >&2; exit 1;; *) echo 'replay: verdict landed';; esac");
+    chain.current(&candidate);
+    let promoted = chain.promote();
+    let stdout = &promoted.stdout;
+    assert!(promoted.status, "{stdout}");
+    assert!(stdout.contains("reported, not held on: round lane-c: error ") && stdout.contains("Another git process"), "{stdout}");
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
+}

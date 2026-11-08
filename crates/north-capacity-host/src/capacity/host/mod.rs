@@ -310,13 +310,13 @@ fn landing_run(operation: &str, owner: &str, class: &str, land_head: Option<&str
     operation == "run" && policy::batch_class(class) && (lander_owner(owner) || (owner.starts_with("gate:") && land_head.is_some_and(|head| !head.is_empty()) && landing == Some("1")))
 }
 
-/// The owners of the lander's own runs: the land checks and their post-land runs, the offload warm build, and the gates of its worktrees (`lander`, `lander-N`, `lander-probe-N`, `lander-replay`, `lander-goals`), which carry no session and so take the worktree's name.
+/// The owners of the lander's own runs: the land checks and their post-land runs, the offload warm build, and the gates of its worktrees (`lander`, `lander-N`, `lander-probe-N`, `lander-replay`, `lander-replay-N`, `lander-goals`), which carry no session and so take the worktree's name.
 fn lander_owner(owner: &str) -> bool {
     let Some(worktree) = owner.strip_prefix("gate:") else { return matches!(owner, "land-check" | "land-offload") };
     let numbered = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
     match worktree.strip_prefix("lander") {
         Some("" | "-replay" | "-goals") => true,
-        Some(rest) => rest.strip_prefix('-').is_some_and(|rest| numbered(rest) || rest.strip_prefix("probe-").is_some_and(numbered)),
+        Some(rest) => rest.strip_prefix('-').is_some_and(|rest| numbered(rest) || rest.strip_prefix("probe-").or_else(|| rest.strip_prefix("replay-")).is_some_and(numbered)),
         None => false,
     }
 }
