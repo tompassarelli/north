@@ -22,6 +22,7 @@ pub mod cleanup;
 pub mod disk_budget;
 pub mod disk_ledger;
 pub mod orchestration;
+pub use north_shared_config as shared_config;
 pub mod entry_points;
 pub mod github;
 pub mod gh_broker_route;

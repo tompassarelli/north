@@ -60,6 +60,7 @@ fn recorded(layout: &Layout, lock: Result<Option<File>, Failure>, update: impl F
         }
     });
     host_facts::record_if_stale(layout);
+    refresh_shared_config();
     updated
 }
 
@@ -362,3 +363,14 @@ fn fetch(checkout: &Path) -> Result<(), Failure> {
 mod policy_hold_tests;
 #[cfg(test)]
 mod tests;
+
+fn refresh_shared_config() {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let now = crate::platform::records_mirror::now() as u64;
+    if let Some(Err(error)) = crate::platform::shared_config::refresh_if_due(&home, now) {
+        eprintln!("north runtime update: {error}");
+    }
+    if let Err(stale) = crate::platform::shared_config::fresh(&home, now) {
+        eprintln!("north runtime update: {stale}");
+    }
+}

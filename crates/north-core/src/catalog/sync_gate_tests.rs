@@ -66,7 +66,7 @@ fn pair() -> Pair {
 
 fn sync(pair: &Pair) -> (Result<(), String>, Vec<String>) {
     let mut said = Vec::new();
-    let outcome = current_main("south", &pair.clone, &mut |line| said.push(line));
+    let outcome = current_main("south", &pair.clone, 0, &mut |line| said.push(line));
     (outcome, said)
 }
 
@@ -121,4 +121,22 @@ fn stale_locks_a_killed_git_left_in_main_are_cleared_and_main_still_fast_forward
     assert_eq!(outcome, Ok(()), "{said:?}");
     assert_eq!(head(&pair.clone), head(&pair.origin));
     assert_eq!(said.iter().filter(|line| line.contains("cleared the stale git lock")).count(), 4, "{said:?}");
+}
+
+#[test]
+fn a_main_whose_fetch_fails_is_used_only_within_the_bound_of_its_last_fetch() {
+    let pair = pair();
+    let fetched_at = 1_000_000;
+    let mut said = Vec::new();
+    assert_eq!(current_main("south", &pair.clone, fetched_at, &mut |line| said.push(line)), Ok(()));
+    fs::rename(&pair.origin, pair.origin.with_extension("gone")).unwrap();
+    let bound = crate::platform::shared_config::BOUND_SECONDS;
+    let stale = current_main("south", &pair.clone, fetched_at + bound + 60, &mut |line| said.push(line));
+    assert_eq!(
+        stale.unwrap_err(),
+        "south main refused offline: its last fetch of origin/main is 61 min old, past the 60 min bound"
+    );
+    let recent = current_main("south", &pair.clone, fetched_at + 120, &mut |line| said.push(line));
+    assert_eq!(recent, Ok(()));
+    assert_eq!(said.last().unwrap(), "agents sync: south fetch failed; using local main, last fetched 2 min ago");
 }

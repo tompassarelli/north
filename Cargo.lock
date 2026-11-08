@@ -980,6 +980,7 @@ dependencies = [
  "north-replay",
  "north-runtime",
  "north-safe-push",
+ "north-shared-config",
  "north-strategy-types",
  "north-tui",
  "north-tune",
@@ -1006,6 +1007,7 @@ name = "north-base"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "north-shared-config",
  "north-strategy-types",
  "percent-encoding",
  "regex",
@@ -1782,6 +1784,13 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "north-shared-config"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

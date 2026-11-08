@@ -102,9 +102,14 @@ paths = ["crates/north-claude-stream/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-shared-config"
+paths = ["crates/north-shared-config/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
 name = "north-base"
 paths = ["crates/north-base/src/**"]
-may_use = ["north-strategy-types"]
+may_use = ["north-strategy-types", "north-shared-config"]
 
 [[crate_dag.crate]]
 name = "north-diff-gates"
@@ -453,7 +458,7 @@ may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
 name = "platform.harness"
 paths = ["crates/north-base/src/platform/harness*.rs", "crates/north-base/src/platform/signin.rs", "crates/north-base/src/platform/orchestration.rs", "crates/north-base/src/platform/frozen_topics.rs", "crates/north-base/src/platform/disk_budget.rs", "crates/north-base/src/platform/repo_names.rs"]
 responsibility = "The harness tables other repos read (defaults, orchestration, disk budget, frozen topics, repo names) and the rules read from them."
-may_use = ["strategy_types", "foundation", "platform.host"]
+may_use = ["strategy_types", "foundation", "platform.host", "crate-roots"]
 
 [[module]]
 name = "platform.records"
@@ -465,7 +470,7 @@ may_use = ["strategy_types", "foundation", "platform.harness", "platform.host"]
 name = "platform"
 paths = ["crates/north-base/src/platform/**"]
 responsibility = "The platform root and the small pure helpers beside the adapters: clean-up headings, Follows: lines, trials, the twister and the Wisp payoff record."
-may_use = ["strategy_types", "foundation", "platform.git"]
+may_use = ["strategy_types", "foundation", "platform.git", "crate-roots"]
 
 [[module]]
 name = "shell"
