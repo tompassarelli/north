@@ -6,6 +6,7 @@ use north_land_probes::{Settled, plan, settle};
 use serde::{Deserialize, Serialize};
 
 use super::batch::{Attempt, Entry, Flow, Pass};
+use super::unbuilt::{self, Unbuilt};
 use super::{Pushed, Round, Serve};
 use crate::land::after;
 use crate::land::bisect::{self, Judgement, Strikes};
@@ -156,6 +157,12 @@ impl Probing for Lander {
         let settled = settle(&probes.iter().map(|probe| probe.lanes.clone()).collect::<Vec<_>>(), &probes.iter().map(|probe| probe.green()).collect::<Vec<_>>());
         suspects.after(&ids, &settled.suspects, !settled.land.is_empty() || settled.refuse.is_some());
         suspects.save(&self.queue)?;
+        let mut unbuilt = Unbuilt::load(&self.queue, &ids);
+        let pull = unbuilt.after(&ids, &finished).filter(|pull| settled.refuse != Some(pull.lane));
+        unbuilt.save(&self.queue)?;
+        if let Some(pull) = pull {
+            unbuilt::pull(self, pass.rebuilds, lanes[pull.lane], &finished[pull.probe], &pull, attempt.base)?;
+        }
         if settled.land.is_empty() && self.base_moved(attempt.base).map_err(|error| format!("transient: {error}"))? {
             println!("north land: main moved from {} while the probes were checked; rebuilding, no lane judged", attempt.base);
             return Ok(pass.rebuilt());
