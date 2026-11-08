@@ -10,7 +10,7 @@ use north_fleet::fleet::model::ApiKey;
 use north_providers::ledger::Ledger;
 use north_providers::providers::claude::api_pool;
 
-use crate::ab;
+use crate::{ab, followup};
 use super::billing::{self, Spent};
 use super::grade::{Grade, grade};
 use super::sandbox::{Sandbox, git_text};
@@ -303,7 +303,10 @@ fn ab_report(flags: &Flags) -> Result<String, NorthError> {
     if !ab::ready(&rows) {
         return Ok(ab::progress(&rows));
     }
-    let section = ab::render(&rows);
+    let ledger = Ledger::open(&flags.one("ledger").map_or_else(|| state_root().join("ledger.db"), PathBuf::from))?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs() as i64);
+    let long_term = followup::long_term(&root, flags.one("ref").unwrap_or("origin/main"), &followup::Spend::read(&ledger)?, &rows, now);
+    let section = ab::render(&rows, &long_term);
     let doc = fs::read_to_string(&doc_file).map_err(|why| refusal(format!("{}: {why}", doc_file.display())))?;
     fs::write(&doc_file, ab::splice(&doc, &section)).map_err(NorthError::Io)?;
     Ok(format!("{section}wrote {}\n", doc_file.display()))

@@ -86,7 +86,7 @@ fn a_stop_on_another_machine_is_not_a_question_and_a_decision_still_is() {
     assert!(crate::session::asks(decision) && crate::session::asks("Done: landed. Should I also port the bash twin?"));
 }
 
-fn ab_row(arm: Arm, index: i64, minutes: i64, reworked: bool, findings: u32) -> crate::ab::AbRow {
+fn ab_row(arm: Arm, index: i64, minutes: i64, usd: f64) -> crate::ab::AbRow {
     crate::ab::AbRow {
         task: format!("wisp#{index}"),
         arm,
@@ -95,27 +95,62 @@ fn ab_row(arm: Arm, index: i64, minutes: i64, reworked: bool, findings: u32) -> 
         assigned_at: 1_000_000 + index * 10_000,
         landed_sha: Some(format!("{index:040x}")),
         landed_at: Some(1_000_000 + index * 10_000 + minutes * 60),
-        usage: crate::ab::Usage::default(),
-        interventions: 0,
-        rework: Some(crate::ab::Rework { reverts: u32::from(reworked), red_main: 0, reopened: 0 }),
-        code_health: Some(crate::ab::CodeHealth { net_lines: 20, new_findings: findings }),
+        usage: crate::ab::Usage { tokens_in: 1_000, tokens_out: 4_000, cost_usd: usd },
     }
 }
 
 #[test]
-fn the_live_ab_waits_for_thirty_landed_per_arm_then_names_the_winner_in_the_doc() {
-    let mut rows: Vec<_> = (0..29).flat_map(|index| [ab_row(Arm::North, index, 20 + index % 5, false, 0), ab_row(Arm::T3Code, 100 + index, 60 + index % 7, false, 0)]).collect();
+fn the_live_ab_waits_for_thirty_landed_per_arm_then_reports_time_and_short_and_long_term_usage_in_the_doc() {
+    let mut rows: Vec<_> = (0..29).flat_map(|index| [ab_row(Arm::North, index, 20 + index % 5, 1.0 + (index % 3) as f64), ab_row(Arm::T3Code, 100 + index, 60 + index % 7, 10.0 + (index % 3) as f64)]).collect();
     assert!(!crate::ab::ready(&rows) && crate::ab::progress(&rows).contains("north 29/30, t3code 29/30"));
-    rows.push(ab_row(Arm::North, 29, 22, false, 0));
-    rows.push(ab_row(Arm::T3Code, 129, 61, false, 0));
+    rows.push(ab_row(Arm::North, 29, 22, 1.0));
+    rows.push(ab_row(Arm::T3Code, 129, 61, 10.0));
     assert!(crate::ab::ready(&rows));
-    let section = crate::ab::render(&rows);
-    assert!(section.contains("north wins") && section.contains("API-equivalent cost per landed box, north"), "{section}");
-    let dearer: Vec<_> = rows.iter().cloned().map(|mut row| { row.usage.cost_usd = if row.arm == Arm::North { 10.0 + (row.assigned_at % 3) as f64 } else { 1.0 + (row.assigned_at % 3) as f64 }; row }).collect();
-    assert!(crate::ab::render(&dearer).contains("does not win"), "{}", crate::ab::render(&dearer));
+    let long_term: crate::ab::LongTerm = rows.iter().map(|row| (row.task.clone(), crate::ab::Usage { tokens_in: 100, tokens_out: 900, cost_usd: if row.arm == Arm::North { 0.5 } else { 2.5 } })).collect();
+    let section = crate::ab::render(&rows, &long_term);
+    for line in ["assignment to landed, time, north: median", "per landed box, API-equivalent cost, t3code: median $11", "per landed box, subscription usage (tokens in and out), north: median 5k tokens, total 150k tokens", "per box, API-equivalent cost, north: median $0.50", "north minus t3code: median -9.00 USD", "30 of 30 north boxes and 30 of 30 t3code boxes are past 14 days"] {
+        assert!(section.contains(line), "{line}\n{section}");
+    }
+    assert!(!section.contains("verdict") && !section.contains("rework"), "{section}");
     let doc = crate::ab::splice("# Frontier\n\ntext\n", &section);
     assert!(doc.contains("## Live A/B result") && doc.starts_with("# Frontier"));
     assert_eq!(crate::ab::splice(&doc, &section), doc);
+}
+
+// KEEP(bug): the long-term usage must follow the box's own lines by blame: a later commit that edits other lines of the same file, or edits the box's lines after its 14 days, is not rework on the box (north#877)
+#[test]
+fn long_term_usage_counts_only_commits_inside_14_days_that_change_the_boxs_lines() {
+    let dir = std::env::temp_dir().join(format!("north-frontier-follow-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let epoch = 1_000_000_000;
+    let git = |at: i64, arguments: &[&str]| {
+        let date = format!("{} +0000", at + epoch);
+        let output = std::process::Command::new("git").arg("-C").arg(&dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).env("GIT_COMMITTER_DATE", &date).env("GIT_AUTHOR_DATE", &date).output().unwrap();
+        assert!(output.status.success(), "{arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    let day = 86_400;
+    let commit = |at: i64, text: &str| {
+        std::fs::write(dir.join("file.txt"), text).unwrap();
+        git(at, &["commit", "-qam", "change"]);
+        git(at, &["rev-parse", "HEAD"])
+    };
+    git(0, &["init", "-q", "-b", "main"]);
+    std::fs::write(dir.join("file.txt"), "base\n").unwrap();
+    git(0, &["add", "file.txt"]);
+    git(0, &["commit", "-qm", "base"]);
+    let landed = commit(day, "base\nbox one\nbox two\n");
+    let elsewhere = commit(2 * day, "head\nbase\nbox one\nbox two\n");
+    let fix = commit(3 * day, "head\nbase\nbox ONE\nbox two\n");
+    let late = commit(20 * day, "head\nbase\nbox ONE\nbox TWO\n");
+    assert_eq!(crate::followup::changing_commits(&dir, "HEAD", &landed, epoch + day).unwrap(), std::slice::from_ref(&fix));
+    let spend = crate::followup::Spend::of([(fix, crate::ab::Usage { tokens_in: 7, tokens_out: 3, cost_usd: 1.5 }), (elsewhere, crate::ab::Usage { tokens_in: 99, tokens_out: 99, cost_usd: 9.0 }), (late, crate::ab::Usage { tokens_in: 99, tokens_out: 99, cost_usd: 9.0 })].into());
+    let mut row = ab_row(Arm::North, 1, 1, 0.0);
+    (row.landed_sha, row.landed_at) = (Some(landed), Some(epoch + day));
+    let found = crate::followup::long_term(&dir, "HEAD", &spend, &[row.clone()], epoch + 15 * day);
+    assert_eq!(found.get("wisp#1"), Some(&crate::ab::Usage { tokens_in: 7, tokens_out: 3, cost_usd: 1.5 }));
+    assert!(crate::followup::long_term(&dir, "HEAD", &spend, &[row], epoch + 15 * day - 1).is_empty());
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
