@@ -11,7 +11,7 @@ fn the_remote_command_after_ssh_options_and_the_destination_is_wrapped_in_the_se
     assert_eq!(wrapped[..4], words(&["-p", "2222", "-oBatchMode=yes", "-tt"]));
     assert_eq!(wrapped[4], "gex45");
     assert_eq!(wrapped.len(), 6);
-    assert!(wrapped[5].contains("--unit=north-ssh-n-626-0a1b2c3d.scope") && wrapped[5].contains(r"-c 'nproc; echo it'\''s'"), "{}", wrapped[5]);
+    assert!(wrapped[5].contains("--unit=north-ssh-n-626-0a1b2c3d.scope") && wrapped[5].contains(r"q='nproc; echo it'\''s';"), "{}", wrapped[5]);
     assert_eq!(scope_session("north-ssh-n-626-0a1b2c3d.scope"), Some("n-626"));
 }
 
@@ -32,8 +32,8 @@ fn a_script_after_the_destination_and_double_dash_is_wrapped_without_the_dash_or
     assert_eq!(wrapped[..3], words(&["-T", "ccx33", "--"]));
     assert_eq!(wrapped.len(), 4);
     assert!(wrapped[3].contains("--expand-environment=no"), "{}", wrapped[3]);
-    assert!(wrapped[3].contains("-c 'setsid -w sh -c "), "{}", wrapped[3]);
-    assert!(!wrapped[3].contains("-c '-- "), "{}", wrapped[3]);
+    assert!(wrapped[3].contains("q='setsid -w sh -c "), "{}", wrapped[3]);
+    assert!(!wrapped[3].contains("q='-- "), "{}", wrapped[3]);
 }
 
 // KEEP(bug): north#685, nix's ssh stores put options after the destination and the shim wrapped them as the remote command
@@ -42,5 +42,15 @@ fn options_after_the_destination_stay_ssh_options_and_only_the_command_is_wrappe
     let wrapped = scoped(&words(&["root@ccx33", "-x", "-p", "2222", "nproc"]), "n-685", "0a1b2c3d");
     assert_eq!(wrapped[..4], words(&["root@ccx33", "-x", "-p", "2222"]));
     assert_eq!(wrapped.len(), 5);
-    assert!(wrapped[4].contains("-c 'nproc'"), "{}", wrapped[4]);
+    assert!(wrapped[4].contains("q='nproc';"), "{}", wrapped[4]);
+}
+
+// KEEP(bug): north#951, the scoped command carried the remote command twice, so a remote command past 64 KB passed the 128 KB limit of one argument and ssh never ran
+#[test]
+fn a_remote_command_of_100_kb_reaches_the_far_shell_inside_the_scoped_call() {
+    let payload = "x".repeat(100 * 1024);
+    let wrapped = scoped(&words(&["-T", "gex45", "--", "printf", "%s", &payload]), "n-951", "0a1b2c3d");
+    let output = std::process::Command::new("sh").args(["-c", wrapped.last().unwrap()]).env_remove("XDG_RUNTIME_DIR").env("SHELL", "/bin/sh").output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, payload.as_bytes());
 }

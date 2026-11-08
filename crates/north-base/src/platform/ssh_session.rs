@@ -62,7 +62,7 @@ fn scoped(arguments: &[String], session: &str, suffix: &str) -> Vec<String> {
     let quoted = format!("'{}'", remote.replace('\'', r"'\''"));
     let unit = scope_unit(session, suffix);
     let wrapped = format!(
-        "if [ -S \"$XDG_RUNTIME_DIR/bus\" ] && command -v systemd-run >/dev/null 2>&1; then exec systemd-run --user --scope --quiet --collect --expand-environment=no --unit={unit} -- \"${{SHELL:-/bin/sh}}\" -c {quoted}; else exec \"${{SHELL:-/bin/sh}}\" -c {quoted}; fi"
+        "q={quoted}; if [ -S \"$XDG_RUNTIME_DIR/bus\" ] && command -v systemd-run >/dev/null 2>&1; then exec systemd-run --user --scope --quiet --collect --expand-environment=no --unit={unit} -- \"${{SHELL:-/bin/sh}}\" -c \"$q\"; else exec \"${{SHELL:-/bin/sh}}\" -c \"$q\"; fi"
     );
     options.iter().cloned().chain([wrapped]).collect()
 }
