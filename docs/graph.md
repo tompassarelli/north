@@ -48,7 +48,7 @@ One JSON query (argument, `--file PATH` or `-` for stdin), Beagle's structured q
 Relations: `triple(t1,t2,t3)` has one row per distinct live proposition; `occurrence(coordinate, action, proposition)`
 is the signed history with `:assert` and `:retract`; `assertion(writer, t1, t2, t3)` has a row per live assertion and the String that wrote it;
 `quoted(term, t1, t2, t3)` has a row per triple term, asserted or only nested; `withdrawal(retraction, assertion)` has a row per successful
-retraction. Clauses run in order; negation needs bound variables and a relation from an earlier stratum or SQLite;
+retraction. Clauses run in order, except that each run of positive stored-relation clauses, with the comparisons that follow them, is one SQLite join over the variables bound before it, projected to the variables later clauses and the head read; negation needs bound variables and a relation from an earlier stratum or SQLite;
 arithmetic that overflows, divides by zero or yields a non-finite number drops the row and may not appear in a recursive
 rule. Budgets are 10,000,000 steps and a 5 s timeout (60 s cap). Text relations are not built.
 

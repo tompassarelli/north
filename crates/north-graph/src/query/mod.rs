@@ -4,6 +4,7 @@ mod base;
 mod budget;
 mod check;
 mod eval;
+mod join;
 mod ops;
 mod parse;
 mod plan;
@@ -27,7 +28,10 @@ impl Graph {
         let snapshot = self.connection().unchecked_transaction()?;
         let mut terms = Terms::new(&snapshot);
         let window = base::Window::resolve(&snapshot, &mut terms, query.view)?;
-        let plan = plan::lower(query, &schema, &mut terms)?;
+        let plan = plan::lower(query, &schema, &mut terms, window.as_ref())?;
+        if plan.orders_in_sql() {
+            join::register(&snapshot)?;
+        }
         let mut evaluator = eval::Evaluator { connection: &snapshot, terms: &mut terms, budget: &budget, window: window.as_ref() };
         let relations = eval::run(&mut evaluator, &plan)?;
         let relation = match &query.find {

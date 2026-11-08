@@ -69,6 +69,22 @@ impl Evaluator<'_, '_> {
         };
         match step {
             Step::Lookup { source, args, negated } => self.lookup(scope, at, (*source, args, *negated), binding, out),
+            Step::Join(join) => {
+                let found = join.fetch(self.connection, self.terms, binding, self.budget)?;
+                if join.outputs.is_empty() {
+                    return if found.rows > 0 { self.join(scope, at + 1, binding, out) } else { Ok(()) };
+                }
+                for row in found.values.chunks(join.outputs.len()) {
+                    for (variable, value) in join.outputs.iter().zip(row) {
+                        binding[*variable] = *value;
+                    }
+                    self.join(scope, at + 1, binding, out)?;
+                }
+                for variable in &join.outputs {
+                    binding[*variable] = UNBOUND;
+                }
+                Ok(())
+            }
             Step::Compare { op, left, right } => {
                 let (left, right) = (self.terms.term(value(left, binding))?, self.terms.term(value(right, binding))?);
                 if ops::compare(*op, &left, &right) { self.join(scope, at + 1, binding, out) } else { Ok(()) }

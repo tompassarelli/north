@@ -66,12 +66,12 @@ pub fn fragment(relation: BaseRelation, window: Option<&Window>, alias: &str) ->
         ),
         (BaseRelation::Assertion, None) => (
             columns(&[".writer", "_p.t1", "_p.t2", "_p.t3"]),
-            format!("occurrences {alias} JOIN live_props {alias}_p ON {alias}_p.prop = {alias}.prop"),
+            format!("live_props {alias}_p CROSS JOIN occurrences {alias} ON {alias}.prop = {alias}_p.prop"),
             vec![format!("{alias}.live = 1")],
         ),
         (BaseRelation::Assertion, Some(window)) => (
             columns(&[".writer", "_q.t1", "_q.t2", "_q.t3"]),
-            format!("occurrences {alias} JOIN quoted {alias}_q ON {alias}_q.id = {alias}.prop"),
+            format!("quoted {alias}_q CROSS JOIN occurrences {alias} ON {alias}.prop = {alias}_q.id"),
             vec![window.holds(alias)],
         ),
         (BaseRelation::Quoted, _) => (columns(&[".id", ".t1", ".t2", ".t3"]), format!("quoted {alias}"), Vec::new()),
