@@ -47,8 +47,8 @@ Each lane reports the same five readings before and after: ingest wall, the quer
    transaction as the assertion or retraction, serve all five Beagle relations: `text-match` and `text-phrase` on
    `unicode61`, `text-stem` on `porter`, `text-substring` on `trigram`, `text-search` scored by bm25 with Beagle's exact
    over stem over substring order. Grounding documents become `(doc:SOURCE:ID :doc-source S)`, `:doc-ref`, `:doc-title`,
-   `:doc-text`, `:doc-at` and `:doc-decays` under writer `grounding`. A document's text atom is immutable: a growing source
-   (transcripts) writes append-only chunks, so a refresh adds terms instead of rewriting them, and `graph.db` growth per
+   `:doc-text`, `:doc-at` and `:doc-decays` under writer `grounding`. A changed document is retracted and told again,
+   so its old text stays as a dead term until `north graph retain` reclaims history below its horizon; `graph.db` growth per
    refresh day is a reported reading. Terms are unique by a 16-byte hash of their key, not by the key itself, so a
    document's text is stored once (schema v3).
 5. **Snapshot sync only where a source is a snapshot.** A predicate is owned by exactly one source. `Graph::sync` reads the
@@ -84,6 +84,30 @@ them; rewards come before the climber because the climber settles on them.
    per loop family; correction classes compiled into guards (north#706); graph context in dispatched briefs (north#873,
    on its context-pack arm); the climb archive.
 3. Clean-up: tests that pin nothing, scaffolding and stale docs go; `docs/graph.md` describes what shipped.
+
+## Measured on 2026-11-08
+
+Readings each lane took against a copy of the laptop's stores (graph.db 529 to 574 MB through the morning), or on the
+laptop itself where named.
+
+- Ingest and guards (dceadd4cea): a full ingest on the laptop went from 30.6 s to 2.86 s; the after-landing guards check
+  went from 11.3 s (`validate --guards`) to 11 ms (`north graph guards`); live assertions went from 478,742 to 192,548.
+  The one-time decision-log retraction grew graph.db by 43 MB, since a retraction adds rows.
+- Query engine (c8f2a76eed, 5f55f1f900, 0adae946a9): the 11.5 s :reaches baseline was a wait on ingest's write lock,
+  because `ask` opened the store read-write; read-only it answers in 0.07 s warm. The ready query went from 14.6 to
+  5.4 ms, the held query from 11.2 to 3.2 ms, and an ask during an ingest from 134 ms to 48 ms at worst.
+- Retention (`north graph retain`): 574 MB to 126 MB and validate 11.4 s to 1.6 s, sound; the first run takes 75 s in
+  406 short transactions (longest 362 ms) under the ingest lock, and later runs 0.4 s.
+- Grounding (5f5204f5e and the v3 key hash): graph.db holds grounding at 764 MB, against 790 MB for graph.db plus
+  index.db. Over 50 queries the hook path keeps a median top-10 overlap of 10 of 10, and p90 goes from 308 to 226 ms.
+- Corroborated rewards (99399b6a6d): the rule answers in 15 to 19 ms. Read through it, the climber found 0
+  checker-verified boxes across 53 arms, against 4 arms from issue-body stamps, until nexus ingests checker, lander and
+  git observations.
+- Placement: the graph is per host, and nexus, which runs dispatch, tune and the climber, had none. Dispatch there sorted
+  by priority label until a five-minute ingest timer landed (south 3221774, north f9682c344b); its "backlog is unread"
+  notes went from 5 to 0.
+- Loops: tune's cells moved into the graph (9626577317). nexus's graph was seeded once from its cells.json, so the
+  first graph-backed tick keeps the 2x step limit.
 
 ## Prior art
 
