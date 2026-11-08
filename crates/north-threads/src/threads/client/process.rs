@@ -3,11 +3,12 @@ use std::fs::File;
 use std::io::Write;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::Value;
 
 use crate::error::NorthResult;
+use crate::platform::process::child_within;
 use crate::threads::outside;
 
 pub(super) enum Input {
@@ -90,19 +91,7 @@ pub(super) fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Dura
         }
     };
     let mut child = feed(command.spawn()?, bytes);
-    let deadline = Instant::now() + wait;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(None);
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    Ok(Some(status))
+    Ok(child_within(&mut child, wait)?)
 }
 
 pub(super) fn code_of(status: ExitStatus) -> i32 {

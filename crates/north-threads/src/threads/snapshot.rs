@@ -6,7 +6,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use rusqlite::backup::{Backup, StepResult};
 use rusqlite::functions::FunctionFlags;
@@ -14,6 +14,7 @@ use rusqlite::{Connection, OpenFlags};
 use rustix::fs::{AtFlags, Mode, OFlags, CWD};
 use sha2::{Digest, Sha256};
 
+use crate::platform::process::child_within;
 use crate::threads::catalog::CATALOG;
 use crate::threads::verb::names_native_ref;
 
@@ -108,18 +109,7 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()>
         let _ = stderr.read_to_string(&mut text);
         text.lines().rev().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned)
     });
-    let deadline = Instant::now() + wait;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(io::Error::new(io::ErrorKind::TimedOut, "snapshot pull timed out"));
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let status = child_within(&mut child, wait)?.ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "snapshot pull timed out"))?;
     let built = receiver.join().map_err(|_| invalid("snapshot receiver panicked"))?;
     if !status.success() {
         let said = complaint.join().ok().flatten().map_or_else(String::new, |line| format!(": {line}"));

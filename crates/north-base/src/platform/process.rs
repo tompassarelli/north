@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
-use std::process::{Command, ExitStatus, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::foundation::step::{Refused, Step};
@@ -28,7 +28,11 @@ pub async fn run_killing_on_drop(program: &str, args: &[String]) -> std::io::Res
 }
 
 pub fn status_within(command: &mut Command, limit: Duration) -> std::io::Result<Option<ExitStatus>> {
-    let mut child = command.spawn()?;
+    child_within(&mut command.spawn()?, limit)
+}
+
+/// Waits up to `limit` for an already spawned child; `None` means it was still running and has been killed and reaped.
+pub fn child_within(child: &mut Child, limit: Duration) -> std::io::Result<Option<ExitStatus>> {
     let started = Instant::now();
     loop {
         if let Some(status) = child.try_wait()? {

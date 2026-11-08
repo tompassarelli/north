@@ -1,3 +1,4 @@
+use super::process::child_within;
 use regex::Regex;
 use rustix::fs::{Mode, OFlags};
 use rustix::pty::OpenptFlags;
@@ -28,17 +29,7 @@ pub fn capture(mut command: Command, limit: Duration) -> std::io::Result<(Option
     drop(command);
     let chunks = read_all(File::from(leader));
     let deadline = Instant::now() + limit;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break Some(status);
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            child.wait()?;
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let status = child_within(&mut child, limit)?;
     let mut bytes = Vec::new();
     while let Ok(chunk) = chunks.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
         bytes.extend(chunk);

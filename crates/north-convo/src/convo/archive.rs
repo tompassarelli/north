@@ -4,7 +4,9 @@ use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+
+use north_base::platform::process::child_within;
 
 use super::discover::Stat;
 use super::env::Env;
@@ -149,16 +151,8 @@ pub(super) fn coordinator_ids(env: &Env) -> Result<HashSet<String>> {
     let (mut stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
     let out = std::thread::spawn(move || stdout.as_mut().map(|pipe| { let mut text = String::new(); let _ = pipe.read_to_string(&mut text); text }).unwrap_or_default());
     let err = std::thread::spawn(move || stderr.as_mut().map(|pipe| { let mut text = String::new(); let _ = pipe.read_to_string(&mut text); text }).unwrap_or_default());
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if started.elapsed() > ROSTER_WAIT {
-            let _ = child.kill();
-            return Err(unsafe_to_sweep("could not ask the coordinator which sessions are live: timed out".to_owned()));
-        }
-        std::thread::sleep(Duration::from_millis(10));
+    let Some(status) = child_within(&mut child, ROSTER_WAIT)? else {
+        return Err(unsafe_to_sweep("could not ask the coordinator which sessions are live: timed out".to_owned()));
     };
     let (out, err) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
     if !status.success() {
