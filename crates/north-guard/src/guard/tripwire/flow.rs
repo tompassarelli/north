@@ -227,7 +227,7 @@ impl State<'_> {
             self.cd_dirs.push(p.clone());
             moved.push(p);
         }
-        if next == "&&" {
+        if next == "&&" || (self.errexit && next == ";") {
             self.cwds = moved;
             return;
         }

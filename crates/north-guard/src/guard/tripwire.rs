@@ -103,6 +103,8 @@ struct State<'a> {
     scopes: Vec<Vec<String>>,
     cd_dirs: Vec<String>,
     created: Vec<String>,
+    sources: Vec<String>,
+    errexit: bool,
     tokens: Vec<String>,
     previous: String,
     unread: String,
@@ -155,6 +157,8 @@ impl<'a> State<'a> {
             scopes: Vec::new(),
             cd_dirs: Vec::new(),
             created: Vec::new(),
+            sources: Vec::new(),
+            errexit: false,
             tokens,
             previous: String::new(),
             unread: String::new(),
@@ -250,6 +254,9 @@ impl<'a> State<'a> {
                 continue;
             }
             let args = self.tokens[i + 1..end].to_vec();
+            if word == "set" && args.iter().any(|arg| (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('e')) || arg == "errexit") {
+                self.errexit = true;
+            }
             if ["cd", "pushd"].contains(&word.as_str()) {
                 self.cd(&args, next);
                 return Ok(());

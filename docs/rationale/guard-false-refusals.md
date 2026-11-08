@@ -106,3 +106,22 @@ The false classes and their fixes:
   the glob against the name;
 - `rg` or `ag` reading a pipe got the default operand `.`; corpus-scan now skips it, as resource-safe-search already did;
 - `fd -d3` was not read as a depth; corpus-scan now reads `-dN`.
+
+## Re-sampled after the narrowings (north#706, 2026-11-08)
+
+Each guard's refusals on gex45 from 2026-11-01 were replayed with `north hook dispatch` through main plus the change, and
+only the calls still refused are kept as the new sample, so its false share is the guard as it now stands:
+
+- tripwire.push: a push to a remote the same command clones or adds from a local path is not a GitHub push. 3 of the 23
+  refusals were scratch repositories of this kind and 1 was a `--dry-run` that only the main-checkout guard now refuses;
+  the 19 still refused are all true.
+- tripwire: `set -e` makes a failed `cd` end the command, so a delete after `set -e; cd DIR;` is judged in DIR; a clone under
+  /tmp (its `.git` a directory, outside $HOME) is the session's own scratch and may go with its `.git`. 4 of the 29 refusals
+  were these classes; of the 17 still refused, 1 is false (a scratch directory a lane kept in its `.git/worktrees` entry).
+- tripwire.delete: a screenshot run under `~/.local/state/PROJECT/shots/` is regenerable. 2 of the 27 refusals were such
+  runs; the 9 still refused are true, and loop-variable targets among them name personal data their literal path would
+  refuse too.
+- sops-decrypt: all 8 refusals pipe decrypt output through a line redaction to the terminal, which the guard aims at; 0
+  false.
+- clipboard and desktop-action: no refusal on gex45 in the window; their stored rows replayed through main refuse 0 of the 5
+  and 1 false rows and keep every true row.

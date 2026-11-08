@@ -112,6 +112,8 @@ fn sandbox(root: &str) {
         "Pictures/Screenshots/old.png",
         "Documents/notes/a.md",
         "notrepo/stuff/x",
+        ".local/state/game/shots/run1/a.png",
+        ".local/state/game/saves/slot1",
     ] {
         touch(&format!("{home}/{file}"), "");
     }
@@ -124,6 +126,8 @@ fn sandbox(root: &str) {
         git(&format!("{home}/code/proj/{repo}"), &["init", "-q"]);
     }
     git(&pin, &["init", "-q"]);
+    fs::create_dir_all(format!("{root}/clone")).unwrap();
+    git(&format!("{root}/clone"), &["init", "-q"]);
     touch(
         &format!("{pin}.pin"),
         "Vendored upstream. Consumers: the docs build.\n",
@@ -224,7 +228,7 @@ fn ported_cases_match_the_shell_guard() {
             failures.push(format!("{}: want {want:?} got {got:?}", case["desc"]));
         }
     }
-    assert_eq!(count, 245);
+    assert_eq!(count, 252);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     let log = fs::read_to_string(format!("{root}/tripwire.log")).unwrap();
     assert!(log.contains("rm -rf ~/Pictures/Screenshots"));

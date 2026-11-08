@@ -114,7 +114,7 @@ impl<'a> State<'a> {
             let root = if directory.is_empty() { Some(if cwd.is_empty() { self.cwd.clone() } else { cwd.to_owned() }) } else { self.resolve(directory, cwd) };
             match root.and_then(|root| git(&root, &["remote", "get-url", "--push", &remote])) {
                 Some(url) => url,
-                None => return false,
+                None => return !self.sources.is_empty() && self.sources.iter().all(|source| !remote_url(source)),
             }
         };
         !url.contains("github.com")
@@ -133,6 +133,14 @@ impl<'a> State<'a> {
             "push" => {
                 let off_github = self.off_github(rest, directory, cwd);
                 push(rest, self.safe_push, off_github).and_then(|()| if self.safe_push || off_github { Ok(()) } else { self.queued_deletion(rest, directory, cwd) })
+            }
+            "clone" => {
+                self.sources.extend(rest.iter().find(|word| !word.starts_with('-')).cloned());
+                Ok(())
+            }
+            "remote" if rest.first().is_some_and(|word| word == "add") => {
+                self.sources.extend(rest[1..].iter().filter(|word| !word.starts_with('-')).nth(1).cloned());
+                Ok(())
             }
             "clean" => self.clean(rest, directory, cwd),
             _ => Ok(()),
@@ -310,4 +318,8 @@ impl<'a> State<'a> {
         }
         self.git_write("gh api", request.method(), request.target, request.mutation)
     }
+}
+
+fn remote_url(source: &str) -> bool {
+    source.contains("://") || source.contains("github.com") || (source.contains('$') && !source.contains('/')) || source.split_once(':').is_some_and(|(host, _)| !host.contains('/'))
 }

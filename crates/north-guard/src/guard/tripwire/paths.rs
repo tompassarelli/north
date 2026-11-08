@@ -81,6 +81,10 @@ impl State<'_> {
             ]
             .contains(&base(p))
             || (!p.starts_with(&format!("{}/", self.home)) && self.scratch(p))
+            || p.strip_prefix(&format!("{}/.local/state/", self.home)).is_some_and(|rest| matches!(rest.splitn(3, '/').collect::<Vec<_>>()[..], [_, "shots", shot] if !shot.is_empty()))
+    }
+    fn scratch_clone(&self, root: &str) -> bool {
+        !root.starts_with(&format!("{}/", self.home)) && self.scratch(root) && Path::new(root).join(".git").is_dir()
     }
     pub(super) fn scratch_shape(&self, p: &str) -> bool {
         ["lan", "online"].iter().any(|s| {
@@ -191,7 +195,7 @@ impl State<'_> {
         if let Some(why) = self.owner_reason(p) {
             return Some((true, why));
         }
-        if p.ends_with("/.git") || p.contains("/.git/") {
+        if (p.ends_with("/.git") || p.contains("/.git/")) && !p.strip_suffix("/.git").is_some_and(|root| self.scratch_clone(root)) {
             return Some((
                 true,
                 format!(
@@ -199,7 +203,7 @@ impl State<'_> {
                 ),
             ));
         }
-        if Path::new(p).join(".git").exists() {
+        if Path::new(p).join(".git").exists() && !self.scratch_clone(p) {
             return Some((
                 true,
                 format!(
