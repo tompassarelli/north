@@ -42,12 +42,14 @@ pub struct CodeHealth {
     pub new_findings: u32,
 }
 
-/// One live A/B box: assigned by the seeded coin flip to north or T3 Code, with its landing once it lands. Times are Unix seconds.
+/// One live A/B box, with the model and effort its sessions ran on (north's route pick, or T3 Code's own default for Claude on the T3 arm); `usage` sums every session the box used, retries and leads included, on both arms. Assigned: assigned by the seeded coin flip to north or T3 Code, with its landing once it lands. Times are Unix seconds.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AbRow {
     #[serde(rename = "box")]
     pub task: String,
     pub arm: Arm,
+    pub model: String,
+    pub effort: String,
     pub assigned_at: i64,
     #[serde(default)]
     pub landed_sha: Option<String>,
@@ -137,6 +139,14 @@ fn net_lines(row: &AbRow) -> Option<f64> {
     row.code_health.map(|health| health.net_lines as f64)
 }
 
+fn dollars(amount: f64) -> String {
+    format!("${amount:.2}")
+}
+
+fn signed_dollars(amount: f64) -> String {
+    format!("{amount:+.2} USD")
+}
+
 fn points(share: f64) -> String {
     format!("{:+.0} points", share * 100.0)
 }
@@ -159,10 +169,25 @@ pub fn render(rows: &[AbRow]) -> String {
     let (north_all, t3_all): (Vec<AbRow>, Vec<AbRow>) = (north.iter().map(|row| (*row).clone()).collect(), t3.iter().map(|row| (*row).clone()).collect());
     let (north_refs, t3_refs): (Vec<&AbRow>, Vec<&AbRow>) = (north_all.iter().collect(), t3_all.iter().collect());
     let mut guards_hold = true;
-    for (label, pick) in [("interventions per box", (|row: &AbRow| Some(f64::from(row.interventions))) as fn(&AbRow) -> Option<f64>), ("API-equivalent dollars per box", |row: &AbRow| Some(row.usage.cost_usd))] {
-        let line: Vec<String> = [("north", &north_refs), ("t3code", &t3_refs)].into_iter().map(|(name, group)| format!("{name} {:.2}", mean_of(group, pick).unwrap_or_default())).collect();
-        let _ = writeln!(out, "- {label}: {}", line.join(", "));
+    let cost = |row: &AbRow| Some(row.usage.cost_usd);
+    for (label, group) in [("north", &north_refs), ("t3code", &t3_refs)] {
+        let spread = bootstrap(group, |sample| median(&sample.iter().map(|row| row.usage.cost_usd).collect::<Vec<_>>()));
+        let _ = writeln!(out, "- API-equivalent cost per landed box, {label}: median {} over {} boxes, {}", dollars(median_of(group, cost).unwrap_or_default()), group.len(), span(spread, dollars));
     }
+    let price = bootstrap_two(&north_all, &t3_all, |first, second| gap_of(first, second, cost));
+    if let Some(delta) = median_of(&north_refs, cost).zip(median_of(&t3_refs, cost)).map(|(a, b)| a - b) {
+        let _ = writeln!(out, "  north minus t3code: median {}, {}", signed_dollars(delta), span(price, signed_dollars));
+    }
+    let interventions = |row: &AbRow| Some(f64::from(row.interventions));
+    let line: Vec<String> = [("north", &north_refs), ("t3code", &t3_refs)].into_iter().map(|(name, group)| format!("{name} {:.2}", mean_of(group, interventions).unwrap_or_default())).collect();
+    let _ = writeln!(out, "- interventions per box: {}", line.join(", "));
+    let models = |group: &[&AbRow]| {
+        let mut seen: Vec<String> = group.iter().map(|row| format!("{} {}", row.model, row.effort)).collect();
+        seen.sort();
+        seen.dedup();
+        seen.join(", ")
+    };
+    let _ = writeln!(out, "- model and effort: north {}; t3code {}", models(&north_refs), models(&t3_refs));
     let _ = writeln!(out, "Maintainability guards (north must not be worse on either):");
     let known = |group: &[&AbRow]| group.iter().filter(|row| row.rework.is_some()).count();
     for (label, group) in [("north", &north_refs), ("t3code", &t3_refs)] {
@@ -188,13 +213,18 @@ pub fn render(rows: &[AbRow]) -> String {
         let _ = writeln!(out, "  north minus t3code, median net lines per diff: {}", span(Some(interval), |value| format!("{value:+.0} lines")));
     }
     guards_hold &= !interval_clear_above(finding_gap) && !interval_clear_above(lines_gap);
-    let verdict = match (interval_clear_below(speed), guards_hold, interval_clear_above(speed)) {
-        (true, true, _) => "north is clearly faster and neither guard is clearly worse: north wins.",
-        (true, false, _) => "north is clearly faster but a guard is clearly worse: no win until the guard is explained.",
-        (false, _, true) => "T3 Code is clearly faster: north loses on speed.",
-        _ => "the speed difference is not clear at 95%: no winner.",
+    let (faster, slower) = (interval_clear_below(speed), interval_clear_above(speed));
+    let (cheaper, dearer) = (interval_clear_below(price), interval_clear_above(price));
+    let verdict = if !guards_hold {
+        "a guard is clearly worse for north: no win until it is explained."
+    } else if (cheaper && !slower) || (faster && !dearer) {
+        "north is clearly cheaper and not clearly slower, or clearly faster and not clearly dearer, with neither guard clearly worse: north wins."
+    } else if slower || dearer {
+        "north is clearly slower or dearer without the offsetting win: north does not win."
+    } else {
+        "neither the speed nor the cost difference is clear at 95%: no winner."
     };
-    let _ = writeln!(out, "Verdict by the rule (north wins when its median interval gap is entirely below zero and no guard gap is entirely on the worse side): {verdict}");
+    let _ = writeln!(out, "Verdict by the rule (a gap is clear when its 95% interval excludes zero; north wins when it is clearly cheaper and not clearly slower, or clearly faster and not clearly dearer, and no guard gap is clearly worse): {verdict}");
     out
 }
 

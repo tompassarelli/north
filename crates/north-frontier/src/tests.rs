@@ -90,6 +90,8 @@ fn ab_row(arm: Arm, index: i64, minutes: i64, reworked: bool, findings: u32) -> 
     crate::ab::AbRow {
         task: format!("wisp#{index}"),
         arm,
+        model: "claude-sonnet-5-5".into(),
+        effort: "high".into(),
         assigned_at: 1_000_000 + index * 10_000,
         landed_sha: Some(format!("{index:040x}")),
         landed_at: Some(1_000_000 + index * 10_000 + minutes * 60),
@@ -108,7 +110,9 @@ fn the_live_ab_waits_for_thirty_landed_per_arm_then_names_the_winner_in_the_doc(
     rows.push(ab_row(Arm::T3Code, 129, 61, false, 0));
     assert!(crate::ab::ready(&rows));
     let section = crate::ab::render(&rows);
-    assert!(section.contains("north wins"), "{section}");
+    assert!(section.contains("north wins") && section.contains("API-equivalent cost per landed box, north"), "{section}");
+    let dearer: Vec<_> = rows.iter().cloned().map(|mut row| { row.usage.cost_usd = if row.arm == Arm::North { 10.0 + (row.assigned_at % 3) as f64 } else { 1.0 + (row.assigned_at % 3) as f64 }; row }).collect();
+    assert!(crate::ab::render(&dearer).contains("does not win"), "{}", crate::ab::render(&dearer));
     let doc = crate::ab::splice("# Frontier\n\ntext\n", &section);
     assert!(doc.contains("## Live A/B result") && doc.starts_with("# Frontier"));
     assert_eq!(crate::ab::splice(&doc, &section), doc);
@@ -116,6 +120,6 @@ fn the_live_ab_waits_for_thirty_landed_per_arm_then_names_the_winner_in_the_doc(
 
 #[test]
 fn a_live_ab_row_for_the_plain_arm_is_refused() {
-    let row = r#"{"box":"wisp#1","arm":"plain","assigned_at":1}"#;
+    let row = r#"{"box":"wisp#1","arm":"plain","model":"m","effort":"e","assigned_at":1}"#;
     assert!(crate::ab::parse(row).unwrap_err().contains("not plain"));
 }
