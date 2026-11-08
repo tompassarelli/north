@@ -33,10 +33,13 @@ tree=$root
 if [ "${GITHUB_ACTIONS:-}" = true ]; then
   trap 'git -C "$root" apply -R "$patch"' EXIT
 else
-  tree=$(mktemp -d "${TMPDIR:-/tmp}/canary-$family.XXXXXX")
+  common=$(realpath "$(git -C "$root" rev-parse --git-common-dir)")
+  mkdir -p "${common%/*/.git}/worktrees"
+  tree=$(mktemp -d "${common%/*/.git}/worktrees/canary-$family.XXXXXX")
   trap 'git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1 || true' EXIT
   git -C "$root" worktree add --detach --quiet "$tree" HEAD
-  while IFS= read -r dep; do ln -s "$root/$dep" "$tree/$dep"; done < <(fd -t d -H --no-ignore --prune -d 3 "^(target|node_modules)\$" --base-directory "$root" | sed "s#/\$##")
+  while IFS= read -r dep; do ln -s "$root/$dep" "$tree/$dep"; done < <(fd -t d -H --no-ignore --prune -d 3 "^node_modules\$" --base-directory "$root" | sed "s#/\$##")
+  ! command -v north >/dev/null || north lane seed "$tree"
 fi
 git -C "$tree" apply "$patch"
 log=$(mktemp)
