@@ -14,6 +14,7 @@ pub(crate) mod concern_history;
 mod cloud_land;
 mod cloud_reap;
 mod token_usage;
+mod alarm_stats;
 mod fleet;
 mod gate;
 mod gate_orphan;
@@ -62,6 +63,7 @@ enum Command {
     Help,
     HelpAll,
     DesktopIdleState(Option<String>),
+    Alarm(Vec<String>),
     Hook(Vec<String>),
     Nix(Vec<String>),
     NixGc(Vec<String>),
@@ -123,6 +125,7 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
 type Forward = fn(&str, Vec<String>) -> Command;
 
 const FORWARDED: &[(&str, Forward)] = &[
+    ("alarm", |_, rest| Command::Alarm(rest)),
     ("hook", |_, rest| Command::Hook(rest)),
     ("nix", |_, rest| match rest.split_first() {
         Some((verb, tail)) if verb == "gc" => Command::NixGc(tail.to_vec()),
@@ -176,6 +179,13 @@ fn dispatch(command: Command) -> ExitCode {
         Command::DesktopIdleState(state) => match state {
             Some(value) if guard::desktop_action::record_idle(value == "idle").is_ok() => ExitCode::SUCCESS,
             _ => ExitCode::from(1),
+        },
+        Command::Alarm(arguments) => match alarm_stats::run(&arguments) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::from(2)
+            }
         },
         Command::Hook(arguments) => hook_verb::run(arguments),
         Command::Nix(arguments) => match nix_explain::run(&arguments) {

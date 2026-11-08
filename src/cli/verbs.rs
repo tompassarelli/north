@@ -9,6 +9,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("after-landing", Landing),
     ("agent-contain", Bookkeeping),
     ("agent-policy-contract", Diagnosis),
+    ("alarm", Diagnosis),
     ("autoland-status", Status),
     ("bin-references", Diagnosis),
     ("build-cache-gate", Diagnosis),

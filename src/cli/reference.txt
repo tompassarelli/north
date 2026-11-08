@@ -278,6 +278,7 @@ Commands:
   hook HOOK                                     Run an agent hook
   hook prompt-grounding                         Run the prompt grounding hook
   hook stats [--since 7d|48h]                   Print hook statistics
+  alarm stats [--since 7d|48h]                  Print each alarm source's alerts and false share
   job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...  Run a scheduled job and record its result
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault

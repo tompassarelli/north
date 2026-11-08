@@ -1,6 +1,8 @@
 pub use north_base::{error, foundation};
 pub use north_pace::credit;
 
+pub mod alarm_stats;
+pub mod alarms;
 pub mod ask_once;
 pub mod gate_lifecycle;
 pub mod gates;

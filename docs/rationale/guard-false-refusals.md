@@ -125,3 +125,14 @@ only the calls still refused are kept as the new sample, so its false share is t
   false.
 - clipboard and desktop-action: no refusal on gex45 in the window; their stored rows replayed through main refuse 0 of the 5
   and 1 false rows and keep every true row.
+
+## Alarms
+
+The same measure covers the four alarm sources: north-health, north-land-watch, ops-flow and the fleet's due-promise check
+(north#706). Every message one of them sends through `north fleet send` is appended to `alarms.jsonl` in the fleet's state
+directory (`north_fleet_store::alarms`); a notice that an alarm cleared or recovered is not counted. Alerts a reviewer has read
+are labelled `acted` or `false` in `crates/north-fleet-store/src/alarm_labels.toml`, and `north alarm stats [--since 7d]`
+prints each source's alerts, labelled rows and false share, then lists each source over 10% false with the `narrowed` line of
+its newest false row, or "not narrowed". The 2026-11-08 rows are the 9 false alerts that day's fixes record by commit message
+(north-health 3, north-land-watch 4, promise-checker 2); no acted-on row is labelled yet, so those shares are 100% until
+reviewers add the true alerts, and ops-flow reads unmeasured.

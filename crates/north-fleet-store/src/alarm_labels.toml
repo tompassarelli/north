@@ -1,0 +1,70 @@
+# Alerts of north's four alarm sources, each labelled by whether it was right (north#706).
+# label: "acted" a person or session had to act on it; "false" it cleared with no action, or a later reading contradicted it.
+# `north alarm stats` prints each source's false share from these rows within its window, and lists each source over 10% false with
+# the `narrowed` line of its newest false row, or "not narrowed". The alerts column counts the source's messages in the log
+# `alarms.jsonl` beside the fleet's state, written by every `north fleet send` from the source; it starts with the lane that added it.
+# Add a row for each alert a reviewer reads, true ones too, so the share is a rate and not a count of the false ones found.
+# The 2026-11-08 rows are the alerts that day's fixes (north#706) record by their commit messages; no acted-on row is labelled yet.
+
+[[alarm]]
+source = "north-health"
+at = "2026-11-08T03:00:00Z"
+label = "false"
+text = "ci: north/Main red, read from an HTTP 304 gh reply"
+narrowed = "6854b939d reads a 304 reply as no reading"
+
+[[alarm]]
+source = "north-health"
+at = "2026-11-08T03:00:00Z"
+label = "false"
+text = "ci: north/Main red, read from a skipped Main-is-red run at c3cdf857a7"
+narrowed = "6854b939d reads a 304 reply as no reading, and skips cancelled, skipped and neutral runs"
+
+[[alarm]]
+source = "north-health"
+at = "2026-11-08T03:00:00Z"
+label = "false"
+text = "ci: north/Main red, read from a cancelled run after 5c282bbe5f"
+narrowed = "6854b939d reads only failure, timed_out and startup_failure as red"
+
+[[alarm]]
+source = "north-land-watch"
+at = "2026-11-08T03:00:00Z"
+label = "false"
+text = "possible red main: agent_text_reads tests, still 21 min after 609db4ff7c fixed them"
+narrowed = "92e69d3cd clears the alert once a later main commit passes the Cargo run"
+
+[[alarm]]
+source = "north-land-watch"
+at = "2026-11-08T03:00:00Z"
+label = "false"
+text = "possible red main: verdict_cache tests, lingering 60 min after main went green"
+narrowed = "92e69d3cd clears the alert once a later main commit passes the Cargo run"
+
+[[alarm]]
+source = "north-land-watch"
+at = "2026-11-08T04:59:00Z"
+label = "false"
+text = "north lane : land checks running 221105 s, with no lane being checked"
+narrowed = "cdcb56ace skips a live event that names no lane"
+
+[[alarm]]
+source = "north-land-watch"
+at = "2026-11-07T22:29:00Z"
+label = "false"
+text = "not live and healthy, on each rollout while capacity-watchdog.service waited out its 10 s restart after a clean exit"
+narrowed = "0af0e3f61 reads an activating auto-restart after a clean exit as healthy"
+
+[[alarm]]
+source = "promise-checker"
+at = "2026-11-08T03:00:00Z"
+label = "false"
+text = "promise not kept: a check naming the lane's sha before the lander rebased it failed once the lane landed under a new sha"
+narrowed = "506fb6e9e judges the promise against the sha the lane landed as"
+
+[[alarm]]
+source = "promise-checker"
+at = "2026-11-08T03:00:00Z"
+label = "false"
+text = "promise not kept: the first backticked phrase of a box line's prose ran as the check"
+narrowed = "506fb6e9e reads only the last backticked command after a box line's Done when marker"

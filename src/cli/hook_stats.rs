@@ -5,7 +5,7 @@ use crate::guard::hook_stats::{Fire, PRUNE_DAYS, SAMPLES, compute, render, sampl
 
 const USAGE: &str = "Usage: north hook stats [--since 7d|48h]";
 
-fn window(text: &str) -> Option<i64> {
+pub(super) fn window(text: &str) -> Option<i64> {
     let (number, unit) = text.split_at(text.len().checked_sub(1)?);
     let number: i64 = number.parse().ok().filter(|number| *number > 0)?;
     match unit {
