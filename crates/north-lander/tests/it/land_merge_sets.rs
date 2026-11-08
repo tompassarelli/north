@@ -64,7 +64,7 @@ fn main_repo(root: &Path) -> std::path::PathBuf {
     run(root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
     run(root, &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
     write(&main, ".gitattributes", include_str!("../../../../.gitattributes"));
-    write(&main, "harness/merge-sets.toml", include_str!("../../../../harness/merge-sets.toml"));
+    write(&main, "harness/merge-sets.toml", &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness/merge-sets.toml")).unwrap());
     for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n"), ("docs/features.md", "- a.md\n")] {
         write(&main, path, text);
     }

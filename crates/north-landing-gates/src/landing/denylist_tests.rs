@@ -180,7 +180,7 @@ fn denylist_a_stale_lock_in_the_mirror_is_recovered_and_the_rules_refresh() {
     assert!(south_denylist_in(south.path(), &mirror).is_ok());
     write(&mirror, "refs/south/main.lock", "");
     write(&mirror, "north-fetch.lock", "");
-    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    let hour_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
     std::fs::File::options().write(true).open(mirror.join("north-fetch.lock")).unwrap().set_modified(hour_ago).unwrap();
     write(origin, "privacy/public-denylist.toml", "fresh = true\n");
     commit_all(origin, "new rules");
