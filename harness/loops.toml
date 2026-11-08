@@ -292,20 +292,20 @@ defaults = [
 
 [[loop]]
 name = "remote-branches"
-decision = "which origin branch in a repository north lands to is deleted as landed, deleted as superseded by named commits on main, or kept and named in an open box"
+decision = "which origin branch in a repository north lands to is deleted as landed, deleted as superseded by named commits on main whose every added line is on main, or kept and named in an open box"
 sites = [
   "crates/north-lanes/src/lanes/gc/remote.rs",
   "crates/north-lanes/src/lanes/gc/remote_boxes.rs",
   "crates/north-landing/src/land/after/cleanup.rs",
 ]
-signal = "origin branches older than 24 h that are on main by no commit and named in no open box, per lane gc run"
-updated_by = "north lane gc, run every hour by lane-gc.timer on the lander host; the origin sweep itself runs when remote.txt is 6 hours old"
-cadence_hours = 6
+signal = "origin branches older than 1 h that are on main by no commit and named in no open box, per lane gc run"
+updated_by = "north lane gc, run every hour by lane-gc.timer on the lander host; the origin sweep itself runs when remote.txt is 1 hour old"
+cadence_hours = 1
 record = "agents/lane-gc/remote.txt"
 
 host = "lander"
 constants = [
-  "crates/north-lanes/src/lanes/gc/remote.rs::BOX_AFTER_H",
+  "crates/north-lanes/src/lanes/gc/remote.rs::ROUTE_AFTER_H",
 ]
 
 [[loop]]

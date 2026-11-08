@@ -55,7 +55,7 @@ impl Rig {
         rig.stub("supply-alert", "[ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1\nfor arg; do printf '%s|' \"$arg\"; done >>\"$LANE_GC_FIXTURE/alerts\"\necho >>\"$LANE_GC_FIXTURE/alerts\"\n");
         rig.stub(
             "north",
-            "case \"$1 $2\" in\n\"fleet list\") cat \"$FLEET_TEST_FILE\" ;;\n\"threads \"*) printf 'item\\tholder\\n' ;;\n\"fleet send\") [ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1; printf '%s\\n' \"$*\" >>\"$FLEET_TEST_SENDS\" ;;\n*) exit 1 ;;\nesac\n",
+            "case \"$1 $2\" in\n\"fleet list\") cat \"$FLEET_TEST_FILE\" ;;\n\"threads \"*) printf 'item\\tholder\\n' ;;\n\"safe-push abandon\") printf '%s\\n' \"$*\" >>\"$LANE_GC_FIXTURE/abandons\"; git push -q origin \":refs/heads/$4\" ;;\n\"fleet send\") [ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1; printf '%s\\n' \"$*\" >>\"$FLEET_TEST_SENDS\" ;;\n*) exit 1 ;;\nesac\n",
         );
         rig
     }
@@ -322,7 +322,7 @@ fn a_hundred_unlanded_lanes_cost_one_github_call() {
 }
 
 #[test]
-fn the_origin_sweep_waits_six_hours_for_its_own_record() {
+fn the_origin_sweep_waits_an_hour_for_its_own_record() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     let rig = Rig::new(root, &root.join("home"));
@@ -331,8 +331,117 @@ fn the_origin_sweep_waits_six_hours_for_its_own_record() {
     rig.fleet(&[("north-parent", None, "north")]);
     let record = "# lane gc 2099-01-01T00:00:00.000Z: origin branch decisions\nkept\n";
     write(&root.join("remote.txt"), record);
-    rig.lane_gc("2099-01-01T05:00:00Z", &[], &[]);
+    rig.lane_gc("2099-01-01T00:30:00Z", &[], &[]);
     assert_eq!(rig.read("remote.txt"), record);
-    rig.lane_gc("2099-01-01T06:00:00Z", &[], &[]);
+    rig.lane_gc("2099-01-01T01:00:00Z", &[], &[]);
     assert!(!rig.read("remote.txt").contains("kept"));
+}
+
+impl Rig {
+    fn stub_origin(&self, open: &[u64]) {
+        let rows: Vec<String> = open.iter().map(|number| format!("{{\"number\":{number},\"repository\":{{\"name\":\"north\"}}}}")).collect();
+        self.stub("git", "case \"$*\" in *\"remote get-url origin\"*) echo https://github.com/tompassarelli/north.git; exit 0 ;; esac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n");
+        self.stub(
+            "gh",
+            &format!(
+                "printf '%s\\n' \"$*\" >>\"$LANE_GC_FIXTURE/gh-calls\"\n\
+                 case \"$1 $2\" in\n\
+                 \"search issues\") echo '[{rows}]' ;;\n\
+                 \"api graphql\") case \"$*\" in *refs*) cat \"$LANE_GC_FIXTURE/branches.json\" ;; *) cat \"$LANE_GC_FIXTURE/issues.json\" ;; esac ;;\n\
+                 \"api repos/tompassarelli/north\") echo '[{{\"archived\":false}}]' ;;\n\
+                 \"issue view\") body=$(sed -e 's/\\\\/\\\\\\\\/g' -e 's/\"/\\\\\"/g' \"$LANE_GC_FIXTURE/issue-$3.txt\" | awk 'BEGIN{{ORS=\"\\\\n\"}}{{print}}'); printf '{{\"body\":\"%s\",\"state\":\"OPEN\"}}\\n' \"$body\" ;;\n\
+                 \"issue edit\") cat >\"$LANE_GC_FIXTURE/issue-$3.txt\" ;;\n\
+                 \"issue create\") cat >>\"$LANE_GC_FIXTURE/created.txt\"; echo https://github.com/tompassarelli/north/issues/9999 ;;\n\
+                 \"api repos/tompassarelli/north/\"*) case \"$2\" in *actions/runs*) echo '[{{\"total_count\":0,\"workflow_runs\":[]}}]' ;; *) echo '[[]]' ;; esac ;;\n\
+                 *) exit 1 ;;\n\
+                 esac\n",
+                rows = rows.join(",")
+            ),
+        );
+    }
+}
+
+// KEEP(bug): on 2026-11-08 north lane gc --remote called all 13 origin branches LIVE for "a fresh commit", so scratch/n882-climb, n882-retain and n882-textrel stayed on origin though main held their changes and ten unlanded lanes (six north#892 scratch lanes, q902-bets, n903-waits-wip, n706-pin-retire) waited for Tom to ask; north#941
+#[test]
+fn the_origin_sweep_abandons_branches_whose_changes_are_on_main_and_files_a_box_for_each_unlanded_one() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let rig = Rig::new(root, &root.join("home"));
+    let main = Classified::project(&rig, "north");
+    let lane = |branch: &str, file: &str, lines: &str, message: &str| {
+        rig.git(&main, &["checkout", "-q", "-b", branch, "main"]);
+        write(&main.join(file), lines);
+        rig.git(&main, &["add", file]);
+        rig.git(&main, &["commit", "-qm", message]);
+        rig.git(&main, &["push", "-q", "origin", branch]);
+        rig.git(&main, &["checkout", "-q", "main"]);
+    };
+    lane("scratch/n882-climb", "climb.txt", "a\nb\nc\n", "Climb the tiers\n\n(north#882)");
+    lane("scratch/n882-lines", "lines.txt", "a\nb\nmissing\n", "Keep the lines\n\n(north#882)");
+    lane("scratch/n882-retain", "retain.txt", "r\n", "Retain the record\n\n(north#882)");
+    lane("scratch/n882-textrel", "textrel.txt", "t\n", "Text release\n\n(north#882)");
+    let unlanded = [
+        ("scratch/n892-promise", 892),
+        ("scratch/n892-expiry", 892),
+        ("scratch/n892-solo", 892),
+        ("scratch/n892-solo-v2", 892),
+        ("scratch/n892-shared-config", 892),
+        ("scratch/n892-addressee", 892),
+        ("q902-bets", 842),
+        ("scratch/n903-waits-wip", 903),
+        ("n706-pin-retire", 706),
+    ];
+    for (branch, issue) in unlanded {
+        lane(branch, &format!("{}.txt", branch.replace('/', "-")), &format!("{branch}\n"), &format!("Work of {branch}\n\n(north#{issue})"));
+    }
+    rig.git(&main, &["merge", "-q", "--ff-only", "scratch/n882-textrel"]);
+    write(&main.join("climb.txt"), "a\nb\nc\nd\n");
+    rig.git(&main, &["add", "climb.txt"]);
+    rig.git(&main, &["commit", "-qm", "Climb the tiers\n\n(north#882)"]);
+    write(&main.join("lines.txt"), "a\nb\nc\n");
+    rig.git(&main, &["add", "lines.txt"]);
+    rig.git(&main, &["commit", "-qm", "Keep the lines\n\n(north#882)"]);
+    rig.git(&main, &["cherry-pick", "scratch/n882-retain"]);
+    rig.git(&main, &["push", "-q", "origin", "main"]);
+    let head = rig.git(&main, &["rev-parse", "main"]);
+    let branches: Vec<Value> = rig.git(&main, &["for-each-ref", "--format=%(refname:short) %(objectname) %(committerdate:iso-strict)", "refs/remotes/origin"]).lines().filter_map(|line| {
+        let mut fields = line.split(' ');
+        let name = fields.next()?.strip_prefix("origin/")?.to_owned();
+        let (oid, date) = (fields.next()?, fields.next()?);
+        (name != "HEAD").then(|| json!({"name": name, "target": {"oid": oid, "committedDate": date, "status": null}}))
+    }).collect();
+    let page = |connection: &str, nodes: Vec<Value>| json!({"data": {"repository": {connection: {"pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": nodes}}}}).to_string();
+    write(&root.join("branches.json"), &page("refs", branches));
+    write(&root.join("issues.json"), &page("issues", [892, 842, 903].map(|number| json!({"number": number, "title": "open", "body": "## Done when\n- [ ] the box"})).to_vec()));
+    for number in [892, 842, 903] {
+        write(&root.join(format!("issue-{number}.txt")), "## Done when\n- [ ] the box\n");
+    }
+    rig.stub_origin(&[892, 842, 903]);
+    rig.fleet(&[("north-parent", None, "north")]);
+    let now = String::from_utf8(Command::new("date").args(["-u", "-d", "+30 hours", "+%FT%TZ"]).output().unwrap().stdout).unwrap();
+
+    let out = rig.lane_gc(now.trim(), &[], &["--remote", "--repo", "north"]);
+
+    let abandoned: Vec<String> = rig.read("abandons").lines().map(|line| line.split(' ').nth(3).unwrap().to_owned()).collect();
+    let mut abandoned_sorted = abandoned.clone();
+    abandoned_sorted.sort();
+    assert_eq!(abandoned_sorted, ["scratch/n882-climb", "scratch/n882-retain", "scratch/n882-textrel"], "{out}");
+    assert!(rig.read("abandons").lines().all(|line| line.starts_with("safe-push abandon --superseded ") && line.contains(" --by ")), "{}", rig.read("abandons"));
+    let remaining = rig.git(&main, &["ls-remote", "--heads", "origin"]);
+    for gone in &abandoned {
+        assert!(!remaining.contains(&format!("refs/heads/{gone}")), "{gone} still on origin");
+    }
+    for (kept, _) in unlanded.iter().chain(&[("scratch/n882-lines", 0)]) {
+        assert!(remaining.lines().any(|line| line.ends_with(&format!("refs/heads/{kept}"))), "{kept} was deleted: {out}");
+    }
+    assert_eq!(rig.git(&main, &["rev-parse", "origin/main"]), head);
+
+    let body = |number: u64| rig.read(&format!("issue-{number}.txt"));
+    for branch in ["scratch/n892-promise", "scratch/n892-expiry", "scratch/n892-solo", "scratch/n892-solo-v2", "scratch/n892-shared-config", "scratch/n892-addressee"] {
+        assert!(body(892).contains(&format!("`{branch}`")), "north#892 names no box for {branch}:\n{}\n{out}", body(892));
+    }
+    assert!(body(842).contains("`q902-bets`") && body(903).contains("`scratch/n903-waits-wip`"), "{}\n{}", body(842), body(903));
+    let created = rig.read("created.txt");
+    assert!(created.contains("`n706-pin-retire`") && created.contains("`scratch/n882-lines`"), "{created}");
+    assert!(out.contains("origin scratch/n882-lines: KEEP unlanded"), "{out}");
 }

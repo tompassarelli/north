@@ -10,19 +10,22 @@ when it is finished, and never backs it up or pushes a tag:
   - superseded: a lane or local branch is not landed but every issue it names
     (Refs/Fixes/Closes/Part of in its commits) is closed; an origin branch is superseded only
     when each of its commits has a commit on origin/main with its subject or its author and
-    author date, and the deletion names those commits.
+    author date and every line the branch adds is in that file on origin/main, and the
+    deletion goes through safe-push abandon --superseded BRANCH --by COMMIT naming the first
+    of those commits.
 A worktree under worktrees/ must also have no uncommitted or untracked files, no process with
 its cwd or an open file inside, no live Fleet session, no lock, no undecided land ticket in a
 queue or outbox on this host naming it, and no touch within
 --idle-hours (default 3); it is removed with git worktree remove, then its branch. A local
 branch with no worktree passes the same idle check and, when superseded, the local liveness checks
 (live claim, live session, a peer host's hold). Origin branches are
-deleted when landed or superseded and not protected by an open PR, active Actions, Autoland,
-a land ticket, a claim, a live worktree or a push under 24h (4h for claude/land-*); --remote
-sweeps only origin branches. An unlanded origin branch kept for 24h that no unchecked box in
-an open issue names gets one: a box on the first open issue its commits cite, else a new issue
+deleted when landed or superseded, whatever their age, and not protected by an open PR, active
+Actions, Autoland or a land ticket; an origin branch whose changes are not on main is left alone
+while a claim, a live worktree or a live source author holds it (and for 4h if it is a
+claude/land-* ref); --remote sweeps only origin branches. An unlanded origin branch no one holds,
+older than 1h, that no unchecked box in an open issue names gets one: a box on the first open issue its commits cite, else a new issue
 in its repository. Every origin decision is written to remote.txt beside the unlanded report. A run without --remote sweeps
-origin branches only when remote.txt is 6 hours old or absent, so the per-repository GitHub calls happen four times a day.
+origin branches only when remote.txt is 1 hour old or absent, so lane-gc.timer's hourly run sweeps them every time.
 A worktree it keeps loses its build output: when its branch is landed or it has had no touch
 within --idle-hours, its git-ignored target/ is deleted unless the lane is locked or a process
 holds a file in it open, and the run prints the path and size freed. A run over every container

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -38,7 +39,41 @@ pub(super) fn superseding(main: &Path, base: &str, tip: &str) -> Result<Option<V
             named.push(sha.to_string());
         }
     }
-    Ok((!named.is_empty()).then_some(named))
+    if named.is_empty() || !added_lines_on(main, base, fork.out.trim(), tip)? {
+        return Ok(None);
+    }
+    Ok(Some(named))
+}
+
+fn added_lines_on(main: &Path, base: &str, fork: &str, tip: &str) -> Result<bool, String> {
+    let diff = git(main, &["diff", "--no-renames", "--no-ext-diff", "--no-color", "--unified=0", &format!("{fork}..{tip}")]);
+    if !diff.ok {
+        return Err("supersession evidence unavailable".into());
+    }
+    let (mut header, mut file) = (false, None::<&str>);
+    let mut present: HashMap<&str, HashSet<String>> = HashMap::new();
+    for line in diff.out.lines() {
+        if line.starts_with("diff --git ") {
+            (header, file) = (true, None);
+        } else if header && line.starts_with("@@") {
+            header = false;
+        } else if header {
+            if let Some(path) = line.strip_prefix("+++ b/") {
+                file = Some(path);
+            } else if line.starts_with("Binary files ") || line.starts_with("GIT binary patch") {
+                return Ok(false);
+            }
+        } else if let (Some(added), Some(path)) = (line.strip_prefix('+'), file) {
+            if !present.contains_key(path) {
+                let shown = git(main, &["show", &format!("{base}:{path}")]);
+                present.insert(path, if shown.ok { shown.out.lines().map(str::to_owned).collect() } else { HashSet::new() });
+            }
+            if !present[path].contains(added) {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
 }
 
 pub(super) fn box_line(branch: &str, tip: &str, age_h: i64) -> String {

@@ -43,6 +43,12 @@ pub(super) fn command(args: &[&str]) -> Ran {
     spawn(command, LIMIT, &[])
 }
 
+pub(super) fn in_dir(dir: &Path, args: &[&str]) -> Ran {
+    let mut command = Command::new(args[0]);
+    command.args(&args[1..]).current_dir(dir);
+    spawn(command, PUSH_LIMIT, &[])
+}
+
 pub(super) fn git_with(dir: &Path, args: &[&str], limit: Duration, extra: &[(&str, &Path)]) -> Ran {
     let mut command = Command::new("git");
     command.args(["--no-optional-locks", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "-C"]).arg(dir).args(args);

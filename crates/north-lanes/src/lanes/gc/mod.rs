@@ -39,7 +39,7 @@ pub use audit::run as repo;
 const SKIP: [&str; 3] = ["clients", "resources", "archive"];
 pub const USAGE: &str = include_str!("usage.txt").trim_ascii_end();
 const REMOTE_RECORD: &str = "remote.txt";
-const REMOTE_EVERY_MS: i64 = 6 * 3_600_000;
+const REMOTE_EVERY_MS: i64 = 3_600_000;
 
 #[derive(Clone, Debug)]
 pub(super) struct Options {

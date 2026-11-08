@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::Gc;
 use super::evidence::{landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
-use super::exec::{api, git, git_slow, verified};
+use super::exec::{api, git, git_slow, in_dir, verified};
 use super::remote_boxes::{append_box, box_line, cited_open, named_in_open_box, open_issue, superseding};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::RemoteStale;
@@ -16,7 +16,7 @@ use north_base::foundation::clock::Timestamp;
 const BASE: &str = "refs/remotes/origin/main";
 const LANDING: &str = "claude/land-";
 const HOUR_MS: i64 = 3_600_000;
-const BOX_AFTER_H: i64 = 24;
+const ROUTE_AFTER_H: i64 = 1;
 
 struct Evidence {
     repo: String,
@@ -25,6 +25,12 @@ struct Evidence {
     active: HashSet<String>,
     active_tips: HashSet<String>,
     pushes: Option<HashMap<String, i64>>,
+}
+
+enum Changes {
+    OnMain,
+    Superseded(Vec<String>),
+    Unlanded,
 }
 
 struct Branch<'a> {
@@ -94,7 +100,7 @@ fn live_ticket(home: &Path, branch: &str) -> Option<String> {
 fn github_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
     if protected_branch(branch.name) {
         Some("protected branch")
-    } else if evidence.pushes.is_none() {
+    } else if branch.landing && evidence.pushes.is_none() {
         Some("a push activity unavailable")
     } else if evidence.prs.contains(branch.name) {
         Some("b open PR")
@@ -104,19 +110,6 @@ fn github_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
         Some("b pending autoland")
     } else {
         None
-    }
-}
-
-fn age_hold(evidence: &Evidence, branch: &Branch) -> Option<&'static str> {
-    let pushed = evidence.pushes.as_ref().is_some_and(|pushes| pushes.contains_key(&format!("refs/heads/{}", branch.name)));
-    if branch.on_main {
-        Some("")
-    } else if branch.landing {
-        (branch.age_h < 4.0).then_some("a landing ref pushed under 4h")
-    } else if branch.age_h < 24.0 {
-        Some("a fresh commit")
-    } else {
-        pushed.then_some("a branch pushed under 24h")
     }
 }
 
@@ -186,14 +179,20 @@ impl Gc {
         })
     }
 
-    fn live_reason(&mut self, name: &str, main: &Path, evidence: &Evidence, branch: &Branch) -> String {
+    fn live_reason(&mut self, name: &str, main: &Path, evidence: &Evidence, branch: &Branch, changes: &Changes) -> String {
         if let Some(ticket) = live_ticket(&self.home, branch.name) {
             return format!("c live land ticket {ticket}");
         }
-        match github_hold(evidence, branch).or_else(|| age_hold(evidence, branch)) {
-            Some(reason) => reason.to_string(),
-            None => self.holder_reason(name, main, branch).unwrap_or_else(|_| "c Fleet holder liveness unavailable".into()),
+        if let Some(hold) = github_hold(evidence, branch) {
+            return hold.to_string();
         }
+        if !matches!(changes, Changes::Unlanded) {
+            return String::new();
+        }
+        if branch.landing && branch.age_h < 4.0 {
+            return "a landing ref pushed under 4h".into();
+        }
+        self.holder_reason(name, main, branch).unwrap_or_else(|_| "c Fleet holder liveness unavailable".into())
     }
 
     fn holder_reason(&mut self, name: &str, main: &Path, branch: &Branch) -> Result<String, String> {
@@ -221,27 +220,33 @@ impl Gc {
 
     fn remote_branch(&mut self, name: &str, main: &Path, evidence: &Evidence, node: &Value, split: &mut Split) -> Result<(), String> {
         let branch = self.branch_facts(name, main, evidence, node)?;
-        let reason = self.live_reason(name, main, evidence, &branch);
+        let changes = if branch.on_main { Changes::OnMain } else { superseding(main, BASE, branch.tip)?.map_or(Changes::Unlanded, Changes::Superseded) };
+        let reason = self.live_reason(name, main, evidence, &branch, &changes);
         if !reason.is_empty() {
             split.skipped += 1;
             self.say(format!("{name}: origin {}: LIVE({reason})", branch.name));
             return Ok(());
         }
         let age = branch.age_h.floor() as i64;
-        if branch.on_main {
-            self.stale.repo(name).remote_landed.push(branch.name.into());
-            return self.delete_remote(name, main, &branch, "landed", age, split);
+        match changes {
+            Changes::OnMain => {
+                self.stale.repo(name).remote_landed.push(branch.name.into());
+                let by = verified(main, BASE).ok_or("origin/main unavailable")?;
+                self.delete_remote(name, main, &branch, "landed", &by, split)
+            }
+            Changes::Superseded(commits) => self.delete_remote(name, main, &branch, &format!("superseded by {}", commits.join(" ")), &commits[0], split),
+            Changes::Unlanded => self.route_unlanded(name, main, evidence, &branch, age, split),
         }
-        if let Some(commits) = superseding(main, BASE, branch.tip)? {
-            return self.delete_remote(name, main, &branch, &format!("superseded by {}", commits.join(" ")), age, split);
-        }
+    }
+
+    fn route_unlanded(&mut self, name: &str, main: &Path, evidence: &Evidence, branch: &Branch, age: i64, split: &mut Split) -> Result<(), String> {
         let issues = named_issues(main, &own_repo(main, name), BASE, branch.tip)?;
         let states = self.issue_states(&issues);
         let owner = self.owner(name)?;
         let described = if issues.is_empty() { vec!["fault: names no issue".to_string()] } else { issues.iter().zip(&states).map(|(item, state)| format!("{item}={}", state.label())).collect() };
         self.stale.repo(name).remote_stale.push(RemoteStale { branch: branch.name.into(), age_h: age, issues: described.clone(), owner });
         split.kept += 1;
-        let boxed = if age >= BOX_AFTER_H { self.boxed(main, evidence, &branch, age)? } else { format!("under {BOX_AFTER_H}h, no box yet") };
+        let boxed = if age >= ROUTE_AFTER_H { self.boxed(main, evidence, branch, age)? } else { format!("under {ROUTE_AFTER_H}h, no box yet") };
         self.say(format!("{name}: origin {}: KEEP unlanded ({age}h; {}; {boxed})", branch.name, described.join(" ")));
         Ok(())
     }
@@ -275,14 +280,14 @@ impl Gc {
         Ok(&self.open[repo])
     }
 
-    fn delete_remote(&mut self, name: &str, main: &Path, branch: &Branch, class: &str, age: i64, split: &mut Split) -> Result<(), String> {
+    fn delete_remote(&mut self, name: &str, main: &Path, branch: &Branch, class: &str, by: &str, split: &mut Split) -> Result<(), String> {
         split.deletable += 1;
+        let age = branch.age_h.floor() as i64;
         self.say(format!("{name}: origin {}: STALE {class} ({age}h; delete)", branch.name));
         if self.options.dry_run {
             return Ok(());
         }
-        let lease = format!("--force-with-lease=refs/heads/{}:{}", branch.name, branch.tip);
-        let deletion = git_slow(main, &["push", "-q", &lease, "origin", &format!(":refs/heads/{}", branch.name)]);
+        let deletion = in_dir(main, &["north", "safe-push", "abandon", "--superseded", branch.name, "--by", by]);
         if !deletion.ok {
             self.say(format!("{name}: keep origin {}: delete failed: {}", branch.name, deletion.last_err_line()));
             return Ok(());
