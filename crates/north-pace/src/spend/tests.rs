@@ -76,8 +76,10 @@ fn a_session_trip_priced_before_a_recalibration_is_lifted_at_the_new_price_and_p
     assert!(stale.line.contains("at 3.529 points per dollar"), "{}", stale.line);
     let later = NOW + 120.0;
     assert_eq!(tripwire::trip(&rules(), "claude:b", &[], &spenders, 0.465, later), None);
-    let held = tripwire::judge(std::slice::from_ref(&stale), Vec::new(), later, 15.0 * 60.0, |_| 3.529);
+    let held = tripwire::judge(std::slice::from_ref(&stale), Vec::new(), later, &rules(), |_| 3.529);
     assert_eq!(held.current, vec![stale.clone()], "an unconfirmed trip at the same price holds its window");
-    let lifted = tripwire::judge(&[stale], Vec::new(), later, 15.0 * 60.0, |_| 0.465);
+    let aged = tripwire::judge(std::slice::from_ref(&stale), Vec::new(), NOW + 11.0 * 60.0, &rules(), |_| 3.529);
+    assert!(aged.current.is_empty(), "on 2026-11-08 n882-text's session trip held every b start from 9:17 to 9:32 AM, the fleet's 15 min, after its own 10 min burst: {:?}", aged.current);
+    let lifted = tripwire::judge(&[stale], Vec::new(), later, &rules(), |_| 0.465);
     assert!(lifted.current.is_empty(), "{:?}", lifted.current);
 }

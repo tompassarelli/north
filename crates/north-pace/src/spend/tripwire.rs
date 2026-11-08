@@ -37,6 +37,13 @@ pub struct Trip {
     pub priced: Option<f64>,
 }
 
+impl Trip {
+    /// Seconds the trip holds after the tick that last confirmed it: the window of the burst it measured, a session's when it was priced and the fleet's otherwise, so a stopped session's burst lapses with its own window.
+    pub fn holds(&self, rules: &Rules) -> f64 {
+        if self.priced.is_some() { rules.session_trip.minutes * 60.0 } else { rules.fleet_trip.minutes * 60.0 }
+    }
+}
+
 /// How far the five-hour window rose in the last `minutes`: the latest reading less the earliest
 /// one inside the span that shares its reset.
 pub fn rise(samples: &[Sample], now: f64, minutes: f64) -> f64 {
@@ -108,10 +115,10 @@ pub struct Judged {
     pub new: Vec<Trip>,
 }
 
-/// The trips in force: every confirmed trip, and each earlier trip within `span` that this tick did not confirm, unless
+/// The trips in force: every confirmed trip, and each earlier trip within its burst's window (`Trip::holds`) that this tick did not confirm, unless
 /// a session trip priced at another rate than `price` gives its account now, so a recalibration lifts it at once.
-pub fn judge(previous: &[Trip], confirmed: Vec<Trip>, now: f64, span: f64, price: impl Fn(&str) -> f64) -> Judged {
-    let live: Vec<&Trip> = previous.iter().filter(|trip| now - trip.at <= span).collect();
+pub fn judge(previous: &[Trip], confirmed: Vec<Trip>, now: f64, rules: &Rules, price: impl Fn(&str) -> f64) -> Judged {
+    let live: Vec<&Trip> = previous.iter().filter(|trip| now - trip.at <= trip.holds(rules)).collect();
     let new = confirmed.iter().filter(|trip| !live.iter().any(|earlier| earlier.account == trip.account)).cloned().collect();
     let repriced = |earlier: &Trip| earlier.priced.is_some_and(|priced| (priced - price(&earlier.account)).abs() > 1e-9);
     let kept: Vec<Trip> = live.into_iter().filter(|earlier| !confirmed.iter().any(|trip| trip.account == earlier.account) && !repriced(earlier)).cloned().collect();

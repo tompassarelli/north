@@ -33,12 +33,11 @@ pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working
     view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name), turn: turn(name) }, signed_in, keyed(cfg))
 }
 
-/// Trips the last tick confirmed within the longer burst's span; a tick that stopped confirming one
-/// lets it lapse.
+/// Trips the last tick confirmed within the window of the burst each measured; a tick that stopped
+/// confirming one lets it lapse.
 fn trips(listed: &Value, rules: &Rules, at: f64) -> Vec<Trip> {
     let all: Vec<Trip> = serde_json::from_value(listed["trips"].clone()).unwrap_or_default();
-    let span = rules.fleet_trip.minutes.max(rules.session_trip.minutes) * 60.0;
-    all.into_iter().filter(|trip| at - trip.at <= span).collect()
+    all.into_iter().filter(|trip| at - trip.at <= trip.holds(rules)).collect()
 }
 
 fn read(path: &Path) -> Value {
