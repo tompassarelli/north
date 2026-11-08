@@ -1,0 +1,4 @@
+{"arm":"base","detector":"pattern","generation":"south@08b2880d05","kind":"bad","repeats":true,"sample":1}
+{"arm":"lane","detector":"pattern","generation":"south@7348c4309e","kind":"bad","repeats":false,"sample":0}
+{"arm":"base","detector":"pattern","generation":"south@08b2880d05","kind":"bad","repeats":true,"sample":0}
+{"arm":"lane","detector":"pattern","generation":"south@7348c4309e","kind":"bad","repeats":false,"sample":1}

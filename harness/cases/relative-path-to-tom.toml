@@ -1,0 +1,8 @@
+kind = "bad"
+session = "dc377083-ee4f-4cc1-8d48-38594e50ea8f"
+message = "ddf5b39d-60dc-4ab4-aa07-fa36fefb7ff4"
+fleet_session = "proxy"
+behavior = "names a file to Tom by a repo-relative path such as south/agents/decisions/..., not a full absolute path starting at /home/tom/code"
+
+[detector]
+repeats = '(^|[\s(`])(south|north|wisp|nixos-config)/(agents|crates|docs|harness|hosts|src)/|`(agents|crates|docs|harness|hosts|src)/[A-Za-z0-9_.-]'

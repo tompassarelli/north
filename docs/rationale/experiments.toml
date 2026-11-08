@@ -620,3 +620,16 @@ command = "journalctl --user -u fleet-tick.service --since '2026-11-07 10:00' --
 expect = "0"
 review = "2026-11-09"
 owner = "tompassarelli/north#637"
+
+[[experiment]]
+id = "absolute-paths-to-tom"
+change = "The one-line-risk rule in south agents/rules.toml also says every file path shown to Tom is a full absolute path, never relative to a repository (south 4e8bb23df9)"
+landed = "4e8bb23df9"
+metric = "none"
+measure = "Tom's typed messages from 2026-11-09 to 2026-11-23, read with north convo, that ask for a full path or say he could not find a file an agent named: keep the rule at 0 such messages, bring it to Tom with the count at 1 or more"
+direction = "down"
+bar = 0.0
+min_n = 0
+after = ["2026-11-09", "2026-11-23"]
+review = "2026-11-25"
+owner = "tompassarelli/south#78"
