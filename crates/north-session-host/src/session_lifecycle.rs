@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use north_base::lifecycle::{Lifecycle, Owner, Refusal, State, Store};
+use north_base::lifecycle::{Effect, Leased, Lifecycle, Owner, Refusal, State, Store};
 use serde_json::Value;
 
 use north_base::error::{NorthError, NorthResult};
@@ -171,9 +171,14 @@ impl Phases {
     /// Records that a host now serves the session, held by that host's process; a host gone before it could be
     /// read leaves the session Parked.
     pub fn live(&mut self, record: Launch<'_>, host_pid: Option<u32>, cause: &str) -> NorthResult<Phase> {
+        self.live_with(record, host_pid, cause, &[])
+    }
+
+    /// [`Self::live`] that commits `effects` with the move to Live; a host gone before it could be read queues none.
+    pub fn live_with(&mut self, record: Launch<'_>, host_pid: Option<u32>, cause: &str, effects: &[Effect]) -> NorthResult<Phase> {
         let now = Timestamp::now();
         let moved = match host_pid.and_then(Owner::of) {
-            Some(host) => self.store.transition_for::<Session>(&record.instance(), Phase::Live, cause, now, &host)?,
+            Some(host) => self.store.transition_with_effects::<Session>(&record.instance(), Phase::Live, cause, now, Some(&host), effects)?,
             None => self.store.transition::<Session>(&record.instance(), Phase::Parked, &format!("{cause}; its host was gone before it could be read"), now)?,
         };
         admitted(record, moved.map(|moved| moved.state))
@@ -186,6 +191,11 @@ impl Phases {
 
     pub fn current(&self, record: Launch<'_>) -> NorthResult<Option<Phase>> {
         Ok(self.store.current::<Session>(&record.instance())?.map(|current| current.state))
+    }
+
+    /// Sends every effect of `kind` this process may deliver, as [`Store::deliver`] does; returns how many were delivered.
+    pub fn deliver(&mut self, kind: &str, hold: Duration, send: impl FnMut(&Leased) -> Result<(), String>) -> NorthResult<usize> {
+        self.store.deliver(kind, Timestamp::now(), hold, send)
     }
 }
 

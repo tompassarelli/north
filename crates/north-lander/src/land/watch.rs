@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+mod journal;
+
+use journal::{Entry, Journaled, adopt_journal_files, journal, take_journaled};
 
 use super::after;
 use super::after_landing_lifecycle::{self as lifecycle, AfterLandingRun, Run};
@@ -15,7 +16,6 @@ use super::checks::Verdict;
 use super::lander::Lander;
 use super::after::owner::{self, Reverted};
 use super::post_land::{self, Found, Hosts, Outcome};
-use super::queue;
 use super::jobs::Jobs;
 use super::setting;
 use super::slots::select::Config;
@@ -24,21 +24,11 @@ use super::telemetry::epoch;
 use super::trace::{self, AFTER, COVERED_BY, Category, PHASE, Span, VERDICT};
 
 const WORKTREE: &str = "lander-revert";
-const JOURNAL: &str = "following";
 const RETRY: Duration = Duration::from_secs(30);
 const UNSETTLED: usize = 3;
 const AFTER_RUNS: &str = "landing.after-runs";
 
 pub use super::after::LandedLane;
-
-#[derive(Serialize, Deserialize)]
-struct Entry {
-    base: String,
-    head: String,
-    lanes: Vec<LandedLane>,
-}
-
-type Journaled = (f64, Entry);
 
 struct Followed {
     head: String,
@@ -123,23 +113,22 @@ pub struct Watch {
     hosts: Hosts,
     pub jobs: Jobs,
     draining: bool,
+    /// The queue whose journaled runs this watch holds, empty until it resumes or follows one.
+    queue: PathBuf,
 }
 
-fn journal(lander: &Lander) -> PathBuf {
-    lander.queue.join(JOURNAL)
-}
-
-fn entry_path(lander: &Lander, head: &str) -> PathBuf {
-    journal(lander).join(format!("{head}.json"))
-}
-
-fn journaled_at(path: &Path) -> f64 {
-    fs::metadata(path).and_then(|metadata| metadata.modified()).ok().and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok()).map_or_else(epoch, |since| since.as_secs_f64())
-}
-
-fn read_entry(path: &Path) -> Result<Entry, String> {
-    let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&text).map_err(|error| error.to_string())
+impl Drop for Watch {
+    fn drop(&mut self) {
+        let held = self.running.iter().map(|running| &running.batch).chain(self.searching.iter().map(|searching| &searching.batch)).chain(&self.pending.batches);
+        let heads: Vec<&str> = held.flat_map(heads).collect();
+        if heads.is_empty() {
+            return;
+        }
+        match lifecycle::host() {
+            Ok(mut store) => lifecycle::hand_back(&mut store, &self.queue, heads),
+            Err(error) => println!("{error}"),
+        }
+    }
 }
 
 fn heads(batch: &Batch) -> impl Iterator<Item = &str> {
@@ -163,24 +152,23 @@ fn state(head: &str) -> Option<Run> {
 impl Watch {
     pub fn resume(lander: &Lander) -> Self {
         let mut watch = Self::default();
-        let Ok(entries) = fs::read_dir(journal(lander)) else { return watch };
-        let mut paths: Vec<(f64, PathBuf)> = entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).map(|path| (journaled_at(&path), path)).collect();
-        paths.sort_by(|left, right| left.0.total_cmp(&right.0));
-        let mut journaled: Vec<Journaled> = Vec::new();
-        for (at, path) in paths {
-            match read_entry(&path) {
-                Ok(entry) if state(&entry.head) != Some(Run::Retired) => journaled.push((at, entry)),
-                Ok(entry) => {
-                    let _ = fs::remove_file(&path);
-                    println!("north land: {} already has its after-landing verdict; dropping its journal entry", entry.head);
-                }
-                Err(error) => {
-                    println!("north land: dropping the unreadable after-landing journal entry {}: {error}", path.display());
-                    moved(path.file_stem().and_then(|stem| stem.to_str()), Run::Retired, &format!("its journal entry is unreadable: {error}"));
-                    let _ = fs::remove_file(&path);
-                }
+        watch.queue.clone_from(&lander.queue);
+        adopt_journal_files(lander);
+        let mut journaled: Vec<Journaled> = match take_journaled(lander) {
+            Ok(taken) => taken,
+            Err(error) => {
+                println!("{error}");
+                return watch;
             }
-        }
+        };
+        journaled.retain(|(_, entry)| {
+            let open = state(&entry.head) != Some(Run::Retired);
+            if !open {
+                println!("north land: {} already has its after-landing verdict; settling its journaled run", entry.head);
+                lifecycle::host().into_iter().for_each(|mut store| lifecycle::settled(&mut store, &lander.queue, &entry.head));
+            }
+            open
+        });
         for (_, runner) in post_land::adoptable(&lander.queue) {
             let (mut covered, rest): (Vec<Journaled>, Vec<Journaled>) = journaled.into_iter().partition(|(_, entry)| runner.heads.contains(&entry.head));
             journaled = rest;
@@ -242,19 +230,27 @@ impl Watch {
     }
 
     pub fn follow(&mut self, lander: &Lander, base: &str, head: &str, lanes: Vec<LandedLane>) {
-        if self.running.iter().any(|running| running.batch.covers(head)) || self.searching.iter().any(|searching| searching.batch.covers(head)) || self.pending.covers(head) {
+        if self.follows(head) {
             return;
         }
+        self.queue.clone_from(&lander.queue);
         let entry = Entry { base: base.to_owned(), head: head.to_owned(), lanes };
-        let recorded = serde_json::to_string_pretty(&entry).map_err(|error| error.to_string()).and_then(|text| queue::write_atomic(&entry_path(lander, head), &text).map_err(|error| error.to_string()));
-        if let Err(error) = recorded {
+        let landed = journal(lander, &entry).and_then(|()| take_journaled(lander)).unwrap_or_else(|error| {
             println!("north land: could not journal the after-landing run of {head}, so a lander restart before its verdict loses it: {error}");
+            moved([head], Run::Journaled, &format!("landed on {base}"));
+            vec![(epoch(), entry)]
+        });
+        self.supersede(lander, head);
+        for (_, Entry { base, head, lanes }) in landed {
+            if !self.follows(&head) {
+                self.pending.add(Batch::landed(base, head, lanes, epoch()));
+            }
         }
-        let Entry { base, head, lanes } = entry;
-        moved([head.as_str()], Run::Journaled, &format!("landed on {base}"));
-        self.supersede(lander, &head);
-        self.pending.add(Batch::landed(base, head, lanes, epoch()));
         self.start_next(lander);
+    }
+
+    fn follows(&self, head: &str) -> bool {
+        self.running.iter().any(|running| running.batch.covers(head)) || self.searching.iter().any(|searching| searching.batch.covers(head)) || self.pending.covers(head)
     }
 
     fn supersede(&self, lander: &Lander, newest: &str) {
@@ -391,8 +387,8 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
 
 fn retire(lander: &Lander, batch: &Batch, cause: &str) {
     moved(heads(batch), Run::Retired, cause);
-    for followed in &batch.heads {
-        let _ = fs::remove_file(entry_path(lander, &followed.head));
+    if let Ok(mut store) = lifecycle::host() {
+        heads(batch).for_each(|head| lifecycle::settled(&mut store, &lander.queue, head));
     }
 }
 

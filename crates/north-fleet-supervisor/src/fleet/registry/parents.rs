@@ -2,6 +2,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use north_base::lifecycle::{self, Effect};
+
 use crate::error::NorthResult;
 
 use super::super::gates::GateRequest;
@@ -17,6 +19,10 @@ use super::Fleet;
 use super::relaunching::REVIVED_MID_TURN;
 
 const WATCHDOG_POLL: Duration = Duration::from_secs(1);
+/// The outbox kind of a fleet watchdog start (north#862).
+const WATCHDOG: &str = "fleet-watchdog";
+/// How long one watchdog start may take before another process takes it over.
+const WATCHDOG_START: Duration = Duration::from_secs(60);
 
 impl Fleet {
     pub fn guard(&self, name: &str) -> NorthResult<()> {
@@ -89,11 +95,25 @@ impl Fleet {
         }
     }
 
-    pub(super) fn watch_over(&self, record: &SessionRecord) -> NorthResult<()> {
-        if record.parent.is_none() && record.task_ref.is_none() {
-            return Ok(());
-        }
-        detach(&format!("watchdog-{}", unit_word(&record.name)), &["fleet", "watchdog", &record.name])
+    /// The watchdog start a session's move to Live commits, for a session with a parent or a task to report to, keyed by
+    /// its launch and host so one host never gets two.
+    pub(super) fn watchdog(record: &SessionRecord) -> Vec<Effect> {
+        let Some(host_pid) = record.host_pid.filter(|_| record.parent.is_some() || record.task_ref.is_some()) else { return Vec::new() };
+        let key = format!("{WATCHDOG}/{}/{host_pid}", record.launch().instance());
+        vec![Effect { kind: WATCHDOG.to_owned(), key, payload: serde_json::json!({ "name": record.name, "host_pid": host_pid }), delivery: lifecycle::Delivery::ReplaySafe }]
+    }
+
+    /// Starts every watchdog a move to Live committed that no process started yet, a killed launcher's included; one
+    /// whose session moved to another host or whose host is gone settles without a start.
+    pub fn start_watchdogs(&self) -> NorthResult<usize> {
+        self.phases()?.deliver(WATCHDOG, WATCHDOG_START, |leased| {
+            let name = leased.effect.payload["name"].as_str().unwrap_or_default();
+            let host_pid = leased.effect.payload["host_pid"].as_u64().and_then(|pid| u32::try_from(pid).ok());
+            if host_pid.is_none_or(|pid| !alive(pid) || self.record(name).ok().and_then(|record| record.host_pid) != Some(pid)) {
+                return Ok(());
+            }
+            detach(&format!("watchdog-{}", unit_word(name)), &["fleet", "watchdog", name]).map_err(|error| error.user_message())
+        })
     }
 }
 

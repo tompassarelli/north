@@ -11,7 +11,7 @@ use north_lander::land::lander::Lander;
 use north_lander::land::serve::Serve;
 use north_lander::land::watch::Watch;
 use north_lander::land::queue::{self, Ticket};
-use north_lander::land::{after, checks};
+use north_lander::land::{after, after_landing_lifecycle, checks};
 
 const CHILD: &str = "NORTH_LAND_CHAOS_HOME";
 const LANDER_ROLE: &str = "NORTH_LAND_CHAOS_LANDER";
@@ -311,7 +311,7 @@ fn wait_for(what: &str, ready: impl FnMut() -> bool) {
 }
 
 fn journaled(lander: &Lander) -> usize {
-    fs::read_dir(lander.queue.join("following")).map_or(0, |entries| entries.filter_map(Result::ok).filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).count())
+    after_landing_lifecycle::journaled(&north_base::lifecycle::Store::host().unwrap(), &lander.queue).len()
 }
 
 fn verdicts(head: &str) -> Vec<String> {

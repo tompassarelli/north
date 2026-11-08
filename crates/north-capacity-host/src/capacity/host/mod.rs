@@ -23,6 +23,7 @@ mod estimate_replay_tests;
 mod fleet_pull;
 mod gpu;
 mod handover;
+mod offer_lifecycle;
 mod offering;
 mod terminations;
 #[cfg(test)]

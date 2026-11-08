@@ -237,6 +237,9 @@ pub fn probe_pass(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, b
 
 fn probe_and_prune(fleet: &Fleet, ledger: &OpenLedger, probes: &dyn WaitProbes, clock: Clock, mut ticked: Ticked, budgets: Budgets) -> NorthResult<Ticked> {
     settle(fleet, ledger, probes, &clock, &mut ticked, budgets)?;
+    if let Err(error) = clock.time("watchdogs", || fleet.start_watchdogs()) {
+        eprintln!("north fleet: committed watchdog starts were not delivered: {}", error.user_message());
+    }
     ticked.pruned = clock.time("prune", || fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT))?;
     clock.stop(&mut ticked);
     Ok(ticked)

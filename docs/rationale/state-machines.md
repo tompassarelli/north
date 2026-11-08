@@ -253,6 +253,11 @@ Owner: north#757. The module is `north_base::lifecycle` (`crates/north-base/src/
   and its effect were separate writes, so a restart between them lost or repeated the effect: four fixes in 72 h
   (163a23c725, 97e4aa6827, 22571229b6, 363349d345), each in its own module. The mechanism follows T3 Code's
   `EventSink`, `EffectWorker` and `EffectOutbox` (pingdotgg/t3code at 32a0531, MIT, read as data, no code copied).
+  On it: the fleet watchdog start (`fleet-watchdog`, committed with a session's move to Live and started by the launcher
+  or the next fleet tick), each queue's after-landing runs (`after-landing-run QUEUE`, committed with a head's move to
+  Journaled and leased by the queue's lander until the verdict) and an offload offer's start here (`offload-start`,
+  process-bound, committed with the `offload-offer` machine's move to Started in the capacity runtime directory's
+  `lifecycle.db`).
 
 ### Why this shape
 

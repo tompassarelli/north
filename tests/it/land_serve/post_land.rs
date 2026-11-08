@@ -196,8 +196,8 @@ fn an_after_landing_run_past_its_deadline_reaches_no_verdict_stays_journaled_and
     let mut covered = heads.clone();
     covered.sort();
     assert_eq!(rows, covered, "one row per covered head");
-    let journal = fixture.queue().join("following");
-    let mut journaled: Vec<String> = fs::read_dir(&journal).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().trim_end_matches(".json").to_owned()).collect();
+    let store = north_base::lifecycle::Store::open(&fixture.state.join("north/ledger.db")).unwrap();
+    let mut journaled = north_landing::land::after_landing_lifecycle::journaled(&store, &fixture.queue());
     journaled.sort();
     assert_eq!(journaled, covered, "the covered landings stay journaled for the rerun");
     assert_eq!(fixture.subjects(), ["change from first", "change from second", "change from third"], "no verdict, so nothing is reverted");

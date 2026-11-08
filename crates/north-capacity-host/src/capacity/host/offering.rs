@@ -8,6 +8,7 @@ use serde_json::Value;
 use super::decision::decision;
 use super::handover::{self, Listening};
 use super::json::Obj;
+use super::offer_lifecycle::{self, Start};
 use super::machine::{env, now_ms};
 use super::print_to;
 use super::request::{Create, Request};
@@ -15,6 +16,7 @@ use super::state::dequeue;
 use super::terminations::Terminations;
 use crate::capacity::build_offload::{self, Candidate, Declined, Job};
 use crate::capacity::effects::Host;
+use crate::foundation::clock::Timestamp;
 
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 pub(super) const NO_BUILD_HOST: &str = "NO_BUILD_HOST";
@@ -77,10 +79,10 @@ fn report_declined(why: Option<Declined>, create: &Create, declines: &mut Declin
     }
 }
 
-async fn await_offer(mut work: tokio::task::JoinHandle<Result<u8, Option<Declined>>>, patience: Duration, offer: &AtomicU8, terminations: &mut Terminations, (root, ticket): (&Path, Option<&str>)) -> Option<Result<Result<u8, Option<Declined>>, tokio::task::JoinError>> {
+async fn await_offer(mut work: tokio::task::JoinHandle<Result<u8, Option<Declined>>>, patience: Duration, (offer, offer_id): (&AtomicU8, &str), terminations: &mut Terminations, (root, ticket): (&Path, Option<&str>)) -> Option<Result<Result<u8, Option<Declined>>, tokio::task::JoinError>> {
     let mut stalled = std::pin::pin!(tokio::time::sleep(patience));
     let mut expired = false;
-    loop {
+    let finished = loop {
         tokio::select! {
             done = &mut work => break Some(done),
             () = &mut stalled, if !expired => {
@@ -90,6 +92,7 @@ async fn await_offer(mut work: tokio::task::JoinHandle<Result<u8, Option<Decline
                 expired = true;
             }
             number = terminations.next() => {
+                offer_lifecycle::abandoned(root, offer_id, &format!("its gate was stopped by signal {number}"));
                 if let Some(ticket) = ticket {
                     dequeue(root, ticket);
                     handover::forget(root, ticket);
@@ -97,13 +100,21 @@ async fn await_offer(mut work: tokio::task::JoinHandle<Result<u8, Option<Decline
                 std::process::exit(128 + number)
             }
         }
+    };
+    if offer.load(Ordering::SeqCst) != OFFER_STARTED {
+        let cause = if finished.is_some() { "no build host took it" } else { "the gate's timeout came before any build host announced it" };
+        offer_lifecycle::abandoned(root, offer_id, cause);
     }
+    finished
 }
 
 /// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path, printing why once per change of reason.
 pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Host, terminations: &mut Terminations, taker: Option<std::os::unix::net::UnixStream>) -> Option<u8> {
     let Waiting { root, ticket, request, create, command, began, declined } = waiting;
     let patience = queue_time_left(create.timeout_seconds, (now_ms() - began) / 1000.0);
+    let offer_id = format!("{} {} {}", create.owner, std::process::id(), Timestamp::now().unix_millis());
+    offer_lifecycle::offered(root, &offer_id, patience);
+    let started_id = offer_id.clone();
     let offer = Arc::new(AtomicU8::new(OFFER_PENDING));
     let announced = Arc::clone(&offer);
     let host = *host;
@@ -125,11 +136,11 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
                 return false;
             }
             print_to(&Obj::new().put("decision", "OFFLOADED").put("reason", build_offload::REASON).put("host", target).put("class", class.as_str()).put("owner", owner.as_str()), true);
-            match &ticket {
-                Some(ticket) if handed => handover::set_aside(&root, ticket),
+            offer_lifecycle::started(&root, &started_id, target, &Start { ticket: ticket.as_deref(), handed }, |start| match start.ticket {
+                Some(ticket) if start.handed => handover::set_aside(&root, ticket),
                 Some(ticket) => dequeue(&root, ticket),
                 None => {}
-            }
+            });
             true
         };
         let job = Job { owner: &owner, timeout_seconds, command: &command, cpus };
@@ -138,7 +149,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
             None => (host.build_offload)(&candidate, &job, &announce),
         }
     });
-    let finished = await_offer(work, patience, &offer, terminations, (&waiting_root, waiting_ticket.as_deref())).await;
+    let finished = await_offer(work, patience, (&offer, &offer_id), terminations, (&waiting_root, waiting_ticket.as_deref())).await;
     let Some(done) = finished else {
         if handed && let Some(ticket) = &waiting_ticket {
             handover::restore(&waiting_root, ticket);

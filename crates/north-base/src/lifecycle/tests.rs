@@ -146,7 +146,7 @@ fn send_once(sink: &std::path::Path, leased: &Leased) -> Result<(), String> {
 
 fn crash_at(point: &str, root: &std::path::Path) -> ! {
     let mut store = Store::open(&root.join("ledger.db")).unwrap();
-    store.transition_with_effects::<Puller>(point, Pull::Pulling, "started", at(0), &effects(point)).unwrap().unwrap();
+    store.transition_with_effects::<Puller>(point, Pull::Pulling, "started", at(0), None, &effects(point)).unwrap().unwrap();
     while point != "committed"
         && let Some(leased) = store.lease("pull-started", at(1), Duration::from_secs(600)).unwrap()
     {
@@ -192,7 +192,7 @@ fn a_process_killed_between_a_move_and_its_effects_leaves_each_replay_safe_effec
         assert_eq!(restarted.stage(&process_bound.key).unwrap(), Some(Stage::Retired), "{point}");
     }
     assert_eq!(restarted.lease("pull-started", at(3), Duration::from_secs(600)).unwrap(), None);
-    let refused = restarted.transition_with_effects::<Puller>("fresh", Pull::Idle, "an illegal first move", at(4), &effects("refused")).unwrap();
+    let refused = restarted.transition_with_effects::<Puller>("fresh", Pull::Idle, "an illegal first move", at(4), None, &effects("refused")).unwrap();
     assert!(refused.is_err());
     assert_eq!(restarted.stage("refused/replay-safe").unwrap(), None);
 }

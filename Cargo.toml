@@ -100,6 +100,7 @@ tui-markdown.workspace = true
 tui-textarea-2.workspace = true
 
 [dev-dependencies]
+north-base = { path = "crates/north-base" }
 sha1.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

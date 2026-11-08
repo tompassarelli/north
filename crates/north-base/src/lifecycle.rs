@@ -47,6 +47,8 @@ pub struct Leased {
     pub effect: Effect,
     /// Leases taken so far, this one included.
     pub attempts: i64,
+    /// When the move that started it committed.
+    pub queued: Timestamp,
 }
 
 /// Where an effect is in the outbox.

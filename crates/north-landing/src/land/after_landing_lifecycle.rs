@@ -1,10 +1,11 @@
 //! The lander's after-landing state machines (north#757): each landed head's after-landing run, each repository's
 //! red-main episode and each queue's base-broken pause hold one record in the lander host's lifecycle store, so a
 //! lander killed mid-run, an alarm that never went out or a pause nobody lifted shows in `north health`.
+use std::path::Path;
 use std::time::Duration;
 
 use north_base::foundation::clock::Timestamp;
-use north_base::lifecycle::{Lifecycle, Record, Refusal, State, Store};
+use north_base::lifecycle::{Delivery, Effect, Leased, Lifecycle, Record, Refusal, State, Store};
 
 const MINUTE: u64 = 60;
 const HOUR: u64 = 3600;
@@ -50,7 +51,7 @@ impl Lifecycle for AfterLandingRun {
     fn legal(from: Option<Run>, to: Run) -> bool {
         use Run::{Abandoned, Journaled, Retired, Running, Searching, Unsettled};
         match (from, to) {
-            (None, Journaled) | (Some(Journaled | Unsettled | Abandoned), Running) | (Some(Running | Unsettled | Abandoned), Journaled) | (Some(Running), Unsettled | Searching) => true,
+            (None, Journaled) | (Some(Journaled | Unsettled | Abandoned), Running) | (Some(Journaled | Running | Unsettled | Abandoned), Journaled) | (Some(Running), Unsettled | Searching) => true,
             (Some(from), Retired) => from != Retired,
             _ => false,
         }
@@ -201,3 +202,58 @@ pub fn misses(store: &Store, head: &str) -> usize {
 #[cfg(test)]
 #[path = "after_landing_lifecycle_tests.rs"]
 mod tests;
+
+/// How long a lander holds a head's after-landing run before `north health` reports it: its Journaled and Running
+/// dwells together.
+const RUN_HOLD: Duration = Duration::from_secs(6 * HOUR);
+
+/// The outbox kind of one queue's after-landing runs, so a lander takes only its own queue's.
+fn run_kind(queue: &Path) -> String {
+    format!("{} {}", AfterLandingRun::NAME, queue.display())
+}
+
+fn run_key(queue: &Path, head: &str) -> String {
+    format!("{}/{head}", run_kind(queue))
+}
+
+/// Moves `head` to Journaled with its after-landing `run` committed in the same transaction, so a lander killed in
+/// between neither loses the run nor journals one it never recorded (north#862).
+pub fn journal(store: &mut Store, queue: &Path, head: &str, cause: &str, run: serde_json::Value) -> Result<(), String> {
+    let effect = Effect { kind: run_kind(queue), key: run_key(queue, head), payload: run, delivery: Delivery::ReplaySafe };
+    match store.transition_with_effects::<AfterLandingRun>(head, Run::Journaled, cause, Timestamp::now(), None, &[effect]) {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(Refusal::Illegal { from, .. })) => Err(format!("{head} may not be journaled from {}", from.map_or("nothing", State::name))),
+        Ok(Err(Refusal::Held { state, owner })) => Err(format!("{head} is {} under {owner}", state.name())),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Every journaled after-landing run of `queue` no live lander holds, leased to this one until its verdict.
+pub fn take(store: &mut Store, queue: &Path) -> Result<Vec<Leased>, String> {
+    let kind = run_kind(queue);
+    std::iter::from_fn(|| store.lease(&kind, Timestamp::now(), RUN_HOLD).transpose()).collect::<Result<_, _>>().map_err(|error| error.to_string())
+}
+
+/// Settles `head`'s journaled run once its verdict was acted on, or its record says it already was.
+pub fn settled(store: &mut Store, queue: &Path, head: &str) {
+    if let Err(error) = store.delivered(&run_key(queue, head), Timestamp::now()) {
+        println!("north land: the journaled after-landing run of {head} could not be settled: {error}");
+    }
+}
+
+/// The heads of `queue` whose journaled run awaits its verdict, oldest first.
+pub fn journaled(store: &Store, queue: &Path) -> Vec<String> {
+    store.open_effects(&run_kind(queue)).unwrap_or_else(|error| {
+        println!("north land: the journaled after-landing runs are unreadable: {error}");
+        Vec::new()
+    })
+}
+
+/// Hands `heads`' journaled runs back for the next lander, as a lander that stops following does.
+pub fn hand_back<'a>(store: &mut Store, queue: &Path, heads: impl IntoIterator<Item = &'a str>) {
+    for head in heads {
+        if let Err(error) = store.release(&run_key(queue, head), Timestamp::now()) {
+            println!("north land: the journaled after-landing run of {head} could not be handed back: {error}");
+        }
+    }
+}

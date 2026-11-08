@@ -345,13 +345,13 @@ impl Fleet {
         record.host_pid = host.pid();
         write_record(&self.root.join(&record.name), record)?;
         let cause = if started { "a session host started for it" } else { "it joined its running session host" };
-        let phase = self.phases()?.live(record.launch(), record.host_pid, cause)?;
+        let phase = self.phases()?.live_with(record.launch(), record.host_pid, cause, &Self::watchdog(record))?;
         record.phase = Some(phase);
         match fs::remove_file(self.root.join(&record.name).join(CLAIMS_RELEASED)) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
         }
-        self.watch_over(record)?;
+        self.start_watchdogs()?;
         let frames = runtime.open(&record.name, &request, opening, Instructions { text: &instructions, changed })?;
         if !frames.is_empty() {
             let opened_from = stream_len(&host_dir);
