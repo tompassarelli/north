@@ -964,6 +964,7 @@ dependencies = [
  "north-goals",
  "north-graph-ground",
  "north-graph-ingest",
+ "north-graph-loops",
  "north-guard",
  "north-health",
  "north-land-watch",
@@ -1106,6 +1107,7 @@ name = "north-code-health"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-graph-loops",
  "north-implicit-state",
  "regex",
  "serde",

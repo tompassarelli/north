@@ -70,6 +70,7 @@ north-coverage = { path = "crates/north-coverage" }
 north-context-pack = { path = "crates/north-context-pack" }
 north-graph-ground = { path = "crates/north-graph-ground" }
 north-graph-ingest = { path = "crates/north-graph-ingest" }
+north-graph-loops = { path = "crates/north-graph-loops" }
 north-runtime = { path = "crates/north-runtime" }
 north-guard = { path = "crates/north-guard" }
 north-lanes = { path = "crates/north-lanes" }

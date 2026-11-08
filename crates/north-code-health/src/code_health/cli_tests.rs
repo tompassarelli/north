@@ -43,7 +43,7 @@ impl Repo {
     fn north(&self, args: &[&str]) -> (u8, String, String) {
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let arguments: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
-        let state = State { root: self.state.clone(), home: self.state.join("home") };
+        let state = State { root: self.state.clone(), home: self.state.join("home"), graph: self.state.join("graph.db") };
         let code = run(&arguments, &mut Io { out: &mut out, err: &mut err, cwd: self.repo.clone(), state });
         (code, String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned())
     }

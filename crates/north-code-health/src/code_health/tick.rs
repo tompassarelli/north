@@ -3,6 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use north_graph_loops::code_health::Review;
 use time::OffsetDateTime;
 
 pub(super) const ENROLLED: [&str; 5] = ["north", "makgora", "wisp", "padbridge", "makgora-client"];
@@ -12,6 +13,7 @@ static BRIEF: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| north_base
 pub(super) struct TickEnv {
     pub code_root: PathBuf,
     pub state_root: PathBuf,
+    pub graph: PathBuf,
     pub handoffs: PathBuf,
     pub code_health: Vec<String>,
     pub north: String,
@@ -177,6 +179,16 @@ pub(super) fn tick_repo(repo: &str, env: &TickEnv, print: &mut dyn FnMut(String)
     }
 }
 
+fn measured(repo: &str, graph: &Path) -> String {
+    match north_graph_loops::code_health::read(graph) {
+        Ok(told) => match told.reviews.get(repo) {
+            Some(Review { hand_files_median: Some(median), revert_share: Some(share), .. }) => format!("median {median} hand files per feature commit, {:.1}% of feature commits reverted", share * 100.0),
+            _ => "the review loop has told the graph nothing about this repository yet".to_owned(),
+        },
+        Err(why) => format!("the review loop's reading is unavailable: {why}"),
+    }
+}
+
 fn reviewed(repo: &str, checkout: &Path, name: &str, lock: &Path, env: &TickEnv, print: &mut dyn FnMut(String)) -> Result<Outcome, String> {
     let checkout_arg = checkout.display().to_string();
     let fetched = run(&words(&["git", "-C", &checkout_arg, "fetch", "-q", "origin"]), checkout);
@@ -214,6 +226,7 @@ fn reviewed(repo: &str, checkout: &Path, name: &str, lock: &Path, env: &TickEnv,
         ("checkout", checkout_arg.clone()),
         ("lock", lock.display().to_string()),
         ("report", report_path.display().to_string()),
+        ("measured", measured(repo, &env.graph)),
         ("reasons", reasons.iter().map(|line| format!("- {line}")).collect::<Vec<_>>().join("\n")),
         ("list", env.handoffs.join(format!("{name}-list.md")).display().to_string()),
         ("date", date),
@@ -252,6 +265,7 @@ fn default_env(dry_run: bool) -> Result<TickEnv, String> {
     Ok(TickEnv {
         code_root: env_or("CODE_HEALTH_CODE_ROOT", || under_home("code")).into(),
         state_root: env_or("CODE_HEALTH_STATE", || under_home(".local/state/code-health")).into(),
+        graph: north_graph_loops::graph_path(),
         handoffs: env_or("AGENTS_HANDOFFS", || under_home(".local/state/agents/handoffs")).into(),
         code_health: env_or("CODE_HEALTH_BIN", || "north code-health".to_owned()).split(' ').map(str::to_owned).collect(),
         north: env_or("CODE_HEALTH_NORTH_BIN", north),

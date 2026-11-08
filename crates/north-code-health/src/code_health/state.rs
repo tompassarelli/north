@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 pub(super) struct State {
     pub(super) root: PathBuf,
     pub(super) home: PathBuf,
+    pub(super) graph: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -14,21 +15,11 @@ pub(super) struct Marker {
     pub(super) hand_lines: usize,
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct LoopRecord {
-    pub(super) at: String,
-    pub(super) sha: String,
-    pub(super) since: Option<String>,
-    pub(super) change_cost: super::change_cost::ChangeCost,
-    pub(super) review: super::config::Review,
-    pub(super) fired: Vec<String>,
-}
-
 impl State {
     pub(super) fn from_env() -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         let root = std::env::var_os("XDG_STATE_HOME").filter(|root| !root.is_empty()).map_or_else(|| home.join(".local/state"), PathBuf::from);
-        Self { root, home }
+        Self { root, home, graph: north_graph_loops::graph_path() }
     }
 
     pub(super) fn repo_name(&self, repo: &Path) -> String {
@@ -62,9 +53,9 @@ impl State {
         write_json(&self.directory(repo).join("review.json"), marker)
     }
 
-    pub(super) fn write_loop(&self, repo: &Path, record: &LoopRecord, score: &str) -> Result<(), String> {
+    pub(super) fn write_score(&self, repo: &Path, score: &str) -> Result<(), String> {
         let directory = self.directory(repo);
-        write_json(&directory.join("loop.json"), record)?;
+        std::fs::create_dir_all(&directory).map_err(|error| format!("{}: {error}", directory.display()))?;
         let path = directory.join("loop.txt");
         std::fs::write(&path, format!("{score}\n")).map_err(|error| format!("{}: {error}", path.display()))
     }

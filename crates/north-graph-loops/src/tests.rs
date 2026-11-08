@@ -68,3 +68,28 @@ fn a_distill_tick_leaves_the_detector_each_correction_once_and_a_flow_tick_the_t
     slow_test::tell_to(&mut graph, &[], 8_000).unwrap();
     assert_eq!((slow_test::read_from(&graph).unwrap(), ticks_from(&graph).unwrap().get("flow").copied()), (vec![], Some(8_000)));
 }
+
+#[test]
+fn a_recording_leaves_the_scoreboard_only_the_readings_it_told_and_its_tick() {
+    use crate::scoreboard::{Reading, Told, read_from, tell_to};
+    let reading = |number: &str, week: &str, figure| Reading { number: number.to_owned(), week: week.to_owned(), figure, observations: 12, higher_is_better: false };
+    let mut graph = Graph::open_in_memory().unwrap();
+    let first = [reading("corrections", "2026-W44", 0.1), reading("corrections", "2026-W45", 0.2), reading("waits", "2026-W45", 3.5)];
+    tell_to(&mut graph, &first, 1_000).unwrap();
+    assert_eq!(read_from(&graph).unwrap(), Told { readings: first.to_vec(), at: Some(1_000) });
+    let second = [reading("corrections", "2026-W45", 0.2), reading("corrections", "2026-W46", 0.3)];
+    tell_to(&mut graph, &second, 2_000).unwrap();
+    assert_eq!(read_from(&graph).unwrap(), Told { readings: second.to_vec(), at: Some(2_000) });
+}
+
+#[test]
+fn a_recording_of_one_repository_leaves_the_others_reviews_and_replaces_its_own_reasons() {
+    use crate::code_health::{Review, read_from, tell_to};
+    let review = |median, share, reasons: &[&str]| Review { hand_files_median: Some(median), revert_share: Some(share), reasons: reasons.iter().map(|reason| (*reason).to_owned()).collect() };
+    let mut graph = Graph::open_in_memory().unwrap();
+    tell_to(&mut graph, "north", &review(3.0, 0.1, &["12 commits since review", "hotspot a.rs"]), 1_000).unwrap();
+    tell_to(&mut graph, "wisp", &review(2.0, 0.0, &[]), 1_500).unwrap();
+    tell_to(&mut graph, "north", &review(4.0, 0.1, &["hotspot a.rs"]), 2_000).unwrap();
+    let told = read_from(&graph).unwrap();
+    assert_eq!((told.reviews["north"].clone(), told.reviews["wisp"].clone(), told.at), (review(4.0, 0.1, &["hotspot a.rs"]), review(2.0, 0.0, &[]), Some(2_000)));
+}

@@ -14,6 +14,21 @@ pub(crate) fn ask(graph: &Graph, rule: &'static str) -> Result<Vec<Vec<Term>>, S
     graph.ask(&query).map(|answer| answer.rows).map_err(|why| format!("{rule}: {why}"))
 }
 
+pub(crate) fn open_read_only(db: &Path) -> Result<Graph, String> {
+    Graph::open_read_only(db, PATIENCE).map_err(|why| format!("{}: {why}", db.display()))
+}
+
+/// The actions that move a writer's tick instant from `was` to `at`.
+fn tick_actions(writer: &str, was: Option<i64>, at: i64) -> Result<Vec<Action>, String> {
+    let tick = |seconds| Term::instant(seconds, 0).map(|instant| Triple::new(Term::string(cells::subject(writer)), Term::keyword(TICK_AT), instant)).map_err(|why| why.to_string());
+    let mut actions = Vec::new();
+    if let Some(was) = was {
+        actions.push(Action::retract(tick(was)?));
+    }
+    actions.push(Action::assert(tick(at)?));
+    Ok(actions)
+}
+
 /// Each writer's newest tick instant, through harness/graph-rules/ticked.json.
 pub fn ticks_from(graph: &Graph) -> Result<BTreeMap<String, i64>, String> {
     Ok(ask(graph, TICKED)?.iter().filter_map(|row| Some((cells::text(row.first()?)?.to_owned(), cells::seconds(row.get(1)?)?))).fold(BTreeMap::new(), |mut ticks, (writer, at)| {
@@ -24,7 +39,7 @@ pub fn ticks_from(graph: &Graph) -> Result<BTreeMap<String, i64>, String> {
 }
 
 pub fn ticks(db: &Path) -> Result<BTreeMap<String, i64>, String> {
-    ticks_from(&Graph::open_read_only(db, PATIENCE).map_err(|why| format!("{}: {why}", db.display()))?)
+    ticks_from(&open_read_only(db)?)
 }
 
 /// The cells `writer` last told, each read through its measure's rule, and the instant it ticked.
@@ -41,7 +56,7 @@ pub fn read_from(graph: &Graph, writer: &str) -> Result<Learned, String> {
 }
 
 pub fn read(db: &Path, writer: &str) -> Result<Learned, String> {
-    read_from(&Graph::open_read_only(db, PATIENCE).map_err(|why| format!("{}: {why}", db.display()))?, writer)
+    read_from(&open_read_only(db)?, writer)
 }
 
 /// Tells one tick as one transaction: retracts each prior value that moved or went, asserts each new
@@ -63,21 +78,14 @@ pub fn tell(db: &Path, writer: &str, prior: &Learned, cells: &Cells, at: i64) ->
     tell_to(&mut Graph::open(db).map_err(|why| format!("{}: {why}", db.display()))?, writer, prior, cells, at)
 }
 
-/// Retracts the writer's prior tick instant, when it had one, and asserts the new one.
-fn tick_actions(writer: &str, was: Option<i64>, at: i64) -> Result<Vec<Action>, String> {
-    let tick = |seconds| Term::instant(seconds, 0).map(|instant| Triple::new(Term::string(cells::subject(writer)), Term::keyword(TICK_AT), instant)).map_err(|why| why.to_string());
-    let mut actions = Vec::new();
-    if let Some(was) = was {
-        actions.push(Action::retract(tick(was)?));
-    }
-    actions.push(Action::assert(tick(at)?));
-    Ok(actions)
-}
-
 /// Tells one tick of a writer whose facts are a set of triples: retracts each prior triple the tick no
 /// longer holds, asserts each new one, and moves the tick, all in one transaction.
 pub(crate) fn tell_set(graph: &mut Graph, writer: &str, prior: &BTreeSet<Triple>, next: &BTreeSet<Triple>, at: i64) -> Result<(), String> {
     let mut actions: Vec<Action> = prior.difference(next).cloned().map(Action::retract).chain(next.difference(prior).cloned().map(Action::assert)).collect();
     actions.extend(tick_actions(writer, ticks_from(graph)?.get(writer).copied(), at)?);
     graph.apply(writer, &actions).map(drop).map_err(|why| why.to_string())
+}
+
+pub(crate) fn open_writable(db: &Path) -> Result<Graph, String> {
+    Graph::open(db).map_err(|why| format!("{}: {why}", db.display()))
 }

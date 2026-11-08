@@ -245,7 +245,8 @@ sites = ["src/cli/scoreboard/weekly.rs"]
 signal = "the scoreboard's headline figure per number (north ledger scoreboard --weekly), this week against the week before, compared only when both weeks hold at least five observations and the move passes 10% in the worse direction; the proxy hears each recording's worse numbers once"
 updated_by = "north ledger scoreboard --record, run by the fleet tick once a week"
 cadence_hours = 168
-record = "north/scoreboard/week.json"
+store = "graph"
+writer = "scoreboard"
 score = "north/scoreboard/week.txt"
 
 [[loop]]
@@ -261,7 +262,8 @@ sites = [
 signal = "median hand files touched per feature commit and the share of feature commits later reverted, since the last review, with the thresholds in force and the reasons that fired"
 updated_by = "north ops climb run proposes [review] threshold changes in structure.toml; code-health tick records the signal each hour through code-health signal --record"
 cadence_hours = 24
-record = "code-health/north/loop.json"
+store = "graph"
+writer = "code-health"
 score = "code-health/north/loop.txt"
 
 host = "lander"

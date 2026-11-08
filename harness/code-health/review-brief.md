@@ -7,6 +7,8 @@ Goal: a recurring structure and test-value review of {{repo}}, started by `code-
 
 {{reasons}}
 
+Measured since the last review (north graph, `north-graph-loops` writer `code-health`): {{measured}}.
+
 Finished means the top refactor items have landed on {{repo}} main as behavior-preserving slices, the baseline
 is refreshed and the review marker is recorded. Nobody asked for this review; Tom gets nothing to do.
 

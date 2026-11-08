@@ -23,6 +23,7 @@ fn scratch(signal: &str) -> (tempfile::TempDir, TickEnv) {
     let env = TickEnv {
         code_root: root.join("code"),
         state_root: root.join("state"),
+        graph: root.join("graph.db"),
         handoffs: root.join("handoffs"),
         code_health: vec![root.join("code-health").display().to_string()],
         north: root.join("north").display().to_string(),

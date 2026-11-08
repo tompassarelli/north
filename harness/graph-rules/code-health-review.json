@@ -1,0 +1,7 @@
+{"find": "review", "rules": [
+  {"head": {"rel": "review", "args": [{"var": "repo"}, ["keyword", "code-health/hand-files-median"], {"var": "value"}]},
+   "body": [{"rel": "assertion", "args": ["code-health", {"var": "repo"}, ["keyword", "code-health/hand-files-median"], {"var": "value"}]}]},
+  {"head": {"rel": "review", "args": [{"var": "repo"}, ["keyword", "code-health/revert-share"], {"var": "value"}]},
+   "body": [{"rel": "assertion", "args": ["code-health", {"var": "repo"}, ["keyword", "code-health/revert-share"], {"var": "value"}]}]},
+  {"head": {"rel": "review", "args": [{"var": "repo"}, ["keyword", "code-health/reason"], {"var": "value"}]},
+   "body": [{"rel": "assertion", "args": ["code-health", {"var": "repo"}, ["keyword", "code-health/reason"], {"var": "value"}]}]}]}

@@ -5,11 +5,13 @@
 mod capacity_estimate;
 mod cells;
 mod check_deadline;
+pub mod code_health;
 pub mod corrections;
 mod facts;
 mod fleet;
 mod lander_doctor;
 mod rules;
+pub mod scoreboard;
 pub mod slow_test;
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-graph-loops = { path = "../north-graph-loops" }
 north-implicit-state = { path = "../north-implicit-state" }
 regex.workspace = true
 serde.workspace = true

@@ -164,7 +164,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-code-health"
 paths = ["crates/north-code-health/src/**"]
-may_use = ["north-base", "north-implicit-state"]
+may_use = ["north-base", "north-graph-loops", "north-implicit-state"]
 
 [[crate_dag.crate]]
 name = "north-lanes"

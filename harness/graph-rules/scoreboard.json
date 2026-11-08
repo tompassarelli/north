@@ -1,0 +1,5 @@
+{"find": "figure", "rules": [
+  {"head": {"rel": "figure", "args": [{"var": "week"}, {"var": "figure"}, {"var": "observations"}, {"var": "higher"}]},
+   "body": [{"rel": "assertion", "args": ["scoreboard", {"var": "week"}, ["keyword", "scoreboard/week-figure"], {"var": "figure"}]},
+            {"rel": "assertion", "args": ["scoreboard", {"var": "week"}, ["keyword", "scoreboard/observations"], {"var": "observations"}]},
+            {"rel": "assertion", "args": ["scoreboard", {"var": "week"}, ["keyword", "scoreboard/higher-is-better"], {"var": "higher"}]}]}]}

@@ -3,8 +3,9 @@ use super::config::{Config, Kind, at_rev};
 use super::coupling::coupling;
 use super::report::{build, hand_of, inventory, now, texts};
 use super::snapshot::{Snapshot, git, line_count};
-use super::state::{LoopRecord, Marker, State};
+use super::state::{Marker, State};
 use north_base::foundation::clock::Timestamp;
+use north_graph_loops::code_health::{self, Review};
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
@@ -128,8 +129,7 @@ pub(super) fn cost_line(since: Option<&str>, cost: &ChangeCost) -> String {
 
 pub(super) fn record_loop(state: &State, repo: &Path, rev: &str, config: &Config, reasons: &[String]) -> Result<(), String> {
     let (since, cost) = cost_since_review(state, repo, rev, config)?;
-    let sha = git(repo, &["rev-parse", rev])?.trim().to_owned();
-    let line = cost_line(since.as_deref(), &cost);
-    let record = LoopRecord { at: now(), sha, since, change_cost: cost, review: config.review, fired: reasons.to_vec() };
-    state.write_loop(repo, &record, &line)
+    let review = Review { hand_files_median: Some(cost.median_files), revert_share: Some(cost.rework_rate), reasons: reasons.to_vec() };
+    code_health::tell(&state.graph, &state.repo_name(repo), &review, Timestamp::now().unix_seconds())?;
+    state.write_score(repo, &cost_line(since.as_deref(), &cost))
 }
