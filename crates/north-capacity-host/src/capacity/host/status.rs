@@ -118,10 +118,10 @@ pub fn status(root: &Path) -> Obj {
     })
 }
 
-/// `QUEUED LOAD THREADS` for placement: the tickets waiting in admission, the one-minute load average and the host's threads.
+/// `QUEUED LOAD THREADS STALL` for placement: the tickets waiting in admission, the one-minute load average, the host's threads and the CPU stall in avg10 basis points of the agent work no lease caps.
 pub fn backlog(root: &Path) -> String {
     let load = std::fs::read_to_string("/proc/loadavg").ok().and_then(|text| text.split_whitespace().next().map(str::to_owned)).unwrap_or_else(|| "0".to_owned());
-    format!("{} {load} {}", read_queue(root).len(), read_signals().cores)
+    format!("{} {load} {} {}", read_queue(root).len(), read_signals().cores, super::machine::unleased_cpu_some())
 }
 
 fn heavy_settling_seconds(active: &[Value], now: f64) -> f64 {

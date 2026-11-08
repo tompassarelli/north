@@ -148,6 +148,8 @@ pub struct Backlog {
     pub queued: u32,
     pub load: f64,
     pub threads: u32,
+    #[serde(default)]
+    pub stall: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

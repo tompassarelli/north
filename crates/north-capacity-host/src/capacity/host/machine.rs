@@ -140,6 +140,20 @@ fn unleased_agent_pressure() -> f64 {
 
 const AGENT_SESSION_UNITS: [(&str, &str); 3] = [("north-session-", ".scope"), ("north-fleet-", ".service"), ("private-desktop-client-", ".scope")];
 
+/// The CPU stall, as avg10 basis points, of the agent work no lease caps: each agent session and each unleased job in agent.slice, the work a new session runs beside. A capped lease's runnable threads raise the load average without taking that work's CPU.
+pub fn unleased_cpu_some() -> f64 {
+    let Ok(entries) = fs::read_dir(user_manager_cgroup().join("agent.slice")) else {
+        return 0.0;
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| AGENT_SESSION_UNITS.iter().any(|(prefix, suffix)| name.starts_with(prefix) && name.ends_with(suffix)))
+        .map(|name| slice_pressure(&format!("agent.slice/{name}")))
+        .fold(unleased_agent_pressure(), f64::max)
+}
+
 pub fn unleased_agent_work(unit: &str, aggregate: &str) -> bool {
     let leased = unit == aggregate || (unit.starts_with("agent-capacity-") && unit.ends_with(".scope"));
     let session = AGENT_SESSION_UNITS.iter().any(|(prefix, suffix)| unit.starts_with(prefix) && unit.ends_with(suffix));

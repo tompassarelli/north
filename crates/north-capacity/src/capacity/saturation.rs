@@ -20,24 +20,35 @@ pub const QUEUED_LIMIT: u32 = 4;
 /// `north capacity host backlog`, which a host on an older runtime leaves empty, then the token mark and the seconds since the App token the laptop pushes to the host was written, which a host that mints its own token leaves empty.
 pub const PROBE: &str = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk / | tail -1; echo '#backlog'; \"$HOME/.local/state/north/current/tree/bin/north\" capacity host backlog 2>/dev/null; echo '#token'; t=\"$HOME/.local/state/north/gh-write-token\"; [ -f \"$t\" ] && echo $(($(date +%s) - $(stat -c %Y \"$t\"))); true";
 
-/// What waits on a host: jobs queued in admission and the one-minute load average against its threads.
+/// The CPU stall, in avg10 basis points, of a host's unleased agent work past which a load over its threads keeps a new session off it.
+pub const STALL_LIMIT: f64 = 1000.0;
+
+/// What waits on a host: jobs queued in admission, the one-minute load average against its threads, and the CPU stall
+/// of the agent work no lease caps, which a host on an older runtime does not report.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Backlog {
     pub queued: u32,
     pub load: f64,
     pub threads: u32,
+    #[serde(default)]
+    pub stall: Option<f64>,
 }
 
 impl Backlog {
-    /// `QUEUED LOAD THREADS` on one line, as `north capacity host backlog` prints it.
+    /// `QUEUED LOAD THREADS [STALL]` on one line, as `north capacity host backlog` prints it.
     pub fn parse(line: &str) -> Option<Self> {
         let mut words = line.split_whitespace();
-        Some(Self { queued: words.next()?.parse().ok()?, load: words.next()?.parse().ok()?, threads: words.next()?.parse().ok()? })
+        Some(Self { queued: words.next()?.parse().ok()?, load: words.next()?.parse().ok()?, threads: words.next()?.parse().ok()?, stall: words.next().and_then(|word| word.parse().ok()) })
     }
 
+    /// A load over the host's threads keeps a session off only while the work a session runs beside stalls, since capped leases raise the load without taking a session's CPU.
     fn refusal(&self, host: &str) -> Option<String> {
         let queue = (self.queued >= QUEUED_LIMIT).then(|| format!("{} jobs queued in machine-capacity admission (limit {QUEUED_LIMIT})", self.queued));
-        let load = (self.load > f64::from(self.threads)).then(|| format!("load {:.0} on {} threads", self.load, self.threads));
+        let stalled = self.stall.is_none_or(|stall| stall > STALL_LIMIT);
+        let load = (self.load > f64::from(self.threads) && stalled).then(|| match self.stall {
+            Some(stall) => format!("load {:.0} on {} threads with unleased agent work stalled {:.0}% of the time", self.load, self.threads, stall / 100.0),
+            None => format!("load {:.0} on {} threads", self.load, self.threads),
+        });
         let causes: Vec<String> = queue.into_iter().chain(load).collect();
         (!causes.is_empty()).then(|| format!("{host} skipped: {}", causes.join(", ")))
     }
@@ -102,14 +113,14 @@ impl Saturation {
 
 impl From<Saturation> for north_strategy_types::placement::Saturation {
     fn from(reading: Saturation) -> Self {
-        let backlog = reading.backlog.map(|backlog| north_strategy_types::placement::Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads });
+        let backlog = reading.backlog.map(|backlog| north_strategy_types::placement::Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads, stall: backlog.stall });
         Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s }
     }
 }
 
 impl From<north_strategy_types::placement::Saturation> for Saturation {
     fn from(reading: north_strategy_types::placement::Saturation) -> Self {
-        let backlog = reading.backlog.map(|backlog| Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads });
+        let backlog = reading.backlog.map(|backlog| Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads, stall: backlog.stall });
         Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, disk_total_gib: reading.disk_total_gib, backlog, token_age_s: reading.token_age_s }
     }
 }

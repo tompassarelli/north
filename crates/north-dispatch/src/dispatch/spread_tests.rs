@@ -11,7 +11,7 @@ fn account(name: &str, hosts: &[&str]) -> Account {
 }
 
 fn reading(disk_free_gib: f64, disk_total_gib: f64, queued: u32) -> Saturation {
-    Saturation { memory_total_mib: 65_536.0, memory_available_mib: 49_152.0, disk_free_gib, disk_total_gib, backlog: Some(Backlog { queued, load: 8.0, threads: 20 }), token_age_s: None }
+    Saturation { memory_total_mib: 65_536.0, memory_available_mib: 49_152.0, disk_free_gib, disk_total_gib, backlog: Some(Backlog { queued, load: 8.0, threads: 20, stall: None }), token_age_s: None }
 }
 
 fn placed(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> (Vec<(String, String)>, Vec<String>) {
