@@ -69,6 +69,16 @@ impl Scope {
         }
     }
 
+    pub fn including(self, packages: &BTreeSet<String>) -> Self {
+        match self {
+            Self::Workspace => Self::Workspace,
+            Self::Packages { affected, changed } => {
+                let affected: BTreeSet<String> = affected.into_iter().chain(packages.iter().cloned()).collect();
+                Self::Packages { affected: affected.into_iter().collect(), changed }
+            }
+        }
+    }
+
     pub fn cpus(&self) -> Option<usize> {
         match self {
             Self::Workspace => None,

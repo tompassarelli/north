@@ -72,10 +72,7 @@ fn spawners_of_tree() -> BTreeSet<String> {
 fn a_tree_wide_module_runs_for_a_lane_that_changes_any_crate() {
     let files = ["crates/north-dispatch/src/dispatch/stops.rs".to_owned(), "crates/north-dispatch/src/dispatch/tries.rs".to_owned()];
     let selection = select(&read(STRUCTURE), &read(TABLE), &spawners_of_tree(), &files).unwrap();
-    let runs = |module: &str| match &selection {
-        Selection::Every => true,
-        Selection::Modules(modules) => modules.contains(module),
-    };
+    let runs = |module: &str| selection.runs_module(module);
     assert!(runs("agent_text_reads") && runs("affected_modules"), "a replay of f0e87b7c09 selects the tree-wide modules: {selection:?}");
     assert!(select(&read(STRUCTURE), "plain north-strategy-types # tree-wide:\n", &BTreeSet::new(), &files).is_err(), "a tree-wide marker needs a reason");
 }

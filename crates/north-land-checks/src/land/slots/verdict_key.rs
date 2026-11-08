@@ -30,8 +30,10 @@ pub fn selection_environment(scope: Option<&Scope>, it: Option<&str>, selected_p
 
 pub fn lane_environment(root: &Path, base: &str, head: &str, commands: &[String]) -> Vec<(String, String)> {
     let reads = |name: &str| commands.iter().any(|command| command.contains(name));
-    let scope = (reads(PACKAGES_ENV) || reads(CHANGED_ENV)).then(|| affected::scope(root, base, head).unwrap_or(Scope::Workspace));
-    let it = reads(IT_ENV).then(|| it_modules::selection(root, base, head).unwrap_or(it_modules::Selection::Every).arguments());
+    let it = reads(IT_ENV).then(|| it_modules::selection(root, base, head).unwrap_or(it_modules::Selection::Every));
+    let packages = it.as_ref().map(it_modules::Selection::packages).unwrap_or_default();
+    let scope = (reads(PACKAGES_ENV) || reads(CHANGED_ENV)).then(|| affected::scope(root, base, head).unwrap_or(Scope::Workspace).including(&packages));
+    let it = it.map(|selection| selection.arguments());
     selection_environment(scope.as_ref(), it.as_deref(), None).into_iter().map(|(name, value)| (name.to_owned(), value)).collect()
 }
 

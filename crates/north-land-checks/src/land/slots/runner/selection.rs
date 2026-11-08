@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -9,7 +10,13 @@ use super::super::selection_record::Recorded;
 use super::arguments::Arguments;
 use super::{say, warn};
 
-pub(super) fn scope_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<Scope> {
+pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> (Option<Scope>, Option<String>) {
+    let (it, packages) = it_for(root, arguments, commands, recorded).unzip();
+    let scope = scope_for(root, arguments, commands, recorded).map(|scope| scope.including(&packages.unwrap_or_default()));
+    (scope, it)
+}
+
+fn scope_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<Scope> {
     if !commands.iter().any(|command| command.contains(PACKAGES_ENV) || command.contains(CHANGED_ENV)) {
         return None;
     }
@@ -62,20 +69,20 @@ fn checked_out(root: &Path, tree: &str) -> bool {
     clean && commit("HEAD").is_some_and(|head| Some(head) == commit(tree))
 }
 
-pub(super) fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<String> {
+fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<(String, BTreeSet<String>)> {
     if !commands.iter().any(|command| command.contains(IT_ENV)) {
         return None;
     }
     if let Some(filters) = recorded.and_then(|recorded| recorded.it.clone()) {
         say(&format!("safe-push: the after-landing tests/it run reuses the candidate's selection, {filters}"));
-        return Some(filters);
+        return Some((filters, BTreeSet::new()));
     }
     let selection = it_modules::selection(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
         warn(&format!("safe-push: {error}; the tests/it run covers every module"));
         it_modules::Selection::Every
     });
     if !arguments.leased {
-        say(&format!("safe-push: the tests/it run is {}", selection.arguments()));
+        say(&format!("safe-push: the tests/it run is {}", selection.summary()));
     }
-    Some(selection.arguments())
+    Some((selection.arguments(), selection.packages()))
 }
