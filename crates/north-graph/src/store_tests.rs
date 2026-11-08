@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use std::sync::{Arc, Barrier};
 
-use crate::store::{Action, Graph};
+use crate::store::{Action, Graph, Told};
+use crate::sync::{Synced, Telling};
 use crate::term::{Term, Triple};
 
 fn fact(writer: usize, index: usize) -> Triple {
@@ -80,4 +82,38 @@ fn validate_reports_an_occurrence_whose_coordinate_term_is_missing_instead_of_fa
     graph.connection().execute("UPDATE occurrences SET coord = 999999 WHERE seq = 1", []).unwrap();
     let report = graph.validate().unwrap();
     assert!(!report.is_sound());
+}
+
+#[test]
+fn a_sync_reads_only_replaced_predicates_and_its_own_writers_facts() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    let told = |writer: &str, t1: &str, t2: &str, t3: &str| Told::new(writer, Term::string(t1), Term::keyword(t2), Term::string(t3));
+    for fact in [told("mirror", "a", "title", "x"), told("other", "b", "note", "y"), told("other", "c", "title", "z"), told("ledger", "d", "at", "1"), told("other", "e", "at", "2")] {
+        graph.tell(&fact.writer, fact.triple).unwrap();
+    }
+    let title = Term::keyword("title");
+    let at = Term::keyword("at");
+    let mut scoped = graph.told_within(&HashSet::from([("ledger", &at)]), &HashSet::from([&title])).unwrap();
+    scoped.sort_by_key(|told| told.triple.t1.to_string());
+    assert_eq!(scoped, [told("mirror", "a", "title", "x"), told("other", "c", "title", "z"), told("ledger", "d", "at", "1")]);
+    let synced = graph.sync(&Telling { facts: vec![told("mirror", "a", "title", "x"), told("ledger", "d", "at", "1")], replaces: vec![title] }).unwrap();
+    assert_eq!(synced, Synced { asserted: 0, retracted: 1, unchanged: 2 });
+    let mut left: Vec<String> = graph.told().unwrap().iter().map(|told| told.triple.t1.to_string()).collect();
+    left.sort();
+    assert_eq!(left, ["\"a\"", "\"b\"", "\"d\"", "\"e\""]);
+}
+
+#[test]
+fn retiring_a_writer_withdraws_each_of_its_live_assertions_and_keeps_the_rest() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.tell("decision-log", fact(0, 1)).unwrap();
+    graph.tell("decision-log", fact(0, 1)).unwrap();
+    graph.tell("decision-log", fact(0, 2)).unwrap();
+    graph.tell("mirror", fact(1, 1)).unwrap();
+    assert_eq!(graph.retire("decision-log").unwrap(), 3);
+    assert_eq!(graph.retire("decision-log").unwrap(), 0);
+    let report = graph.validate().unwrap();
+    assert!(report.is_sound());
+    assert_eq!((report.occurrences, report.live_occurrences), (7, 1));
+    assert_eq!(graph.told().unwrap(), [Told { writer: "mirror".into(), triple: fact(1, 1) }]);
 }

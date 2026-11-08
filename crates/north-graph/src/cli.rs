@@ -14,6 +14,7 @@ const USAGE: &str = "usage: north graph tell|retract [--db PATH] [--writer NAME]
        north graph show [--db PATH] [--json] T1
        north graph ask [--db PATH] [--json] (QUERY_JSON | --file PATH | -)
        north graph validate [--db PATH] [--guards DIR] [--shadow]
+       north graph guards [--db PATH] [--shadow] DIR
 terms: \"text\" 42 1.5 true :keyword @SECONDS.NANOS9 (T1 T2 T3); a bare word is a string";
 
 struct Options {
@@ -75,6 +76,7 @@ fn dispatch(verb: &str, options: &Options) -> Result<u8, String> {
         "show" => show(options),
         "ask" => ask(options),
         "validate" => validate(options),
+        "guards" => guards(options),
         _ => Err(format!("usage: unknown verb {verb}\n{USAGE}")),
     }
 }
@@ -175,6 +177,15 @@ fn validate(options: &Options) -> Result<u8, String> {
         None => false,
     };
     Ok(u8::from(!report.is_sound() || (violated && !options.shadow)))
+}
+
+fn guards(options: &Options) -> Result<u8, String> {
+    let [directory] = options.positional.as_slice() else {
+        return Err(format!("usage: guards takes one DIR\n{USAGE}"));
+    };
+    let graph = Graph::open_read_only(&options.db, std::time::Duration::from_secs(30)).map_err(|why| why.to_string())?;
+    let violated = run_guards(&graph, std::path::Path::new(directory), options.shadow)?;
+    Ok(u8::from(violated && !options.shadow))
 }
 
 fn run_guards(graph: &Graph, directory: &std::path::Path, shadow: bool) -> Result<bool, String> {

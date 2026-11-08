@@ -21,7 +21,8 @@ impl Graph {
     pub fn sync(&mut self, sync: &Telling) -> Result<Synced> {
         let wanted: HashSet<&Told> = sync.facts.iter().collect();
         let replaced: HashSet<&Term> = sync.replaces.iter().collect();
-        let live = self.told()?;
+        let claimed: HashSet<(&str, &Term)> = wanted.iter().map(|told| (told.writer.as_str(), &told.triple.t2)).collect();
+        let live = self.told_within(&claimed, &replaced)?;
         let have: HashSet<&Told> = live.iter().collect();
         let mut batches: HashMap<&str, Vec<Action>> = HashMap::new();
         let mut synced = Synced::default();
@@ -43,5 +44,13 @@ impl Graph {
         self.apply_batches(&borrowed)?;
         Ok(synced)
     }
-}
 
+    pub fn retire(&mut self, writer: &str) -> Result<usize> {
+        let live = self.told_by(writer)?;
+        let actions: Vec<Action> = live.into_iter().map(|told| Action::retract(told.triple)).collect();
+        if !actions.is_empty() {
+            self.apply(writer, &actions)?;
+        }
+        Ok(actions.len())
+    }
+}

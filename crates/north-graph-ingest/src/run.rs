@@ -6,9 +6,10 @@ use north_graph::{Graph, Synced, Term, default_path};
 use crate::places::Places;
 use crate::shas::Shas;
 use crate::facts::Sourced;
-use crate::{corrections, coverage, decisions, issues, ledger, losses, pushes, ranking, touches};
+use crate::{corrections, coverage, issues, ledger, losses, pushes, ranking, touches};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ranking ledger losses pushes touches decisions corrections coverage (all when none is named)";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ranking ledger losses pushes touches corrections coverage (all when none is named)";
+const RETIRED_WRITER: &str = "decision-log";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {
@@ -18,13 +19,12 @@ pub enum Source {
     Losses,
     Pushes,
     Touches,
-    Decisions,
     Corrections,
     Coverage,
 }
 
 impl Source {
-    pub const ALL: [Self; 9] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Losses, Self::Pushes, Self::Touches, Self::Decisions, Self::Corrections, Self::Coverage];
+    pub const ALL: [Self; 8] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Losses, Self::Pushes, Self::Touches, Self::Corrections, Self::Coverage];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -34,7 +34,6 @@ impl Source {
             Self::Losses => "losses",
             Self::Pushes => "pushes",
             Self::Touches => "touches",
-            Self::Decisions => "decisions",
             Self::Corrections => "corrections",
             Self::Coverage => "coverage",
         }
@@ -48,7 +47,6 @@ impl Source {
             Self::Losses => losses::read(places),
             Self::Pushes => pushes::read(places).map(Sourced::from),
             Self::Touches => touches::read(places).map(Sourced::from),
-            Self::Decisions => decisions::read(places).map(Sourced::from),
             Self::Corrections => corrections::read(places).map(Sourced::from),
             Self::Coverage => coverage::read(places).map(Sourced::from),
         }
@@ -64,6 +62,14 @@ pub struct Report {
 pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report {
     let shas = Shas::read(places);
     let mut report = Report::default();
+    match graph.retire(RETIRED_WRITER) {
+        Ok(0) => {}
+        Ok(retracted) => report.lines.push(format!("{RETIRED_WRITER}: {retracted} retracted, its source is gone")),
+        Err(why) => {
+            report.failed = true;
+            report.lines.push(format!("{RETIRED_WRITER}: not retired: {why}"));
+        }
+    }
     let mut replaced: HashMap<Term, &'static str> = HashMap::new();
     for source in sources {
         let outcome = source.read(places, &shas).and_then(|Sourced { telling, notes }| {

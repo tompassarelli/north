@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use super::resolve::Terms;
 use super::Graph;
 use crate::error::Result;
@@ -71,6 +73,46 @@ impl Graph {
         };
         let mut statement = snapshot.prepare_cached(MENTIONS)?;
         let rows = statement.query_map([id, i64::try_from(limit).unwrap_or(i64::MAX)], |row| Ok([row.get::<_, i64>(0)?, row.get(1)?, row.get(2)?, row.get(3)?]))?;
+        rows.map(|row| told_from(&mut terms, row?)).collect()
+    }
+
+    pub(crate) fn told_within(&self, claimed: &HashSet<(&str, &Term)>, replaced: &HashSet<&Term>) -> Result<Vec<Told>> {
+        let snapshot = self.connection().unchecked_transaction()?;
+        let mut terms = Terms::new(&snapshot);
+        let mut scope: HashMap<i64, Option<HashSet<i64>>> = HashMap::new();
+        for predicate in replaced {
+            if let Some(id) = terms.stored_id_of(predicate)? {
+                scope.insert(id, None);
+            }
+        }
+        for (writer, predicate) in claimed {
+            let (Some(predicate), Some(writer)) = (terms.stored_id_of(predicate)?, terms.stored_id_of(&Term::string(*writer))?) else { continue };
+            if let Some(writers) = scope.entry(predicate).or_insert_with(|| Some(HashSet::new())) {
+                writers.insert(writer);
+            }
+        }
+        let mut statement = snapshot.prepare_cached("SELECT DISTINCT o.writer, p.t1, p.t3 FROM live_props p JOIN occurrences o ON o.prop = p.prop AND o.live = 1 WHERE p.t2 = ?1")?;
+        let mut told = Vec::new();
+        for (predicate, writers) in &scope {
+            let rows = statement.query_map([predicate], |row| Ok([row.get::<_, i64>(0)?, row.get(1)?, row.get(2)?]))?;
+            for row in rows {
+                let [writer, t1, t3] = row?;
+                if writers.as_ref().is_none_or(|writers| writers.contains(&writer)) {
+                    told.push(told_from(&mut terms, [writer, t1, *predicate, t3])?);
+                }
+            }
+        }
+        Ok(told)
+    }
+
+    pub(crate) fn told_by(&self, writer: &str) -> Result<Vec<Told>> {
+        let snapshot = self.connection().unchecked_transaction()?;
+        let mut terms = Terms::new(&snapshot);
+        let Some(id) = terms.stored_id_of(&Term::string(writer))? else {
+            return Ok(Vec::new());
+        };
+        let mut statement = snapshot.prepare("SELECT o.writer, p.t1, p.t2, p.t3 FROM occurrences o JOIN live_props p ON p.prop = o.prop WHERE o.live = 1 AND o.writer = ?1")?;
+        let rows = statement.query_map([id], |row| Ok([row.get::<_, i64>(0)?, row.get(1)?, row.get(2)?, row.get(3)?]))?;
         rows.map(|row| told_from(&mut terms, row?)).collect()
     }
 }

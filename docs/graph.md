@@ -1,6 +1,6 @@
 # The fact graph
 
-`north graph` is Beagle Store's triple kernel and five verbs (tell, retract, show, ask, validate) in Rust over SQLite
+`north graph` is Beagle Store's triple kernel and six verbs (tell, retract, show, ask, validate, guards) in Rust over SQLite
 (`crates/north-graph`). Beagle is read for semantics only; no Clojure or Racket runs. SQLite holds rows, indexes,
 durability and concurrent writers (WAL, 30 s busy wait, `BEGIN IMMEDIATE` per write); `ask` computes its fixpoint in
 Rust, running each rule body as indexed lookups against SQLite. The database is `~/.local/state/north/graph.db`;
@@ -20,6 +20,7 @@ Rust, running each rule body as indexed lookups against SQLite. The database is 
 - `validate` checks that every stored term decodes with children preceding it, every coordinate is well formed and
   increasing, every withdrawal binds a later retraction to an earlier assertion of the same proposition, liveness agrees
   with withdrawals, and the live-triple counts agree with the live assertions. It exits 1 on any disagreement.
+- `guards DIR` runs the guard queries of a directory (see Guards) without the soundness check.
 
 ## Terms on the command line
 
@@ -88,8 +89,6 @@ query can join a claim to the checks of the commit it names.
   commit that reached main `:landed-as`, `:landed-by` and `:landed-at`.
 - `touches` (writer `git`): `(SHA :touched FILE)` for each commit the push log landed in the last 30 days, from `git log
   --name-only` of that repository's checkout under `~/code/REPO/main`. Facts are only added: a landed commit's files do not change.
-- `decisions` (writer `decision-log`): per decision `(decision:ID :decision-kind|:at|:host|:follows|...)` with the branch,
-  commit, lane, session, account and outcome the kind's case names. The log keeps 14 days; the graph keeps what it read.
 - `corrections` (writer `corrections`): `(correction:ID :class|:at|:paraphrase|:in-session|:superseded-by ...)` from the
   grounding ledger and `(class:NAME :class-paraphrase|:class-owner|:class-guard|:class-guarded-at ...)` from
   harness/corrections.toml. The ledger holds Tom's corrections as neutral paraphrases and so does the graph.
@@ -97,6 +96,10 @@ query can join a claim to the checks of the commit it names.
   `(coverage:REPO :commit SHA)` from the coverage map, replaced whole by each map.
 
 A predicate belongs to one source: a run refuses a source that replaces a predicate another source of the run replaces.
+A sync reads only the live assertions it can change: every writer's assertions of a replaced predicate, and for each
+other predicate it tells, the assertions of the writers it tells it as. The decision log was ingested until
+2026-11-08 and nothing read it; each ingest retracts any assertion still live under writer `decision-log`, so its
+history stays as withdrawn occurrences.
 
 ### Which host ingests what
 
@@ -134,12 +137,12 @@ of the issue; `observed` is a commit `checker` passed):
 
 ## Guards
 
-`north graph validate --guards DIR` runs every `DIR/*.json` as an `ask` after the soundness check. A guard is a forbidden pattern: each row
+`north graph guards DIR` runs every `DIR/*.json` as an `ask`; `north graph validate --guards DIR` does the same after the soundness check. A guard is a forbidden pattern: each row
 its query answers is a finding, printed as `guard NAME: ROW`, and any finding exits 1. A query that does not parse or runs out of
 budget is an error, so a guard cannot pass by breaking. `--shadow` prints each finding as `would refuse guard NAME: ROW` and
-leaves the exit code to the soundness check alone, so a new guard runs in shadow mode before it refuses. A correction class seen twice (`north ledger flow detect` files its box) adds its
+leaves the exit code to the soundness check alone (`guards` then exits 0), so a new guard runs in shadow mode before it refuses. A correction class seen twice (`north ledger flow detect` files its box) adds its
 guard as a JSON file in `harness/graph-guards/`, named for the class in `harness/corrections.toml`. The lander runs
-`north graph validate --guards harness/graph-guards --shadow` as a `land.check` on its own host (`.safe-push`), so it logs each would-be refusal
+`north graph guards harness/graph-guards --shadow` as a `land.check`, without the soundness scan that took 12 s on a 500 MB graph, on its own host (`.safe-push`), so it logs each would-be refusal
 and refuses nothing until a reviewer has read those lines (north#706 shadow-first rule) and the `--shadow` flag is dropped there; it reads that host's
 graph as fresh as its last `north graph ingest`, and a host with no graph answers no rows. `dropped-thread.json` is the first: a box whose wait names
 something the ingest cannot resolve (`unparsed-wait`) refuses the push until the box names `north#N box K` or a sibling label.
