@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use super::after::follow;
 
-pub const MOST_AT_ONCE: usize = 6;
+const ASSUMED_SLOTS: usize = 6;
 const MEASURED_PROBES: usize = 8;
 const PROBE_LOG_SUFFIX: &str = "-candidate.log";
 
@@ -16,10 +16,10 @@ pub fn free_slots(repo: &Path) -> Option<(usize, usize)> {
     Some((words.next()?.ok()?, words.next()?.ok()?)).filter(|(free, total)| free <= total)
 }
 
-/// The probes one round may run side by side, and the free and total offload slots it read: the free slots over the offload jobs one probe takes, as the newest probe logs in `logs` show, so every job of every probe finds a slot.
+/// The probes one round may run side by side, and the free and total offload slots it read: the free slots, or `ASSUMED_SLOTS` when none were read, over the offload jobs one probe takes, as the newest probe logs in `logs` show, so every job of every probe finds a slot.
 pub fn slots(repo: &Path, logs: &Path) -> (usize, Option<(usize, usize)>) {
     let read = free_slots(repo);
-    (read.map_or(MOST_AT_ONCE, |(free, _)| fitting(free, jobs_per_probe(logs))), read)
+    (fitting(read.map_or(ASSUMED_SLOTS, |(free, _)| free), jobs_per_probe(logs)), read)
 }
 
 /// The probes of `jobs` offload jobs each that `free` slots hold at once, and always one.

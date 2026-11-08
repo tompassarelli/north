@@ -4,14 +4,14 @@ use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
 
-use super::ship::{OFFLOAD_ROOT, host_job_cap, jobs_part, quote};
+use super::ship::{OFFLOAD_ROOT, OTHER_JOBS, SLOTS, host_job_cap, jobs_part, quote};
 
 const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 const STATUS_MARK: &str = "@ADMISSION@";
 const SLOTS_MARK: &str = "@SLOTS@";
 const SLOTS_PROBE: &str = r#"root=$1
-@JOBS@n=$(host_jobs); q=$(ls "$root/queue" 2>/dev/null | grep -c "^[012]-" || true); echo "$n $q $(nproc)""#;
+@JOBS@n=$(host_jobs); q=$(ls "$root/queue" 2>/dev/null | grep -c "^[012]-" || true); a=$(ls "$root/queue" 2>/dev/null | grep -c "^[01]-" || true); echo "$n $q $(nproc) $a""#;
 const STATUS_PROBE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host status"#;
 const CLAIM: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host land-waiting"#;
 
@@ -23,19 +23,20 @@ pub struct Room {
     pub slots: Option<Slots>,
 }
 
-/// The host's offload slot jobs: those running in any checkout's slot, the land checks and red fixes queued for one, and its cores.
+/// The host's offload slot jobs: those running in any checkout's slot, the land checks and red fixes queued for one, its cores, and the red fixes and lander jobs queued, which a new lander job waits behind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Slots {
     pub running: u32,
     pub queued: u32,
     pub cores: u32,
+    pub ahead: u32,
 }
 
 impl Slots {
     fn parse(text: &str) -> Option<Self> {
         let mut words = text.split_whitespace().map(str::parse::<u32>);
-        let (running, queued, cores) = (words.next()?.ok()?, words.next()?.ok()?, words.next()?.ok()?);
-        Some(Self { running, queued, cores })
+        let (running, queued, cores, ahead) = (words.next()?.ok()?, words.next()?.ok()?, words.next()?.ok()?, words.next()?.ok()?);
+        Some(Self { running, queued, cores, ahead })
     }
 
     /// The jobs running or queued, with `taken` more on their way, per job the host runs at once.
@@ -121,14 +122,16 @@ fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {
     (room.disk_free_gib < disk).then(|| format!("{:.1} GiB disk free, needs {disk}", room.disk_free_gib))
 }
 
-/// The land checks of `cores` the hosts take at once, free for the lander and total: each readable host counts the checks its free CPUs hold, capped at the checks it keeps for the lander (its total less the slots other jobs may hold), and a host its admission refuses for a check of `cores` counts none free.
+/// The land checks of `cores` the hosts take at once, free for the lander and total: a host's total is the job cap its slot script enforces (its cores over the cores a check is charged, its memory over a job's, at most `SLOTS`) within the checks its admission limit holds; its free checks are those its free CPUs hold, capped at the checks it keeps for the lander (its total less the slots other jobs may hold) and at the slots its running jobs and the red fixes and lander jobs queued ahead leave; a host its admission refuses for a check of `cores` counts none free.
 pub(super) fn check_slots<'a>(rooms: impl IntoIterator<Item = &'a Room>, cores: f64) -> (usize, usize) {
     let cores = cores.max(1.0);
     let held = |cpus: f64| (cpus.max(0.0) / cores).floor() as usize;
     rooms.into_iter().fold((0, 0), |(free, total), room| {
-        let all = held(room.admission.limit_cpus);
-        let lander = all.saturating_sub(super::ship::OTHER_JOBS as usize);
-        (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()).min(lander) } else { 0 }, total + all)
+        let host_cores = room.slots.map_or(room.measure.cores as u32, |slots| slots.cores);
+        let all = held(room.admission.limit_cpus).min(host_job_cap(host_cores, cores.ceil() as u32, room.measure.memory_total_mib as u32).min(SLOTS) as usize);
+        let lander = all.saturating_sub(OTHER_JOBS as usize);
+        let open = room.slots.map_or(all, |slots| all.saturating_sub((slots.running + slots.ahead) as usize));
+        (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()).min(lander).min(open) } else { 0 }, total + all)
     })
 }
 
@@ -214,6 +217,7 @@ mod tests {
         let gib = 1024 * 1024;
         let mut host = reading(80 * gib, "3.00", "0.0", "1");
         host.admission.limit_cpus = 24.0;
+        host.measure.cores = 24.0;
         assert_eq!(check_slots([&host], 4.0), (5, 6), "one of its six checks is kept for lane pre-checks and worker builds");
         assert_eq!(check_slots([&host, &host], 4.0), (10, 12));
         let mut small = host;
@@ -224,8 +228,27 @@ mod tests {
         assert_eq!(check_slots([&loaded, &host], 4.0), (8, 12), "a host with 14 of 24 cores free holds 3 more checks");
         let mut pressed = reading(80 * gib, "3.00", "0.0", "90");
         pressed.admission.limit_cpus = 24.0;
+        pressed.measure.cores = 24.0;
         assert_eq!(check_slots([&pressed, &host], 4.0), (5, 12), "a host its admission refuses offers no free slot");
     }
+
+    // KEEP(bug): at 10:20 AM on 2026-11-08 the lander read 33 free slots with land checks charged one core, and planned 33 probes of about 6 offload jobs each, while gex45 held its 6 slots with 35 jobs queued for them
+    #[test]
+    fn a_replay_of_the_1020_am_reading_offers_the_lander_only_the_slots_the_build_hosts_job_caps_and_queues_leave() {
+        let gib = 1024 * 1024;
+        let host = |cores: u32, memory_kib: u64, committed: &str, slots: &str| {
+            let text = format!("{cores}\n{}@SLOTS@\n{slots}\n", PROBE[3..].replace("65536000", &memory_kib.to_string()).replace("40000000", &(memory_kib / 2).to_string()).replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", committed).replace("%PRESSURE%", "1"));
+            let mut room = parse(&text).unwrap();
+            room.admission.limit_cpus = f64::from(cores);
+            room
+        };
+        let gex45 = host(20, 65_536_000, "1.0", "6 35 20 35");
+        let cpx62 = host(16, 32_505_856, "2.0", "3 0 16 0");
+        let charge = 1.0;
+        assert_eq!(check_slots([&gex45, &cpx62], charge), (0, 9), "gex45 caps its jobs at 6 and cpx62 at 3 by memory, every slot is held and 35 lander jobs wait for gex45's, where the free cores read 19 + 14 = 33");
+        let idle = |room: Room| Room { slots: room.slots.map(|slots| Slots { running: 0, queued: 0, ahead: 0, ..slots }), ..room };
+        let (free, _) = check_slots([&idle(gex45), &idle(cpx62)], charge);
+        assert_eq!(free, 7, "idle, the hosts keep 5 and 2 slots for the lander, one each for other jobs");    }
 
     #[test]
     fn a_runtime_build_has_room_on_gex45_at_its_4_20_pm_reading_whose_load_average_is_the_ci_farm() {
@@ -277,13 +300,13 @@ mod tests {
             room.admission.limit_cpus = limit;
             room
         };
-        let ccx33 = slotted("1.0", 8.0, "2 9 8");
-        let gex45 = slotted("8.0", 20.0, "3 0 20");
-        assert_eq!(ccx33.slots, Some(Slots { running: 2, queued: 9, cores: 8 }));
+        let ccx33 = slotted("1.0", 8.0, "2 9 8 0");
+        let gex45 = slotted("8.0", 20.0, "3 0 20 0");
+        assert_eq!(ccx33.slots, Some(Slots { running: 2, queued: 9, cores: 8, ahead: 0 }));
         assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(ccx33)), ("gex45".to_owned(), Some(gex45))], &[], 4.0), Ok(Chosen::Room("gex45".to_owned())), "ccx33 runs 2 jobs at once with 9 queued; gex45 runs 5 with 2 free");
         let taken = ["gex45".to_owned(), "gex45".to_owned()];
-        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(slotted("1.0", 8.0, "0 0 8"))), ("gex45".to_owned(), Some(gex45))], &taken, 4.0), Ok(Chosen::Room("ccx33".to_owned())), "an idle ccx33 takes the run once gex45's free slots are taken");
-        let queued = |jobs: u32| slotted("17.0", 20.0, &format!("3 {jobs} 20"));
+        assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("ccx33".to_owned(), Some(slotted("1.0", 8.0, "0 0 8 0"))), ("gex45".to_owned(), Some(gex45))], &taken, 4.0), Ok(Chosen::Room("ccx33".to_owned())), "an idle ccx33 takes the run once gex45's free slots are taken");
+        let queued = |jobs: u32| slotted("17.0", 20.0, &format!("3 {jobs} 20 0"));
         assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(queued(3)))], &[], 6.0), Ok(Chosen::Queued("gex45".to_owned())), "on 2026-11-08 the laptop took land checks at load 73 whenever the build hosts were full; a queue of one round of gex45's 3 jobs waits there");
         assert_eq!(check_host(Standing::Peer, "laptop", laptop, vec![("gex45".to_owned(), Some(queued(4)))], &[], 6.0), Ok(Chosen::Room("laptop".to_owned())), "the laptop takes one once gex45 queues more than a round");
     }
