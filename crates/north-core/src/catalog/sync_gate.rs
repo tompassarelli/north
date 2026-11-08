@@ -13,6 +13,8 @@ pub fn operator_directory() -> NorthResult<PathBuf> {
     operator_dir(env::var_os("AGENTS_OPERATOR_DIR"), repo_root)
 }
 
+const SIBLING_PROJECTS: [&str; 2] = ["wisp", "makgora"];
+
 pub fn run(arguments: &[String]) -> NorthResult<u8> {
     let projected = project_profiles();
     let operator = operator_directory()?;
@@ -34,6 +36,11 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
         eprintln!("{line}");
         eprintln!("{NOT_PUBLISHED}");
         return Ok(1);
+    }
+    for project in SIBLING_PROJECTS {
+        if let Err(line) = repo_root(project).map_err(|error| error.to_string()).and_then(|directory| current_main(project, &directory, &mut say)) {
+            say(format!("agents sync: {line}; its goals are read from the checkout as it stands"));
+        }
     }
     let harness = harness::harness_root().map_err(crate::error::NorthError::Configuration)?;
     if !policy_gate(&nixos_config, &operator) {
