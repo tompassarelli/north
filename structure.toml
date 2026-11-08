@@ -894,10 +894,6 @@ id = "skill.clean-room"
 path = "harness/skills/clean-room/SKILL.md"
 
 [[registered]]
-id = "skill.game-ip"
-path = "harness/skills/game-ip/SKILL.md"
-
-[[registered]]
 id = "skill.github"
 path = "harness/skills/github/SKILL.md"
 
