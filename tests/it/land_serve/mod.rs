@@ -161,6 +161,8 @@ impl Fixture {
             session: Some(format!("session-{branch}")),
             queued_at: "2026-11-04T10:00:00+07:00".to_owned(),
             queued_micros: Some(self.queued),
+            alone_green: Some(git(root, &["rev-parse", "HEAD"])),
+            alone_base: Some(git(root, &["rev-parse", "origin/main"])),
             red_fix,
             ..Default::default()
         };

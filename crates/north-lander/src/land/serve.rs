@@ -181,13 +181,9 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::W
     }
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
-    let mut retiring: Option<Instant> = None;
     loop {
         if retire.load(Ordering::Relaxed) {
-            if let Some(code) = handover::hand_over(lander, &mut watch, &mut retiring) {
-                return code;
-            }
-            continue;
+            return handover::hand_over(lander, &watch);
         }
         let round = lander.round(&mut watch);
         lander.heartbeat.enter(Step::Watchdog);

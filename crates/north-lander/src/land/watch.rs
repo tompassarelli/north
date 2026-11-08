@@ -115,7 +115,6 @@ pub struct Watch {
     pending: Pending,
     hosts: Hosts,
     pub jobs: Jobs,
-    draining: bool,
     /// The queue whose journaled runs this watch holds, empty until it resumes or follows one.
     queue: PathBuf,
     handed_off_looked: Option<Instant>,
@@ -224,10 +223,6 @@ impl Watch {
         self.journaled() + self.jobs.running().len()
     }
 
-    pub fn drain(&mut self) {
-        self.draining = true;
-    }
-
     pub fn adoptable(&self, lander: &Lander) -> bool {
         let recorded = post_land::adoptable(&lander.queue);
         self.searching.is_empty() && self.running.iter().all(|running| recorded.iter().any(|(_, record)| record.head == running.batch.head))
@@ -269,7 +264,7 @@ impl Watch {
     }
 
     fn start_next(&mut self, lander: &Lander) {
-        if self.draining || self.pending.batches.is_empty() {
+        if self.pending.batches.is_empty() {
             return;
         }
         let limit = after_runs(lander);
