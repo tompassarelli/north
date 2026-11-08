@@ -4,6 +4,8 @@ use crate::fleet::prompt::PromptMode;
 
 use super::*;
 
+const HOOKED: &str = r#"{"hooks": {"PreToolUse": [{}]}}"#;
+
 fn request() -> LaunchRequest {
     LaunchRequest {
         verification: false,
@@ -71,17 +73,34 @@ fn a_profile_without_the_harness_settings_is_named_unguarded_so_its_launch_is_re
     let home = scratch.path().join("profiles/claude-api");
     std::fs::create_dir_all(&home).unwrap();
     let account = Account { provider: Claude.provider(), label: "api".into(), home: home.clone(), token_file: None, api: None };
-    let here = |path: &std::path::Path| path.exists();
+    let here = |path: &std::path::Path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text);
 
     assert!(Claude.unguarded(&account, &here).is_some_and(|reason| reason.contains("no settings.json")));
-    std::fs::write(home.join("settings.json"), "{}").unwrap();
+    std::fs::write(home.join("settings.json"), HOOKED).unwrap();
     assert_eq!(Claude.unguarded(&account, &here), None);
 
     let remote = scratch.path().join("remote");
-    let there = |path: &std::path::Path| remote.join(path.strip_prefix("/").unwrap_or(path)).exists();
+    let there = |path: &std::path::Path| std::fs::read_to_string(remote.join(path.strip_prefix("/").unwrap_or(path))).map_or(Seen::Absent, Seen::Text);
     assert!(Claude.unguarded(&account, &there).is_some_and(|reason| reason.contains("no settings.json")));
     let linked = remote.join(home.strip_prefix("/").unwrap());
     std::fs::create_dir_all(&linked).unwrap();
-    std::fs::write(linked.join("settings.json"), "{}").unwrap();
+    std::fs::write(linked.join("settings.json"), HOOKED).unwrap();
     assert_eq!(Claude.unguarded(&account, &there), None);
+}
+
+#[test]
+fn a_profile_whose_settings_register_no_hooks_is_named_unguarded_too() {
+    let scratch = tempfile::tempdir().unwrap();
+    let home = scratch.path().join("profiles/claude-api");
+    std::fs::create_dir_all(&home).unwrap();
+    let account = Account { provider: Claude.provider(), label: "api".into(), home: home.clone(), token_file: None, api: None };
+    let here = |path: &std::path::Path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text);
+
+    for settings in ["{}", r#"{"hooks": {}}"#, "not json"] {
+        std::fs::write(home.join("settings.json"), settings).unwrap();
+        assert!(Claude.unguarded(&account, &here).is_some_and(|reason| reason.contains("settings.json that")), "{settings}");
+    }
+    std::fs::write(home.join("settings.json"), r#"{"hooks": {"PreToolUse": [{}]}}"#).unwrap();
+    assert_eq!(Claude.unguarded(&account, &here), None);
+    assert_eq!(Claude.unguarded(&account, &|_| Seen::Unreachable), None);
 }

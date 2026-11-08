@@ -11,6 +11,13 @@ use super::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
 use super::roster::Roster;
 use super::turns::TurnSignal;
 
+/// What a profile file holds where a session would run, as a launch check sees it: its text, nothing there, or a machine that did not answer, which the launch itself reports.
+pub enum Seen {
+    Text(String),
+    Absent,
+    Unreachable,
+}
+
 pub struct HostSpec {
     pub key: String,
     pub shared: bool,
@@ -92,7 +99,7 @@ pub trait Runtime: Send + Sync {
     fn carry_conversation(&self, _from: &Account, _to: &Account, _conversation: &str) -> NorthResult<()> {
         Ok(())
     }
-    fn unguarded(&self, _account: &Account, _present: &dyn Fn(&Path) -> bool) -> Option<String> {
+    fn unguarded(&self, _account: &Account, _read: &dyn Fn(&Path) -> Seen) -> Option<String> {
         None
     }
     fn handshake(&self) -> Vec<String>;

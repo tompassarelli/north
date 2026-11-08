@@ -24,7 +24,7 @@ use crate::platform::process::try_run_command_within;
 use super::link::{Link, quote};
 use super::model::{Account, Machine, SessionRecord};
 use super::records::record_file;
-use super::runtime::{HostSpec, Runtime, binary, new_uuid};
+use super::runtime::{HostSpec, Runtime, Seen, binary, new_uuid};
 use super::ssh::SSH_WAIT;
 
 const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
@@ -41,13 +41,17 @@ pub fn placed(spec: HostSpec, record: &SessionRecord) -> NorthResult<HostSpec> {
 
 /// Why `account`'s profile would start a session without hooks on `machine`, or here when it is `None`; a machine that does not answer is left to the launch itself to report.
 pub fn unguarded_where_it_runs(runtime: &dyn Runtime, account: &Account, machine: Option<&Machine>) -> Option<String> {
-    let Some(machine) = machine else { return runtime.unguarded(account, &|path| path.exists()) };
-    let present = |path: &Path| {
+    let Some(machine) = machine else { return runtime.unguarded(account, &|path| std::fs::read_to_string(path).map_or(Seen::Absent, Seen::Text)) };
+    let read = |path: &Path| {
         let mut ssh = Command::new(binary("ssh"));
-        ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &format!("test -e {}", quote(&path.to_string_lossy()))]);
-        try_run_command_within(ssh, None, SSH_WAIT).ok().flatten().is_none_or(|output| output.status.success() || output.status.code() != Some(1))
+        ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &format!("cat -- {}", quote(&path.to_string_lossy()))]);
+        match try_run_command_within(ssh, None, SSH_WAIT).ok().flatten() {
+            Some(output) if output.status.success() => Seen::Text(String::from_utf8_lossy(&output.stdout).into_owned()),
+            Some(output) if output.status.code() == Some(1) => Seen::Absent,
+            _ => Seen::Unreachable,
+        }
     };
-    runtime.unguarded(account, &present).map(|reason| format!("{reason} on {}", machine.name))
+    runtime.unguarded(account, &read).map(|reason| format!("{reason} on {}", machine.name))
 }
 
 pub fn over_ssh(spec: HostSpec, machine: &Machine) -> NorthResult<HostSpec> {

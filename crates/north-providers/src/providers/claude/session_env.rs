@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use crate::fleet::model::{Account, LaunchRequest, Role};
-use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV};
+use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, Invocation, ROLE_ENV, SESSION_ENV, Seen};
 use crate::platform::git_credential;
 
 use super::accounts::default_home;
@@ -81,11 +81,22 @@ pub(super) fn caller_conversation() -> Option<String> {
     std::env::var(CONVERSATION_ENV).ok().filter(|conversation| !conversation.is_empty())
 }
 
-/// Why a session on `account` would start without the harness hooks: its config directory, as `present` sees it where the session runs, loads no `settings.json`.
-pub(super) fn unguarded(account: &Account, present: &dyn Fn(&Path) -> bool) -> Option<String> {
-    (!at_default(account) && !present(&account.home.join("settings.json"))).then(|| {
-        format!("{} has no settings.json, so a session there would run with no hooks; run `north config agents sync`", account.home.display())
-    })
+/// Why a session on `account` would start without the harness hooks: its config directory, as `read` sees it where the session runs, loads no `settings.json` or one that registers no hook.
+pub(super) fn unguarded(account: &Account, read: &dyn Fn(&Path) -> Seen) -> Option<String> {
+    if at_default(account) {
+        return None;
+    }
+    let settings = account.home.join("settings.json");
+    let why = match read(&settings) {
+        Seen::Unreachable => return None,
+        Seen::Absent => "has no settings.json",
+        Seen::Text(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(data) if data["hooks"].as_object().is_some_and(|hooks| !hooks.is_empty()) => return None,
+            Ok(_) => "has a settings.json that registers no hooks",
+            Err(_) => "has a settings.json that is not JSON",
+        },
+    };
+    Some(format!("{} {why}, so a session there would run with no hooks; run `north config agents sync`", account.home.display()))
 }
 
 /// Why `claude --resume` on `account` in `cwd` with bypassed permissions would stop at a prompt before the conversation shows: the folder is not trusted, or the account never accepted bypass mode.

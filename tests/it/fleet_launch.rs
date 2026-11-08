@@ -35,7 +35,7 @@ fn shared_fixture(root: &Path) {
     }
     fs::write(op.join("orchestration.toml"), "[placement]\nprivate_repos = []\n[hosts.here]\nserves = [\"warcraft\"]\n[tiers.\"claude:haiku\"]\nmodel = \"claude-haiku-5-5\"\neffort = \"high\"\n[tiers.\"claude:sonnet-high\"]\nmodel = \"claude-sonnet-5-5\"\neffort = \"high\"\n[tiers.\"claude:opus-medium\"]\nmodel = \"claude-opus-5-5\"\neffort = \"medium\"\n").unwrap();
     fs::write(profile.join(".credentials.json"), "{}").unwrap();
-    fs::write(profile.join("settings.json"), "{}").unwrap();
+    fs::write(profile.join("settings.json"), r#"{"hooks": {"PreToolUse": []}}"#).unwrap();
     let read_at = north_core::foundation::clock::Timestamp::now().iso();
     let windows = serde_json::json!([{"window": "5h", "used_pct": 10.0, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at}, {"window": "week", "used_pct": 10.0, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at}]);
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"windows": {"claude:a": windows}}}).to_string()).unwrap();

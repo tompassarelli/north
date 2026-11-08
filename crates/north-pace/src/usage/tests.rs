@@ -178,3 +178,23 @@ fn an_api_key_account_profile_gets_the_shared_harness_so_its_workers_run_under_t
     super::profiles::sync(&cfg, "laptop", home.path()).unwrap();
     assert_eq!(fs::read_link(keyed.join("settings.json")).unwrap(), home.path().join(".claude/settings.json"));
 }
+
+#[test]
+fn cpx62_declares_every_profile_so_sync_creates_each_one_with_hooks_where_it_had_none() {
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join(".claude")).unwrap();
+    fs::write(home.path().join(".claude/settings.json"), r#"{"hooks": {"PreToolUse": []}}"#).unwrap();
+    let path = |name: &str| home.path().join("profiles").join(name).to_str().unwrap().to_owned();
+    let cfg = serde_json::json!({"accounts": {"claude": {
+        "profiles": {"a": {"cpx62": {"path": path("claude-a")}}, "d": {"cpx62": {"path": path("claude-d")}}},
+        "api_keys": {"api": {"cpx62": {"path": path("claude-api")}}},
+    }}});
+
+    let before = super::profiles::unhooked(&cfg, "cpx62", home.path());
+    assert!(before.iter().any(|why| why.starts_with("api: ") && why.contains("claude-api/settings.json")), "{before:?}");
+    super::profiles::sync(&cfg, "cpx62", home.path()).unwrap();
+    assert_eq!(super::profiles::unhooked(&cfg, "cpx62", home.path()), Vec::<String>::new());
+    for name in ["claude-a", "claude-d", "claude-api"] {
+        assert!(home.path().join("profiles").join(name).join("settings.json").exists(), "{name}");
+    }
+}

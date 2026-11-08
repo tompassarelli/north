@@ -8,7 +8,7 @@ use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
-use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, LiveWindow, Opening, Runtime, WindowInbox, new_uuid, summarize};
+use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
 
 use super::session_env::{self, claude_env};
@@ -119,8 +119,8 @@ impl Runtime for Claude {
         session_env::interactive_prompt(account, &request.cwd)
     }
 
-    fn unguarded(&self, account: &Account, present: &dyn Fn(&Path) -> bool) -> Option<String> {
-        session_env::unguarded(account, present)
+    fn unguarded(&self, account: &Account, read: &dyn Fn(&Path) -> Seen) -> Option<String> {
+        session_env::unguarded(account, read)
     }
 
     fn handshake(&self) -> Vec<String> {
