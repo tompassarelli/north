@@ -50,11 +50,19 @@ const LANE: &[(&str, Run)] = &[
     ("reclaim", crate::ops::reclaim::run),
     ("rescue", crate::lanes::wt_rescue),
     ("seed", crate::lanes::target_seed),
-    ("stray", crate::lanes::stray),
+    ("stray", |arguments| outside_the_sandbox("stray", crate::lanes::stray, arguments)),
     ("squash", lane_squash::run),
     ("sweep", crate::ops::cleanup_sweep::run),
-    ("unlock", crate::lanes::unlock),
+    ("unlock", |arguments| outside_the_sandbox("unlock", crate::lanes::unlock, arguments)),
 ];
+
+fn outside_the_sandbox(verb: &str, run: Run, arguments: &[String]) -> u8 {
+    let words: Vec<String> = ["lane", verb].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect();
+    match crate::worker_sandbox::reenter_outside(&words) {
+        Some(_) => 126,
+        None => run(arguments),
+    }
+}
 
 pub(super) fn lane(arguments: &[String]) -> u8 {
     match arguments.split_first().and_then(|(verb, rest)| runner(LANE, verb).map(|run| run(rest))) {
