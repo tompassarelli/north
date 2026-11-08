@@ -18,6 +18,7 @@ mod chain;
 mod frontier;
 mod landing;
 mod lanes;
+mod product;
 mod ready;
 mod tom;
 mod weekly;
@@ -62,6 +63,7 @@ pub enum Figure {
     Spread { seconds: Vec<f64>, open: usize, open_label: &'static str },
     Share { hits: usize, of: usize, pending: usize, pending_label: &'static str },
     Per { spent: f64, kind: Spent, verified: usize },
+    Product { product: product::Product, counted: product::Counted },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,6 +99,7 @@ impl Figure {
             Self::Spread { seconds, .. } => (!seconds.is_empty()).then(|| (percentile(seconds, 0.5), seconds.len())),
             Self::Share { hits, of, .. } => (*of > 0).then(|| (*hits as f64 / *of as f64, *of)),
             Self::Per { spent, verified, .. } => (*verified > 0).then(|| (*spent / *verified as f64, *verified)),
+            Self::Product { product, .. } => product.share().map(|share| (share, product.runs)),
         }
     }
 
@@ -115,6 +118,7 @@ impl Figure {
                 (spent, 0) => format!("none verified ({})", kind.amount(*spent)),
                 (spent, verified) => format!("{} per verified landing (n={verified}, {} in all)", kind.amount(*spent / *verified as f64), kind.amount(*spent)),
             },
+            Self::Product { product, counted } => product.text(*counted),
             Self::Share { of: 0, pending: 0, .. } => "no record".into(),
             Self::Share { hits, of, pending, pending_label } => {
                 let share = if *of > 0 { format!("{:.0}%", *hits as f64 / *of as f64 * 100.0) } else { "n/a".into() };
@@ -175,6 +179,7 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
     measures.extend(workers::first_try(&threads, weeks).map_err(failed)?);
     measures.push(tom.recommendations(weeks));
     measures.extend(work::per_verified(&outcome::read::read_weeks(&sources.places, tom.typed(), now)?));
+    measures.extend(product::product_share(&threads, weeks).map_err(|why| format!("{}: {why}", sources.threads.display()))?);
     Ok(measures)
 }
 
