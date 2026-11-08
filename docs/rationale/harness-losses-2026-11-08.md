@@ -2,7 +2,7 @@
 
 The readiness bar "first tries lost to the harness" (ceiling 0.1%, `ready-harness-loss` in goals.toml) read 6% over 24 h on 2026-11-08 at 03:08 UTC, with n=323. That is 20 of 327 north first tries in the ledger snapshot this list was read from. This note lists each of the 20, the class the bar charged it to, what actually ended it and the evidence, then ranks the classes by what ended them (north#903). The bar's class comes from `docs/rationale/attribution.md`. The real cause comes from the session's archive (`~/.local/state/north/fleet/.archive/NAME-*/retired.json`), its boundary rows (`boundary_causes`), its `runs.box` and its report.
 
-Reproduce the list with `north ledger scoreboard losses --since 24h` on the ledger host. It prints the same rows from the current ledger, each with the boundary record or report line that decided it. Every time below is UTC.
+`north dash --bars --explain` prints the bar's count per window. No verb lists the rows: each one below was read by hand from the session's archive, boundary rows, `runs.box` and report named above. Every time below is UTC.
 
 ## The 20 losses
 
