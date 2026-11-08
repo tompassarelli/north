@@ -476,3 +476,7 @@ web search. A figure marked (secondary) comes from a summary, not the paper.
   not confirmed), accessed 2026-11-06, beside [RouteLLM](#routellm).
   Informed: adaptive arm shares by Thompson sampling on cost per kept box, a verified outcome as the reward and cost as the penalty.
   Outcome: adopted in the design; the shares box builds it.
+
+- <a id="landlock-crate"></a>**`landlock` crate 0.4.7** (https://github.com/landlock-lsm/rust-landlock, MIT OR Apache-2.0), accessed 2026-11-08.
+  Informed: the safe Rust binding the land sandbox uses to restrict a child's file reads under `--enforce`, with no `unsafe` and no `pre_exec`.
+  Outcome: adopted as a dependency of north-land-sandbox; nothing copied.

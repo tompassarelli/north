@@ -1,5 +1,6 @@
 mod key;
 mod observed;
+pub mod path_set;
 mod store;
 #[cfg(test)]
 mod observed_tests;

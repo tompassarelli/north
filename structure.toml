@@ -129,7 +129,7 @@ may_use = ["north-base", "north-land-scans", "north-landing-gates"]
 [[crate_dag.crate]]
 name = "north-lander"
 paths = ["crates/north-lander/src/**", "crates/north-check-environment/src/**"]
-may_use = ["north-base", "north-check-environment", "north-goals", "north-land-probes", "north-land-scans", "north-landing", "north-strategy-types"]
+may_use = ["north-base", "north-check-environment", "north-goals", "north-land-probes", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types"]
 
 [[crate_dag.crate]]
 name = "north-safe-push"
@@ -155,6 +155,11 @@ may_use = ["north-base"]
 name = "north-land-probes"
 paths = ["crates/north-land-probes/src/**"]
 may_use = []
+
+[[crate_dag.crate]]
+name = "north-land-sandbox"
+paths = ["crates/north-land-sandbox/src/**"]
+may_use = ["north-base"]
 
 [[crate_dag.crate]]
 name = "north-code-health"

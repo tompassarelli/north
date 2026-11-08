@@ -1,0 +1,22 @@
+[package]
+name = "north-land-sandbox"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[lib]
+doctest = false
+
+[[bin]]
+name = "north-land-sandbox"
+path = "src/main.rs"
+
+[dependencies]
+north-base = { path = "../north-base" }
+landlock = "0.4"
+tempfile.workspace = true
+
+[lints]
+workspace = true
