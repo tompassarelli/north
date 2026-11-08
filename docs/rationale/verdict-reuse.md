@@ -207,6 +207,35 @@ and a read of an ambient root.
 **Fallback.** If the recorder adds more than 10% to the nextest check's wall time on gex45, the recorder
 becomes a FUSE view of the tree inside a user and mount namespace (tup), and the reason is written here.
 
+**Readings (2026-11-08, host gex45, Linux 6.18.60, 20 CPUs, debug build, exclusive capacity lease).**
+Each cell is nextest's own `Summary` wall time; the figure is the median of 3 runs, with the runner
+`north land sandbox exec --record /dev/null --` (on) and without it (off), warm build, same worktree.
+- north-base lib tests (58 tests): off 6.757, 6.746, 6.570 s; on 7.394, 7.486, 7.436 s; median 6.746 s
+  against 7.436 s, **+10.2%**.
+- A tests/it module that spawns the north binary (3 tests): off 1.580, 1.312, 1.206 s; on 4.149, 4.354,
+  3.605 s; median 1.312 s against 4.149 s, **+216%**.
+- Another tests/it module (3 tests): off 0.405, 0.325, 0.382 s; on 1.204, 1.129, 0.993 s; median 0.382 s
+  against 1.129 s, **+196%**.
+- The whole workspace nextest (1115 tests): off 209.7 s with 1115 passed; on 415.6 s, **+98%**, with 1093
+  passed and 22 failed.
+
+The cost is paid per traced call and per spawned process (about 2 ms each), so a unit that spawns many
+processes pays the most. The earlier seccomp user-notification build measured the same range, so the
+mechanism is not the cause. The limit of 10% is exceeded on every module that spawns processes, so the
+fallback applies.
+
+Of the 22 failures, 12 are the sandbox crate's own tests: they run a recorder inside the recorder, and
+`PTRACE_TRACEME` of the inner child fails with EPERM while the outer supervisor traces it, so ptrace
+cannot nest. The remaining 10 (fleet-supervisor, providers, land_chaos) were unix-socket tests whose path exceeded the 108-byte `sun_path` limit
+inside the longer scratch `TMPDIR`; the scratch directory now lives under `/tmp` with a short name.
+
+**Finding for the reuse rule.** libtest calls `sched_getaffinity` in every Rust test binary, and the plan
+classifies that call as an ambient read, so every Rust test unit is unreusable under the rule as written.
+The ambient list needs a decision on that call before the shadow runs can report reuse.
+
+**Recommendation.** Build the FUSE view of the tree: it sees tree lookups only, where ptrace stops every
+call of every process, and the ptrace recorder stays as the oracle that its tests compare against.
+
 ### Path set
 
 The recorder classifies each observed path relative to the tree root:

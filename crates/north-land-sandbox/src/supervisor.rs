@@ -33,7 +33,7 @@ fn supervise(options: &Options) -> Result<u8, String> {
         None => git_toplevel()?,
     };
     let tree = tree.canonicalize().map_err(|error| format!("tree {}: {error}", tree.display()))?;
-    let scratch = tempfile::Builder::new().prefix("north-land-sandbox-").tempdir().map_err(|error| format!("scratch directory: {error}"))?;
+    let scratch = scratch_directory()?;
     let scratch_path = scratch.path().canonicalize().map_err(|error| format!("scratch directory: {error}"))?;
     let executable = std::env::current_exe().map_err(|error| format!("own executable: {error}"))?;
     let mut child = Command::new(executable);
@@ -76,6 +76,12 @@ fn supervise(options: &Options) -> Result<u8, String> {
         code = 1;
     }
     Ok(code)
+}
+
+fn scratch_directory() -> Result<tempfile::TempDir, String> {
+    let short = Path::new("/tmp");
+    let parent = if short.is_dir() { short.to_owned() } else { std::env::temp_dir() };
+    tempfile::Builder::new().prefix("n-").tempdir_in(parent).map_err(|error| format!("scratch directory: {error}"))
 }
 
 fn read_path_set(file: &Path) -> Result<Vec<Entry>, String> {
