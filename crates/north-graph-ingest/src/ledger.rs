@@ -1,18 +1,44 @@
+use std::collections::BTreeMap;
+
 use north_graph::Telling;
+use north_threads::threads::claims;
 use rusqlite::{Connection, OpenFlags};
 
+use crate::boxes::{self, Item};
 use crate::facts::{Facts, issue_ref, text};
+use crate::issues;
 use crate::places::Places;
 
 const CHECKER: &str = "checker";
 const LEDGER: &str = "ledger";
+const THREADS: &str = "threads";
 
 pub fn read(places: &Places) -> Result<Telling, String> {
     let connection = Connection::open_with_flags(&places.ledger, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|why| format!("{}: {why}", places.ledger.display()))?;
-    let mut facts = Facts::new(&[]);
+    let mut facts = Facts::new(&["holds"]);
     checks(&connection, &mut facts).map_err(|why| format!("{}: checks: {why}", places.ledger.display()))?;
     tasks(&connection, &mut facts).map_err(|why| format!("{}: tasks: {why}", places.ledger.display()))?;
+    if places.threads.is_file() {
+        let threads = claims::ledger::open(&places.threads, false)?;
+        holds(&claims::ledger::claims(&threads)?, &issues::bodies(places), &mut facts);
+    }
     Ok(facts.finish())
+}
+
+fn holds(held: &[claims::Claim], bodies: &BTreeMap<String, String>, facts: &mut Facts) {
+    for claim in held {
+        let Some(issue) = issue_ref(&claim.item) else { continue };
+        let Some(body) = bodies.get(&issue) else { continue };
+        let Some(slug) = &claim.slug else {
+            facts.tell(THREADS, text(&claim.owner), "holds", text(&issue));
+            continue;
+        };
+        let named = |item: &&Item| claims::box_slug(&item.text).is_some_and(|whole| whole.starts_with(slug.as_str()) || slug.starts_with(whole.as_str()));
+        let items = boxes::parse(body);
+        if let [only] = items.iter().filter(named).collect::<Vec<_>>()[..] {
+            facts.tell(THREADS, text(&claim.owner), "holds", text(only.id(&issue)));
+        }
+    }
 }
 
 fn checks(connection: &Connection, facts: &mut Facts) -> rusqlite::Result<()> {

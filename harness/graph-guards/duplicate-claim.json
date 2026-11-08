@@ -1,0 +1,6 @@
+{"find": "duplicate_claim", "rules": [
+  {"head": {"rel": "duplicate_claim", "args": [{"var": "box"}, {"var": "holder"}]}, "body": [
+     {"rel": "assertion", "args": ["threads", {"var": "holder"}, ["keyword", "holds"], {"var": "box"}]},
+     {"rel": "triple", "args": [{"var": "box"}, ["keyword", "ticked"], false]},
+     {"rel": "assertion", "args": ["threads", {"var": "other"}, ["keyword", "holds"], {"var": "box"}]},
+     {"pred": "ne", "args": [{"var": "holder"}, {"var": "other"}]}]}]}

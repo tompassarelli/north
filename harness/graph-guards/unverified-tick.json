@@ -1,0 +1,14 @@
+{"uses": ["corroborated"], "find": "unverified_tick", "strata": [
+  [{"head": {"rel": "ticked_claim", "args": [{"var": "box"}, {"var": "sha"}, {"var": "at"}]}, "body": [
+     {"rel": "claim", "args": [{"var": "box"}, {"var": "sha"}]},
+     {"rel": "triple", "args": [{"var": "sha"}, ["keyword", "landed-at"], {"var": "at"}]},
+     {"pred": "lt", "args": [{"var": "at"}, {"ago": 86400}]}]},
+   {"head": {"rel": "ticked_claim", "args": [{"var": "box"}, {"var": "sha"}, {"var": "at"}]}, "body": [
+     {"rel": "claim", "args": [{"var": "box"}, {"var": "sha"}]},
+     {"rel": "triple", "args": [{"var": "sha"}, ["keyword", "pushed-at"], {"var": "at"}]},
+     {"pred": "lt", "args": [{"var": "at"}, {"ago": 86400}]}]},
+   {"head": {"rel": "settled", "args": [{"var": "box"}, {"var": "sha"}]}, "body": [
+     {"rel": "corroborated", "args": [{"var": "box"}, {"var": "sha"}, {"var": "writer"}]}]}],
+  [{"head": {"rel": "unverified_tick", "args": [{"var": "box"}, {"var": "sha"}, {"var": "at"}]}, "body": [
+     {"rel": "ticked_claim", "args": [{"var": "box"}, {"var": "sha"}, {"var": "at"}]},
+     {"rel": "settled", "args": [{"var": "box"}, {"var": "sha"}], "neg": true}]}]]}

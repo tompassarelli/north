@@ -6,20 +6,25 @@ use super::{Detector, Finding};
 use crate::foundation::clock::Timestamp;
 
 const SEEN_MIN: usize = 2;
+const GRAPH_GUARDS: &str = "harness/graph-guards";
+
+pub fn graph_guard_landed(guard: &str) -> bool {
+    north_base::platform::harness::harness_root().is_ok_and(|root| root.join(GRAPH_GUARDS).join(format!("{guard}.json")).is_file())
+}
 
 #[derive(Default)]
 pub struct Facts {
     pub seen: Vec<(String, f64)>,
 }
 
-pub fn repeated(facts: &Facts, classes: &[Class]) -> Vec<Finding> {
+pub fn repeated(facts: &Facts, classes: &[Class], landed: impl Fn(&str) -> bool) -> Vec<Finding> {
     let mut grouped: BTreeMap<&str, Vec<f64>> = BTreeMap::new();
     for (class, at) in facts.seen.iter().filter(|(class, _)| class != UNCLASSIFIED) {
         grouped.entry(class.as_str()).or_default().push(*at);
     }
     grouped
         .into_iter()
-        .filter(|(_, seen)| seen.len() >= SEEN_MIN)
+        .filter(|(name, seen)| seen.len() >= SEEN_MIN && !classes.iter().any(|class| class.name == *name && class.graph_guard().is_some_and(&landed)))
         .map(|(name, mut seen)| {
             seen.sort_by(f64::total_cmp);
             let class = classes.iter().find(|class| class.name == name);
@@ -43,13 +48,13 @@ mod tests {
     use super::*;
     use crate::threads::incidents::corrections::parse;
 
-    const TABLE: &str = "[[class]]\nname = \"pace\"\npattern = 'too slow'\nparaphrase = \"Tom said the work was moving too slowly.\"\nowner = \"north#636\"\nguard = \"A Stop hook names idle capacity.\"\n";
+    const TABLE: &str = "[[class]]\nname = \"pace\"\npattern = 'too slow'\nparaphrase = \"Tom said the work was moving too slowly.\"\nowner = \"north#636\"\nguard = \"A Stop hook names idle capacity.\"\nnot_structural = \"speed is wall time\"\n\n[[class]]\nname = \"unverified-tick\"\nparaphrase = \"Tom found a tick nothing confirmed.\"\ngraph_guard = \"unverified-tick\"\n";
 
     #[test]
     fn a_class_seen_twice_proposes_its_guard_on_its_owner_and_once_or_unclassified_does_not() {
         let classes = parse(TABLE).unwrap();
-        let facts = Facts { seen: vec![("pace".into(), 1_762_400_000.0), ("pace".into(), 1_762_300_000.0), ("overbuilt".into(), 1_762_300_000.0), (UNCLASSIFIED.into(), 1.0), (UNCLASSIFIED.into(), 2.0)] };
-        let found = repeated(&facts, &classes);
+        let facts = Facts { seen: vec![("pace".into(), 1_762_400_000.0), ("pace".into(), 1_762_300_000.0), ("overbuilt".into(), 1_762_300_000.0), (UNCLASSIFIED.into(), 1.0), (UNCLASSIFIED.into(), 2.0), ("unverified-tick".into(), 1.0), ("unverified-tick".into(), 2.0)] };
+        let found = repeated(&facts, &classes, |guard| guard == "unverified-tick");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].key, "correction:pace");
         assert_eq!(found[0].owner.as_deref(), Some("north#636"));

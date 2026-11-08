@@ -133,7 +133,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::RepeatedRefusal => refusal::repeated(&gatherer.refusals(now, limits.refusal_window_s), now, limits),
             Detector::LowDisk => disk::low(&gatherer.disks(), now, limits),
             Detector::RecurringSequence => continue,
-            Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes()),
+            Detector::RepeatedCorrection => correction::repeated(&gatherer.corrections(), crate::threads::incidents::corrections::classes(), correction::graph_guard_landed),
             Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
             Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs), &default_text("detector_slow_check_owner")),
             Detector::CrateHeadroom => crate_headroom::near(&gatherer.crates()),

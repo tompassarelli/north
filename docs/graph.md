@@ -108,8 +108,8 @@ query can join a claim to the checks of the commit it names.
   `(north#572 :doc-waits-on box:...)` for each `prerequisite -> dependent` line of its DAG section whose ends read as
   `north#N`, `north#N box K` or `north#N boxes K, L and M`; any other DAG line is printed as `cannot parse a wait in
   backlog-ranking.md`. It reads the file from `~/code/north/main` and the box ids from the mirror, so it runs after `mirror`.
-- `ledger` (writers `checker` and `ledger`): `(SHA :check-passed|:check-failed COMMAND)` and `(SHA :checked-for north#634)`
-  by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`.
+- `ledger` (writers `checker`, `ledger` and `threads`): `(SHA :check-passed|:check-failed COMMAND)` and `(SHA :checked-for north#634)`
+  by `checker`, from the ledger's checks; `(SESSION :works-on north#634)` and `(north#634 :landed-as SHA)` by `ledger`; `(OWNER :holds box:...|north#634)` by `threads` from the threads claims table (see Guards).
 - `pushes` (writer `push-log`): per pushed commit `:repo`, `:branch`, `:pushed-at`, `(SESSION :pushed SHA)`, and for a
   commit that reached main `:landed-as`, `:landed-by` and `:landed-at`.
 - `touches` (writer `git`): `(SHA :touched FILE)` for each commit the push log landed in the last 30 days, from `git log
@@ -216,12 +216,29 @@ reads every term and every occurrence.
 `north graph guards DIR` runs every `DIR/*.json` as an `ask`; `north graph validate --guards DIR` does the same after the soundness check. A guard is a forbidden pattern: each row
 its query answers is a finding, printed as `guard NAME: ROW`, and any finding exits 1. A query that does not parse or runs out of
 budget is an error, so a guard cannot pass by breaking. `--shadow` prints each finding as `would refuse guard NAME: ROW` and
-leaves the exit code to the soundness check alone (`guards` then exits 0), so a new guard runs in shadow mode before it refuses. A correction class seen twice (`north ledger flow detect` files its box) adds its
-guard as a JSON file in `harness/graph-guards/`, named for the class in `harness/corrections.toml`. The lander runs
-`north graph guards harness/graph-guards --shadow` as a `land.check`, without the soundness scan that took 12 s on a 500 MB graph, on its own host (`.safe-push`), so it logs each would-be refusal
+leaves the exit code to the soundness check alone (`guards` then exits 0), so a new guard runs in shadow mode before it refuses.
+
+A guard file may carry two things a plain `ask` does not. `"uses": ["corroborated"]` puts the strata of
+`harness/graph-rules/corroborated.json` (the `graph-rules` directory beside DIR) before the guard's own, so a guard reads a
+shared rule instead of copying it. `{"ago": 86400}` in place of a constant is the Instant that many seconds before the run
+started, one `now` for every guard of a run; `lt` and `gt` order two Instants by time.
+
+Each guard is named for the correction class it finds (`graph_guard` in `harness/corrections.toml`, where every other class
+says in `not_structural` why no graph fact holds it), and a class whose guard file is on the harness tree files no guard box in
+`north ledger flow detect`. Each guard is a shadow gate in `harness/gates.toml` (`graph-guard-NAME`) until its review is
+recorded. The lander runs `north graph guards harness/graph-guards --shadow` as a `land.check`, without the soundness scan that took 12 s on a 500 MB graph, on its own host (`.safe-push`), so it logs each would-be refusal
 and refuses nothing until a reviewer has read those lines (north#706 shadow-first rule) and the `--shadow` flag is dropped there; it reads that host's
-graph as fresh as its last `north graph ingest`, and a host with no graph answers no rows. `dropped-thread.json` is the first: a box whose wait names
-something the ingest cannot resolve (`unparsed-wait`) refuses the push until the box names `north#N box K` or a sibling label.
+graph as fresh as its last `north graph ingest`, and a host with no graph answers no rows.
+
+- `dropped-thread`: a box whose wait names something the ingest cannot resolve (`unparsed-wait`), until the box names
+  `north#N box K` or a sibling label.
+- `unverified-tick`: a worker's Done claim on a ticked box whose commit landed or was pushed over 24 h ago and that
+  `corroborated` (a checker passing the box's `Done when:` command at that commit, or the lander's landing on main) does
+  not confirm. A claim that names no commit is never corroborated and never found here, since it has no time to wait from.
+- `duplicate-claim`: each holder of an unticked box another session also holds. The `ledger` source tells
+  `(OWNER :holds box:...)` under writer `threads` for each claim in the threads claims table on an open issue's box (the
+  claim's box slug resolved to the one box of the issue whose slug it begins or ends), and `(OWNER :holds north#N)` for a
+  claim on a whole issue; `:holds` is replaced each run.
 
 ## Ready set
 

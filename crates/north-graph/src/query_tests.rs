@@ -217,3 +217,22 @@ fn as_of_and_since_refuse_negative_future_and_reversed_bounds() {
     let both = json!({"find": "seen", "asOf": 3, "since": [1, 3], "rules": [{"head": {"rel": "seen", "args": []}, "body": []}]});
     assert!(matches!(answer(&graph, both), Err(GraphError::Query(QueryError::Invalid(_)))));
 }
+
+#[test]
+fn an_instant_compares_with_an_instant_alike_on_a_base_clause_and_after_a_derived_one() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    let at = |seconds| Term::instant(seconds, 0).unwrap();
+    let actions = [crate::Action::assert(Triple::new("old", Term::keyword("at"), at(100))), crate::Action::assert(Triple::new("new", Term::keyword("at"), at(300)))];
+    graph.apply("test", &actions).unwrap();
+    let cutoff = json!(["instant", 200, 0]);
+    let base = json!({"find": "before", "rules": [{"head": {"rel": "before", "args": [{"var": "x"}]}, "body": [
+        {"rel": "triple", "args": [{"var": "x"}, ["keyword", "at"], {"var": "t"}]},
+        {"pred": "lt", "args": [{"var": "t"}, cutoff]}]}]});
+    let derived = json!({"find": "before", "strata": [
+        [{"head": {"rel": "at", "args": [{"var": "x"}, {"var": "t"}]}, "body": [{"rel": "triple", "args": [{"var": "x"}, ["keyword", "at"], {"var": "t"}]}]}],
+        [{"head": {"rel": "before", "args": [{"var": "x"}]}, "body": [
+            {"rel": "at", "args": [{"var": "x"}, {"var": "t"}]},
+            {"pred": "lt", "args": [{"var": "t"}, cutoff]}]}]]});
+    assert_eq!(answer(&graph, base).unwrap(), vec![vec![Term::string("old")]]);
+    assert_eq!(answer(&graph, derived).unwrap(), vec![vec![Term::string("old")]]);
+}

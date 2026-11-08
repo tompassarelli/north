@@ -4,6 +4,8 @@
 # paraphrase, never Tom's words. A class seen twice gets one box on its owner proposing the guard.
 # When that guard lands, set guarded_at to its landing time (ISO, UTC): a correction of the class
 # after it is a recurrence and prints red in the proxy's fleet tick for a week.
+# Each class names either graph_guard, the harness/graph-guards file (without .json) that finds its failure in graph
+# facts, or not_structural, why no graph fact holds it; a class with a landed graph guard files no guard box.
 
 [[class]]
 name = "unanswered"
@@ -11,6 +13,7 @@ pattern = '''did (you|u) (answer|reply|respond)|you didn'?t answer|didn'?t answe
 paraphrase = "Tom said the reply did not answer his question."
 owner = "north#641"
 guard = "The proxy's Stop hook refuses a final message when Tom's last prompt asked a question and the message's first line answers none of it (no yes, no, number, name or fact in reply to the question's words)."
+not_structural = "what a reply answers is in the session's messages, which no graph fact holds"
 
 [[class]]
 name = "recommendation-dropped"
@@ -18,6 +21,7 @@ pattern = '''whenever you have a rec|(plan|rec\w*) (just )?automatically (become
 paraphrase = "Tom asked that a recommendation be filed as an issue and acted on instead of left in the conversation."
 owner = "north#641"
 guard = "The proxy's Stop hook refuses a message that recommends a change and names no issue box whose text carries it."
+not_structural = "a recommendation lives in a session's message; the graph holds issues, not what a reply recommended"
 
 [[class]]
 name = "harmful-brief"
@@ -25,6 +29,7 @@ pattern = '''(ran|running|run|ordered) (a )?load (test|generator) on (my|the|thi
 paraphrase = "Tom said a brief ordered work that harmed his laptop."
 owner = "north#523"
 guard = "`north fleet launch` refuses a brief that orders a load test, soak or benchmark without a Needs: line naming a host other than the laptop."
+not_structural = "a brief's orders are launch text that `north fleet launch` reads; the graph holds no brief"
 
 [[class]]
 name = "unproven-cause"
@@ -32,6 +37,7 @@ pattern = '''(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (is
 paraphrase = "Tom rejected the cause the reply gave as unproven."
 owner = "north#523"
 guard = "None: the Stop hook that judged this in prose was deleted (north#719); a recurrence is read from the correction ledger."
+not_structural = "a cause is a claim in a reply's prose, which no graph fact records"
 
 [[class]]
 name = "manual-not-guarded"
@@ -40,6 +46,7 @@ paraphrase = "Tom asked why a rule was kept by hand instead of by a deterministi
 owner = "north#523"
 guard = "`north config agents check` refuses a new must or never line in AGENTS.md or a skill that names no enforcing hook, gate or check and carries no prose-only owner issue."
 guarded_at = "2026-11-06T21:08:55Z"
+not_structural = "which rules lack an enforcing hook is in the instruction files `north config agents check` reads, not in graph facts"
 
 [[class]]
 name = "overbuilt"
@@ -48,6 +55,7 @@ paraphrase = "Tom said the reply chose a heavier path than the simplest one that
 owner = "north#523"
 guard = "Dispatch refuses a plan or design box that adds an agent, service, crate or bake-off without a Simplest: line naming the smallest change that meets its Done when and why it falls short."
 guarded_at = "2026-11-06T21:00:47Z"
+not_structural = "how heavy a chosen path is lives in a plan's prose, which no graph fact measures"
 
 [[class]]
 name = "ungrounded-design"
@@ -56,6 +64,7 @@ paraphrase = "Tom said the design was not grounded in evidence."
 owner = "north#525"
 guard = "Dispatch refuses a design or plan box whose brief has no Spec: measured line citing a ledger measurement or a docs/references.md entry."
 guarded_at = "2026-11-06T21:00:46Z"
+not_structural = "the evidence a design cites is brief text that dispatch reads; the graph holds no brief"
 
 [[class]]
 name = "stale-or-scaffolding"
@@ -64,6 +73,7 @@ paraphrase = "Tom found stale text or leftover scaffolding that the harness shou
 owner = "north#635"
 guard = "A land check resolves every repository path and doc link named in README.md, AGENTS.md and docs/ and refuses a lane that leaves one pointing at nothing."
 guarded_at = "2026-11-06T03:49:20Z"
+not_structural = "stale paths are file contents the doc-links land check resolves; the graph holds no doc text"
 
 [[class]]
 name = "shallow-fix"
@@ -71,6 +81,7 @@ pattern = '''\d+x smarter|re-?worked to be|band-?aid'''
 paraphrase = "Tom asked for a deeper fix than the patch proposed."
 owner = "north#525"
 guard = "Dispatch refuses a restaff of a box whose last attempt failed at the same tier unless the brief names the assumption both attempts shared."
+not_structural = "the depth of a fix is a judgement over a patch, and restaff history is in the ledger, not graph facts"
 
 [[class]]
 name = "status-not-action"
@@ -78,6 +89,7 @@ pattern = '''nothing (is )?(happening|moving|landing)|all i (ever )?(hear|here) 
 paraphrase = "Tom said the reply reported status instead of acting."
 owner = "north#641"
 guard = "None: the Stop hook that judged this in prose was deleted (north#719); a recurrence is read from the correction ledger."
+not_structural = "reporting instead of acting is behaviour in a reply's text"
 
 [[class]]
 name = "pace"
@@ -85,6 +97,7 @@ pattern = '''(working|moving|going) (so |too )?slow(ly)?|too slow|(go|be) \d+(-\
 paraphrase = "Tom said the work was moving too slowly."
 owner = "north#636"
 guard = "None: the Stop hook that judged this in prose was deleted (north#719); a recurrence is read from the correction ledger."
+not_structural = "a session's speed is wall time in transcripts and the ledger, which no graph fact holds"
 
 [[class]]
 name = "tom-as-monitor"
@@ -93,6 +106,7 @@ paraphrase = "Tom said he had to be the alarm for a fault the harness should hav
 owner = "north#634"
 guard = "`north loops check` fails when a main branch stayed red over 10 minutes with neither a sheriff revert nor a fleet tick line naming it, read from the cargo.yml run history."
 guarded_at = "2026-11-07T20:58:30Z"
+not_structural = "red-main intervals come from the cargo.yml run history `north loops check` reads, not graph facts"
 
 [[class]]
 name = "dropped-thread"
@@ -100,6 +114,7 @@ pattern = '''let (this|that|it) slip|slip like this|(dropped|lost) the (ball|thr
 paraphrase = "Tom said the proxy let a thread that waited on it slip."
 owner = "north#636"
 guard = "The proxy's fleet tick lists every message that names the proxy as the one waited on and has had no reply for 10 minutes."
+graph_guard = "dropped-thread"
 
 [[class]]
 name = "noise-in-report"
@@ -107,21 +122,41 @@ pattern = '''(completely|totally|entirely) unnec?ess?ary|waste of tokens|otherwi
 paraphrase = "Tom said a line in the report was noise he did not need."
 owner = "north#641"
 guard = "None: the Stop hook that judged this in prose was deleted (north#719); a recurrence is read from the correction ledger."
+not_structural = "noise is behaviour in a report's text"
 
 [[class]]
 name = "misrelayed-intent"
 paraphrase = "Tom said the reply relayed his intent wrongly."
 owner = "north#636"
 guard = "A relayed instruction carries Tom's request paraphrase and the worker's first turn echoes its Done when, which the proxy's tick compares against the request."
+not_structural = "intent lives in Tom's request and the relayed brief, text the graph does not hold"
 
 [[class]]
 name = "low-ambition"
 paraphrase = "Tom said the plan was adequate but not ambitious enough."
 owner = "north#636"
 guard = "The proxy's tick names idle admitted capacity beside the ready box count, so a plan that leaves capacity idle is visible."
+not_structural = "ambition is a judgement over a plan, and idle capacity lives in capacity leases, not graph facts"
 
 [[class]]
 name = "accepted-slow-path"
 paraphrase = "Tom objected to a slow path the harness treated as normal."
 owner = "north#634"
 guard = "A goal in goals.toml bounds the step Tom named, so a slow run of it is red instead of normal."
+not_structural = "step durations are goals.toml readings, not graph facts"
+
+[[class]]
+name = "unverified-tick"
+pattern = '''(ticked|marked|claimed|reported) (it |this |that )?(as )?(done|landed) but|not actually (landed|on main)'''
+paraphrase = "Tom found a box ticked done whose commit no check or landing confirmed."
+owner = "north#706"
+guard = "harness/graph-guards/unverified-tick.json finds a ticked box whose claimed commit landed or was pushed over 24 h ago and has no corroborated row (harness/graph-rules/corroborated.json)."
+graph_guard = "unverified-tick"
+
+[[class]]
+name = "duplicate-claim"
+pattern = '''(two|both|2) (sessions|workers|agents) (are )?(on|working on|doing) the same|duplicate (sessions?|workers?|claims?)'''
+paraphrase = "Tom found two sessions holding the same box."
+owner = "north#706"
+guard = "harness/graph-guards/duplicate-claim.json finds each holder of an unticked box that another session's claim in the threads claims table also holds."
+graph_guard = "duplicate-claim"

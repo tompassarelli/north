@@ -10,6 +10,10 @@ fn every_class_in_the_harness_table_has_a_paraphrase_an_owner_and_a_guard() {
         assert!(class.paraphrase.starts_with("Tom "), "{} paraphrase names Tom as the subject", class.name);
         assert!(class.owner.as_deref().is_some_and(|owner| owner.contains('#')), "{} names an owning issue", class.name);
         assert!(class.guard.as_deref().is_some_and(|guard| !guard.is_empty()), "{} proposes a guard", class.name);
+        if let Some(guard) = class.graph_guard() {
+            let file = north_base::platform::harness::harness_root().unwrap().join("harness/graph-guards").join(format!("{guard}.json"));
+            assert!(file.is_file(), "{} names graph guard {guard}, which {} must hold", class.name, file.display());
+        }
     }
     assert_eq!(class_of("you're working too slowly").map(|class| class.name.as_str()), Some("pace"));
     assert_eq!(class_of("is this deterministically enforced?").map(|class| class.name.as_str()), Some("manual-not-guarded"));
@@ -17,7 +21,7 @@ fn every_class_in_the_harness_table_has_a_paraphrase_an_owner_and_a_guard() {
 
 #[test]
 fn a_guarded_class_that_recurs_inside_the_week_is_red_and_one_before_its_guard_is_not() {
-    let table = "[[class]]\nname = \"pace\"\nparaphrase = \"Tom said the work was moving too slowly.\"\nowner = \"north#636\"\nguarded_at = \"2026-11-06T00:00:00Z\"\n\n[[class]]\nname = \"overbuilt\"\nparaphrase = \"Tom said it was heavier than needed.\"\n";
+    let table = "[[class]]\nname = \"pace\"\nparaphrase = \"Tom said the work was moving too slowly.\"\nowner = \"north#636\"\nguarded_at = \"2026-11-06T00:00:00Z\"\nnot_structural = \"speed\"\n\n[[class]]\nname = \"overbuilt\"\nparaphrase = \"Tom said it was heavier than needed.\"\nnot_structural = \"prose\"\n";
     let classes = parse(table).unwrap();
     let guarded = Timestamp::parse_loose("2026-11-06T00:00:00Z").unwrap().unix_seconds_f64();
     let now = guarded + DAY;

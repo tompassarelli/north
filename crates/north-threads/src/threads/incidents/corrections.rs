@@ -21,6 +21,22 @@ pub struct Class {
     pub owner: Option<String>,
     pub guard: Option<String>,
     pub guarded_at: Option<f64>,
+    pub structure: Structure,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Structure {
+    GraphGuard(String),
+    Behavioural(String),
+}
+
+impl Class {
+    pub fn graph_guard(&self) -> Option<&str> {
+        match &self.structure {
+            Structure::GraphGuard(name) => Some(name),
+            Structure::Behavioural(_) => None,
+        }
+    }
 }
 
 pub fn parse(text: &str) -> Result<Vec<Class>, String> {
@@ -38,7 +54,12 @@ pub fn parse(text: &str) -> Result<Vec<Class>, String> {
                 .and_then(|item| item.as_str().map(str::to_owned).or_else(|| item.as_datetime().map(ToString::to_string)))
                 .map(|at| Timestamp::parse_loose(&at).map(|t| t.unix_seconds_f64()).ok_or_else(|| format!("{TABLE}: class {name}: guarded_at {at} is not a time")))
                 .transpose()?;
-            Ok(Class { name, pattern, paraphrase, owner: text("owner"), guard: text("guard"), guarded_at })
+            let structure = match (text("graph_guard"), text("not_structural")) {
+                (Some(guard), None) => Structure::GraphGuard(guard),
+                (None, Some(why)) => Structure::Behavioural(why),
+                _ => return Err(format!("{TABLE}: class {name} needs exactly one of graph_guard (its harness/graph-guards file) and not_structural (why no graph fact holds it)")),
+            };
+            Ok(Class { name, pattern, paraphrase, owner: text("owner"), guard: text("guard"), guarded_at, structure })
         })
         .collect()
 }

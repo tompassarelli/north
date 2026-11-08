@@ -222,6 +222,7 @@ pub fn numeric_cmp(left: &Term, right: &Term) -> Option<Ordering> {
         (Term::Atom(Atom::Int(a)), Term::Atom(Atom::Float(b))) => (*a as f64).partial_cmp(&b.value()),
         (Term::Atom(Atom::Float(a)), Term::Atom(Atom::Int(b))) => a.value().partial_cmp(&(*b as f64)),
         (Term::Atom(Atom::Float(a)), Term::Atom(Atom::Float(b))) => a.value().partial_cmp(&b.value()),
+        (Term::Atom(Atom::Instant(a)), Term::Atom(Atom::Instant(b))) => Some(a.cmp(b)),
         _ => None,
     }
 }
