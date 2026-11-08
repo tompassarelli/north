@@ -76,7 +76,7 @@ fn message(commits: &[&LaneCommit], supplied: Option<&str>) -> String {
         Some(supplied) => split_trailers(supplied).0,
         None => {
             let (last, earlier) = commits.split_last().expect("a squash has a commit");
-            std::iter::once(last).chain(earlier).map(|commit| commit.text.as_str()).collect::<Vec<_>>().join("\n\n")
+            std::iter::once(last).chain(earlier.iter().filter(|commit| !unfinished_subject(commit.text.lines().next().unwrap_or_default()))).map(|commit| commit.text.as_str()).collect::<Vec<_>>().join("\n\n")
         }
     };
     let mut seen = BTreeSet::new();

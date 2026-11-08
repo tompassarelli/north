@@ -1,14 +1,18 @@
 use std::fs::{self, File};
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::{Kept, clear};
+use super::{Kept, clear_at};
+
+fn now() -> SystemTime {
+    UNIX_EPOCH + Duration::from_secs(1_000_000_000)
+}
 
 fn lock(path: &Path, age: Duration) -> File {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     let file = File::create(path).unwrap();
-    file.set_modified(SystemTime::now() - age).unwrap();
+    file.set_modified(now() - age).unwrap();
     file
 }
 
@@ -26,7 +30,7 @@ fn only_a_lock_no_process_holds_and_older_than_a_minute_is_removed_north_937() {
     drop(lock(&git.join("config.lock"), Duration::from_secs(5)));
     drop(lock(&git.join("north-history.lock"), old));
 
-    let sweep = clear(checkout.path()).unwrap();
+    let sweep = clear_at(checkout.path(), now()).unwrap();
 
     let mut removed = sweep.removed.clone();
     removed.sort();
