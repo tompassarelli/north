@@ -2,10 +2,11 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use north_check_environment::{self as check_environment, Reading};
-use north_land_probes::{Settled, plan, settle};
+use north_land_probes::{RefusalRate, Settled, paced, settle};
 use serde::{Deserialize, Serialize};
 
 use super::batch::{Attempt, Entry, Flow, Pass};
+use super::refusals::Refusals;
 use super::unbuilt::{self, Unbuilt};
 use super::{Pushed, Round, Serve};
 use crate::land::after;
@@ -43,15 +44,15 @@ impl Suspects {
         queue::write_atomic(&queue.join(SUSPECTS), &text).map_err(|error| error.to_string())
     }
 
-    fn plan(&self, ids: &[String], room: usize, local: bool) -> Vec<Vec<usize>> {
+    fn plan(&self, ids: &[String], urgent: &[usize], room: usize, rate: RefusalRate, local: bool) -> Vec<Vec<usize>> {
         if local {
-            return self.plan(ids, LOCAL_PROBES, false).into_iter().take(LOCAL_PROBES).collect();
+            return self.plan(ids, urgent, LOCAL_PROBES, rate, false).into_iter().take(LOCAL_PROBES).collect();
         }
         let named = self.named(ids);
         if self.stalls >= STALLS_BEFORE_ALONE && let Some(first) = named.first().and_then(|group| group.first()) {
             return vec![vec![*first]];
         }
-        plan(&(0..ids.len()).collect::<Vec<_>>(), room, usize::MAX, &named)
+        paced(&(0..ids.len()).collect::<Vec<_>>(), urgent, room, rate, &named)
     }
 
     fn named(&self, ids: &[String]) -> Vec<Vec<usize>> {
@@ -123,7 +124,8 @@ impl Probing for Lander {
         let strikes = Strikes::load(&self.queue, &ids)?;
         let (room, read) = probe_slots::slots(&self.repo, attempt.logs);
         let mut suspects = Suspects::load(&self.queue);
-        let planned = suspects.plan(&ids, room, check_environment::active(&self.queue).is_local());
+        let urgent: Vec<usize> = lanes.iter().enumerate().filter(|(_, (_, ticket))| ticket.urgent.is_some()).map(|(at, _)| at).collect();
+        let planned = suspects.plan(&ids, &urgent, room, Refusals::load(&self.queue).rate(), check_environment::active(&self.queue).is_local());
         let id = steps::batch(&pass.round(attempt, strikes.streaks(), room), lanes, None);
         steps::wave(lanes.len(), read, planned.len());
         println!("north land: probing {} lanes of main@{} with candidates of {} lanes", lanes.len(), attempt.base, planned.iter().map(|probe| probe.len().to_string()).collect::<Vec<_>>().join(", "));
@@ -165,6 +167,7 @@ impl Probing for Lander {
         unbuilt.save(&self.queue)?;
         if let Some(pull) = pull {
             unbuilt::pull(self, pass.rebuilds, lanes[pull.lane], &finished[pull.probe], &pull, attempt.base)?;
+            Refusals::record(&self.queue, true, 1)?;
         }
         if settled.land.is_empty() && self.base_moved(attempt.base).map_err(|error| format!("transient: {error}"))? {
             println!("north land: main moved from {} while the probes were checked; rebuilding, no lane judged", attempt.base);
@@ -184,11 +187,13 @@ impl Probing for Lander {
                 return Ok(flow);
             }
             main.clone_from(&landing.head);
+            Refusals::record(&self.queue, false, landing.lanes.len())?;
         }
         for (culprit, proof) in settled.refuse.iter().filter_map(|culprit| decided.proof(*culprit).map(|proof| (*culprit, proof))) {
             let detail = proof.verdict().map(|verdict| verdict.class().1.to_owned()).unwrap_or_default();
             steps::judge(&steps::Judged { verdict: proof.verdict().unwrap_or(&Verdict::Green), included: &[lanes[culprit]], base_moved: false, streak: 0, searched: false }, &Judgement::Culprit(detail), &decided.id, 0);
             self.refuse_culprit(pass, lanes[culprit], proof, &main)?;
+            Refusals::record(&self.queue, true, 1)?;
         }
         if settled.land.is_empty() && settled.refuse.is_empty() {
             let names = settled.groups.iter().flatten().map(|lane| lanes[*lane].1.branch.as_str()).collect::<Vec<_>>().join(", ");
