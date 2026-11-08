@@ -127,6 +127,17 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Opus 5.5 and 0.1x on Sonnet 5.5 and 1-hour cache writes at 2x. Informed:
   [rationale/context-economics.md](rationale/context-economics.md) (north#636).
 
+- <a id="claude-plan-terms"></a>**Anthropic's published Claude plan terms** ("What is the Ultra plan?",
+  https://support.claude.com/en/articles/17728952, and "What is the Max plan?",
+  https://support.claude.com/en/articles/11049741-what-is-the-max-plan, both read 2026-11-08): Ultra is $200 a month with
+  "10 times the Pro plan's usage every week" and is the former Max 20x renamed; Max is $100 a month with five times
+  Pro's usage "every five hours and every week". Ultra publishes no five-hour multiple (verified accounts have no
+  five-hour limit, unverified ones a temporary limit of unstated size), so the catalog's `ultra-10x` five-hour
+  multiplier keeps 20, the figure the same plan carried as Max 20x, and its weekly multiplier is the published 10
+  against Max 5x's 5. Outcome: adopted. Informed: `[accounts.claude].plans` in
+  [harness/model-catalog.toml](../harness/model-catalog.toml), which placement and spend sizing read, and the plan label
+  `north fleet usage` prints (north#965).
+
 - <a id="context-thread"></a>**An r/ClaudeCode thread on `autoCompactWindow`, percentage overrides and subagent cache TTLs**, with two
   model reviews of it, read by Tom on 2026-11-06 (no URL kept). An unverified source of hypotheses only: each claim was
   tested against the binary and north's own transcripts before use, and its 225k figure for 300k at 75% did not hold

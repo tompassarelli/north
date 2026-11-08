@@ -7,7 +7,7 @@ use toml_edit::{DocumentMut, Item};
 
 pub const WEEK_H: f64 = 7.0 * 24.0;
 
-/// What a plan holds of each window, in Max 5x units: Max 20x holds four times the five-hour room of Max 5x but only twice its week.
+/// What a plan holds of each window, in Max 5x units: Ultra 10x holds four times the five-hour room of Max 5x but only twice its week.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlanSize {
     pub five_hour: f64,

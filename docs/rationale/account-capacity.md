@@ -384,8 +384,8 @@ total weekly allowance; anything else fails the load with the key named. Tom cro
 gate's recorded answer in Tom's words, so no agent can write one, and it lasts until the time it names. `target_left`,
 `band`, `thursday`, `[pace]`, `[pace.*]` and `enforce_from` are deleted.
 
-Plan weights come from `[accounts.claude].plans` and `harness/model-catalog.toml`'s weekly multipliers (all four
-accounts are max-20x today, so equal weights).
+Plan weights come from `[accounts.claude].plans` and `harness/model-catalog.toml`'s weekly multipliers (accounts on
+one plan weigh equally).
 
 ### 3.2 Inputs, all recorded with their time
 
