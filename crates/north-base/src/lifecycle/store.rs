@@ -219,7 +219,8 @@ impl Store {
         .collect()
     }
 
-    /// Every stuck instance and every illegal move of the last hour, of every machine, read without their types.
+    /// Every stuck instance, every illegal move of the last hour and every outbox effect past its attempts or its lease,
+    /// of every machine, read without their types.
     pub fn faults(&self, at: Timestamp) -> NorthResult<Vec<Fault>> {
         let mut faults = Vec::new();
         let mut statement = self
@@ -253,6 +254,7 @@ impl Store {
             let (machine, instance, state, since_ms, to, at_ms, cause) = row.map_err(sql)?;
             faults.push(Fault { machine, instance, state, since_ms, kind: FaultKind::Illegal { to, at_ms }, cause });
         }
+        faults.extend(outbox::faults(&self.connection, at)?);
         Ok(faults)
     }
 }

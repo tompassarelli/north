@@ -158,6 +158,10 @@ pub enum FaultKind {
     Orphaned { owner: Owner },
     /// A writer attempted a move the machine does not have.
     Illegal { to: String, at_ms: i64 },
+    /// An effect a move started failed every delivery it was leased for; the fault's state is the effect's kind.
+    Undeliverable { key: String, attempts: i64 },
+    /// An effect a move started is still leased past the hold its lessee took.
+    LeaseLapsed { key: String, lease_until_ms: i64 },
 }
 
 impl Fault {
@@ -168,6 +172,8 @@ impl Fault {
             FaultKind::Overdue { due_ms } => format!("{at} for {} min, {} min past its limit: {}", minutes(self.since_ms), minutes(*due_ms), self.cause),
             FaultKind::Orphaned { owner } => format!("{at} for {} min, held by {owner}, which is gone: {}", minutes(self.since_ms), self.cause),
             FaultKind::Illegal { to, at_ms } => format!("{at}: a writer tried to move it to {to} {} min ago: {}", minutes(*at_ms), self.cause),
+            FaultKind::Undeliverable { key, attempts } => format!("{at}: its effect {key} failed all {attempts} deliveries in {} min: {}", minutes(self.since_ms), self.cause),
+            FaultKind::LeaseLapsed { key, lease_until_ms } => format!("{at}: its effect {key} is still leased {} min past its hold, {} min after its move", minutes(*lease_until_ms), minutes(self.since_ms)),
         }
     }
 }

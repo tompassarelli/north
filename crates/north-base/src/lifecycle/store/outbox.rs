@@ -7,7 +7,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use super::{Store, millis, sql};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
-use crate::lifecycle::{Delivery, Effect, Leased, Lifecycle, Liveness, Moved, Owner, Stage};
+use crate::lifecycle::{Delivery, Effect, Fault, FaultKind, Leased, Lifecycle, Liveness, Moved, Owner, Stage};
 
 /// Leases an effect gets before it stays pending for `north health` to report.
 pub(crate) const MAX_ATTEMPTS: i64 = 5;
@@ -202,4 +202,29 @@ pub(super) fn queue(transaction: &Transaction, machine: &str, instance: &str, wh
 pub(super) fn prune(transaction: &Transaction, machine: &str, before_ms: i64) -> NorthResult<()> {
     transaction.execute("DELETE FROM lifecycle_effects WHERE machine = ?1 AND stage IN ('delivered', 'retired') AND settled_ms < ?2", params![machine, before_ms]).map_err(sql)?;
     Ok(())
+}
+
+/// Every effect past its attempts, still pending, and every effect leased past its hold, as faults of the instance
+/// whose move started it.
+pub(super) fn faults(connection: &rusqlite::Connection, at: Timestamp) -> NorthResult<Vec<Fault>> {
+    let mut statement = connection
+        .prepare(
+            "SELECT machine, instance, kind, key, created_ms, attempts, lease_until_ms, note FROM lifecycle_effects \
+             WHERE (stage = 'pending' AND attempts >= ?1) OR (stage = 'leased' AND lease_until_ms < ?2) ORDER BY effect_id",
+        )
+        .map_err(sql)?;
+    let rows = statement
+        .query_map(params![MAX_ATTEMPTS, at.unix_millis()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?, row.get::<_, Option<i64>>(6)?, row.get::<_, String>(7)?))
+        })
+        .map_err(sql)?;
+    rows.map(|row| {
+        let (machine, instance, effect, key, since_ms, attempts, lease_until_ms, cause) = row.map_err(sql)?;
+        let kind = match lease_until_ms {
+            Some(lease_until_ms) => FaultKind::LeaseLapsed { key, lease_until_ms },
+            None => FaultKind::Undeliverable { key, attempts },
+        };
+        Ok(Fault { machine, instance, state: effect, since_ms, kind, cause })
+    })
+    .collect()
 }

@@ -196,3 +196,26 @@ fn a_process_killed_between_a_move_and_its_effects_leaves_each_replay_safe_effec
     assert!(refused.is_err());
     assert_eq!(restarted.stage("refused/replay-safe").unwrap(), None);
 }
+
+// KEEP(bug): an effect whose every delivery failed, or whose lessee never settled it, sat in the outbox where no one looked, as the four side effects of north#862 sat unseen until a person found them
+#[test]
+fn an_effect_that_failed_every_delivery_and_one_leased_past_its_hold_are_health_faults_of_the_instance_that_started_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = store(&directory.path().join("ledger.db"), owner("laptop", 10), 0);
+    store.transition_with_effects::<Puller>("laptop", Pull::Pulling, "started", at(0), None, &effects("planted")).unwrap().unwrap();
+    for attempt in 0..5 {
+        let leased = store.lease("pull-started", at(attempt * 60), Duration::from_secs(30)).unwrap().unwrap();
+        assert_eq!(leased.effect.key, "planted/replay-safe");
+        store.undelivered(&leased.effect.key, "the receiver is down", at(attempt * 60)).unwrap();
+    }
+    let held = store.lease("pull-started", at(300), Duration::from_secs(30)).unwrap().unwrap();
+    assert_eq!(held.effect.key, "planted/process-bound");
+
+    let outbox: Vec<_> = store.faults(at(400)).unwrap().into_iter().filter(|fault| fault.state == "pull-started").collect();
+
+    let kinds: Vec<_> = outbox.iter().map(|fault| fault.kind.clone()).collect();
+    assert_eq!(kinds, [FaultKind::Undeliverable { key: "planted/replay-safe".into(), attempts: 5 }, FaultKind::LeaseLapsed { key: "planted/process-bound".into(), lease_until_ms: at(330).unix_millis() }]);
+    assert_eq!(outbox[0].line(at(400)), "pull/laptop pull-started: its effect planted/replay-safe failed all 5 deliveries in 6 min: the receiver is down");
+    assert_eq!(outbox[1].line(at(400)), "pull/laptop pull-started: its effect planted/process-bound is still leased 1 min past its hold, 6 min after its move");
+    assert!(store.faults(at(320)).unwrap().iter().all(|fault| !matches!(fault.kind, FaultKind::LeaseLapsed { .. })));
+}
