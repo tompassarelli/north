@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -9,6 +10,8 @@ use crate::query::{Answer, parse_query};
 use crate::store::{Action, ActionKind, Graph, Receipt, Report, default_path};
 use crate::term::{Term, Triple};
 use crate::text::parse_arg;
+
+const READ_PATIENCE: Duration = Duration::from_secs(5);
 
 const USAGE: &str = "usage: north graph tell|retract [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)
        north graph show [--db PATH] [--json] T1
@@ -85,6 +88,10 @@ fn open(options: &Options) -> Result<Graph, String> {
     Graph::open(&options.db).map_err(|why| why.to_string())
 }
 
+fn open_to_read(options: &Options) -> Result<Graph, String> {
+    Graph::open_read_only(&options.db, READ_PATIENCE).map_err(|why| why.to_string())
+}
+
 fn triple_of(positional: &[String]) -> Result<Triple, String> {
     let terms = positional.iter().map(|text| parse_arg(text)).collect::<Result<Vec<_>, _>>()?;
     match <[Term; 3]>::try_from(terms) {
@@ -118,7 +125,7 @@ fn show(options: &Options) -> Result<u8, String> {
     let [subject] = options.positional.as_slice() else {
         return Err(format!("usage: show takes one T1\n{USAGE}"));
     };
-    let live = open(options)?.show(&parse_arg(subject)?).map_err(|why| why.to_string())?;
+    let live = open_to_read(options)?.show(&parse_arg(subject)?).map_err(|why| why.to_string())?;
     for entry in live {
         if options.json {
             let triple = Term::from(entry.triple);
@@ -147,7 +154,7 @@ fn query_text(options: &Options) -> Result<String, String> {
 
 fn ask(options: &Options) -> Result<u8, String> {
     let query = parse_query(&query_text(options)?).map_err(|why| why.to_string())?;
-    let answer = open(options)?.ask(&query).map_err(|why| why.to_string())?;
+    let answer = open_to_read(options)?.ask(&query).map_err(|why| why.to_string())?;
     let mut out = std::io::stdout().lock();
     print_answer(&mut out, &answer, options.json).map_err(|why| why.to_string())?;
     Ok(0)
