@@ -80,3 +80,20 @@ fn the_rolling_config_issue_carries_the_class_line_dispatch_needs_to_staff_a_bug
     let body = super::advisory::body("whiterabbit", &["policy-contract: drift".into()]);
     assert_eq!(crate::router::brief::class_refusal(&body), None, "{body}");
 }
+
+#[test]
+fn tree_policy_refuses_the_unquoted_worker_description_github_could_not_render_naming_file_and_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("harness/claude/agents");
+    fs::create_dir_all(&agents).unwrap();
+    let worker = |description: &str| format!("---\nname: worker\ndescription: {description}\nmodel: opus\n---\n\nBody.\n");
+    let planted = "The default Opus worker for all Opus-range work: implementation and planning.";
+    fs::write(agents.join("worker.md"), worker(planted)).unwrap();
+
+    let refused = super::tree::tree_policy(dir.path());
+    assert!(!refused.passed, "{}", refused.text);
+    assert!(refused.text.contains("harness/claude/agents/worker.md:3: frontmatter is not strict YAML: mapping values are not allowed"), "{}", refused.text);
+
+    fs::write(agents.join("worker.md"), worker(&format!("'{planted}'"))).unwrap();
+    assert!(!super::tree::tree_policy(dir.path()).text.contains("worker.md"));
+}

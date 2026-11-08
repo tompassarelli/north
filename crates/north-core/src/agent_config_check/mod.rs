@@ -6,6 +6,7 @@ use std::process::Command;
 mod accounts;
 mod advisory;
 mod codex;
+mod frontmatter;
 mod gate;
 mod help_surface;
 mod portable;
@@ -189,6 +190,7 @@ fn execute(context: &Context, verbose: bool) -> u8 {
     shared::check(context, &mut report);
     codex::check(context, &mut report);
     routines(context, &mut report);
+    frontmatter_group(context, &mut report);
     accounts::check(context, &mut report);
 
     skills_group(context, &mut report);
@@ -296,6 +298,18 @@ fn routines(context: &Context, report: &mut Report) {
     }
     let live = if context.local { ", live timers included" } else { "" };
     report.group("routines", &format!("every recurring job has an operator routines entry{live}"), before);
+}
+
+fn frontmatter_group(context: &Context, report: &mut Report) {
+    let before = report.fail;
+    let files = [context.north.join("harness/claude/agents"), context.operator.join("routines")].iter().flat_map(|directory| frontmatter::markdown_in(directory)).collect::<Vec<_>>();
+    let refusals = frontmatter::strict(&files, &context.roots.home);
+    if refusals.is_empty() {
+        report.ok(format!("{} agent and routine files parse as strict YAML", files.len()));
+    } else {
+        report.bad(refusals.join("\n"));
+    }
+    report.group("frontmatter", "agent and routine frontmatter is strict YAML", before);
 }
 
 fn worktree_layout(context: &Context, report: &mut Report) {
