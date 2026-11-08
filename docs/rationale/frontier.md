@@ -1,6 +1,6 @@
 # Frontier scoreboard: north against plain Claude Code on the same boxes
 
-The owner asked on 2026-11-07 for a scoreboard that shows whether north is at the frontier of agent harnesses, by how much and where it is not (north#730). Every other number in `north ledger scoreboard` is set against north's own targets or its own earlier week ([scoreboard](scoreboard.md)); this note sets north beside the same model run without north, on north's own recent work, and keeps the run rows that `north ledger scoreboard --frontier` prints.
+The owner asked on 2026-11-07 for a scoreboard that shows whether north is at the frontier of agent harnesses, by how much and where it is not (north#730). Every other number in `north dash` is set against north's own targets or its own earlier week ([scoreboard](scoreboard.md)); this note sets north beside the same model run without north, on north's own recent work, and keeps the run rows that `north dash --frontier` prints.
 
 ## Method
 

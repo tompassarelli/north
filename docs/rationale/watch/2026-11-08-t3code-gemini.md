@@ -74,7 +74,7 @@ it).
 | --- | --- | --- | --- |
 | 24 | 50 crates, 1,958 .rs files, 253,300 lines; structure.toml 911 lines, .safe-push 57 | confirmed | At 8a169ecc28: 49 crates plus the root package, 2,034 .rs files, 263,236 lines; 911 and 57 lines |
 | 25 | 1,903 commits in 7 days, about 272 a day | confirmed | `git rev-list --count --since='7 days ago' origin/main` prints 1,913 |
-| 26 | 1,596 worker runs at 55% first-try success over 7 days | stale | Not reproduced; `north ledger scoreboard` reads first-try success 81% on 24 h and 84% on 6 h |
+| 26 | 1,596 worker runs at 55% first-try success over 7 days | stale | Not reproduced; `north dash` reads first-try success 81% on 24 h and 84% on 6 h |
 | 27 | 4 of 13 bars fail: queue p90 30 min, verification p50 71 s, harness loss 3%, live everywhere 49 min (1 h) | stale | About 6:10 AM: 3 of 13 fail on 1 h. Queue p90 28 min, verification p50 73 s, live everywhere 26 min (9.7 h on 24 h). Harness loss 0% on 1 h, 3% on 3 h, 7% on 24 h |
 | 28 | The proxy ran 2,259 Bash calls against 282 delegations | confirmed | proxy-role.md, a record of 2026-11-04 to 05; not a current measure |
 | 29 | docs/features.md is touched by 23% of commits, and its conflicts reverted #716 | stale | 18% (351 of 1,913 over 7 days). Five landings were reverted for features-index-current in the week to 2026-11-07 08:27 +07; a6e4ee1295 (08:38 +07) regenerates the index at enqueue and in the candidate, and none has been reverted since |
@@ -174,5 +174,5 @@ git log origin/main --since='2 days ago' --no-merges -p --format='@@COMMIT %h' -
          END{for (x in a) {d=a[x]-r[x]; if (d>0) {n++; s+=d}} print n" commits, "s" net lines"}'
 ```
 
-Guard counts come from `north hook stats --since 7d` and `--since 48h`; bars from `north ledger scoreboard`; the
+Guard counts come from `north hook stats --since 7d` and `--since 48h`; bars from `north dash`; the
 harness-loss pareto and landing refusals from `north ledger flow`. The measured basis of the Phase 6 call is in south agents/decisions/harness/t3code-gemini-phase6-2026-11-08.md.

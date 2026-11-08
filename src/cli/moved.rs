@@ -2,7 +2,7 @@
 use crate::error::NorthError;
 
 const MOVED: &[(&[&str], &str, &[&str])] = &[
-    (&["scoreboard"], "ledger scoreboard", &["--ready"]),
+    (&["scoreboard"], "dash", &["--ready"]),
     (&["incident"], "ledger incident", &[]),
     (&["flow"], "ledger flow", &[]),
     (&["tempo"], "ledger tempo", &[]),
@@ -74,9 +74,9 @@ mod tests {
 
     #[test]
     fn a_moved_verb_names_its_new_path_and_keeps_its_arguments() {
-        assert_eq!(hint(&words("scoreboard --weekly")).as_deref(), Some("did you mean: north ledger scoreboard --weekly"));
+        assert_eq!(hint(&words("scoreboard --weekly")).as_deref(), Some("did you mean: north dash --weekly"));
         assert_eq!(hint(&words("lane-gc --dry-run")).as_deref(), Some("did you mean: north lane gc --dry-run"));
-        assert_eq!(hint(&words("scoreboard --ready")).as_deref(), Some("did you mean: north ledger scoreboard"));
+        assert_eq!(hint(&words("scoreboard --ready")).as_deref(), Some("did you mean: north dash"));
         assert_eq!(hint(&words("flow --stall-alarm")).as_deref(), Some("did you mean: north ledger flow --stall-alarm"));
         assert_eq!(hint(&words("ledger flow")), None);
     }

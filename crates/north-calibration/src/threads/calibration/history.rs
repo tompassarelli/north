@@ -1,6 +1,6 @@
 //! First-parent history of a checkout's origin/main, read incrementally and shared between callers.
 //!
-//! A full `git log --name-only` over a large main takes minutes, and every tier pick and ledger summary needs it,
+//! A full `git log --name-only` over a large main takes minutes, and every tier pick and closed-box report needs it,
 //! so the parsed commits live in a cache file in the checkout's git directory, keyed by the origin/main sha they
 //! end at. A call at the same sha starts no `git log`; a call after main moved reads only `<cached>..<head>`; and
 //! concurrent callers queue on one file lock, so only the first of them reads anything.

@@ -7,7 +7,7 @@ verified product output per unit of budget. The review was read as data from an 
 note records the verdicts, the measurements behind them, what was filed and in what order.
 
 Evidence is north origin/main at ecc8cdd469 and the laptop's threads snapshot, read between about 6:40 and 7:40 AM +07.
-The inputs were `north ledger scoreboard --weekly`, `north ops climb run --dry-run`, `north config context audit --since 2d`,
+The inputs were `north dash --weekly`, `north ops climb run --dry-run`, `north config context audit --since 2d`,
 the `runs` and `usage` tables, worker transcripts from 2026-11-04 to 2026-11-08 under the laptop's Claude profiles, and
 GitHub issues closed on north, wisp and makgora since 2026-11-01.
 

@@ -1,4 +1,4 @@
-//! `north ledger scoreboard`: one table of the bars that say the harness is ready for production
+//! `north dash --bars`: one table of the bars that say the harness is ready for production
 //! work, read per repository from the same records as the weekly scoreboard. The thresholds are the
 //! `ready` class of north's goals.toml; days in a row counts the newest consecutive 24 h windows in
 //! which every bar passed (docs/rationale/scoreboard.md).
@@ -274,7 +274,10 @@ fn verified(records: &Path, since: i64) -> HashMap<String, Vec<(i64, f64)>> {
 
 impl Records {
     fn read(sources: &Sources, now: i64) -> Result<Self, String> {
-        let since = now - DAYS as i64 * DAY_S;
+        Self::since(sources, now, now - DAYS as i64 * DAY_S)
+    }
+
+    fn since(sources: &Sources, now: i64, since: i64) -> Result<Self, String> {
         let threads = open(&sources.threads)?;
         let failed = |why: rusqlite::Error| format!("{}: {why}", sources.threads.display());
         let rework: &ReworkSources = &sources.places.rework;
@@ -440,7 +443,7 @@ pub fn report(now: i64) -> Vec<String> {
     let line = match (Goals::read(), Records::read(&Sources::live(), now)) {
         (Ok(goals), Ok(records)) => {
             let heads: Vec<String> = shown(false).into_iter().map(|repo| table::headline(&assess(|bar, window| records.reading(bar, repo, window), &goals, repo, now))).collect();
-            format!("ready bar: {} (north ledger scoreboard prints the table)", heads.join("; "))
+            format!("ready bar: {} (north dash --bars prints the table)", heads.join("; "))
         }
         (Err(why), _) | (_, Err(why)) => format!("ready bar not read: {why}"),
     };
@@ -449,4 +452,48 @@ pub fn report(now: i64) -> Vec<String> {
     }
     let _ = fs::write(&path, now.to_string());
     vec![line]
+}
+
+/// One readiness bar of one repository as `north dash` shows it: its target, the verdict on the last 1 h, and its
+/// reading over the last 1 h and over the dash window.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Line {
+    pub repo: &'static str,
+    pub bar: &'static str,
+    pub target: String,
+    pub passed: bool,
+    pub hour: Option<f64>,
+    pub hour_n: Option<usize>,
+    pub window: Option<f64>,
+    pub window_n: Option<usize>,
+    #[serde(skip)]
+    pub hour_text: String,
+    #[serde(skip)]
+    pub window_text: String,
+}
+
+/// Every bar of every repository not paused, with readings no older than `span` seconds before `now`.
+pub fn lines(now: i64, span: i64) -> Result<Vec<Line>, String> {
+    let goals = Goals::read()?;
+    let records = Records::since(&Sources::live(), now, now - span.max(3_600))?;
+    let mut found = Vec::new();
+    for repo in shown(false) {
+        for bar in Bar::ALL {
+            let goal = goals.of(bar);
+            let (hour, window) = (records.reading(bar, repo, last(now, 60)), records.reading(bar, repo, last(now, span / 60)));
+            found.push(Line {
+                repo,
+                bar: bar.label(),
+                target: table::threshold(goal),
+                passed: counts(Standing::of(goal.bound, hour), bar),
+                hour: hour.map(|reading| reading.value),
+                hour_n: hour.map(|reading| reading.sample),
+                window: window.map(|reading| reading.value),
+                window_n: window.map(|reading| reading.sample),
+                hour_text: table::cell(goal, hour, true),
+                window_text: table::cell(goal, window, true),
+            });
+        }
+    }
+    Ok(found)
 }

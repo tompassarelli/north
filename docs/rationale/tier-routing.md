@@ -12,7 +12,7 @@ run that lands once, and the ledger's per-run and per-closure figures disagreed 
 closed item, Opus medium 2.9, while its per-run rate looked worse).
 
 The unit is a landed, kept outcome in a category. Its cost is the API-equivalent spend of every run that closed the box
-(`north ledger summary`, cost per closed box, which also carries the spend of boxes started in the window that did not close, 2026-11-04) plus the spend the work later caused:
+(`north dash --closed`, cost per closed box, which also carries the spend of boxes started in the window that did not close, 2026-11-04) plus the spend the work later caused:
 - follow-up fix commits on the same files within 48 h of the landing;
 - reverts of the landing;
 - landings named as the culprit of a red main;
@@ -38,7 +38,7 @@ copy of it, not a second rule.
 
 Implemented: arm-stamped run counts (a box on a tier arm carries that one `Arm:` line, because the ledger records only the first), alternation, the cost per closed box decision and the Sonnet effort pin.
 Implemented 2026-11-04: the rework signal (`threads/calibration/rework.rs`). A landed run is reworked when, within 48 h of its `landed_sha` reaching main, a main commit reverts it (a `This reverts commit <sha>` body or a `Revert "<subject>"` subject), a later commit names its item or sha with fix intent (`Follows:`, `fixes`, `fix forward`) or has a subject starting `Fix` and touches at least half its files, or red-main-notify recorded it as a red issue's first failing commit. A reworked run is not kept, so it lowers `ok` and the success rate recommend uses, and `north health` fails when a repository's 7-day rework rate passes `rework_alarm_pct`. This is the quality watch the landing-gate retirement of 2026-11-04 relied on: a sustained alarm is the evidence for bringing a gate back.
-Implemented 2026-11-05: the rework term inside the cost per closed box decision. `north ledger summary` marks a closed box reworked when any of its landed runs is reworked by the rule above (`closed_source.rs` reworked_agents), and dispatch and `north tune` divide a tier's whole spend in the category (closed and unclosed boxes) by its kept boxes (an arm's boxes only, from the Arm result of 2026-11-05), the closed boxes not reworked, so a reworked box adds its spend and removes itself from the divisor; a tier whose every closed box was reworked costs infinity and loses (`a_reworked_landing_counts_against_its_tier_in_the_cost_per_closed_box_decision`). `north ledger flow` prints the outcome loop per week, tier and arm: landed changes, rework rate, cost per surviving landing, first-commit-to-main p50 and landed changes per hour of Tom's attention (`ledger/outcome`).
+Implemented 2026-11-05: the rework term inside the cost per closed box decision. `north dash --closed` marks a closed box reworked when any of its landed runs is reworked by the rule above (`closed_source.rs` reworked_agents), and dispatch and `north tune` divide a tier's whole spend in the category (closed and unclosed boxes) by its kept boxes (an arm's boxes only, from the Arm result of 2026-11-05), the closed boxes not reworked, so a reworked box adds its spend and removes itself from the divisor; a tier whose every closed box was reworked costs infinity and loses (`a_reworked_landing_counts_against_its_tier_in_the_cost_per_closed_box_decision`). `north ledger flow` prints the outcome loop per week, tier and arm: landed changes, rework rate, cost per surviving landing, first-commit-to-main p50 and landed changes per hour of Tom's attention (`ledger/outcome`).
 
 Alternatives that lost:
 - Per-run done rate: counts a retried or reworked box as several chances and rewards cheap runs that need a follow-up.
@@ -63,13 +63,13 @@ Queries:
 - Q1, stamped runs per arm, the count dispatch compares with 15 (`ledger::arm_runs`): `sqlite3 -readonly
   /tmp/n242/threads.db "SELECT category, arm, COUNT(*) FROM runs WHERE COALESCE(arm, '') IN ('sonnet-high', 'worker')
   GROUP BY 1, 2"`.
-- Q2, arm boxes (each box goes to the arm its first run carried, its whole spend with it): `north ledger summary
-  --since 10d --json | jq -c '.arms | map(select(.arm == "sonnet-high" or .arm == "worker")) | group_by([.category,
+- Q2, arm boxes (each box goes to the arm its first run carried, its whole spend with it): `north dash
+  --closed --since 10d | jq -c '.arms | map(select(.arm == "sonnet-high" or .arm == "worker")) | group_by([.category,
   .arm])[] | {category: .[0].category, arm: .[0].arm, boxes: length, closed: (map(select(.closed)) | length), reworked:
   (map(select(.reworked)) | length), usd: (map(.usd) | add)}'`. Closed-box rate is closed / boxes; spend per closed box
   is usd / (closed - reworked), the kept-box rule of `Evidence::priced`. Ten days covers every arm box.
-- Q3, the tier-wide figure dispatch and `north tune` decided on until this change: `north ledger summary --since 7d
-  --json | jq -c '.cells[] | {tier, category, closed, reworked, usd, unclosed_usd}'`, a tier's (usd + unclosed_usd) over
+- Q3, the tier-wide figure dispatch and `north tune` decided on until this change: `north dash --closed
+  --since 7d | jq -c '.cells[] | {tier, category, closed, reworked, usd, unclosed_usd}'`, a tier's (usd + unclosed_usd) over
   its kept boxes summed across the cells whose tier names it.
 - Q4, rework per arm and by cause: `north ledger worker --summary`, columns `rework` and `revert/fix/culprit` (`fix` is
   a follow-up fix commit within 48 h), over worker-role runs, so its n is below Q1's.
@@ -138,7 +138,7 @@ difference, so the routing changed instead (`ops/dispatch/tier.rs`):
 
 Effect once this runtime reaches Nexus: the next tune tick drops the feature and tooling route cells ("no longer
 decided"), and feature, tooling and bug-known-cause boxes alternate again until their arms hold 15 closed boxes each.
-`north ledger summary --json` now lists each arm box with its category, closed and reworked flags, open boxes
+`north dash --closed --since 7d` now lists each arm box with its category, closed and reworked flags, open boxes
 included, which Q2 reads; `north ledger worker --summary` gains the `revert/fix/culprit` column Q4 reads.
 
 Open question, filed as north#564 for 20 Nov: tooling closes about 0.33 arm boxes a day per arm, which a 30-day window

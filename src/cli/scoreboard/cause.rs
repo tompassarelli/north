@@ -1,4 +1,4 @@
-//! `north ledger scoreboard --rework [--since 7d]`: the reworked landings of a window by the judge's rule and by class of
+//! `north dash --rework [--since 7d]`: the reworked landings of a window by the judge's rule and by class of
 //! change, each with the main commit that triggered the rework, so the fixes can target the rule or class that
 //! reworks most.
 use std::collections::BTreeMap;
@@ -194,7 +194,7 @@ pub fn render(landings: &[&Judged], window: &str, now: i64) -> String {
     for landing in landings {
         repos.entry(landing.repo.as_str()).or_default().push(landing);
     }
-    let mut out = format!("north ledger scoreboard --rework: worker landings that reached main in the last {window}, ending {} today\n", Timestamp::from_unix_seconds(now).local_twelve_hour());
+    let mut out = format!("north dash --rework: worker landings that reached main in the last {window}, ending {} today\n", Timestamp::from_unix_seconds(now).local_twelve_hour());
     for (repo, held) in repos {
         out.push_str(&render_repo(repo, &held));
     }

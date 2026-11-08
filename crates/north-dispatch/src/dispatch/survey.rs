@@ -311,7 +311,7 @@ fn closed(notes: &mut Vec<String>) -> Option<ClosedReport> {
 }
 
 pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<String>) -> Option<ClosedReport> {
-    report.map_err(|why| notes.push(format!("{DEGRADED}: north ledger summary --since {} unread, so the arms draw at equal shares: {}", tier::ARM_WINDOW, why.user_message()))).ok()
+    report.map_err(|why| notes.push(format!("{DEGRADED}: north dash --closed --since {} unread, so the arms draw at equal shares: {}", tier::ARM_WINDOW, why.user_message()))).ok()
 }
 
 pub(super) fn read_arm_runs(category: &str, runs: NorthResult<BTreeMap<String, usize>>, notes: &mut Vec<String>) -> BTreeMap<String, usize> {
@@ -474,8 +474,8 @@ mod landings;
 #[path = "survey_tests.rs"]
 mod tests;
 
-/// The arm boxes in every other host's ledger summary.
+/// The arm boxes in every other host's closed-box report (`north dash --closed`).
 fn remote_arm_boxes(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<ArmBox> {
-    let remote = fleets::reached(cfg, here, &["ledger", "summary", "--since", tier::ARM_WINDOW, "--json"], PROBE, notes);
+    let remote = fleets::reached(cfg, here, &["dash", "--closed", "--since", tier::ARM_WINDOW], PROBE, notes);
     remote.into_iter().flat_map(|(_, listing)| serde_json::from_value::<Vec<ArmBox>>(listing["arms"].clone()).unwrap_or_default()).collect()
 }

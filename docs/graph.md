@@ -183,7 +183,7 @@ query can join a claim to the checks of the commit it names.
 A worker's claim counts only when a mechanical writer corroborates it. `harness/graph-rules/corroborated.json` derives
 `corroborated(BOX, SHA, WRITER)`: a quoted `(BOX :done-at SHA)` claim whose SHA is not `:none`, with `checker` asserting
 `(SHA :check-passed CMD)` for the box's own `:done-when` CMD, or with `lander` asserting `(SHA :landed-on "main")` and `git`
-asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north ledger summary`, dispatch's arm shares, `north ops
+asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north dash --closed`, dispatch's arm shares, `north ops
 climb run`) marks a kept box checker-verified only when the rule holds by `checker` for the box its run's brief named; the
 `Evidence:` stamp in the issue body, which any writer of the body can type, is read only on a host with no graph.
 

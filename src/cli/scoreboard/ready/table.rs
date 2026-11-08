@@ -18,13 +18,13 @@ fn show(unit: &str, value: f64) -> String {
     }
 }
 
-fn threshold(goal: &Goal) -> String {
+pub(super) fn threshold(goal: &Goal) -> String {
     format!("{} {}", if matches!(goal.bound, Bound::Max(_)) { "<=" } else { ">=" }, show(&goal.unit, goal.bound.limit()))
 }
 
 const MARK: usize = 2;
 
-fn cell(goal: &Goal, reading: Option<Reading>, explain: bool) -> String {
+pub(super) fn cell(goal: &Goal, reading: Option<Reading>, explain: bool) -> String {
     match reading {
         Some(reading) if explain => format!("{} (n={})", show(&goal.unit, reading.value), reading.sample),
         Some(reading) => show(&goal.unit, reading.value),

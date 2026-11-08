@@ -30,6 +30,7 @@ pub(crate) mod remote_land;
 mod remote_serve;
 #[cfg(test)]
 mod remote_serve_tests;
+mod dash;
 pub(crate) mod scoreboard;
 mod send;
 mod strategy;

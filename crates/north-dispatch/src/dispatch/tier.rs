@@ -131,7 +131,7 @@ impl<K: Ord + Copy> Trial<K> {
 }
 
 /// What the ledger holds for one category: each tier's success rate and runs there from
-/// `--recommend`, and the effort arms' stamped runs and boxes from `north ledger summary`.
+/// `--recommend`, and the effort arms' stamped runs and boxes from `north dash --closed`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Evidence {
     pub tiers: BTreeMap<String, (f64, usize)>,

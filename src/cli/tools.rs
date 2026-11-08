@@ -75,6 +75,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("loops", crate::loops::run),
     ("desktop", desktop),
     ("code-health", code_health),
+    ("dash", super::dash::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

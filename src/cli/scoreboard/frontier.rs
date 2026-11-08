@@ -1,4 +1,4 @@
-//! `north ledger scoreboard --frontier`: north against plain Claude Code on the same boxes, read
+//! `north dash --frontier`: north against plain Claude Code on the same boxes, read
 //! from the stored run rows (docs/rationale/frontier.md).
 use north_frontier::report::render;
 use north_frontier::rows::{RESULTS, parse};
@@ -16,7 +16,7 @@ pub(super) fn run() -> u8 {
             0
         }
         Err(why) => {
-            eprintln!("north ledger scoreboard: {why}");
+            eprintln!("north dash: {why}");
             1
         }
     }

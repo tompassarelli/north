@@ -154,7 +154,7 @@ pub fn tick(now: i64) -> Vec<String> {
         return Vec::new();
     }
     let _ = write(TOLD, &record.recorded_at.to_string());
-    vec![format!("{} (recorded {}; north ledger scoreboard --weekly prints the figures)", record.score(), Timestamp::from_unix_seconds(record.recorded_at).local_twelve_hour())]
+    vec![format!("{} (recorded {}; north dash --weekly prints the figures)", record.score(), Timestamp::from_unix_seconds(record.recorded_at).local_twelve_hour())]
 }
 
 #[cfg(test)]

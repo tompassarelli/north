@@ -160,8 +160,19 @@ pub fn adjacent_windows(now: Timestamp, span: i64) -> [(String, String); 2] {
 }
 
 fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> {
+    report_over(since, until, |_| true)
+}
+
+/// The runs of every role that started in the last `window`, each priced at API-equivalent rates, and the closed-box
+/// report over those runs alone, so a box closed in the window counts only the spend its runs made inside it.
+pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport)> {
+    let (since, until) = (window_start(window)?, Timestamp::now().iso());
+    Ok((window_runs(&since)?, report_over(&since, &until, |run| run.started.as_str() >= since.as_str())?))
+}
+
+fn report_over(since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool) -> NorthResult<ClosedReport> {
     let database = threads_database();
-    let runs: Vec<SpendRun> = spend_runs(&database)?.into_iter().filter(|run| run.ended.as_str() < until).collect();
+    let runs: Vec<SpendRun> = spend_runs(&database)?.into_iter().filter(|run| run.ended.as_str() < until && keep(run)).collect();
     let native = native_namespaces(&database)?;
     let closed = native_closed(&database, since, until)?;
     let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
@@ -267,4 +278,57 @@ pub fn prior_reports() -> NorthResult<BTreeMap<String, Vec<PriorReport>>> {
         found.entry(text(row, "item")).or_default().push(PriorReport { ended, report: text(row, "report") });
     }
     Ok(found)
+}
+
+/// A run of any role that started inside a window, with its model family and effort and its API-equivalent cost so far.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowRun {
+    pub agent: String,
+    pub role: String,
+    pub category: String,
+    /// The dispatch tier as the closed-box cells name it, such as `opus-medium` or `sonnet`.
+    pub tier: String,
+    pub model: String,
+    pub effort: String,
+    pub usd: f64,
+}
+
+impl WindowRun {
+    /// The model family and effort that ran it, such as `opus medium`.
+    pub fn mix(&self) -> String {
+        format!("{} {}", self.model, self.effort).trim().to_owned()
+    }
+}
+
+fn window_runs(since: &str) -> NorthResult<Vec<WindowRun>> {
+    let rows = sqlite::rows(
+        &threads_database(),
+        Access::ReadOnly,
+        Duration::from_secs(5),
+        &format!(
+            "SELECT agent, {ROLE_SQL} AS role, tier, category, model, COALESCE(effort, '') AS effort, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
+             FROM runs WHERE started >= '{}'",
+            since.replace('\'', "")
+        ),
+    )?;
+    let prices = PriceTable::load()?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let tier = text(row, "tier");
+            let model = row["model"].as_str().filter(|model| !model.is_empty());
+            let named = model.map_or_else(|| super::closed::tier_label(&tier), str::to_owned);
+            let family = ["opus", "sonnet", "haiku", "fable"].into_iter().find(|family| named.contains(family));
+            let effort = Some(text(row, "effort")).filter(|effort| !effort.is_empty()).or_else(|| ["low", "medium", "high", "xhigh", "max"].contains(&tier.as_str()).then(|| tier.clone()));
+            WindowRun {
+                agent: text(row, "agent"),
+                role: text(row, "role"),
+                category: text(row, "category"),
+                tier: super::closed::tier_label(&tier),
+                model: family.map_or(named.clone(), str::to_owned),
+                effort: effort.unwrap_or_default(),
+                usd: prices.run_usd(model, &tier, row["input"].as_i64().unwrap_or(0), row["cache_read"].as_i64().unwrap_or(0), row["output"].as_i64().unwrap_or(0)),
+            }
+        })
+        .collect())
 }

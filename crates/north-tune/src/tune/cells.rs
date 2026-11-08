@@ -156,7 +156,7 @@ impl Change {
             "interval": self.basis.interval.map(|(low, high)| [low, high]),
             "claim": self.basis.why,
             "origin": "experiment",
-            "pointer": format!("north ledger summary --since {LEDGER_WINDOW}"),
+            "pointer": format!("north dash --closed --since {LEDGER_WINDOW}"),
             "revisit": "the next north tune tick",
         })
     }

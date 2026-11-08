@@ -37,7 +37,7 @@ pub struct EtaScale {
 
 impl Ledger {
     pub fn read(notes: &mut Vec<String>) -> Self {
-        let closed = ledger::closed_report(WINDOW).map_err(|error| notes.push(format!("ledger summary --since {WINDOW} unread, so briefs keep the uncalibrated ETA and carry no budget: {error}"))).ok();
+        let closed = ledger::closed_report(WINDOW).map_err(|error| notes.push(format!("north dash --closed --since {WINDOW} unread, so briefs keep the uncalibrated ETA and carry no budget: {error}"))).ok();
         let prior = ledger::prior_reports().map_err(|error| notes.push(format!("prior Not done reports unread, so briefs carry none: {error}"))).unwrap_or_default();
         let mut eta_scales = BTreeMap::new();
         for tier in [Tier::Haiku, Tier::Sonnet, Tier::Opus] {

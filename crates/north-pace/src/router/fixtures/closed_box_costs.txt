@@ -1,4 +1,4 @@
-# Closed armed boxes of the 30 days to 2026-11-06 (north ledger summary --since 30d --json, .arms, closed, one per item): API-equivalent dollars, then kept (1) or reworked (0).
+# Closed armed boxes of the 30 days to 2026-11-06 (north dash --closed --since 30d, .arms, closed, one per item): API-equivalent dollars, then kept (1) or reworked (0).
 3.29 0
 12.96 0
 12.64 0

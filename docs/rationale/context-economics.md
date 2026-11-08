@@ -14,7 +14,7 @@ north's transcripts or its ledger.
   5.5 at $0.10, $0.50, $0.01 and $0.20 ([pricing](../references.md#claude-code-compaction)).
 - Roles: each transcript was joined to `runs.session` in a read-only copy of `~/.local/state/threads/snapshot.db`
   (2,265 of 2,319 files matched).
-- Closed boxes: `north ledger summary --since 18d --json` and `--since 30d`, in the ledger's own API-equivalent dollars.
+- Closed boxes: `north dash --closed --since 18d` and `--since 30d`, in the ledger's own API-equivalent dollars.
 - Compaction point: the threshold code in the binary, the `compact_boundary` records in the transcripts, and `/context`
   run on a fresh session twice: once as launched and once with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000`.
 - The scratch extraction and the replay lived in `/tmp` and are not committed. This page records the numbers.

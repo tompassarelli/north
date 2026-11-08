@@ -22,7 +22,9 @@ const ALL: &str = "all categories";
 const RELAUNCH_WAIT_S: i64 = 24 * 3_600;
 
 pub struct Attempt {
+    pub agent: String,
     pub category: String,
+    pub started: i64,
     pub ended: i64,
     pub succeeded: bool,
     pub repos: BTreeSet<String>,
@@ -76,7 +78,7 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
                 return None;
             }
             let deferred = outcome != "done" && recorded.as_deref() == Some(Cause::Harness(Harness::Waits).label()) && !checked_miss();
-            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), category, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()), deferred })
+            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), agent, category, started, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()), deferred })
         })
         .collect())
 }

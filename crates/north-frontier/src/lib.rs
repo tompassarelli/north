@@ -1,6 +1,6 @@
 //! The frontier benchmark: north against plain Claude Code on the same landed boxes (docs/rationale/frontier.md, north#730).
 //! `north test frontier` replays each box from its base under both arms in a sandbox, grades each arm's tree by the
-//! landing's own tests and writes one run row per arm and task; `north test frontier ab-report` writes the live A/B's result into frontier.md once each arm has landed 30 boxes: assignment-to-landed time and the short- and long-term usage per landed box; `north ledger scoreboard --frontier` prints the rows'
+//! landing's own tests and writes one run row per arm and task; `north test frontier ab-report` writes the live A/B's result into frontier.md once each arm has landed 30 boxes: assignment-to-landed time and the short- and long-term usage per landed box; `north dash --frontier` prints the rows'
 //! metrics and intervals. Nothing here reads or writes live fleet, ledger or landing state while an arm runs; once an arm ends, the tokens its pool key spent are written to the ledger as runs of that key's org.
 use std::path::PathBuf;
 

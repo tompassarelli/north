@@ -5,9 +5,10 @@ Usage: north [COMMAND]
 Run north with no arguments to open the fleet screen.
 
 Operator console:
+  dash                  One screen: readiness bars, account usage, model mix and cost by task category
   fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
   gate                  Open, answer or list decision gates
-  ledger                Fleet runs and cost; worker tiers, flow, tempo, incidents, scoreboard
+  ledger                Fleet runs and cost; worker tiers, flow, tempo, incidents
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
   desktop               Run a private desktop or take a screenshot off the clipboard

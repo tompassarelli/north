@@ -1,4 +1,4 @@
-//! `north ledger scoreboard audit`: once a day a cheap model reads the proxy's final replies to Tom and the proxy hears one line with two
+//! `north dash audit`: once a day a cheap model reads the proxy's final replies to Tom and the proxy hears one line with two
 //! counts: recommendations that became no issue (each phrasing the recommend-acts hook missed proposed as a table entry), and
 //! recommendations that name no project goal or contradict the project's README/AGENTS.md scope (north#641).
 use std::collections::BTreeMap;
@@ -10,7 +10,7 @@ use super::{Sources, Window, state_root, tom};
 use crate::foundation::clock::Timestamp;
 use crate::guard::recommend_acts::{self, Turn};
 
-const USAGE: &str = "usage: north ledger scoreboard audit [--tell]";
+const USAGE: &str = "usage: north dash audit [--tell]";
 const DAY_S: i64 = 86_400;
 const MODEL_WAIT: Duration = Duration::from_secs(600);
 const REPLY_CHARS: usize = 1_500;
@@ -141,7 +141,7 @@ pub fn run(arguments: &[String]) -> u8 {
     if tell {
         let sent = std::process::Command::new(std::env::current_exe().unwrap_or_else(|_| "north".into())).args(["fleet", "send", "--from", "service:north-audit", "proxy"]).arg(&line).status();
         if !sent.is_ok_and(|status| status.success()) {
-            eprintln!("north ledger scoreboard audit: the proxy is not reachable");
+            eprintln!("north dash audit: the proxy is not reachable");
             return 1;
         }
     }
@@ -162,5 +162,5 @@ pub fn tick(now: i64) {
     }
     use std::os::unix::process::CommandExt;
     let Ok(north) = std::env::current_exe() else { return };
-    let _ = std::process::Command::new(north).args(["ledger", "scoreboard", "audit", "--tell"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).process_group(0).spawn();
+    let _ = std::process::Command::new(north).args(["dash", "audit", "--tell"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).process_group(0).spawn();
 }
