@@ -1,13 +1,21 @@
-use super::culprit;
+use super::{Suspects, culprit, suspects};
 use crate::land::checks::Verdict;
 
 fn search(lanes: usize, room: usize, red_from: usize, base_red: bool) -> (Option<usize>, Vec<Vec<usize>>) {
+    searched(lanes, room, &Suspects::Batch, red_from, base_red)
+}
+
+fn searched(lanes: usize, room: usize, suspects: &Suspects, red_from: usize, base_red: bool) -> (Option<usize>, Vec<Vec<usize>>) {
     let mut rounds = Vec::new();
-    let found = culprit(lanes, room, |counts| {
+    let found = culprit(lanes, room, suspects, |counts| {
         rounds.push(counts.to_vec());
         counts.iter().map(|&count| if count >= red_from || base_red { Verdict::RedMain(format!("first {count}")) } else { Verdict::Green }).collect()
     });
     (found, rounds)
+}
+
+fn batch() -> Vec<String> {
+    ["lane-a", "lane-b", "lane-c", "lane-d"].map(str::to_owned).to_vec()
 }
 
 #[test]
@@ -23,4 +31,37 @@ fn a_base_already_red_blames_no_lane() {
     let (found, rounds) = search(4, 1, 1, true);
     assert_eq!(found, None);
     assert_eq!(rounds.last(), Some(&vec![0]), "bisection ending on the first lane probes the base");
+}
+
+// KEEP(bug): on 2026-11-08 every red after-landing run bisected its whole batch although the change graph's blame held the verified culprit in 50 of 50 red probes, naming it alone in 30% (north#902)
+#[test]
+fn a_red_four_lane_batch_whose_graph_blame_names_one_lane_reverts_it_with_no_bisect_round() {
+    let named = suspects(&batch(), Some(0), "lane-c\n");
+    assert_eq!(named, Suspects::Named(vec![2]));
+    let (found, rounds) = searched(4, 1, &named, 3, false);
+    assert_eq!(found, Some(2));
+    assert!(rounds.is_empty(), "no prefix is checked: {rounds:?}");
+}
+
+// KEEP(bug): the same replay: blame named 3.4 candidates of 14.3 lanes on average, and the search still bisected all 14.3 (north#902)
+#[test]
+fn a_red_four_lane_batch_whose_graph_blame_names_two_lanes_bisects_only_those_two() {
+    let named = suspects(&batch(), Some(0), "lane-c\nlane-a\n");
+    assert_eq!(named, Suspects::Named(vec![0, 2]));
+    let (found, rounds) = searched(4, 1, &named, 3, false);
+    assert_eq!(found, Some(2));
+    assert_eq!(rounds, vec![vec![1]], "only the prefix through lane-a, the first named lane, is checked");
+    let (found, rounds) = searched(4, 1, &named, 1, false);
+    assert_eq!(found, Some(0));
+    assert_eq!(rounds, vec![vec![1]]);
+}
+
+#[test]
+fn a_red_four_lane_batch_whose_graph_blame_is_untraced_or_missing_bisects_all_four_as_before() {
+    for (exit, printed) in [(Some(3), ""), (Some(2), ""), (Some(0), "lane-z\n"), (None, "lane-c\n")] {
+        assert_eq!(suspects(&batch(), exit, printed), Suspects::Batch, "exit {exit:?} printing {printed:?}");
+    }
+    let (found, rounds) = searched(4, 1, &suspects(&batch(), Some(3), ""), 3, false);
+    assert_eq!(found, Some(2));
+    assert_eq!(rounds, vec![vec![2], vec![3]], "the whole batch is bisected by its prefixes");
 }

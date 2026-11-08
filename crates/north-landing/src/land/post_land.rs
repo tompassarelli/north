@@ -10,7 +10,8 @@ use crate::landing::red_check::Failure;
 use crate::platform::push_ledger;
 use crate::landing::check_timings::Deadline;
 use super::after::{follow, send};
-use super::{blame, probe_slots};
+use super::blame;
+use super::probe_slots;
 use super::candidate::git;
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
@@ -231,7 +232,8 @@ pub fn search(search: Search) -> std::thread::JoinHandle<Found> {
             return Found { culprit: None, span: (started, telemetry::epoch()), superseded: true };
         }
         if let Some(at) = culprit {
-            judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], &run.at(&landed.head, &landed.tips[at]).log);
+            let probed = run.at(&landed.head, &landed.tips[at]).log;
+            judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], if probed.exists() { &probed } else { &run.log });
         }
         Found { culprit, span: (started, telemetry::epoch()), superseded: false }
     })
@@ -249,10 +251,8 @@ fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
 fn locate(landed: &Landed, run: &Run) -> Option<usize> {
     let lanes = landed.tips.len();
     let room = probe_slots::free_slots(&landed.repo).map_or(1, |(free, _)| free);
-    if room < lanes {
-        println!("north land: {room} offload slots are free for the {lanes} prefixes of {}, so the culprit is bisected", landed.head);
-    }
-    let culprit = blame::culprit(lanes, room, |counts| prefixes(landed, run, counts));
+    let suspects = blame::ask(&landed.repo, &run.log, &landed.base, &landed.head, &landed.lanes, &landed.tips, room);
+    let culprit = blame::culprit(lanes, room, &suspects, |counts| prefixes(landed, run, counts));
     match culprit {
         Some(at) => println!("north land: {} is the first landed lane whose prefix of {} is red", landed.lanes.get(at).map_or("?", String::as_str), landed.head),
         None => println!("north land: post-land checks of {} are red, but the prefix search names no lane: main was already red at {} or a prefix reached no verdict", landed.head, landed.base),
