@@ -602,6 +602,7 @@ fn land_after_reuses_the_candidates_selection() {
     fs::write(fixture.repo.join("structure.toml"), "[[crate_dag.crate]]\nname = \"a\"\npaths = [\"crates/a/src/**\"]\nmay_use = []\n\n[[crate_dag.crate]]\nname = \"b\"\npaths = [\"crates/b/src/**\"]\nmay_use = []\n").unwrap();
     fs::create_dir_all(fixture.repo.join("tests/it")).unwrap();
     fs::write(fixture.repo.join("tests/it/crates.txt"), "m1 a\nm2 b\n").unwrap();
+    fs::write(fixture.repo.join("tests/it/tree_wide_units.txt"), "# no tree-wide unit tests in this fixture\n").unwrap();
     git(&fixture.repo, &["add", "structure.toml", "tests"]);
     git(&fixture.repo, &["commit", "-qm", "structure"]);
     let before = git(&fixture.repo, &["rev-parse", "HEAD"]);

@@ -1,0 +1,5 @@
+# Library unit tests that judge every file of the tree, one `PACKAGE TEST # tree-wide: REASON` line each, with PACKAGE a [[crate_dag.crate]] of structure.toml and TEST the test's path inside its lib.
+# Every lane's land selection runs these, graph-traced or not, since no change cone reaches a test that reads files it does not import; a change to this file runs every test.
+north-code-health code_health::habits_tests::the_north_tree_keeps_its_rust_habits # tree-wide: scans every Rust source under src/ and crates/ for the code habits
+north-runtime runtime::reuse::tests::every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input # tree-wide: reads every source's embeds across the tree
+north-runtime runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree # tree-wide: reads every source and test of the tree for embedded tables

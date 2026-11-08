@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use north_landing::land::slots::it_modules::{Plan, STRUCTURE, Selection, TABLE, Table, select, spawners};
+use north_landing::land::slots::tree_wide_units::Units;
 
 fn read(path: &str) -> String {
     std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap()
@@ -55,7 +56,7 @@ fn a_module_that_spawns_the_north_binary_runs_for_any_crate_change_unless_its_li
     let files = ["crates/north-capacity/src/capacity/lease_lifecycle.rs".to_owned(), "crates/north-capacity-host/src/capacity/host/state.rs".to_owned()];
     let structure = read(STRUCTURE);
     let spawners = BTreeSet::from(["safe_push".to_owned()]);
-    let modules = |names: &[&str]| Selection::Modules(names.iter().map(|name| (*name).to_owned()).collect());
+    let modules = |names: &[&str]| Selection::Modules { modules: names.iter().map(|name| (*name).to_owned()).collect(), units: Units::default() };
     assert_eq!(select(&structure, "safe_push north-landing\nplain north-strategy-types\n", &spawners, &files).unwrap(), modules(&["safe_push"]), "a module that spawns the north binary links every crate");
     assert_eq!(select(&structure, "safe_push north-landing # narrow: reads only the tag path\nplain north-strategy-types\n", &spawners, &files).unwrap(), modules(&[]), "a narrow reason keeps the declared crates");
     assert!(select(&structure, "safe_push north-landing # narrow:\nplain north-strategy-types\n", &spawners, &files).is_err(), "a narrow marker needs a reason");

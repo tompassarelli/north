@@ -4,6 +4,8 @@ use std::process::{Command, Stdio};
 
 use serde::Deserialize;
 
+use super::tree_wide_units::Units;
+
 const IT_BINARY: &str = "north::it";
 const IT_PACKAGE: &str = "north";
 const BIN_MARK: &str = "::bin/";
@@ -32,6 +34,7 @@ pub struct Tests {
     by_binary: BTreeMap<String, BTreeSet<String>>,
     added: BTreeSet<(String, String)>,
     modules: BTreeSet<String>,
+    units: Units,
     known: usize,
 }
 
@@ -46,12 +49,16 @@ impl Tests {
             }
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        let tests = Self { by_binary, added, modules: BTreeSet::new(), known: answer.known };
+        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), known: answer.known };
         (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests).filter(|tests| tests.filter().len() <= FILTER_LIMIT)
     }
 
     pub fn with_modules(self, modules: BTreeSet<String>) -> Self {
         Self { modules, ..self }
+    }
+
+    pub fn with_units(self, units: Units) -> Self {
+        Self { units, ..self }
     }
 
     pub fn runs_module(&self, module: &str) -> bool {
@@ -61,7 +68,7 @@ impl Tests {
     pub fn packages(&self) -> BTreeSet<String> {
         let binaries = self.by_binary.keys().map(|binary| binary.split("::").next().unwrap_or(binary).to_owned());
         let modules = (!self.modules.is_empty()).then(|| IT_PACKAGE.to_owned());
-        binaries.chain(self.added.iter().map(|(package, _)| package.clone()).filter(|package| !package.is_empty())).chain(modules).collect()
+        binaries.chain(self.added.iter().map(|(package, _)| package.clone()).filter(|package| !package.is_empty())).chain(modules).chain(self.units.packages()).collect()
     }
 
     pub fn arguments(&self) -> String {
@@ -71,14 +78,14 @@ impl Tests {
 
     pub fn summary(&self) -> String {
         let traced: usize = self.by_binary.values().map(BTreeSet::len).sum();
-        format!("the {traced} of the {} tests the change graph knows, in {} test binaries, and the {} tests the lane adds, and the tree-wide tests/it modules {}", self.known, self.by_binary.len(), self.added.len(), self.modules.iter().cloned().collect::<Vec<_>>().join(", "))
+        format!("the {traced} of the {} tests the change graph knows, in {} test binaries, and the {} tests the lane adds, and the tree-wide tests/it modules {}, and the tree-wide unit tests {}", self.known, self.by_binary.len(), self.added.len(), self.modules.iter().cloned().collect::<Vec<_>>().join(", "), self.units.names())
     }
 
     fn filter(&self) -> String {
         let traced = self.by_binary.iter().map(|(binary, names)| format!("(binary_id({binary})&({}))", names.iter().map(|name| format!("test(={name})")).collect::<Vec<_>>().join("|")));
         let added = self.added.iter().map(|(package, name)| if package.is_empty() { format!("test(/(^|::){name}$/)") } else { format!("(package({package})&test(/(^|::){name}$/))") });
         let modules = (!self.modules.is_empty()).then(|| format!("(binary_id({IT_BINARY})&test(/^({})::/))", self.modules.iter().cloned().collect::<Vec<_>>().join("|")));
-        traced.chain(added).chain(modules).collect::<Vec<_>>().join("|")
+        traced.chain(added).chain(modules).chain((!self.units.is_empty()).then(|| self.units.filter())).collect::<Vec<_>>().join("|")
     }
 }
 

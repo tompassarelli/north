@@ -8,6 +8,7 @@ use toml_edit::{DocumentMut, Item};
 use super::graph_selection::{self, Tests};
 use super::select::changed;
 use super::shared_build::live_runtime;
+use super::tree_wide_units::{self, Units};
 
 pub const IT_ENV: &str = "SAFE_PUSH_LAND_IT";
 pub const TABLE: &str = "tests/it/crates.txt";
@@ -19,7 +20,7 @@ const IT: &str = "binary_id(north::it)";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
     Every,
-    Modules(BTreeSet<String>),
+    Modules { modules: BTreeSet<String>, units: Units },
     Tests(Tests),
 }
 
@@ -27,8 +28,8 @@ impl Selection {
     pub fn arguments(&self) -> String {
         match self {
             Self::Every => format!("--test it -E {UNIT}|{IT}"),
-            Self::Modules(modules) if modules.is_empty() => format!("-E {UNIT}"),
-            Self::Modules(modules) => format!("--test it -E {UNIT}|({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")),
+            Self::Modules { modules, .. } if modules.is_empty() => format!("-E {UNIT}"),
+            Self::Modules { modules, .. } => format!("--test it -E {UNIT}|({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")),
             Self::Tests(tests) => tests.arguments(),
         }
     }
@@ -36,14 +37,23 @@ impl Selection {
     pub fn summary(&self) -> String {
         match self {
             Self::Tests(tests) => tests.summary(),
-            Self::Every | Self::Modules(_) => self.arguments(),
+            Self::Modules { units, .. } if !units.is_empty() => format!("{}, and the whole packages of the tree-wide unit tests {}", self.arguments(), units.names()),
+            Self::Every | Self::Modules { .. } => self.arguments(),
+        }
+    }
+
+    pub fn with_units(self, units: Units) -> Self {
+        match self {
+            Self::Every => Self::Every,
+            Self::Modules { modules, .. } => Self::Modules { modules, units },
+            Self::Tests(tests) => Self::Tests(tests.with_units(units)),
         }
     }
 
     pub fn runs_module(&self, module: &str) -> bool {
         match self {
             Self::Every => true,
-            Self::Modules(modules) => modules.contains(module),
+            Self::Modules { modules, .. } => modules.contains(module),
             Self::Tests(tests) => tests.runs_module(module),
         }
     }
@@ -51,7 +61,8 @@ impl Selection {
     pub fn packages(&self) -> BTreeSet<String> {
         match self {
             Self::Tests(tests) => tests.packages(),
-            Self::Every | Self::Modules(_) => BTreeSet::new(),
+            Self::Modules { units, .. } => units.packages(),
+            Self::Every => BTreeSet::new(),
         }
     }
 }
@@ -116,7 +127,7 @@ pub struct Table {
 
 const SPAWNS_NORTH: &str = "CARGO_BIN_EXE_north";
 const NARROW: &str = "narrow:";
-const TREE_WIDE: &str = "tree-wide:";
+pub(super) const TREE_WIDE: &str = "tree-wide:";
 const TESTS: &str = "tests/it";
 const SOURCES: &str = "src/";
 const DOCS: &str = "docs/";
@@ -209,7 +220,7 @@ pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: 
     if modules.len() == table.modules.len() {
         return Ok(Selection::Every);
     }
-    Ok(Selection::Modules(modules))
+    Ok(Selection::Modules { modules, units: Units::default() })
 }
 
 pub fn selection(root: &Path, base: &str, head: &str) -> Result<Selection, String> {
@@ -219,10 +230,16 @@ pub fn selection(root: &Path, base: &str, head: &str) -> Result<Selection, Strin
 pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
     if let Some(tests) = graph_selection::ask(program, root, base, head) {
-        let table = Table::parse(&read(TABLE)?, &Plan::parse(&read(STRUCTURE)?)?, &spawners(root))?;
-        return Ok(Selection::Tests(tests.with_modules(table.tree_wide)));
+        let plan = Plan::parse(&read(STRUCTURE)?)?;
+        let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
+        return Ok(Selection::Tests(tests.with_modules(table.tree_wide).with_units(units(&read(tree_wide_units::TABLE)?, &plan)?)));
     }
-    select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &changed(root, base, head, &[]))
+    let units = units(&read(tree_wide_units::TABLE)?, &Plan::parse(&read(STRUCTURE)?)?)?;
+    Ok(select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &changed(root, base, head, &[]))?.with_units(units))
+}
+
+fn units(table: &str, plan: &Plan) -> Result<Units, String> {
+    Units::parse(table, &plan.names().chain([ROOT]).collect())
 }
 
 pub fn spawners(root: &Path) -> BTreeSet<String> {
