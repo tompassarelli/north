@@ -82,24 +82,46 @@ impl Splitmix {
     }
 }
 
-/// A percentile bootstrap over `items` with a fixed seed; resamples whose statistic is undefined are dropped.
-pub fn bootstrap<T>(items: &[T], statistic: impl Fn(&[&T]) -> Option<f64>) -> Option<Interval> {
-    if items.is_empty() {
-        return None;
-    }
-    let mut random = Splitmix(SEED);
-    let mut drawn: Vec<f64> = (0..RESAMPLES)
-        .filter_map(|_| {
-            let sample: Vec<&T> = (0..items.len()).map(|_| &items[random.below(items.len())]).collect();
-            statistic(&sample)
-        })
-        .collect();
+fn percentile_interval(mut drawn: Vec<f64>) -> Option<Interval> {
     if drawn.is_empty() {
         return None;
     }
     drawn.sort_by(f64::total_cmp);
     let at = |share: f64| drawn[((drawn.len() - 1) as f64 * share).round() as usize];
     Some(Interval { low: at(0.025), high: at(0.975) })
+}
+
+/// A percentile bootstrap over `items` with a fixed seed; resamples whose statistic is undefined are dropped.
+pub fn bootstrap<T>(items: &[T], statistic: impl Fn(&[&T]) -> Option<f64>) -> Option<Interval> {
+    if items.is_empty() {
+        return None;
+    }
+    let mut random = Splitmix(SEED);
+    percentile_interval(
+        (0..RESAMPLES)
+            .filter_map(|_| {
+                let sample: Vec<&T> = (0..items.len()).map(|_| &items[random.below(items.len())]).collect();
+                statistic(&sample)
+            })
+            .collect(),
+    )
+}
+
+/// A percentile bootstrap over two independent groups, each resampled within itself so both keep their size.
+pub fn bootstrap_two<T>(first: &[T], second: &[T], statistic: impl Fn(&[&T], &[&T]) -> Option<f64>) -> Option<Interval> {
+    if first.is_empty() || second.is_empty() {
+        return None;
+    }
+    let mut random = Splitmix(SEED);
+    percentile_interval(
+        (0..RESAMPLES)
+            .filter_map(|_| {
+                let one: Vec<&T> = (0..first.len()).map(|_| &first[random.below(first.len())]).collect();
+                let other: Vec<&T> = (0..second.len()).map(|_| &second[random.below(second.len())]).collect();
+                statistic(&one, &other)
+            })
+            .collect(),
+    )
 }
 
 pub fn median(values: &[f64]) -> Option<f64> {

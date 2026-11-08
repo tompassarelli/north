@@ -10,6 +10,7 @@ use north_fleet::fleet::model::ApiKey;
 use north_providers::ledger::Ledger;
 use north_providers::providers::claude::api_pool;
 
+use crate::ab;
 use super::billing::{self, Spent};
 use super::grade::{Grade, grade};
 use super::sandbox::{Sandbox, git_text};
@@ -293,6 +294,20 @@ fn report(flags: &Flags) -> Result<String, NorthError> {
     Ok(render(&rows))
 }
 
+fn ab_report(flags: &Flags) -> Result<String, NorthError> {
+    let root = flags.one("root").map_or_else(|| home().join("code/north/main"), PathBuf::from);
+    let rows_file = flags.one("rows").map_or_else(|| root.join(ab::AB_ROWS), PathBuf::from);
+    let doc_file = flags.one("doc").map_or_else(|| root.join("docs/rationale/frontier.md"), PathBuf::from);
+    let rows = ab::parse(&fs::read_to_string(&rows_file).map_err(|why| refusal(format!("{}: {why}", rows_file.display())))?).map_err(refusal)?;
+    if !ab::ready(&rows) {
+        return Ok(ab::progress(&rows));
+    }
+    let section = ab::render(&rows);
+    let doc = fs::read_to_string(&doc_file).map_err(|why| refusal(format!("{}: {why}", doc_file.display())))?;
+    fs::write(&doc_file, ab::splice(&doc, &section)).map_err(NorthError::Io)?;
+    Ok(format!("{section}wrote {}\n", doc_file.display()))
+}
+
 fn candidates(flags: &Flags) -> Result<String, NorthError> {
     let ledger = flags.one("ledger").map_or_else(|| home().join(".local/state/threads/snapshot.db"), PathBuf::from);
     let (since, until) = (flags.one("since").ok_or_else(|| refusal(String::new()))?, flags.one("until").ok_or_else(|| refusal(String::new()))?);
@@ -308,6 +323,7 @@ pub fn dispatch(arguments: &[String]) -> Result<String, NorthError> {
         Some("run") => run(&flags),
         Some("grade") => grade_all(&flags),
         Some("report") => report(&flags),
+        Some("ab-report") => ab_report(&flags),
         _ => Err(refusal(String::new())),
     }
 }

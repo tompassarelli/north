@@ -44,6 +44,8 @@ The owner asked on 2026-11-07 for a scoreboard that shows whether north is at th
 - Wall time to a correct result: the median over correct runs with a bootstrap interval, and the median paired difference over tasks both arms passed.
 - Interventions per task: the mean with a bootstrap interval.
 
+**Live A/B (north#855, north#877).** The frozen-task replays stop at the pilot; the headline is a burn-down of real wisp and makgora boxes, each assigned by a recorded seeded coin flip to north (`north fleet launch`) or to T3 Code equipped with north's knowledge but not its machinery, and recorded in `docs/rationale/frontier/ab.jsonl`: box, arm, assignment time, landed sha and time (Unix seconds), usage, interventions, and once 48 h have passed the rework (reverts, red main, reopened boxes) and the code-health change of the landed diff (net lines, new `north code-health` findings). `north test frontier ab-report` waits until each arm has landed 30 boxes, then replaces the section between its markers below with: the median assignment-to-landed time per arm and its percentile bootstrap interval (10,000 resamples within each arm, fixed seed), the north-minus-T3 median gap with its interval, the rework rate per arm with a Wilson interval, the code-health change per diff, and a verdict by a fixed rule: north wins when the speed gap's interval lies entirely below zero and no guard gap's interval lies entirely on the worse side. Anything else is reported as no clear winner or a loss, never as a win.
+
 ## What this does not measure
 
 - Routing: both arms run the model and effort north chose, so north's choice of model is outside the comparison.

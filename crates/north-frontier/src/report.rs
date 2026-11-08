@@ -62,11 +62,11 @@ fn percent(share: f64) -> String {
     format!("{:.0}%", share * 100.0)
 }
 
-fn span(interval: Option<Interval>, show: impl Fn(f64) -> String) -> String {
+pub(crate) fn span(interval: Option<Interval>, show: impl Fn(f64) -> String) -> String {
     interval.map_or_else(|| "no interval".into(), |found| format!("95% {} to {}", show(found.low), show(found.high)))
 }
 
-fn minutes(seconds: f64) -> String {
+pub(crate) fn minutes(seconds: f64) -> String {
     format!("{:.1} min", seconds / 60.0)
 }
 
