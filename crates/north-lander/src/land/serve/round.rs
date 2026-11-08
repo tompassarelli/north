@@ -24,6 +24,7 @@ use crate::land::{incidents, pause, red, steps};
 
 const SUSPECTS: &str = "suspects";
 const STALLS_BEFORE_ALONE: u32 = 2;
+const LOCAL_PROBES: usize = 1;
 
 #[derive(Default, Serialize, Deserialize)]
 struct Suspects {
@@ -41,7 +42,10 @@ impl Suspects {
         queue::write_atomic(&queue.join(SUSPECTS), &text).map_err(|error| error.to_string())
     }
 
-    fn plan(&self, ids: &[String], room: usize) -> Vec<Vec<usize>> {
+    fn plan(&self, ids: &[String], room: usize, local: bool) -> Vec<Vec<usize>> {
+        if local {
+            return self.plan(ids, LOCAL_PROBES, false).into_iter().take(LOCAL_PROBES).collect();
+        }
         let named: Vec<usize> = ids.iter().enumerate().filter(|(_, id)| self.ids.contains(id)).map(|(at, _)| at).collect();
         if self.stalls >= STALLS_BEFORE_ALONE && let Some(first) = named.first() {
             return vec![vec![*first]];
@@ -115,7 +119,7 @@ impl Probing for Lander {
         let mut strikes = Strikes::load(&self.queue, &ids)?;
         let (room, read) = probe_slots::slots(&self.repo);
         let mut suspects = Suspects::load(&self.queue);
-        let planned = suspects.plan(&ids, room);
+        let planned = suspects.plan(&ids, room, check_environment::active(&self.queue).is_local());
         let id = steps::batch(&pass.round(attempt, strikes.streaks(), room), lanes, None);
         steps::wave(lanes.len(), read, planned.len());
         println!("north land: probing {} lanes of main@{} with candidates of {} lanes", lanes.len(), attempt.base, planned.iter().map(|probe| probe.len().to_string()).collect::<Vec<_>>().join(", "));
@@ -258,3 +262,7 @@ impl Probing for Lander {
         Ok(ControlFlow::Continue(()))
     }
 }
+
+#[cfg(test)]
+#[path = "round_tests.rs"]
+mod tests;
