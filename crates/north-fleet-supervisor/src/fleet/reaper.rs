@@ -8,7 +8,6 @@ use north_base::land_ticket::{Lane, lanes_by_session};
 use north_base::platform::{land_queue, records_mirror};
 use north_session_host::held::{self, unit};
 use regex::Regex;
-use serde::Serialize;
 use toml_edit::DocumentMut;
 
 use super::detached::{self, Prior, Scope};
@@ -21,7 +20,6 @@ use super::runtime::binary;
 use super::transcript::last_written;
 
 const STALE_KEY: &str = "fleet_stale_hours";
-pub const RECORD: &str = ".reap.json";
 const LAST_CHARS: usize = 4_000;
 const LEASE_BATCH: usize = 16;
 pub const BUDGET: Duration = Duration::from_secs(5);
@@ -136,7 +134,7 @@ fn instruction(text: &str) -> bool {
     !(text.starts_with("<task-notification>") || text.starts_with("[from service:"))
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Reaped {
     pub at_ms: u64,
     pub stale_hours: u64,
@@ -147,7 +145,7 @@ pub struct Reaped {
     pub unread: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Retired {
     pub name: String,
     pub why: String,
@@ -179,6 +177,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
     candidates.sort_by_key(|(_, _, quiet)| std::cmp::Reverse(*quiet));
     let running = evidence.running(&candidates.iter().map(|(record, _, _)| *record).collect::<Vec<_>>());
     let gated = fleet.open_gate_sessions();
+    let mut verdicts: BTreeMap<String, String> = BTreeMap::new();
     let lanes = evidence.lanes();
     for (done, batch) in candidates.chunks(LEASE_BATCH).enumerate() {
         if started.elapsed() >= budget {
@@ -194,6 +193,9 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let lane_holds = lanes.get(&record.name).is_some_and(|held| matches!(landing(held, ended_ms(record).unwrap_or(u64::MAX)), Landing::Waiting | Landing::Decided));
             let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds };
             let verdict = verdict(&seen, stale);
+            if let Some(label) = told(&verdict, status) {
+                verdicts.insert(record.name.clone(), label.to_owned());
+            }
             if verdict == Verdict::Keep {
                 let background = seen.background.then(|| "its CLI still runs a background task".to_owned());
                 let why = seen.live.or_else(|| seen.report.as_ref().filter(|report| !report.unlanded.is_empty()).map(|report| format!("names {} not on origin/main", report.unlanded.join(", ")))).or_else(|| (seen.lane_holds && quiet < stale).then(|| "its queued lane waits on the lander, or the lander's verdict has not woken it yet".to_owned())).or(background).unwrap_or_else(|| "active within the stale window".into());
@@ -208,10 +210,19 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             retire_unleased(fleet, &mut reaped, apply, (record, why, last), lease);
         }
     }
-    if apply && let Ok(text) = serde_json::to_vec_pretty(&reaped) {
-        let _ = std::fs::write(fleet.root.join(RECORD), text);
+    if apply && let Err(why) = fleet.tell_retirement(verdicts, now_ms) {
+        eprintln!("fleet reaper: graph tick failed: {why}");
     }
     reaped
+}
+
+fn told(verdict: &Verdict, status: Status) -> Option<&'static str> {
+    match (verdict, status) {
+        (Verdict::Stale, _) => Some("stale"),
+        (_, Status::Idle) => Some("idle"),
+        (_, Status::Parked) => Some("parked"),
+        _ => None,
+    }
 }
 
 fn retire_unleased(fleet: &Fleet, reaped: &mut Reaped, apply: bool, (record, why, last): (&SessionRecord, String, Option<String>), lease: Lease) {

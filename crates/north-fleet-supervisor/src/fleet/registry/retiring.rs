@@ -1,10 +1,11 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use north_graph_loops::Retirement;
 use serde_json::json;
 
 use crate::error::NorthResult;
@@ -25,6 +26,7 @@ enum Asking {
 
 const DEAD_LETTERS: &str = ".dead-letters.jsonl";
 const MOST_HOPS: usize = 16;
+const DAY_MS: u64 = 86_400_000;
 
 impl Fleet {
     pub fn retire(&self, name: &str, why: &str, last: Option<&str>) -> NorthResult<PathBuf> {
@@ -93,6 +95,27 @@ impl Fleet {
             }
         }
         Ok(self.sessions()?.into_iter().find(|session| session.role() == Role::Proxy && !session.ended()).map(|proxy| proxy.name))
+    }
+
+    pub fn dead_letters_since(&self, since_ms: u64) -> i64 {
+        let rows = fs::read_to_string(self.root.join(DEAD_LETTERS)).unwrap_or_default();
+        rows.lines().filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok()).filter(|row| row["at_ms"].as_u64().is_some_and(|at| at >= since_ms)).count() as i64
+    }
+
+    fn graph(&self) -> PathBuf {
+        std::env::var_os("NORTH_GRAPH_DB").filter(|path| !path.is_empty()).map_or_else(|| self.state.join("graph.db"), PathBuf::from)
+    }
+
+    /// What the reaper's newest tick told the graph: each session's verdict and the dead letters of the last day.
+    pub fn retirement(&self) -> Result<Retirement, String> {
+        let graph = self.graph();
+        if graph.exists() { north_graph_loops::retirement(&graph) } else { Ok(Retirement::default()) }
+    }
+
+    /// Tells the graph one reaper tick: each idle or parked session's verdict, the dead letters of the last day and the writer's tick, in one transaction.
+    pub fn tell_retirement(&self, verdicts: BTreeMap<String, String>, now_ms: u64) -> Result<(), String> {
+        let told = Retirement { verdicts, dead_letters_24h: Some(self.dead_letters_since(now_ms.saturating_sub(DAY_MS))) };
+        north_graph_loops::tell_retirement(&self.graph(), &told, i64::try_from(now_ms / 1000).unwrap_or(i64::MAX))
     }
 
     pub(super) fn dead_letter(&self, name: &str, heir: &str, text: &str) -> String {

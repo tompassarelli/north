@@ -16,10 +16,14 @@ fn cwd() -> Option<String> {
 
 /// The expected use of the command from the capacity database's closest runs.
 pub fn estimate_command(command: &[String], kind: &str, owner: Option<&str>, cores: f64) -> Value {
+    let signature = task_signature(command, cwd().as_deref(), kind, true);
+    if let Some(learned) = super::learned::read(&signature) {
+        return learned;
+    }
     let history = capacity_database().and_then(|db| capacity_history(&db)).unwrap_or_else(|error| fail(&format!("capacity database: {error}"), failure_status(&error)));
     let history = own_host(history, &host_name());
     let query = CapacityQuery { owner: owner.map(str::to_owned), shape: Some(command_shape(command)) };
-    estimate_capacity(&task_signature(command, cwd().as_deref(), kind, true), &history, cores, &query)
+    estimate_capacity(&signature, &history, cores, &query)
 }
 
 fn p90(estimate: &Value, key: &str) -> f64 {

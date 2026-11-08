@@ -343,14 +343,20 @@ fn record(entry: &Obj, usage: &Usage, command: &[String], request: &Request, lea
         .put("ioPressureSomeUsec", super::json::opt(usage.io_pressure_some_usec))
         .put("diskBusyShare", super::json::opt(usage.disk_busy_share));
     let view = row.value();
+    let signature = task_signature(command, cwd.as_deref(), &request.name, true);
     let stored = super::database::capacity_database().and_then(|mut db| {
         let transaction = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        super::database::insert_capacity_run(&transaction, &format!("lease:{lease}"), &view, &task_signature(command, cwd.as_deref(), &request.name, true), cwd.as_deref())?;
+        super::database::insert_capacity_run(&transaction, &format!("lease:{lease}"), &view, &signature, cwd.as_deref())?;
         learn(&transaction, &view)?;
         transaction.commit()
     });
-    if let Err(error) = stored {
-        eprintln!("machine-capacity: capacity database failed: {error}");
+    match stored {
+        Ok(()) => {
+            if let Err(error) = super::learned::tell(&signature) {
+                eprintln!("machine-capacity: graph estimate failed: {error}");
+            }
+        }
+        Err(error) => eprintln!("machine-capacity: capacity database failed: {error}"),
     }
     if let Err(error) = super::database::record_usage(&entry.text()) {
         eprintln!("machine-capacity: usage log failed: {error}");

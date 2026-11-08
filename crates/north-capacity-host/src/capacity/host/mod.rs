@@ -18,6 +18,7 @@ mod database;
 pub use database::{QUEUED_BOUND_SECONDS, Queued, capacity_database_readonly, queued_admissions, queued_behind_capacity};
 mod decision;
 mod estimate;
+mod learned;
 #[cfg(test)]
 mod estimate_replay_tests;
 mod fleet_pull;

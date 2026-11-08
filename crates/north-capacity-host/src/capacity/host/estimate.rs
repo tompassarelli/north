@@ -1,3 +1,4 @@
+use north_graph_loops::Estimate;
 use regex::Regex;
 use serde_json::{Value, json};
 
@@ -131,18 +132,26 @@ fn same_exact(signature: &TaskSignature, run: &CapacityRun) -> bool {
     signature.exact && run.signature.exact && run.signature.family == signature.family && run.signature.repo == signature.repo && run.signature.package == signature.package && run.signature.class == signature.class
 }
 
-fn duration(signature: &TaskSignature, history: &[CapacityRun]) -> Value {
+/// The p75 of the newest exact runs' wall seconds, once there are enough, and how many runs it rests on.
+fn wall(signature: &TaskSignature, history: &[CapacityRun]) -> Estimate {
     let mut runs: Vec<&CapacityRun> = history
         .iter()
         .filter(|run| same_exact(signature, run) && run.wall_seconds.is_some_and(|seconds| seconds.is_finite() && seconds > 0.0) && run.exit_code.unwrap_or(0.0) == 0.0)
         .collect();
     runs.sort_by(|left, right| left.at.cmp(&right.at));
     let seconds: Vec<f64> = runs[runs.len().saturating_sub(sizing_runs())..].iter().filter_map(|run| run.wall_seconds).collect();
-    let minimum = learned_minimum_runs();
-    if seconds.len() >= minimum {
-        json!({ "p75Seconds": opt(quantile(&seconds, 0.75)), "sampleCount": seconds.len(), "basis": "exact" })
-    } else {
-        json!({ "p75Seconds": null, "sampleCount": seconds.len(), "basis": format!("uncalibrated: {} exact runs < {minimum}", seconds.len()) })
+    let mut measures = Estimate::from([("wall-runs".to_owned(), seconds.len() as f64)]);
+    if seconds.len() >= learned_minimum_runs() && let Some(p75) = quantile(&seconds, 0.75) {
+        measures.insert("wall-s".to_owned(), p75);
+    }
+    measures
+}
+
+fn duration(estimate: &Estimate) -> Value {
+    let count = estimate.get("wall-runs").map_or(0, |count| *count as usize);
+    match estimate.get("wall-s") {
+        Some(p75) => json!({ "p75Seconds": num(*p75), "sampleCount": count, "basis": "exact" }),
+        None => json!({ "p75Seconds": null, "sampleCount": count, "basis": format!("uncalibrated: {count} exact runs < {}", learned_minimum_runs()) }),
     }
 }
 
@@ -171,20 +180,65 @@ fn levels<'a>(signature: &'a TaskSignature, query: &'a CapacityQuery) -> [Level<
     ]
 }
 
-fn distribution(values: &[f64]) -> Value {
-    json!({ "p50": opt(quantile(values, 0.5)), "p90": opt(quantile(values, 0.9)) })
+type Pick = fn(&CapacityRun) -> Option<f64>;
+
+const DISTRIBUTIONS: [(&str, Pick); 4] = [
+    ("memory-mb", |run| run.peak_memory_mib),
+    ("io-read-bytes", |run| run.io_read_bytes),
+    ("io-write-bytes", |run| run.io_write_bytes),
+    ("disk-busy", |run| run.disk_busy_share),
+];
+
+/// What the runs measured, beside the wall estimate of the signature's exact history.
+fn summarize(runs: &[&CapacityRun], wall: &Estimate) -> Estimate {
+    let values = |pick: Pick| runs.iter().filter_map(|run| pick(run)).filter(|value| value.is_finite()).collect::<Vec<f64>>();
+    let mut estimate = wall.clone();
+    let mut put = |measure: &str, value: Option<f64>| {
+        if let Some(value) = value {
+            estimate.insert(measure.to_owned(), value);
+        }
+    };
+    put("cores-p50", quantile(&values(|run| run.mean_cores), 0.5));
+    put("cores", quantile(&values(|run| run.p90_cores), 0.9));
+    for (measure, pick) in DISTRIBUTIONS {
+        put(&format!("{measure}-p50"), quantile(&values(pick), 0.5));
+        put(measure, quantile(&values(pick), 0.9));
+    }
+    estimate.insert("runs".to_owned(), runs.len() as f64);
+    estimate.insert("io-runs".to_owned(), values(|run| run.io_read_bytes).len() as f64);
+    estimate
 }
 
-fn measured(signature: &TaskSignature, level: &str, runs: &[&CapacityRun], duration: Value) -> Value {
-    let values = |pick: fn(&CapacityRun) -> Option<f64>| runs.iter().filter_map(|run| pick(run)).filter(|value| value.is_finite()).collect::<Vec<f64>>();
-    let confidence = if level == "exact" && runs.len() >= high_confidence_runs() { "high" } else { "medium" };
+fn assemble(signature: &TaskSignature, level: &str, estimate: &Estimate) -> Value {
+    let get = |measure: &str| estimate.get(measure).copied();
+    let count = |measure: &str| get(measure).map_or(0, |count| count as usize);
+    let distribution = |measure: &str| json!({ "p50": opt(get(&format!("{measure}-p50"))), "p90": opt(get(measure)) });
+    let confidence = if level == "exact" && count("runs") >= high_confidence_runs() { "high" } else { "medium" };
     json!({
-        "signature": signature.json(), "class": signature.class, "sampleCount": runs.len(), "matchLevel": level, "confidence": confidence,
-        "cores": { "p50": opt(quantile(&values(|run| run.mean_cores), 0.5)), "p90": opt(quantile(&values(|run| run.p90_cores), 0.9)) },
-        "peakMemoryMiB": distribution(&values(|run| run.peak_memory_mib)), "ioReadBytes": distribution(&values(|run| run.io_read_bytes)),
-        "ioWriteBytes": distribution(&values(|run| run.io_write_bytes)), "diskBusyShare": distribution(&values(|run| run.disk_busy_share)),
-        "diskBusyBasis": DISK_BASIS, "ioSampleCount": values(|run| run.io_read_bytes).len(), "duration": duration,
+        "signature": signature.json(), "class": signature.class, "sampleCount": count("runs"), "matchLevel": level, "confidence": confidence,
+        "cores": distribution("cores"), "peakMemoryMiB": distribution("memory-mb"), "ioReadBytes": distribution("io-read-bytes"),
+        "ioWriteBytes": distribution("io-write-bytes"), "diskBusyShare": distribution("disk-busy"),
+        "diskBusyBasis": DISK_BASIS, "ioSampleCount": count("io-runs"), "duration": duration(estimate),
     })
+}
+
+/// The newest runs of this signature once enough measured it: the estimate each finished lease tells the graph.
+pub fn learned_estimate(signature: &TaskSignature, history: &[CapacityRun]) -> Option<Estimate> {
+    let mut valid: Vec<&CapacityRun> = history.iter().filter(|run| same_exact(signature, run) && run.p90_cores.is_some_and(|cores| cores.is_finite() && cores >= 0.0)).collect();
+    valid.sort_by(|left, right| left.at.cmp(&right.at));
+    let runs = &valid[valid.len().saturating_sub(sizing_runs())..];
+    (runs.len() >= learned_minimum_runs()).then(|| summarize(runs, &wall(signature, history)))
+}
+
+/// The estimate the graph holds for the signature, shaped as `estimate_capacity` returns it.
+pub fn learned_json(signature: &TaskSignature, estimate: &Estimate) -> Value {
+    assemble(signature, "exact", estimate)
+}
+
+/// The signature the graph names its estimate by: a hash of what makes two runs the same command.
+pub fn signature_key(signature: &TaskSignature) -> String {
+    let words = [signature.family.as_str(), signature.repo.as_deref().unwrap_or(""), signature.package.as_deref().unwrap_or(""), signature.class.as_str()];
+    north_base::platform::decision_log::sha256_hex(words.join("\u{1f}").as_bytes())[..16].to_owned()
 }
 
 /// What a run of this signature is expected to use: its closest recorded runs, else its class's declaration.
@@ -195,7 +249,7 @@ pub fn estimate_capacity(signature: &TaskSignature, history: &[CapacityRun], cor
     let unseen_expensive = conservative.is_some()
         && signature.exact
         && !valid.iter().any(|run| run.signature.exact && run.signature.family == signature.family && run.signature.repo == signature.repo && run.signature.package == signature.package);
-    let duration = duration(signature, history);
+    let wall = wall(signature, history);
     for (level, matches) in levels(signature, query) {
         if unseen_expensive {
             break;
@@ -203,7 +257,7 @@ pub fn estimate_capacity(signature: &TaskSignature, history: &[CapacityRun], cor
         let matching: Vec<&CapacityRun> = valid.iter().copied().filter(|run| matches(run)).collect();
         let runs = &matching[matching.len().saturating_sub(sizing_runs())..];
         if runs.len() >= learned_minimum_runs() {
-            return measured(signature, level, runs, duration);
+            return assemble(signature, level, &summarize(runs, &wall));
         }
     }
     let kind = conservative.unwrap_or(&signature.class);
@@ -214,6 +268,6 @@ pub fn estimate_capacity(signature: &TaskSignature, history: &[CapacityRun], cor
         "cores": { "p50": num(declared.cpus), "p90": num(declared.cpus) },
         "peakMemoryMiB": { "p50": num(declared.memory_mib), "p90": num(declared.memory_mib) },
         "ioReadBytes": unknown, "ioWriteBytes": unknown, "diskBusyShare": unknown,
-        "diskBusyBasis": DISK_BASIS, "ioSampleCount": 0, "duration": duration,
+        "diskBusyBasis": DISK_BASIS, "ioSampleCount": 0, "duration": duration(&wall),
     })
 }

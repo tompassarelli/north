@@ -174,7 +174,7 @@ may_use = ["north-base", "north-github-mirror"]
 [[crate_dag.crate]]
 name = "north-capacity-host"
 paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
-may_use = ["north-capacity", "north-fleet", "north-calibration"]
+may_use = ["north-capacity", "north-fleet", "north-calibration", "north-graph-loops"]
 
 [[crate_dag.crate]]
 name = "north-capacity"
@@ -319,7 +319,7 @@ may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resu
 [[crate_dag.crate]]
 name = "north-fleet-supervisor"
 paths = ["crates/north-fleet-supervisor/src/**"]
-may_use = ["north-fleet", "north-resume", "north-session-host"]
+may_use = ["north-fleet", "north-resume", "north-session-host", "north-graph-loops"]
 
 [[crate_dag.crate]]
 name = "north-providers"

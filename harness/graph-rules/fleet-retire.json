@@ -1,0 +1,3 @@
+{"find": "fleet_retire", "rules": [
+  {"head": {"rel": "fleet_retire", "args": [{"var": "subject"}, {"var": "predicate"}, {"var": "value"}]},
+   "body": [{"rel": "assertion", "args": ["fleet", {"var": "subject"}, {"var": "predicate"}, {"var": "value"}]}]}]}

@@ -154,6 +154,9 @@ pub(super) fn reap(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     }
     reaped.lines().iter().for_each(|line| println!("{line}"));
     println!("{} {}, {} kept, {} failed", if apply { "retired" } else { "would retire" }, reaped.retired.len(), reaped.kept.len(), reaped.failed.len());
+    if let Ok(told) = fleet.retirement() {
+        println!("graph: {} idle or parked sessions told, {} dead letters in 24 h", told.verdicts.len(), told.dead_letters_24h.unwrap_or(0));
+    }
     Ok(())
 }
 

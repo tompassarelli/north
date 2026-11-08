@@ -85,12 +85,14 @@ sites = [
   "crates/north-capacity-host/src/capacity/host/sizing.rs",
   "crates/north-capacity-host/src/capacity/host/policy.rs",
   "crates/north-capacity-host/src/capacity/host/mod.rs",
+  "crates/north-capacity-host/src/capacity/host/learned.rs",
   "crates/north-capacity/src/capacity/admission.rs",
 ]
 signal = "measured cores, memory and wall per command signature of finished leases"
 updated_by = "north capacity run"
 cadence_hours = 24
-record = "agents/machine-capacity/capacity.db"
+store = "graph"
+writer = "capacity"
 
 constants = [
   "crates/north-capacity-host/src/capacity/host/policy.rs::GPU_BUSY_LIMIT_PERCENT",
@@ -584,5 +586,6 @@ sites = ["crates/north-fleet-supervisor/src/fleet/reaper.rs", "crates/north-flee
 signal = "messages routed to a retired session's heir (.dead-letters.jsonl): a stale retirement addressed again soon after says fleet_stale_hours is too short; idle or parked sessions left after each tick say it is too long"
 updated_by = "north fleet tick, every 30 s, writes the verdicts; fleet_stale_hours by hand"
 cadence_hours = 1
-record = "north/fleet/.reap.json"
+store = "graph"
+writer = "fleet"
 defaults = ["fleet_stale_hours"]

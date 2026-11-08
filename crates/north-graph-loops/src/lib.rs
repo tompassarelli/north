@@ -2,9 +2,11 @@
 //! its tick instant in one transaction, and every decision reads them back through its rule under
 //! harness/graph-rules/. A cell `<measure> <family> <category>` is the triple
 //! `(cell:<category>:<family> :cell/<measure> value)`, and a tick is `(loop:<writer> :loop/tick-at instant)`.
+mod capacity_estimate;
+mod cells;
 mod check_deadline;
 mod facts;
-mod cells;
+mod fleet;
 mod lander_doctor;
 mod rules;
 
@@ -13,8 +15,10 @@ mod land_tests;
 #[cfg(test)]
 mod tests;
 
+pub use capacity_estimate::{Estimate, Estimates, MEASURES as CAPACITY_MEASURES, WRITER as CAPACITY_WRITER, estimates, estimates_from, tell_estimate, tell_estimate_to};
 pub use cells::{Cells, Learned, Measure};
+pub use check_deadline::{CheckDeadline, CheckDeadlines, WRITER as CHECK_WRITER, check_deadlines, check_deadlines_from, check_key, tell_check_deadline, tell_check_deadline_to};
+pub use fleet::{Retirement, WRITER as FLEET_WRITER, retirement, retirement_from, tell_retirement, tell_retirement_to};
+pub use lander_doctor::{DOCTOR_WRITER, Held, Remembered, remembered, remembered_from, tell_remembered, tell_remembered_to};
 pub use north_graph::default_path as graph_path;
 pub use rules::{read, read_from, tell, tell_to, ticks, ticks_from};
-pub use check_deadline::{CheckDeadline, CheckDeadlines, WRITER as CHECK_WRITER, check_deadlines, check_deadlines_from, check_key, tell_check_deadline, tell_check_deadline_to};
-pub use lander_doctor::{DOCTOR_WRITER, Held, Remembered, remembered, remembered_from, tell_remembered, tell_remembered_to};

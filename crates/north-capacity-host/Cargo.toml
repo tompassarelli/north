@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
+north-graph-loops = { path = "../north-graph-loops" }
 north-fleet = { path = "../north-fleet" }
 north-calibration = { path = "../north-calibration" }
 north-threads = { path = "../north-threads", features = ["test-support"] }

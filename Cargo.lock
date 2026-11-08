@@ -1061,6 +1061,7 @@ dependencies = [
  "north-calibration",
  "north-capacity",
  "north-fleet",
+ "north-graph-loops",
  "north-threads",
  "proptest",
  "regex",
@@ -1258,6 +1259,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-fleet",
+ "north-graph-loops",
  "north-resume",
  "north-session-host",
  "regex",

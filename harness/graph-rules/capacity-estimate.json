@@ -1,0 +1,3 @@
+{"find": "capacity_estimate", "rules": [
+  {"head": {"rel": "capacity_estimate", "args": [{"var": "subject"}, {"var": "predicate"}, {"var": "value"}]},
+   "body": [{"rel": "assertion", "args": ["capacity", {"var": "subject"}, {"var": "predicate"}, {"var": "value"}]}]}]}

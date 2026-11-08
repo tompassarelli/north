@@ -170,3 +170,31 @@ fn the_recorded_week_of_runs_is_covered_by_its_estimates_without_over_reserving(
     assert!(share(cores.covered) >= 0.95, "coverage {}/{}", cores.covered, cores.scored);
     assert!(share(cores.over_reserved) < 0.2, "over-reservation {}/{}", cores.over_reserved, cores.scored);
 }
+
+#[test]
+fn the_estimate_a_signature_learned_reads_back_from_the_graph_as_its_raw_runs_estimate_it() {
+    let signature = TaskSignature { family: "cargo test".into(), repo: Some("north".into()), package: Some("north-graph".into()), class: "heavy".into(), exact: true };
+    let runs: Vec<CapacityRun> = (0..7)
+        .map(|index| CapacityRun {
+            at: format!("2026-11-08T0{index}:00:00.000Z"),
+            signature: signature.clone(),
+            owner: None,
+            shape: None,
+            mean_cores: Some(2.0 + index as f64),
+            p90_cores: Some(3.0 + index as f64),
+            peak_memory_mib: Some(1000.0 + 100.0 * index as f64),
+            io_read_bytes: (index % 2 == 0).then_some(index as f64 * 1e6),
+            io_write_bytes: None,
+            disk_busy_share: Some(0.1 * index as f64),
+            wall_seconds: Some(30.0 + 10.0 * index as f64),
+            exit_code: Some(if index == 3 { 1.0 } else { 0.0 }),
+            host: None,
+        })
+        .collect();
+    let query = CapacityQuery { owner: None, shape: None };
+    let raw = estimate_capacity(&signature, &runs, 24.0, &query);
+    assert_eq!(raw["matchLevel"], "exact");
+    let learned = super::estimate::learned_estimate(&signature, &runs).expect("seven exact runs are enough");
+    assert_eq!(super::estimate::learned_json(&signature, &learned), raw);
+    assert!(super::estimate::learned_estimate(&signature, &runs[..2]).is_none());
+}
