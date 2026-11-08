@@ -20,7 +20,7 @@ A kernel without Landlock ABI 2 or later runs the command unconfined and says so
 
 ## Rollout
 
-Landlock has no permissive mode, so a shadow run cannot log a would-be refusal without refusing. The `worker-sandbox` gate in harness/gates.toml lands in shadow, where only a canary launch made with `NORTH_WORKER_SANDBOX=1` carries the prefix. In enforce, `claude_env` adds it to every worker launch (crates/north-providers/src/providers/claude/session_env.rs). The review counts canary runs and the "Permission denied" removals in their Bash tool results.
+Landlock has no permissive mode, so a shadow run cannot log a would-be refusal without refusing. The `worker-sandbox` gate in harness/gates.toml lands in shadow, where only a canary launch made with `NORTH_WORKER_SANDBOX=1` carries the prefix. In enforce, `claude_env` adds it to every worker launch (crates/north-providers/src/providers/claude/session_env.rs). The review counts canary runs and the "Permission denied" removals in their Bash tool results. The gate enforces from 2026-11-08, on the canary review recorded in harness/gates.toml.
 
 
 The red team, per-host recovery and canary readings behind this design are Tom-specific and live in south (agents/decisions/harness/worker-sandbox-2026-11-08.md).

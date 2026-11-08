@@ -28,9 +28,14 @@ mode = "shadow"
 [gate.unrunnable-box]
 mode = "shadow"
 
-# Each Bash command, hook and MCP server of a fleet worker runs under `north --worker-sandbox` (CLAUDE_CODE_SHELL_PREFIX), a Landlock domain that confines file removal to the worker's own trees (north#706, docs/rationale/worker-sandbox.md). Landlock has no permissive mode, so while in shadow only a canary launch made with NORTH_WORKER_SANDBOX=1 carries it; the review counts canary worker runs and the "Permission denied" removals in their Bash tool results.
+# Each Bash command, hook and MCP server of a fleet worker runs under `north --worker-sandbox` (CLAUDE_CODE_SHELL_PREFIX), a Landlock domain that confines file removal to the worker's own trees (north#706, docs/rationale/worker-sandbox.md). Landlock has no permissive mode, so its shadow review counted canary worker launches made with NORTH_WORKER_SANDBOX=1: 65 Bash commands of the second round (n706-canary2-claims 52, including its safe-push, and n706-canary2-ingest 13), none refused, after the first round's two refusal classes were fixed.
 [gate.worker-sandbox]
-mode = "shadow"
+mode = "enforce"
+
+[gate.worker-sandbox.review]
+reviewed = "2026-11-08"
+by = "n706-wipe"
+decisions = 65
 
 # The graph guards in harness/graph-guards, one gate per guard file and correction class (harness/corrections.toml graph_guard), run after each landing by `north graph guards harness/graph-guards --shadow` (.safe-push). Each would-be refusal is a `would refuse guard NAME:` line in that check's output on the landing host (north#706, north#882).
 [gate.graph-guard-dropped-thread]
