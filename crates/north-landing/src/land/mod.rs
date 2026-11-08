@@ -1,6 +1,7 @@
 pub use north_diff_gates::landing_refusals;
 pub mod after;
 pub mod after_landing_lifecycle;
+pub mod alone_pass;
 pub mod bisect;
 pub mod blame;
 pub mod candidate;

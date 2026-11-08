@@ -64,9 +64,21 @@ pub struct Ticket {
     pub decided_on: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alone_green: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alone_base: Option<String>,
 }
 
 impl Ticket {
+    pub fn passed_alone(&self) -> bool {
+        self.alone_green.as_deref() == Some(self.head.as_str())
+    }
+
+    pub fn passed_alone_on(&self) -> Option<&str> {
+        self.alone_base.as_deref().filter(|_| self.passed_alone())
+    }
+
     pub fn goes_first(&self) -> bool {
         self.red_fix.is_some() || self.urgent.is_some() || self.lander_fix.is_some()
     }

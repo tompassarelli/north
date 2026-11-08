@@ -138,6 +138,8 @@ impl World {
             host: "laptop".into(),
             branch: branch.into(),
             head: run(root, &["rev-parse", "HEAD"]),
+            alone_green: Some(run(root, &["rev-parse", "HEAD"])),
+            alone_base: Some(run(root, &["rev-parse", "HEAD~"])),
             session: None,
             queued_at: "2026-11-05T12:00:00Z".into(),
             ..Default::default()

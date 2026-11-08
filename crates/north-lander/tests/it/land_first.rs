@@ -107,3 +107,36 @@ fn a_batch_queued_while_the_previous_batch_is_checked_after_landing_is_pushed_be
     let output = lander.wait_with_output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", report(&output));
 }
+
+fn vouch(north: &Repository, branch: &str, base: &str) {
+    let path = fs::read_dir(&north.queue).unwrap().flatten().map(|entry| entry.path()).find(|path| path.is_file() && queue::read(path).is_ok_and(|ticket| ticket.branch == branch)).unwrap();
+    let ticket = queue::read(&path).unwrap();
+    queue::write(&path, &queue::Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), ..ticket }).unwrap();
+}
+
+// KEEP(bug): land-first lands every queued lane on the alone pass safe-push wrote at enqueue, and a pass that never expired let a lane checked on an hour-old main land untested on the main it reaches (north#936)
+#[test]
+fn a_lane_queued_six_landings_ago_is_checked_alone_again_before_it_joins_a_batch_while_a_fresh_lane_lands_directly() {
+    let world = World::new();
+    let north = world.repository("north");
+    let calls_file = checker(&world);
+    let start = git(&north.origin, &["rev-parse", "main"]);
+    for landing in 1..=6 {
+        north.lane(&format!("l{landing}"));
+    }
+    serve(&world, &north);
+    let main = git(&north.origin, &["rev-parse", "main"]);
+    assert_eq!(git(&north.origin, &["rev-list", "--count", &format!("{start}..{main}")]), "6");
+    north.lane("stale");
+    vouch(&north, "stale", &start);
+    north.lane("fresh");
+    vouch(&north, "fresh", &main);
+    let journal = serve(&world, &north);
+    assert!(journal.contains("carries 1 lanes that passed their checks before queueing"), "{journal}");
+    assert!(verdict(&north, "fresh").starts_with("landed "), "{journal}");
+    assert!(journal.contains(&format!("stale passed alone on {start}, more landings ago than the alone pass lasts; checking it alone")), "{journal}");
+    assert_eq!(calls(&calls_file), 1, "{journal}");
+    let journal = serve(&world, &north);
+    assert!(verdict(&north, "stale").starts_with("landed "), "{journal}");
+    assert_eq!(calls(&calls_file), 1, "a lane that passed its alone check was checked again before its batch: {journal}");
+}

@@ -1311,12 +1311,13 @@ stacked one landed at 4:26:22.
 
 ### Land first again, without probe rounds (2026-11-08)
 
-- Every queued lane has passed its own checks before queueing: the gates, and compile and clippy of its changed crates, which safe-push's checks before queueing run on the lane against current main. The lander treats that as the lane's alone pass; an expiry after N landings joins later as its own lane.
+- Every queued lane has passed its own checks before queueing: the gates, and compile and clippy of its changed crates, which safe-push's checks before queueing run on the lane against current main. The lander treats that as the lane's alone pass, recorded on the ticket as the lane head that passed (`alone_green`) and the main it passed on (`alone_base`). The pass lasts `landing.alone-pass-landings` landings (5 when unset): once main is more first-parent commits past `alone_base` than that, or no longer descends from it, or the lane has no pass for its head, the lane stays out of the batch and, after the round's push, is checked alone on the new main with the lander's checker, one lane per round; a green check records the new pass and the lane joins the next batch, a red one refuses it with its log. Sheriff reverts carry no pass and are never held for one (north#936).
 - Each round cherry-picks every queued lane onto main as one candidate, runs only the pick-time gates and scans, and pushes it with a lease on main. Nothing is checked on a merged tree before the push, and no push waits for an earlier batch's after-landing run; the lease is the only serialization.
 - The after-landing run now runs the `land.check` lines as well as the `land.after` lines on the landed tree, since they no longer run on any merged tree before the push. A red run bisects inside the batch and reverts the culprit as above.
 - The probe planner (`north-land-probes`), the probe fan-out, the suspect groups and the unbuilt-lane pull were deleted with nothing left calling them. The coverage agreement record lost its `landed` lines, which named the probe's check log.
 
 Replays in crates/north-lander/tests/it/land_first.rs: three queued lanes land in one push with the checker never called; a batch carrying a bad lane is reverted to exactly that lane; a batch queued while the previous batch's after-landing run is held is pushed before that run ends.
+A lane queued six landings ago is checked alone again after the round that lands a fresh lane directly, and lands in the next round without another check.
 
 ## Lander fixes never wait behind the lander (2026-11-08, north#930)
 

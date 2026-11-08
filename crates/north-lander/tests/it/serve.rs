@@ -123,6 +123,8 @@ impl Repository {
             verdict: None,
             keep_lane: false,
             published: None,
+            alone_green: Some(git(&lane, &["rev-parse", "HEAD"])),
+            alone_base: Some(git(&lane, &["rev-parse", "origin/main"])),
             queued_micros: Some(micros),
         };
         queue::write(&self.queue.join(queue::file_name(micros, branch)), &ticket).unwrap();

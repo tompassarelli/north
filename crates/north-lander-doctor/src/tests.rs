@@ -222,6 +222,8 @@ fn ticket(branch: &str, verdict: Option<String>) -> Ticket {
         lander_fix: None,
         decided_on: None,
         published: None,
+        alone_green: None,
+        alone_base: None,
     }
 }
 

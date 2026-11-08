@@ -18,6 +18,7 @@ use super::repositories;
 use north_base::foundation::exit::NO_VERDICT;
 use options::{Options, lander_for, parse};
 
+mod alone;
 mod batch;
 mod handover;
 mod options;

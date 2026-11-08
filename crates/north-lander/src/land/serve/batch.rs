@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::{ATTEMPTS, Round, micros};
+use super::{ATTEMPTS, Round, alone, micros};
 use super::round::{Landing, Pushing};
 use crate::land::after;
 use crate::land::bisect;
@@ -60,6 +60,8 @@ pub(super) trait Batching {
     fn attempt(&self, watch: &mut Watch, pass: &mut Pass, logs: &Path) -> Result<Flow, String>;
     fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool) -> Option<Flow>;
     fn sort_picks<'a>(&self, pass: &mut Pass, attempt: &Attempt<'a>) -> Result<(Vec<Entry<'a>>, Option<String>), String>;
+    fn land_fresh(&self, watch: &mut Watch, pass: &mut Pass, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<Flow, String>;
+    fn recheck(&self, pass: &mut Pass, lane: &(PathBuf, Ticket), queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<(), String>;
 }
 
 pub(super) fn batch(lander: &Lander, watch: &mut Watch) -> Result<Round, String> {
@@ -102,9 +104,39 @@ impl Batching for Lander {
             Ok(base) => base,
             Err(error) => return Ok(Flow::Done(Round::Waiting(format!("transient: {error}")))),
         };
+        let (fresh, stale) = alone::split(&self.repo, &base, tickets);
+        let flow = if fresh.is_empty() { Flow::Done(pass.progress_or(Round::Idle)) } else { self.land_fresh(watch, pass, &base, &fresh, &queued, logs)? };
+        match (flow, stale.first()) {
+            (Flow::Done(Round::Progress | Round::Idle), Some(lane)) => {
+                self.recheck(pass, lane, &queued, logs)?;
+                Ok(Flow::Done(pass.progress_or(Round::Waiting(format!("{} awaits its alone check", lane.1.branch)))))
+            }
+            (flow, _) => Ok(flow),
+        }
+    }
+
+    fn recheck(&self, pass: &mut Pass, lane: &(PathBuf, Ticket), queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<(), String> {
         self.heartbeat.enter(Step::Build);
-        let built = candidate::build(&self.worktree, &base, tickets, &queued, usize::MAX, logs)?;
-        let attempt = Attempt { base: &base, tickets, built: &built };
+        let base = match candidate::prepare(&self.repo, &self.worktree) {
+            Ok(base) => base,
+            Err(error) => {
+                println!("north land: cannot check {} alone: transient: {error}", lane.1.branch);
+                return Ok(());
+            }
+        };
+        let alone = std::slice::from_ref(lane);
+        let built = candidate::build(&self.worktree, &base, alone, queued, usize::MAX, logs)?;
+        let (included, _) = self.sort_picks(pass, &Attempt { base: &base, tickets: alone, built: &built })?;
+        if let [entry] = included[..] && alone::check(self, entry, &built.head, &base, logs)? {
+            pass.progressed = true;
+        }
+        Ok(())
+    }
+
+    fn land_fresh(&self, watch: &mut Watch, pass: &mut Pass, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<Flow, String> {
+        self.heartbeat.enter(Step::Build);
+        let built = candidate::build(&self.worktree, base, tickets, queued, usize::MAX, logs)?;
+        let attempt = Attempt { base, tickets, built: &built };
         let (included, undecided) = self.sort_picks(pass, &attempt)?;
         if included.is_empty() {
             steps::batch(&pass.round(&attempt, BTreeMap::new(), 0), &included, None);
