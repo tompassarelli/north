@@ -136,7 +136,8 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   multiplier keeps 20, the figure the same plan carried as Max 20x, and its weekly multiplier is the published 10
   against Max 5x's 5. Outcome: adopted. Informed: `[accounts.claude].plans` in
   [harness/model-catalog.toml](../harness/model-catalog.toml), which placement and spend sizing read, and the plan label
-  `north fleet usage` prints (north#965).
+  `north fleet usage` prints. Claude Code still reports the tier `default_claude_max_20x` for Ultra logins, so the catalog's
+  `max-20x` entry carries `renamed_to = "ultra-10x"` and the usage table follows it (north#965).
 
 - <a id="context-thread"></a>**An r/ClaudeCode thread on `autoCompactWindow`, percentage overrides and subagent cache TTLs**, with two
   model reviews of it, read by Tom on 2026-11-06 (no URL kept). An unverified source of hypotheses only: each claim was

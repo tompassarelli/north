@@ -42,7 +42,8 @@ pub(super) fn plan(policy: &Path, provider: &str, account: Option<&str>, observe
     };
     let key = observed.filter(|key| !key.is_empty()).map(str::to_owned).or_else(declared)?;
     let catalog = catalog();
-    let plan = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|account| account.get("plans")).and_then(|plans| plans.get(&key));
+    let plans = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|account| account.get("plans"));
+    let plan = plans.and_then(|plans| plans.get(&key)).and_then(|plan| plan.get("renamed_to").and_then(|to| to.as_str()).and_then(|to| plans?.get(to)).or(Some(plan)));
     let named = plan.and_then(|plan| Some(Plan::Named { name: plan.get("name")?.as_str()?.to_owned(), price: number_text(plan.get("monthly_price")?) }));
     Some(named.unwrap_or(Plan::Key(key)))
 }

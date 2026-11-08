@@ -198,3 +198,14 @@ fn cpx62_declares_every_profile_so_sync_creates_each_one_with_hooks_where_it_had
         assert!(home.path().join("profiles").join(name).join("settings.json").exists(), "{name}");
     }
 }
+
+#[test]
+fn a_login_still_reporting_the_retired_max_20x_tier_shows_as_ultra_10x() {
+    let nowhere = Path::new("/nonexistent/orchestration.toml");
+    let label = |observed: &str| match super::settings::plan(nowhere, "claude", Some("a"), Some(observed)) {
+        Some(super::settings::Plan::Named { name, .. }) => name,
+        _ => String::new(),
+    };
+    assert_eq!(label("max-20x"), "Claude Ultra 10x");
+    assert_eq!(label("max-5x"), "Claude Max 5x");
+}
