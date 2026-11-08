@@ -43,6 +43,7 @@ mod gate_commands;
 mod gate_rows;
 mod delivery;
 mod hand_in;
+mod inheriting;
 mod interactive;
 mod kept;
 mod lanes;
