@@ -32,5 +32,5 @@ fn removing_a_landed_lane_is_refused_while_its_second_ticket_waits_in_the_outbox
     }
     fs::create_dir_all(queue.join("outbox/taken")).unwrap();
     fs::rename(&waiting, queue.join("outbox/taken/1794020829623648-n706-claim-filed.json")).unwrap();
-    assert_eq!(decide(&input, &queues, "gex45"), Verdict::Allow);
+    assert!(matches!(decide(&input, &queues, "gex45"), Verdict::Deny(reason) if reason.contains("north lane remove")));
 }

@@ -34,6 +34,9 @@ pub(super) fn decide(input: &HookInput, queues: &Path, host: &str) -> Verdict {
                     lane.display()
                 ));
             }
+            if lane.parent().and_then(Path::file_name).is_some_and(|name| name == "worktrees") {
+                return Verdict::Deny(format!("No. A worker sandbox cannot delete a directory in worktrees/, so `git worktree remove` there unregisters {0} and leaves its files behind. Run `north lane remove {0}` instead: it removes the lane from outside the sandbox when it is clean and holds no unlanded work.", lane.display()));
+            }
         }
     }
     Verdict::Allow

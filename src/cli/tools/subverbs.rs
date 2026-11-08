@@ -48,6 +48,7 @@ const LANE: &[(&str, Run)] = &[
     ("layout", crate::lanes::layout_check),
     ("reap", crate::lanes::wt_reap),
     ("reclaim", crate::ops::reclaim::run),
+    ("remove", |arguments| outside_the_sandbox("remove", crate::lanes::remove, arguments)),
     ("rescue", crate::lanes::wt_rescue),
     ("seed", crate::lanes::target_seed),
     ("stray", |arguments| outside_the_sandbox("stray", crate::lanes::stray, arguments)),

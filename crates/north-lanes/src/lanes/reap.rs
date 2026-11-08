@@ -58,6 +58,8 @@ pub(super) struct Report {
 
 pub(super) struct Sweep {
     pub(super) dry_run: bool,
+    pub(super) minimum_age: i64,
+    pub(super) only: Option<PathBuf>,
     pub(super) now: SystemTime,
     pub(super) proc_root: PathBuf,
     pub(super) queues: PathBuf,
@@ -96,7 +98,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let sweep = Sweep { dry_run, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), queues: land_queue::queues(&home.join(".local/state")) };
+    let sweep = Sweep { dry_run, minimum_age: MINIMUM_AGE_SECONDS, only: None, now: SystemTime::now(), proc_root: PathBuf::from("/proc"), queues: land_queue::queues(&home.join(".local/state")) };
     let containers = if all { Ok(all_containers(&home)) } else { current_container() };
     let (report, failure) = match containers {
         Ok(containers) => sweep.reap_containers(&containers),
@@ -167,7 +169,7 @@ impl Sweep {
         let listing = git_out(&main_dir, &["worktree", "list", "--porcelain"]).unwrap_or_default();
         let (trees, locked) = parse_listing(&listing);
         let sweep_dir = container.join("worktrees");
-        for tree in trees.into_iter().filter(|tree| tree.parent() == Some(sweep_dir.as_path()) && !is_lander_tree(tree)) {
+        for tree in trees.into_iter().filter(|tree| tree.parent() == Some(sweep_dir.as_path()) && !is_lander_tree(tree) && self.only.as_ref().is_none_or(|only| only == tree)) {
             let lane = Lane { main_dir: &main_dir, main_ref: format!("refs/heads/{main_branch}"), tree, locked: &locked };
             if let Some(outcome) = self.judge(&lane) {
                 self.act(&lane, outcome, report)?;
@@ -197,7 +199,7 @@ impl Sweep {
         Some(match retirement_verdict(&facts) {
             Verdict::Retire => Outcome::Retire { branch },
             Verdict::RetireEquivalent => Outcome::RetireEquivalent { branch, head },
-            Verdict::Keep | Verdict::ArchiveThenDelete if age < MINIMUM_AGE_SECONDS => {
+            Verdict::Keep | Verdict::ArchiveThenDelete if age < self.minimum_age => {
                 Outcome::KeepProtected { reason: "fresh".into(), branch }
             }
             Verdict::Keep | Verdict::ArchiveThenDelete => Outcome::KeepUnmerged { branch, head },
@@ -222,14 +224,14 @@ impl Sweep {
     fn facts(&self, lane: &Lane, head: &str, branch: &str, branch_ref: &str, age: i64) -> Facts {
         let mut facts = Facts {
             age,
-            minimum_age: MINIMUM_AGE_SECONDS,
+            minimum_age: self.minimum_age,
             merged: false,
             equivalent: false,
             evil_merge: false,
             archive_age: None,
             protections: 0,
         };
-        if age < MINIMUM_AGE_SECONDS {
+        if age < self.minimum_age {
             return facts;
         }
         if git_ok(lane.main_dir, &["merge-base", "--is-ancestor", head, &lane.main_ref]) {
@@ -319,7 +321,7 @@ fn irreplaceable_ignored(tree: &Path) -> Vec<String> {
 
 fn disposable(path: &str) -> bool {
     let cache = |name: &str| path.starts_with(&format!("{name}/")) || path.contains(&format!("/{name}/"));
-    cache(".direnv") || cache(".firn-cache") || ((path == "result" || path.starts_with("result-")) && !path.contains('/'))
+    cache(".direnv") || cache(".firn-cache") || cache("target") || path == "target" || ((path == "result" || path.starts_with("result-")) && !path.contains('/'))
 }
 
 fn lane_age(tree: &Path, now: SystemTime) -> i64 {

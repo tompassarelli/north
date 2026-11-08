@@ -19,6 +19,7 @@ metadata:
 - Retire a worktree only as its owner/accountable parent after its work settles; preserve unknown ownership and live consumers, since a retired lane may hold someone else's unlanded work.
 - Before starting an issue, check `north lane gc --unlanded` for an existing branch referencing it and continue that instead of starting over, so work is not duplicated; an owner who abandons a lane deletes it in the same turn. The hourly `north lane gc` timer retires landed, clean, idle lanes.
 - lane gc flags unlanded lanes and branches idle 24 h and deletes clean lanes and branches whose work is on main or whose every named issue is closed, with no backup; a lane whose issue is still open, a dirty lane and a branch naming no issue are kept and reported with the issue state to its lead.
+- A worker removes its own finished lane with `north lane remove /absolute/path/to/worktrees/SLUG` rather than `git worktree remove`, which can leave an unregistered directory behind. The verb keeps a lane that is dirty, unlanded, locked, queued or in use.
 - Signal owned processes by exact PID or unique scoped pattern, because a broad pattern kills peers' processes.
 - Resolve guard denials through the sanctioned route and preserve secret/private-data/destructive/live-consumer boundaries, since a bypass removes the only check on them.
 
