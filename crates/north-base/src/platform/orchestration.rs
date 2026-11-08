@@ -1,20 +1,15 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use north_shared_config as shared;
 use toml_edit::{DocumentMut, Item};
 
-const FILE: &str = "orchestration.toml";
-
 pub fn path() -> PathBuf {
-    if let Some(path) = configured() {
-        return path;
+    if let Some(path) = env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
+        return path.into();
     }
-    let home = home();
-    let snapshot = shared::current(&home).join(FILE);
-    match snapshot.is_file() {
-        true => snapshot,
-        false => under(&home),
+    match env::var_os("AGENTS_OPERATOR_DIR") {
+        Some(operator) => PathBuf::from(operator).join("orchestration.toml"),
+        None => under(Path::new(&env::var_os("HOME").unwrap_or_default())),
     }
 }
 
@@ -22,27 +17,10 @@ pub fn under(home: &Path) -> PathBuf {
     home.join("code/south/main/agents/orchestration.toml")
 }
 
-/// The orchestration policy at the fetched south revision; once a host has a snapshot, one whose last fetch is past
-/// the bound is refused rather than read.
 pub fn read() -> Result<DocumentMut, String> {
-    let home = home();
-    if configured().is_none() && shared::current(&home).is_dir() {
-        shared::fresh(&home, shared::now())?;
-    }
     let path = path();
     let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     text.parse().map_err(|error| format!("{}: {error}", path.display()))
-}
-
-fn configured() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
-        return Some(path.into());
-    }
-    env::var_os("AGENTS_OPERATOR_DIR").map(|operator| PathBuf::from(operator).join(FILE))
-}
-
-fn home() -> PathBuf {
-    PathBuf::from(env::var_os("HOME").unwrap_or_default())
 }
 
 /// The names of the `[hosts.NAME]` tables that carry an `ssh` destination: the machines a lander reaches to pull an outbox from.

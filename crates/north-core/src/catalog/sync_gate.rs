@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::NorthResult;
-use crate::platform::{git, harness, shared_config};
+use crate::platform::{git, harness};
 
 use super::{home, operator_dir, repo_root};
 
@@ -14,6 +14,7 @@ pub fn operator_directory() -> NorthResult<PathBuf> {
 }
 
 pub fn run(arguments: &[String]) -> NorthResult<u8> {
+    let projected = project_profiles();
     let operator = operator_directory()?;
     let Some(south) = toplevel(&operator) else {
         eprintln!("agents sync: operator directory is not in a Git checkout");
@@ -26,17 +27,14 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
     )?;
     let mut say = |line: String| eprintln!("{line}");
     let nixos_config = repo_root("nixos-config")?;
-    let now = crate::platform::records_mirror::now() as u64;
-    let current = shared_configuration(&home()?, &south, now, &mut say)
-        .and_then(|()| current_main("south", &south, now, &mut say))
-        .and_then(|()| current_main("north", &north, now, &mut say))
-        .and_then(|()| current_main("nixos-config", &nixos_config, now, &mut say));
+    let current = current_main("south", &south, &mut say)
+        .and_then(|()| current_main("north", &north, &mut say))
+        .and_then(|()| current_main("nixos-config", &nixos_config, &mut say));
     if let Err(line) = current {
         eprintln!("{line}");
         eprintln!("{NOT_PUBLISHED}");
         return Ok(1);
     }
-    let projected = project_profiles();
     let harness = harness::harness_root().map_err(crate::error::NorthError::Configuration)?;
     if !policy_gate(&nixos_config, &operator) {
         eprintln!("{NOT_PUBLISHED}; the last published generation stays live");
@@ -81,7 +79,6 @@ fn policy_gate(nixos_config: &Path, operator: &Path) -> bool {
 pub(super) fn current_main(
     name: &str,
     directory: &Path,
-    now: u64,
     say: &mut impl FnMut(String),
 ) -> Result<(), String> {
     let git = |args: &[&str]| {
@@ -104,27 +101,15 @@ pub(super) fn current_main(
     let fetched = git(&["fetch", "-q", "origin", "main"]).is_some();
     let mut behind = 0;
     if fetched {
-        stamp_fetch(directory, now);
         behind = count(&["rev-list", "--count", "HEAD..origin/main"])
             .ok_or_else(|| format!("{name} main: cannot count commits behind origin"))?;
         if behind == 0 {
             return Ok(());
         }
     } else {
-        let age = last_fetch(directory).map(|at| now.saturating_sub(at));
-        match age.filter(|age| *age <= shared_config::BOUND_SECONDS) {
-            Some(age) => say(format!(
-                "agents sync: {name} fetch failed; using local main, last fetched {} min ago",
-                age / 60
-            )),
-            None => {
-                return Err(format!(
-                    "{name} main refused offline: its last fetch of origin/main is {}, past the {} min bound",
-                    age.map_or_else(|| "unknown".to_owned(), |age| format!("{} min old", age / 60)),
-                    shared_config::BOUND_SECONDS / 60
-                ));
-            }
-        }
+        say(format!(
+            "agents sync: {name} fetch failed; using local main"
+        ));
     }
     let ahead = count(&["rev-list", "--count", "origin/main..HEAD"]).unwrap_or(0);
     let branch = git(&["symbolic-ref", "-q", "--short", "HEAD"])
@@ -191,35 +176,4 @@ pub(super) fn north_checkout(
                 .map(PathBuf::from)
         })
         .unwrap_or_else(|| home.join("code/north/main")))
-}
-
-
-fn shared_configuration(home: &Path, south: &Path, now: u64, say: &mut impl FnMut(String)) -> Result<(), String> {
-    match shared_config::refresh(home, south, now) {
-        Ok(stamp) => {
-            say(format!("agents sync: shared configuration at south {}", &stamp.revision[..10]));
-            Ok(())
-        }
-        Err(error) => {
-            say(format!("agents sync: shared configuration fetch failed: {error}"));
-            shared_config::fresh(home, now).map(drop)
-        }
-    }
-}
-
-const FETCH_STAMP: &str = "north-last-fetch";
-
-fn fetch_stamp(directory: &Path) -> Option<PathBuf> {
-    let output = git::run(directory, &["rev-parse", "--path-format=absolute", "--git-path", FETCH_STAMP]).ok()?;
-    output.status.success().then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
-}
-
-fn stamp_fetch(directory: &Path, now: u64) {
-    if let Some(path) = fetch_stamp(directory) {
-        let _ = std::fs::write(path, now.to_string());
-    }
-}
-
-fn last_fetch(directory: &Path) -> Option<u64> {
-    std::fs::read_to_string(fetch_stamp(directory)?).ok()?.trim().parse().ok()
 }

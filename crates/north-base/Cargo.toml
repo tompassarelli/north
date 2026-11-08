@@ -8,7 +8,6 @@ publish = false
 
 [dependencies]
 north-strategy-types = { path = "../north-strategy-types" }
-north-shared-config = { path = "../north-shared-config" }
 base64.workspace = true
 percent-encoding.workspace = true
 regex.workspace = true
