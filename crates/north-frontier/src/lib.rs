@@ -10,6 +10,7 @@ pub mod ab;
 mod billing;
 mod cli;
 mod grade;
+mod live;
 mod oracle;
 mod process;
 pub mod report;
@@ -23,10 +24,12 @@ mod task;
 #[cfg(test)]
 mod tests;
 
-const USAGE: &str = "usage: north test frontier tasks --since DATE --until DATE --repo DIR --briefs DIR | oracle TASKS.json --out DIR [--only ID]... | run TASKS.json --briefs DIR --out DIR [--arm north|plain|t3code]... [--t3 DIR --t3-node PATH] [--plan ACCOUNT] [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M] | grade TASKS.json --out DIR [--only ID]... | report TASKS.json --out DIR [--rows FILE] | ab-report [--rows FILE] [--doc FILE]";
+const USAGE: &str = "usage: north test frontier tasks --since DATE --until DATE --repo DIR --briefs DIR | oracle TASKS.json --out DIR [--only ID]... | run TASKS.json --briefs DIR --out DIR [--arm north|plain|t3code]... [--t3 DIR --t3-node PATH] [--plan ACCOUNT] [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M] | box ISSUE --box TEXT --tree DIR --base DIR --t3 DIR --t3-node PATH --account LABEL [--header FILE] [--config DIR] [--wall-min M] | grade TASKS.json --out DIR [--only ID]... | report TASKS.json --out DIR [--rows FILE] | ab-report [--rows FILE] [--doc FILE]";
 
-pub fn run(arguments: &[String]) -> u8 {
-    match cli::dispatch(arguments) {
+pub use live::Route;
+
+pub fn run(arguments: &[String], route: Route) -> u8 {
+    match cli::dispatch(arguments, route) {
         Ok(text) => {
             print!("{text}");
             0

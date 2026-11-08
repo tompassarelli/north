@@ -2,7 +2,8 @@
 //! runs headless inside the arm's sandbox, and the task is a thread it starts through its own CLI, so Claude Code gets the instructions,
 //! MCP tools and adapter options T3 Code sends. The only seam is a `claude` shim that runs the same Claude Code binary as the other
 //! arms, copies its stream to `stream.jsonl` for cost, wall time and the leak screen, and applies the cap on cost and the web-tool ban.
-//! T3 Code's effort for the model is its own default: its CLI cannot set one.
+//! The model and effort are the server's default selection, written to its settings file before it starts, because a thread started
+//! with `--provider` and `--model` flags drops the effort option.
 use std::fs::{self, File, OpenOptions};
 use std::io::BufReader;
 use std::net::TcpListener;
@@ -20,17 +21,17 @@ use super::refusal;
 use super::sandbox::Sandbox;
 use super::session::{Attempt, CONTINUATION, CREDIT, RunRecord, Stream, asks, changed, record, refused_for_credit, sandboxed};
 
-const PROVIDER: &str = "claudeAgent";
-const READY: &str = "T3 Code server is ready";
-const START_WAIT: Duration = Duration::from_secs(180);
+pub(crate) const PROVIDER: &str = "claudeAgent";
+pub(crate) const READY: &str = "T3 Code server is ready";
+pub(crate) const START_WAIT: Duration = Duration::from_secs(180);
 const QUEUE_WAIT: Duration = Duration::from_secs(3 * 3600);
 const MAX_INTERVENTIONS: u32 = 2;
-const SERVER_SCRIPT: &str = "export \"$1=$(cat \"$2\")\"; shift 2; exec \"$@\"";
+pub(crate) const SERVER_SCRIPT: &str = "export \"$1=$(cat \"$2\")\"; shift 2; exec \"$@\"";
 
 /// A built T3 Code checkout at the pinned head and the node that runs it, both read-only inside the sandbox.
 pub struct Install {
-    dir: PathBuf,
-    node: PathBuf,
+    pub(crate) dir: PathBuf,
+    pub(crate) node: PathBuf,
 }
 
 impl Install {
@@ -38,7 +39,7 @@ impl Install {
         Self { dir: PathBuf::from(dir), node: PathBuf::from(node.unwrap_or("node")) }
     }
 
-    fn entry(&self) -> PathBuf {
+    pub(crate) fn entry(&self) -> PathBuf {
         self.dir.join("apps/server/dist/bin.mjs")
     }
 
@@ -70,8 +71,16 @@ fn claude_shim(sandbox: &Sandbox, arm: &Attempt) -> Result<(), NorthError> {
     Ok(())
 }
 
-fn free_port() -> Result<u16, NorthError> {
+pub(crate) fn free_port() -> Result<u16, NorthError> {
     Ok(TcpListener::bind("127.0.0.1:0").and_then(|listener| listener.local_addr()).map_err(NorthError::Io)?.port())
+}
+
+/// Points the server's default selection at `model` and `effort` in the settings file under `home`.
+pub(crate) fn write_settings(home: &Path, model: &str, effort: &str) -> Result<(), NorthError> {
+    let settings = serde_json::json!({"defaultModelSelection": {"instanceId": PROVIDER, "model": model, "options": [{"id": "effort", "value": effort}]}});
+    let dir = home.join("userdata");
+    fs::create_dir_all(&dir).map_err(NorthError::Io)?;
+    fs::write(dir.join("settings.json"), serde_json::to_string_pretty(&settings).map_err(NorthError::Json)?).map_err(NorthError::Io)
 }
 
 fn bound(install: &Install) -> Vec<PathBuf> {
@@ -100,7 +109,7 @@ fn cli(arm: &Attempt, sandbox: &Sandbox, install: &Install, home: &Path, argumen
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn wait_ready(log: &Path, child: &mut std::process::Child) -> Result<(), NorthError> {
+pub(crate) fn wait_ready(log: &Path, child: &mut std::process::Child) -> Result<(), NorthError> {
     let deadline = Instant::now() + START_WAIT;
     while Instant::now() < deadline {
         if fs::read_to_string(log).is_ok_and(|text| text.contains(READY)) {
@@ -114,7 +123,7 @@ fn wait_ready(log: &Path, child: &mut std::process::Child) -> Result<(), NorthEr
     Err(refusal("the T3 Code server was not ready in three minutes"))
 }
 
-fn tail_of(log: &Path) -> String {
+pub(crate) fn tail_of(log: &Path) -> String {
     fs::read_to_string(log).unwrap_or_default().lines().rev().take(3).collect::<Vec<_>>().join(" / ")
 }
 
@@ -123,6 +132,7 @@ pub fn run(arm: &Attempt, sandbox: &Sandbox, install: &Install) -> Result<(RunRe
     claude_shim(sandbox, arm)?;
     let home = sandbox.root.join("t3home");
     let log = sandbox.root.join("t3-server.log");
+    write_settings(&home, &arm.task.model, &arm.task.effort)?;
     let started = Instant::now();
     let started_ms = now_ms();
     let mut child = process::spawn(&mut server(arm, sandbox, install, &home, free_port()?, &log)?).map_err(NorthError::Io)?;
@@ -140,7 +150,7 @@ fn drive(arm: &Attempt, sandbox: &Sandbox, install: &Install, home: &Path, child
     let here = sandbox.inside().display().to_string();
     wait_ready(&sandbox.root.join("t3-server.log"), child)?;
     cli(arm, sandbox, install, home, &["project", "add", &here])?;
-    let launched = cli(arm, sandbox, install, home, &["thread", "start", &here, arm.brief, "--provider", PROVIDER, "--model", &arm.task.model, "--json"])?;
+    let launched = cli(arm, sandbox, install, home, &["thread", "start", &here, arm.brief, "--json"])?;
     let thread = serde_json::from_str::<Value>(&launched).ok().and_then(|reply| reply["threadId"].as_str().map(str::to_owned)).ok_or_else(|| refusal(format!("t3 thread start printed no thread id: {launched}")))?;
     let mut stream = Stream { reader: BufReader::new(File::open(sandbox.root.join("stream.jsonl")).map_err(NorthError::Io)?), results: Vec::new(), first_event: None, last_event: started, waited: Duration::ZERO };
     let mut interventions = 0;
