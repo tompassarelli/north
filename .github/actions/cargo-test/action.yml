@@ -11,6 +11,10 @@ runs:
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:
         bun-version: 1.4.4
+    - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: ~/.cache/ci-tools
+        key: ci-tools-betterleaks-1.10.0-ast-grep-0.42.1
     - name: Sandbox boundary and scanner
       shell: bash
       env:
@@ -18,11 +22,14 @@ runs:
       run: |
         sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 update -qq
         sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 install -y --no-install-recommends bubblewrap
-        curl -fsSL --connect-timeout 20 --max-time 120 --retry 2 -o /tmp/betterleaks.tar.gz https://github.com/betterleaks/betterleaks/releases/download/v1.10.0/betterleaks_1.10.0_linux_x64.tar.gz
+        mkdir -p ~/.cache/ci-tools
+        [ -s ~/.cache/ci-tools/betterleaks.tar.gz ] || curl -fsSL --connect-timeout 20 --max-time 120 --retry 10 --retry-delay 15 --retry-max-time 600 -o ~/.cache/ci-tools/betterleaks.tar.gz https://github.com/betterleaks/betterleaks/releases/download/v1.10.0/betterleaks_1.10.0_linux_x64.tar.gz
+        cp ~/.cache/ci-tools/betterleaks.tar.gz /tmp/betterleaks.tar.gz
         echo "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe  /tmp/betterleaks.tar.gz" | sha256sum -c -
         sudo tar -xz -C /usr/local/bin -f /tmp/betterleaks.tar.gz betterleaks
         [ "$DEV_SHELL" != true ] || exit 0
-        curl -fsSL --connect-timeout 20 --max-time 120 --retry 2 -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.42.1/app-x86_64-unknown-linux-gnu.zip
+        [ -s ~/.cache/ci-tools/ast-grep.zip ] || curl -fsSL --connect-timeout 20 --max-time 120 --retry 10 --retry-delay 15 --retry-max-time 600 -o ~/.cache/ci-tools/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.42.1/app-x86_64-unknown-linux-gnu.zip
+        cp ~/.cache/ci-tools/ast-grep.zip /tmp/ast-grep.zip
         echo "5de8b87cba67fc8dc3e239d54b6484802ad745a7ae3de76be4fe89661dc52657  /tmp/ast-grep.zip" | sha256sum -c -
         sudo unzip -o -q /tmp/ast-grep.zip ast-grep -d /usr/local/bin
     - name: Allow bubblewrap user namespaces
