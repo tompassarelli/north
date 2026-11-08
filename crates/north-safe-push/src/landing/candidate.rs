@@ -60,6 +60,8 @@ pub enum Reached {
     DependenciesFailed,
     CrateFetchFailed { lock_changed: bool },
     ScansRefused,
+    /// A scan that could not judge the lane, such as the private-kind judge timing out, exited no verdict.
+    ScansNoVerdict,
     LandChecks(LandCheckResult),
 }
 
@@ -69,6 +71,7 @@ pub fn classify(head: &str, reached: &Reached, log: &str) -> Verdict {
         Reached::CrateFetchFailed { lock_changed: true } => return Verdict::Refused("cargo fetch --locked failed for the Cargo.lock this lane changed".to_owned()),
         Reached::CrateFetchFailed { lock_changed: false } => return Verdict::Transient("cargo fetch --locked failed".to_owned()),
         Reached::ScansRefused => return Verdict::Refused(last_actions_run(log).unwrap_or_default()),
+        Reached::ScansNoVerdict => return Verdict::Transient("a scan reached no verdict, such as the private-kind judge timing out".to_owned()),
         Reached::LandChecks(checks) => checks,
     };
     if checks.status == 0 {
@@ -183,6 +186,7 @@ fn observe(shell: &Shell, timeline: &Timeline, root: &str, origin_url: &str, (ba
             Ok(()) => {}
             Err(Refused(130 | 143)) => return Observed::Cancelled,
             Err(Refused(69)) if gate == Gate::Language => return Observed::Silent,
+            Err(Refused(NO_VERDICT)) => return Observed::Done(Facts { reached: Reached::ScansNoVerdict, ran: false }),
             Err(Refused(code)) if !enforcing && !gate.always_refuses() => {
                 let lane = landing_refusals::Lane { at: "candidate", root, branch: "", head };
                 lane.record(&state_home(), gate.label(), &format!("north land scan {} exited {code}", target.arguments(gate).unwrap_or_default().join(" ")));
@@ -212,3 +216,7 @@ fn land_checks(shell: &Shell, timeline: &Timeline, root: &str, (base, head): (&s
         ran: checked.report.ran,
     })
 }
+
+#[cfg(test)]
+#[path = "candidate_tests.rs"]
+mod tests;

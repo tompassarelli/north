@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use north_base::foundation::exit::NO_VERDICT;
 use north_base::platform::private_text::{self, Finding};
 
 use crate::landing::denylist;
@@ -14,19 +15,31 @@ pub struct Denylist {
     pub config: Option<PathBuf>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Stand {
+    Pass,
+    Refuse,
+    /// The private-kind judge timed out or could not run: the push is held, but as a transient the next round retries, never as a refusal.
+    NoVerdict,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct DenylistVerdict {
     pub lines: Vec<String>,
-    pub refused: bool,
+    pub stand: Stand,
 }
 
 impl DenylistVerdict {
     fn pass(lines: Vec<String>) -> Self {
-        Self { lines, refused: false }
+        Self { lines, stand: Stand::Pass }
     }
 
     fn refuse(lines: Vec<String>) -> Self {
-        Self { lines, refused: true }
+        Self { lines, stand: Stand::Refuse }
+    }
+
+    fn refused(&self) -> bool {
+        self.stand != Stand::Pass
     }
 }
 
@@ -40,11 +53,15 @@ impl Denylist {
 
     pub fn scan(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step {
         let verdict = self.verdict(|| self.visibility_of(origin_url), || self.findings(root, base, head, tag), || Self::private_kinds(root, base, head, tag));
-        if verdict.refused {
+        if verdict.refused() {
             cancelled()?;
         }
         verdict.lines.iter().for_each(|line| println!("{line}"));
-        if verdict.refused { Err(Refused(1)) } else { Ok(()) }
+        match verdict.stand {
+            Stand::Pass => Ok(()),
+            Stand::Refuse => Err(Refused(1)),
+            Stand::NoVerdict => Err(Refused(NO_VERDICT)),
+        }
     }
 
     pub fn visibility_of(&self, origin_url: &str) -> String {
@@ -83,7 +100,7 @@ impl Denylist {
             )]);
         }
         let values = self.report(findings(), &visibility);
-        if values.refused {
+        if values.refused() {
             return values;
         }
         if !self.can_judge() {
@@ -112,7 +129,7 @@ impl Denylist {
                 lines.push(format!("safe-push: ✗ PRIVATE KIND for a {visibility} repository, the outgoing messages or docs name private detail; NOT pushed."));
                 DenylistVerdict::refuse(lines)
             }
-            Err(reason) => DenylistVerdict::refuse(vec![format!("safe-push: ✗ {reason}, so a {visibility} push was not checked for private kinds of text; NOT pushed.")]),
+            Err(reason) => DenylistVerdict { lines: vec![format!("safe-push: ✗ {reason}, so a {visibility} push has no verdict on private kinds of text yet; NOT pushed, and the next landing round retries it (exit {NO_VERDICT}).")], stand: Stand::NoVerdict },
         }
     }
 
