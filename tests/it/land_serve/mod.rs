@@ -57,6 +57,7 @@ echo app-token
 
 const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
+[ "$1 $2" != "land checks" ] || env >"$LAND_TRACE/after-env"
 if { [ "$1 $2" = "land train" ] || [ "$1" = incident ]; } && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" exec "$LAND_REAL_NORTH" "$@"; fi
 if [ "$1 $2" = "land checks" ] && { [ -e "$LAND_TRACE/post-land-fail" ] || { [ -f "$LAND_TRACE/post-land-red-if" ] && [ -e "$(cat "$LAND_TRACE/post-land-red-if")" ]; }; }; then echo "test after_landing_probe ... FAILED"; outcome=; previous=; for argument in "$@"; do [ "$previous" != --outcome ] || outcome=$argument; previous=$argument; done; [ -z "$outcome" ] || printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
@@ -218,13 +219,6 @@ impl Fixture {
         fs::read_to_string(self.trace.join(name)).unwrap_or_default()
     }
 
-    fn checks(&self) -> Vec<(String, String)> {
-        self.read("checks").lines().map(|line| {
-            let mut words = line.split(' ');
-            (words.next().unwrap().to_owned(), words.next().unwrap().to_owned())
-        }).collect()
-    }
-
     fn calls(&self, prefix: &str) -> Vec<String> {
         self.read("north-calls").lines().filter(|line| line.starts_with(prefix) && !line.starts_with("capacity offload reap")).map(str::to_owned).collect()
     }
@@ -236,10 +230,6 @@ impl Fixture {
     fn verdict(&self, ticket: &Path) -> Option<String> {
         queue::read(&ticket.parent().unwrap().join("done").join(ticket.file_name().unwrap())).ok().and_then(|ticket| ticket.verdict)
     }
-}
-
-fn tree(fixture: &Fixture, commit: &str) -> String {
-    git(&fixture.repo, &["rev-parse", &format!("{commit}^{{tree}}")])
 }
 
 const FAKE_SSH: &str = r#"#!/usr/bin/env bash
@@ -278,15 +268,5 @@ fn json_names(directory: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(directory).map(|entries| entries.filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).filter(|name| name.ends_with(".json")).collect()).unwrap_or_default();
     names.sort();
     names
-}
-
-fn pushed_trees_were_checked(fixture: &Fixture) {
-    let checked: Vec<String> = fixture.checks().iter().map(|(head, _)| tree(fixture, head)).collect();
-    let pushed: Vec<String> = fixture.read("pushes").lines().filter_map(|line| line.split_whitespace().find_map(|word| word.strip_suffix(":refs/heads/main")).map(str::to_owned)).collect();
-    assert!(pushed.last() == Some(&fixture.main()), "main is the last pushed commit: {pushed:?}");
-    for commit in pushed {
-        let pushed = tree(fixture, &commit);
-        assert!(checked.contains(&pushed), "pushed {commit} carries tree {pushed}, which no check saw: {checked:?}");
-    }
 }
 

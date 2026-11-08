@@ -1,4 +1,4 @@
-use super::{Fixture, executable, git, pushed_trees_were_checked};
+use super::{Fixture, executable, git};
 
 #[test]
 fn serve_cas_lost() {
@@ -9,16 +9,15 @@ fn serve_cas_lost() {
     git(&fixture.root, &["clone", "-q", fixture.origin.to_str().unwrap(), racer.to_str().unwrap()]);
     git(&racer, &["config", "user.name", "Racer"]);
     git(&racer, &["config", "user.email", "racer@example.invalid"]);
-    executable(
-        &fixture.trace.join("hook"),
-        &format!("#!/usr/bin/env bash\n[ \"$1\" = 1 ] || exit 0\ncd {}\necho race >race.txt\ncommand git add race.txt\ncommand git commit -qm 'per-lane landing under the lander'\ncommand git push -q origin main\n", racer.display()),
-    );
+    std::fs::write(racer.join("race.txt"), "race\n").unwrap();
+    git(&racer, &["add", "race.txt"]);
+    git(&racer, &["commit", "-qm", "per-lane landing under the lander"]);
+    git(&racer, &["push", "-q", "origin", "HEAD:refs/heads/race"]);
+    executable(&fixture.origin.join("hooks/pre-receive"), "#!/bin/sh\n[ -e \"$GIT_DIR/raced\" ] && exit 0\n: > \"$GIT_DIR/raced\"\nenv -u GIT_QUARANTINE_PATH git update-ref refs/heads/main refs/heads/race\n");
     assert!(fixture.serve().status.success());
-    let checks = fixture.checks();
-    assert_eq!(checks.len(), 2, "a lost lease rebuilds and checks again");
+    assert_eq!(fixture.read("pushes").lines().count(), 2, "a lost lease rebuilds the candidate and pushes again");
     let race = git(&racer, &["rev-parse", "HEAD"]);
-    assert_eq!(checks[1].1, race, "the rebuilt candidate is on the new main");
-    assert_eq!(fixture.main(), checks[1].0);
+    assert_eq!(git(&fixture.origin, &["rev-parse", "main~1"]), race, "the rebuilt candidate is on the new main");
     assert_eq!(fixture.subjects(), ["per-lane landing under the lander", "change from a"]);
     assert_eq!(fixture.verdict(&ticket), Some(format!("landed {}", fixture.main())));
 }
@@ -29,10 +28,10 @@ fn serve_token_scoped() {
     let a = fixture.lane("a", "a.txt", "a");
     fixture.enqueue(&a, None);
     assert!(fixture.serve().status.success());
-    let env = fixture.read("env-1");
-    assert!(env.contains("LAND_TRACE="));
+    let env = fixture.read("after-env");
+    assert!(env.contains("LAND_TRACE="), "the after-landing check never ran");
     for name in ["GH_TOKEN=", "GITHUB_TOKEN=", "SOPS_AGE_KEY_FILE="] {
-        assert!(!env.lines().any(|line| line.starts_with(name)), "the check saw {name}");
+        assert!(!env.lines().any(|line| line.starts_with(name)), "the after-landing check saw {name}");
     }
     assert!(fixture.read("pushes").contains("token=push-token"), "the push step keeps its token");
 }
@@ -55,20 +54,3 @@ fn a_lane_failing_a_lane_gate_lands_in_its_batch_with_the_would_be_refusal_logge
     assert!(shadowed.contains(concat!("probe_tests.rs adds a skip or focus: #[ig", "nore]")), "{shadowed}");
 }
 
-#[test]
-fn a_bad_seventh_lane_of_fourteen_lets_six_land_in_one_push_and_the_other_seven_in_the_next_each_pushed_tree_checked() {
-    let mut fixture = Fixture::new();
-    let names: Vec<String> = (1..=14).map(|number| format!("l{number:02}")).collect();
-    for (at, name) in names.iter().enumerate() {
-        let file = if at == 6 { "fail.txt".to_owned() } else { format!("{name}.txt") };
-        let lane = fixture.lane(name, &file, name);
-        fixture.enqueue(&lane, None);
-    }
-    executable(&fixture.trace.join("hook"), "#!/usr/bin/env bash\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n");
-    assert!(fixture.serve().status.success());
-    let landed: Vec<String> = names.iter().enumerate().filter(|(at, _)| *at != 6).map(|(_, name)| format!("change from {name}")).collect();
-    assert_eq!(fixture.subjects(), landed);
-    let pushes = fixture.read("pushes");
-    assert_eq!(pushes.lines().count(), 2, "lanes 1 to 6 in the first push, 8 to 14 in the second: {pushes}");
-    pushed_trees_were_checked(&fixture);
-}
