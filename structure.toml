@@ -376,7 +376,7 @@ may_use = ["capacity", "crate-roots", "foundation", "landing", "ops", "strategy_
 name = "lander-doctor"
 paths = ["crates/north-lander-doctor/src/**"]
 responsibility = "The lander doctor: each lander health bound read live, the known remedy for each stuck state, the last lander build that landed a batch green and the rollback to it, and one proxy page per unknown state."
-may_use = ["crate-roots", "foundation", "landing", "lifecycle", "land_ticket", "platform.records", "platform.git", "platform.harness"]
+may_use = ["crate-roots", "foundation", "landing", "lifecycle", "land_ticket", "platform.records", "platform.git", "platform.harness", "graph_loops"]
 
 [[module]]
 name = "climb"
@@ -532,7 +532,7 @@ may_use = ["foundation", "platform.github", "platform.process"]
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**", "crates/north-land-checks/src/**", "crates/north-land-watch/src/**", "crates/north-lander/src/**", "crates/north-check-environment/src/**", "crates/north-land-sandbox/src/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host"]
+may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "graph_loops"]
 
 [[module]]
 name = "landing.safe_push.shell"
