@@ -34,10 +34,9 @@ runs:
             echo SCCACHE_GHA_ENABLED=true
             echo RUSTC_WRAPPER=sccache
             [ "$SAVE" = true ] || echo SCCACHE_GHA_RW_MODE=READ_ONLY
-          else
-            echo "::warning::sccache did not install; compiling without it"
           fi
         } >> "$GITHUB_ENV"
+        [ "$SCCACHE" = success ] || echo "::warning::sccache did not install; compiling without it"
     - id: cargo-cache
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
