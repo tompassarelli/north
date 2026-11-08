@@ -4,6 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use north_base::land_ticket::Phase;
 use north_base::platform::wait;
 use north_lander::land::candidate::{self, git};
 use north_lander::land::jobs::Chores;
@@ -494,4 +495,34 @@ fn queued_mid_round(world: &World) {
 #[test]
 fn chaos_a_ticket_queued_mid_round_lands_with_that_round() {
     isolated("land_chaos::chaos_a_ticket_queued_mid_round_lands_with_that_round", queued_mid_round);
+}
+
+fn withdrawn_mid_round(world: &World) {
+    world.plan(&["hold"; 24]);
+    let lander = world.lander();
+    let lanes: Vec<Lane> = ["n882-plan", "n882-tax", "n882-context", "am-move"].iter().map(|branch| world.enqueue(&lander, &world.lane(branch))).collect();
+    let calls = || fs::read_dir(world.plan.join("calls")).map_or(0, Iterator::count);
+    std::thread::scope(|scope| {
+        let round = scope.spawn(|| format!("{:?}", lander.round(&mut Watch::default())));
+        wait_for("all six probes of the round to start their checks", || calls() >= 6);
+        let before = calls();
+        for withdrawn in [&lanes[0], &lanes[2]] {
+            let path = lander.queue.join(&withdrawn.name);
+            queue::settle(&path, queue::read(&path).unwrap(), "withdrawn by land-lead: replay".to_owned(), Phase::Withdrawn).unwrap();
+        }
+        wait_for("the probes carrying a withdrawn ticket to run again without it", || calls() >= before + 2);
+        fs::write(world.plan.join("release"), "").unwrap();
+        let ended = round.join().unwrap();
+        assert!(ended.contains("Progress"), "{ended}");
+    });
+    let verdict = |lane: &Lane| queue::read(&lander.queue.join("done").join(&lane.name)).map(|ticket| ticket.verdict.unwrap_or_default()).unwrap_or_default();
+    let (tax, am_move) = (verdict(&lanes[1]), verdict(&lanes[3]));
+    assert!(tax.starts_with("landed ") && tax == am_move, "at 8:33 AM n882-plan and n882-context were withdrawn while the round's probes carrying them ran on; the green lanes left land in that round: n882-tax {tax:?}, am-move {am_move:?}");
+    let subjects = world.landed_subjects();
+    assert!(!subjects.contains(&lanes[0].subject) && !subjects.contains(&lanes[2].subject), "a withdrawn lane reached main: {subjects:?}");
+}
+
+#[test]
+fn chaos_tickets_withdrawn_mid_round_leave_its_probes_and_the_green_lanes_left_land_in_that_round() {
+    isolated("land_chaos::chaos_tickets_withdrawn_mid_round_leave_its_probes_and_the_green_lanes_left_land_in_that_round", withdrawn_mid_round);
 }

@@ -148,7 +148,7 @@ impl Probing for Lander {
         escalate(&mut finished, lanes, &mut strikes);
         strikes.save(&self.queue)?;
         stages.attempts = pass.rebuilds + 1;
-        let probes: Vec<&Probe> = finished.iter().filter(|probe| probe.green() || probe.refused()).collect();
+        let probes: Vec<&Probe> = finished.iter().filter(|probe| (probe.green() || probe.refused()) && probe.lanes.iter().all(|lane| lanes[*lane].0.exists())).collect();
         if probes.is_empty() {
             return self.settle_undecided(pass, lanes, &finished);
         }

@@ -120,7 +120,9 @@ impl Round<'_> {
 }
 
 /// Runs every probe at once on its own worktree and returns them in plan order. When a probe comes back refused, the
-/// probes still running that contain its red stride are cancelled, since they would be refused for the same lanes.
+/// probes still running that contain its red stride are cancelled, since they would be refused for the same lanes. A
+/// ticket that leaves the queue mid-round cancels the running probes that carry it, and each runs again without it on
+/// its own worktree unless another probe already checks the lanes left.
 pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries: &[Entry], plan: &[Vec<usize>], placement: Placement) -> (Vec<Probe>, Vec<(PathBuf, Ticket)>) {
     let Placement { local, arrivals } = placement;
     let round = Round { lander, base, logs, entries, local };
@@ -128,20 +130,32 @@ pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries:
     let cancels: Vec<AtomicBool> = (0..=plan.len()).map(|_| AtomicBool::new(false)).collect();
     let (sender, receiver) = mpsc::channel();
     let mut finished: Vec<Option<Probe>> = (0..=plan.len()).map(|_| None).collect();
+    let mut respawns: Vec<Option<Vec<usize>>> = (0..=plan.len()).map(|_| None).collect();
     let joined: OnceLock<Vec<(PathBuf, Ticket)>> = OnceLock::new();
     let extended: OnceLock<Vec<Entry>> = OnceLock::new();
     let (started, mut looked) = (Instant::now(), Instant::now());
     std::thread::scope(|scope| {
-        for (offset, lanes) in plan.clone().into_iter().enumerate() {
+        let spawn = |offset: usize, lanes: Vec<usize>| {
+            let set: &[Entry] = if offset < cancels.len() - 1 { round.entries } else { extended.get().map_or(round.entries, Vec::as_slice) };
             let (round, cancel, sender) = (&round, &cancels[offset], sender.clone());
             scope.spawn(move || {
-                let _ = sender.send((offset, round.probe(round.entries, offset, lanes, cancel)));
+                let _ = sender.send((offset, round.probe(set, offset, lanes, cancel)));
             });
+        };
+        for (offset, lanes) in plan.clone().into_iter().enumerate() {
+            spawn(offset, lanes);
         }
         let mut waiting = plan.len();
         while waiting > 0 {
             match receiver.recv_timeout(POLL) {
                 Ok((offset, probe)) => {
+                    if let Some(lanes) = respawns[offset].take() {
+                        println!("north land: a ticket left the queue mid-round; the probe of {} lanes runs again as {} lanes without it", plan[offset].len(), lanes.len());
+                        cancels[offset].store(false, Ordering::Relaxed);
+                        plan[offset].clone_from(&lanes);
+                        spawn(offset, lanes);
+                        continue;
+                    }
                     waiting -= 1;
                     let running: Vec<bool> = finished.iter().zip(&cancels).map(|(done, cancel)| done.is_none() && !cancel.load(Ordering::Relaxed)).collect();
                     let stopping = if probe.refused() {
@@ -159,6 +173,20 @@ pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries:
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     watch.settle(lander);
+                    let set = extended.get().map_or(entries, Vec::as_slice);
+                    let departed: Vec<usize> = (0..set.len()).filter(|lane| !set[*lane].0.exists()).collect();
+                    for offset in 0..plan.len() {
+                        let running = finished[offset].is_none() && !cancels[offset].load(Ordering::Relaxed);
+                        if !running || !plan[offset].iter().any(|lane| departed.contains(lane)) {
+                            continue;
+                        }
+                        let left: Vec<usize> = plan[offset].iter().filter(|lane| !departed.contains(lane)).copied().collect();
+                        let live = |at: usize| respawns[at].as_ref().or_else(|| (!cancels[at].load(Ordering::Relaxed)).then_some(&plan[at]));
+                        let checked = (0..plan.len()).any(|at| at != offset && live(at) == Some(&left));
+                        println!("north land: a ticket of the probe of {} lanes left the queue mid-round; cancelling it{}", plan[offset].len(), if left.is_empty() || checked { "" } else { " to check the lanes left" });
+                        respawns[offset] = (!left.is_empty() && !checked).then_some(left);
+                        cancels[offset].store(true, Ordering::Relaxed);
+                    }
                     let Some(arrivals) = arrivals.filter(|_| joined.get().is_none() && started.elapsed() < JOIN_WINDOW && looked.elapsed() >= JOIN_LOOK) else { continue };
                     looked = Instant::now();
                     if finished.iter().flatten().any(Probe::refused) {
@@ -174,10 +202,7 @@ pub fn run(lander: &Lander, watch: &mut Watch, base: &str, logs: &Path, entries:
                     println!("north land: {} ticket(s) queued while this round runs join it: a probe of {} lanes checks them with the round's {}", tickets.len(), set.len(), entries.len());
                     plan.push(lanes.clone());
                     waiting += 1;
-                    let (round, cancel, sender) = (&round, &cancels[offset], sender.clone());
-                    scope.spawn(move || {
-                        let _ = sender.send((offset, round.probe(set, offset, lanes, cancel)));
-                    });
+                    spawn(offset, lanes);
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
