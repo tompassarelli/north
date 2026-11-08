@@ -113,6 +113,7 @@ fn a_lane_older_than_twenty_minutes_pages_its_wait_stays_queued() {
     assert!(fixture.quarantined().is_empty());
     assert!(report.violations[0].detail.contains("lane lane/stale (") && report.violations[0].detail.contains("waited 21 minutes"), "{}", report.violations[0].detail);
     assert!(matches!(&report.pages[..], [(Invariant::StaleLane, Page::Sent(text))] if text.contains("lane/stale")));
+    assert_eq!(hands.pages.borrow().iter().map(|(session, _)| session.as_str()).collect::<Vec<_>>(), [watchdog::OWNER]);
 }
 
 #[test]

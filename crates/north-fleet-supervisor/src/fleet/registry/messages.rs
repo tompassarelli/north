@@ -1,8 +1,9 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Delivery, Status};
-use crate::fleet::runtime::{new_uuid, now_ms};
+use crate::fleet::runtime::{PROXY, new_uuid, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::{FleetRow, RowKind, SessionRow, Spool, cached_sessions};
+use north_base::platform::land_notice::OWNER;
 
 use super::Fleet;
 
@@ -11,6 +12,7 @@ pub enum Sent {
     HandedIn,
     Spooled { id: String, host: String },
     Retired { heir: String },
+    Unreached,
 }
 
 impl Fleet {
@@ -27,6 +29,10 @@ impl Fleet {
 
     pub fn send_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         crate::fleet::alarms::record(&self.root, from, text, now_ms());
+        if matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name) {
+            self.log_dead_letter(name, PROXY);
+            return self.deliver_message(from, PROXY, &format!("(for {name}, not live) {text}"), delivery).map(|_| Sent::Unreached);
+        }
         self.deliver_message(from, name, text, delivery)
     }
 
@@ -41,6 +47,10 @@ impl Fleet {
         let held = self.held_elsewhere(name)?.ok_or_else(|| NorthError::Usage(format!("no session named {name}")))?;
         let row = self.spool_message(from, name, text, delivery)?;
         Ok(Sent::Spooled { id: row.id, host: held.host })
+    }
+
+    fn addressable(&self, name: &str) -> bool {
+        self.session_dir(name).is_ok_and(|dir| dir.exists()) || self.held_elsewhere(name).is_ok_and(|held| held.is_some())
     }
 
     pub(super) fn known_elsewhere(&self, name: &str) -> NorthResult<bool> {
@@ -155,5 +165,25 @@ mod tests {
 
         assert_eq!(fleet.hand_in(&row).unwrap(), HandedIn::Delivered);
         assert_eq!(worker.frames.lock().unwrap().len(), 1);
+    }
+
+    // KEEP(bug): the lander watchdog paged and told retired lander-lead, a send that failed on any host without its archive; its owner now hears it while live and the proxy, told who it was for, while not (north#902)
+    #[test]
+    fn a_service_send_to_the_landers_owner_reaches_it_while_live_else_the_proxy_prefixed_with_its_name_and_recorded() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let (proxy, owner) = (live(&fleet, "proxy"), live(&fleet, OWNER));
+        let lander = Sender::Service("north-land".into());
+
+        assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled", Delivery::Queued).unwrap(), Sent::HandedIn);
+        assert!(owner.frames.lock().unwrap().iter().any(|frame| frame.contains("[from service:north-land] lander stalled")));
+        assert!(proxy.frames.lock().unwrap().is_empty());
+
+        fleet.forget(OWNER).unwrap();
+        assert_eq!(fleet.send_message(&lander, OWNER, "lander stalled again", Delivery::Queued).unwrap(), Sent::Unreached);
+        let frames = proxy.frames.lock().unwrap();
+        assert!(frames.iter().any(|frame| frame.contains(&format!("[from service:north-land] (for {OWNER}, not live) lander stalled again"))), "{frames:?}");
+        let log = std::fs::read_to_string(fleet.root.join(".dead-letters.jsonl")).unwrap();
+        assert_eq!(log.lines().count(), 1, "{log}");
     }
 }

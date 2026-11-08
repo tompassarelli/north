@@ -119,11 +119,15 @@ impl Fleet {
     }
 
     pub(super) fn dead_letter(&self, name: &str, heir: &str, text: &str) -> String {
+        self.log_dead_letter(name, heir);
+        format!("[north: {name} is retired, so this message to it comes to you] {text}")
+    }
+
+    pub(super) fn log_dead_letter(&self, name: &str, heir: &str) {
         let line = json!({"at_ms": now_ms(), "to": name, "heir": heir});
         if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(self.root.join(DEAD_LETTERS)) {
             let _ = writeln!(log, "{line}");
         }
-        format!("[north: {name} is retired, so this message to it comes to you] {text}")
     }
 
     pub(super) fn hand_in_to_heir(&self, row: &FleetRow, heir: &str) -> NorthResult<super::HandedIn> {

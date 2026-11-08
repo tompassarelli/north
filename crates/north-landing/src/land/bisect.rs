@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::landing::check_findings;
 use crate::platform::attribution::Cause;
-pub use crate::platform::land_notice::LEAD;
+pub use crate::platform::land_notice::OWNER;
 use crate::platform::land_notice::{self, Notice};
 use super::after;
 use super::checks::Verdict;

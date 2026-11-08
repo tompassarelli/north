@@ -16,7 +16,7 @@ use super::queue;
 use north_base::land_ticket::Phase;
 use super::serve::Round;
 
-pub use super::bisect::LEAD;
+pub use super::bisect::OWNER;
 pub use super::queue::QUARANTINE;
 pub const ROUNDS: &str = "watchdog/rounds.json";
 pub const PAGES: &str = "watchdog-pages.json";
@@ -131,9 +131,9 @@ impl fmt::Display for Report {
                 }
             }
             match page {
-                Page::Sent(text) => writeln!(formatter, "  page: sent to {LEAD}: {text}")?,
-                Page::Held { paged_micros, .. } => writeln!(formatter, "  page: held; {LEAD} was paged about {} at {paged_micros} micros, within 15 minutes", invariant.key())?,
-                Page::Failed(text) => writeln!(formatter, "  page: failed to reach {LEAD}: {text}")?,
+                Page::Sent(text) => writeln!(formatter, "  page: sent to {OWNER}: {text}")?,
+                Page::Held { paged_micros, .. } => writeln!(formatter, "  page: held; {OWNER} was paged about {} at {paged_micros} micros, within 15 minutes", invariant.key())?,
+                Page::Failed(text) => writeln!(formatter, "  page: failed to reach {OWNER}: {text}")?,
             }
         }
         Ok(())
@@ -357,7 +357,7 @@ fn page(root: &Path, violations: &[Violation], now: u64, hands: &dyn Hands) -> V
             pages.push((invariant, Page::Held { text, paged_micros: at }));
             continue;
         }
-        if hands.page(LEAD, &text) {
+        if hands.page(OWNER, &text) {
             paged.insert(invariant.key().to_owned(), now);
             pages.push((invariant, Page::Sent(text)));
         } else {
