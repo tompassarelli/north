@@ -11,8 +11,6 @@ static TRAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btrait\s+([A-Za-z
 static IMPL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bimpl\b").unwrap());
 static FOR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bfor\b").unwrap());
 static MOD_DECL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bmod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;").unwrap());
-static HOST_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(statvfs|available_space|available_parallelism)\s*\(").unwrap());
-static HOST_FILE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""(/proc)\b"#).unwrap());
 static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
 pub(super) struct RustFile {
@@ -52,13 +50,16 @@ impl RustFile {
         self.code.as_bytes()[..at].iter().filter(|byte| **byte == b'\n').count() + 1
     }
 
-    pub(super) fn host_reads(&self) -> Vec<(usize, String)> {
-        let calls = HOST_CALL.captures_iter(&self.code).filter_map(|found| found.get(1));
-        let mut reads: Vec<(usize, String)> = calls
-            .chain(HOST_FILE.captures_iter(&self.commentless).filter_map(|found| found.get(1)))
-            .filter(|found| self.is_test(found.start()))
-            .map(|found| (self.line(found.start()), found.as_str().to_owned()))
-            .collect();
+    pub(super) fn code(&self) -> &str {
+        &self.code
+    }
+
+    pub(super) fn commentless(&self) -> &str {
+        &self.commentless
+    }
+
+    pub(super) fn in_tests(&self, found: impl Iterator<Item = (usize, String)>) -> Vec<(usize, String)> {
+        let mut reads: Vec<(usize, String)> = found.filter(|(at, _)| self.is_test(*at)).map(|(at, item)| (self.line(at), item)).collect();
         reads.sort();
         reads
     }

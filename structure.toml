@@ -956,10 +956,17 @@ contention_ceiling = 0.5
 [rust_habits]
 checks = ["shared-mutability", "single-impl-trait", "ambient-test-input"]
 
-[rust_habits.ambient_inputs]
+[[rust_habits.ambient_inputs]]
+input = "host"
 allowlist = "ambient-test-inputs.tsv"
 fixtures = ["tests/it/capacity_host/mod.rs"]
 fixture = "pin the reading the code takes, as tests/it/capacity_host/mod.rs does with AGENT_CAPACITY_DISK_FREE_GIB, AGENT_CAPACITY_CORES, AGENT_CAPACITY_LOADAVG and AGENT_CAPACITY_MEMINFO"
+
+[[rust_habits.ambient_inputs]]
+input = "clock"
+allowlist = "ambient-test-clocks.tsv"
+fixtures = []
+fixture = "take time as a value from an injected clock and order events by waiting on them (a channel, a barrier, a file the code under test writes); a wait that only bounds a test that would otherwise hang goes through north_base::platform::wait::until"
 
 [[rust_habits.allow]]
 rule = "single-impl-trait"

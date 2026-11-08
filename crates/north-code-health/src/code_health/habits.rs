@@ -17,7 +17,7 @@ pub(super) struct Habits {
     allow: Vec<Allow>,
     ignore: Vec<Regex>,
     tests: Vec<Regex>,
-    ambient: Option<Ambient>,
+    ambient: Vec<Ambient>,
 }
 
 struct Allow {
@@ -26,12 +26,20 @@ struct Allow {
     item: Option<String>,
 }
 
-fn ambient_config(table: &Item, checks: &BTreeSet<String>) -> Result<Option<Ambient>, String> {
-    let Some(config) = table.get("ambient_inputs") else {
-        return if checks.contains(ambient::RULE) { Err("structure.toml: rust_habits.checks names ambient-test-input without a [rust_habits.ambient_inputs] table".into()) } else { Ok(None) };
-    };
-    let text = |key: &str| config.get(key).and_then(Item::as_str).map(str::to_owned).ok_or_else(|| format!("structure.toml: rust_habits.ambient_inputs needs {key}"));
-    Ok(Some(Ambient { fixtures: strings(config.get("fixtures")), allowlist: text("allowlist")?, fixture: text("fixture")?, allowed: Default::default() }))
+fn ambient_config(table: &Item, checks: &BTreeSet<String>) -> Result<Vec<Ambient>, String> {
+    let configs: Vec<&toml_edit::Table> = table.get("ambient_inputs").and_then(Item::as_array_of_tables).into_iter().flatten().collect();
+    if configs.is_empty() && checks.contains(ambient::RULE) {
+        return Err("structure.toml: rust_habits.checks names ambient-test-input without a [[rust_habits.ambient_inputs]] table".into());
+    }
+    configs
+        .into_iter()
+        .map(|config| {
+            let text = |key: &str| config.get(key).and_then(Item::as_str).map(str::to_owned).ok_or_else(|| format!("structure.toml: each [[rust_habits.ambient_inputs]] needs {key}"));
+            let name = text("input")?;
+            let input = ambient::Input::named(&name).ok_or_else(|| format!("structure.toml: rust_habits.ambient_inputs names unknown input {name}; known: host, clock"))?;
+            Ok(Ambient { input, fixtures: strings(config.get("fixtures")), allowlist: text("allowlist")?, fixture: text("fixture")?, allowed: Default::default() })
+        })
+        .collect()
 }
 
 fn strings(item: Option<&Item>) -> Vec<String> {
@@ -100,8 +108,8 @@ impl Habits {
         Ok(Some(Self { checks, allow, ignore: ignore.iter().map(|pattern| glob(pattern)).collect(), tests, ambient }))
     }
 
-    pub(super) fn read_ambient(&mut self, text: &str) -> Result<(), String> {
-        self.ambient.as_mut().map_or(Ok(()), |ambient| ambient.read_allowed(text))
+    pub(super) fn read_ambient(&mut self, read: impl Fn(&str) -> Result<String, String>) -> Result<(), String> {
+        self.ambient.iter_mut().try_for_each(|ambient| ambient.read_allowed(&read(&ambient.allowlist)?))
     }
 
     fn allowed(&self, finding: &Finding) -> bool {
@@ -197,8 +205,8 @@ pub(super) fn check(habits: &Habits, files: &[RustFile], edited: Option<&str>) -
     if habits.checks.contains(SINGLE) {
         found.extend(single_findings(files));
     }
-    if let Some(ambient) = habits.ambient.as_ref().filter(|_| habits.checks.contains(ambient::RULE)) {
-        found.extend(ambient.findings(files, edited.is_none()));
+    if habits.checks.contains(ambient::RULE) {
+        found.extend(habits.ambient.iter().flat_map(|ambient| ambient.findings(files, edited.is_none())));
     }
     let mut out: Vec<Finding> = Vec::new();
     if edited.is_none() {
@@ -235,10 +243,7 @@ pub fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<String>, String
     let Some(mut habits) = Habits::parse(&config)? else {
         return Ok(Vec::new());
     };
-    if let Some(allowlist) = habits.ambient.as_ref().map(|ambient| ambient.allowlist.clone()) {
-        let text = std::fs::read_to_string(root.join(&allowlist)).map_err(|error| format!("{allowlist}: {error}"))?;
-        habits.read_ambient(&text)?;
-    }
+    habits.read_ambient(|allowlist| std::fs::read_to_string(root.join(allowlist)).map_err(|error| format!("{allowlist}: {error}")))?;
     let sources = listed(root)?
         .into_iter()
         .filter_map(|path| std::fs::read_to_string(root.join(&path)).ok().map(|text| (path, text)))
