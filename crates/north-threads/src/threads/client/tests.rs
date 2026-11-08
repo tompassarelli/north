@@ -124,7 +124,7 @@ fn a_stalled_ledger_host_returns_a_claim_as_outcome_unknown_within_its_bound_and
 }
 
 fn spooled(rig: &Rig) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(&rig.client.spool).map(|entries| entries.map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name != ".lock").collect()).unwrap_or_default();
+    let mut names: Vec<String> = fs::read_dir(&rig.client.spool).map(|entries| entries.map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| !name.starts_with('.')).collect()).unwrap_or_default();
     names.sort();
     names
 }

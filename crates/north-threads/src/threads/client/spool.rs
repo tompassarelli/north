@@ -198,6 +198,27 @@ impl Client {
             return Ok(Flush::Clear);
         }
         let Some(_lock) = self.spool_lock()? else { return Ok(Flush::Busy) };
+        self.send_queued(dest, err, budget)
+    }
+
+    /// Sends the spool after any flush already holding it, because that flush may have found the host down just before it came back; one waiter covers every call made while it waits, so a later one leaves.
+    fn flush_spool_in_turn(&self, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
+        if !self.spool.is_dir() {
+            return Ok(Flush::Clear);
+        }
+        let next = File::create(self.spool.join(".next"))?;
+        match next.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => return Ok(Flush::Busy),
+            Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+        }
+        let lock = File::create(self.spool.join(".lock"))?;
+        lock.lock()?;
+        drop(next);
+        self.send_queued(dest, err, None)
+    }
+
+    fn send_queued(&self, dest: &str, err: &mut dyn Write, budget: Option<Duration>) -> NorthResult<Flush> {
         let mut spool = self.spool_records()?;
         let started = Instant::now();
         for name in spool.queued((self.clock)())? {
@@ -286,7 +307,7 @@ impl Client {
         let [_, dest] = argv else {
             return Err(NorthError::Usage(format!("usage: north threads {SPOOL_FLUSH} DEST")));
         };
-        Ok(match self.flush_spool(dest, err, None)? {
+        Ok(match self.flush_spool_in_turn(dest, err)? {
             Flush::Clear => 0,
             Flush::Busy => ingest_lock::RETRY,
             Flush::Down => TRANSPORT_FAILED_STATUS,
