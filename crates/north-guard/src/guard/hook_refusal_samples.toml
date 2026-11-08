@@ -4379,3 +4379,37 @@ label = "true"
 command = "ls ~/code/south/main/secrets | rg -n 'github|nexus'; sops -d ~/code/south/main/secrets/github-app.yaml 2>&1 | sed 's/:.*/: .../' | head; ls ~/.config/"
 label = "true"
 
+
+[[sample]]
+rule = "desktop-action"
+window = "2026-11-01 to 2026-11-08"
+drawn = "the 5 of its sampled refused calls the guard still refuses after its north#706 narrowing, replayed through main"
+
+[[sample.row]]
+command = "niri msg action close-window --id 161 2>&1 | tail -1; cd /home/tom/code/north/main; north fleet send n733-laptop \"[from proxy] Your throwaway take-ove"
+label = "true"
+
+[[sample.row]]
+command = "niri msg action close-window --id 161; sleep 2; niri msg -j windows | jq -c '.[] | select(.title|test(\"north proxy\")) | {id,title,pid}'; ps -eo pid,ar"
+label = "true"
+
+[[sample.row]]
+command = "niri msg action close-window --id 53 2>&1 | head -1; echo closed"
+label = "true"
+
+[[sample.row]]
+command = "niri msg action close-window --id 64 && echo closed; rg -i 'error|fatal' /tmp/claude-1000/-home-tom/1d56884e-4f98-40d1-8a38-0b54825687b6/scratchpad/sl"
+label = "true"
+
+[[sample.row]]
+command = "ws=$(niri msg -j workspaces | jq -r '.[] | select(.is_focused) | .idx'); niri msg action move-window-to-workspace --window-id 53 --focus false \"$ws\" 2"
+label = "true"
+
+[[sample]]
+rule = "clipboard"
+window = "2026-11-01 to 2026-11-08"
+drawn = "the 1 of its sampled refused calls the guard still refuses after its north#706 narrowing, replayed through main"
+
+[[sample.row]]
+command = "niri msg action screenshot-window --id 161 --write-to-disk true 2>&1 | head -3; sleep 1; ls -t ~/Pictures/Screenshots 2>/dev/null | head -2"
+label = "true"
