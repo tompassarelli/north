@@ -7,7 +7,7 @@ use super::super::slots::unit_reuse::{self, harvest};
 use super::{Settings, place};
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-const TIMEOUT_SECONDS: &str = "5400";
+const TIMEOUT_SECONDS: &str = "3600";
 const SHORT: usize = 12;
 
 fn marker(logs: &Path, main: &str) -> PathBuf {
