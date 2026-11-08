@@ -13,6 +13,7 @@ use crate::foundation::clock::Timestamp;
 
 mod adapters;
 mod agy;
+mod agy_models;
 mod claude;
 mod digitalocean;
 mod promos;
@@ -24,6 +25,7 @@ struct Ports<'a> {
     pub ingest: &'a dyn Fn(&[u8]) -> Result<(), String>,
     pub notify: &'a dyn Fn(&str, &str),
     pub clock: &'a dyn Fn() -> Timestamp,
+    pub models: &'a dyn Fn() -> Option<Vec<u8>>,
 }
 
 struct Request {
@@ -42,7 +44,9 @@ fn run(db: &Connection, places: &Places, request: &Request, ports: &Ports) -> Re
         let _control = hold_pace_control(&places.state.join("agents"))?;
         gate::write(db, &named, places, now)?;
     }
-    promos::notify(&promos::lines(&settings::catalog(), db, now)?, &places.state, ports.notify)
+    let catalog = settings::catalog();
+    promos::notify(&promos::lines(&catalog, db, now)?, &places.state, ports.notify)?;
+    agy_models::check(&catalog, &places.state, (ports.models)(), ports.notify)
 }
 
 fn notify_send(title: &str, line: &str) {
@@ -58,7 +62,7 @@ fn hold_pace_control(directory: &Path) -> Result<std::fs::File, String> {
 
 pub(super) fn refresh_readings(db: &Connection, source: &store::Source, places: &Places, remote: bool, host: &Host) -> Result<(), String> {
     let readers = Readers::new(host);
-    let ports = Ports { readers: &readers, ingest: host.ingest, notify: &notify_send, clock: &super::clock };
+    let ports = Ports { readers: &readers, ingest: host.ingest, notify: &notify_send, clock: &super::clock, models: &|| agy::run(&["models"]) };
     run(db, places, &Request { mirrored: source.mirrored(), remote }, &ports)
 }
 

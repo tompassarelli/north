@@ -95,7 +95,8 @@ one way to reach agents:
   read by the commands that use them.
 
 - Models, prices and benchmarks: [harness/model-catalog.toml](../harness/model-catalog.toml), read
-  by routing.
+  by routing. `north fleet usage --refresh` records `agy models` and reports any gemini key the catalog
+  lacks or lists after agy retired it (`agents/agy-models-drift.txt` in the state directory).
 
 - Staffing tiers, accounts, project shares and targets: `south:agents/orchestration.toml`, read by
   `agents plan` and the spawn gate.

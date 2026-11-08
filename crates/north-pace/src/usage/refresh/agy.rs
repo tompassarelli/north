@@ -72,8 +72,12 @@ fn usage_rows(data: &Value, account: &str, now: &str) -> Vec<Reading> {
 }
 
 fn agy_output() -> Option<Vec<u8>> {
+    run(&["-p", "/usage", "--output-format", "json"])
+}
+
+pub(super) fn run(arguments: &[&str]) -> Option<Vec<u8>> {
     let mut child = Command::new("agy")
-        .args(["-p", "/usage", "--output-format", "json"])
+        .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
