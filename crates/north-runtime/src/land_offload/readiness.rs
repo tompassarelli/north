@@ -38,6 +38,10 @@ impl Needs {
         std::fs::read_to_string(CONFIG).map(|text| Self::of(&text)).unwrap_or_default()
     }
 
+    pub fn dialed_from(&self, host: &str, reaches: impl Fn(&str) -> bool) -> Self {
+        Self { checkouts: self.checkouts.clone(), aliases: self.aliases.iter().filter(|alias| *alias != host && reaches(alias)).cloned().collect() }
+    }
+
     pub fn script(&self, host: &str) -> String {
         let words = |items: &[String]| items.iter().map(|item| quote(item)).collect::<Vec<_>>().join(" ");
         PROBE.replace("@CHECKOUTS@", &words(&self.checkouts)).replace("@ALIASES@", &words(&self.aliases)).replace("@HOST@", &quote(host))
@@ -62,7 +66,9 @@ fn probe(needs: &Needs, host: &str, ssh: &str) -> Result<Vec<String>, String> {
 }
 
 pub fn admits(needs: &Needs, host: &str, ssh: &str) -> bool {
-    match probe(needs, host, ssh) {
+    let cfg = crate::platform::orchestration::read().ok();
+    let needs = needs.dialed_from(host, |alias| cfg.as_ref().is_some_and(|cfg| crate::platform::orchestration::reaches(cfg, host, alias)));
+    match probe(&needs, host, ssh) {
         Ok(lacks) if lacks.is_empty() => true,
         Ok(lacks) => {
             eprintln!("north capacity offload: {host} takes no land check: it lacks {}, which this repository's land checks read", lacks.join(" and "));
