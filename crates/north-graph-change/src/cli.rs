@@ -14,7 +14,7 @@ use crate::overlap;
 pub const VERBS: [&str; 3] = ["affected", "overlap", "blame"];
 const UNTRACED: u8 = 3;
 const PATIENCE: Duration = Duration::from_secs(5);
-const USAGE: &str = "usage: north graph ask affected [--db PATH] [--repo DIR] [--json] BASE HEAD
+const USAGE: &str = "usage: north graph ask affected [--db PATH] [--repo DIR] [--json | --nextest] BASE HEAD
        north graph ask overlap [--db PATH] [--repo DIR] [--json] NAME=BASE..HEAD...
        north graph ask blame [--db PATH] [--repo DIR] [--json] [--failed \"BINARY TEST\"]... [--compile FILE]... [--log FILE]... NAME=BASE..HEAD...";
 
@@ -23,6 +23,7 @@ struct Options {
     db: Option<PathBuf>,
     repo: Option<PathBuf>,
     json: bool,
+    nextest: bool,
     failed: Vec<String>,
     compile: Vec<String>,
     logs: Vec<PathBuf>,
@@ -38,6 +39,7 @@ fn options(arguments: &[String]) -> Result<Options, String> {
             "--db" => parsed.db = Some(PathBuf::from(value("--db")?)),
             "--repo" => parsed.repo = Some(PathBuf::from(value("--repo")?)),
             "--json" => parsed.json = true,
+            "--nextest" => parsed.nextest = true,
             "--failed" => parsed.failed.push(value("--failed")?),
             "--compile" => parsed.compile.push(value("--compile")?),
             "--log" => parsed.logs.push(PathBuf::from(value("--log")?)),
@@ -118,6 +120,11 @@ fn affected(context: &Context, options: &Options) -> Result<u8, String> {
     if options.json {
         let added: Vec<Value> = cone.added.iter().map(|test| json!({ "package": test.package, "name": test.name })).collect();
         println!("{}", json!({ "tests": ids(&cone.tests), "always": ids(&cone.always), "added": added, "files": cone.files, "untraced": cone.untraced, "known": facts.all_tests().len() }));
+    } else if options.nextest {
+        let arguments = cone.nextest_arguments();
+        if cone.untraced.is_none() && !arguments.is_empty() {
+            println!("{}", arguments.join(" "));
+        }
     } else if cone.untraced.is_none() {
         for test in cone.tests.iter().chain(&cone.always) {
             println!("{test}");

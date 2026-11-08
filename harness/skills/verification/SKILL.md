@@ -17,6 +17,7 @@ metadata:
 
 ## Every use
 - Name the stable acceptance claim and the action its result changes, because a check whose pass and fail select the same action is waste.
+- Run the tests that can reach the change, never the whole suite by default: where the repository keeps a change graph, ask it for that set; see [tiers and landing](references/tiers-and-landing.md).
 - Reuse passing results until a relevant behaviour change invalidates them; run each check once, and once more after a fix, because reruns of unchanged inputs buy nothing.
 - Every test names the guarantee it protects, in its title, as a behaviour a person would notice breaking. Iteration speed is everything, so keep the cheapest test that protects that guarantee and delete the rest.
 - A bug fix lands with at least one test that fails on the old code, and the report pastes that failure and the passing run after the fix, because a test never seen failing may not reach the bug. Pick it by where the bug lives: decision logic (a pure function or state machine) gets a proptest property whose shrunk counterexample shows the bug; an environment or integration bug (cgroups, processes, hosts, git state, timers) gets a fixture that recreates the environment, such as a 1-CPU systemd scope or a temp repo with two clones; a protocol bug gets a case in the protocol model. A refactor declares `Behavior: unchanged` in its commit message, and its changed tests must pass on the old code. A fails-first landing gate enforces both directions.

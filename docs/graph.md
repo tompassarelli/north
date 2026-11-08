@@ -378,7 +378,7 @@ A lane's cone, from `git diff --name-status --no-renames BASE HEAD`:
   diff changes only tree paths.
 
 `affected BASE HEAD` prints the cone's tests then `always`, one per line, and exits 0, or exits 3 with the reason on stderr
-when untraced; `--json` prints `{"tests","always","added","files","untraced","known"}`, `known` counting the tests the graph knows, which the land check names beside the tests it selects. `overlap LANE...` prints one line per
+when untraced; `--json` prints `{"tests","always","added","files","untraced","known"}`, `known` counting the tests the graph knows, which the land check names beside the tests it selects. `--nextest` prints the arguments for `cargo nextest run` instead: `-p` for each package the tests and added tests are in, then `-E` with a filter naming each traced test by `binary_id` and exact name and each added test by package and name; nothing when no test reaches the change. `overlap LANE...` prints one line per
 independent group: lanes in different groups share no traced test, an `always` test links none, and an untraced lane joins
 every group; `--json` adds each sharing pair with its tests and `always`, which then holds every known test. `blame
 [--failed "BIN NAME"]... [--compile FILE]... [--log FILE]... LANE...` prints the lanes that hold a failure, most failures

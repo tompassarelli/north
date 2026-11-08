@@ -118,3 +118,10 @@ fn overlap_keeps_disjoint_cones_apart_and_no_always_test_links_them() {
     assert!(found.pairs.is_empty());
     assert_eq!(found.always.into_iter().collect::<Vec<_>>(), vec![id("north-lander", "unrecorded")]);
 }
+
+#[test]
+fn the_nextest_arguments_select_each_traced_test_by_binary_and_each_added_test_by_package() {
+    let cone = Cone { tests: [id("north::it", "fleet::a_launch_claims"), id("north-base", "error::tests::drill")].into(), added: vec![Added { package: "north-lanes".to_owned(), name: "retires_a_pin".to_owned() }], ..Cone::default() };
+    assert_eq!(cone.nextest_arguments().join(" "), "-p north -p north-base -p north-lanes -E (binary_id(north-base)&test(=error::tests::drill))|(binary_id(north::it)&test(=fleet::a_launch_claims))|(package(north-lanes)&test(/(^|::)retires_a_pin$/))");
+    assert!(Cone::default().nextest_arguments().is_empty());
+}

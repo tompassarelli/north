@@ -29,6 +29,18 @@ impl Cone {
         let added = self.added.iter().any(|test| (name == test.name || name.ends_with(&format!("::{}", test.name))) && in_package(&test.package));
         self.untraced.is_some() || traced || added
     }
+
+    pub fn nextest_arguments(&self) -> Vec<String> {
+        let tests = self.tests.iter().chain(&self.always);
+        let packages: BTreeSet<&str> = tests.clone().map(TestId::package).chain(self.added.iter().map(|test| test.package.as_str()).filter(|package| !package.is_empty())).collect();
+        let traced = tests.map(|test| format!("(binary_id({})&test(={}))", test.binary, test.name));
+        let added = self.added.iter().map(|test| if test.package.is_empty() { format!("test(/(^|::){}$/)", test.name) } else { format!("(package({})&test(/(^|::){}$/))", test.package, test.name) });
+        let filter = traced.chain(added).collect::<Vec<_>>().join("|");
+        if filter.is_empty() {
+            return Vec::new();
+        }
+        packages.into_iter().flat_map(|package| ["-p".to_owned(), package.to_owned()]).chain(["-E".to_owned(), filter]).collect()
+    }
 }
 
 pub fn untraced_input(path: &str) -> bool {
