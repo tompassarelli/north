@@ -3,12 +3,12 @@
 use std::collections::BTreeMap;
 
 use super::Screen;
+use super::billing::{self, Billing, Machine};
 use super::dispatch::Mixes;
 use crate::foundation::clock::Timestamp;
 use crate::usage::outlook::{self, Runway};
 
 const LINES: usize = 50;
-const SPEND_ROWS: usize = 5;
 
 #[derive(Clone, Copy)]
 enum Align {
@@ -90,42 +90,63 @@ fn runway(runway: Runway) -> String {
     }
 }
 
-fn usage(screen: &Screen, mixes: &Result<Mixes, String>, window: &str) -> Vec<String> {
-    let mut out = vec![format!("Usage: each Claude account's week, then the spend of every run started in the last {window}")];
-    match &screen.accounts {
-        Ok(accounts) => {
-            let mut rows = vec![header(&["account", "week left", "burn", "outlook", "week resets"])];
-            rows.extend(accounts.iter().map(|account| {
-                vec![
-                    account.account.clone(),
-                    account.week_used.map_or_else(|| "-".to_owned(), |used| format!("{:.0}%", (100.0 - used).max(0.0))),
-                    account.burn_per_hour.map_or_else(|| "-".to_owned(), |rate| format!("{rate:.1}%/h")),
-                    runway(account.runway),
-                    account.week_resets.map_or_else(|| "-".to_owned(), outlook::weekday_clock),
-                ]
-            }));
-            out.extend(grid(&rows, &[Align::Left, Align::Right, Align::Right, Align::Left, Align::Left]));
-        }
-        Err(why) => out.push(format!("accounts unread: {why}")),
+fn rate(machine: &Machine) -> String {
+    match (machine.hourly_eur, machine.monthly_cap_eur) {
+        (Some(hourly), Some(cap)) => format!("€{hourly}/h, capped at €{cap}/month"),
+        (Some(hourly), None) => format!("€{hourly}/h"),
+        _ => "fixed".to_owned(),
     }
+}
+
+fn accounts(screen: &Screen, billing: &Result<Billing, String>) -> Vec<String> {
+    let accounts = match &screen.accounts {
+        Ok(accounts) => accounts,
+        Err(why) => return vec![format!("accounts unread: {why}")],
+    };
+    let mut rows = vec![header(&["account", "plan", "week left", "burn", "outlook", "week resets"])];
+    rows.extend(accounts.iter().map(|account| {
+        let plan = billing.as_ref().ok().and_then(|billing| billing.plans.get(&account.account));
+        vec![
+            account.account.clone(),
+            plan.map_or_else(|| "-".to_owned(), |plan| format!("{} {}/month", plan.plan, money(plan.monthly_usd))),
+            account.week_used.map_or_else(|| "-".to_owned(), |used| format!("{:.0}%", (100.0 - used).max(0.0))),
+            account.burn_per_hour.map_or_else(|| "-".to_owned(), |rate| format!("{rate:.1}%/h")),
+            runway(account.runway),
+            account.week_resets.map_or_else(|| "-".to_owned(), outlook::weekday_clock),
+        ]
+    }));
+    grid(&rows, &[Align::Left, Align::Left, Align::Right, Align::Right, Align::Left, Align::Left])
+}
+
+fn spend(mixes: &Result<Mixes, String>, window: &str) -> String {
     match mixes {
         Ok(mixes) => {
-            let total: f64 = mixes.spend.iter().map(|spend| spend.usd).sum();
-            let runs: usize = mixes.spend.iter().map(|spend| spend.runs).sum();
-            let share = |usd: f64| if total > 0.0 { format!("{:.0}%", usd / total * 100.0) } else { "-".to_owned() };
-            let mut rows = vec![header(&["model and effort", "runs", "spend", "share"])];
-            rows.extend(mixes.spend.iter().take(SPEND_ROWS).map(|spend| vec![spend.mix.clone(), spend.runs.to_string(), money(spend.usd), share(spend.usd)]));
-            let rest = &mixes.spend[mixes.spend.len().min(SPEND_ROWS)..];
-            if !rest.is_empty() {
-                let usd: f64 = rest.iter().map(|spend| spend.usd).sum();
-                rows.push(vec![format!("{} others", rest.len()), rest.iter().map(|spend| spend.runs).sum::<usize>().to_string(), money(usd), share(usd)]);
-            }
-            rows.push(vec!["all runs".to_owned(), runs.to_string(), money(total), share(total)]);
-            out.push(String::new());
-            out.extend(grid(&rows, &[Align::Left, Align::Right, Align::Right, Align::Right]));
+            let total: f64 = mixes.models.iter().map(|spend| spend.usd).sum();
+            let by_model: Vec<String> = mixes.models.iter().map(|spend| format!("{} {}", spend.mix, money(spend.usd))).collect();
+            format!("API-equivalent spend, last {window}: {}; all {} over {} runs", by_model.join(", "), money(total), mixes.models.iter().map(|spend| spend.runs).sum::<usize>())
         }
-        Err(why) => out.push(format!("spend unread: {why}")),
+        Err(why) => format!("spend unread: {why}"),
     }
+}
+
+fn machines(billing: &Result<Billing, String>) -> Vec<String> {
+    let billing = match billing {
+        Ok(billing) => billing,
+        Err(why) => return vec![format!("machines unread: {why}")],
+    };
+    let (paid, free): (Vec<&Machine>, Vec<&Machine>) = billing.machines.iter().partition(|machine| machine.monthly_usd > 0.0);
+    let mut rows = vec![header(&["machine", "per month", "billing"])];
+    rows.extend(paid.iter().map(|machine| vec![machine.id.clone(), money(machine.monthly_usd), rate(machine)]));
+    let up_to = if billing.capped() { "up to " } else { "" };
+    rows.push(vec!["total".to_owned(), format!("{up_to}{}", money(billing.total_usd())), format!("not listed, $0.00: {}", free.iter().map(|machine| machine.id.as_str()).collect::<Vec<_>>().join(", "))]);
+    grid(&rows, &[Align::Left, Align::Right, Align::Left])
+}
+
+fn billing(screen: &Screen, mixes: &Result<Mixes, String>, window: &str) -> Vec<String> {
+    let mut out = vec![format!("Billing: Claude plans, spend and machines; infra read from {}", billing::path().display())];
+    out.extend(accounts(screen, &screen.billing));
+    out.push(spend(mixes, window));
+    out.extend(machines(&screen.billing));
     out
 }
 
@@ -172,7 +193,7 @@ pub fn screen(screen: &Screen) -> String {
     let mut out = vec![format!("north dash: the last {window}, read at {}", Timestamp::from_unix_seconds(screen.now).local_twelve_hour()), String::new()];
     out.extend(bars(screen, &window));
     out.push(String::new());
-    out.extend(usage(screen, &mixes, &window));
+    out.extend(billing(screen, &mixes, &window));
     out.push(String::new());
     let room = LINES.saturating_sub(out.len());
     out.extend(dispatch(screen, &mixes, &window, room));

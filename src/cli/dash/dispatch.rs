@@ -32,6 +32,7 @@ pub struct Row {
 
 pub struct Mixes {
     pub spend: Vec<Spend>,
+    pub models: Vec<Spend>,
     pub rows: Vec<Row>,
     /// The distinct boxes closed in the window, each counted once though several mixes worked it.
     pub closed: usize,
@@ -46,8 +47,17 @@ impl Mixes {
             entry.runs += 1;
             entry.usd += run.usd;
         }
+        let mut models: BTreeMap<String, Spend> = BTreeMap::new();
+        for run in runs {
+            let model = if run.model.is_empty() { "unknown" } else { run.model.as_str() };
+            let entry = models.entry(model.to_owned()).or_insert_with(|| Spend { mix: model.to_owned(), runs: 0, usd: 0.0 });
+            entry.runs += 1;
+            entry.usd += run.usd;
+        }
         let mut spend: Vec<Spend> = spend.into_values().collect();
         spend.sort_by(|a, b| b.usd.total_cmp(&a.usd));
+        let mut models: Vec<Spend> = models.into_values().collect();
+        models.sort_by(|a, b| b.usd.total_cmp(&a.usd));
         let mut rows: BTreeMap<(String, String), Row> = BTreeMap::new();
         let mut tiers: HashMap<&str, &str> = HashMap::new();
         for run in runs.iter().filter(|run| run.role == "worker") {
@@ -87,7 +97,7 @@ impl Mixes {
             }
         }
         rows.sort_by(|a, b| categories[&b.category].total_cmp(&categories[&a.category]).then_with(|| a.category.cmp(&b.category)).then_with(|| b.runs.cmp(&a.runs)));
-        Ok(Self { spend, rows, closed: report.closed })
+        Ok(Self { spend, models, rows, closed: report.closed })
     }
 }
 

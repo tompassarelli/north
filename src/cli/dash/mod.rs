@@ -11,6 +11,7 @@ use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, Ledger, WindowRun};
 use crate::usage::outlook::{AccountOutlook, Runway};
 
+mod billing;
 mod dispatch;
 mod render;
 
@@ -25,6 +26,7 @@ pub struct Screen {
     pub accounts: Result<Vec<AccountOutlook>, String>,
     pub runs: Result<(Vec<WindowRun>, ClosedReport), String>,
     pub attempts: Result<Vec<workers::Attempt>, String>,
+    pub billing: Result<billing::Billing, String>,
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -98,7 +100,7 @@ fn read(window: &str) -> Result<Screen, String> {
         let joined = |name: &str| format!("{name} reader panicked");
         (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))))
     });
-    Ok(Screen { window: window.to_owned(), now, bars, accounts, runs, attempts })
+    Ok(Screen { window: window.to_owned(), now, bars, accounts, runs, attempts, billing: billing::read() })
 }
 
 fn accounts() -> Result<Vec<AccountOutlook>, String> {
@@ -134,6 +136,7 @@ fn figures(screen: &Screen) -> Value {
             "burn_pct_per_h": account.burn_per_hour,
             "runway": runway(account.runway),
             "week_resets": account.week_resets.map(Timestamp::iso),
+            "plan": screen.billing.as_ref().ok().and_then(|billing| billing.plans.get(&account.account)),
         })).collect::<Vec<_>>().into()
     });
     let mixes = dispatch::Mixes::of(screen);
@@ -143,6 +146,11 @@ fn figures(screen: &Screen) -> Value {
         "bars": section(screen.bars.as_ref().map(|bars| json!(bars))),
         "accounts": section(accounts),
         "spend": section(mixes.as_ref().map(|mixes| json!(mixes.spend))),
+        "spend_by_model": section(mixes.as_ref().map(|mixes| json!(mixes.models))),
+        "infra": section(screen.billing.as_ref().map(|billing| json!({"machines": billing.machines, "monthly_usd": billing.total_usd(), "capped": billing.capped()}))),
         "dispatch": section(mixes.as_ref().map(|mixes| json!(mixes.rows))),
     })
 }
+
+#[cfg(test)]
+mod tests;
