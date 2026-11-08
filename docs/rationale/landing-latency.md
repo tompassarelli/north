@@ -240,3 +240,73 @@ The router's silent-child test, which set a leaf landing's test-run time, waited
 for a park (2 s in its sibling). It now parks after 400 ms with a 90 ms quiet limit (0.41 s each, 5
 of 5 runs). With its ETA minute back at 10 ms, so the quiet limit (900 ms) outlasts the park,
 the idle case fails, so the test still tells an idle note from a park.
+
+## What each land check refuses on (2026-11-08 audit)
+
+On 2026-11-08 the laptop ran at load 54 to 90 while the lander probed rounds of 8 to 17 lanes, and
+a check that refuses on wall time or host load refuses lanes for the host's state. The rule: a
+landing step refuses only on a measure the lane controls, its exit status, its output, its tree,
+or its own CPU time. A wall-clock deadline may end a run, but its end is a transient that the next
+round retries, and a lane that hangs on every try is refused as a persistent transient
+(`bisect::escalate`).
+
+Today's 62 probe logs (`logs/*-probe*-candidate.log` in the north land queue) give the refusal and
+timeout lines by the number of probes that printed them:
+
+- 21: the strategy replay's per-call bound (`admission call took 14.2 ms, over the 10 ms of
+  replay_call_milliseconds`), measured on the wall clock; north#716 moves it to the replaying
+  thread's CPU time.
+- 21: `the replay grew 153 MiB, over the 64 MiB of replay_peak_mebibytes`. The growth is this
+  process's VmHWM over its starting VmRSS: it moves with the build host's core count (the replay
+  runs up to 16 threads) and the day's logged cases, not with load or with the probes beside it,
+  and the scan holds it against a lane only past 1.5 times main's growth on the same host.
+- 18: `unable to find library -lseccomp`, a build host's link environment, which reaches no
+  verdict.
+- 10: the shared north build reached no verdict when its host or connection failed.
+- 8: five fleet-supervisor gate_rows tests, the lanes' own failures.
+- 1: the build-host slot-order test (`the sweep ran in its own slot beside the holder`), a race in
+  the test: a background job's queue ticket ranks behind every land check, and the test spawned the
+  holder once the sweep's ticket existed rather than once the sweep had started, so a descheduled
+  sweep queued behind the holder. The test now spawns the next job once a background job has started.
+- 0 refusals at a per-check deadline today; from 2026-11-05 to 2026-11-07, 6 lanes were refused as
+  hung: their check ran past a deadline three times its p90 wall time while the base tree had once
+  finished it in time.
+
+The land checks of north's `.safe-push`, each with what it refuses on:
+
+- clippy on the changed crates, the `--workspace --lib --bins` and `tests/it` nextest run, the
+  seven named guard tests and the land-sandbox `enforce` tests: exit status. The workspace run had
+  eight tests asserting a child was not waited for within 0.9 to 10 s of wall time. The tightest,
+  `a_hook_stops_waiting_at_its_limit` at 900 ms, now waits for a gate file the test writes, so it
+  holds on the order of events, not their timing; the prompt hook's 2 s assert repeated what its
+  `is_none` already proves and is gone; six remain at 4 to 10 s of slack and refused no probe.
+- the gate-shadow, tool-removal, detector-proof, safe-push-verbs, nix-entry and run-time-data
+  scans, tree-policy, code-health layers and habits, features-index, rationale-index, check nix,
+  citations, check experiments, the verbs sort and the `tests/it` crate list: the lane's tree and
+  diff.
+- test-admission kills: whether a mutant of the lane's diff survives the added tests. Its cap on
+  wall time only ends the sweep with no verdict (`mutant kill: could not run, not the lane's fault`),
+  and cargo-mutants' per-mutant timeout counts a mutant as caught, so neither refuses.
+- test coverage: the lane's tests and the files they reach.
+- Every check: its deadline, `SAFE_PUSH_LAND_CHECK_TIMEOUT`, a `deadline = SECONDS :: COMMAND`
+  line, or three times the p90 of its last 20 passes (300 s to 2100 s, `check_timings.rs`). A run
+  past it is a transient whatever the base tree did; until this audit a run past it while the base
+  tree had finished in time was refused as hung and its timeout cached as the lane's verdict.
+
+The safe-push landing gates, each with what it refuses on:
+
+- language, stale revert, dropped commits, native item reference, secrets, commit email, shell
+  hook, document owners and links, policy sweep, tool removal, dependency gate: the lane's diff and
+  history.
+- deny-list: the deny-list's patterns, then the private-text judge's findings. The judge runs
+  under a 300 s wall limit, and a judge that does not finish refuses the landing, though it says
+  nothing about the lane; it refused north#868 twice, once its text was too large. Turning that into
+  a transient needs a no-verdict outcome in safe-push's gate verdicts, which is its own box on
+  north#842.
+- test integrity: the lane's added test lines (an added wall-clock read is flagged).
+- test admission: the lane's added tests against `verification_budget_seconds` and the median wall
+  time of the last 10 green post-land runs; in shadow under `landing_refusals`.
+- strategy replay: count shifts and invariants over the logged cases, which are load-independent;
+  the per-call bound (CPU time after north#716) and the growth bound, each judged against main's
+  replay on the same host; and the whole replay's 5 s, which stays wall time because it bounds how
+  long the gate makes a landing wait. In shadow under `landing_refusals`.

@@ -247,6 +247,19 @@ fn hung_check_timeout() {
     let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
     assert!(outcome.contains("skip\tland check bash ../step.sh ran past its 2 s deadline and base tree "), "{outcome}");
     assert!(outcome.contains(" has never been timed, so the hang is infrastructure, not this lane"), "{outcome}");
+
+    fs::write(fixture.path("step.sh"), "if grep -q hang file.txt; then sleep 600; fi\n").unwrap();
+    fs::remove_file(fixture.path("outcome")).unwrap();
+    let timed = lane_onto(&fixture, "timed\n");
+    let output = fixture.command_between(&fixture.head, &timed).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    fs::write(fixture.repo.join("file.txt"), "hang\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "hang"]);
+    let lane = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let output = fixture.command_between(&timed, &lane).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
+    assert_eq!(output.status.code(), Some(75), "on 2026-11-05 to 07 a land check past its p90-derived wall deadline on a loaded build host refused six lanes because the base tree had once finished it in time: {}", text(&output));
+    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
+    assert!(outcome.contains("skip\tland check bash ../step.sh ran past its 2 s deadline and base tree ") && !outcome.contains("failed-step"), "{outcome}");
 }
 
 impl Fixture {

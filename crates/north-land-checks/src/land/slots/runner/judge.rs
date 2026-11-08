@@ -10,7 +10,7 @@ use crate::platform::land_queue::ROUND;
 use super::{BASE_FAILS, BROKEN_BASE};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
-use super::{Shared, TIMED_OUT_STATUS, host_name, say, timeout_row, warn};
+use super::{Shared, host_name, say, timeout_row, warn};
 use super::checkout::Checkout;
 use super::log::{log_findings, first_error};
 use super::spawn::{Attempt, Ran};
@@ -43,7 +43,7 @@ impl Shared {
                 let _ = timings.exceeded_on_base_too(command, &class, timeout);
             }
             self.record_timeout(command, timeout, started);
-            return self.judge_hang(command, timeout, base, &ran.log).await;
+            return self.judge_hang(command, timeout, base, &ran.log);
         }
         let commands = [command.to_owned()];
         if ran.status != 0 {
@@ -169,23 +169,14 @@ impl Shared {
         BaseResult::Failed(first)
     }
 
-    async fn judge_hang(&self, command: &str, timeout: u64, base: Base, log: &Path) -> i32 {
+    fn judge_hang(&self, command: &str, timeout: u64, base: Base, log: &Path) -> i32 {
         let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
         let base = match base {
-            Base::Within(seconds) => match self.overloaded_host(command) {
-                Some(host) => format!("finished it in {seconds} s while this host ran at load {:.1} over its {} cores", host.load, host.cores),
-                None => {
-                    warn(&format!("safe-push: land check {command} hung: it ran past its {timeout} s deadline on this lane, while base tree {tree} finished it in {seconds} s; log: {}; NOT pushed.", log.display()));
-                    self.cache_record(TIMED_OUT_STATUS, &[command.to_owned()]).await;
-                    self.outcome.record(&["event", "land check", "failed", &format!("{command} hung past its {timeout} s deadline; log: {}", log.display())]);
-                    self.outcome.record(&["failed-step", command, &log.display().to_string()]);
-                    return TIMED_OUT_STATUS;
-                }
-            },
-            Base::Exceeded => "also ran past it".to_owned(),
-            Base::Untimed => "has never been timed".to_owned(),
+            Base::Within(seconds) => format!("finished it in {seconds} s on an earlier run; a wall-clock deadline moves with the host's load and the probes beside it, so the hang is retried, and a lane that hangs on every try is refused as a persistent transient"),
+            Base::Exceeded => "also ran past it, so the hang is infrastructure, not this lane".to_owned(),
+            Base::Untimed => "has never been timed, so the hang is infrastructure, not this lane".to_owned(),
         };
-        let detail = format!("land check {command} ran past its {timeout} s deadline and base tree {tree} {base}, so the hang is infrastructure, not this lane");
+        let detail = format!("land check {command} ran past its {timeout} s deadline and base tree {tree} {base}");
         warn(&format!("safe-push: {detail}; log: {}; NOT pushed.", log.display()));
         self.outcome.record(&["skip", &detail]);
         self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {}", log.display())]);

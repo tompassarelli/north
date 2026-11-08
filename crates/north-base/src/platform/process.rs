@@ -226,15 +226,12 @@ mod leave_tests {
     #[test]
     fn a_hook_stops_waiting_at_its_limit_and_the_command_finishes_on_its_own() {
         let dir = tempfile::tempdir().unwrap();
-        let done = dir.path().join("done");
+        let (gate, done) = (dir.path().join("gate"), dir.path().join("done"));
         let mut command = Command::new("sh");
-        command.args(["-c", "sleep 1; touch \"$0\"", &done.display().to_string()]);
-        let started = Instant::now();
+        command.args(["-c", "i=0; while [ ! -e \"$0\" ] && [ $i -lt 1000 ]; do sleep 0.02; i=$((i+1)); done; touch \"$1\"", &gate.display().to_string(), &done.display().to_string()]);
         assert!(run_command_or_leave(command, b"", Duration::from_millis(200)).unwrap().is_none());
-        assert!(started.elapsed() < Duration::from_millis(900));
-        while !done.exists() && started.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        assert!(done.exists());
+        assert!(!done.exists());
+        std::fs::write(&gate, "").unwrap();
+        assert!((0..1000).any(|_| done.exists() || { std::thread::sleep(Duration::from_millis(20)); false }));
     }
 }

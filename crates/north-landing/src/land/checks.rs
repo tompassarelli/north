@@ -71,9 +71,6 @@ fn failing_check(log: &str) -> Option<String> {
     let lines = || log.lines().map(str::trim);
     let check = lines().find_map(|line| {
         let rest = line.strip_prefix(LAND_CHECK)?;
-        if let Some((command, _)) = rest.split_once(" hung: ") {
-            return Some(format!("land check {command} hung past its deadline"));
-        }
         let (command, status) = rest.split_once(" exited ")?;
         Some(format!("land check {command} exited {}", status.split([';', ' ']).next()?))
     });
