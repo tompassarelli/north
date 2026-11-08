@@ -4,7 +4,6 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use north_base::land_ticket::Phase;
 use north_base::platform::wait;
 use north_lander::land::candidate::{self, git};
 use north_lander::land::jobs::Chores;
@@ -275,40 +274,6 @@ fn duplicate_branch_names(world: &World) {
     assert_eq!(run(&stray_worktree, &["rev-parse", "HEAD"]), held, "another lander worktree's candidate moved under it");
 }
 
-fn remote_runner_lost_mid_check(world: &World) {
-    world.plan(&["lost"; 6]);
-    let lander = world.lander();
-    let a = world.enqueue(&lander, &world.lane("a"));
-    let b = world.enqueue(&lander, &world.lane("b"));
-    let rounds = drive(&lander, &mut Watch::default());
-    assert!(rounds.iter().filter(|round| round.contains("Waiting") && round.contains("transient")).count() >= 2, "{rounds:?}");
-    landed(&world.settled(&lander, &[&a, &b]));
-
-    world.plan(&["lost", "green", "green"]);
-    let c = world.enqueue(&lander, &world.lane("c"));
-    let d = world.enqueue(&lander, &world.lane("d"));
-    drive(&lander, &mut Watch::default());
-    landed(&world.settled(&lander, &[&a, &b, &c, &d]));
-}
-
-fn probes_ending_without_verdicts(world: &World) {
-    world.plan(&["lost"; 6]);
-    let lander = world.lander();
-    let a = world.enqueue(&lander, &world.lane("a"));
-    let b = world.enqueue(&lander, &world.lane("b"));
-    let held = format!("{:?}", lander.round(&mut Watch::default()));
-    assert!(held.contains("Waiting") && held.contains("transient"), "{held}");
-    let calls = world.root.join("north-calls");
-    let recorded = || fs::read_to_string(&calls).unwrap_or_default().lines().filter(|call| call.starts_with("ledger incident record ") && call.contains("--class lander-transient")).map(str::to_owned).collect::<Vec<_>>();
-    wait_for("an incident for each probe that ended without a verdict", || recorded().len() >= 2);
-    for call in recorded() {
-        let log = call.rsplit_once("; log: ").map(|(_, log)| PathBuf::from(log.trim())).unwrap_or_else(|| panic!("the incident names no log: {call}"));
-        assert!(log.is_file(), "the incident names a log that is not there: {call}");
-    }
-    drive(&lander, &mut Watch::default());
-    landed(&world.settled(&lander, &[&a, &b]));
-}
-
 fn wait_for(what: &str, ready: impl FnMut() -> bool) {
     assert!(wait::until(Duration::from_secs(60), ready), "timed out waiting for {what}");
 }
@@ -427,18 +392,6 @@ fn chaos_duplicate_branch_names_land_as_separate_lanes() {
     isolated("land_chaos::chaos_duplicate_branch_names_land_as_separate_lanes", duplicate_branch_names);
 }
 
-#[test]
-fn chaos_a_probe_that_ends_without_a_verdict_records_a_lander_incident_with_its_log_at_once() {
-    isolated("land_chaos::chaos_a_probe_that_ends_without_a_verdict_records_a_lander_incident_with_its_log_at_once", probes_ending_without_verdicts);
-}
-
-#[test]
-fn chaos_remote_runner_lost_mid_check_holds_then_lands() {
-    isolated("land_chaos::chaos_remote_runner_lost_mid_check_holds_then_lands", remote_runner_lost_mid_check);
-}
-
-
-
 fn stalled_patrol(_: &Lander) -> Result<(), String> {
     wait::hang();
     Ok(())
@@ -474,55 +427,3 @@ fn chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_eac
     isolated("land_chaos::chaos_a_queued_lane_lands_while_the_sheriff_a_recovery_and_an_outbox_pull_each_stall_five_minutes", stalled_chores);
 }
 
-fn queued_mid_round(world: &World) {
-    world.plan(&["hold", "green"]);
-    let lander = world.lander();
-    let a = world.enqueue(&lander, &world.lane("a"));
-    let b = std::thread::scope(|scope| {
-        let round = scope.spawn(|| format!("{:?}", lander.round(&mut Watch::default())));
-        wait_for("the round's probe to start its check", || world.plan.join("calls/1").exists());
-        let b = world.enqueue(&lander, &world.lane("b"));
-        wait_for("a probe carrying the ticket queued mid-round", || world.plan.join("calls/2").exists());
-        let ended = round.join().unwrap();
-        fs::write(world.plan.join("release"), "").unwrap();
-        assert!(ended.contains("Progress"), "{ended}");
-        b
-    });
-    let verdicts = world.settled(&lander, &[&a, &b]);
-    assert!(verdicts.iter().all(|verdict| verdict.starts_with("landed ")), "on 2026-11-08 a ticket queued while a round ran waited for that whole round and then its own, 57% of queued-to-push time; queued mid-round, it lands with the round: {verdicts:?}");
-}
-
-#[test]
-fn chaos_a_ticket_queued_mid_round_lands_with_that_round() {
-    isolated("land_chaos::chaos_a_ticket_queued_mid_round_lands_with_that_round", queued_mid_round);
-}
-
-fn withdrawn_mid_round(world: &World) {
-    world.plan(&["hold"; 24]);
-    let lander = world.lander();
-    let lanes: Vec<Lane> = ["n882-plan", "n882-tax", "n882-context", "am-move"].iter().map(|branch| world.enqueue(&lander, &world.lane(branch))).collect();
-    let calls = || fs::read_dir(world.plan.join("calls")).map_or(0, Iterator::count);
-    std::thread::scope(|scope| {
-        let round = scope.spawn(|| format!("{:?}", lander.round(&mut Watch::default())));
-        wait_for("all six probes of the round to start their checks", || calls() >= 6);
-        let before = calls();
-        for withdrawn in [&lanes[0], &lanes[2]] {
-            let path = lander.queue.join(&withdrawn.name);
-            queue::settle(&path, queue::read(&path).unwrap(), "withdrawn by land-lead: replay".to_owned(), Phase::Withdrawn).unwrap();
-        }
-        wait_for("the probes carrying a withdrawn ticket to run again without it", || calls() >= before + 2);
-        fs::write(world.plan.join("release"), "").unwrap();
-        let ended = round.join().unwrap();
-        assert!(ended.contains("Progress"), "{ended}");
-    });
-    let verdict = |lane: &Lane| queue::read(&lander.queue.join("done").join(&lane.name)).map(|ticket| ticket.verdict.unwrap_or_default()).unwrap_or_default();
-    let (tax, am_move) = (verdict(&lanes[1]), verdict(&lanes[3]));
-    assert!(tax.starts_with("landed ") && am_move.starts_with("landed "), "at 8:33 AM n882-plan and n882-context were withdrawn while the round's probes carrying them ran on; the green lanes left land in that round: n882-tax {tax:?}, am-move {am_move:?}");
-    let subjects = world.landed_subjects();
-    assert!(!subjects.contains(&lanes[0].subject) && !subjects.contains(&lanes[2].subject), "a withdrawn lane reached main: {subjects:?}");
-}
-
-#[test]
-fn chaos_tickets_withdrawn_mid_round_leave_its_probes_and_the_green_lanes_left_land_in_that_round() {
-    isolated("land_chaos::chaos_tickets_withdrawn_mid_round_leave_its_probes_and_the_green_lanes_left_land_in_that_round", withdrawn_mid_round);
-}

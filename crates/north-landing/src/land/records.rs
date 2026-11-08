@@ -2,7 +2,6 @@ use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::platform::coverage_record::{self, Line};
 use crate::platform::push_ledger;
 use super::after::{cleanup, follow};
 use super::candidate::git;
@@ -112,20 +111,3 @@ pub fn write(lander: &Lander, path: &Path, ticket: &Ticket, candidate: &Candidat
     }
 }
 
-pub fn coverage(queue: &Path, tips: &[String], candidate_log: &Path) {
-    let lines: Vec<Line> = tips.iter().map(|sha| Line::Landed { sha: sha.clone(), log: candidate_log.to_owned() }).collect();
-    let path = coverage_record::path(queue);
-    if let Err(error) = coverage_record::append(&path, &lines) {
-        println!("north land: could not record the coverage selection of {} landings in {}: {error}", tips.len(), path.display());
-    }
-}
-
-/// A check of `head` on `base` that ended without a verdict, recorded the moment it ends and naming its log, once per head and base however many rounds repeat it.
-pub fn unsettled(queue: &Path, path: &Path, ticket: &Ticket, head: &str, base: &str, (kind, detail): (&str, &str), log: &Path) {
-    if !matches!(kind, "transient" | "deferred") {
-        return;
-    }
-    let detail = format!("{kind} {detail}; log: {}", log.display());
-    let Some(class) = incidents::class(&detail) else { return };
-    incidents::record(queue, path, ticket, Some(incidents::Noticed { class, key: format!("{class}:{head}@{base}"), noticed_by: incidents::LANDER, detail: &detail }));
-}

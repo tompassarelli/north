@@ -75,7 +75,7 @@ impl Config {
     }
 
     pub fn after_set(&self) -> Self {
-        Self { checks: self.after.clone(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
+        Self { checks: self.checks.iter().chain(&self.after).cloned().collect(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
     /// The lines run before a lane queues: land.check lines marked `@enqueue`, and land.after lines so marked when `with_after` is set.

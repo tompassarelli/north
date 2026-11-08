@@ -1300,3 +1300,12 @@ Batch of three lanes: one candidate carried three documentation lanes queued wit
 other, picked at 4:25:54 and landed at 4:26:03 (9 s), against the 30 s target. A one-lane landing
 with a speculative second candidate stacked behind it took 7 s (4:26:12 to 4:26:19), and the
 stacked one landed at 4:26:22.
+
+### Land first again, without probe rounds (2026-11-08)
+
+- Every queued lane has passed its own checks before queueing: the gates, and compile and clippy of its changed crates, which safe-push's checks before queueing run on the lane against current main. The lander treats that as the lane's alone pass; an expiry after N landings joins later as its own lane.
+- Each round cherry-picks every queued lane onto main as one candidate, runs only the pick-time gates and scans, and pushes it with a lease on main. Nothing is checked on a merged tree before the push, and no push waits for an earlier batch's after-landing run; the lease is the only serialization.
+- The after-landing run now runs the `land.check` lines as well as the `land.after` lines on the landed tree, since they no longer run on any merged tree before the push. A red run bisects inside the batch and reverts the culprit as above.
+- The probe planner (`north-land-probes`), the probe fan-out, the suspect groups and the unbuilt-lane pull were deleted with nothing left calling them. The coverage agreement record lost its `landed` lines, which named the probe's check log.
+
+Replays in crates/north-lander/tests/it/land_first.rs: three queued lanes land in one push with the checker never called; a batch carrying a bad lane is reverted to exactly that lane; a batch queued while the previous batch's after-landing run is held is pushed before that run ends.

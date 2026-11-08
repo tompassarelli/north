@@ -8,8 +8,7 @@ const ATTEMPTS: usize = 3;
 
 pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {
     let config = Config::load(root, head);
-    let mut landing = config.commands(root, base, head)?;
-    landing.extend(config.after_set().commands(root, base, head)?);
+    let landing = config.after_set().commands(root, base, head)?;
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
     let queued: Vec<String> = queued_lines.iter().map(|command| shared_build::built(command)).collect();

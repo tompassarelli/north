@@ -1465,10 +1465,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "north-land-probes"
-version = "0.1.0"
-
-[[package]]
 name = "north-land-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -1520,7 +1516,6 @@ dependencies = [
  "north-base",
  "north-check-environment",
  "north-goals",
- "north-land-probes",
  "north-land-sandbox",
  "north-land-scans",
  "north-landing",
@@ -1556,7 +1551,6 @@ dependencies = [
  "north-github-mirror",
  "north-goals",
  "north-land-checks",
- "north-land-probes",
  "north-land-scans",
  "north-landing-gates",
  "north-mutants",

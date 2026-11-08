@@ -5,7 +5,6 @@ pub mod enqueue;
 pub mod first_commit;
 pub mod link_hold;
 pub mod pause;
-pub mod probes;
 pub mod promote;
 pub mod push_refusal;
 pub mod red;

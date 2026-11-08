@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::{ATTEMPTS, Round, micros};
-use super::round::Probing;
+use super::round::{Landing, Pushing};
 use crate::land::after;
 use crate::land::bisect;
 use crate::land::candidate::{self, Built, Pick};
@@ -12,7 +12,6 @@ use crate::land::lander::Lander;
 use crate::land::queue::{self, Ticket};
 use crate::land::records::{self, Candidate, Decision};
 use crate::land::telemetry::Stages;
-use north_base::land_ticket::Records;
 use crate::land::watch::Watch;
 use crate::land::{pause, red, steps};
 
@@ -54,7 +53,6 @@ pub(super) struct Attempt<'a> {
     pub(super) base: &'a str,
     pub(super) tickets: &'a [(PathBuf, Ticket)],
     pub(super) built: &'a Built,
-    pub(super) logs: &'a Path,
 }
 
 pub(super) trait Batching {
@@ -107,7 +105,7 @@ impl Batching for Lander {
         };
         self.heartbeat.enter(Step::Build);
         let built = candidate::build(&self.worktree, &base, tickets, &queued, usize::MAX, logs)?;
-        let attempt = Attempt { base: &base, tickets, built: &built, logs };
+        let attempt = Attempt { base: &base, tickets, built: &built };
         let (included, undecided) = self.sort_picks(pass, &attempt)?;
         if included.is_empty() {
             steps::batch(&pass.round(&attempt, BTreeMap::new(), 0), &included, None);
@@ -117,12 +115,8 @@ impl Batching for Lander {
                 (false, None) => Round::Idle,
             }));
         }
-        let taken: Vec<PathBuf> = included.iter().map(|(path, _)| (*path).clone()).collect();
-        let mut records = Records::open(&self.queue).map_err(|error| error.to_string())?;
-        records.checking(&taken).map_err(|error| error.to_string())?;
-        let flow = self.probe_round(watch, pass, &attempt, &included);
-        records.unchecked(&taken, "its land check ended without a verdict").map_err(|error| error.to_string())?;
-        flow
+        let landing = Landing { head: &built.head, tips: &built.tips, worktree: &self.worktree };
+        self.land_batch(watch, pass, &attempt, &included, &landing)
     }
 
     fn gate(&self, pass: &mut Pass, queued: &[(PathBuf, Ticket)], empty: bool, answering: bool) -> Option<Flow> {

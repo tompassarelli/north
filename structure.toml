@@ -124,7 +124,7 @@ may_use = ["north-base", "north-diff-gates", "north-landing-gates"]
 [[crate_dag.crate]]
 name = "north-landing"
 paths = ["crates/north-landing/src/**"]
-may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-goals", "north-mutants", "north-landing-gates", "north-land-scans", "north-check-environment", "north-land-checks", "north-land-probes"]
+may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-goals", "north-mutants", "north-landing-gates", "north-land-scans", "north-check-environment", "north-land-checks"]
 
 [[crate_dag.crate]]
 name = "north-land-watch"
@@ -134,7 +134,7 @@ may_use = ["north-base", "north-land-scans", "north-landing-gates"]
 [[crate_dag.crate]]
 name = "north-lander"
 paths = ["crates/north-lander/src/**", "crates/north-check-environment/src/**"]
-may_use = ["north-base", "north-check-environment", "north-goals", "north-land-probes", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types"]
+may_use = ["north-base", "north-check-environment", "north-goals", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types"]
 
 [[crate_dag.crate]]
 name = "north-safe-push"
@@ -155,11 +155,6 @@ may_use = ["north-dispatch", "north-providers", "north-github-mirror", "north-gr
 name = "north-check-environment"
 paths = ["crates/north-check-environment/src/**"]
 may_use = ["north-base"]
-
-[[crate_dag.crate]]
-name = "north-land-probes"
-paths = ["crates/north-land-probes/src/**"]
-may_use = []
 
 [[crate_dag.crate]]
 name = "north-land-sandbox"
@@ -363,7 +358,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "crates/*/examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-guard/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "landing.probes", "graph_loops", "graph_change"]
+may_use = ["strategy_types", "mutants", "cli", "tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "landing.safe_push.gates", "landing.safe_push.landing", "landing.safe_push.mode", "landing.safe_push.publication", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.restore", "landing.safe_push.session", "landing.safe_push.shell", "landing.safe_push.tags", "github_mirror", "coverage", "verdict_cache", "graph", "graph_ingest", "lander-doctor", "climb", "replay", "goals", "graph_ground", "nix_upkeep", "frontier", "lifecycle", "implicit_state", "land_ticket", "build_inputs", "platform.git", "platform.process", "platform.records", "platform", "platform.github", "platform.ssh", "platform.harness", "fleet_store", "graph_loops", "graph_change"]
 
 [[module]]
 name = "strategy_types"
@@ -537,13 +532,7 @@ may_use = ["foundation", "platform.github", "platform.process"]
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**", "crates/north-land-checks/src/**", "crates/north-land-watch/src/**", "crates/north-lander/src/**", "crates/north-check-environment/src/**", "crates/north-land-sandbox/src/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "landing.probes"]
-
-[[module]]
-name = "landing.probes"
-paths = ["crates/north-land-probes/src/**"]
-responsibility = "Which candidates the lander checks in one round, split into footprint sub-queues, how wide and in what order, and which one each sub-queue lands."
-may_use = []
+may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host"]
 
 [[module]]
 name = "landing.safe_push.shell"
