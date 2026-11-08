@@ -30,4 +30,5 @@ in-process subagents share their lead's scratchpad directory.
 A Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`,
 and `Stop: wait until YYYY-MM-DDTHH:MMZ` when it cannot go on before that UTC time, which dispatch honors;
 a hypothesis refuted with evidence is `Done: ruled out`.
+Report up by exception, because you hold more of your box than your lead: a Done, a landing, a refusal or red you cannot fix, or a blocker needing authority you lack (a scope change, a cross-cutting conflict, a decision gate); end a progress, waiting or confirmation turn silently, since the ledger and the lander's notices carry those.
 When only another host or need (laptop, native) can finish the box, run `north fleet need NAME REASON` before you report, which records NAME for your session and issue so dispatch places the next try there; write no `Stop: host` line.
