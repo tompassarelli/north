@@ -45,6 +45,7 @@ pub(super) fn check(promise: &Promise, tell_proxy: &dyn Fn(&str) -> Result<(), S
     command.args(["-c", &landed_as(&promise.command, &events)]).current_dir(cwd);
     let failure = match run_command_within(command, None, RUN) {
         Some(out) if out.status.success() => return format!("promise kept: {} said {:?}, and `{}` passed", promise.session, promise.line, promise.command),
+        Some(out) if misused(&out) => return format!("promise not judged: {} said {:?}, and `{}` failed on its own usage{}, so it reached no verdict", promise.session, promise.line, promise.command, last_line(&out)),
         Some(out) => format!("exited {}{}", out.status.code().map_or_else(|| "on a signal".to_owned(), |code| code.to_string()), last_line(&out)),
         None => format!("did not finish within {} s", RUN.as_secs()),
     };
@@ -53,6 +54,14 @@ pub(super) fn check(promise: &Promise, tell_proxy: &dyn Fn(&str) -> Result<(), S
         Ok(()) => format!("{text} (proxy told)"),
         Err(why) => format!("{text} (not told to the proxy: {why})"),
     }
+}
+
+fn misused(out: &Output) -> bool {
+    out.status.code() == Some(2)
+        || String::from_utf8_lossy(&out.stderr).lines().map(|line| line.trim().to_ascii_lowercase()).any(|line| {
+            let message = line.strip_prefix("error:").map_or(line.as_str(), str::trim_start);
+            message.starts_with("usage:") || message.starts_with("unrecognized")
+        })
 }
 
 fn last_line(out: &Output) -> String {

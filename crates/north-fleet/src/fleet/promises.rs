@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -11,9 +12,10 @@ use crate::error::NorthResult;
 
 const FILE: &str = "promises.jsonl";
 const CHECKED: &str = "promises-checked.jsonl";
-static COMMAND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([A-Za-z0-9_./-]+(?: [^`]+)+)`").expect("command pattern"));
+const FENCES: [&str; 2] = ["```", "~~~"];
 static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b").expect("sha pattern"));
 const BOX_MARKER: &str = "Done when:";
+const STOP: &str = "Stop:";
 static UTC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2})?Z\b").expect("utc time pattern"));
 static WALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(1[0-2]|0?[1-9]):([0-5]\d)\s?([AaPp])\.?[Mm]\b").expect("wall time pattern"));
 
@@ -41,14 +43,53 @@ impl Promise {
     }
 }
 
-pub fn promised(reply: &str) -> Vec<(String, String, When)> {
+pub struct Claim {
+    pub line: String,
+    pub when: When,
+    pub command: Option<String>,
+}
+
+pub fn promised(reply: &str, resolves: &dyn Fn(&str) -> bool) -> Vec<Claim> {
+    let mut fenced = false;
     reply
         .lines()
         .filter_map(|line| {
-            let command = COMMAND.captures_iter(command_text(line)).last()?[1].trim().to_owned();
-            Some((line.trim().to_owned(), command, when(line)?))
+            if FENCES.iter().any(|fence| line.trim_start().starts_with(fence)) {
+                fenced = !fenced;
+                return None;
+            }
+            if fenced || line.trim_start().starts_with(STOP) {
+                return None;
+            }
+            let spans = spans(command_text(line));
+            if spans.is_empty() {
+                return None;
+            }
+            let command = spans.into_iter().rev().map(str::trim).find(|span| span.split_whitespace().next().is_some_and(resolves)).map(str::to_owned);
+            Some(Claim { line: line.trim().to_owned(), when: when(line)?, command })
         })
         .collect()
+}
+
+fn spans(text: &str) -> Vec<&str> {
+    let parts: Vec<&str> = text.split('`').collect();
+    parts.iter().enumerate().skip(1).step_by(2).filter(|(index, _)| index + 1 < parts.len()).map(|(_, span)| *span).collect()
+}
+
+pub fn resolver<'a>(cwd: &'a Path, search: &'a OsStr) -> impl Fn(&str) -> bool + 'a {
+    move |program: &str| {
+        if !program.contains('/') {
+            return std::env::split_paths(search).any(|dir| executable(&dir.join(program)));
+        }
+        executable(&match program.strip_prefix("~/") {
+            Some(rest) => std::env::var_os("HOME").map_or_else(|| PathBuf::from(program), |home| PathBuf::from(home).join(rest)),
+            None => cwd.join(program),
+        })
+    }
+}
+
+fn executable(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|meta| meta.is_file() && std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0)
 }
 
 fn command_text(line: &str) -> &str {
@@ -131,3 +172,7 @@ fn append<T: Serialize>(path: &Path, rows: &[T]) -> NorthResult<()> {
     fs::OpenOptions::new().create(true).append(true).open(path)?.write_all(text.as_bytes())?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "promises_tests.rs"]
+mod tests;

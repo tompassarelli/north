@@ -22,7 +22,7 @@ use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
 use super::model::{Delivery, Entry, EntryKind, Machine, Phase, Phases, Role, SessionRecord, Transcript};
 use super::prompt::is_deepened;
-use super::promises::{Book, Promise, promised};
+use super::promises::{Book, Promise, promised, resolver};
 use super::receipts::{Courier, Report, deliver_report, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
@@ -388,10 +388,14 @@ impl TurnWatch {
     }
 
     fn keep_promises(&self, record: &SessionRecord, turn: &Turn, number: u64, reply: &str) {
-        let promises: Vec<Promise> = promised(reply)
-            .into_iter()
-            .map(|(line, command, when)| Promise { session: record.name.clone(), turn: number, line, command, when, said_ms: turn.ended_ms, cwd: record.cwd.clone() })
-            .collect();
+        let mut promises = Vec::new();
+        let search = std::env::var_os("PATH").unwrap_or_default();
+        for claim in promised(reply, &resolver(&record.cwd, &search)) {
+            match claim.command {
+                Some(command) => promises.push(Promise { session: record.name.clone(), turn: number, line: claim.line, command, when: claim.when, said_ms: turn.ended_ms, cwd: record.cwd.clone() }),
+                None => eprintln!("north fleet: {}'s line {:?} names a time but no backticked command whose program resolves, so it holds no promise to check", record.name, claim.line),
+            }
+        }
         if let Err(error) = Book::at(&self.root).keep(&promises) {
             eprintln!("north fleet: {}'s promises were not kept for the tick to check: {}", record.name, error.user_message());
         }

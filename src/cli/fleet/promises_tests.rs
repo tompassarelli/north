@@ -13,10 +13,10 @@ fn a_report_promising_a_state_by_a_wall_time_is_checked_then_and_its_failing_com
     let reply = "Not done: the tripwire reading is refreshed.\nLaunches on b open by 2:16 AM: `test -e /nonexistent/n838-launches-open`\nLanded at 1:50 AM: `git merge-base --is-ancestor HEAD origin/main`\nStop: capacity\n";
     let said_ms = unix_ms("2026-11-07T19:00:00Z");
     let promise = |index: usize| {
-        let (line, command, when) = promised(reply).swap_remove(index);
-        Promise { session: "gex45-lead-b".into(), turn: 4, line, command, when, said_ms, cwd: "/nonexistent".into() }
+        let claim = promised(reply, &|_| true).swap_remove(index);
+        Promise { session: "gex45-lead-b".into(), turn: 4, line: claim.line, command: claim.command.unwrap(), when: claim.when, said_ms, cwd: "/nonexistent".into() }
     };
-    assert_eq!(promised(reply).len(), 2);
+    assert_eq!(promised(reply, &|_| true).len(), 2);
     let tom = Zone::Fixed(7 * 3600);
     let (launches, landed) = (promise(0), promise(1));
     assert_eq!(due_ms(&launches, &tom), Some(unix_ms("2026-11-07T19:16:00Z")));
@@ -46,8 +46,15 @@ fn a_promise_naming_a_lane_sha_that_landed_rebased_is_judged_against_the_landed_
 }
 
 #[test]
-fn a_box_line_yields_only_its_done_when_command_not_the_backticks_in_its_prose() {
-    let reply = "- [ ] (not before 2026-11-09T13:00Z) The `agent text reads` fall from 74 lines to 10, each `north fleet need` replaced. Done when: `cargo test --test it agent_text_reads` passes.\nLanded by 2026-11-09T13:00Z, see `north fleet list` and `git log -1 origin/main`\n";
-    let found = promised(reply);
-    assert_eq!(found.iter().map(|(_, command, _)| command.as_str()).collect::<Vec<_>>(), ["cargo test --test it agent_text_reads", "git log -1 origin/main"]);
+fn a_promised_command_that_fails_on_its_own_usage_reaches_no_verdict_and_tells_the_proxy_nothing() {
+    let line = "- **The 6-hour box:** it can't read 0 until about 10:19 AM, because the last errors were at 4:19 AM. As you directed, I removed that wait-only read and rewrote the box as a check that runs now. `north task check --done-when` ran it and ticked the box: `pass (exit 0)`.";
+    let usage = "echo 'error: north task check --done-when [--dry-run] [--main DIR] [--box TEXT] (--body-file FILE | REPO#N | --repo OWNER/REPO)' >&2; exit 2";
+    let promise = Promise { session: "bd-845-nullacct".into(), turn: 8, line: line.into(), command: usage.into(), when: When::Wall { hour: 10, minute: 19 }, said_ms: 1_794_086_580_737, cwd: "/nonexistent".into() };
+    let told = RefCell::new(0);
+    let verdict = check(&promise, &|_| {
+        *told.borrow_mut() += 1;
+        Ok(())
+    });
+    assert_eq!(*told.borrow(), 0, "{verdict}");
+    assert!(verdict.starts_with("promise not judged: bd-845-nullacct"), "{verdict}");
 }
