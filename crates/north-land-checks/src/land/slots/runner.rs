@@ -19,6 +19,7 @@ use entry::{any, portable, replay, start_stage};
 use selection::{defined_on_tree, selections, without_empty_test_selections};
 
 mod arguments;
+mod base_tests;
 mod batch;
 mod build_host;
 mod checkout;

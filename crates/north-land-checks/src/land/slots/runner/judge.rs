@@ -70,6 +70,9 @@ impl Shared {
             self.outcome.record(&["event", "land check", "no verdict", &format!("{command}; log: {log}")]);
             return NO_VERDICT_STATUS;
         }
+        if let Some(judged) = self.judge_tests_against_base(command, leased, timeout, ran).await {
+            return judged;
+        }
         if let Some(first) = self.base_failure(command, leased, timeout).await {
             let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
             if self.config.is_inferred(command) {
@@ -140,15 +143,12 @@ impl Shared {
         }
     }
 
-    async fn run_on_base(&self, command: &str, leased: bool, timeout: u64) -> BaseResult {
+    pub(super) async fn base_run(&self, command: &str, leased: bool, timeout: u64) -> Result<Ran, String> {
         let base = self.arguments.base.clone();
         let checkout = if self.offload_host_for(command).is_some() {
             None
         } else {
-            match Checkout::switch(&self.root, &base) {
-                Ok(checkout) => Some(checkout),
-                Err(error) => return BaseResult::Failed(error),
-            }
+            Some(Checkout::switch(&self.root, &base)?)
         };
         let ran = self.spawn_check(command, leased, &base, timeout).await;
         if let Some(checkout) = checkout
@@ -156,7 +156,14 @@ impl Shared {
         {
             warn(&format!("safe-push: {error}"));
         }
-        let Ok(ran) = ran else { return BaseResult::Failed(format!("land check {command} could not start on the base tree")) };
+        ran.map_err(|_| format!("land check {command} could not start on the base tree"))
+    }
+
+    async fn run_on_base(&self, command: &str, leased: bool, timeout: u64) -> BaseResult {
+        let ran = match self.base_run(command, leased, timeout).await {
+            Ok(ran) => ran,
+            Err(error) => return BaseResult::Failed(error),
+        };
         let _ = Timings::standard().record(&self.trees.base, command, &self.cache_class(command), ran.timing());
         if ran.status == 0 {
             let _ = fs::remove_file(&ran.log);

@@ -326,6 +326,21 @@ fn a_check_that_also_fails_on_base_on_an_overloaded_host_blames_the_load_not_mai
     assert!(!outcome.contains("check environment is broken") && outcome.contains("while this host ran at load 500.0"), "on 2026-11-08 two timing tests failed on the lane and its base on the laptop at load 39 to 64, the lander read main as broken in placed and judged every candidate in place for 30 minutes, which drove the load to 123: {outcome}");
 }
 
+// KEEP(bug): on 2026-11-08 a lane was refused before queueing for nextest tests that were already red on main, because safe-push's checks before queueing refused any failing run while the lander judges each failing test against the lane's base (north#902)
+#[test]
+fn a_test_that_is_red_on_the_base_never_refuses_the_lane_and_the_refusal_names_only_tests_the_base_passes() {
+    let check = r#": cargo nextest run; if [ "$(cat file.txt)" = lane ]; then printf '        FAIL [   0.1s] (1/2) crate::bin red::on_both\n        FAIL [   0.1s] (2/2) crate::bin %s\n' "${LANE_ONLY:-lane::only}"; exit 100; fi; case "${SAFE_PUSH_LAND_IT:-}" in *red::on_both*) printf '        FAIL [   0.1s] (1/1) crate::bin red::on_both\n'; exit 100;; esac"#;
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {check}"))]);
+    let lane = lane_onto(&fixture, "lane\n");
+    let output = fixture.command_between(&fixture.head, &lane).output().unwrap();
+    let report = text(&output);
+    assert_eq!(output.status.code(), Some(100), "a test the base passes still refuses the lane: {report}");
+    assert!(report.contains("1 test(s) pass on base tree") && report.contains("fail on this lane: crate::bin lane::only") && report.contains("1 more fail on the base too"), "the refusal names the test the base passes and counts the one it fails: {report}");
+    let red_only = fixture.command_between(&fixture.head, &lane).env("LANE_ONLY", "red::on_both").output().unwrap();
+    assert_eq!(red_only.status.code(), Some(0), "every failing test is red on the base too, so the lane is not refused: {}", text(&red_only));
+    assert!(text(&red_only).contains("the lane adds no failing test"), "{}", text(&red_only));
+}
+
 #[test]
 fn a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_not_rerun_on_base() {
     let dropped = r#"printf '%s\n' "$(git rev-parse HEAD)" >>../runs; echo "north capacity offload: the connection ended (ssh exit 255) before the remote host reported the command's exit, so the run reached no verdict" >&2; exit 75"#;
