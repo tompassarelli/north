@@ -184,6 +184,20 @@ max = 120
 class = "ready"
 
 [[goal]]
+name = "ready-main-green-lander"
+source = "north#905: from an outside review on 2026-11-08, at least 99% of the window north's main was green by the lander's own after-landing verdicts (main_red episodes in the threads ledger), with the red episodes counted"
+unit = "% of time"
+min = 99
+class = "ready"
+
+[[goal]]
+name = "ready-main-green-ci"
+source = "north#905: from an outside review on 2026-11-08, at least 99% of the window north's main was green by GitHub's Cargo runs on main, red from a failing run to the next passing one, with the red episodes counted"
+unit = "% of time"
+min = 99
+class = "ready"
+
+[[goal]]
 name = "launch-refusals-per-hour"
 source = "north#643: a launch that placement refuses is a worker not staffed; north#641's readiness bar counts first tries lost to the harness, and a refused launch is the earliest such loss"
 oracle = "north ops strategy refusals --since 3h"

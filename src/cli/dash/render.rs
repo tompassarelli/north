@@ -12,6 +12,8 @@ const LINES: usize = 50;
 const COLUMNS: usize = 120;
 const SPEND_ROWS: usize = 5;
 const NAMED_FAILURES: usize = 1;
+/// The lines the workers table needs to show a few rows, below which the passing targets fold into one line.
+const WORKERS_MIN: usize = 9;
 
 #[derive(Clone, Copy)]
 enum Align {
@@ -128,7 +130,7 @@ fn listed(names: &[String]) -> String {
     }
 }
 
-fn bars(screen: &Screen, window: &str) -> Section {
+fn bars(screen: &Screen, window: &str, fold: bool) -> Section {
     let lines = match &screen.bars {
         Ok(lines) => lines,
         Err(why) => {
@@ -149,7 +151,8 @@ fn bars(screen: &Screen, window: &str) -> Section {
     let mut section = Section::headed("Key metrics", summary);
     let mut rows = vec![header(&["", "measure", "target", "last 5 min", "last 15 min", "last 1 h", &format!("last {window}")])];
     let first = section.lines.len();
-    rows.extend(ordered.iter().map(|line| {
+    let (shown, met): (Vec<&super::ready::Line>, Vec<&super::ready::Line>) = ordered.iter().copied().partition(|line| !fold || !line.passed || !line.window_passed);
+    rows.extend(shown.iter().map(|line| {
         let mark = match (line.passed, line.window_passed) {
             (false, _) => "FAIL",
             (true, false) => "warn",
@@ -157,7 +160,7 @@ fn bars(screen: &Screen, window: &str) -> Section {
         };
         vec![mark.to_owned(), name(line), line.target.clone(), line.five_text.clone(), line.fifteen_text.clone(), line.hour_text.clone(), line.window_text.clone()]
     }));
-    for (index, line) in ordered.iter().enumerate() {
+    for (index, line) in shown.iter().enumerate() {
         let tone = match (line.passed, line.window_passed) {
             (false, _) => Tone::Bad,
             (true, false) => Tone::Warn,
@@ -166,6 +169,11 @@ fn bars(screen: &Screen, window: &str) -> Section {
         section.mark_row(first + 1 + index, 0, 4, tone);
     }
     grid(&rows, &[Align::Left; 7]).into_iter().for_each(|line| section.push(line));
+    if !met.is_empty() {
+        section.mark_row(section.lines.len(), 0, 4, Tone::Good);
+        let names: Vec<String> = met.iter().map(|line| name(line)).collect();
+        section.push(format!("pass  {} more met now and over the last {window}: {}", met.len(), names.join(", ")));
+    }
     section
 }
 
@@ -393,9 +401,13 @@ pub fn screen(screen: &Screen, color: bool) -> String {
     let mut all = Section::default();
     all.push(format!("north dash: the last {window}, read at {}", Timestamp::from_unix_seconds(screen.now).local_twelve_hour()));
     all.push(String::new());
-    all.append(bars(screen, &window));
+    let billed = billing(screen, &window);
+    let others = all.lines.len() + billed.lines.len() + 2;
+    let unfolded = bars(screen, &window, false);
+    let metrics = if LINES.saturating_sub(others + unfolded.lines.len()) < WORKERS_MIN { bars(screen, &window, true) } else { unfolded };
+    all.append(metrics);
     all.push(String::new());
-    all.append(billing(screen, &window));
+    all.append(billed);
     all.push(String::new());
     let room = LINES.saturating_sub(all.lines.len());
     all.append(workers(screen, &mixes, &window, room));

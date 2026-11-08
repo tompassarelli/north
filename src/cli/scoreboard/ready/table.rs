@@ -14,6 +14,7 @@ fn show(unit: &str, value: f64) -> String {
         "per h" => format!("{value:.2}/h"),
         "min" => format!("{value:.0} min"),
         "points" => format!("{value:.1}"),
+        "% of time" => format!("{value:.1}%"),
         _ => format!("{value:.0}"),
     }
 }
@@ -26,7 +27,10 @@ const MARK: usize = 2;
 
 pub(super) fn cell(goal: &Goal, reading: Option<Reading>, explain: bool) -> String {
     match reading {
-        Some(reading) if explain => format!("{} (n={})", show(&goal.unit, reading.value), reading.sample),
+        Some(reading) if explain => match goal.unit.as_str() {
+            "% of time" => format!("{} ({} red)", show(&goal.unit, reading.value), reading.sample),
+            _ => format!("{} (n={})", show(&goal.unit, reading.value), reading.sample),
+        },
         Some(reading) => show(&goal.unit, reading.value),
         None => "none".into(),
     }

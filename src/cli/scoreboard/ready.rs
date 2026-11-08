@@ -21,6 +21,7 @@ use crate::flow::priority_log::{self, Noted};
 use crate::flow::usage_yield::{self, Facts};
 use crate::threads::calibration::rework::Sources as ReworkSources;
 
+mod main_green;
 mod table;
 
 pub const REPOS: [&str; 2] = ["north", "makgora"];
@@ -47,10 +48,12 @@ enum Bar {
     LiveP90,
     UsagePerLanding,
     StrandedUsage,
+    MainGreenLander,
+    MainGreenCi,
 }
 
 impl Bar {
-    const ALL: [Self; 13] = [
+    const ALL: [Self; 15] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -64,6 +67,8 @@ impl Bar {
         Self::LiveP90,
         Self::UsagePerLanding,
         Self::StrandedUsage,
+        Self::MainGreenLander,
+        Self::MainGreenCi,
     ];
 
     fn goal(self) -> &'static str {
@@ -81,6 +86,8 @@ impl Bar {
             Self::LiveP90 => "ready-live-p90",
             Self::UsagePerLanding => "ready-usage-per-landing",
             Self::StrandedUsage => "ready-stranded-usage",
+            Self::MainGreenLander => "ready-main-green-lander",
+            Self::MainGreenCi => "ready-main-green-ci",
         }
     }
 
@@ -99,6 +106,8 @@ impl Bar {
             Self::LiveP90 => "landing to live everywhere p90",
             Self::UsagePerLanding => "usage per first try landed (all)",
             Self::StrandedUsage => "usage stranded while work waited (all)",
+            Self::MainGreenLander => "main green by the lander's verdicts",
+            Self::MainGreenCi => "main green by GitHub Cargo",
         }
     }
 
@@ -118,6 +127,8 @@ impl Bar {
             Self::LiveP90 => "landing to live, slowest 1 in 10",
             Self::UsagePerLanding => "usage per first try landed",
             Self::StrandedUsage => "usage wasted while work waited",
+            Self::MainGreenLander => "main green, landing checks",
+            Self::MainGreenCi => "main green, GitHub checks",
         }
     }
 
@@ -263,6 +274,8 @@ struct Records {
     priority: Vec<Noted>,
     idle: Idle,
     live: HashMap<String, Vec<(i64, f64)>>,
+    lander_red: HashMap<String, main_green::Reds>,
+    ci_red: HashMap<String, main_green::Reds>,
     usage: Facts,
 }
 
@@ -308,6 +321,8 @@ impl Records {
             firsts: landing::first_landings(&threads).map_err(failed)?,
             tom: tom::Tom::read(&sources.places, &sources.home, since, now)?,
             priority: note(now),
+            lander_red: main_green::lander(&threads, now)?,
+            ci_red: REPOS.iter().filter_map(|repo| Some(((*repo).to_owned(), main_green::github(repo, now)?))).collect(),
             idle: Idle::read(since),
             usage: Facts::load(&usage_yield::Sources { db: &threads, policy: &crate::platform::orchestration::path(), state: &state_root() }, now),
             live: HashMap::from([("north".to_owned(), north_runtime::runtime::live::everywhere(&north_runtime::runtime::live::read(&sources.records.join("north"))))]),
@@ -356,6 +371,8 @@ impl Records {
                 (hours > 0).then(|| Reading { value: count as f64 / hours as f64, sample: hours })
             }
             Bar::PriorityNow => self.priority(repo, window),
+            Bar::MainGreenLander => Some(main_green::reading(self.lander_red.get(repo).map_or(&[], Vec::as_slice), window)),
+            Bar::MainGreenCi => Some(main_green::reading(self.ci_red.get(repo)?, window)),
             Bar::UsagePerLanding => {
                 let usage = self.usage.reading(window.start, window.end, false);
                 usage.per_landing().map(|value| Reading { value, sample: usage.landed })
