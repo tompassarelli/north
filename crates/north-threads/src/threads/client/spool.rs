@@ -13,6 +13,9 @@ use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 use crate::threads::ingest_lock;
 
+const NOT_EXECUTABLE_STATUS: i32 = 126;
+const COMMAND_NOT_FOUND_STATUS: i32 = 127;
+
 /// Where a write spooled on a mirrored client stands on its way to the ledger host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Phase {
@@ -255,6 +258,10 @@ impl Client {
         }
         if matches!(code, ingest_lock::RETRY | TIMED_OUT_STATUS) {
             spool.release(name, if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
+            return Ok(Some(Flush::Busy));
+        }
+        if matches!(code, NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS) {
+            spool.release(name, &format!("the ledger host could not run the ingest (exit {code})"), (self.clock)())?;
             return Ok(Some(Flush::Busy));
         }
         if code != 0 {

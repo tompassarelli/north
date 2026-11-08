@@ -233,6 +233,34 @@ fn a_busy_ledger_host_spools_the_batch_keeps_it_queued_and_stays_reachable_for_o
 }
 
 #[test]
+fn a_replayed_ingest_the_host_could_not_run_stays_queued_while_one_refused_for_a_real_reason_is_refused() {
+    for unrunnable in [126, 127] {
+        let rig = rig(&[]);
+        fs::write(rig.root.join("ingest-code"), ingest_lock::RETRY.to_string()).unwrap();
+        assert_eq!(call(&rig, &["ingest"], b"{\"n\": 1}\n").0, 0);
+        fs::write(rig.root.join("ingest-code"), unrunnable.to_string()).unwrap();
+        let (code, err) = call(&rig, &["claim", "north#63"], b"");
+        assert_eq!(code, 0, "{err}");
+        assert!(!err.contains("refused"), "exit {unrunnable} says nothing about the row: {err}");
+        fs::remove_file(rig.root.join("ingest-code")).unwrap();
+        assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+        assert!(spooled(&rig).is_empty(), "exit {unrunnable} left the row stuck: {:?}", spooled(&rig));
+        assert_eq!(log(&rig, "ingest.log").last().map(String::as_str), Some("{\"n\": 1}"));
+    }
+
+    let rig = rig(&[]);
+    fs::write(rig.root.join("ingest-code"), ingest_lock::RETRY.to_string()).unwrap();
+    assert_eq!(call(&rig, &["ingest"], b"{\"n\": 1}\n").0, 0);
+    fs::write(rig.root.join("ingest-code"), "1").unwrap();
+    let (_, err) = call(&rig, &["claim", "north#63"], b"");
+    assert!(err.contains("remote ingest refused"), "{err}");
+    fs::remove_file(rig.root.join("ingest-code")).unwrap();
+    let sent = log(&rig, "ingest.log").len();
+    call(&rig, &["claim", "north#63"], b"");
+    assert_eq!(log(&rig, "ingest.log").len(), sent, "a refused row is not sent again");
+}
+
+#[test]
 fn threads_client_reads_fall_back_to_the_snapshot_with_the_stale_line() {
     let rig = rig(&[]);
     fs::write(rig.root.join("code"), "255").unwrap();
