@@ -1,14 +1,29 @@
 use north_base::foundation::clock::Timestamp;
-use north_base::verdict_cache::{Pass, Store, remote_hits, remote_record};
-use std::process::{Command, Stdio};
+use north_base::verdict_cache::{Pass, REMOTE_DIR, Replica, Store, exchange, remote_hits, remote_record, sync};
+use std::process::Command;
 
-pub const USAGE: &str = "north capacity offload verdict hit KEY... (prints KEY HOST SECONDS SHA for each key a check host holds a pass for) | record --host NAME --key KEY (--pass SHA | --fail, which clears the key on every host)";
+pub const USAGE: &str = "north capacity offload verdict hit KEY... (prints KEY HOST SECONDS SHA for each key a check host holds a pass for) | record --host NAME --key KEY (--pass SHA | --fail, which clears the key on every host) | sync [--host NAME]... (copies each recorded path set, pass and clear this host or a build host lacks to the other, both ways, deletes a pass with a clear on either side from both, and prints one line per host: files sent, files received, passes cleared)";
 const LOCAL: &str = "local";
 const SSH: [&str; 6] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", "-oServerAliveInterval=2"];
 
 fn ssh(destination: &str, script: &str) -> Option<String> {
-    let output = Command::new("ssh").args(SSH).args([destination, "--", script]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    remote(destination, script, b"").ok().map(|output| String::from_utf8_lossy(&output).into_owned())
+}
+
+fn remote(destination: &str, script: &str, input: &[u8]) -> std::io::Result<Vec<u8>> {
+    exchange(Command::new("ssh").args(SSH).args([destination, "--", script]), input)
+}
+
+struct Remote<'a>(&'a str);
+
+impl Replica for Remote<'_> {
+    fn root(&self) -> String {
+        REMOTE_DIR.to_owned()
+    }
+
+    fn run(&self, script: &str, input: &[u8]) -> std::io::Result<Vec<u8>> {
+        remote(self.0, script, input)
+    }
 }
 
 fn hits(keys: &[String]) -> u8 {
@@ -62,6 +77,26 @@ fn record(host: &str, key: &str, pass: Option<&Pass>) -> u8 {
     }
 }
 
+fn sync_hosts(names: &[&str]) -> u8 {
+    let hosts: Vec<(String, String)> = super::build_hosts().into_iter().filter(|(name, _)| names.is_empty() || names.contains(&name.as_str())).collect();
+    if let Some(missing) = names.iter().find(|name| !hosts.iter().any(|(host, _)| host == **name)) {
+        eprintln!("north capacity offload verdict: {missing} is not a build host");
+        return 1;
+    }
+    let local = Store::here();
+    let mut code = 0;
+    for (name, destination) in hosts {
+        match sync(&local, &Remote(&destination)) {
+            Ok(report) => println!("{name}: sent {}, received {}, cleared {}", report.sent, report.received, report.cleared),
+            Err(error) => {
+                eprintln!("north capacity offload verdict: could not sync with {name}: {error}");
+                code = 1;
+            }
+        }
+    }
+    code
+}
+
 fn clear(key: &str) -> u8 {
     let mut code = record(LOCAL, key, None);
     for (host, _) in super::build_hosts() {
@@ -70,11 +105,25 @@ fn clear(key: &str) -> u8 {
     code
 }
 
+fn sync_names<'a>(words: &[&'a str]) -> Option<Vec<&'a str>> {
+    words.chunks(2).map(|pair| match pair {
+        ["--host", name] => Some(*name),
+        _ => None,
+    }).collect()
+}
+
 pub fn run(words: &[&str]) -> u8 {
     match words {
         ["hit", keys @ ..] if !keys.is_empty() => hits(&keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>()),
         ["record", "--host", host, "--key", key, "--pass", sha] => record(host, key, Some(&Pass { at: Timestamp::now(), sha: (*sha).to_owned() })),
         ["record", "--host", _, "--key", key, "--fail"] => clear(key),
+        ["sync", rest @ ..] => match sync_names(rest) {
+            Some(names) => sync_hosts(&names),
+            None => {
+                eprintln!("usage: {USAGE}");
+                2
+            }
+        },
         _ => {
             eprintln!("usage: {USAGE}");
             2

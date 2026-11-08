@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::foundation::clock::Timestamp;
 
 pub const DIR_ENV: &str = "NORTH_VERDICT_CACHE_DIR";
-const REMOTE_DIR: &str = "\"${XDG_STATE_HOME:-$HOME/.local/state}/north/verdict-cache\"";
+pub const REMOTE_DIR: &str = "\"${XDG_STATE_HOME:-$HOME/.local/state}/north/verdict-cache\"";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pass {
@@ -24,7 +24,7 @@ impl Pass {
     }
 }
 
-fn hex(text: &str) -> bool {
+pub(super) fn hex(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
