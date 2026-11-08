@@ -4,7 +4,7 @@ use north_base::platform::harness::default_number;
 use north_base::platform::watch_named::run_time as at;
 
 use super::facts::{Event, Run};
-use super::{Alert, Severity, WatchContext};
+use super::{Alert, Detail, Severity, WatchContext};
 
 pub const STALL_SECONDS: f64 = 120.0;
 const CHECK_STAGES: [&str; 2] = ["land checks", "dependency gate and scans"];
@@ -28,7 +28,7 @@ pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
 }
 
 fn alert(key: String, severity: Severity, event: &Event, summary: String, since: f64) -> Alert {
-    Alert { key, severity, repo: Some(event.repo.clone()), owner: (!event.session.is_empty()).then(|| event.session.clone()), summary, since: since as u64 }
+    Alert { key, severity, repo: Some(event.repo.clone()), owner: (!event.session.is_empty()).then(|| event.session.clone()), summary, since: since as u64, detail: Detail::default() }
 }
 
 fn latest_live(context: &WatchContext) -> BTreeMap<u32, &Event> {
@@ -108,9 +108,9 @@ fn shared_failures(context: &WatchContext) -> Vec<Alert> {
             if passed_since(events.iter().map(|event| event.time).fold(f64::MIN, f64::max)) {
                 continue;
             }
-            let names: Vec<&str> = events.iter().map(|event| event.lane.as_str()).collect();
-            let summary = format!("{repo}: possible red main: {test} failed the land checks of {} lanes ({})", names.len(), names.join(", "));
-            alerts.push(alert(format!("land:{repo}:possible-red-main:{test}"), Severity::Page, events[0], summary, events[1].time));
+            let mut raised = alert(format!("land:{repo}:possible-red-main:{test}"), Severity::Page, events[0], format!("{repo}: possible red main: {test}"), events[1].time);
+            raised.detail = Detail { lead: "it failed the land checks of".into(), unit: "lanes".into(), items: distinct_lanes(events.iter().copied()) };
+            alerts.push(raised);
         }
     }
     alerts
@@ -139,9 +139,20 @@ fn runtime(context: &WatchContext) -> Vec<Alert> {
     let landed = context.events.iter().find(|event| event.status == "landed" && event.sha == landing);
     let summary = format!("north landing {short} is not live and healthy past its live deadline: {}", failing.join(" | "));
     let owner = landed.and_then(|event| (!event.session.is_empty()).then(|| event.session.clone()));
-    vec![Alert { key: format!("land:north:runtime-not-live:{short}"), severity: Severity::Warn, repo: Some("north".into()), owner, summary, since: landed.map_or(checked, |event| event.time as u64) }]
+    vec![Alert { key: format!("land:north:runtime-not-live:{short}"), severity: Severity::Warn, repo: Some("north".into()), owner, summary, since: landed.map_or(checked, |event| event.time as u64), detail: Detail::default() }]
 }
 
 #[cfg(test)]
 #[path = "landing_tests.rs"]
 mod tests;
+
+/// The distinct lanes of `events` in first-seen order; a probe's lane field lists its lanes comma-separated.
+pub(super) fn distinct_lanes<'a>(events: impl Iterator<Item = &'a Event>) -> Vec<String> {
+    let mut lanes: Vec<String> = Vec::new();
+    for lane in events.flat_map(|event| event.lane.split(',')).map(str::trim).filter(|lane| !lane.is_empty()) {
+        if !lanes.iter().any(|seen| seen == lane) {
+            lanes.push(lane.to_owned());
+        }
+    }
+    lanes
+}

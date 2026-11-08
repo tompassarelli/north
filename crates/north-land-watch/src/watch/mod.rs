@@ -14,7 +14,7 @@ pub mod sink;
 
 pub use facts::{Event, RepoFacts, Run, StageSample};
 
-const USAGE: &str = "usage: north ops watch --once [--quiet]";
+const USAGE: &str = "usage: north ops watch --once [--quiet] | north ops watch show NAME";
 pub const HEARTBEAT: &str = "north/watch/heartbeat";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -32,6 +32,15 @@ pub struct Alert {
     pub owner: Option<String>,
     pub summary: String,
     pub since: u64,
+    pub detail: Detail,
+}
+
+/// The items an alert names beyond its summary, such as the lanes whose land checks also failed: a message names at most five, and the alert's detail file lists them all.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Detail {
+    pub lead: String,
+    pub unit: String,
+    pub items: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -72,6 +81,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let quiet = match arguments.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["--once"] => false,
         ["--once", "--quiet"] | ["--quiet", "--once"] => true,
+        ["show", name] => return show(name),
         _ => {
             eprintln!("{USAGE}");
             return 2;
@@ -102,4 +112,18 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let _ = fs::write(state.join(HEARTBEAT), format!("{}\n", context.now));
     0
+}
+
+fn show(name: &str) -> u8 {
+    let file = sink::detail_file(&state_home().join("north/watch"), &sink::detail_name(name));
+    match fs::read_to_string(&file) {
+        Ok(text) => {
+            print!("{text}");
+            0
+        }
+        Err(error) => {
+            eprintln!("north ops watch: no detail for {name} at {}: {error}", file.display());
+            1
+        }
+    }
 }

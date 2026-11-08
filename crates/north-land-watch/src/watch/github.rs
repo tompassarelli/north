@@ -4,8 +4,8 @@ use north_base::platform::harness::default_number;
 use north_base::platform::watch_named::run_time as at;
 
 use super::facts::{RepoFacts, Run};
-use super::landing::recent_land_check_failures;
-use super::{Alert, Severity, WatchContext};
+use super::landing::{distinct_lanes, recent_land_check_failures};
+use super::{Alert, Detail, Severity, WatchContext};
 
 const QUEUED_FLOOR: &str = "landing_watch_queued_seconds";
 const AUTOLAND_FAILURE_WINDOW: u64 = 1800;
@@ -31,7 +31,7 @@ pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
 }
 
 fn raise(repo: &RepoFacts, kind: &str, severity: Severity, owner: Option<String>, summary: String, since: u64) -> Alert {
-    Alert { key: format!("gh:{}:{kind}", repo.name), severity, repo: Some(repo.name.clone()), owner, summary, since }
+    Alert { key: format!("gh:{}:{kind}", repo.name), severity, repo: Some(repo.name.clone()), owner, summary, since, detail: Detail::default() }
 }
 
 fn owner_of_sha(context: &WatchContext, sha: &str) -> Option<String> {
@@ -46,16 +46,15 @@ fn red_main(context: &WatchContext, repo: &RepoFacts) -> Vec<Alert> {
             latest.insert(&run.name, run);
         }
     }
-    let lanes: Vec<String> = recent_land_check_failures(context, &repo.name).map(|event| event.lane.clone()).collect();
+    let lanes = distinct_lanes(recent_land_check_failures(context, &repo.name));
     let mut alerts = Vec::new();
     for (workflow, run) in latest.into_iter().filter(|(_, run)| run.conclusion.as_deref().is_some_and(|conclusion| FAILED.contains(&conclusion))) {
         let short = &run.head_sha[..run.head_sha.len().min(12)];
-        let mut summary = format!("{} main is red: {workflow} failed on main commit {short} ({})", repo.name, run.html_url);
-        if !lanes.is_empty() {
-            summary.push_str(&format!("; land checks also failed in the last hour for {}", lanes.join(", ")));
-        }
+        let summary = format!("{} main is red: {workflow} failed on main commit {short} ({})", repo.name, run.html_url);
         let since = at(&run.updated_at).unwrap_or(context.now);
-        alerts.push(raise(repo, &format!("red-main:{workflow}"), Severity::Page, owner_of_sha(context, &run.head_sha), summary, since));
+        let mut alert = raise(repo, &format!("red-main:{workflow}"), Severity::Page, owner_of_sha(context, &run.head_sha), summary, since);
+        alert.detail = Detail { lead: "land checks also failed in the last hour for".into(), unit: "lanes".into(), items: lanes.clone() };
+        alerts.push(alert);
     }
     alerts
 }
