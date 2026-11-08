@@ -97,3 +97,12 @@ fn tree_policy_refuses_the_unquoted_worker_description_github_could_not_render_n
     fs::write(agents.join("worker.md"), worker(&format!("'{planted}'"))).unwrap();
     assert!(!super::tree::tree_policy(dir.path()).text.contains("worker.md"));
 }
+
+#[test]
+fn a_yaml_error_is_located_in_the_message_form_of_either_yq_release() {
+    let older = "Error: bad file '-': yaml: line 2, column 61: mapping values are not allowed in this context";
+    let newer = "Error: bad file '-': go-yaml load error in scanner at L2.C61: mapping values are not allowed in this context";
+    for message in [older, newer] {
+        assert_eq!(super::frontmatter::located(message), (2, "mapping values are not allowed in this context".to_owned()), "{message}");
+    }
+}

@@ -27,3 +27,33 @@ fn a_moved_lander_worktree_builds_while_its_old_worktree_still_holds_the_candida
     assert_eq!(built.included(), 0);
     assert_eq!(git(&moved, &["rev-parse", "HEAD"]).unwrap(), base);
 }
+
+#[test]
+fn a_lane_whose_change_main_already_carries_is_named_by_the_main_commit_carrying_it_not_by_the_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("main");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]).unwrap();
+    for (key, value) in [("user.name", "t"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")] {
+        git(&repo, &["config", key, value]).unwrap();
+    }
+    fs::write(repo.join("a"), "a\n").unwrap();
+    commit_all(&repo, "base");
+    git(&repo, &["checkout", "-q", "-b", "model-catalog-argon"]).unwrap();
+    fs::write(repo.join("argon"), "argon\n").unwrap();
+    commit_all(&repo, "Add the Argon efforts");
+    let duplicate = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    git(&repo, &["checkout", "-q", "main"]).unwrap();
+    fs::write(repo.join("argon"), "argon\n").unwrap();
+    commit_all(&repo, "Land the Argon efforts from another lane");
+    let carrier = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    fs::write(repo.join("clock"), "clock\n").unwrap();
+    commit_all(&repo, "Name the wall clock");
+    let testclock = git(&repo, &["rev-parse", "HEAD"]).unwrap();
+    let ticket = |branch: &str, head: &str| (dir.path().join(format!("{branch}.json")), Ticket { branch: branch.to_owned(), head: head.to_owned(), root: repo.clone(), origin: repo.display().to_string(), ..Default::default() });
+    let worktree = dir.path().join("worktrees/lander");
+    ensure(&repo, &worktree).unwrap();
+    let built = build(&worktree, &testclock, &[ticket("model-catalog-argon", &duplicate)], &[], usize::MAX, &dir.path().join("logs")).unwrap();
+    let decided = match &built.picks[0] { Pick::Decided(text) => text.clone(), _ => String::new() };
+    assert_eq!(decided, format!("landed {carrier}"), "on 2026-11-08 model-catalog-argon, whose change da2941ea10 had already landed, was told it landed as bde3db9c68, the base it was checked against");
+}

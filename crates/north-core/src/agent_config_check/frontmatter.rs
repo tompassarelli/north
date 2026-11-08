@@ -53,9 +53,12 @@ fn yaml_error(frontmatter: &str) -> Option<(usize, String)> {
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     let reason = stderr.lines().find(|line| !line.trim().is_empty()).unwrap_or("yq refused it").trim();
-    let located = Regex::new(r"yaml: line (\d+)(?:, column \d+)?: (.*)").expect("yq error pattern").captures(reason);
-    Some(match located {
-        Some(found) => (found[1].parse().unwrap_or(0), found[2].to_owned()),
+    Some(located(reason))
+}
+
+pub(super) fn located(reason: &str) -> (usize, String) {
+    match Regex::new(r"(?:yaml: line (\d+)(?:, column \d+)?|load error in \w+ at L(\d+)\.C\d+): (.*)").expect("yq error pattern").captures(reason) {
+        Some(found) => (found.get(1).or(found.get(2)).map_or(0, |line| line.as_str().parse().unwrap_or(0)), found[3].to_owned()),
         None => (0, reason.trim_start_matches("Error: ").to_owned()),
-    })
+    }
 }

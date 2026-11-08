@@ -113,10 +113,11 @@ pub(super) fn current_main(
     let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
         .is_some_and(|output| !output.stdout.is_empty());
     let reason = match (branch.as_deref(), ahead, dirty) {
-        (None, 0, false) => match reattach(&git) {
+        (branch, 0, false) if branch != Some("main") => match reattach(&git) {
             Ok(()) => {
+                let left = branch.map_or_else(|| "detached".to_owned(), |branch| format!("on branch {branch}"));
                 say(format!(
-                    "agents sync: {name} checkout was detached at an ancestor of origin/main; switched to main"
+                    "agents sync: {name} checkout was {left} at an ancestor of origin/main; switched to main"
                 ));
                 fast_forward(fetched, &git)
             }
@@ -141,11 +142,11 @@ pub(super) fn current_main(
 fn reattach<T>(git: &impl Fn(&[&str]) -> Option<T>) -> Result<(), String> {
     let main_absent = git(&["rev-parse", "-q", "--verify", "refs/heads/main"]).is_none();
     if !main_absent && git(&["merge-base", "--is-ancestor", "refs/heads/main", "origin/main"]).is_none() {
-        return Err("checkout is detached and local main is not an ancestor of origin/main".to_owned());
+        return Err("checkout is off main and local main is not an ancestor of origin/main".to_owned());
     }
     git(&["switch", "-q", "main"])
         .map(drop)
-        .ok_or_else(|| "checkout is detached and git switch main failed".to_owned())
+        .ok_or_else(|| "checkout is off main and git switch main failed".to_owned())
 }
 
 fn fast_forward<T>(fetched: bool, git: &impl Fn(&[&str]) -> Option<T>) -> Option<String> {

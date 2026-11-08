@@ -74,3 +74,16 @@ fn a_quarantined_ticket_is_queued_again_by_name_and_a_queued_one_is_not() {
     assert!(path.is_file() && !quarantined.exists());
     assert!(crate::land::requeue::requeue(queue_dir.path(), "lane", "again").is_err(), "a ticket back in the queue is no longer quarantined");
 }
+
+#[test]
+fn a_red_fix_is_checked_before_every_urgent_ticket_queued_ahead_of_it() {
+    let queue_dir = tempfile::tempdir().unwrap();
+    for (micros, branch, urgent, red_fix) in [(1_000, "n882-observe", true, false), (2_000, "n909-policy", true, false), (3_000, "yq-error-forms", false, true)] {
+        let path = queue_dir.path().join(queue::file_name(micros, branch));
+        let ticket = Ticket { branch: branch.to_owned(), queued_micros: Some(micros), urgent: urgent.then(|| "lander work".to_owned()), red_fix: red_fix.then_some(queue::RedFix::Marker), ..Default::default() };
+        queue::write(&path, &ticket).unwrap();
+        queued(&path, "enqueued").unwrap();
+    }
+    let order: Vec<String> = queue::collect(queue_dir.path()).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
+    assert_eq!(order[0], "yq-error-forms", "on 2026-11-08 the Main-red fixes for GitHub's red Cargo run at bde3db9c68 ranked with 20 urgent tickets queued before them and rode none of the next round's probes: {order:?}");
+}

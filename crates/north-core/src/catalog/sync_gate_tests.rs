@@ -84,3 +84,25 @@ fn a_diverged_main_is_refused_and_left_alone() {
     assert_eq!(head(&pair.clone), before);
 }
 
+#[test]
+fn a_clean_branch_checkout_with_no_unlanded_commits_returns_to_main_and_publishes() {
+    let pair = pair();
+    git(&pair.clone, &["switch", "-q", "-c", "n706-box"]);
+    commit(&pair.origin, "remote");
+    let (outcome, said) = sync(&pair);
+    assert_eq!(outcome, Ok(()));
+    assert_eq!(head(&pair.clone), head(&pair.origin));
+    let branch = Command::new("git")
+        .arg("-C")
+        .arg(&pair.clone)
+        .args(["branch", "--show-current"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&branch.stdout).trim(), "main");
+    assert_eq!(
+        said,
+        [
+            "agents sync: south checkout was on branch n706-box at an ancestor of origin/main; switched to main"
+        ]
+    );
+}

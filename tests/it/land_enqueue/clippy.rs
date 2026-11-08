@@ -149,7 +149,7 @@ fn enqueue_reruns_a_check_before_queueing_on_another_build_host_when_the_first_h
     let hosts = fixture.root.join("offload-hosts");
     let stub = fixture.root.join("north-stub");
     let script = format!(
-        "case \"$1 $2 $3\" in\n  'capacity offload choose') case \"$*\" in *'--avoid flaky'*) echo steady ;; *) echo flaky ;; esac; exit 0 ;;\n  'capacity offload verdict') exit 0 ;;\n  'capacity offload run') printf '%s\\n' \"$5\" >>{hosts}; [ \"$5\" != flaky ] || {{ echo 'north capacity offload: the connection ended (ssh exit 255) before the remote host reported the command exit, so the run reached no verdict' >&2; exit 75; }}; exit 0 ;;\nesac\ncase \"$1 $2\" in 'capacity deadline') shift 4; exec \"$@\" ;; esac\nexec {real} \"$@\"\n",
+        "case \"$1 $2 $3\" in\n  'capacity offload choose') case \"$*\" in *'--avoid flaky'*) echo steady ;; *) echo flaky ;; esac; exit 0 ;;\n  'capacity offload verdict') exit 0 ;;\n  'capacity offload run') printf '%s\\n' \"$5\" >>{hosts}; [ \"$5\" != flaky ] || {{ echo 'north capacity offload: the connection ended (ssh exit 255) before the remote host reported the command exit, so the run reached no verdict' >&2; exit 75; }}; exit 0 ;;\nesac\ncase \"$1 $2\" in 'capacity deadline') shift 4; [ \"$1\" != -- ] || shift; exec \"$@\" ;; esac\nexec {real} \"$@\"\n",
         hosts = hosts.display(),
         real = env!("CARGO_BIN_EXE_north")
     );

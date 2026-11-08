@@ -147,6 +147,11 @@ struct Turn<'a> {
     earlier: &'a [&'a Ticket],
 }
 
+fn carrier(worktree: &Path, base: &str, head: &str) -> Option<String> {
+    let range = format!("{base}...{head}");
+    git(worktree, &["log", "--cherry-mark", "--left-only", "--no-merges", "--format=%m%H", &range]).ok()?.lines().find_map(|line| line.strip_prefix('=').map(str::to_owned))
+}
+
 fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase) -> Result<Pick, String> {
     let (ticket, earlier) = (turn.ticket, turn.earlier);
     case.readable = Some(readable(worktree, ticket));
@@ -156,7 +161,7 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     let cherry = git(worktree, &["cherry", base, &ticket.head])?;
     case.unlanded = Some(cherry.lines().any(|line| line.starts_with('+')));
     if case.unlanded == Some(false) {
-        return Ok(Pick::Decided(format!("landed {base}")));
+        return Ok(Pick::Decided(format!("landed {}", carrier(worktree, base, &ticket.head).unwrap_or_else(|| base.to_owned()))));
     }
     let picked_onto = git(worktree, &["rev-parse", "HEAD"])?;
     let stack_cherry = git(worktree, &["cherry", &picked_onto, &ticket.head])?;
