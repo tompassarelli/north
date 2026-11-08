@@ -1,6 +1,7 @@
 mod described;
 mod read;
 mod resolve;
+mod retain;
 mod validate;
 mod text;
 mod write;
@@ -14,12 +15,17 @@ use crate::error::{GraphError, Result};
 
 pub use read::{Live, Told};
 pub use resolve::Terms;
+pub use retain::{Retained, Retention};
+pub(crate) use retain::horizon;
+#[cfg(test)]
+pub(crate) use retain::Reach;
 pub use validate::Report;
 pub use text::{Field, TextHit, TextSearch};
 pub use write::{Action, ActionKind, Receipt};
 
 const SCHEMA_VERSION: i64 = 2;
 const PATIENCE: Duration = Duration::from_secs(30);
+const HORIZON: &str = "retain/horizon";
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS terms (id INTEGER PRIMARY KEY, key BLOB NOT NULL UNIQUE);

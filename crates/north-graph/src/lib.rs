@@ -18,6 +18,8 @@ mod kernel_tests;
 #[cfg(test)]
 mod query_tests;
 #[cfg(test)]
+mod retain_tests;
+#[cfg(test)]
 mod store_tests;
 #[cfg(test)]
 mod text_tests;
@@ -26,7 +28,7 @@ pub use cli::run;
 pub use error::{GraphError, QueryError};
 pub use json::{term_from_json, term_to_json};
 pub use query::{Answer, Budget, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, Query, STEP_BUDGET, parse_query};
-pub use store::{Action, ActionKind, Field, Graph, Live, Receipt, Report, TextHit, TextSearch, Told, default_path};
+pub use store::{Action, ActionKind, Field, Graph, Live, Receipt, Report, Retained, Retention, TextHit, TextSearch, Told, default_path};
 pub use sync::{Synced, Telling};
 pub use term::{Atom, Float, Instant, Term, TermError, Triple};
 pub use text::parse_arg;

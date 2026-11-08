@@ -19,14 +19,17 @@ pub struct Window {
 
 impl Window {
     pub fn resolve(connection: &Connection, terms: &mut Terms<'_>, view: View) -> Result<Option<Self>> {
-        let (from, to) = match view {
+        let (from, to, bound) = match view {
             View::Current => return Ok(None),
-            View::AsOf(to) => (0, to),
-            View::Since { from, to } => (from, to),
+            View::AsOf(to) => (0, to, to),
+            View::Since { from, to } => (from, to, from),
         };
         let head: i64 = connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM occurrences", [], |row| row.get(0))?;
         if to > head {
             return Err(QueryError::InvalidSnapshot(format!("upper bound {to} is past the head sequence {head}")).into());
+        }
+        if let Some(horizon) = crate::store::horizon(connection)?.filter(|horizon| bound < *horizon) {
+            return Err(QueryError::SnapshotExpired { bound, horizon }.into());
         }
         let assert = terms.stored_id_of(&Term::keyword(ActionKind::Assert.keyword()))?.unwrap_or(0);
         Ok(Some(Self { from, to, assert }))

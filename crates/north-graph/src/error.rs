@@ -16,6 +16,7 @@ pub enum QueryError {
     StepBudgetExceeded { steps: u64 },
     Timeout { milliseconds: u64 },
     InvalidSnapshot(String),
+    SnapshotExpired { bound: i64, horizon: i64 },
 }
 
 impl fmt::Display for GraphError {
@@ -36,6 +37,7 @@ impl fmt::Display for QueryError {
             Self::StepBudgetExceeded { steps } => write!(formatter, "query exceeded its step budget of {steps}"),
             Self::Timeout { milliseconds } => write!(formatter, "query exceeded its timeout of {milliseconds} ms"),
             Self::InvalidSnapshot(why) => write!(formatter, "invalid query snapshot: {why}"),
+            Self::SnapshotExpired { bound, horizon } => write!(formatter, "query snapshot expired: bound {bound} is below the retention horizon {horizon}, whose history is gone"),
         }
     }
 }

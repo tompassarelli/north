@@ -19,7 +19,7 @@ Rust, running each rule body as indexed lookups against SQLite. The database is 
   none it is still recorded and reports `stateChanged false`. `apply` commits a batch of actions as one transaction.
 - `validate` checks that every stored term decodes with children preceding it, every coordinate is well formed and
   increasing, every withdrawal binds a later retraction to an earlier assertion of the same proposition, liveness agrees
-  with withdrawals, and the live-triple counts agree with the live assertions. It exits 1 on any disagreement.
+  with withdrawals, and the live-triple counts agree with the live assertions, and that a retention horizon is not past the head. It exits 1 on any disagreement.
 - `guards DIR` runs the guard queries of a directory (see Guards) without the soundness check.
 
 ## Terms on the command line
@@ -43,7 +43,8 @@ One JSON query (argument, `--file PATH` or `-` for stdin), Beagle's structured q
   `assertion` hold what was asserted through `U` and not withdrawn by a retraction through `U`, `occurrence` stops at `U`
   and `withdrawal` keeps retractions through `U`. `since: [L, U]` keeps that upper state and bounds every one of those
   relations below by `L`, inclusive: assertions and occurrences from `L`, withdrawals whose retraction is from `L`.
-  `quoted` is not cut, since terms carry no sequence. A negative, reversed or past-the-head bound is an invalid snapshot.
+  `quoted` is not cut, since terms carry no sequence. A negative, reversed or past-the-head bound is an invalid snapshot, and
+  a bound below the retention horizon is an expired one (see Retention).
 
 Relations: `triple(t1,t2,t3)` has one row per distinct live proposition; `occurrence(coordinate, action, proposition)`
 is the signed history with `:assert` and `:retract`; `assertion(writer, t1, t2, t3)` has a row per live assertion and the String that wrote it;
@@ -135,8 +136,8 @@ climb run`) marks a kept box checker-verified only when the rule holds by `check
 A predicate belongs to one source: a run refuses a source that replaces a predicate another source of the run replaces.
 A sync reads only the live assertions it can change: every writer's assertions of a replaced predicate, and for each
 other predicate it tells, the assertions of the writers it tells it as. The decision log was ingested until
-2026-11-08 and nothing read it; each ingest retracts any assertion still live under writer `decision-log`, so its
-history stays as withdrawn occurrences.
+2026-11-08 and nothing read it; each ingest retracts any assertion still live under a writer `graph_retired_writers` lists, and `north graph retain`
+deletes its history (see Retention).
 
 ### Which host ingests what
 
@@ -171,6 +172,44 @@ of the issue; `observed` is a commit `checker` passed):
      {"rel": "claim", "args": [{"var": "who"}, {"var": "box"}, {"var": "sha"}]},
      {"rel": "observed", "args": [{"var": "sha"}], "neg": true}]}]]}
 ```
+
+## Retention
+
+`north graph retain [--db PATH]` removes history no reader needs, Beagle Store's retention rule
+(`crates/north-graph/src/store/retain.rs`). It holds `graph.db.ingest.lock`, so an ingest waits for it, and deletes in
+short write transactions (5,000 withdrawal pairs or 10,000 terms each, a few hundred milliseconds), so a writer never waits
+past its busy timeout. It deletes:
+
+- every occurrence of a writer listed in `graph_retired_writers` (harness/defaults.toml) whose proposition is not live,
+  with the other side of each of its withdrawals and its failed retractions, at any sequence. `north graph ingest`
+  retracts what such a writer still holds live, so after an ingest its whole history goes.
+- below the horizon, every writer's withdrawn history: an assertion and the retraction that withdrew it when both have a
+  sequence below it, and each failed retraction below it, none of which changes any view at or after the horizon.
+- every term no kept occurrence, live proposition or kept triple term references.
+
+A pair is deleted in one transaction, so no view sees an assertion without its withdrawal. A term is deleted only if no
+occurrence or triple term written since the reach was read references it, checked inside the deleting transaction, so a
+writer that interns an old term again keeps it. The newest occurrence is always kept, since SQLite would otherwise give
+the next occurrence a sequence a reader has already seen.
+
+The first run sets `auto_vacuum = INCREMENTAL` and runs the one full `VACUUM`, which rewrites the file under the write
+lock; every later run reclaims free pages with `PRAGMA incremental_vacuum` in steps of 2,048 pages. Each run then
+truncates the WAL.
+
+The horizon is the newest sequence known to be at least `graph_retain_days` (45) days old. Time comes from marks: each
+`north graph ingest` and `north graph retain` records the head sequence under `mark/UNIX-SECONDS` in `meta`, at most one an
+hour, so the first horizon exists 45 days after a host's first mark. The horizon only rises; it is kept in `meta` as
+`retain/horizon` and marks below it go. 45 days covers the longest history reader: the climb archive reads each candidate
+`asOf` its landing sequence over dispatch's 30-day arm window, and route replay reads 14 days.
+
+An `asOf` below the horizon, or a `since` whose lower bound is below it, is a `SnapshotExpired` query error, which a reader
+must not retry. Views at or after the horizon read what they read before. `occurrence` and `withdrawal` in the current view
+hold only the kept history. `validate` reads a store with a horizon as sound and names the horizon in its summary.
+
+Each host that keeps a graph runs it once a day around 4:20 AM local from a user timer: the laptop from firn's
+`north-graph-retain` module, the ledger host from south's `north-graph-ingest` module beside its ingest timer. The first run
+on a host, which does the full `VACUUM`, is run once by hand. It never runs on the landing path or after each ingest: it
+reads every term and every occurrence.
 
 ## Guards
 

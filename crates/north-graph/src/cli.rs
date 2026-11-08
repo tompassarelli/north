@@ -208,8 +208,9 @@ fn run_guards(graph: &Graph, directory: &std::path::Path, shadow: bool) -> Resul
 
 fn summary(report: &Report) -> String {
     let verdict = if report.is_sound() { "sound" } else { "unsound" };
+    let horizon = report.horizon.map(|horizon| format!(", history kept from occurrence {horizon}")).unwrap_or_default();
     format!(
-        "{verdict}: {} terms, {} occurrences, {} live occurrences, {} live triples",
+        "{verdict}: {} terms, {} occurrences, {} live occurrences, {} live triples{horizon}",
         report.terms, report.occurrences, report.live_occurrences, report.live_triples
     )
 }

@@ -14,6 +14,7 @@ pub struct Report {
     pub occurrences: u64,
     pub live_occurrences: u64,
     pub live_triples: u64,
+    pub horizon: Option<i64>,
     pub problems: Vec<String>,
 }
 
@@ -44,6 +45,7 @@ impl Graph {
         check_withdrawals(&snapshot, &mut report)?;
         check_live_triples(&snapshot, &mut report)?;
         check_coordinates(&snapshot, &mut report)?;
+        check_horizon(&snapshot, &mut report)?;
         Ok(report)
     }
 }
@@ -177,6 +179,15 @@ fn check_coordinates(connection: &Connection, report: &mut Report) -> Result<()>
             report.problem(format!("occurrence {seq}: coordinate does not follow the previous occurrence"));
         }
         previous = Some(position);
+    }
+    Ok(())
+}
+
+fn check_horizon(connection: &Connection, report: &mut Report) -> Result<()> {
+    report.horizon = super::horizon(connection)?;
+    let head = scalar(connection, "SELECT COALESCE(MAX(seq), 0) FROM occurrences")?;
+    if let Some(horizon) = report.horizon.filter(|horizon| *horizon > head) {
+        report.problem(format!("retention horizon {horizon} is past the head sequence {head}"));
     }
     Ok(())
 }
