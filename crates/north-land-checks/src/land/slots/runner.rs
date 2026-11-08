@@ -11,7 +11,6 @@ use tokio::signal::unix::{SignalKind, signal};
 
 use super::affected::{self, Scope};
 use super::selection_record::{self, Recorded};
-use super::clippy_first;
 use super::shared_build;
 use super::select::{Config, changed, path_class};
 use arguments::{Arguments, Environment, Outcome, parse};
@@ -250,17 +249,7 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
     };
     shared.arguments.runner_host = host;
     shared.free_slots = shared.count_free_slots().await;
-    let shared = Arc::new(shared);
-    let Some(plan) = clippy_first::plan(&commands, |command| !shared.config.is_inferred(command)).filter(|_| !shared.arguments.after) else {
-        return shared.execute_sharing_build(commands).await;
-    };
-    say(&clippy_first::order(&plan, shared.scope.as_ref()));
-    let status = Arc::clone(&shared).execute(plan.first()).await;
-    if status != 0 {
-        warn(&format!("safe-push: clippy on the affected crates exited {status}, so the other {} land check(s) did not run; NOT pushed.", plan.rest.len()));
-        return status;
-    }
-    shared.execute(plan.rest).await
+    Arc::new(shared).execute_sharing_build(commands).await
 }
 
 pub fn run(arguments: &[String]) -> u8 {

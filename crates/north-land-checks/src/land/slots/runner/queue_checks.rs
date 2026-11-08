@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use super::{Arguments, Config, affected, block_on, clippy_first, run_added, say, shared_build};
+use super::super::clippy_first;
+use super::{Arguments, Config, affected, block_on, run_added, say, shared_build};
 use north_base::foundation::exit::NO_VERDICT_STATUS;
 
 
@@ -8,7 +9,7 @@ pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), St
     let config = Config::load(root, head);
     let mut landing = config.commands(root, base, head)?;
     landing.extend(config.after_set().commands(root, base, head)?);
-    let clippy = clippy_first::plan(&landing, |command| !config.is_inferred(command)).map(|plan| plan.clippy);
+    let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
     let queued: Vec<String> = queued_lines.iter().map(|command| shared_build::built(command)).collect();
     let commands: Vec<String> = clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).collect();
