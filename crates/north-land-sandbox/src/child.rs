@@ -1,9 +1,11 @@
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
+use nix::sys::{ptrace, signal};
+
 use crate::SANDBOX_FAILED;
-use crate::fence;
 use crate::options::Options;
+use crate::{fence, recorder};
 
 pub fn run(arguments: &[String]) -> u8 {
     match prepare(arguments) {
@@ -26,6 +28,11 @@ fn prepare(arguments: &[String]) -> Result<Command, String> {
         let tree = options.tree.as_ref().ok_or("--enforce needs --tree")?;
         let scratch = options.scratch.as_ref().ok_or("--enforce needs --scratch")?;
         fence::restrict(path_set, tree, scratch, std::path::Path::new(program))?;
+    }
+    if options.trace {
+        ptrace::traceme().map_err(|error| format!("ptrace: {error}"))?;
+        signal::raise(signal::Signal::SIGSTOP).map_err(|error| format!("stop for the tracer: {error}"))?;
+        recorder::install()?;
     }
     let mut command = Command::new(program);
     command.args(rest);

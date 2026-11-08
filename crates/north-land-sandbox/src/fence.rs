@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use landlock::{ABI, Access, AccessFs, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
 use north_base::verdict_cache::path_set::{self, Entry, Kind};
 
-const SYSTEM_ROOTS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
-const LIBC_ETC_FILES: &[&str] = &["/etc/ld-nix.so.preload", "/etc/ld.so.preload", "/etc/ld.so.cache", "/etc/nsswitch.conf", "/etc/host.conf", "/etc/hosts", "/etc/resolv.conf", "/etc/localtime"];
+pub const SYSTEM_ROOTS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
+pub const LIBC_ETC_FILES: &[&str] = &["/etc/ld-nix.so.preload", "/etc/ld.so.preload", "/etc/ld.so.cache", "/etc/nsswitch.conf", "/etc/host.conf", "/etc/hosts", "/etc/resolv.conf", "/etc/localtime"];
 
 pub fn restrict(path_set_file: &Path, tree: &Path, scratch: &Path, program: &Path) -> Result<(), String> {
     let text = std::fs::read_to_string(path_set_file).map_err(|error| format!("path set {}: {error}", path_set_file.display()))?;
@@ -36,7 +36,7 @@ fn tree_paths<'a>(tree: &'a Path, entries: &'a [Entry], kind: Kind) -> impl Iter
     entries.iter().filter(move |entry| entry.kind == kind).map(|entry| tree.join(&entry.path))
 }
 
-fn resolved(program: &Path) -> Option<PathBuf> {
+pub fn resolved(program: &Path) -> Option<PathBuf> {
     let found = if program.components().count() > 1 {
         Some(program.to_owned())
     } else {
@@ -45,6 +45,6 @@ fn resolved(program: &Path) -> Option<PathBuf> {
     found.and_then(|path| std::fs::canonicalize(path).ok())
 }
 
-fn target_dir(tree: &Path) -> PathBuf {
+pub fn target_dir(tree: &Path) -> PathBuf {
     tree.join(std::env::var_os("CARGO_TARGET_DIR").unwrap_or_else(|| "target".into()))
 }

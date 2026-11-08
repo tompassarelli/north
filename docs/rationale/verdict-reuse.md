@@ -22,8 +22,8 @@ exact merged tree.
 - Reusing a whole check by crate source hash was judged unsound on 2026-11-06
   ([landing-latency.md](landing-latency.md)): 27 test files read paths outside their crate through
   `CARGO_MANIFEST_DIR`.
-- The sandbox needs Landlock, seccomp user notification with the continue flag, and a supervisor's access to
-  `/proc/PID/mem` of its own descendants. The build hosts' readings of 2026-11-08 are in South
+- The sandbox needs Landlock, a seccomp filter whose listed calls stop the caller for its ptrace supervisor, and
+  the supervisor's access to `/proc/PID/mem` of its own descendants. The build hosts' readings of 2026-11-08 are in South
   (agents/decisions/harness/verdict-reuse-hosts-2026-11-08.md).
 
 ## Guarantee
@@ -84,7 +84,9 @@ whether the assumption holds.
   - It can therefore fence the roots a test may read, but it cannot record what was read.
 - **seccomp user notification** ([references](../references.md#seccomp-unotify)) shows a supervisor every
   listed system call made by the whole process tree. The supervisor reads the path from `/proc/PID/mem`
-  and lets the call continue.
+  and lets the call continue. The recorder uses the same filter with `SECCOMP_RET_TRACE` and a ptrace
+  supervisor instead, because the notification API needs libseccomp's C library on every check host, and the
+  workspace forbids the unsafe code a raw binding needs; the filter and ptrace are pure Rust (seccompiler, nix).
   - It covers static and dynamic binaries alike.
   - `io_uring` bypasses it, so the filter refuses `io_uring_setup`.
 
@@ -118,9 +120,11 @@ checks. It works in three layers.
 
 **Process shape.** The workspace forbids unsafe code, so the sandbox never uses `pre_exec`:
 
-- `exec` is the supervisor. It spawns `north land sandbox child` as a fresh process and waits for it.
-- The child installs its seccomp filter, hands the notification descriptor to the supervisor over an
-  inherited socket, applies Landlock when `--enforce` is set, and execs CMD.
+- `exec` is the supervisor. It spawns `north land sandbox child` as a fresh process and traces it.
+- The child applies Landlock when `--enforce` is set, then calls `PTRACE_TRACEME` and stops itself. The
+  supervisor sets `PTRACE_O_TRACESECCOMP`, `TRACEFORK`, `TRACEVFORK`, `TRACECLONE`, `TRACEEXEC` and
+  `EXITKILL`, and resumes it. The child then loads the seccomp filter and execs CMD, so the filter never
+  runs before the supervisor listens. The recorder runs on x86_64 only and refuses to record elsewhere.
 - The supervisor returns CMD's exit status (128 + N for signal N).
 
 **Fence (roots).**
@@ -129,12 +133,13 @@ checks. It works in three layers.
 - Each unit also gets a fresh scratch directory that becomes `TMPDIR`; Bazel gives each test its own
   `TEST_TMPDIR` the same way.
 - A path under scratch, or one the unit's own processes created, is scratch: a create or write by the unit
-  comes before its read.
+  comes before its read. A create of a path that already exists (`mkdir` on an existing directory) is a
+  probe, not scratch.
 - Any other path is ambient: `$HOME` outside the tree, other repositories, sibling slots, the rest of
   `/etc` and `/proc`. The recorder checks every observed path against the roots, and an ambient path
   makes the unit unreusable.
 
-**Recorder (seccomp user notification).**
+**Recorder (seccomp `RET_TRACE` and ptrace).**
 - It traces `open`, `openat`, `openat2`, `creat`, `execve`, `execveat`, the stat family (`stat`, `lstat`,
   `newfstatat`, `statx`), `access`, `faccessat`, `faccessat2`, `readlink`, `readlinkat`, `getdents64` and
   `inotify_add_watch`.
@@ -145,10 +150,17 @@ checks. It works in three layers.
 - It refuses `io_uring_setup` with ENOSYS, because io_uring opens files without a system call the filter
   sees.
 - The supervisor is an ancestor of every process it watches, so a ptrace scope limited to descendants
-  still allows the `/proc/PID/mem` reads.
-
+  still allows the `/proc/PID/mem` reads, and a stopped caller cannot change the path between the read and
+  the call.
+- One loop waits for every process and thread of the tree (`waitpid(-1, __WALL)`), reads the call number and
+  arguments with `getregs`, and resumes the caller. A failure to read a call resumes it and marks the set
+  unreusable, so the recorder never blocks CMD. When the supervisor exits, `EXITKILL` kills what remains.
+- The stat family, `access` and `readlink` probe; Landlock never refuses them, so `--enforce` does not
+  fail a unit for a probe, and a probe of a missing ambient path is only recorded. A `stat` of a tree
+  directory records nothing: the directory is covered by the entries beneath it and by its listing when
+  CMD lists it.
 **Enforce (`--enforce PATHSET`).** Landlock narrows tree access to a recorded path set and refuses every
-ambient root. A test may swallow the EACCES (`unwrap_or_default`), so the supervisor fails the unit with
+ambient root. The supervisor reads the same set and tells a refused open, exec or listing from the recording: an existing path outside the set, outside the roots, under `.git`, or written. A test may swallow the EACCES (`unwrap_or_default`), so the supervisor fails the unit with
 `sandbox refused read of PATH` whatever the test returned. The replay test plants a read outside the set
 and a read of an ambient root.
 
@@ -164,7 +176,7 @@ The recorder classifies each observed path relative to the tree root:
   - An absent path is recorded by name.
   - A directory listing is identified by its sorted names and modes, not by its tree id, so changing a
     child's content does not invalidate the listing.
-- **`target/`:** a cargo artifact (the test binary or a `CARGO_BIN_EXE_*`) stands for its compile inputs:
+- **`target/`** (the target directory, which may sit outside the tree): the recorder writes a cargo artifact, an executable file there, as `exec` or `content` of `target/` plus its path under the target directory, so it cannot collide with a tree entry (tree entries never start with `target/`); a cargo artifact (the test binary or a `CARGO_BIN_EXE_*`) stands for its compile inputs:
   - cargo's dep-info for the artifact, which lists every source rustc read across path dependencies,
     including `include_str!` and `include_bytes!`;
   - the values of its `# env-dep:` lines;
@@ -175,7 +187,7 @@ The recorder classifies each observed path relative to the tree root:
   covers it.
 - **Scratch, `/dev/null` and `/proc/self`:** not inputs.
 - **Unreusable:** reading the checked tree's `.git`, writing into the tree, an ambient path or an ambient
-  system call each make the unit unreusable, with the reason recorded. The report names the files that
+  system call each make the unit unreusable, with the reason recorded. The recorder writes each as an `unreusable<TAB>REASON` line after the entries (`ambient path /home/…`, `ambient call statfs`, `wrote PATH`, `read of the checked tree's .git: PATH`). The report names the files that
   keep tests unreusable, the way `ambient-test-inputs.tsv` does.
 
 ### Key and store
@@ -268,7 +280,7 @@ The lanes:
 1. **Sandbox enforce.** `north land sandbox exec` with the supervisor and child process shape, Landlock
    under `--enforce`, and replay tests for a planted ambient read and a planted read outside the recorded
    set. Closes the out-of-set read box.
-2. **Recorder.** The seccomp recorder and the classified path-set file. It measures overhead on gex45 for
+2. **Recorder.** The ptrace recorder and the classified path-set file. It measures overhead on gex45 for
    north-base's lib tests, one tests/it module and one test that spawns the binary. It also runs the whole
    nextest suite on main under the runner and checks it gives the same pass and fail set as without it.
    Starts after lane 1.

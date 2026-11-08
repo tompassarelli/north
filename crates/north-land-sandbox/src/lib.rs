@@ -1,9 +1,11 @@
 mod child;
+mod classify;
 mod fence;
 mod options;
+mod recorder;
 mod supervisor;
 
-pub const USAGE: &str = "north land sandbox exec [--enforce PATHSET] [--tree DIR] -- CMD...";
+pub const USAGE: &str = "north land sandbox exec [--enforce PATHSET] [--record FILE] [--tree DIR] -- CMD...";
 
 const CHILD_VERB: [&str; 3] = ["land", "sandbox", "child"];
 const SANDBOX_FAILED: u8 = 125;

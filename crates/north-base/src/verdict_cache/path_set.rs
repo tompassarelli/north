@@ -6,6 +6,7 @@ pub enum Kind {
     Content,
     Exec,
     Listing,
+    Unreusable,
 }
 
 impl Kind {
@@ -15,11 +16,12 @@ impl Kind {
             Self::Content => "content",
             Self::Exec => "exec",
             Self::Listing => "listing",
+            Self::Unreusable => "unreusable",
         }
     }
 
     fn from_word(word: &str) -> Option<Self> {
-        [Self::Absent, Self::Content, Self::Exec, Self::Listing].into_iter().find(|kind| kind.word() == word)
+        [Self::Absent, Self::Content, Self::Exec, Self::Listing, Self::Unreusable].into_iter().find(|kind| kind.word() == word)
     }
 }
 
@@ -61,6 +63,9 @@ fn parse_line(line: usize, text: &str) -> Result<Entry, ParseError> {
     let fail = |reason| ParseError { line, reason };
     let (word, path) = text.split_once('\t').ok_or_else(|| fail("expected KIND<TAB>PATH"))?;
     let kind = Kind::from_word(word).ok_or_else(|| fail("unknown kind"))?;
+    if kind == Kind::Unreusable {
+        return if path.is_empty() || path.contains(['\t', '\n']) { Err(fail("unreusable needs a one-line reason")) } else { Ok(Entry { kind, path: path.to_owned() }) };
+    }
     if path.is_empty() || path.starts_with('/') || path.contains('\t') || path.split('/').any(|part| part == ".." || part.is_empty()) {
         return Err(fail("path must be relative to the tree, without empty or .. parts"));
     }

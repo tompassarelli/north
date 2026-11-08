@@ -33,7 +33,7 @@ impl Scene {
 
     fn exec(&self, enforce: bool, command: &[&str]) -> Output {
         let mut sandbox = Command::new(env!("CARGO_BIN_EXE_north-land-sandbox"));
-        sandbox.args(["land", "sandbox", "exec", "--tree"]).arg(self.tree());
+        sandbox.args(["land", "sandbox", "exec", "--tree"]).arg(self.tree()).current_dir(self.tree()).env_remove("LANG").env_remove("LC_ALL").env_remove("LANGUAGE").env_remove("LOCALE_ARCHIVE");
         if enforce {
             sandbox.arg("--enforce").arg(self.path_set());
         }
@@ -59,7 +59,7 @@ fn a_command_reading_an_unlisted_tree_file_is_refused() {
     let output = scene.cat(true, &scene.tree().join("unlisted.txt"));
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("--enforce") && stderr.contains("path-set"), "{stderr}");
+    assert!(stderr.contains(&format!("sandbox refused read of {}", scene.tree().join("unlisted.txt").display())), "{stderr}");
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn without_enforce_the_same_reads_pass() {
 #[test]
 fn the_command_gets_a_writable_scratch_directory_that_is_gone_after_the_run() {
     let scene = Scene::new();
-    let output = scene.exec(true, &["sh", "-c", "echo scratch > \"$TMPDIR/note\" && echo \"$TMPDIR\""]);
+    let output = scene.exec(true, &["mktemp", "-d"]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let scratch = String::from_utf8(output.stdout).unwrap();
     assert!(!Path::new(scratch.trim_end()).exists());
