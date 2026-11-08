@@ -113,7 +113,7 @@ fn the_loaders_library_probes_under_ld_library_path_are_not_inputs() {
 #[test]
 fn a_stable_host_path_is_recorded_with_its_absolute_path() {
     let scene = Scene::new();
-    let entries = scene.record("cat /etc/passwd; test -e /etc/north-absent-probe; ls /etc/ssl; true");
+    let entries = scene.record("cat /etc/passwd; test -e /etc/north-absent-probe; : /etc/ssl/*; true");
     for wanted in [entry(Kind::Content, "/etc/passwd"), entry(Kind::Absent, "/etc/north-absent-probe"), entry(Kind::Listing, "/etc/ssl")] {
         assert!(entries.contains(&wanted), "{wanted:?} not in {entries:?}");
     }
