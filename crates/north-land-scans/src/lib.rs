@@ -19,6 +19,7 @@ pub mod nix_entry;
 pub mod outgoing;
 mod peer_invocations;
 pub mod policy;
+pub mod push_jobs;
 pub mod rule_owners;
 pub mod safe_push_verbs;
 pub mod slug;

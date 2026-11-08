@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::after::gates::{self, Landed};
-use super::scans::{incident_guard, policy, test_admission, test_integrity, tool_removal};
+use super::scans::{incident_guard, policy, push_jobs, test_admission, test_integrity, tool_removal};
 use super::slots::select::Config;
 use crate::advisory_gate;
 use crate::dep_gate::{self, Registry};
@@ -71,7 +71,23 @@ fn after_only(lane: &Lane, out: &mut Vec<u8>) -> bool {
     for command in &unreasoned {
         let _ = writeln!(out, "after-only reason: .safe-push runs `{command}` only after landing; list it as a land.check so it runs before, or record why it cannot with `land.after-only = REASON :: {command}`");
     }
-    !unreasoned.is_empty()
+    let unnamed = push_jobs_without_check(lane, &config, out);
+    !unreasoned.is_empty() || unnamed
+}
+
+fn push_jobs_without_check(lane: &Lane, config: &Config, out: &mut Vec<u8>) -> bool {
+    let jobs = match push_jobs::newly_on_main(lane.worktree, lane.base, lane.head) {
+        Ok(jobs) => jobs,
+        Err(error) => {
+            let _ = writeln!(out, "after-only reason: cannot read the workflows this lane adds to a push to main: {error}");
+            return true;
+        }
+    };
+    let unnamed: Vec<_> = jobs.iter().filter(|job| !job.runs_only(|command| config.runs(command)) && config.after_only_reason(&job.name).is_none()).collect();
+    for job in &unnamed {
+        let _ = writeln!(out, "after-only reason: this lane adds or changes the GitHub Actions job `{}`, which runs on a push to main only after landing; make each of its run steps a land.check so it runs before, or record why it cannot with `land.after-only = REASON :: {}`", job.name, job.name);
+    }
+    !unnamed.is_empty()
 }
 
 fn dependency_age(lane: &Lane, out: &mut Vec<u8>) -> bool {

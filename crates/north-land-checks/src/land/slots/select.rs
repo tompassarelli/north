@@ -109,6 +109,10 @@ impl Config {
         commands.filter(|command| !self.runs(command) && reason(&self.after_only, command).is_none()).collect()
     }
 
+    pub fn after_only_reason(&self, command: &str) -> Option<&str> {
+        reason(&self.after_only, command)
+    }
+
     pub fn local_reason(&self, command: &str) -> Option<&str> {
         reason(&self.local_only, command)
     }

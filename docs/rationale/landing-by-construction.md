@@ -157,15 +157,21 @@ worker updates its own class's line when its lane lands.
 - Mechanism: the built-in after-landing gates other than the CI budget (code-health, crate-lines,
   instruction-limits, generated-rewrite) also run as lane gates. A new "after-only reason" lane
   gate refuses an after-landing command that is neither a land.check nor named by a
-  `land.after-only` line (north-892-d0231). Push-to-main GitHub Actions jobs come under the same
-  gate (n892-ciparity).
+  `land.after-only` line (north-892-d0231). It also refuses the push-to-main GitHub Actions job a
+  lane adds or changes unless every run step is a land.check or a `land.after-only` line names
+  the job's workflow file (`.github/workflows/canary.yml`) with its key appended as `:JOB`
+  (n892-ciparity); a job already on main before the lane is the repository's inherited gate and
+  is not re-judged, so a repository can record reasons for its existing jobs without stopping
+  every lane.
 - Replay: `north land scan code-health acd3c88..af6ed3f` in wisp refuses (complexity 16 over 15),
-  and nixos-config's `land-checks.sh scripts` on fdf5a936..710344e4 exits 1 on shellcheck SC2329.
+  and firn 710344e4's `push.sh` change was caught after landing by its `tests.yml` shellcheck job.
   `cargo nextest run -p north-landing lane_gates` refuses a lane adding wisp's push-to-main
-  code-health job with neither a check nor a reason.
-- Status: in flight. Reasons landed in south b00e47cb, makgora 3300cefa, wisp c2121f87 and
-  nixos-config dd13c9128d (9b38429b23 relanded after a host-fault revert, class 9). North's lane
-  n892-after-parity is queued as 0266a74ef7, and CI jobs are with n892-ciparity.
+  code-health job and a lane adding firn's push-to-main shellcheck job with neither a check nor a
+  reason, passes a lane that changes no push-to-main job, and passes each job with a reason or
+  with every run step listed as a land.check.
+- Status: enforced (north-892-d0231 and n892-ciparity). Reasons landed in south b00e47cb, makgora 3300cefa,
+  wisp c2121f87, firn ac135e3da10e and nixos-config dd13c9128d (9b38429b23 relanded after a
+  host-fault revert, class 9). North's own after-only reasons landed with 521411db26.
 
 ### 6. A host runs on stale shared configuration
 

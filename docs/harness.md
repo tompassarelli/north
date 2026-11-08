@@ -190,7 +190,10 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
    the lane that broke it. Every gate that runs after landing also judges the lane before it: the
    built-in after-landing gates but the CI budget run as lane gates at enqueue and pick, and a
    `land.after`, `after-landing.check` or `after-landing.advisory` command that is no `land.check` needs a
-   `land.after-only = REASON :: COMMAND` line, which the "after-only reason" lane gate enforces.
+   `land.after-only = REASON :: COMMAND` line; so does a GitHub Actions job the lane adds or changes that a push to main runs,
+   when its run steps are not all `land.check` commands. The reason names the workflow file (`.github/workflows/canary.yml`) with
+   the job's key appended as `:JOB`, in place of COMMAND. A job already on main before the lane is not re-judged. The "after-only
+   reason" lane gate enforces both.
 
 `safe-push --dry-run --to main` runs the same scans and land checks on this host without queueing.
 
