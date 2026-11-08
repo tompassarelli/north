@@ -40,6 +40,7 @@ mod turn_json;
 pub(super) mod usage;
 mod window_move;
 mod view;
+mod run_ingest;
 mod usage_ingest;
 mod waits;
 

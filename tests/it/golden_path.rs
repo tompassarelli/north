@@ -208,8 +208,10 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     let expected: Vec<String> = [conversation.as_str(), "north#1", "done", "worker", "1", landed.as_str(), "tooling", "exact", "one-file", "local-test"].map(str::to_owned).to_vec();
     assert_eq!(runs, vec![expected], "{}", text(&recorded));
 
+    rusqlite::Connection::open(&database).unwrap().execute("DELETE FROM runs", []).unwrap();
     let stopped = rig.north(&["fleet", "stop", "worker"]);
     assert!(stopped.status.success(), "{}", text(&stopped));
+    assert_eq!(rows(&database, "SELECT agent FROM runs", 1), vec![vec![conversation]], "the session host records its conversation's run as it exits");
     eventually("every process of the run to end", || lingering(&rig.root).is_empty().then_some(()));
     let retired = rig.command(env!("CARGO_BIN_EXE_north"), &rig.root).args(["lane", "gc", "--root"]).arg(&rig.root).args(["--idle-hours", "0", "--state"]).arg(rig.root.join("gc.json")).output().unwrap();
     assert!(retired.status.success(), "{}", text(&retired));

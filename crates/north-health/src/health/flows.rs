@@ -13,8 +13,8 @@ pub mod probe;
 #[cfg(test)]
 mod tests;
 
-/// Worker activity newer than the ledger's newest recorded run by more than this means runs stopped reaching it.
-const RECORDING_LAG_S: f64 = 10.0 * 60.0;
+/// A slow recording pass beyond the backstop timer's interval: runs are recorded as their sessions end, so only a run the timer must catch waits this long.
+const RECORDING_SLACK_S: f64 = 5.0 * 60.0;
 /// One snapshot pull interval and five minutes more for a slow pull.
 const SNAPSHOT_AGE_S: f64 = crate::threads::snapshot::SNAPSHOT_SECONDS as f64 + 5.0 * 60.0;
 /// A landing not live on a host this long after it reached origin/main is stuck.
@@ -58,6 +58,8 @@ pub struct HostFacts {
     pub unhooked: Vec<String>,
     pub dispatch: Option<Dispatch>,
     pub newest_run: Option<f64>,
+    /// How often the backstop timer records runs on the ledger host, `None` when it is not loaded there.
+    pub recording_interval_s: Option<f64>,
     pub newest_activity: Option<f64>,
     pub lifecycles: Lifecycles,
 }
@@ -123,10 +125,12 @@ impl World {
     fn recording(&self) -> Flow {
         let newest_run = self.reached().filter_map(|(_, facts)| facts.newest_run).reduce(f64::max);
         let activity = self.reached().filter_map(|(name, facts)| Some((name, facts.newest_activity?))).max_by(|a, b| a.1.total_cmp(&b.1));
+        let interval = self.reached().filter(|(_, facts)| facts.newest_run.is_some()).find_map(|(_, facts)| facts.recording_interval_s);
         let mut faults = Vec::new();
-        match (newest_run, activity) {
-            (None, _) => faults.push("no host reports the ledger's newest recorded run".to_owned()),
-            (Some(run), Some((name, active))) if active - run > RECORDING_LAG_S => faults.push(format!(
+        match (newest_run, interval, activity) {
+            (None, _, _) => faults.push("no host reports the ledger's newest recorded run".to_owned()),
+            (Some(_), None, _) => faults.push("the worker-ledger timer, the backstop that records runs no session end recorded, is not loaded on the ledger host".to_owned()),
+            (Some(run), Some(interval), Some((name, active))) if active - run > interval + RECORDING_SLACK_S => faults.push(format!(
                 "the ledger's newest recorded run ended {} ago while workers ran {} later (newest on {name}, {} ago)",
                 minutes(self.age(run)),
                 minutes(active - run),

@@ -17,6 +17,7 @@ use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::placement::{self, Overrides};
+use super::run_ingest::IngestRuns;
 use super::usage_ingest::IngestUsage;
 use super::accounts;
 use super::adopt;
@@ -90,7 +91,7 @@ pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
 }
 
 fn open_fleet_claiming(claims: ThreadsCli) -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)))
 }
 
 fn far_machine(host: &str) -> bool {

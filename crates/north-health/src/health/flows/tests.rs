@@ -15,6 +15,7 @@ fn healthy(now: f64) -> World {
     let mut nexus = host("nexus", now);
     let facts = nexus.facts.as_mut().unwrap();
     facts.newest_run = Some(now - 120.0);
+    facts.recording_interval_s = Some(15.0 * 60.0);
     facts.dispatch = Some(Dispatch { timer_active: true, paused: None, last_run: Some(now - 30.0) });
     World { now, hosts: vec![host("gex45", now), nexus, host("whiterabbit", now)], snapshot: Some(Snapshot { written: Some(now - 300.0), failure: None }) }
 }
@@ -39,9 +40,13 @@ fn alarms_only(world: &World, flow: &str, cause: &str) {
 fn runs_that_stop_reaching_the_ledger_alarm_while_workers_run_and_the_frozen_snapshot_alarms_too() {
     let now = at("2026-11-07T01:36:00Z");
     let mut world = healthy(now);
-    facts(&mut world, "nexus").newest_run = Some(at("2026-11-07T01:23:00Z"));
+    facts(&mut world, "nexus").newest_run = Some(at("2026-11-07T01:16:00Z"));
     facts(&mut world, "whiterabbit").newest_activity = Some(at("2026-11-07T01:35:00Z"));
-    alarms_only(&world, "run-recording", "newest recorded run ended 13 min ago");
+    assert!(world.judge().iter().all(|flow| flow.verdict.is_ok()), "a 19 min lag is inside the 15 min timer and its slack");
+    facts(&mut world, "nexus").newest_run = Some(at("2026-11-07T01:10:00Z"));
+    alarms_only(&world, "run-recording", "newest recorded run ended 26 min ago");
+    facts(&mut world, "nexus").recording_interval_s = None;
+    alarms_only(&world, "run-recording", "worker-ledger timer");
 
     let now = at("2026-11-07T02:00:00Z");
     let mut world = healthy(now);

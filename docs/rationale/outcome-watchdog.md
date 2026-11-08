@@ -8,7 +8,10 @@ deploy restarted the dispatch timer the proxy had stopped. Each writer reported 
 `north health` now judges each critical flow by its recorded outcome (`crates/north-health/src/health/flows.rs`):
 
 - `run-recording`: the ledger host's newest recorded run against the newest fleet stream write on any host, and each
-  host's oldest unsent spooled ledger write.
+  host's oldest unsent spooled ledger write. A session host records its conversation's run as it exits; the
+  worker-ledger timer is the backstop, so the allowed lag is that timer's interval, read from systemd on the ledger
+  host, plus five minutes (a flap at 12 to 16 minutes on 2026-11-08 came from a fixed 10-minute limit against a
+  15-minute timer).
 - `snapshot`: the laptop's ledger snapshot age (pulled every 15 minutes) and its last pull failure.
 - `policy`: each host's held-generation record (`agents-sync-unpublished`) with the gate's refusal line.
 - `hooks`: every config directory a launch on each host runs in registers hooks in its settings.json.

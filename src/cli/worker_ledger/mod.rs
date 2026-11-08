@@ -161,14 +161,17 @@ fn record(options: &Options) -> u8 {
     let Some(capacity) = run_ids(&["run-ids", "--capacity"]) else { return 1 };
     let ids = Ids { recorded, settled, capacity };
     let Some(Rows { mut rows, unread, missed }) = rows(options, &ids) else { return 1 };
-    if recalibrate::owns_ledger() {
+    let whole_fleet = options.session.is_empty();
+    if whole_fleet && recalibrate::owns_ledger() {
         pull::hosts(options, &ids, &mut rows);
     }
     let ingested = ingest(&rows);
-    if recalibrate::owns_ledger() {
-        label_runs();
+    if whole_fleet {
+        if recalibrate::owns_ledger() {
+            label_runs();
+        }
+        recalibrate::run();
     }
-    recalibrate::run();
     if missed || (ingested == 0 && unread) { 1 } else { ingested }
 }
 

@@ -26,6 +26,7 @@ use super::promises::{Book, Promise, promised, resolver};
 use super::receipts::{Courier, Report, deliver_report, is_final, retires};
 use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
+use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::tickets::{NoTickets, Tickets};
@@ -60,6 +61,7 @@ pub struct TurnWatch {
     tickets: Arc<dyn Tickets>,
     closing: bool,
     usage: Arc<dyn UsageSink>,
+    recording: Arc<dyn RunRecording>,
 }
 
 struct NoLanes;
@@ -195,6 +197,7 @@ impl TurnWatch {
             tickets: Arc::new(NoTickets),
             closing: false,
             usage: Arc::new(NoUsage),
+            recording: Arc::new(NoRecording),
         }
     }
 
@@ -215,6 +218,11 @@ impl TurnWatch {
 
     pub fn writing_usage(mut self, usage: Arc<dyn UsageSink>) -> Self {
         self.usage = usage;
+        self
+    }
+
+    pub fn recording_runs(mut self, recording: Arc<dyn RunRecording>) -> Self {
+        self.recording = recording;
         self
     }
 
@@ -498,6 +506,10 @@ impl FrameWatch for TurnWatch {
         self.closing = true;
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
+        }
+        let ended: HashSet<String> = host_sessions(&self.root, &self.host_dir).into_iter().filter_map(|record| record.conversation).collect();
+        for conversation in &ended {
+            self.recording.ended(conversation);
         }
         let retired = !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() && self.retire(Phase::HostEnded);
         let waits = Waits::in_root(&self.root);

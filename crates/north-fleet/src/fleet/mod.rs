@@ -38,6 +38,7 @@ pub mod watch;
 pub mod budget;
 pub mod fakes;
 pub mod tickets;
+pub mod run_recording;
 pub mod usage_sink;
 pub mod stage;
 pub mod decision_queue;
