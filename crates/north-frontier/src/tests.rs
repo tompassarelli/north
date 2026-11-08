@@ -158,3 +158,20 @@ fn a_live_ab_row_for_the_plain_arm_is_refused() {
     let row = r#"{"box":"wisp#1","arm":"plain","model":"m","effort":"e","assigned_at":1}"#;
     assert!(crate::ab::parse(row).unwrap_err().contains("not plain"));
 }
+
+#[test]
+fn an_assigned_box_is_an_ab_row_the_report_parses_and_the_seeded_coin_never_changes_its_arm() {
+    let dir = std::env::temp_dir().join(format!("north-frontier-ab-{}", std::process::id()));
+    let file = dir.join("ab.jsonl");
+    std::fs::create_dir_all(&dir).unwrap();
+    let arm = crate::assign::flip(877, "wisp#12:ship-the-thing");
+    assert_eq!(arm, crate::assign::flip(877, "wisp#12:ship-the-thing"));
+    let row = crate::ab::AbRow { task: "wisp#12:ship-the-thing".into(), arm, assigned_at: 1_794_000_000, model: "m".into(), effort: "e".into(), landed_sha: None, landed_at: None, usage: crate::ab::Usage::default() };
+    std::fs::write(&file, serde_json::to_string(&row).unwrap() + "\n").unwrap();
+    let landing = crate::assign::Landing { task: "wisp#12:ship-the-thing", sha: "abc1234", at: 1_794_000_600, usage: crate::ab::Usage { tokens_in: 1, tokens_out: 2, cost_usd: 0.5 }, model: Some("claude-sonnet-5-5".into()), effort: Some("high".into()) };
+    crate::assign::record(&file, &landing).unwrap();
+    crate::assign::record(&file, &landing).unwrap();
+    let rows = crate::ab::parse(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!((rows[0].landed_sha.as_deref(), rows[0].landed_at, rows[0].usage.cost_usd), (Some("abc1234"), Some(1_794_000_600), 1.0));
+}

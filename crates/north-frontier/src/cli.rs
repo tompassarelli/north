@@ -10,7 +10,7 @@ use north_fleet::fleet::model::ApiKey;
 use north_providers::ledger::Ledger;
 use north_providers::providers::claude::api_pool;
 
-use crate::{ab, followup};
+use crate::{ab, assign, followup};
 use super::billing::{self, Spent};
 use super::grade::{Grade, grade};
 use super::sandbox::{Sandbox, git_text};
@@ -312,6 +312,29 @@ fn ab_report(flags: &Flags) -> Result<String, NorthError> {
     Ok(format!("{section}wrote {}\n", doc_file.display()))
 }
 
+fn ab_rows(flags: &Flags) -> PathBuf {
+    let root = flags.one("root").map_or_else(|| home().join("code/north/main"), PathBuf::from);
+    flags.one("rows").map_or_else(|| root.join(ab::AB_ROWS), PathBuf::from)
+}
+
+fn number<T: std::str::FromStr>(flags: &Flags, name: &str) -> Result<Option<T>, NorthError> {
+    flags.one(name).map(|text| text.parse().map_err(|_| refusal(format!("--{name} takes a number, not {text}")))).transpose()
+}
+
+fn ab_assign(flags: &Flags) -> Result<String, NorthError> {
+    let repos = match flags.all("repo") {
+        named if named.is_empty() => assign::REPOS.iter().map(|repo| (*repo).to_owned()).collect(),
+        named => named,
+    };
+    assign::assign(&ab_rows(flags), &repos, number(flags, "seed")?.unwrap_or(assign::SEED), number(flags, "count")?.unwrap_or(1))
+}
+
+fn ab_record(flags: &Flags) -> Result<String, NorthError> {
+    let (Some(task), Some(sha), Some(at)) = (flags.positional.get(1), flags.one("sha"), number(flags, "at")?) else { return Err(refusal(String::new())) };
+    let usage = ab::Usage { tokens_in: number(flags, "tokens-in")?.unwrap_or(0), tokens_out: number(flags, "tokens-out")?.unwrap_or(0), cost_usd: number(flags, "cost-usd")?.unwrap_or(0.0) };
+    assign::record(&ab_rows(flags), &assign::Landing { task, sha, at, usage, model: flags.one("model").map(str::to_owned), effort: flags.one("effort").map(str::to_owned) })
+}
+
 fn candidates(flags: &Flags) -> Result<String, NorthError> {
     let ledger = flags.one("ledger").map_or_else(|| home().join(".local/state/threads/snapshot.db"), PathBuf::from);
     let (since, until) = (flags.one("since").ok_or_else(|| refusal(String::new()))?, flags.one("until").ok_or_else(|| refusal(String::new()))?);
@@ -347,6 +370,8 @@ pub fn dispatch(arguments: &[String], route: live::Route) -> Result<String, Nort
         Some("grade") => grade_all(&flags),
         Some("report") => report(&flags),
         Some("ab-report") => ab_report(&flags),
+        Some("ab-assign") => ab_assign(&flags),
+        Some("ab-record") => ab_record(&flags),
         _ => Err(refusal(String::new())),
     }
 }
