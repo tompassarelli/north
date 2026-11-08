@@ -69,6 +69,7 @@ pub mod subagent_teardown;
 mod subagent_teardown_tests;
 mod recommend_acts_tests;
 pub mod issue_cleanup;
+pub mod issue_shrink;
 pub mod recommend_acts;
 mod gate_digest_tests;
 pub mod correction_capture;

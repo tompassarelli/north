@@ -36,6 +36,7 @@ pub struct GhWrite {
     pub reason: Option<String>,
     pub files: Vec<PathBuf>,
     pub unread: bool,
+    pub body_set: bool,
 }
 
 pub fn writes(command_text: &str, cwd: Option<&str>) -> Vec<GhWrite> {
@@ -231,6 +232,7 @@ fn scan<'a>(args: &'a [String], cwd: Option<&str>) -> Scanned<'a> {
         } else if !arg.starts_with('-') || arg == "-" {
             scanned.word(arg);
         } else if scanned.takes(flag) {
+            scanned.write.body_set |= scanned.group == Some("issue") && matches!(flag, "--body" | "-b" | "--body-file" | "-F");
             let Some(value) = inline.or_else(|| rest.next().cloned()) else {
                 break;
             };

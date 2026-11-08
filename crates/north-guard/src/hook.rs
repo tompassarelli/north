@@ -192,6 +192,7 @@ impl HookKind {
                 crate::guard::issue_labels::evaluate,
                 crate::guard::issue_filing::evaluate,
                 crate::guard::issue_cleanup::close,
+                crate::guard::issue_shrink::evaluate,
                 crate::guard::sops_decrypt::evaluate,
                 crate::guard::public_text::evaluate,
                 crate::guard::frozen_topics::evaluate,
