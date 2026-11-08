@@ -6,9 +6,9 @@ use north_graph::{Graph, Synced, Term, default_path};
 use crate::places::Places;
 use crate::shas::Shas;
 use crate::facts::Sourced;
-use crate::{corrections, coverage, issues, ledger, losses, pushes, ranking, touches};
+use crate::{corrections, coverage, issues, ledger, losses, observations, pushes, ranking, touches};
 
-const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ranking ledger losses pushes touches corrections coverage (all when none is named)";
+const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\nsources: mirror ranking ledger losses pushes touches corrections coverage observations (all when none is named)";
 const RETIRED_WRITER: &str = "decision-log";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,10 +21,11 @@ pub enum Source {
     Touches,
     Corrections,
     Coverage,
+    Observations,
 }
 
 impl Source {
-    pub const ALL: [Self; 8] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Losses, Self::Pushes, Self::Touches, Self::Corrections, Self::Coverage];
+    pub const ALL: [Self; 9] = [Self::Mirror, Self::Ranking, Self::Ledger, Self::Losses, Self::Pushes, Self::Touches, Self::Corrections, Self::Coverage, Self::Observations];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -36,6 +37,7 @@ impl Source {
             Self::Touches => "touches",
             Self::Corrections => "corrections",
             Self::Coverage => "coverage",
+            Self::Observations => "observations",
         }
     }
 
@@ -49,6 +51,7 @@ impl Source {
             Self::Touches => touches::read(places).map(Sourced::from),
             Self::Corrections => corrections::read(places).map(Sourced::from),
             Self::Coverage => coverage::read(places).map(Sourced::from),
+            Self::Observations => unreachable!("ingest appends observations through observe"),
         }
     }
 }
@@ -72,6 +75,10 @@ pub fn ingest(graph: &mut Graph, places: &Places, sources: &[Source]) -> Report 
     }
     let mut replaced: HashMap<Term, &'static str> = HashMap::new();
     for source in sources {
+        if *source == Source::Observations {
+            observe(graph, places, &mut report);
+            continue;
+        }
         let outcome = source.read(places, &shas).and_then(|Sourced { telling, notes }| {
             if let Some((predicate, other)) = telling.replaces.iter().find_map(|predicate| replaced.get(predicate).map(|other| (predicate, other))) {
                 return Err(format!("it replaces {predicate}, which {other} already replaces in this run"));
@@ -142,4 +149,17 @@ fn alone(db: &std::path::Path) -> Option<std::fs::File> {
 fn usage(why: &str) -> u8 {
     eprintln!("north graph ingest: {why}\n{USAGE}");
     2
+}
+
+fn observe(graph: &mut Graph, places: &Places, report: &mut Report) {
+    match observations::append(graph, places) {
+        Ok(observations::Appended { asserted, unchanged, notes }) => {
+            report.lines.push(format!("observations: {asserted} asserted, 0 retracted, {unchanged} unchanged"));
+            report.lines.extend(notes.into_iter().map(|note| format!("observations: {note}")));
+        }
+        Err(why) => {
+            report.failed = true;
+            report.lines.push(format!("observations: skipped: {why}"));
+        }
+    }
 }

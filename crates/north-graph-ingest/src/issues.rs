@@ -2,15 +2,17 @@ use std::collections::BTreeMap;
 
 use north_github_mirror::store::{CLOSED_ISSUES, OPEN_ISSUES, REPOS, key};
 use north_graph::Term;
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use crate::boxes::{self, Item};
-use crate::facts::{Facts, Sourced, keyword, text};
+use crate::facts::{Facts, Sourced, issue_ref, keyword, text};
 use crate::places::Places;
 use crate::shas::Shas;
 use crate::waits::{self, Wait};
 
 const WRITER: &str = "mirror";
+const RUNS: &str = "ledger";
 const REPLACED: [&str; 12] = ["title", "state", "label", "blocked-by", "follows", "has-box", "text", "ticked", "owner", "claims", "waits-on", "unparsed-wait"];
 
 fn open_issues(places: &Places, repo: &str) -> Option<Vec<Value>> {
@@ -43,6 +45,7 @@ pub fn read(places: &Places, shas: &Shas) -> Result<Sourced, String> {
             facts.tell(WRITER, text(format!("{repo}#{number}")), "state", keyword("closed"));
         }
     }
+    run_claims(&mut facts, places, shas);
     if seen { Ok(facts.finish_noted()) } else { Err(format!("the mirror {} holds no open issues", places.mirror.path().display())) }
 }
 
@@ -85,6 +88,9 @@ fn tell_box(facts: &mut Facts, shas: &Shas, issue: &str, item: &Item, siblings: 
     facts.tell(WRITER, text(issue), "has-box", text(&node));
     facts.tell(WRITER, text(&node), "text", text(&item.text));
     facts.tell(WRITER, text(&node), "ticked", Term::boolean(item.ticked));
+    if let Some(command) = &item.done_when {
+        facts.tell(WRITER, text(&node), "done-when", text(command));
+    }
     if !item.ticked {
         let waits = waits::of(item, issue, siblings);
         for wait in waits.on {
@@ -111,4 +117,30 @@ fn tell_box(facts: &mut Facts, shas: &Shas, issue: &str, item: &Item, siblings: 
     for commit in landed {
         facts.tell(owner, text(owner), "claims", done(commit));
     }
+}
+
+fn run_claims(facts: &mut Facts, places: &Places, shas: &Shas) {
+    if let Err(why) = told_runs(facts, places, shas) {
+        facts.note(format!("no run claims from {}: {why}", places.threads.display()));
+    }
+}
+
+fn told_runs(facts: &mut Facts, places: &Places, shas: &Shas) -> rusqlite::Result<()> {
+    if !places.threads.is_file() {
+        return Ok(());
+    }
+    let connection = Connection::open_with_flags(&places.threads, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let query = format!("SELECT agent, item, box, landed_sha FROM runs WHERE outcome = 'done' AND item IS NOT NULL AND box IS NOT NULL AND box != '' AND {}", north_base::platform::run_roles::worker_where());
+    let mut statement = connection.prepare(&query)?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<String>>(3)?)))?;
+    for row in rows {
+        let (agent, item, box_text, landed) = row?;
+        let Some(node) = issue_ref(&item).and_then(|issue| north_threads::threads::claims::box_node(&issue, &box_text)) else { continue };
+        if let Some(command) = boxes::done_when(&box_text) {
+            facts.tell(RUNS, text(&node), "done-when", text(command));
+        }
+        let commit = landed.filter(|sha| !sha.is_empty()).map_or_else(|| keyword("none"), |sha| text(shas.resolve(&sha)));
+        facts.tell(&agent, text(&agent), "claims", Term::triple(text(&node), keyword("done-at"), commit));
+    }
+    Ok(())
 }

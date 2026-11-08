@@ -9,6 +9,7 @@ mod facts;
 mod issues;
 mod ledger;
 mod losses;
+mod observations;
 mod places;
 mod pushes;
 mod ranking;

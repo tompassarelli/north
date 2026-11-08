@@ -324,7 +324,7 @@ may_use = ["north-fleet", "north-resume", "north-session-host"]
 [[crate_dag.crate]]
 name = "north-providers"
 paths = ["crates/*/src/providers.rs", "crates/*/src/providers/**", "crates/*/src/codex.rs", "crates/*/src/codex/**", "crates/*/src/ledger.rs", "crates/*/src/ledger/**"]
-may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration", "north-graph"]
 
 [[crate_dag.crate]]
 name = "north-core"
@@ -503,7 +503,7 @@ may_use = []
 name = "ledger"
 paths = ["crates/north-providers/src/ledger/**"]
 responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
-may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle"]
+may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle", "graph"]
 
 [[module]]
 name = "guard"

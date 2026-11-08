@@ -37,7 +37,7 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
         }
         ["task", "check", rest @ ..] if rest.contains(&"--done-when") => {
             let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();
-            crate::ops::done_when_boxes::run(&rest).map(|()| ExitCode::SUCCESS)
+            crate::ops::done_when_boxes::run(store, &rest).map(|()| ExitCode::SUCCESS)
         }
         ["task", "check", rest @ ..] if rest.first().is_some_and(|word| ["--observations", "--dry-run", "--body-file", "--repo"].contains(word)) => {
             let rest: Vec<String> = rest.iter().map(|word| (*word).to_owned()).collect();

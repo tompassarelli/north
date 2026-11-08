@@ -219,9 +219,56 @@ fn checker_verified_marks_an_arm_box_by_its_runs_box_and_keeps_the_issue_level_r
     let runs = [run("a", "north#1", Some("A run's kept box is judged by its own stamp")), run("b", "north#2", None), run("c", "north#3", Some("Piece 3 of the umbrella"))];
     let closed: std::collections::HashMap<String, String> = ["north#1", "north#2", "north#3"].map(|item| (item.to_owned(), umbrella())).into();
     let items = closed.keys().cloned().collect();
-    let report = super::summarize(&runs, &items, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed);
+    let report = super::summarize(&runs, &items, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, None);
     let read = |item: &str| report.arms.iter().find(|arm| arm.item == item).map(|arm| (arm.verified, arm.issue_verified)).unwrap();
     assert_eq!(read("north#1"), (true, false), "the staffed, stamped box of an umbrella reads verified");
     assert_eq!(read("north#2"), (false, false), "a run with no box keeps the issue-level read");
     assert_eq!(read("north#3"), (false, false), "a self-ticked box is not verified by its sibling's stamp");
+}
+
+#[test]
+fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_done_when_command() {
+    use north_graph::{Graph, Term};
+    const SHA: &str = "59ff4fb9c2d24f619e93afe867761c1146740b3d";
+    const COMMAND: &str = "cargo test -p north-providers corroborated";
+    let box_text = "Corroborated rewards: the staffed box of an umbrella";
+    let node = crate::threads::claims::box_node("north#882", box_text).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("graph.db");
+    let mut graph = Graph::open(&path).unwrap();
+    let mut tell = |writer: &str, t1: Term, t2: &str, t3: Term| graph.tell(writer, north_graph::Triple::new(t1, Term::keyword(t2), t3)).unwrap();
+    tell("n882-worker", Term::string("n882-worker"), "claims", Term::triple(Term::string(&node), Term::keyword("done-at"), Term::string(SHA)));
+    tell("mirror", Term::string(&node), "done-when", Term::string(COMMAND));
+    tell("push-log", Term::string(SHA), "landed-by", Term::string("n882-worker"));
+    let forged = format!("- [x] {box_text}. Done when: `{COMMAND}` exits 0. Evidence: `{COMMAND}` passed on main 59ff4fb9c2d2 on 2026-11-08, exit 0.\n");
+    let closed: std::collections::HashMap<String, String> = [("north#882".to_owned(), forged)].into();
+    let run = super::closed::SpendRun {
+        agent: "n882-worker".into(),
+        item: Some("north#882".into()),
+        role: "worker".into(),
+        tier: "high".into(),
+        category: "feature".into(),
+        arm: "context-400k".into(),
+        box_text: Some(box_text.into()),
+        model: Some("claude-opus-5-5".into()),
+        started: "2026-11-08T10:00:00Z".into(),
+        ended: "2026-11-08T11:00:00Z".into(),
+        landed: true,
+        reworked: false,
+        input: 1_000,
+        cache_read: 0,
+        output: 100,
+        skills: Vec::new(),
+    };
+    let verified = |path: &std::path::Path| {
+        let corroborated = super::corroborated::checked_boxes(path).unwrap();
+        let items = closed.keys().cloned().collect();
+        let report = super::summarize(std::slice::from_ref(&run), &items, "2026-11-01T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap()).verified(&closed, corroborated.as_ref());
+        report.arms[0].verified
+    };
+    assert!(!verified(&path), "a self-ticked box whose own stamp claims a pass reads unverified while no checker assertion corroborates it");
+    let mut graph = Graph::open(&path).unwrap();
+    graph.tell("checker", north_graph::Triple::new(Term::string(SHA), Term::keyword("check-passed"), Term::string(COMMAND))).unwrap();
+    assert!(verified(&path), "the checker passing the box's Done-when command at the claimed commit corroborates the claim");
+    assert!(verified(&directory.path().join("absent.db")), "where no graph exists the box's stamp is read");
 }

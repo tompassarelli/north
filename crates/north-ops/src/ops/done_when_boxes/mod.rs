@@ -6,6 +6,7 @@ use tempfile::TempDir;
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
+use crate::ledger::{CheckRun, Ledger};
 use crate::platform::rolling_issue::{Gh, Tracker};
 use crate::platform::{box_oracles, git, github, process};
 
@@ -138,6 +139,14 @@ pub fn settle(tracker: &mut dyn Tracker, number: u64, body: &str, run: &dyn Fn(&
     Ok(verdicts)
 }
 
+fn record(ledger: &Ledger, task_ref: &str, verdicts: &[Verdict], main: &Path, stamp: &Stamp) -> NorthResult<()> {
+    for verdict in verdicts {
+        let exit = if verdict.passed() { 0 } else { verdict.run.exit.max(1) };
+        ledger.record_check(&CheckRun { task_ref, command: &verdict.check.command, cwd: main, head_sha: Some(&stamp.sha), exit, ran_ms: Timestamp::now().unix_millis() })?;
+    }
+    Ok(())
+}
+
 pub enum Main {
     Given(PathBuf),
     Fetched { repo: PathBuf, checkout: TempDir },
@@ -259,7 +268,7 @@ fn main_for(options: &Options) -> NorthResult<Main> {
     }
 }
 
-pub fn run(arguments: &[String]) -> NorthResult<()> {
+pub fn run(ledger: &Ledger, arguments: &[String]) -> NorthResult<()> {
     let options = options(arguments)?;
     if let Some(path) = &options.body_file {
         let main = main_for(&options)?;
@@ -287,6 +296,9 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
     let run = |command: &str| judge(command, main.dir());
     for (number, body) in issues {
         let verdicts = settle(&mut tracker, number, &body, &run, &stamp, options.dry_run).map_err(NorthError::Refused)?;
+        if !options.dry_run {
+            record(ledger, &format!("{}#{number}", repo.rsplit('/').next().unwrap_or(&repo)), &verdicts, main.dir(), &stamp)?;
+        }
         for verdict in &verdicts {
             println!("{}", verdict.line(&format!("{repo}#{number}")));
         }

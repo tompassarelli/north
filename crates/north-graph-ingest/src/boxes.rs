@@ -1,7 +1,8 @@
 use std::sync::OnceLock;
 
 use regex::Regex;
-use sha2::{Digest, Sha256};
+
+const DONE_WHEN: &str = "Done when: `";
 
 pub struct Item {
     pub ticked: bool,
@@ -9,13 +10,12 @@ pub struct Item {
     pub head: String,
     pub owner: Option<String>,
     pub landed: Vec<String>,
+    pub done_when: Option<String>,
 }
 
 impl Item {
     pub fn id(&self, issue: &str) -> String {
-        let digest = Sha256::digest(self.head.as_bytes());
-        let short: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
-        format!("box:{issue}:{short}")
+        north_threads::threads::claims::box_node(issue, &self.head).unwrap_or_else(|| format!("box:{issue}:"))
     }
 }
 
@@ -59,5 +59,12 @@ fn line(line: &str) -> Option<Item> {
     }
     let cut = text.to_ascii_lowercase().find(" (owner").unwrap_or(text.len());
     let head: String = text[..cut].chars().take(120).collect();
-    Some(Item { ticked, text, head, owner, landed })
+    let done_when = done_when(&text);
+    Some(Item { ticked, text, head, owner, landed, done_when })
+}
+
+pub fn done_when(text: &str) -> Option<String> {
+    let after = &text[text.find(DONE_WHEN)? + DONE_WHEN.len()..];
+    let command = after[..after.find('`')?].trim();
+    (!command.is_empty()).then(|| command.to_owned())
 }

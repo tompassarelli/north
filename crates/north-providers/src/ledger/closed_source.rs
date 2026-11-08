@@ -164,13 +164,15 @@ fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> 
     let runs: Vec<SpendRun> = spend_runs(&database)?.into_iter().filter(|run| run.ended.as_str() < until).collect();
     let native = native_namespaces(&database)?;
     let closed = native_closed(&database, since, until)?;
-    report_between(&Inputs { runs, native, closed, catalog: &CATALOG }, since, until, github_closed, &PriceTable::load()?)
+    let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
+    report_between(&Inputs { runs, native, closed, corroborated, catalog: &CATALOG }, since, until, github_closed, &PriceTable::load()?)
 }
 
 struct Inputs<'a> {
     runs: Vec<SpendRun>,
     native: HashSet<String>,
     closed: HashMap<String, String>,
+    corroborated: Option<HashSet<String>>,
     catalog: &'a Catalog,
 }
 
@@ -189,7 +191,7 @@ fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&s
         closed.extend(github(repo, since, until)?);
     }
     let items: HashSet<String> = closed.keys().cloned().collect();
-    let mut report = summarize(&sources.runs, &items, since, prices).verified(&closed);
+    let mut report = summarize(&sources.runs, &items, since, prices).verified(&closed, sources.corroborated.as_ref());
     report.skipped = landed.into_iter().filter(|(repo, _)| !known(repo)).map(|(repo, runs)| (repo.to_owned(), runs)).collect();
     Ok(report)
 }

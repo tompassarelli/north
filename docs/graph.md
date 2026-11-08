@@ -86,11 +86,16 @@ assertion with its writer and `quoted(term, t1, t2, t3)` gives the parts of any 
 query can join a claim to the checks of the commit it names.
 
 - `mirror` (writer `mirror`): `(north#634 :title|:state|:label|:blocked-by|:has-box ...)` and, per task-list box,
-  `(box:north#634:HASH :text|:ticked|:owner ...)`. A ticked box that names `owner: SESSION` is the session's claim
+  `(box:north#634:SLUG :text|:ticked|:owner|:done-when ...)`, where SLUG is the box's claim slug (its first 48 characters of
+  lowercase words joined by `-`), so a run's `Box:` line and the issue's task-list line name one box. `:done-when` is the
+  command of the box's ``Done when: `CMD` ``. A ticked box that names `owner: SESSION` is the session's claim
   `(SESSION :claims (box:... :done-at SHA))`, written by SESSION, one per commit named after `landed` (short ids expand
-  to the full commit id when the ledger or push log knows it) or `:none` when the box names no commit. `:title`, `:state`,
-  `:label`, `:blocked-by`, `:has-box`, `:text`, `:ticked`, `:owner` and `:claims` are replaced from the mirror: a box
-  unticked or an issue closed retracts what no longer holds.
+  to the full commit id when the ledger or push log knows it) or `:none` when the box names no commit. Each worker run the
+  threads ledger records as done on an item's box is its claim too, `(AGENT :claims (box:... :done-at SHA))` with the run's
+  landed commit or `:none`, and a `Box:` line that carries a Done-when command adds `:done-when` by `ledger`, so the claims of
+  a closed issue stay. `:title`, `:state`, `:label`, `:blocked-by`, `:has-box`, `:text`, `:ticked`, `:owner` and `:claims`
+  are replaced from the mirror and the runs: a box unticked or an issue closed retracts what no longer holds. `:done-when`
+  is only added, so a closed issue's boxes keep the command they declared.
   Waits come from the same issues: `(box:... :waits-on box:...|north#560)` for each unticked box whose text names what it
   waits on (`waits on`, `waiting for`, `blocked by`, `depends on`, `follows`, `after`, `needs` followed by `north#N`, `#N`,
   `box N`, a sibling box's label such as `B16` or `4-3`, which the box leads with or names first inside parentheses as in
@@ -113,6 +118,19 @@ query can join a claim to the checks of the commit it names.
   harness/corrections.toml. The ledger holds Tom's corrections as neutral paraphrases and so does the graph.
 - `coverage` (writer `coverage`): `(test:BINARY::NAME :reaches fn:FILE:START-END)`, `:in-binary`, `:in-file` and
   `(coverage:REPO :commit SHA)` from the coverage map, replaced whole by each map.
+- `observations` (writers `lander` and `git`): `(SHA :landed-on "main")` by `lander` for each commit the push log or the
+  ledger's landings record, and `(SHA :ancestor-of "origin/main")` by `git` for each commit a claim names that
+  `git rev-list origin/main` lists in `~/code/REPO/main`. It runs after `mirror` and appends through `Graph::apply`: it reads
+  only the live assertions of its two predicates and adds what is new, and never retracts, since a landed commit stays landed.
+  `north task check --done-when` records each verdict in the ledger's checks with the main commit it ran on, which `ledger`
+  tells as `checker`'s `:check-passed` or `:check-failed`.
+
+A worker's claim counts only when a mechanical writer corroborates it. `harness/graph-rules/corroborated.json` derives
+`corroborated(BOX, SHA, WRITER)`: a quoted `(BOX :done-at SHA)` claim whose SHA is not `:none`, with `checker` asserting
+`(SHA :check-passed CMD)` for the box's own `:done-when` CMD, or with `lander` asserting `(SHA :landed-on "main")` and `git`
+asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north ledger summary`, dispatch's arm shares, `north ops
+climb run`) marks a kept box checker-verified only when the rule holds by `checker` for the box its run's brief named; the
+`Evidence:` stamp in the issue body, which any writer of the body can type, is read only on a host with no graph.
 
 A predicate belongs to one source: a run refuses a source that replaces a predicate another source of the run replaces.
 A sync reads only the live assertions it can change: every writer's assertions of a replaced predicate, and for each

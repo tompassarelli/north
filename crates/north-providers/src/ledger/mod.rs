@@ -14,6 +14,7 @@ mod books;
 mod briefs;
 pub mod closed;
 mod closed_source;
+mod corroborated;
 pub mod outcome;
 pub mod rises;
 mod gates;

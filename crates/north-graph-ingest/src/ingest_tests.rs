@@ -79,7 +79,27 @@ fn a_done_claim_is_the_workers_quoted_triple_only_the_checker_can_observe_and_a_
         !told.iter().any(|fact| fact.triple.t2 == Term::keyword("done-at")),
         "the commit a box names is quoted inside the worker's claim and is never a bare fact"
     );
+    a_run_claims_its_box_of_a_closed_issue_and_the_lander_observes_the_landing(&places, &mut graph);
     a_rerun_adds_nothing_and_a_changed_source_is_followed();
+}
+
+fn a_run_claims_its_box_of_a_closed_issue_and_the_lander_observes_the_landing(places: &Places, graph: &mut Graph) {
+    Connection::open(&places.threads)
+        .unwrap()
+        .execute_batch(&format!(
+            "CREATE TABLE runs(agent TEXT, item TEXT, box TEXT, landed_sha TEXT, outcome TEXT, role TEXT, category TEXT, brief_text TEXT, minutes REAL);
+             INSERT INTO runs VALUES ('run-7', 'north#7', 'Ship the closed box. Done when: `cargo test -p x` exits 0', '{FULL}', 'done', 'worker', 'feature', '', 30);"
+        ))
+        .unwrap();
+    let report = ingest(graph, places, &[Source::Mirror, Source::Observations]);
+    assert!(!report.failed, "{:?}", report.lines);
+    let node = Term::string("box:north#7:ship-the-closed-box-done-when-cargo-test-p-x-exi");
+    let told = graph.told().unwrap();
+    assert!(told.contains(&north_graph::Told::new("run-7", "run-7", Term::keyword("claims"), Term::triple(node.clone(), Term::keyword("done-at"), Term::string(FULL)))), "a done run claims its box though the issue is closed: {:?}", report.lines);
+    assert!(told.contains(&north_graph::Told::new("ledger", node, Term::keyword("done-when"), Term::string("cargo test -p x"))));
+    assert!(told.contains(&north_graph::Told::new("lander", FULL, Term::keyword("landed-on"), Term::string("main"))), "{:?}", report.lines);
+    let again = ingest(graph, places, &[Source::Observations]);
+    assert!(again.lines.iter().any(|line| line.starts_with("observations: 0 asserted")), "{:?}", again.lines);
 }
 
 fn a_rerun_adds_nothing_and_a_changed_source_is_followed() {

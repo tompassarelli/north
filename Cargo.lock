@@ -1360,7 +1360,6 @@ dependencies = [
  "regex",
  "rusqlite",
  "serde_json",
- "sha2",
  "tempfile",
 ]
 
@@ -1675,6 +1674,7 @@ dependencies = [
  "north-calibration",
  "north-claude-stream",
  "north-fleet-supervisor",
+ "north-graph",
  "north-pace",
  "north-threads",
  "regex",

@@ -306,13 +306,15 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
 }
 
 impl ClosedReport {
-    /// Marks each arm box whose issue `verified` names as checker-verified.
-    /// Marks each closed arm box verified by the stamp on the box its run's brief named, or by every ticked box of the issue `bodies` holds when the run named none, and `issue_verified` by the issue-level read alone.
-    pub fn verified(mut self, bodies: &HashMap<String, String>) -> Self {
+    /// Marks each closed arm box verified when `corroborated`, the box nodes the graph's `corroborated` rule holds by `checker`, names the box its run's brief named; only where no graph exists, by the stamp on that box, or by every ticked box of the issue `bodies` holds when the run named none. `issue_verified` is the issue-level stamp read alone.
+    pub fn verified(mut self, bodies: &HashMap<String, String>, corroborated: Option<&HashSet<String>>) -> Self {
         for arm in &mut self.arms {
             let body = bodies.get(&arm.item).filter(|_| arm.closed);
             arm.issue_verified = body.is_some_and(|body| checker_verified(body));
-            arm.verified = body.is_some_and(|body| arm.box_text.as_deref().map_or(arm.issue_verified, |text| box_verified(body, text)));
+            arm.verified = match corroborated {
+                Some(boxes) => arm.closed && arm.box_text.as_deref().and_then(|text| crate::threads::claims::box_node(&arm.item, text)).is_some_and(|node| boxes.contains(&node)),
+                None => body.is_some_and(|body| arm.box_text.as_deref().map_or(arm.issue_verified, |text| box_verified(body, text))),
+            };
         }
         self
     }
