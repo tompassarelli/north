@@ -222,7 +222,7 @@ impl HookKind {
             Self::NativeSpawn => &[crate::guard::proxy_role::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PostTool => &[crate::guard::worker_lease::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate, crate::guard::proxy_role::evaluate_streak],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
-            Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::recommend_acts::evaluate, crate::guard::correction_capture::evaluate],
+            Self::Stop => &[crate::guard::permission_offer::evaluate, crate::guard::command_handoff::evaluate, crate::guard::recommendation_grounding::evaluate, crate::guard::recommend_acts::evaluate, crate::guard::correction_capture::evaluate],
             Self::RecommendActs => &[crate::guard::recommend_acts::evaluate],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate, crate::guard::compact_state::evaluate, crate::guard::proxy_adopt::evaluate, crate::guard::gate_digest::evaluate],

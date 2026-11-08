@@ -136,6 +136,11 @@ impl Policy {
                         {
                             continue;
                         }
+                        if let Some(checkout) = git_lock_checkout(&path)
+                            && DESTRUCTIVE_COMMANDS.contains(&base)
+                        {
+                            return Some(format!("This Bash command would run `{base}` on {path}, a git lock file inside {}. Clear stale git locks with the sanctioned verb, which removes only a lock no process holds and older than 60 s, and names a live one:\n  north lane unlock {checkout}\nA lock it keeps belongs to a running git; wait for it.", hit.noun()));
+                        }
                         return Some(self.deny(arg, &hit, &format!("run `{base}`")));
                     }
                 }
@@ -214,4 +219,8 @@ fn introduced(words: &[String], executable: usize, at: usize) -> bool {
 fn awk_in_place(words: &[String]) -> bool {
     words.windows(2).any(|pair| pair[0] == "-i" && pair[1] == "inplace")
         || words.iter().any(|s| s == "-iinplace" || s == "--include=inplace")
+}
+fn git_lock_checkout(path: &str) -> Option<&str> {
+    let (checkout, inside) = path.split_once("/.git/")?;
+    (inside.ends_with(".lock") && !inside.contains("/../")).then_some(checkout)
 }

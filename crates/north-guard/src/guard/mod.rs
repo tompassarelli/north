@@ -57,6 +57,7 @@ pub mod worker_lease;
 pub mod compact_state;
 pub mod quiet_phrase;
 pub mod permission_offer;
+pub mod command_handoff;
 pub mod recommendation_grounding;
 mod recommendation_grounding_tests;
 mod clipboard_tests;

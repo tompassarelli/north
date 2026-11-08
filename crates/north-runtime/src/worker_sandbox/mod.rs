@@ -62,6 +62,9 @@ fn outside(program: &[String]) -> std::process::ExitCode {
 }
 
 fn shell(command: &str) -> std::process::ExitCode {
+    if let Some(arguments) = sanctioned(command, std::env::var_os("HOME").map(PathBuf::from).as_deref()) {
+        return unconfined(&arguments);
+    }
     let context = Context::from_env(command);
     match confine(&removable(&context)) {
         Ok(RulesetStatus::FullyEnforced) => {}
@@ -70,6 +73,42 @@ fn shell(command: &str) -> std::process::ExitCode {
     }
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
     let error = Command::new(shell).arg("-c").arg(command).env(MARK, "1").exec();
+    eprintln!("north worker-sandbox: {error}");
+    std::process::ExitCode::from(126)
+}
+
+/// The verbs that carry their own removal checks, so the wrapper runs them outside the domain: a stale git lock no process holds (`north lane unlock`) and a stray the session's own tool call created (`north lane stray`). Only a bare invocation qualifies; any shell syntax keeps the whole command confined.
+const SANCTIONED: [[&str; 2]; 2] = [["lane", "unlock"], ["lane", "stray"]];
+
+pub fn sanctioned(command: &str, home: Option<&std::path::Path>) -> Option<Vec<String>> {
+    if command.contains(|character: char| "|&;<>()$`\\\"'*?[]{}!#=\n".contains(character)) {
+        return None;
+    }
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let (program, rest) = words.split_first()?;
+    let verb = SANCTIONED.iter().find(|verb| rest.starts_with(&verb[..]))?;
+    if std::path::Path::new(program).file_name()? != "north" {
+        return None;
+    }
+    rest.iter()
+        .map(|word| match word.strip_prefix("~/") {
+            Some(tail) => home.map(|home| home.join(tail).to_string_lossy().into_owned()),
+            None if word.contains('~') => None,
+            None => Some((*word).to_owned()),
+        })
+        .collect::<Option<Vec<String>>>()
+        .filter(|arguments| arguments.len() >= verb.len())
+}
+
+fn unconfined(arguments: &[String]) -> std::process::ExitCode {
+    let north = match std::env::current_exe() {
+        Ok(north) => north,
+        Err(error) => {
+            eprintln!("north worker-sandbox: cannot find this north binary: {error}");
+            return std::process::ExitCode::from(126);
+        }
+    };
+    let error = Command::new(north).args(arguments).env(MARK, "1").exec();
     eprintln!("north worker-sandbox: {error}");
     std::process::ExitCode::from(126)
 }

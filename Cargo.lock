@@ -1525,6 +1525,7 @@ version = "0.1.0"
 dependencies = [
  "north-base",
  "north-check-environment",
+ "north-git-locks",
  "north-goals",
  "north-land-sandbox",
  "north-land-scans",
@@ -1558,6 +1559,7 @@ dependencies = [
  "north-base",
  "north-check-environment",
  "north-diff-gates",
+ "north-git-locks",
  "north-github-mirror",
  "north-goals",
  "north-land-checks",

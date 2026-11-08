@@ -42,7 +42,11 @@ pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
 }
 
 pub fn git(directory: &Path, arguments: &[&str]) -> Result<String, String> {
-    stdout(arguments, output(directory, arguments)?)
+    let attempt = || stdout(arguments, output(directory, arguments)?);
+    match arguments.first() {
+        Some(&"fetch") => north_git_locks::retry_after_clearing(directory, attempt),
+        _ => attempt(),
+    }
 }
 
 pub fn change_worktrees_alone(repo: &Path, arguments: &[&str]) -> Result<String, String> {

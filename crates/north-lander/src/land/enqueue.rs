@@ -48,6 +48,13 @@ pub struct Environment<'a> {
 }
 
 pub(super) fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
+    match args.first() {
+        Some(&"fetch") => north_git_locks::retry_after_clearing(repo, || run_git(repo, args)),
+        _ => run_git(repo, args),
+    }
+}
+
+fn run_git(repo: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo)

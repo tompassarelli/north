@@ -16,6 +16,8 @@ The worker's own trees (crates/north-runtime/src/worker_sandbox/removable.rs) ar
 
 The project's whole git common directory has to stay removable. The grant is the directory `git rev-parse --path-format=absolute --git-common-dir` prints, resolved from the checkout's `.git` (a gitfile leads through the worktree's `commondir` file): where `main/.git` is a gitfile its own path grants nothing, and a project the sandbox did not grant stranded the same way, since git creates a lock file and then cannot rename or remove it. A replayed `git fetch` left `refs/remotes/origin/HEAD.lock` and `objects/maintenance.lock` behind before the fix. A command that reaches another project's git by a computed path still gets no grant. Measured under the sandbox: `git worktree add -b` renames `config.lock` at the top of `.git`, `git branch -D` renames `packed-refs.lock`, fetch renames `objects/maintenance.lock` and its packs, and a loose object's temporary file is unlinked after linking. Each fails with EACCES if refused.
 
+`north lane unlock` and `north lane stray` run outside the domain, since each verb enforces its own removal rule: a git lock no process holds that is older than 60 s, or an untracked file a tool call in the session's own transcript named before the file was born (north#937).
+
 A kernel without Landlock ABI 2 or later runs the command unconfined and says so on stderr. `no_new_privs`, which Landlock requires, also stops setuid programs inside a worker command.
 
 ## Rollout

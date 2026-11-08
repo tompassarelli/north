@@ -244,3 +244,18 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
 }
+
+#[test]
+fn a_ref_lock_a_killed_fetch_left_in_the_shared_git_dir_no_longer_stops_the_enqueue_fetch_north_937() {
+    let lane = Lane::new();
+    run(&lane.repo, &["push", "-q", "origin", "lane:moved"]);
+    let origin = lane.dir.path().join("origin.git");
+    run(&origin, &["update-ref", "refs/heads/main", "refs/heads/moved"]);
+    let moved = run(&lane.repo, &["rev-parse", "lane"]);
+    let lock = lane.repo.join(".git/refs/remotes/origin/main.lock");
+    fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    fs::File::create(&lock).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000)).unwrap();
+    assert_eq!(super::git(&lane.repo, &["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"]), Ok(String::new()));
+    assert!(!lock.exists());
+    assert_eq!(run(&lane.repo, &["rev-parse", "refs/remotes/origin/main"]), moved);
+}

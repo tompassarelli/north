@@ -8,6 +8,7 @@ mod reap;
 mod reference_search;
 mod repo;
 mod rescue;
+mod stray;
 mod target_seed;
 mod unlock;
 mod unpushed;
@@ -21,6 +22,7 @@ pub use layout_check::{exempt as layout_exempt, run as layout_check};
 pub use pin_retire::run as pin_retire;
 pub use reap::run as wt_reap;
 pub use rescue::run as wt_rescue;
+pub use stray::run as stray;
 pub use target_seed::run as target_seed;
 pub use unlock::run as unlock;
 
@@ -30,6 +32,8 @@ mod pin_retire_tests;
 mod reap_tests;
 #[cfg(test)]
 mod rescue_tests;
+#[cfg(test)]
+mod stray_tests;
 #[cfg(test)]
 mod unpushed_tests;
 #[cfg(test)]

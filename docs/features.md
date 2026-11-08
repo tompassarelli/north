@@ -176,6 +176,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Recommendations act (north#641): the Stop hook `north hook recommend-acts` (also in `north hook stop`) runs on proxy-role sessions and Tom's own window. [more](features/06-policy-measurement/0010-recommendations-act.md)
 - Deferred checks: a box whose code landed and whose only remaining check is a measurement over time (a day of logs, N ledger runs) moves to a `[[check]]` entry in the same registry, so no worker waits for it. [more](features/06-policy-measurement/0011-deferred-checks.md)
 - Correction replay: `north policy-replay case ID... --arm NAME=GENERATION` measures harness text on real mistakes. [more](features/06-policy-measurement/0012-correction-replay.md)
+- Command handoff (north#937): the Stop hook (`north hook stop`) refuses a proxy or interactive reply that hands Tom a shell command to run, a line beginning `! command` or a fenced block beside "type this", "paste this", "run this", "in my prompt" or "in your terminal", with the reason that agents run commands themselves, that `north lane unlock CHECKOUT` clears a stale git lock, and that a write no sanctioned verb covers is a harness gap to file. [more](features/06-policy-measurement/0013-command-handoff.md)
 
 ## Issues and native items
 

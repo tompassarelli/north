@@ -50,6 +50,7 @@ const LANE: &[(&str, Run)] = &[
     ("reclaim", crate::ops::reclaim::run),
     ("rescue", crate::lanes::wt_rescue),
     ("seed", crate::lanes::target_seed),
+    ("stray", crate::lanes::stray),
     ("squash", lane_squash::run),
     ("sweep", crate::ops::cleanup_sweep::run),
     ("unlock", crate::lanes::unlock),

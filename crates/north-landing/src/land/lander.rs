@@ -96,6 +96,10 @@ impl Lander {
     }
 
     fn fetch_lane(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
+        north_git_locks::retry_after_clearing(&self.repo, || self.fetch_lane_once(host, ticket))
+    }
+
+    fn fetch_lane_once(&self, host: &str, ticket: &Ticket) -> Result<(), String> {
         let url = format!("ssh://{host}{}", ticket.root.display());
         let target = format!("+refs/heads/{}:refs/land-remote/{host}/{}", ticket.branch, queue::slug(&ticket.branch));
         let ssh_command = std::iter::once("ssh").chain(SSH_OPTIONS.iter().copied()).collect::<Vec<_>>().join(" ");

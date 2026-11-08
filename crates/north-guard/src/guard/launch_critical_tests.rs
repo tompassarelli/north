@@ -35,6 +35,9 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
             let codex = HookInput::parse(&serde_json::to_vec(&codex).unwrap()).unwrap();
             assert_eq!(policy.decide(&codex), reason, "{name}: exec_command");
         }
+        if name.contains(".git/index.lock") {
+            assert!(reason.as_deref().is_some_and(|reason| reason.contains("north lane unlock")), "{name}: {reason:?}");
+        }
         if name.contains("/pins/") && *denied {
             assert!(reason.unwrap().contains("docs-boundary-consumer"), "{name}");
         }

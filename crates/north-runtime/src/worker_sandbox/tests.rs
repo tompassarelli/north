@@ -3,7 +3,7 @@ use std::process::Command;
 
 use landlock::RulesetStatus;
 
-use super::{Context, confine, removable};
+use super::{Context, confine, removable, sanctioned};
 
 const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
 
@@ -78,4 +78,24 @@ fn a_sandboxed_git_fetch_leaves_no_lock_in_a_common_dir_it_cannot_remove_north_7
     let fetched = |repository: &Path| Command::new("git").arg("-C").arg(repository).args(["rev-list", "--count", "origin/main"]).output().unwrap().stdout;
     assert_eq!(fetched(&base), b"2\n");
     assert_eq!(fetched(&beta), b"2\n");
+}
+
+#[test]
+fn only_a_bare_unlock_or_stray_invocation_leaves_the_domain_and_any_shell_syntax_stays_confined_north_937() {
+    let home = Some(Path::new("/home/t"));
+    let words = |list: &[&str]| Some(list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>());
+    assert_eq!(sanctioned("north lane unlock ~/code/south/main", home), words(&["lane", "unlock", "/home/t/code/south/main"]));
+    assert_eq!(sanctioned("/home/t/.local/state/north/current/north lane stray /home/t/code/wisp/main/src/XXQw5ucM", home), words(&["lane", "stray", "/home/t/code/wisp/main/src/XXQw5ucM"]));
+    for confined in [
+        "north lane unlock ~/code/south/main; rm -rf ~/code",
+        "north lane unlock $(echo ~/code)",
+        "north lane unlock ~/code && rm x",
+        "north lane stray ~/code/*",
+        "north lane rescue ~/code/south/main",
+        "rm -f ~/code/south/main/.git/index.lock",
+        "PATH=/tmp north lane unlock",
+        "north lane unlock ~other/code",
+    ] {
+        assert_eq!(sanctioned(confined, home), None, "{confined}");
+    }
 }

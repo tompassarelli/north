@@ -44,7 +44,7 @@ const MUTATING_GIT: &[&str] = &[
     "filter-branch",
     "update-ref",
 ];
-const WRITE_COMMANDS: &[&str] = &["tee", "truncate", "install", "patch", "dd", "shred"];
+const WRITE_COMMANDS: &[&str] = &["tee", "truncate", "install", "patch", "dd", "shred", "touch"];
 const COPY_COMMANDS: &[&str] = &["cp", "mv", "rsync", "scp", "ln"];
 const REMOTE_COPY_COMMANDS: &[&str] = &["rsync", "scp"];
 const DESTRUCTIVE_COMMANDS: &[&str] = &["rm", "rmdir", "shred", "unlink"];

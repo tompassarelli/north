@@ -7,6 +7,7 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
+north-git-locks = { path = "../north-git-locks" }
 north-base = { path = "../north-base" }
 north-check-environment = { path = "../north-check-environment" }
 north-diff-gates = { path = "../north-diff-gates" }

@@ -91,6 +91,9 @@ pub fn fixture() -> Fixture {
     }
     for (command, denied) in [
         (format!("rm -rf {main}/build"), false),
+        (format!("rm -f {main}/.git/index.lock {main}/.git/refs/remotes/origin/main.lock"), true),
+        (format!("north lane unlock {main}"), false),
+        (format!("cd /tmp && touch {main}/zz-probe"), true),
         (format!("rm {main}/src/kept.txt"), true),
         (format!("rm -rf {main}/src"), true),
         (format!("rm -rf {main}"), true),
