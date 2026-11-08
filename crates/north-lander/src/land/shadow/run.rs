@@ -7,6 +7,7 @@ use super::super::checks::{ROUND, SCRUBBED};
 use super::super::queue::Ticket;
 use super::super::setting;
 use super::super::slots::select::Config;
+use super::super::slots::unit_reuse;
 use super::super::slots::verdict_key;
 use super::{OWNER, Settings};
 use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_STATUS, RED_MAIN_STATUS, SLOTS_BUSY_STATUS, TIMED_OUT_STATUS};
@@ -90,7 +91,7 @@ pub fn check(settings: &Settings, worktree: &Path, main: &str, host: &str, found
             continue;
         };
         let mut command = Command::new(&argv[0]);
-        command.args(&argv[1..]).current_dir(worktree).stdin(Stdio::null()).stdout(log).stderr(errors).env("NORTH_LAND_SERVING", "1").env(OWNER_ENV, OWNER).env(ROUND, OWNER);
+        command.args(&argv[1..]).current_dir(worktree).stdin(Stdio::null()).stdout(log).stderr(errors).env("NORTH_LAND_SERVING", "1").env(unit_reuse::RECORD_ENV, "1").env(OWNER_ENV, OWNER).env(ROUND, OWNER);
         for name in SCRUBBED {
             command.env_remove(name);
         }

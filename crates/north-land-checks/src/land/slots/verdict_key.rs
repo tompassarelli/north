@@ -28,11 +28,40 @@ pub fn selection_environment(scope: Option<&Scope>, it: Option<&str>, selected_p
     environment
 }
 
+fn reads(commands: &[String], name: &str) -> bool {
+    commands.iter().any(|command| command.contains(name))
+}
+
+pub fn reads_scope(commands: &[String]) -> bool {
+    reads(commands, PACKAGES_ENV) || reads(commands, CHANGED_ENV)
+}
+
+pub fn reads_it(commands: &[String]) -> bool {
+    reads(commands, IT_ENV)
+}
+
+pub fn lane_scope(root: &Path, base: &str, head: &str, commands: &[String], on_error: impl FnOnce(String)) -> Option<Scope> {
+    reads_scope(commands).then(|| {
+        affected::scope(root, base, head).unwrap_or_else(|error| {
+            on_error(error);
+            Scope::Workspace
+        })
+    })
+}
+
+pub fn lane_it(root: &Path, base: &str, head: &str, commands: &[String], on_error: impl FnOnce(String)) -> Option<it_modules::Selection> {
+    reads_it(commands).then(|| {
+        it_modules::selection(root, base, head).unwrap_or_else(|error| {
+            on_error(error);
+            it_modules::Selection::Every
+        })
+    })
+}
+
 pub fn lane_environment(root: &Path, base: &str, head: &str, commands: &[String]) -> Vec<(String, String)> {
-    let reads = |name: &str| commands.iter().any(|command| command.contains(name));
-    let it = reads(IT_ENV).then(|| it_modules::selection(root, base, head).unwrap_or(it_modules::Selection::Every));
+    let it = lane_it(root, base, head, commands, |_| {});
     let packages = it.as_ref().map(it_modules::Selection::packages).unwrap_or_default();
-    let scope = (reads(PACKAGES_ENV) || reads(CHANGED_ENV)).then(|| affected::scope(root, base, head).unwrap_or(Scope::Workspace).including(&packages));
+    let scope = lane_scope(root, base, head, commands, |_| {}).map(|scope| scope.including(&packages));
     let it = it.map(|selection| selection.arguments());
     selection_environment(scope.as_ref(), it.as_deref(), None).into_iter().map(|(name, value)| (name.to_owned(), value)).collect()
 }

@@ -9,13 +9,13 @@ exact merged tree.
 ## What is measured
 
 - One check in 139 was reused in the hour to 6:36 AM on 2026-11-08 (north#842).
-- North has two verdict stores, and both are keyed on more than a check reads:
+- North's verdict store is keyed on more than a check reads. The lander once had a second store, the shadow store keyed
+  `LANE_HEAD:MAIN:INPUT`, and d28fd7ddb6 folded it into this one.
   - The verdict cache (`north-base` `verdict_cache`, read by the slot runner's `reuse`) hashes every path
     that a check line's selector names. For clippy and nextest that is all of `src/`, `crates/` and
     `tests/`. For any check that runs north, it also hashes the base and head trees.
-  - The shadow store (`north-lander` `land/reuse`) is keyed `LANE_HEAD:MAIN:INPUT`.
 
-  A verdict from either store therefore carries only to an identical tree. Probes never repeat a tree,
+  A verdict therefore carries only to an identical tree. Probes never repeat a tree,
   because main and each probe's set of lanes change every round.
 - Of the 150 commits on main before this plan (5.9 hours), 132 (88%) touch a Rust input and 38 touch the root
   package under `src/`.
@@ -326,6 +326,48 @@ one. A disagreement is either of these:
 **On.** After at least 100 landings with 0 disagreements, the runner exits 0 for a reused unit and prints
 the existing reused-verdict line. Nextest then reports the unit passed and the span reader counts it as
 reused.
+
+### Shadow wiring as built (north#842, 2026-11-08)
+
+The nextest land line (a check line that runs `cargo nextest run`, not `--no-run`) runs under
+`north land reuse observe --probe ID [--record] -- COMMAND` on the host that runs it, in every
+`north land checks` run except `--after`:
+
+- **Lookup (every probe and every lane's pre-land check).** No runner and no recording. After nextest ends,
+  `observe` reads each `PASS`, `FAIL`, `TIMEOUT` or `SIG*` status line (binary id, test, seconds). For each test it
+  computes weak, strong for each path set stored under weak, and whether any set has a pass. It prints one
+  `north-reuse` line per test: probe, unit, the set id that would be reused or `-`, the real verdict and test
+  seconds. `north land checks` moves those lines out of the check log into the lander's
+  `north/land-reuse/DAY.tsv` (14 days kept), where `north land reuse report --since D` reads them. Probes and
+  pre-land checks still run every unit.
+- **Recording (the shadow tick's lane runs and a background-slot run of each landed main).** The tick passes
+  `NORTH_LAND_REUSE_RECORD=1` to its lane runs, and runs the nextest lines of a main it has not yet recorded
+  through `north capacity offload run --background`, once nothing else waits. `observe --record` sets
+  `target.x86_64-unknown-linux-gnu.runner` to `north land sandbox exec --record DIR --except north-land-sandbox --tree TREE --`
+  through nextest's `--config`, not an environment variable, because depbox clears the environment and mounts a fresh `/tmp`; the runner
+  binary and DIR sit under `target/north-reuse/`, which the sandbox shares, and TREE is the tree as depbox shows it (`~/code/PROJECT/sandbox`),
+  which `Artifacts` maps back to the tree under check.
+  `--record DIR` writes one file per unit, named `record_name(NEXTEST_BINARY_ID, NEXTEST_TEST_NAME)`;
+  a run without those variables (nextest's listing) or of an excepted binary (the sandbox's own tests,
+  because ptrace cannot nest) is not traced. The sandbox adds the test binary's own `exec` entry, which the
+  classifier drops with the program. After the run `observe` stores `record_set(weak, set)` for each unit, for a
+  pass `record_pass(weak, strong, pass)`, and for a fail at a (weak, strong) that holds a pass clears it. A unit
+  whose set holds an `unreusable` line stores its set and no pass.
+- **Store sync.** `north capacity offload verdict sync --host H` runs before each lookup run's job and after each
+  recording run, so a host holds the lander's records and the lander holds the host's.
+- **Weak** is the sha256 of the unit id (`BINARY_ID TEST`), the check line with every `${SAFE_PUSH_LAND_PACKAGES|CHANGED|IT|CPUS|SELECT_PATHS...}`
+  expansion removed, the blob ids of `rust-toolchain.toml`, `flake.lock`, `Cargo.lock` and `.cargo/config.toml`, `rustc -vV` from cargo's
+  `target/.rustc_info.json`, and the job's environment with the tree and target directory paths replaced by
+  labels and the names in `fingerprint::IGNORED` removed, each with its reason.
+- **Strong** answers each entry on the tree under check: a content or exec entry by `git ls-tree -r` mode and blob id, an absent entry by
+  presence, a listing by the sorted names and modes of the directory, and a `target/` artifact by its build identity (the hash in
+  its file name), its dep-info's sources and `# env-dep:` values and the same for every path crate it links. `cargo metadata`
+  names those crates from the artifact's target name, and each crate's lib dep-info is every `lib NAME-HASH.d` in the same
+  `deps` directory. A source outside the tree is answered by its path when it is in `/nix/store`, `/rustc` or
+  the cargo registry (`flake.lock` and `Cargo.lock` pin them), and makes the artifact unreusable otherwise. A file the build script generates under
+  the target directory is answered by the build script and manifest.
+- **Report.** A unit that would have been reused and failed is a disagreement. So is a recording run whose real set differs
+  from the set a lookup before it would have reused (it names the first path that differs).
 
 ### Expected reuse, and the lever if it falls short
 

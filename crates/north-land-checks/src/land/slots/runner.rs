@@ -27,6 +27,7 @@ mod execute;
 mod fail_fast;
 mod judge;
 mod log;
+mod offload_job;
 mod queue_checks;
 mod selection;
 mod spawn;

@@ -7,7 +7,7 @@ mod paths;
 mod recorder;
 mod supervisor;
 
-pub const USAGE: &str = "north land sandbox exec [--enforce PATHSET] [--record FILE] [--tree DIR] -- CMD...";
+pub const USAGE: &str = "north land sandbox exec [--enforce PATHSET] [--record FILE|DIR] [--except BINARY_ID]... [--tree DIR] -- CMD... (a --record DIR writes one file per nextest unit, named by fingerprint::record_name of NEXTEST_BINARY_ID and NEXTEST_TEST_NAME, and runs a command without them, or of an --except binary, untraced)";
 
 const CHILD_VERB: [&str; 3] = ["land", "sandbox", "child"];
 const SANDBOX_FAILED: u8 = 125;

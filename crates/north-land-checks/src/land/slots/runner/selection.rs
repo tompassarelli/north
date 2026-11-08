@@ -3,8 +3,8 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::landing::{land_test_runner, land_test_selection};
-use super::super::affected::{self, CHANGED_ENV, PACKAGES_ENV, Scope};
-use super::super::it_modules::{self, IT_ENV};
+use super::super::affected::Scope;
+use super::super::verdict_key;
 use super::super::select::{Config, changed};
 use super::super::selection_record::Recorded;
 use super::arguments::Arguments;
@@ -17,17 +17,14 @@ pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String]
 }
 
 fn scope_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<Scope> {
-    if !commands.iter().any(|command| command.contains(PACKAGES_ENV) || command.contains(CHANGED_ENV)) {
+    if !verdict_key::reads_scope(commands) {
         return None;
     }
     if let Some(scope) = recorded.and_then(|recorded| recorded.scope.clone()) {
         say(&format!("safe-push: the after-landing Rust checks reuse the candidate's scope, {}", scope.arguments()));
         return Some(scope);
     }
-    let scope = affected::scope(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
-        warn(&format!("safe-push: {error}; the Rust checks cover the whole workspace"));
-        Scope::Workspace
-    });
+    let scope = verdict_key::lane_scope(root, &arguments.base, &arguments.head, commands, |error| warn(&format!("safe-push: {error}; the Rust checks cover the whole workspace")))?;
     if !arguments.leased {
         say(&format!("safe-push: the Rust checks cover {}", scope.arguments()));
     }
@@ -70,17 +67,14 @@ fn checked_out(root: &Path, tree: &str) -> bool {
 }
 
 fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> Option<(String, BTreeSet<String>)> {
-    if !commands.iter().any(|command| command.contains(IT_ENV)) {
+    if !verdict_key::reads_it(commands) {
         return None;
     }
     if let Some(filters) = recorded.and_then(|recorded| recorded.it.clone()) {
         say(&format!("safe-push: the after-landing tests/it run reuses the candidate's selection, {filters}"));
         return Some((filters, BTreeSet::new()));
     }
-    let selection = it_modules::selection(root, &arguments.base, &arguments.head).unwrap_or_else(|error| {
-        warn(&format!("safe-push: {error}; the tests/it run covers every module"));
-        it_modules::Selection::Every
-    });
+    let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
     if !arguments.leased {
         say(&format!("safe-push: the tests/it run is {}", selection.summary()));
     }

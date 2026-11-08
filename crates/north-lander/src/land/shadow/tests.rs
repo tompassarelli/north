@@ -1,7 +1,8 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
+
+use north_base::foundation::shim::write_executable;
 
 use super::super::slots::verdict_key;
 use super::{Settings, run};
@@ -27,8 +28,7 @@ fn git(repo: &Path, arguments: &[&str]) -> String {
 }
 
 fn script(path: &Path, text: &str) -> String {
-    fs::write(path, text).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    write_executable(path, text);
     path.display().to_string()
 }
 
@@ -70,4 +70,36 @@ fn a_verdict_the_shadow_tick_records_is_found_by_the_slot_runners_lookup_for_the
     let hits = verdict_key::hits(&String::from_utf8_lossy(&asked.stdout));
     let (host, pass) = hits.get(&slot_runner_key).expect("the slot runner finds the shadow's pass");
     assert_eq!((host.as_str(), pass.sha.as_str()), ("gex45", merged.as_str()));
+}
+
+mod reuse_report {
+    use super::super::super::slots::unit_reuse::lines::Record;
+    use super::super::reuse::{render, summarize};
+
+    fn unit(probe: &str, set: Option<&str>, passed: bool, seconds: f64) -> Record {
+        Record::Unit { probe: probe.into(), unit: format!("north-base {probe}"), set: set.map(str::to_owned), passed, seconds }
+    }
+
+    #[test]
+    fn the_report_counts_landings_units_and_both_kinds_of_disagreement() {
+        let records = vec![
+            unit("p1", Some("aaaaaaaaaaaaaaaa"), true, 2.0),
+            unit("p1", None, true, 6.0),
+            unit("p2", Some("bbbbbbbbbbbbbbbb"), false, 2.0),
+            Record::SetDiffers { probe: "p2".into(), unit: "north-base other".into(), reused: "cccccccccccccccc".into(), real: "dddddddddddddddd".into(), path: "content harness/x".into() },
+        ];
+        let summary = summarize(&records);
+        assert_eq!((summary.landings, summary.units, summary.reused), (2, 3, 2));
+        assert_eq!(summary.disagreements.len(), 2);
+        let text = render(&summary, "1h");
+        assert!(text.contains("would reuse: 2 of 3 units (66.7%)"), "{text}");
+        assert!(text.contains("would reuse by test-seconds: 4.0 of 10.0 s (40.0%)"), "{text}");
+        assert!(text.contains("first difference: content harness/x"), "{text}");
+    }
+
+    #[test]
+    fn a_log_with_no_disagreement_says_zero() {
+        let text = render(&summarize(&[unit("p1", Some("aaaaaaaaaaaaaaaa"), true, 1.0)]), "1h");
+        assert!(text.contains("disagreements: 0\n") && !text.contains("  disagreement:"), "{text}");
+    }
 }

@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::SystemTime;
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
@@ -15,12 +14,10 @@ use crate::landing::check_timings::outcomes::Records;
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
-use crate::land::trace::check_log::{self, Line};
 use crate::landing::check_timings;
 use super::fail_fast::Plan;
-use super::{ACTIONS_CLASS, BATCH_GRACE, KILLED_STATUS, OFFLOAD_GRACE, RED_MAIN_STATUS, Shared, TIMED_OUT_STATUS, batch, resolve_runner_host, say, warn};
-use super::log::new_log;
-use super::spawn::{Attempt, Ran, exit_code, shell_deadline, under_capacity};
+use super::{ACTIONS_CLASS, RED_MAIN_STATUS, Shared, batch, resolve_runner_host, say, warn};
+use super::spawn::{exit_code, under_capacity};
 
 async fn forward_cancel(mut cancel: watch::Receiver<bool>, stop: Arc<watch::Sender<bool>>) {
     while cancel.changed().await.is_ok() {
@@ -31,7 +28,7 @@ async fn forward_cancel(mut cancel: watch::Receiver<bool>, stop: Arc<watch::Send
     }
 }
 
-fn first_failure(failed: &mut i32, status: i32) {
+pub(super) fn first_failure(failed: &mut i32, status: i32) {
     if *failed == 0 || (matches!(*failed, NO_VERDICT_STATUS | SLOTS_BUSY_STATUS) && status != 0 && status != SLOTS_BUSY_STATUS) {
         *failed = status;
     }
@@ -85,51 +82,6 @@ impl Shared {
         let status = self.wait(&mut child).await;
         trace::record(&[Span { end: epoch(), ..lease }]);
         status
-    }
-
-    async fn run_batch(self: Arc<Self>, host: String, commands: Vec<String>) -> Vec<i32> {
-        let started = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        let tree = self.arguments.tree().to_owned();
-        let timeouts: Vec<u64> = commands.iter().map(|command| self.deadline_of(command).seconds).collect();
-        for (command, timeout) in commands.iter().zip(&timeouts) {
-            self.outcome.record(&["ran"]);
-            say(&format!("safe-push: land check: {command} ({timeout} s, in one {host} slot with {} other head-north check(s))", commands.len() - 1));
-        }
-        let checks: Vec<(&str, u64)> = commands.iter().map(String::as_str).zip(timeouts.iter().copied()).collect();
-        let outer = timeouts.iter().copied().max().unwrap_or_default() + BATCH_GRACE;
-        say(&format!("safe-push: offloading {} head-north land check(s) to {host} as one job", commands.len()));
-        let argv = shell_deadline(outer + OFFLOAD_GRACE, &self.offload_argv(&host, &tree, outer, &batch::script(&checks)));
-        let ran = match self.spawn_argv("of the head-north batch", argv, &tree, outer).await {
-            Ok(ran) => ran,
-            Err(status) => return vec![status; commands.len()],
-        };
-        if self.overflows(&commands[0], ran.status) {
-            say(&format!("safe-push: every build-host slot stayed busy, so {} head-north land check(s) overflow to GitHub Actions", commands.len()));
-            let _ = fs::remove_file(&ran.log);
-            return vec![ran.status; commands.len()];
-        }
-        let line = Span::new(&self.arguments.head, "head-north checks in one offload slot", Category::Offload, ran.started_at, ran.ended_at).under(&self.arguments.span).on(&host).with("exit", ran.status.to_string());
-        let mut spans = check_log::children(&Line { trace: &self.arguments.head, id: &line.id, category: Category::Offload, start: line.start, end: line.end, host: &host }, &ran.marks);
-        let running = spans.iter().map(|span| span.end).fold(ran.started_at, f64::max);
-        spans.insert(0, line.clone());
-        trace::record(&spans);
-        let text = fs::read_to_string(&ran.log).unwrap_or_default();
-        let mut statuses = Vec::new();
-        for ((command, timeout), part) in commands.iter().zip(timeouts).zip(batch::split(&text, commands.len())) {
-            let Some(log) = new_log() else {
-                statuses.push(1);
-                continue;
-            };
-            let part = part.unwrap_or_else(|| batch::Part { status: if ran.status == 0 { 1 } else { ran.status }, offset: 0.0, seconds: ran.ended_at - running, text: text.clone() });
-            let _ = fs::write(&log, &part.text);
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let seconds = part.seconds.round() as u64;
-            let started_at = running + part.offset;
-            let checked = Ran { status: part.status, seconds, exceeded: part.status == TIMED_OUT_STATUS || (part.status == KILLED_STATUS && seconds >= timeout), log, started_at, ended_at: started_at + part.seconds, marks: Vec::new() };
-            statuses.push(self.finish_check(command, Attempt { leased: false, started, timeout }, &checked, None, Some(&line.id)).await);
-        }
-        let _ = fs::remove_file(&ran.log);
-        statuses
     }
 
     fn spawn_batch(self: &Arc<Self>, ordered: &[String], plan: &Plan, stop: &Arc<watch::Sender<bool>>, offloaded: &mut JoinSet<Vec<(usize, i32)>>) -> Vec<usize> {
@@ -374,6 +326,9 @@ impl Shared {
             Ok(phases) => phases,
             Err(commands) => return self.execute(commands).await,
         };
+        if self.runs_on_one_build(&phases) && let Some(status) = self.run_on_one_build(&phases).await {
+            return status;
+        }
         say(&format!("safe-push: land check order: the north build the head-north checks share ({}), then {} head-north check(s), beside {} other land check(s)", phases.build, phases.head_north.len(), phases.others.len()));
         let pinned = if self.offload_host_for(&phases.build).is_some() { head_north_jobs(&phases.head_north).max(1) } else { 0 };
         let beside = Arc::new(Self { pinned, ..(*self).clone() });

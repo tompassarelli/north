@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
 use nix::unistd::Pid;
-use north_base::verdict_cache::path_set::{self, Entry};
+use north_base::verdict_cache::path_set::{self, Entry, Kind};
 
-use crate::classify::Roots;
+use crate::classify::{Roots, TARGET_LABEL};
 use crate::options::Options;
 use crate::recorder::{self, Recorder};
 use crate::{CHILD_VERB, SANDBOX_FAILED, USAGE, fence, not_inputs};
@@ -44,7 +44,8 @@ fn supervise(options: &Options) -> Result<u8, String> {
         allowed = Some(read_path_set(&path_set)?);
         child.arg("--enforce").arg(path_set);
     }
-    let traced = options.record.is_some() || options.enforce.is_some();
+    let record = options.record_file();
+    let traced = record.is_some() || options.enforce.is_some();
     if traced {
         child.arg("--trace");
     }
@@ -53,7 +54,10 @@ fn supervise(options: &Options) -> Result<u8, String> {
         return Ok(exit_code(child.status().map_err(|error| format!("spawn child: {error}"))?));
     }
     let target = fence::target_dir(&tree);
-    let roots = Roots { target: target.canonicalize().unwrap_or(target), tree, scratch: scratch_path, program: options.command.first().and_then(|program| fence::resolved(Path::new(program))), library_dirs: not_inputs::library_dirs(std::env::var_os("LD_LIBRARY_PATH")) };
+    let target = target.canonicalize().unwrap_or(target);
+    let program = options.command.first().and_then(|program| fence::resolved(Path::new(program)));
+    let own = program.as_deref().and_then(|program| program_entry(program, &target, &tree));
+    let roots = Roots { target, tree, scratch: scratch_path, program, library_dirs: not_inputs::library_dirs(std::env::var_os("LD_LIBRARY_PATH")) };
     let mut recorder = Recorder::new(roots, allowed);
     let process = child.spawn().map_err(|error| format!("spawn child: {error}"))?;
     let pid = Pid::from_raw(i32::try_from(process.id()).map_err(|error| error.to_string())?);
@@ -65,8 +69,9 @@ fn supervise(options: &Options) -> Result<u8, String> {
             SANDBOX_FAILED
         }
     };
-    let report = recorder.finish();
-    if let Some(record) = &options.record {
+    let mut report = recorder.finish();
+    report.entries.extend(own);
+    if let Some(record) = &record {
         std::fs::write(record, path_set::render(&report.entries)).map_err(|error| format!("record {}: {error}", record.display()))?;
     }
     for path in &report.refused {
@@ -103,4 +108,12 @@ fn git_toplevel() -> Result<PathBuf, String> {
         return Err("no --tree and the working directory is not in a git tree".into());
     }
     Ok(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim_end()))
+}
+
+fn program_entry(program: &Path, target: &Path, tree: &Path) -> Option<Entry> {
+    let path = match program.strip_prefix(target) {
+        Ok(relative) => format!("{TARGET_LABEL}/{}", relative.to_str()?),
+        Err(_) => program.strip_prefix(tree).ok()?.to_str()?.to_owned(),
+    };
+    Some(Entry { kind: Kind::Exec, path })
 }

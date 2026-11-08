@@ -7,7 +7,7 @@ use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
 use crate::land::slots::select::Placement;
-use crate::land::slots::verdict_key;
+use crate::land::slots::{unit_reuse, verdict_key};
 use crate::landing::check_timings::outcomes::{Outcome as CheckOutcome, Record, Records};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
@@ -16,6 +16,8 @@ use crate::land::trace::check_log::{self, Line, Mark};
 use crate::landing::check_timings::Timing;
 use super::{ACTIONS_CLASS, CANCELLED_STATUS, KILLED_STATUS, OFFLOAD_GRACE, REAP, Shared, TIMED_OUT_STATUS, say, warn};
 use super::log::{new_log, Sink, tee};
+
+const STORE_SYNC: std::time::Duration = std::time::Duration::from_secs(90);
 
 #[derive(Clone, Copy)]
 pub(super) struct Attempt {
@@ -139,24 +141,52 @@ impl Shared {
         vec![program(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.to_owned(), "--base".into(), self.arguments.base.clone(), "--head".into(), tree.to_owned(), "--timeout".into(), timeout.to_string(), "--".into(), command.to_owned()]
     }
 
+    pub(super) fn observes(&self, command: &str) -> bool {
+        !self.arguments.after && unit_reuse::runs_nextest(command)
+    }
+
+    pub(super) fn observed(&self, command: &str) -> String {
+        if self.observes(command) { unit_reuse::wrapped("north", &self.arguments.head, self.environment.record_reuse, command) } else { command.to_owned() }
+    }
+
+    pub(super) async fn sync_store(&self, host: &str) {
+        let arguments = ["capacity", "offload", "verdict", "sync", "--host", host];
+        if tokio::time::timeout(STORE_SYNC, self.north(&arguments)).await.is_err() {
+            warn(&format!("safe-push: syncing the verdict store with {host} took over {} s; the run goes on without it", STORE_SYNC.as_secs()));
+        }
+    }
+
     pub(super) async fn spawn_check(&self, command: &str, leased: bool, tree: &str, timeout: u64) -> Result<Ran, i32> {
         let environment = &self.environment;
+        let observing = self.observes(command);
         let argv = if let Some(host) = self.offload_host_for(command) {
             if !environment.offload_host.is_empty() && self.config.local_reason(command).is_some() {
                 warn(&format!("safe-push: land check {command} needs this host, which is in game-reserve; NOT pushed."));
                 return Err(1);
             }
-            let offload = self.offload_argv(&host, tree, timeout, command);
+            let observed = self.observed(command);
+            if observing {
+                self.sync_store(&host).await;
+            }
+            let offload = self.offload_argv(&host, tree, timeout, &observed);
             let capacity = if environment.offload_host.is_empty() { "" } else { environment.capacity.as_str() };
             let suffix = if environment.offload_host.is_empty() { "" } else { " while this host is in game-reserve" };
             say(&format!("safe-push: offloading to {host}{suffix}"));
             under_capacity(capacity, shell_deadline(timeout + OFFLOAD_GRACE, &offload))
         } else {
-            let local = ["bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), command.to_owned()];
+            let observed = if observing { unit_reuse::wrapped(&unit_reuse::quote(&program()), &self.arguments.head, environment.record_reuse, command) } else { command.to_owned() };
+            let local = ["bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), observed];
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(timeout, &local))
         };
-        self.spawn_argv(command, argv, tree, timeout).await
+        let ran = self.spawn_argv(command, argv, tree, timeout).await;
+        if observing && let Ok(ran) = &ran {
+            unit_reuse::harvest::harvest(&ran.log, &unit_reuse::harvest::directory());
+            if environment.record_reuse && let Some(host) = self.offload_host_for(command) {
+                self.sync_store(&host).await;
+            }
+        }
+        ran
     }
 
     pub(super) async fn spawn_argv(&self, command: &str, argv: Vec<String>, tree: &str, timeout: u64) -> Result<Ran, i32> {

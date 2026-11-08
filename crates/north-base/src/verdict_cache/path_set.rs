@@ -77,6 +77,12 @@ fn well_formed(path: &str) -> bool {
     path == "/" || !parts.is_empty() && !path.contains('\t') && parts.split('/').all(|part| part != ".." && !part.is_empty())
 }
 
+impl Entry {
+    pub fn kind_word(&self) -> &'static str {
+        self.kind.word()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

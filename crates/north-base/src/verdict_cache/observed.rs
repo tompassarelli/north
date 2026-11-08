@@ -51,7 +51,7 @@ impl Store {
     }
 
     pub fn record_set(&self, weak: &str, bytes: &[u8]) -> io::Result<String> {
-        let id: String = Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect();
+        let id = set_id(bytes);
         put(&self.directory(weak, "sets")?, &id, bytes)?;
         Ok(id)
     }
@@ -94,4 +94,8 @@ impl Store {
             _ => Ok(()),
         }
     }
+}
+
+pub fn set_id(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
