@@ -2,6 +2,7 @@ use regex::Regex;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 
 const ALLOWLIST: &str = "harness/agent-text-reads.toml";
 
@@ -14,16 +15,12 @@ fn is_test_file(path: &str) -> bool {
     name == "tests.rs" || name.ends_with("_tests.rs") || path.split('/').any(|part| part == "tests")
 }
 
-fn read_pattern() -> Regex {
-    Regex::new(r#"(?i)has_opener\(|report_column\(|starts_with\("Stop:|\br#?"[^"\n]*(stop\s*:|stop\\s|stop\\W|not done|blocked:)"#).unwrap()
-}
+static READ_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)has_opener\(|report_column\(|starts_with\("Stop:|\br#?"[^"\n]*(stop\s*:|stop\\s|stop\\W|not done|blocked:)"#).unwrap());
 
-fn literal_pattern() -> Regex {
-    Regex::new(r#"\br#*""#).unwrap()
-}
+static LITERAL_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\br#*""#).unwrap());
 
 fn reads(text: &str, all_patterns: bool) -> usize {
-    let (read, literal) = (read_pattern(), literal_pattern());
+    let (read, literal) = (&*READ_PATTERN, &*LITERAL_PATTERN);
     let code = text.split("#[cfg(test)]").next().unwrap_or(text);
     code.lines().filter(|line| !line.trim_start().starts_with("//")).filter(|line| read.is_match(line) || (all_patterns && literal.is_match(line))).count()
 }
