@@ -310,3 +310,21 @@ fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_p
     assert_eq!(program, "/runtime/bin/north");
     assert_eq!(words[..7], ["threads", "queue", "add", "laptop", "north#742", "--", "north"]);
 }
+
+/// north#888: on 2026-11-08 01:16 UTC dispatch staffed north-879-d0116 while n882-tax held north#879 through a claim whose box slug matched no box of the issue.
+#[test]
+fn a_claim_on_a_slug_that_names_no_box_holds_every_box_of_its_issue() {
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let surveyed = |held: &str| {
+        let mut survey = survey(vec![issue("north", 879, "- [ ] the tax is counted\n- [x] the tax is named\n- [ ] the docs say so", &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
+        survey.box_holds.insert(super::issues::IssueRef::new("north", 879), [(held.to_owned(), "fleet session n882-tax on nexus".to_owned())].into());
+        decide(&survey, "test")
+    };
+    let named = surveyed("the-tax-is-counted");
+    assert_eq!(named.launches.len(), 1, "a claim on a box holds only that box: {:?}", named.skipped);
+    let unnamed = surveyed("n882-tax");
+    assert!(unnamed.launches.is_empty(), "{:?}", unnamed.launches.len());
+    assert!(unnamed.skipped.iter().any(|(_, why)| why.contains("held by fleet session n882-tax on nexus") && why.contains("names no box")), "{:?}", unnamed.skipped);
+    assert_eq!(surveyed("the-tax-is-named").launches.len(), 2, "a ticked box a worker still holds is a box of the issue");
+}

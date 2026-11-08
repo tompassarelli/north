@@ -187,6 +187,12 @@ impl Issue {
         until.filter(|ready| *ready > at)
     }
 
+    /// The first of `held` whose box slug names no box of this issue, ticked or not: a claim that points at no box holds the whole issue.
+    pub fn unmatched_hold<'a>(&self, held: &'a BTreeMap<String, String>) -> Option<(&'a str, &'a str)> {
+        let slugs: BTreeSet<String> = self.body.lines().filter(|line| ANY_BOX.is_match(line)).filter_map(|line| crate::threads::claims::box_slug(line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]"))).collect();
+        held.iter().find(|(slug, _)| !slugs.contains(*slug)).map(|(slug, why)| (slug.as_str(), why.as_str()))
+    }
+
     fn product_lines(&self) -> impl Iterator<Item = &str> {
         self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line))
     }
@@ -394,6 +400,9 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
         return Err(format!("held by {holder}"));
     }
     let held = world.box_holds.get(&reference);
+    if let Some((slug, holder)) = held.and_then(|boxes| issue.unmatched_hold(boxes)) {
+        return Err(format!("held by {holder}: its claim on box `{slug}` names no box of this issue, so it holds them all"));
+    }
     if let (Some(cap), Some(boxes)) = (issue.worker_cap(), held)
         && boxes.len() >= cap
     {
