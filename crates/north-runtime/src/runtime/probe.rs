@@ -105,13 +105,13 @@ impl NorthProcesses {
         self.residents.get(&resident).copied().unwrap_or_default()
     }
 
+    pub(super) fn transient(&self) -> u64 {
+        self.transient
+    }
+
     fn problems(&self) -> Vec<String> {
-        let most = default_number("landing_north_processes_max");
         let live = self.sessions.len() as u64;
         let mut problems = Vec::new();
-        if self.transient as f64 > most {
-            problems.push(format!("{} transient north processes (bound {most})", self.transient));
-        }
         for resident in RESIDENTS {
             let count = self.resident(resident);
             if count > live {

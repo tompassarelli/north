@@ -117,10 +117,10 @@ fn the_lander_of_each_repository_is_a_resident_and_a_second_one_for_a_repository
     }
     proc.spawn("north", &["/home/tom/code/north/sandbox/target/debug/north", "land", "serve", "--once", "--repo", "/tmp/.tmpGzR5Ue/proj/main"]);
     let (problems, record) = proc.problems();
-    assert_eq!(problems, vec!["101 transient north processes (bound 100)".to_owned()]);
-    assert_eq!(record["residents"]["land serve"], json!(12));
+    assert_eq!(problems, Vec::<String>::new());
+    assert_eq!((record["transient"].clone(), record["residents"]["land serve"].clone()), (json!(101), json!(12)));
     proc.spawn("north", &[&old, "land", "serve", "--repo", "/home/tom/code/wisp/main"]);
-    assert_eq!(proc.problems().0[1], "2 land serve processes for /home/tom/code/wisp/main");
+    assert_eq!(proc.problems().0, ["2 land serve processes for /home/tom/code/wisp/main"]);
 }
 
 const TIMER: (&str, &str, &str, &str) = ("north-runtime-follow.timer", "active", "waiting", "success");
@@ -186,5 +186,5 @@ fn a_remote_job_counts_once_with_its_wrapper_chain_and_orphaned_wrappers_still_c
     for orphan in 0..36 {
         proc.spawn("north", &[&north, "capacity", "offload", "run", "--host", "gex45", "--head", &orphan.to_string()]);
     }
-    assert_eq!(proc.problems().0, vec!["101 transient north processes (bound 100)".to_owned()]);
+    assert_eq!(proc.problems().1["transient"], json!(101));
 }

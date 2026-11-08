@@ -845,13 +845,21 @@ source = "tom: Tom asked that a north landing count as done only once it is live
 fallback = "a landing younger than the deadline is reported but not judged"
 consumers = ["crates/north-runtime/src/runtime/settle.rs"]
 
-[landing_north_processes_max]
-value = 100
-allowed = { min = 1, max = 100000 }
-unit = "transient north processes on one host, every north process other than a live session's resident session-host, session-link and fleet watchdog and the resident land serve of each repository, above which north runtime settle reports the host unhealthy; session-host and session-link are each bounded instead by the host's live sessions, the distinct session-host --name values, and a fleet watchdog counts only when it names a live session and runs the live runtime, at most one per session, a land serve --all or land serve --repo REPO of a runtime counts once per repository and a second one for the same repository is the fault, so watchdogs of the runtime before a swap or of a session that just ended are not a fault (north#808)"
-source = "measured: 2026-10-30 12:15 AM with 10 fleet sessions, 24 north processes on the laptop, 40 on the GPU host and 8 on the server host; 100 is 2.5 times the busiest host, under the per-claim north fleet list fork storm that loaded the GPU host to 71; on 2026-11-05 51 live sessions kept about 3 resident north processes each, so a raw count of 140 on the laptop refused every promotion, and residents left the transient bound (north#308); on 2026-11-08 the 11 per-repository landers and land serve --all made 13 of the 108 that refused a promotion, so they left it too (north#842)"
-fallback = "an unread count reports the host unhealthy"
-consumers = ["crates/north-runtime/src/runtime/probe.rs"]
+[north_process_leak_window_sec]
+value = 3600
+allowed = { min = 600, max = 86400 }
+unit = "seconds of settle readings over which north runtime settle judges a host's transient north processes, every north process other than a live session's resident session-host, session-link and fleet watchdog and the resident land serve of each repository, with a process tree counted once; the host has a leak, and is unhealthy, only when the fewest it ran in each of north_process_leak_slices equal slices of the window rose in every slice, so a count that rises with legitimate work and falls when the work ends is never a fault"
+source = "measured: on 2026-11-08 the snapshot bound of 100 this replaced refused whiterabbit on 20 settle ticks from 8:30 AM to 9:41 AM, 14 in a row from 9:32 AM, while the count rose to 238 within 2 minutes and fell back to 102 within 9 as offloaded land checks came and went; an hour of 10-minute slices lets a working day's land check rounds fall back many times while a leak that adds a process every 10 minutes shows within the hour; a slower leak waits for a longer window (north#892)"
+fallback = "a host with a slice of the window unread is not judged for a leak"
+consumers = ["crates/north-runtime/src/runtime/growth.rs"]
+
+[north_process_leak_slices]
+value = 6
+allowed = { min = 2, max = 60 }
+unit = "equal slices of north_process_leak_window_sec whose fewest transient north processes must each exceed the slice before for north runtime settle to call the host's processes a leak"
+source = "prior: 10-minute slices, longer than one offloaded land check holds its wrapper chain on 2026-11-08, so each slice's fewest reads the host between rounds (north#892)"
+fallback = "a window of fewer slices than this is not judged"
+consumers = ["crates/north-runtime/src/runtime/growth.rs"]
 
 [client_reserve_seconds]
 value = 900

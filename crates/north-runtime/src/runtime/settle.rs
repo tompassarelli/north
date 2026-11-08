@@ -1,6 +1,7 @@
 use super::canary::{self, Verdict};
 use super::deploy;
 use super::failure::{Failure, failed};
+use super::growth::Growth;
 use super::history::History;
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
@@ -13,6 +14,7 @@ use rustix::fs::{FlockOperation, flock};
 use serde_json::json;
 use std::fs::{self, File};
 use std::ops::Not;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -34,6 +36,11 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     if let Err(failure) = update::update(layout) {
         eprintln!("north runtime settle: {}: {}", host::name(), failure.message);
     }
+    if let Some(live) = handed_to_live(layout) {
+        drop(lock);
+        let error = Command::new(layout.runtime(&live).join("north")).args(["runtime", "settle"]).exec();
+        return Err(failed(1, format!("could not hand settle to the live runtime {}: {error}", layout::short(&live))));
+    }
     let checkout = update::checkout();
     let hosts = hosts_with_runtime_shipped(layout, &checkout);
     let landing = due_landing(layout, &checkout)?;
@@ -45,12 +52,13 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let judging = landing.as_ref().filter(|landing| !judged(layout, &landing.sha));
     let code_changed = judging.is_none_or(|landing| changes_code(&checkout, &landing.sha));
     let mut history = History::load(layout);
+    let mut growth = Growth::load(layout);
     let mut incidents = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     for host in &hosts {
         let facts = probed(layout, &checkout, host);
         swaps.push((facts.host.clone(), facts.swaps.clone()));
-        let problems = probe::problems(&facts, live);
+        let problems = judged_problems(&facts, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
@@ -65,8 +73,8 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         records.push(probe::record(&facts, &problems));
     }
     live::record(layout, &checkout, &swaps);
-    if let Err(error) = history.save() {
-        eprintln!("north runtime settle: could not record each runtime's problems: {error}");
+    if let Err(error) = history.save().and_then(|()| growth.save()) {
+        eprintln!("north runtime settle: could not record each host's problems and process counts: {error}");
     }
     for incident in &incidents {
         println!("north runtime settle: host incident, not this landing's change: {incident}");
@@ -117,6 +125,20 @@ fn probed(layout: &Layout, checkout: &Path, host: &Shell) -> probe::Facts {
         Verdict::RolledBack => probe::facts(host),
         _ => facts,
     }
+}
+
+fn handed_to_live(layout: &Layout) -> Option<String> {
+    let (own, _) = super::own_runtime()?;
+    layout.live_sha().filter(|live| *live != own && layout::has_programs(&layout.runtime(live)))
+}
+
+fn judged_problems(facts: &probe::Facts, live: impl Fn(&str) -> bool, growth: &mut Growth) -> Vec<String> {
+    let mut problems = probe::problems(facts, live);
+    if let (Some(north), None, false) = (&facts.north, &facts.unreachable, probe::installing(facts)) {
+        growth.note(&facts.host, now(), north.transient());
+        problems.extend(growth.leak(&facts.host, now()));
+    }
+    problems
 }
 
 fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Failure> {

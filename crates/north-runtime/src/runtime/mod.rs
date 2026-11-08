@@ -5,6 +5,7 @@ mod deploy;
 mod entry_links;
 mod failure;
 mod follow;
+mod growth;
 mod lifecycle;
 mod health;
 mod history;
