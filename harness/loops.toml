@@ -5,9 +5,9 @@
 # (XDG_STATE_HOME, else ~/.local/state) whose newest write is its last update. `north loops check` and `north tune` fail a closed loop
 # held on this host whose last update is older than twice its cadence or missing; `owner` names the box that closes
 # an open loop, which prints but does not fail; `score` names a one-line record under the state root that
-# `north loops check` prints beside the loop's verdict. The tests in crates/north-tune/src/loops fail
-# when a decision site, numeric constant or defaults key behind dispatch, fleet launch, capacity
-# admission or the lander is named by no loop and no `[plumbing]` list. See
+# `north loops check` prints beside the loop's verdict. `validate` in crates/north-tune/src/loops checks
+# the registry's shape: each loop's keys and a `[plumbing]` table. No check scans the source for a numeric
+# constant or defaults key that no loop and no `[plumbing]` list names; see the Completeness section of
 # docs/rationale/learning-loops.md.
 
 [[loop]]

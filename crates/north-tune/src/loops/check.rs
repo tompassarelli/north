@@ -1,12 +1,7 @@
-use super::{Loop, Role, Store};
+pub use super::store::Reading;
+use super::store::Store;
+use super::{Loop, Role};
 use std::time::{Duration, SystemTime};
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Reading {
-    At(SystemTime),
-    Never,
-    Unread(String),
-}
 
 #[derive(Debug, PartialEq)]
 pub struct Checked {
@@ -53,7 +48,7 @@ fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> R
     }
     let limit = Duration::from_secs(2 * found.cadence_hours * 3_600);
     match read(store) {
-        Reading::Never => (format!("FAIL never updated: {}", missing(store)), true),
+        Reading::Never => (format!("FAIL never updated: {}", store.missing()), true),
         Reading::Unread(why) => (format!("FAIL unread: {why}"), true),
         Reading::At(at) => {
             let age = now.duration_since(at).unwrap_or_default();
@@ -64,12 +59,5 @@ fn verdict(found: &Loop, held: &dyn Fn(Role) -> bool, read: &dyn Fn(&Store) -> R
                 (format!("ok: {} updated {hours} h ago from {signal}", found.updated_by), false)
             }
         }
-    }
-}
-
-fn missing(store: &Store) -> String {
-    match store {
-        Store::Record(record) => format!("no {record}"),
-        Store::Graph { writer } => format!("no tick by writer {writer} in graph.db"),
     }
 }

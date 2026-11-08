@@ -1,13 +1,15 @@
 mod check;
 mod hosts;
 mod red_main;
+mod store;
 
 pub use check::{Checked, Finding, Reading, check};
+pub use store::{Store, graph_reading};
 pub use hosts::{Hosts, last_written};
 use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use toml_edit::{DocumentMut, Item, Table};
 
 pub static REGISTRY: std::sync::LazyLock<&str> = std::sync::LazyLock::new(|| crate::platform::harness::table("harness/loops.toml"));
@@ -48,14 +50,6 @@ pub struct Loop {
     pub host: Role,
     pub owner: Option<String>,
     pub score: Option<String>,
-}
-
-/// Where a closed loop's last update shows: a record file under the state root, or the newest tick its
-/// writer told graph.db.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Store {
-    Record(String),
-    Graph { writer: String },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -142,14 +136,6 @@ pub fn here(role: Option<Role>) -> Result<Checked, String> {
     Ok(check(&loops, &*held, &read, &score, watched.into_iter().collect(), SystemTime::now()))
 }
 
-/// A graph loop's reading: the newest tick its writer told, from the ticks graph.db holds.
-pub fn graph_reading(ticks: &Result<BTreeMap<String, i64>, String>, writer: &str) -> Reading {
-    match ticks {
-        Err(why) => Reading::Unread(why.clone()),
-        Ok(ticks) => ticks.get(writer).and_then(|at| u64::try_from(*at).ok()).map_or(Reading::Never, |at| Reading::At(SystemTime::UNIX_EPOCH + Duration::from_secs(at))),
-    }
-}
-
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     let role = match words[..] {
@@ -185,24 +171,5 @@ mod tests {
     fn the_repo_loops_registry_validates_so_north_loops_and_the_tempo_unit_can_read_it() {
         let registry = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../harness/loops.toml")).unwrap();
         assert_eq!(super::validate(&registry), Ok(()));
-    }
-
-    #[test]
-    fn a_graph_loop_is_judged_from_its_writer_s_newest_tick_and_fails_once_that_tick_is_over_twice_its_cadence_old() {
-        use super::{Reading, Role, check, graph_reading, parse};
-        use std::time::{Duration, SystemTime};
-        let registry = "[[loop]]\nname = \"eta\"\ndecision = \"d\"\nsites = [\"s\"]\nsignal = \"p75 wall\"\nupdated_by = \"north tune\"\ncadence_hours = 24\nstore = \"graph\"\nwriter = \"tune\"\n";
-        let loops = parse(registry).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("graph.db");
-        let ticked = 1_800_000_000;
-        north_graph_loops::tell(&db, "tune", &north_graph_loops::Learned::default(), &[("eta_minutes opus feature".to_owned(), serde_json::json!(92.0))].into(), ticked).unwrap();
-        let ticks = north_graph_loops::ticks(&db);
-        let judged = |hours: u64| check(&loops, &|_: Role| true, &|store| match store {
-            super::Store::Graph { writer } => graph_reading(&ticks, writer),
-            super::Store::Record(_) => Reading::Never,
-        }, &|_: &str| None, Vec::new(), SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + hours * 3_600)).failing;
-        assert_eq!((judged(47), judged(49)), (Vec::<String>::new(), vec!["eta".to_owned()]));
-        assert_eq!(graph_reading(&ticks, "flow"), Reading::Never);
     }
 }

@@ -485,7 +485,7 @@ may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness"]
 name = "fleet"
 paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs", "crates/north-session-host/src/session_lifecycle.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform.harness"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform.harness", "graph_loops"]
 
 [[module]]
 name = "fleet_store"
@@ -623,7 +623,7 @@ may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "li
 name = "capacity"
 paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records"]
+may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops"]
 
 [[module]]
 name = "lanes"
@@ -713,7 +713,7 @@ may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness
 name = "code_health"
 paths = ["crates/north-code-health/src/**"]
 responsibility = "The code-health report, gate, edit check and review signal over structure.toml, their import resolution and function metrics; the Rust habit checks; the hourly review tick."
-may_use = ["foundation", "crate-roots", "implicit_state", "lifecycle", "platform.git", "platform.harness"]
+may_use = ["foundation", "crate-roots", "implicit_state", "lifecycle", "platform.git", "platform.harness", "graph_loops"]
 
 [[module]]
 name = "split"
@@ -756,7 +756,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "climb", "context_pack"]
+may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "climb", "context_pack", "graph_loops"]
 
 [[module]]
 name = "verify"
