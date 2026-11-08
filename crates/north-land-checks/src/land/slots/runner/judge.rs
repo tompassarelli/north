@@ -86,6 +86,13 @@ impl Shared {
                 self.outcome.record(&["failed-step", command, &log.to_string()]);
                 return status;
             }
+            if let Some(host) = self.overloaded_host(command) {
+                let detail = format!("land check {command} failed on this lane and on base tree {tree} ({first}) while this host ran at load {:.1} over its {} cores, so the load, not main or this lane, is suspect", host.load, host.cores);
+                warn(&format!("safe-push: {detail}; log: {log}; NOT pushed."));
+                self.outcome.record(&["skip", &detail]);
+                self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
+                return NO_VERDICT_STATUS;
+            }
             let detail = format!("{BROKEN_BASE}{command} on {}: {first}", host_name(&self.cache_class(command)));
             warn(&format!("safe-push: land check {command} exited {status} on this lane {BASE_FAILS} {tree}, so the failure is the check environment, not this lane; log: {log}; NOT pushed."));
             self.outcome.record(&["skip", &detail]);
@@ -186,7 +193,7 @@ impl Shared {
     }
 
     fn overloaded_host(&self, command: &str) -> Option<HostLoad> {
-        if self.offload_host_for(command).is_some() {
+        if self.offload_host_for(command).is_some_and(|host| host != north_base::platform::host::name()) {
             return None;
         }
         HostLoad::read().filter(|host| host.load > host.cores as f64)

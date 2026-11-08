@@ -36,7 +36,8 @@ fn check_candidate_names_the_broken_base_transient_when_main_fails_its_own_check
     git(&landing.seed, &["push", "-q", &landing.remote.to_string_lossy(), "main"]);
     let lane = landing.lane();
     let base = landing.main();
-    let observed = Run::new(&scratch, &lane, &["--check-candidate", "--base", &base]).env("NORTH_LAND_ROUND", "582").output();
+    fs::write(scratch.path().join("calm-loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
+    let observed = Run::new(&scratch, &lane, &["--check-candidate", "--base", &base]).env("NORTH_LAND_ROUND", "582").env("AGENT_CAPACITY_LOADAVG", scratch.path().join("calm-loadavg")).output();
     assert_ne!(observed.status, Some(0), "a candidate on a main that fails its own check exited 0: {}", observed.output);
     assert!(observed.last_line().starts_with("safe-push: verdict transient main's check environment is broken: "), "{}", observed.output);
 }

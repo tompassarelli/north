@@ -302,6 +302,18 @@ fn failed_check_judged_against_base() {
 }
 
 #[test]
+fn a_check_that_also_fails_on_base_on_an_overloaded_host_blames_the_load_not_main() {
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {ENVIRONMENT_CHECK}"))]);
+    let lane = lane_onto(&fixture, "lane\n");
+    fs::write(fixture.path("plant"), "").unwrap();
+    fs::write(fixture.path("loadavg"), "500.00 500.00 500.00 1/100 1\n").unwrap();
+    let output = fixture.command_between(&fixture.head, &lane).env("NORTH_LAND_ROUND", "r1").output().unwrap();
+    assert_eq!(output.status.code(), Some(75), "{}", text(&output));
+    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
+    assert!(!outcome.contains("check environment is broken") && outcome.contains("while this host ran at load 500.0"), "on 2026-11-08 two timing tests failed on the lane and its base on the laptop at load 39 to 64, the lander read main as broken in placed and judged every candidate in place for 30 minutes, which drove the load to 123: {outcome}");
+}
+
+#[test]
 fn a_check_that_reaches_no_verdict_names_no_failed_step_for_the_sheriff_and_is_not_rerun_on_base() {
     let dropped = r#"printf '%s\n' "$(git rev-parse HEAD)" >>../runs; echo "north capacity offload: the connection ended (ssh exit 255) before the remote host reported the command's exit, so the run reached no verdict" >&2; exit 75"#;
     let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {dropped}"))]);
