@@ -1,6 +1,6 @@
 use super::*;
 use compose::{HOOK_FLOOR, category, code, retrieve_db, shown};
-use store::{Hit, Sqlite};
+use store::{Hit, Index};
 
 const NAMED: usize = 5;
 const SUBJECT_TERMS: usize = 2;
@@ -15,15 +15,15 @@ const EDIT_WORDS: [&str; 64] = [
 ];
 
 pub fn records(paragraph: &str, now: f64) -> Vec<String> {
-    records_at(paragraph, &store::db_path(), now)
+    records_at(paragraph, &north_graph::default_path(), now)
 }
 
 pub fn records_at(paragraph: &str, index: &Path, now: f64) -> Vec<String> {
-    let Ok(mut db) = Sqlite::open(index, true) else { return Vec::new() };
+    let Ok(mut db) = Index::open_at(index) else { return Vec::new() };
     records_in(paragraph, &mut db, now)
 }
 
-pub fn records_in(paragraph: &str, db: &mut Sqlite, now: f64) -> Vec<String> {
+pub fn records_in(paragraph: &str, db: &mut Index, now: f64) -> Vec<String> {
     let subject = re(ASKING).replace_all(paragraph, " ");
     let Ok((hits, _)) = retrieve_db(&subject, db, now, 80, 0.0, "") else { return Vec::new() };
     let mut named: Vec<String> = Vec::new();

@@ -14,7 +14,7 @@ pub fn rephrasings(ranked: &[String]) -> Vec<Vec<String>> {
     out.truncate(3);
     out
 }
-pub fn tier_b(words: &[String], mut db: Option<&mut store::Sqlite>) -> (Vec<String>, Vec<String>) {
+pub fn tier_b(words: &[String], db: Option<&mut store::Index>) -> (Vec<String>, Vec<String>) {
     let deadline = Timestamp::now().unix_seconds_f64() + 55.0;
     let mut searched = vec![
         "skills/policy/ledger/issues index".into(),
@@ -24,17 +24,10 @@ pub fn tier_b(words: &[String], mut db: Option<&mut store::Sqlite>) -> (Vec<Stri
     let mut counts = std::collections::HashMap::new();
     for word in words {
         let count = db
-            .as_mut()
-            .and_then(|d| {
-                d.query(&format!(
-                    "select count(*) n from docs where docs match {};",
-                    store::quote(&store::match_term(word))
-                ))
-                .ok()
-            })
-            .and_then(|v| v.first().map(|r| num(r, "n")))
-            .filter(|n| *n != 0.0)
-            .unwrap_or(1e9);
+            .as_ref()
+            .and_then(|index| index.matching(&store::match_term(word)).ok())
+            .filter(|n| *n != 0)
+            .map_or(1e9, |n| n as f64);
         counts.insert(word, count);
     }
     ranked.sort_by(|a, b| counts[a].total_cmp(&counts[b]));

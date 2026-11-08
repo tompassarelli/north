@@ -9,9 +9,11 @@ mod write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::functions::FunctionFlags;
+use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
 use crate::error::{GraphError, Result};
+use crate::key::key_hash;
 
 pub use read::{Live, Told};
 pub use resolve::Terms;
@@ -23,12 +25,15 @@ pub use validate::Report;
 pub use text::{Field, TextHit, TextSearch};
 pub use write::{Action, ActionKind, Receipt};
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 4;
+const KEYED_BY_VALUE: i64 = 2;
+const KEYED_BY_HASH: i64 = 3;
 const PATIENCE: Duration = Duration::from_secs(30);
 const HORIZON: &str = "retain/horizon";
 
 const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS terms (id INTEGER PRIMARY KEY, key BLOB NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS terms (id INTEGER PRIMARY KEY, key BLOB NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS terms_hash ON terms (north_key_hash(key));
 CREATE TABLE IF NOT EXISTS occurrences (
     seq INTEGER PRIMARY KEY,
     coord INTEGER NOT NULL UNIQUE,
@@ -90,6 +95,7 @@ impl Graph {
     pub fn open_read_only(path: &Path, patience: Duration) -> Result<Self> {
         let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         connection.busy_timeout(patience)?;
+        hashing(&connection)?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version != SCHEMA_VERSION {
             return Err(GraphError::Corrupt(format!("graph schema version {version}, this build reads {SCHEMA_VERSION}")));
@@ -103,14 +109,19 @@ impl Graph {
 
     fn prepare(mut connection: Connection, patience: Duration) -> Result<Self> {
         connection.busy_timeout(patience)?;
+        hashing(&connection)?;
         connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        if version != 0 && version != SCHEMA_VERSION {
+        if version != 0 && version != SCHEMA_VERSION && version != KEYED_BY_VALUE && version != KEYED_BY_HASH {
             return Err(GraphError::Corrupt(format!("graph schema version {version}, this build reads {SCHEMA_VERSION}")));
         }
+        let rehashed = version == KEYED_BY_VALUE && hash_terms(&mut connection)?;
         connection.execute_batch(SCHEMA)?;
         connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         text::prepare(&mut connection)?;
+        if rehashed {
+            connection.execute_batch("VACUUM")?;
+        }
         Ok(Self { connection })
     }
 
@@ -118,7 +129,40 @@ impl Graph {
         Ok(self.connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM occurrences", [], |row| row.get(0))?)
     }
 
+    pub fn compact(&self) -> Result<()> {
+        self.connection.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
     pub(crate) fn connection(&self) -> &Connection {
         &self.connection
     }
+}
+
+const HASH_TERMS: &str = "
+CREATE TABLE terms_hashed (id INTEGER PRIMARY KEY, key BLOB NOT NULL);
+INSERT INTO terms_hashed (id, key) SELECT id, key FROM terms ORDER BY id;
+DROP TABLE terms;
+ALTER TABLE terms_hashed RENAME TO terms;
+CREATE UNIQUE INDEX terms_hash ON terms (north_key_hash(key));
+";
+
+fn hashing(connection: &Connection) -> Result<()> {
+    connection.create_scalar_function("north_key_hash", 1, FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC, |context| {
+        let key = context.get_raw(0).as_blob().map_err(|why| rusqlite::Error::UserFunctionError(Box::new(why)))?;
+        Ok(key_hash(key).to_vec())
+    })?;
+    Ok(())
+}
+
+fn hash_terms(connection: &mut Connection) -> Result<bool> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let version: i64 = transaction.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let rehash = version == KEYED_BY_VALUE;
+    if rehash {
+        transaction.execute_batch(HASH_TERMS)?;
+        transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+    transaction.commit()?;
+    Ok(rehash)
 }

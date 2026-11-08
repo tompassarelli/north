@@ -329,7 +329,7 @@ may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration",
 [[crate_dag.crate]]
 name = "north-core"
 paths = ["crates/north-core/src/**"]
-may_use = ["north-claude-stream", "north-fleet-supervisor", "north-graph-ground", "north-graph-loops", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-flow"
@@ -617,7 +617,7 @@ may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
 name = "grounding"
 paths = ["crates/north-core/src/grounding/**"]
 responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "lifecycle", "graph_loops"]
+may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "lifecycle", "graph", "graph_loops"]
 
 [[module]]
 name = "capacity"

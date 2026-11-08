@@ -12,7 +12,9 @@ Rust, running each rule body as indexed lookups against SQLite. The database is 
   canonical bits: every NaN is one atom and `+0.0` is a different atom from `-0.0`, which fixes the gap Beagle's README
   states for host interning. An Instant needs nanoseconds below one second.
 - Term: an Atom or a Triple. Triple: three Terms, nested in any position, with recursive structural identity. Terms are
-  interned to integer ids; interning or nesting asserts nothing.
+  interned to integer ids; interning or nesting asserts nothing. A term is found by the first 16 bytes of the SHA-256 of
+  its key through a unique expression index (schema v3), so a long string is stored once; a v2 store is rebuilt in place
+  on its first writable open and vacuumed.
 - Occurrence: coordinate, assert or retract, writer, proposition. The coordinate is
   `(("graph" :kernel/tx-sequence N) :kernel/op-ordinal K)`, an ordinary nested triple. Every assertion is a new
   occurrence even when an equal one is live. A retraction withdraws the newest live equal assertion, at most once; with
@@ -51,7 +53,7 @@ is the signed history with `:assert` and `:retract`; `assertion(writer, t1, t2, 
 `quoted(term, t1, t2, t3)` has a row per triple term, asserted or only nested; `withdrawal(retraction, assertion)` has a row per successful
 retraction. Clauses run in order, except that each run of positive stored-relation clauses, with the comparisons that follow them, is one SQLite join over the variables bound before it, projected to the variables later clauses and the head read; negation needs bound variables and a relation from an earlier stratum or SQLite;
 arithmetic that overflows, divides by zero or yields a non-finite number drops the row and may not appear in a recursive
-rule. Budgets are 10,000,000 steps and a 5 s timeout (60 s cap). Text relations (see Text) are not built.
+rule. Budgets are 10,000,000 steps and a 5 s timeout (60 s cap). The five text relations are under Text.
 
 Output is one tab-separated row per line in the term syntax above, or with `--json` an object with `columns`, `rows`
 (tagged terms) and `steps`.
@@ -65,8 +67,46 @@ unicode61, diacritics removed, contentless with deletes), holding its names in a
 column. A row is rewritten in the same transaction as the assertion or retraction that changes those propositions, so
 the index never disagrees with the live triples; a store whose index is missing or older is rebuilt on its next
 writable open. Readers rank with bm25 and per-column weights and may cap hits per value of a facet predicate
-(`Graph::text_search`), and read stems, document frequencies and near spellings from the vocabulary. The `ask` text
-relations are not built yet.
+(`Graph::text_search`), and read stems, document frequencies and near spellings from the vocabulary.
+
+Beside it, every live String object, whatever its predicate, is one row of three more contentless FTS5 tables keyed by
+its proposition (`live_props.prop`) and kept in the same transaction: `text_words` (unicode61 over letters and decimal
+digits, case-folded, diacritics kept), `text_porter` (porter over the same tokens) and `text_trigram` (case-folded
+trigrams without positions, `detail=none`, 61 MB where positions took 197 MB on the laptop snapshot). Schema v4 adds
+them; a v3 store builds them on its next writable open. `ask` answers Beagle Store's five text relations from them,
+each examining the third position of live propositions:
+
+- `text-match(E, A, NEEDLE)`: the needle's tokens as an unordered conjunction, from `text_words`.
+- `text-phrase(E, A, NEEDLE)`: the same tokens in order across punctuation, so `"quick brown fox"` matches
+  `quick-brown_fox` and not `brown quick fox`.
+- `text-substring(E, A, NEEDLE)`: case-folded containment that keeps punctuation, so `OWN_FO` matches `quick-brown_fox`;
+  a needle of three or more characters narrows to the values holding every one of its trigrams and is confirmed in
+  Rust, a shorter one scans the live Strings (only the constant attribute's, when there is one).
+- `text-stem(E, A, NEEDLE)`: porter stems, so `runs`, `running` and `run` unify; `text-match` stays exact.
+- `text-search(E, A, NEEDLE, SCORE)`: any of the three, binding a Float score: exact evidence scores in [2, 3), stem in
+  [1, 2), substring in [0, 1), each tier ordered by bm25 (`r / (1 + r)` of the negated bm25); a pair holding several
+  matching values keeps its best.
+
+Tokens follow Beagle's tokenizer v0: maximal letter and digit runs, lowercased without locale, `_`, `-`, whitespace and
+punctuation delimiting, repeats dropped (`text-phrase` keeps the needle's full sequence). The needle is a String constant
+or a String variable bound by an earlier clause; a negated text clause, an unbound needle and an empty or
+punctuation-only needle are refused when the query is checked, and a bound needle that is not a String matches nothing.
+A constant attribute restricts the SQL to that predicate; a variable one reads every live String through the same
+index. Under `asOf` or `since` a text relation is refused with `TextUnderView`, because the index holds only live
+propositions. Known differences from Beagle: SQLite's case folding differs from Rust's `to_lowercase` on a few
+characters such as `İ`, so a substring needle holding one may miss a trigram candidate; porter leaves `runner`
+unstemmed, where Beagle's reference lists it with `run`; and the needle check counts every alphabetic and numeric
+character as a token character where unicode61 counts only letters and decimal digits (`²`, `Ⅻ`).
+
+Grounding docs live here (`north graph ground`, writer `grounding`): each is `doc:SOURCE:ID` with `:doc-source`,
+`:doc-title`, `:doc-text` (at most 4,000 characters, redacted), `:doc-at` (Float seconds) and `:doc-family`, the
+retrieval family the hook caps at 80 hits per query; `:doc-ref` only where it differs from the source's own form
+(`convo:ID` for transcripts and builds, `ledger:ID`, `github ID`, `threads ID`) and `:doc-decays true` only on a doc
+that decays, since each proposition costs about 700 bytes across the kernel's tables. The predicates are grounding's own
+because a predicate is replaced by exactly one ingest source, and the mirror replaces `:title` and `:text`. A refresh
+writes only the propositions that changed, and the kernel keeps every term it ever interned, so a source that rewrites a
+doc's text leaves the old string behind; `grounding/watermarks.json` records each source's newest doc, last refresh and
+row count.
 
 ## Timing
 

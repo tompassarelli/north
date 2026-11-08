@@ -1156,6 +1156,7 @@ dependencies = [
  "north-base",
  "north-claude-stream",
  "north-fleet-supervisor",
+ "north-graph",
  "north-graph-ground",
  "north-graph-loops",
  "north-pace",
@@ -1340,6 +1341,7 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 

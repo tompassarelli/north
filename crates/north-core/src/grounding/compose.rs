@@ -2,7 +2,7 @@ use super::*;
 use crate::foundation::redact::redact;
 use std::collections::HashSet;
 use std::time::Instant;
-use store::{Bound, Hit, Sqlite};
+use store::{Bound, Hit, Index};
 pub const LIMIT_CHARS: usize = 6000;
 pub const HOOK_LIMIT_CHARS: usize = 1500;
 pub const HOOK_FLOOR: f64 = 0.5;
@@ -327,21 +327,17 @@ pub fn compose(
 }
 pub fn retrieve(
     message: &str,
-    db: &Path,
+    db: &mut Index,
     now: f64,
     limit: usize,
     as_of: f64,
     prior: &str,
 ) -> NorthResult<(Vec<Hit>, Vec<String>)> {
-    let run = || -> Result<_> {
-        let mut db = Sqlite::open(db, true)?;
-        retrieve_db(message, &mut db, now, limit, as_of, prior)
-    };
-    run().map_err(|e| NorthError::Configuration(e.to_string()))
+    retrieve_db(message, db, now, limit, as_of, prior).map_err(|e| NorthError::Configuration(e.to_string()))
 }
 pub(super) fn retrieve_db(
     message: &str,
-    db: &mut Sqlite,
+    db: &mut Index,
     now: f64,
     limit: usize,
     as_of: f64,
@@ -389,7 +385,7 @@ pub fn shaped(message: &str, tier: &str, now: f64, prior: &str, shape: &Shape) -
     if count < 2 && (prior.is_empty() || count == 0) && !usage && !org && graph.is_empty() {
         return Ok(Rendered::default());
     }
-    let mut db = store::open(true).ok();
+    let mut db = Index::open().ok();
     let mut hits = Vec::new();
     let mut words = store::terms(message);
     let as_of = env::var("NORTH_GROUNDING_AS_OF")
@@ -431,7 +427,7 @@ pub fn assemble(message: &str, hits: &[Hit], words: &[String], mut live: Vec<Str
     let (text, refs) = compose(message, hits, words, &live, extra, shape, floor);
     Rendered { text: redact(&text), refs: refs.iter().map(|r| redact(r)).collect(), live: key }
 }
-pub fn indexed(message: &str, db: &mut Sqlite, now: f64, shape: &Shape) -> Result<Rendered> {
+pub fn indexed(message: &str, db: &mut Index, now: f64, shape: &Shape) -> Result<Rendered> {
     let (hits, words) = retrieve_db(message, db, now, 80, 0.0, "")?;
     Ok(assemble(message, &hits, &words, Vec::new(), &[], shape))
 }

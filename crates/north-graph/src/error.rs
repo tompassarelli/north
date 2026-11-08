@@ -17,6 +17,7 @@ pub enum QueryError {
     Timeout { milliseconds: u64 },
     InvalidSnapshot(String),
     SnapshotExpired { bound: i64, horizon: i64 },
+    TextUnderView { relation: String },
 }
 
 impl fmt::Display for GraphError {
@@ -38,6 +39,7 @@ impl fmt::Display for QueryError {
             Self::Timeout { milliseconds } => write!(formatter, "query exceeded its timeout of {milliseconds} ms"),
             Self::InvalidSnapshot(why) => write!(formatter, "invalid query snapshot: {why}"),
             Self::SnapshotExpired { bound, horizon } => write!(formatter, "query snapshot expired: bound {bound} is below the retention horizon {horizon}, whose history is gone"),
+            Self::TextUnderView { relation } => write!(formatter, "text relation {relation} reads the live text index, which cannot answer asOf or since"),
         }
     }
 }

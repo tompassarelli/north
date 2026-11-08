@@ -50,8 +50,7 @@ pub fn transcripts(since: Option<f64>, path: &Path) -> Result<Vec<Doc>> {
     if !path.exists() {
         return Ok(vec![]);
     }
-    let mut db = Sqlite::open(path, true)?;
-    db.exec("PRAGMA busy_timeout=10000;")?;
+    let db = Db { path, busy: std::time::Duration::from_secs(10) };
     let floor = since.unwrap_or(0.0).max(Timestamp::now().unix_seconds_f64() - 14.0 * 86400.0);
     let rows=db.query(&format!("select m.id, m.ts, m.role, m.file_id, f.session_id, b.text from msg m join files f on f.id=m.file_id join body b on b.id=m.body where m.ts > {} and f.agent is null and m.dup=0 and m.role in ('user','assistant') order by m.ts;",quote(&Timestamp::from_unix_seconds_f64(floor).iso_millis())))?;
     let mut kinds = HashMap::new();
@@ -93,7 +92,7 @@ pub fn builds(since: Option<f64>) -> Result<Vec<Doc>> {
     if !path.exists() {
         return Ok(vec![]);
     }
-    let mut db = Sqlite::open(&path, true)?;
+    let db = Db { path: &path, busy: std::time::Duration::from_secs(10) };
     let floor = since.unwrap_or(0.0).max(Timestamp::now().unix_seconds_f64() - 90.0 * 86400.0);
     let rows=db.query(&format!("select m.id,m.ts,f.project,b.text from msg m join files f on f.id=m.file_id join body b on b.id=m.body where m.ts>{} and m.role='assistant' and m.dup=0 and (b.text like 'Done%' or b.text like 'Not done%' or b.text like 'Blocked%' or b.text like '**Done%' or b.text like '%LANDED%');",quote(&Timestamp::from_unix_seconds_f64(floor).iso_millis())))?;
     Ok(rows

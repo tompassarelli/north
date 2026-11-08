@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use super::resolve::Terms;
 use crate::error::Result;
-use crate::key::atom_key;
+use crate::key::{Key, atom_key, decode_key};
 use crate::term::{Atom, Term};
 
 pub use search::{TextHit, TextSearch};
@@ -13,9 +13,15 @@ pub use search::{TextHit, TextSearch};
 pub(super) use index::Reindex;
 
 const VERSION_KEY: &str = "text-index";
-const VERSION: i64 = 1;
+const VERSION: i64 = 2;
 const TABLES: &str = "
 DROP TABLE IF EXISTS text_stems;
+DROP TABLE IF EXISTS text_words;
+DROP TABLE IF EXISTS text_porter;
+DROP TABLE IF EXISTS text_trigram;
+CREATE VIRTUAL TABLE text_words USING fts5(value, content='', contentless_delete=1, tokenize=\"unicode61 remove_diacritics 0 categories 'L* Nd'\");
+CREATE VIRTUAL TABLE text_porter USING fts5(value, content='', contentless_delete=1, tokenize=\"porter unicode61 remove_diacritics 0 categories 'L* Nd'\");
+CREATE VIRTUAL TABLE text_trigram USING fts5(value, content='', contentless_delete=1, tokenize='trigram case_sensitive 0', detail=none);
 CREATE VIRTUAL TABLE text_stems USING fts5(name, body, content='', contentless_delete=1, tokenize='porter unicode61 remove_diacritics 2');
 ";
 
@@ -61,8 +67,36 @@ pub(super) fn prepare(connection: &mut Connection) -> Result<()> {
             }
         }
         reindex.run(&mut terms)?;
+        index_live_strings(&transaction)?;
         transaction.execute("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2", rusqlite::params![VERSION_KEY, VERSION])?;
     }
     transaction.commit()?;
+    Ok(())
+}
+
+const PROSE: [&str; 3] = ["text_words", "text_porter", "text_trigram"];
+
+pub(super) fn index_string(connection: &Connection, proposition: i64, text: &str) -> Result<()> {
+    for table in PROSE {
+        connection.prepare_cached(&format!("INSERT INTO {table} (rowid, value) VALUES (?1, ?2)"))?.execute(rusqlite::params![proposition, text])?;
+    }
+    Ok(())
+}
+
+pub(super) fn unindex_string(connection: &Connection, proposition: i64) -> Result<()> {
+    for table in PROSE {
+        connection.prepare_cached(&format!("DELETE FROM {table} WHERE rowid = ?1"))?.execute([proposition])?;
+    }
+    Ok(())
+}
+
+fn index_live_strings(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare("SELECT p.prop, t.key FROM live_props p JOIN terms t ON t.id = p.t3")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        if let Key::Atom(Atom::String(text)) = decode_key(&row.get::<_, Vec<u8>>(1)?)? {
+            index_string(connection, row.get(0)?, &text)?;
+        }
+    }
     Ok(())
 }

@@ -5,12 +5,14 @@ use super::base::Window;
 use super::check::{BaseRelation, Schema};
 use super::join::{self, Join, Member};
 use super::slot::Slot;
+use super::text::TextRelation;
 use crate::error::Result;
 use crate::store::Terms;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {
     Base(BaseRelation),
+    Text(TextRelation),
     Derived(usize),
 }
 
@@ -106,7 +108,11 @@ fn lower_rule(rule: &Rule, schema: &Schema, terms: &mut Terms<'_>, masks: &mut [
     for clause in &rule.body {
         steps.push(match clause {
             Clause::Relation { name, args, negated } => {
-                let source = BaseRelation::named(name).map_or_else(|| Source::Derived(schema.ids[name.as_str()]), Source::Base);
+                let source = match (BaseRelation::named(name), TextRelation::named(name)) {
+                    (Some(relation), _) => Source::Base(relation),
+                    (None, Some(relation)) => Source::Text(relation),
+                    (None, None) => Source::Derived(schema.ids[name.as_str()]),
+                };
                 let args = args.iter().map(|arg| variables.slot(arg, terms)).collect::<Result<Vec<_>>>()?;
                 let bound: Vec<bool> = args.iter().map(|slot| is_bound(slot, &seen)).collect();
                 for slot in &args {

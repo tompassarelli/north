@@ -10,6 +10,7 @@ mod parse;
 mod plan;
 mod relation;
 mod slot;
+mod text;
 
 use crate::error::Result;
 use crate::store::{Graph, Terms};

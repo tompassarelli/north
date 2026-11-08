@@ -8,10 +8,10 @@ use std::time::Instant;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::common::{state_dir, SQLITE_BUSY};
+use super::common::SQLITE_BUSY;
 use crate::platform::sqlite::{self, Access};
 use super::compose::{retrieve, select, LIMIT_CHARS};
-use super::store::Hit;
+use super::store::{self, Hit, Index};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
@@ -19,7 +19,7 @@ const CANDIDATES: usize = 500;
 const REAL_LIMIT: usize = 80;
 const FLOOR: f64 = 0.2;
 const CUT_ORDER: [&str; 6] = ["limit", "floor", "dedup", "category cap", "render", "char budget"];
-const HISTORY: &str = "'transcripts','builds','ledger','commits','threads','github'";
+const EXCLUDED: &str = "excluded";
 
 #[derive(Deserialize)]
 struct Needed {
@@ -173,14 +173,14 @@ fn js_number(n: f64) -> String {
     num_text(n)
 }
 
-fn run_query(question: &str, tier: &str, as_of: f64, prior: &str, state: &Path, hook: bool) -> NorthResult<(String, f64)> {
+fn run_query(question: &str, tier: &str, as_of: f64, prior: &str, exclusion: Option<&Path>, hook: bool) -> NorthResult<(String, f64)> {
     let started = Instant::now();
     let output = Command::new(env::current_exe()?)
         .args(["graph", "ground", "query", "--tier", tier, "--query", question])
         .args(if hook && tier == "A" { &["--hook"][..] } else { &[] })
         .env("NORTH_GROUNDING_AS_OF", if as_of != 0.0 { js_number(as_of) } else { String::new() })
         .env("NORTH_GROUNDING_PRIOR", prior)
-        .env("NORTH_GROUNDING_STATE", state)
+        .env("NORTH_GROUNDING_EXCLUDE", exclusion.unwrap_or(Path::new("")))
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()?;
@@ -215,7 +215,7 @@ fn text_of(v: &Value) -> String {
 }
 
 fn doc_key(source: &str, id: &str) -> String {
-    format!("{source}\u{0}{id}")
+    format!("doc:{source}:{id}")
 }
 
 fn utf16_len(s: &str) -> usize {
@@ -241,47 +241,43 @@ fn convo_db() -> PathBuf {
     })
 }
 
-fn containing(refs: &HashSet<String>, db: &Path) -> NorthResult<HashMap<String, HashSet<String>>> {
+fn containing(refs: &HashSet<String>, index: &Index) -> NorthResult<HashMap<String, HashSet<String>>> {
+    let mut docs = Vec::new();
+    for source in store::SOURCES {
+        docs.extend(index.docs_of(source).map_err(grounding_error)?);
+    }
     let mut found = HashMap::new();
     for reference in refs {
-        let rows = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
-            "select source, id from docs where instr(ref || char(10) || title || char(10) || text, {}) > 0",
-            sql_text(reference)
-        ))?;
-        found.insert(reference.clone(), rows.iter().map(|r| doc_key(&text_of(&r["source"]), &text_of(&r["id"]))).collect());
+        let holding = docs.iter().filter(|d| format!("{}\n{}\n{}", d.reference, d.title, d.text).contains(reference.as_str()));
+        found.insert(reference.clone(), holding.map(|d| doc_key(&d.source, &d.id)).collect());
     }
     Ok(found)
 }
 
-fn bm25_keys(db: &Path, as_of: f64, words: &[String]) -> NorthResult<Vec<String>> {
-    let seen = if as_of != 0.0 {
-        format!(" and not ((decays = 1 or source in ({HISTORY})) and at > {})", js_number(as_of))
-    } else {
-        String::new()
-    };
+fn bm25_keys(index: &Index, as_of: f64, words: &[String]) -> NorthResult<Vec<String>> {
     let top = words.iter().take(16).map(|w| format!("\"{}\"", w.replace('"', ""))).collect::<Vec<_>>().join(" OR ");
-    let rows = sqlite::rows(db, Access::ReadOnly, SQLITE_BUSY, &format!(
-        "select source, id from docs where docs match {}{seen} order by bm25(docs, 0, 0, 0, 4.0, 1.0, 0, 0)",
-        sql_text(&top)
-    ))?;
-    Ok(rows.iter().map(|r| doc_key(&text_of(&r["source"]), &text_of(&r["id"]))).collect())
+    Ok(index.ranked(&top, None, as_of, usize::MAX).map_err(grounding_error)?.into_iter().map(|(id, _, _)| id).collect())
 }
 
 fn hit_key(hit: &Hit) -> String {
     doc_key(&hit.source, &hit.id)
 }
 
-fn diagnose(queries: &[Query], db: &Path, now: f64) -> NorthResult<Vec<Miss>> {
+fn grounding_error(why: Box<dyn std::error::Error>) -> NorthError {
+    NorthError::Configuration(why.to_string())
+}
+
+fn diagnose(queries: &[Query], index: &mut Index, now: f64) -> NorthResult<Vec<Miss>> {
     let missed: Vec<(&Query, Vec<&String>)> = queries
         .iter()
         .map(|q| (q, q.refs.iter().filter(|r| !q.block.contains(r.as_str())).collect::<Vec<_>>()))
         .filter(|(_, m)| !m.is_empty())
         .collect();
     let refs: HashSet<String> = missed.iter().flat_map(|(_, m)| m.iter().map(|r| (*r).clone())).collect();
-    let place = containing(&refs, db)?;
+    let place = containing(&refs, index)?;
     let mut out = Vec::new();
     for (q, misses) in missed {
-        let (cands, words) = retrieve(&q.question, db, now, CANDIDATES, q.as_of, &q.prior)?;
+        let (cands, words) = retrieve(&q.question, index, now, CANDIDATES, q.as_of, &q.prior)?;
         let real: Vec<Hit> = cands.iter().take(REAL_LIMIT).cloned().collect();
         let (groups, rest) = select(&real, &q.question);
         let selected: HashSet<String> = groups.iter().flat_map(|(_, hits)| hits.iter().map(hit_key)).collect();
@@ -322,7 +318,7 @@ fn diagnose(queries: &[Query], db: &Path, now: f64) -> NorthResult<Vec<Miss>> {
                 continue;
             }
             if global.is_none() {
-                global = Some(if words.is_empty() { Vec::new() } else { bm25_keys(db, q.as_of, &words)? });
+                global = Some(if words.is_empty() { Vec::new() } else { bm25_keys(index, q.as_of, &words)? });
             }
             let at = global.as_ref().and_then(|g| g.iter().position(|k| keys.contains(k)));
             out.push(Miss { rank: Some(at.map(|i| i + 1)), ..base('b') });
@@ -404,11 +400,10 @@ impl Miss {
     }
 }
 
-fn exclude_session_tree(sessions: &[String], index: &Path) -> NorthResult<(PathBuf, Vec<(String, usize)>)> {
+fn exclude_session_tree(sessions: &[String], index: &Index) -> NorthResult<(PathBuf, Vec<(String, usize)>)> {
     let stamp = Timestamp::now().unix_nanos();
     let dir = env::temp_dir().join(format!("grounding-score-{}-{stamp}", std::process::id()));
     fs::create_dir(&dir)?;
-    fs::copy(index, dir.join("index.db"))?;
     let convo = convo_db();
     let mut ids: Vec<String> = Vec::new();
     if convo.exists() {
@@ -420,22 +415,22 @@ fn exclude_session_tree(sessions: &[String], index: &Path) -> NorthResult<(PathB
             ids.extend(rows.iter().map(|r| text_of(&r["id"])));
         }
     }
-    let copy = dir.join("index.db");
+    let mut listed = Vec::new();
     let mut removed = Vec::new();
-    if !ids.is_empty() {
-        let list = ids.iter().map(|i| sql_text(i)).collect::<Vec<_>>().join(",");
-        for source in ["transcripts", "builds"] {
-            let count = |copy: &Path| -> NorthResult<usize> {
-                Ok(sqlite::rows(copy, Access::ReadOnly, SQLITE_BUSY, &format!("select count(*) n from docs where source = '{source}'"))?
-                    .first()
-                    .and_then(|r| r["n"].as_u64())
-                    .unwrap_or(0) as usize)
-            };
-            let before = count(&copy)?;
-            sqlite::execute(&copy, SQLITE_BUSY, &format!("delete from docs where source = '{source}' and id in ({list});"))?;
-            removed.push((source.to_string(), before - count(&copy)?));
+    for source in ["transcripts", "builds"] {
+        let mut count = 0;
+        for id in &ids {
+            let subject = store::subject(source, id);
+            if index.doc(&subject).map_err(grounding_error)?.is_some() {
+                count += 1;
+                listed.push(doc_key(source, id));
+            }
+        }
+        if !ids.is_empty() {
+            removed.push((source.to_string(), count));
         }
     }
+    fs::write(dir.join(EXCLUDED), listed.join("\n"))?;
     Ok((dir, removed))
 }
 
@@ -471,18 +466,22 @@ struct Scored {
 
 fn score(path: &Path, o: &Options) -> NorthResult<Scored> {
     let items: Vec<Item> = read_rows(path)?;
-    let real = state_dir();
-    let excluded = if !o.exclude.is_empty() && !o.leaky { Some(exclude_session_tree(&o.exclude, &real.join("index.db"))?) } else { None };
-    let state = excluded.as_ref().map_or(real, |(dir, _)| dir.clone());
-    let result = score_in(&items, path, o, excluded.as_ref().map(|(_, r)| r.clone()), &state);
+    let index = Index::open().map_err(grounding_error)?;
+    let excluded = if !o.exclude.is_empty() && !o.leaky { Some(exclude_session_tree(&o.exclude, &index)?) } else { None };
+    let exclusion = excluded.as_ref().map(|(dir, _)| dir.join(EXCLUDED));
+    let index = match &exclusion {
+        Some(file) => index.excluding(file),
+        None => index,
+    };
+    let result = score_in(&items, path, o, excluded.as_ref().map(|(_, r)| r.clone()), exclusion.as_deref(), index);
     if let Some((dir, _)) = excluded {
-        let _ = fs::remove_file(dir.join("index.db"));
+        let _ = fs::remove_file(dir.join(EXCLUDED));
         let _ = fs::remove_dir(&dir);
     }
     result
 }
 
-fn score_in(items: &[Item], path: &Path, o: &Options, removed: Option<Vec<(String, usize)>>, state: &Path) -> NorthResult<Scored> {
+fn score_in(items: &[Item], path: &Path, o: &Options, removed: Option<Vec<(String, usize)>>, state: Option<&Path>, mut index: Index) -> NorthResult<Scored> {
     let mut latencies = Vec::new();
     let mut rows = Vec::new();
     let mut queries = Vec::new();
@@ -531,13 +530,9 @@ fn score_in(items: &[Item], path: &Path, o: &Options, removed: Option<Vec<(Strin
             prior: String::new(),
         });
     }
-    let db = state.join("index.db");
-    if !db.exists() {
-        return Err(NorthError::State(format!("no index at {}", db.display())));
-    }
     let now = Timestamp::now().unix_seconds_f64();
-    let misses = diagnose(&queries, &db, now)?;
-    let hold_misses = diagnose(&hold_queries, &db, now)?;
+    let misses = diagnose(&queries, &mut index, now)?;
+    let hold_misses = diagnose(&hold_queries, &mut index, now)?;
     let sum = |rs: &[&Row], k: fn(&Row) -> usize| rs.iter().map(|r| k(r)).sum::<usize>();
     let all: Vec<&Row> = rows.iter().collect();
     let tier_a: Vec<&Row> = rows.iter().filter(|r| r.tier == "A").collect();

@@ -4,7 +4,7 @@ use std::rc::Rc;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{GraphError, Result};
-use crate::key::{Key, atom_key, decode_key, triple_key};
+use crate::key::{Key, atom_key, decode_key, key_hash, triple_key};
 use crate::term::Term;
 
 #[derive(Default)]
@@ -29,7 +29,12 @@ impl<'c> Terms<'c> {
         if let Some(known) = self.found.get(key) {
             return Ok(Some(*known));
         }
-        let id: Option<i64> = self.connection.prepare_cached("SELECT id FROM terms WHERE key = ?1")?.query_row([key], |row| row.get(0)).optional()?;
+        let stored: Option<(i64, Vec<u8>)> = self.connection.prepare_cached("SELECT id, key FROM terms WHERE north_key_hash(key) = ?1")?.query_row([key_hash(key)], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+        let id = match stored {
+            Some((id, stored)) if stored == key => Some(id),
+            Some((id, _)) => return Err(GraphError::Corrupt(format!("term {id} shares its key hash with a different key"))),
+            None => None,
+        };
         if let Some(id) = id {
             self.found.insert(key.to_vec(), id);
         }

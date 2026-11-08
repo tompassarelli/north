@@ -5,7 +5,7 @@ use super::text::{self, Reindex};
 use super::Graph;
 use crate::error::{GraphError, Result};
 use crate::key::{Key, atom_key, decode_key, triple_key};
-use crate::term::{MAX_TERM_DEPTH, Term, Triple};
+use crate::term::{Atom, MAX_TERM_DEPTH, Term, Triple};
 
 const SPACE: &str = "graph";
 const TX_SEQUENCE: &str = "kernel/tx-sequence";
@@ -179,6 +179,9 @@ impl<'t> Writer<'t> {
             .query_row(params![proposition, t1?, t2?, t3?], |row| row.get(0))?;
         if live == 1 {
             self.mark_text(triple)?;
+            if let Term::Atom(Atom::String(value)) = &triple.t3 {
+                text::index_string(self.connection, proposition, value)?;
+            }
         }
         Ok(true)
     }
@@ -198,6 +201,9 @@ impl<'t> Writer<'t> {
         self.connection.prepare_cached("UPDATE live_props SET n = n - 1 WHERE prop = ?1")?.execute([proposition])?;
         if self.connection.prepare_cached("DELETE FROM live_props WHERE prop = ?1 AND n = 0")?.execute([proposition])? == 1 {
             self.mark_text(triple)?;
+            if matches!(triple.t3, Term::Atom(Atom::String(_))) {
+                text::unindex_string(self.connection, proposition)?;
+            }
         }
         Ok((true, Some(self.terms.term(assertion)?.as_ref().clone())))
     }

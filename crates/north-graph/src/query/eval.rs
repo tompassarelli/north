@@ -7,6 +7,8 @@ use super::budget::Budget;
 use super::ops;
 use super::plan::{Plan, RulePlan, Source, Step, StratumPlan};
 use super::slot::Slot;
+use super::text::{self, Probe, TextRelation};
+use crate::term::{Atom, Term};
 use super::relation::{DerivedRelation, Row};
 use crate::error::Result;
 use crate::store::Terms;
@@ -29,6 +31,17 @@ pub fn run(evaluator: &mut Evaluator<'_, '_>, plan: &Plan) -> Result<Vec<Derived
 }
 
 impl Evaluator<'_, '_> {
+    fn text(&mut self, relation: TextRelation, key: &[Option<i64>]) -> Result<Vec<Row>> {
+        let Some(needle) = key[2] else { return Ok(Vec::new()) };
+        if key[..2].iter().flatten().any(|id| *id <= 0) {
+            return Ok(Vec::new());
+        }
+        let Term::Atom(Atom::String(value)) = &*self.terms.term(needle)? else { return Ok(Vec::new()) };
+        let probe = Probe { entity: key[0], attribute: key[1], needle: value };
+        let found = text::fetch(self.connection, self.terms, relation, &probe, self.budget)?;
+        text::rows(found, needle, self.terms, relation.arity() == 4)
+    }
+
     fn stratum(&mut self, plan: &Plan, stratum: &StratumPlan, full: &mut [DerivedRelation]) -> Result<()> {
         let fresh = || -> Vec<DerivedRelation> { plan.masks.iter().map(|masks| DerivedRelation::new(masks)).collect() };
         let no_delta = fresh();
@@ -106,6 +119,7 @@ impl Evaluator<'_, '_> {
         let key: Vec<Option<i64>> = args.iter().map(|slot| Some(value(slot, binding)).filter(|id| *id != UNBOUND)).collect();
         let rows = match source {
             Source::Base(relation) => base::fetch(self.connection, relation, self.window, &key, self.budget)?,
+            Source::Text(relation) => self.text(relation, &key)?,
             Source::Derived(id) => {
                 let relation = if scope.delta_at == Some(at) { &scope.delta[id] } else { &scope.full[id] };
                 relation.lookup(&key)

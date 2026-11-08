@@ -31,8 +31,7 @@ fn event_line(ts: &str, kind: &str, actor: &str, data: &Value) -> String {
 }
 pub fn threads(since: Option<f64>, path: &Path, visible_native: bool) -> Result<Vec<Doc>> {
     let native = CATALOG.native.clone();
-    let mut db = Sqlite::open(path, true)?;
-    db.exec("PRAGMA busy_timeout=2000;")?;
+    let db = Db { path, busy: std::time::Duration::from_secs(2) };
     if path.ends_with("snapshot.db") {
         let check = db.query("PRAGMA quick_check;")?;
         if check.len() != 1 || check[0]["quick_check"] != "ok" {

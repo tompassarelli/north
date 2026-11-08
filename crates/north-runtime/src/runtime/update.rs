@@ -26,6 +26,8 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 const PASSES: usize = 5;
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
+const GROUNDING_INDEX: &str = "grounding/index.db";
+const GROUNDING_IMPORT_LIMIT: Duration = Duration::from_secs(300);
 
 pub(super) mod hold;
 mod build;
@@ -228,7 +230,14 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
     super::deploy::stage_for_lander(layout, target, runtime);
-    sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))
+    let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
+    if layout.state.join(GROUNDING_INDEX).exists() {
+        let imported = bounded::status(Command::new(layout.current().join("north")).args(["graph", "ground", "import"]), GROUNDING_IMPORT_LIMIT);
+        if !imported.is_ok_and(|status| status.success()) {
+            eprintln!("north runtime update: grounding import from {GROUNDING_INDEX} failed; the next update retries it");
+        }
+    }
+    Ok(synced)
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {

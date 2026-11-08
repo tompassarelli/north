@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use super::ast::{Arg, Clause, Find, Query, Rule};
+use super::ast::{Arg, Clause, Find, Query, Rule, View};
+use super::text::{self, TextRelation};
 use crate::error::QueryError;
+use crate::term::{Atom, Term};
 
 pub const MAX_LIMIT: usize = 100_000;
-const TEXT_RELATIONS: [&str; 5] = ["text-match", "text-phrase", "text-substring", "text-stem", "text-search"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BaseRelation {
@@ -50,7 +51,7 @@ pub struct Schema {
 
 impl Schema {
     pub fn arity_of(&self, name: &str) -> Option<usize> {
-        BaseRelation::named(name).map(BaseRelation::arity).or_else(|| self.ids.get(name).map(|id| self.derived[*id].arity))
+        BaseRelation::named(name).map(BaseRelation::arity).or_else(|| TextRelation::named(name).map(TextRelation::arity)).or_else(|| self.ids.get(name).map(|id| self.derived[*id].arity))
     }
 }
 
@@ -62,6 +63,7 @@ fn invalid<T>(why: String) -> Checked<T> {
 
 pub fn check(query: &Query) -> Checked<Schema> {
     let schema = declare(query)?;
+    check_view(query)?;
     for (stratum, rules) in query.strata.iter().enumerate() {
         for rule in rules {
             check_rule(&schema, stratum, rule)?;
@@ -76,7 +78,7 @@ fn declare(query: &Query) -> Checked<Schema> {
     let mut schema = Schema::default();
     for (stratum, rules) in query.strata.iter().enumerate() {
         for rule in rules {
-            if BaseRelation::named(&rule.head).is_some() || TEXT_RELATIONS.contains(&rule.head.as_str()) {
+            if BaseRelation::named(&rule.head).is_some() || TextRelation::named(&rule.head).is_some() {
                 return invalid(format!("rule head {} names a stored relation", rule.head));
             }
             let arity = rule.head_args.len();
@@ -106,6 +108,9 @@ fn check_rule(schema: &Schema, stratum: usize, rule: &Rule) -> Checked<()> {
         match clause {
             Clause::Relation { name, args, negated } => {
                 check_reference(schema, stratum, name, args.len(), *negated)?;
+                if TextRelation::named(name).is_some() {
+                    check_needle(&bound, name, &args[2])?;
+                }
                 for arg in args {
                     match (arg, negated) {
                         (Arg::Var(variable), false) => {
@@ -147,8 +152,8 @@ fn require_bound(bound: &HashSet<&str>, variable: &str, what: &str) -> Checked<(
 }
 
 fn check_reference(schema: &Schema, stratum: usize, name: &str, arity: usize, negated: bool) -> Checked<()> {
-    if TEXT_RELATIONS.contains(&name) {
-        return invalid(format!("text relation {name} is not supported"));
+    if TextRelation::named(name).is_some() && negated {
+        return invalid(format!("text relation {name} may not be negated"));
     }
     let Some(expected) = schema.arity_of(name) else {
         return invalid(format!("relation {name} is neither stored nor defined by a rule"));
@@ -231,5 +236,28 @@ fn check_find(schema: &Schema, query: &Query) -> Checked<()> {
     match query.limit {
         Some(limit) if limit == 0 || limit > MAX_LIMIT => invalid(format!("limit is 1 through {MAX_LIMIT}")),
         _ => Ok(()),
+    }
+}
+
+fn check_view(query: &Query) -> Checked<()> {
+    if query.view == View::Current {
+        return Ok(());
+    }
+    let mut clauses = query.strata.iter().flatten().flat_map(|rule| &rule.body);
+    match clauses.find_map(|clause| match clause {
+        Clause::Relation { name, .. } if TextRelation::named(name).is_some() => Some(name),
+        _ => None,
+    }) {
+        Some(relation) => Err(QueryError::TextUnderView { relation: relation.clone() }),
+        None => Ok(()),
+    }
+}
+
+fn check_needle(bound: &HashSet<&str>, name: &str, needle: &Arg) -> Checked<()> {
+    match needle {
+        Arg::Var(variable) => require_bound(bound, variable, "the needle of a text relation"),
+        Arg::Const(Term::Atom(Atom::String(value))) if !text::tokens(value).is_empty() => Ok(()),
+        Arg::Const(Term::Atom(Atom::String(value))) => invalid(format!("{name} needle {value:?} has no letter or digit")),
+        Arg::Const(other) => invalid(format!("{name} needs a String needle, not {other}")),
     }
 }

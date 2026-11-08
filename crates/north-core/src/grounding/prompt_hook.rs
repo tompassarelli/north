@@ -1,4 +1,4 @@
-use super::{HookReply, hook_json, hook_reply, store};
+use super::{HookReply, hook_json, hook_reply};
 use crate::foundation::hook_deadline::{errors_file, record_error, within};
 use std::{
     io::{Read, Write},
@@ -30,9 +30,6 @@ pub fn run(guards_off: fn() -> bool, grounded: fn(&str) -> bool) {
         decide(&bytes, &gate, |raw| hook_reply(raw, &grounded, Some(started + RETRIEVAL)))
     };
     let finished = within(started + DEADLINE, work);
-    if finished.is_none() {
-        store::kill_live();
-    }
     let output = conclude(finished, &late_errors);
     if let Some(output) = output {
         let _ = writeln!(std::io::stdout().lock(), "{output}");

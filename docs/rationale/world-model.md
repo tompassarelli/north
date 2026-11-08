@@ -42,8 +42,8 @@ Each lane reports the same five readings before and after: ingest wall, the quer
    join in the order the rule writes it (SQLite's own order made one chain query 4x slower). Range comparisons call an SQL
    function that runs the same term comparison as the Rust path, so Int, Float and Instant order alike either way.
    Derived relations and recursion stay in the Rust semi-naive loop.
-4. **Text is a live-proposition index inside `graph.db`.** FTS5 tables over the String `t3` of live propositions whose
-   predicate is text-indexed (`:doc-title`, `:doc-text`, and the mirror's `:title` and `:text`), kept in the same
+4. **Text is a live-proposition index inside `graph.db`.** Three FTS5 tables over the String `t3` of every live
+   proposition, so a variable attribute is answered from the index rather than a scan, kept in the same
    transaction as the assertion or retraction, serve all five Beagle relations: `text-match` and `text-phrase` on
    `unicode61`, `text-stem` on `porter`, `text-substring` on `trigram`, `text-search` scored by bm25 with Beagle's exact
    over stem over substring order. Grounding documents become `(doc:SOURCE:ID :doc-source S)`, `:doc-ref`, `:doc-title`,

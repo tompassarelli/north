@@ -104,7 +104,7 @@ fn malformed_queries_are_refused_before_anything_runs() {
         ("arity disagreement", json!({"find": "r", "rules": [{"head": head(json!([])), "body": [{"rel": "withdrawal", "args": [1, 2, 3]}]}]})),
         ("negation within its own stratum", json!({"find": "r", "rules": [{"head": head(json!([])), "body": [{"rel": "r", "args": [], "neg": true}]}]})),
         ("recursive arithmetic", json!({"find": "r", "rules": [{"head": head(json!([{"var": "n"}])), "body": [{"rel": "r", "args": [{"var": "m"}]}, {"fn": "+", "args": [{"var": "m"}, 1], "bind": "n"}]}]})),
-        ("text relation", json!({"find": "r", "rules": [{"head": head(json!([])), "body": [{"rel": "text-match", "args": ["a", "b", "c"]}]}]})),
+        ("punctuation-only text needle", json!({"find": "r", "rules": [{"head": head(json!([])), "body": [{"rel": "text-match", "args": ["a", "b", "-;"]}]}]})),
         ("limit over the cap", json!({"find": "r", "limit": 100001, "rules": [{"head": head(json!([])), "body": []}]})),
     ];
     for (why, query) in refused {
@@ -235,4 +235,88 @@ fn an_instant_compares_with_an_instant_alike_on_a_base_clause_and_after_a_derive
             {"pred": "lt", "args": [{"var": "t"}, cutoff]}]}]]});
     assert_eq!(answer(&graph, base).unwrap(), vec![vec![Term::string("old")]]);
     assert_eq!(answer(&graph, derived).unwrap(), vec![vec![Term::string("old")]]);
+}
+
+fn prose(graph: &mut Graph, docs: &[(&str, &str)]) {
+    let actions: Vec<_> = docs.iter().map(|(doc, text)| crate::Action::assert(Triple::new(*doc, Term::keyword("doc-text"), *text))).collect();
+    graph.apply("grounding", &actions).unwrap();
+}
+
+fn text_hits(graph: &Graph, relation: &str, needle: Value) -> Result<Vec<String>, GraphError> {
+    let rules = json!([{"head": {"rel": "hit", "args": [{"var": "d"}]}, "body": [{"rel": relation, "args": [{"var": "d"}, ["keyword", "doc-text"], needle]}]}]);
+    let mut found = strings(answer(graph, json!({"find": "hit", "rules": rules}))?);
+    found.sort();
+    Ok(found)
+}
+
+fn refused(found: Result<Vec<String>, GraphError>) -> bool {
+    matches!(found, Err(GraphError::Query(QueryError::Invalid(_))))
+}
+
+#[test]
+fn text_match_is_an_unordered_conjunction_of_tokens_over_live_strings() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    prose(&mut graph, &[("a", "the quick brown fox"), ("b", "Fox; brown!"), ("c", "quick red fox")]);
+    graph.tell("grounding", Triple::new("a", Term::keyword("doc-title"), "brown fox")).unwrap();
+    assert_eq!(text_hits(&graph, "text-match", json!("brown fox")).unwrap(), ["\"a\"", "\"b\""]);
+    assert_eq!(text_hits(&graph, "text-match", json!("FOX, quick fox")).unwrap(), ["\"a\"", "\"c\""]);
+    graph.retract("grounding", Triple::new("a", Term::keyword("doc-text"), "the quick brown fox")).unwrap();
+    assert_eq!(text_hits(&graph, "text-match", json!("brown fox")).unwrap(), ["\"b\""], "a retracted string leaves the index");
+    let any_attribute = json!([{"head": {"rel": "hit", "args": [{"var": "d"}, {"var": "a"}]}, "body": [{"rel": "text-match", "args": [{"var": "d"}, {"var": "a"}, "brown fox"]}]}]);
+    assert_eq!(strings(answer(&graph, json!({"find": "hit", "rules": any_attribute, "orderBy": [{"column": 0, "direction": "asc"}]})).unwrap()), ["\"a\" :doc-title", "\"b\" :doc-text"]);
+    graph.tell("test", Triple::new("q", Term::keyword("needle"), "red")).unwrap();
+    let bound = json!([{"head": {"rel": "hit", "args": [{"var": "d"}]}, "body": [
+        {"rel": "triple", "args": ["q", ["keyword", "needle"], {"var": "n"}]},
+        {"rel": "text-match", "args": [{"var": "d"}, ["keyword", "doc-text"], {"var": "n"}]}
+    ]}]);
+    assert_eq!(strings(answer(&graph, json!({"find": "hit", "rules": bound})).unwrap()), ["\"c\""]);
+    assert!(refused(text_hits(&graph, "text-match", json!(" -_ ;"))), "a punctuation-only needle");
+    assert!(refused(text_hits(&graph, "text-match", json!(""))), "an empty needle");
+    assert!(refused(text_hits(&graph, "text-match", json!(7))), "a needle that is not a String");
+    assert!(refused(text_hits(&graph, "text-match", json!({"var": "n"}))), "an unbound needle");
+    let negated = json!([{"head": {"rel": "hit", "args": [{"var": "d"}]}, "body": [
+        {"rel": "triple", "args": [{"var": "d"}, ["keyword", "doc-text"], {"var": "t"}]},
+        {"rel": "text-match", "args": [{"var": "d"}, ["keyword", "doc-text"], "fox"], "neg": true}
+    ]}]);
+    assert!(matches!(answer(&graph, json!({"find": "hit", "rules": negated})), Err(GraphError::Query(QueryError::Invalid(_)))));
+    let rules = json!([{"head": {"rel": "hit", "args": [{"var": "d"}]}, "body": [{"rel": "text-match", "args": [{"var": "d"}, ["keyword", "doc-text"], "fox"]}]}]);
+    assert!(matches!(answer(&graph, json!({"find": "hit", "rules": rules, "asOf": 1})), Err(GraphError::Query(QueryError::TextUnderView { .. }))));
+}
+
+#[test]
+fn text_phrase_needs_the_tokens_in_order_across_punctuation() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    prose(&mut graph, &[("a", "the quick brown fox"), ("b", "the brown quick fox"), ("c", "Quick-brown_FOX jumps"), ("d", "quick brown dog fox")]);
+    assert_eq!(text_hits(&graph, "text-phrase", json!("quick brown fox")).unwrap(), ["\"a\"", "\"c\""]);
+    assert_eq!(text_hits(&graph, "text-phrase", json!("brown quick")).unwrap(), ["\"b\""]);
+}
+
+#[test]
+fn text_substring_is_case_folded_containment_that_keeps_punctuation() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    prose(&mut graph, &[("a", "quick-brown_fox"), ("b", "quick brown fox"), ("c", "brown-own")]);
+    assert_eq!(text_hits(&graph, "text-substring", json!("OWN_FO")).unwrap(), ["\"a\""]);
+    assert_eq!(text_hits(&graph, "text-substring", json!("k-b")).unwrap(), ["\"a\""]);
+    assert_eq!(text_hits(&graph, "text-substring", json!("n_")).unwrap(), ["\"a\""], "a needle too short for trigrams takes the exact scan");
+    assert_eq!(text_hits(&graph, "text-substring", json!("own")).unwrap(), ["\"a\"", "\"b\"", "\"c\""]);
+}
+
+#[test]
+fn text_stem_unifies_inflected_forms_and_leaves_text_match_exact() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    prose(&mut graph, &[("a", "she runs daily"), ("b", "running late"), ("c", "a run home"), ("d", "rerun later")]);
+    assert_eq!(text_hits(&graph, "text-stem", json!("run")).unwrap(), ["\"a\"", "\"b\"", "\"c\""]);
+    assert_eq!(text_hits(&graph, "text-stem", json!("Running")).unwrap(), ["\"a\"", "\"b\"", "\"c\""]);
+    assert_eq!(text_hits(&graph, "text-match", json!("run")).unwrap(), ["\"c\""]);
+}
+
+#[test]
+fn text_search_scores_exact_over_stem_over_substring() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    prose(&mut graph, &[("stem", "running late"), ("exact", "a run home"), ("substring", "rerun later"), ("none", "walk")]);
+    let rules = json!([{"head": {"rel": "hit", "args": [{"var": "d"}, {"var": "s"}]}, "body": [{"rel": "text-search", "args": [{"var": "d"}, ["keyword", "doc-text"], "run", {"var": "s"}]}]}]);
+    let rows = answer(&graph, json!({"find": "hit", "rules": rules, "orderBy": [{"column": 1, "direction": "desc"}]})).unwrap();
+    let order: Vec<String> = rows.iter().map(|row| row[0].to_string()).collect();
+    assert_eq!(order, ["\"exact\"", "\"stem\"", "\"substring\""]);
+    assert!(rows.iter().all(|row| matches!(row[1], Term::Atom(crate::term::Atom::Float(_)))), "{rows:?}");
 }

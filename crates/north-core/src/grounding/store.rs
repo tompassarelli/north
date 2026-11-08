@@ -1,11 +1,21 @@
 use super::*;
+use north_graph::{Field, Graph, TextHit, TextSearch, Term, Triple};
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Stdio};
-use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+pub const WRITER: &str = "grounding";
+const SOURCE: &str = "doc-source";
+const REF: &str = "doc-ref";
+const TITLE: &str = "doc-title";
+const TEXT: &str = "doc-text";
+const AT: &str = "doc-at";
+const DECAYS: &str = "doc-decays";
+const FAMILY: &str = "doc-family";
+const HISTORY: [&str; 6] = ["transcripts", "builds", "ledger", "commits", "threads", "github"];
+pub const SOURCES: [&str; 9] = ["builds", "commits", "github", "ledger", "policy", "projects", "settings", "threads", "transcripts"];
+const PATIENCE: Duration = Duration::from_millis(200);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Doc {
     pub source: String,
     pub id: String,
@@ -15,6 +25,88 @@ pub struct Doc {
     pub text: String,
     pub at: f64,
     pub decays: bool,
+}
+impl Doc {
+    pub fn subject(&self) -> Term {
+        subject(&self.source, &self.id)
+    }
+    pub fn family(&self) -> &'static str {
+        family(&self.source, &self.title, &self.reference)
+    }
+    pub fn facts(&self) -> Vec<Triple> {
+        let subject = self.subject();
+        let fact = |predicate: &str, object: Term| Triple::new(subject.clone(), Term::keyword(predicate), object);
+        let mut facts = vec![
+            fact(SOURCE, Term::string(&self.source)),
+            fact(TITLE, Term::string(&self.title)),
+            fact(TEXT, Term::string(&self.text)),
+            fact(AT, Term::float(self.at)),
+            fact(FAMILY, Term::string(self.family())),
+        ];
+        if default_ref(&self.source, &self.id).as_deref() != Some(self.reference.as_str()) {
+            facts.push(fact(REF, Term::string(&self.reference)));
+        }
+        if self.decays {
+            facts.push(fact(DECAYS, Term::boolean(true)));
+        }
+        facts
+    }
+    pub fn from_facts<'a>(subject: &Term, facts: impl IntoIterator<Item = &'a Triple>) -> Option<Doc> {
+        let mut doc = Doc { source: String::new(), id: String::new(), reference: String::new(), title: String::new(), text: String::new(), at: 0.0, decays: false };
+        for fact in facts {
+            let Term::Atom(north_graph::Atom::Keyword(predicate)) = &fact.t2 else { continue };
+            match (predicate.as_str(), &fact.t3) {
+                (SOURCE, object) => doc.source = string(object)?,
+                (REF, object) => doc.reference = string(object)?,
+                (TITLE, object) => doc.title = string(object)?,
+                (TEXT, object) => doc.text = string(object)?,
+                (AT, Term::Atom(north_graph::Atom::Float(at))) => doc.at = at.value(),
+                (DECAYS, Term::Atom(north_graph::Atom::Bool(decays))) => doc.decays = *decays,
+                _ => {}
+            }
+        }
+        doc.id = string(subject)?.strip_prefix(&format!("doc:{}:", doc.source))?.to_owned();
+        if doc.reference.is_empty() {
+            doc.reference = default_ref(&doc.source, &doc.id).unwrap_or_default();
+        }
+        Some(doc)
+    }
+}
+fn default_ref(source: &str, id: &str) -> Option<String> {
+    match source {
+        "transcripts" | "builds" => Some(format!("convo:{id}")),
+        "ledger" => Some(format!("ledger:{id}")),
+        "github" => Some(format!("github {id}")),
+        "threads" => Some(format!("threads {id}")),
+        _ => None,
+    }
+}
+pub fn subject(source: &str, id: &str) -> Term {
+    Term::string(format!("doc:{source}:{id}"))
+}
+pub fn source_predicate() -> Term {
+    Term::keyword(SOURCE)
+}
+fn string(term: &Term) -> Option<String> {
+    match term {
+        Term::Atom(north_graph::Atom::String(text)) => Some(text.clone()),
+        _ => None,
+    }
+}
+pub fn family(source: &str, title: &str, reference: &str) -> &'static str {
+    let title = title.to_ascii_lowercase();
+    match source {
+        "policy" if title.starts_with("handoff ") => "handoffs",
+        "settings" => "config",
+        "policy" if reference.to_ascii_lowercase().ends_with(".toml") && !title.starts_with("rule ") && !title.starts_with("hook ") => "config",
+        "policy" => "catalog",
+        "commits" | "builds" => "commits/builds",
+        "threads" | "github" => "issues",
+        "transcripts" => "transcripts",
+        "ledger" => "ledger",
+        "projects" => "projects",
+        _ => "other",
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Hit {
@@ -39,45 +131,32 @@ impl Bound {
         self.until.is_some_and(|at| Instant::now() >= at)
     }
 }
-pub struct Sqlite {
+pub struct Index {
+    graph: Graph,
     bound: Bound,
-    child: Child,
-    input: ChildStdin,
-    output: BufReader<ChildStdout>,
+    excluded: HashSet<String>,
 }
-impl Sqlite {
-    pub fn open(path: &Path, readonly: bool) -> Result<Self> {
-        if readonly && !path.exists() {
-            return Err(format!("no index at {}", path.display()).into());
+impl Index {
+    pub fn open() -> Result<Self> {
+        Self::open_at(&north_graph::default_path())
+    }
+    pub fn open_at(path: &Path) -> Result<Self> {
+        let excluded = env::var_os("NORTH_GROUNDING_EXCLUDE").filter(|file| !file.is_empty()).map(|file| read(Path::new(&file)).lines().map(str::to_owned).collect()).unwrap_or_default();
+        Ok(Self { graph: Graph::open_read_only(path, PATIENCE)?, bound: Bound::default(), excluded })
+    }
+    pub fn excluding(mut self, file: &Path) -> Self {
+        self.excluded = read(file).lines().map(str::to_owned).collect();
+        self
+    }
+    pub fn docs_of(&self, source: &str) -> Result<Vec<Doc>> {
+        let mut facts: HashMap<Term, Vec<Triple>> = HashMap::new();
+        for told in self.graph.described(&source_predicate(), &Term::string(source))? {
+            facts.entry(told.triple.t1.clone()).or_default().push(told.triple);
         }
-        let mut cmd = Command::new("sqlite3");
-        if readonly {
-            cmd.arg("-readonly");
-        }
-        let mut child = cmd
-            .args(["-json", "-batch"])
-            .arg(path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        if let Ok(mut live) = LIVE.lock() {
-            live.push(child.id());
-        }
-        let input = child.stdin.take().unwrap();
-        let output = BufReader::new(child.stdout.take().unwrap());
-        let mut db = Self {
-            bound: Bound::default(),
-            child,
-            input,
-            output,
-        };
-        db.exec(if readonly {
-            ".bail on\n.timeout 0"
-        } else {
-            ".bail on\n.timeout 30000"
-        })?;
-        Ok(db)
+        Ok(facts.iter().filter_map(|(subject, facts)| Doc::from_facts(subject, facts)).collect())
+    }
+    pub fn graph(&self) -> &Graph {
+        &self.graph
     }
     pub fn bound(&mut self, bound: Bound) {
         self.bound = bound;
@@ -85,78 +164,60 @@ impl Sqlite {
     pub fn expired(&self) -> bool {
         self.bound.expired()
     }
-    fn request(&mut self, sql: &str) -> Result<String> {
-        writeln!(self.input, "{}\n.print __north_grounding_end__", sql)?;
-        self.input.flush()?;
-        let mut out = String::new();
-        loop {
-            let mut line = String::new();
-            if self.output.read_line(&mut line)? == 0 {
-                let mut err = String::new();
-                if let Some(mut stream) = self.child.stderr.take() {
-                    stream.read_to_string(&mut err)?;
+    pub fn docs(&self) -> Result<u64> {
+        Ok(self.graph.text_rows()?)
+    }
+    pub fn doc(&self, subject: &Term) -> Result<Option<Doc>> {
+        let live = self.graph.show(subject)?;
+        Ok(Doc::from_facts(subject, live.iter().map(|fact| &fact.triple)))
+    }
+    pub fn matching(&self, query: &str) -> Result<u64> {
+        Ok(self.graph.text_matches(query)?)
+    }
+    pub(super) fn ranked(&self, query: &str, field: Option<Field>, as_of: f64, cap: usize) -> Result<Vec<(String, String, Option<String>)>> {
+        let open = as_of == 0.0 && self.excluded.is_empty();
+        let whole = open && field.is_none();
+        let facets: &[&str] = if whole { &[FAMILY] } else { &[FAMILY, SOURCE, REF, AT, DECAYS] };
+        let hits = self.graph.text_search(&TextSearch { query, field, weights: [4.0, 1.0], facets, cap: whole.then_some(cap) })?;
+        let mut counts = HashMap::<String, usize>::new();
+        let mut out = Vec::new();
+        for TextHit { subject, facets, .. } in hits {
+            let Some(id) = string(&subject) else { continue };
+            if !whole && self.hidden(&id, &facets, as_of) {
+                continue;
+            }
+            let family = facets[0].as_ref().and_then(string).unwrap_or_default();
+            let reference = facets.get(2).and_then(Option::as_ref).and_then(string);
+            if field.is_some() {
+                if matches!(facets[1].as_ref().and_then(string).as_deref(), Some("policy" | "projects")) {
+                    out.push((id, family, reference));
                 }
-                return Err(err.into());
+                if out.len() >= cap {
+                    break;
+                }
+                continue;
             }
-            if line.trim_end() == "__north_grounding_end__" {
-                break;
+            let rank = counts.entry(family.clone()).or_default();
+            if *rank < cap {
+                *rank += 1;
+                out.push((id, family, reference));
             }
-            out.push_str(&line);
         }
         Ok(out)
     }
-    pub fn query(&mut self, sql: &str) -> Result<Vec<Value>> {
-        let out = self.request(sql)?;
-        if out.trim().is_empty() {
-            Ok(Vec::new())
-        } else {
-            Ok(serde_json::from_str(&out)?)
+    fn hidden(&self, id: &str, facets: &[Option<Term>], as_of: f64) -> bool {
+        if self.excluded.contains(id) {
+            return true;
         }
-    }
-    pub fn exec(&mut self, sql: &str) -> Result<()> {
-        self.request(sql).map(|_| ())
-    }
-}
-impl Drop for Sqlite {
-    fn drop(&mut self) {
-        if let Ok(mut live) = LIVE.lock() {
-            live.retain(|pid| *pid != self.child.id());
-        }
-        let _ = writeln!(self.input, ".quit");
-        let _ = self.input.flush();
-        let _ = self.child.wait();
+        let source = facets[1].as_ref().and_then(string).unwrap_or_default();
+        let decays = matches!(facets[4], Some(Term::Atom(north_graph::Atom::Bool(true))));
+        let at = match &facets[3] {
+            Some(Term::Atom(north_graph::Atom::Float(at))) => at.value(),
+            _ => 0.0,
+        };
+        as_of != 0.0 && (decays || HISTORY.contains(&source.as_str())) && at > as_of
     }
 }
-static LIVE: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-pub fn kill_live() {
-    for pid in LIVE.lock().map(|live| live.clone()).unwrap_or_default() {
-        if let Some(pid) = i32::try_from(pid).ok().and_then(rustix::process::Pid::from_raw) {
-            let _ = rustix::process::kill_process(pid, rustix::process::Signal::Kill);
-        }
-    }
-}
-pub fn quote(s: &str) -> String {
-    format!("'{}'", s.replace('\0', "").replace('\'', "''"))
-}
-pub use super::common::state_dir;
-pub fn db_path() -> PathBuf {
-    state_dir().join("index.db")
-}
-pub fn open(readonly: bool) -> Result<Sqlite> {
-    open_at(&db_path(), readonly)
-}
-pub fn open_at(path: &Path, readonly: bool) -> Result<Sqlite> {
-    if !readonly {
-        fs::create_dir_all(state_dir())?;
-    }
-    let mut db = Sqlite::open(path, readonly)?;
-    if !readonly {
-        db.exec("PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=30000;")?;
-        db.exec(SCHEMA)?;
-    }
-    Ok(db)
-}
-pub const SCHEMA: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(source UNINDEXED,id UNINDEXED,ref UNINDEXED,title,text,at UNINDEXED,decays UNINDEXED,tokenize='porter unicode61 remove_diacritics 2'); CREATE TABLE IF NOT EXISTS watermarks(source TEXT PRIMARY KEY, at REAL, refreshed REAL, rows INTEGER);";
 const STOP: &str = "a about above after again all also am an and any are aren't as at be because been before being below between both but by can can't could couldn't did didn't do does doesn't doing don don't down during each few for from further had hadn't has hasn't have haven't having he her here hers herself him himself his how i i'm if in into is isn't it it's its itself just let's like me more most my myself no nor not now of off on once only or other ought our ours ourselves out over own same she should shouldn shouldn't so some such than that that's the their theirs them themselves then there there's these they this those through to too under until up very was wasn't we we're were weren't what what's when where which while who whom why why's with won't would wouldn't you you're your yours yourself yourselves ok okay yes yeah yep no nope thanks thank please sure right well um uh oh hey hi mean know think want need get got going go gonna kind sort thing things really actually basically just like lot also still even ever way make made use used using one two see say said tell told ask asked didn im dont didnt doesnt isnt youre thats whats ive weve theyre cant wont shouldnt wouldnt couldnt point question something anything everything someone stuff guess maybe probably pretty bit already again thought tonight today yesterday earlier recently idea fucking honestly literally";
 pub fn raw_terms(text: &str) -> Vec<(String, bool)> {
     let stop: HashSet<&str> = STOP.split_whitespace().collect();
@@ -243,11 +304,11 @@ const FAMILIES: [&str; 8] = [
     "commits/builds",
     "issues",
 ];
-const FAMILY: &str = "case when source='policy' and title like 'handoff %' then 'handoffs' when source='settings' or (source='policy' and ref like '%.toml' and title not like 'rule %' and title not like 'hook %') then 'config' when source='policy' then 'catalog' when source in ('commits','builds') then 'commits/builds' when source in ('threads','github') then 'issues' else source end";
 const QUERIES: usize = 3;
 const REPAIRS: usize = 2;
 const SHARP_DOCS: f64 = 500.0;
 const MIN_TERMS: usize = 4;
+const CAP: usize = 80;
 
 fn rarest(candidates: Vec<(String, bool)>, stems: &HashMap<String, String>, df: &HashMap<String, f64>, total: f64, keep: usize) -> Vec<(String, bool)> {
     let count = |word: &str| stems.get(word).and_then(|stem| df.get(stem)).copied();
@@ -258,74 +319,53 @@ fn rarest(candidates: Vec<(String, bool)>, stems: &HashMap<String, String>, df: 
     kept.extend(candidates.iter().filter(|(word, _)| word.len() >= 6 && count(word).is_none()).take(REPAIRS).map(|(word, _)| word.clone()));
     candidates.into_iter().filter(|(word, _)| kept.contains(word)).collect()
 }
-pub fn as_of_filter(as_of: f64) -> String {
-    if as_of == 0.0 {
-        String::new()
-    } else {
-        format!(
-            " and not ((decays = 1 or source in ('transcripts','builds','ledger','commits','threads','github')) and at > {as_of})"
-        )
-    }
+fn frequencies(index: &Index, stems: &HashMap<String, String>) -> Result<HashMap<String, f64>> {
+    let wanted: Vec<&str> = stems.values().map(String::as_str).collect();
+    Ok(index.graph.text_frequencies(&wanted)?.into_iter().map(|(stem, n)| (stem, n as f64)).collect())
 }
-pub fn search(
-    query: &str,
-    db: &mut Sqlite,
-    mut now: f64,
-    limit: usize,
-    as_of: f64,
-) -> Result<(Vec<Hit>, Vec<String>)> {
+fn domain(index: &Index, stems: &HashMap<String, String>) -> Result<HashMap<String, (f64, f64)>> {
+    let wanted: Vec<&str> = stems.values().map(String::as_str).collect();
+    let mut out = HashMap::<String, (f64, f64)>::new();
+    for (stem, family, n) in index.graph.text_frequencies_by(&wanted, FAMILY)? {
+        let entry = out.entry(stem).or_default();
+        match string(&family).as_deref() {
+            Some("catalog" | "config") => entry.0 += n as f64,
+            Some("projects") => entry.1 += n as f64,
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+pub fn search(query: &str, index: &mut Index, mut now: f64, limit: usize, as_of: f64) -> Result<(Vec<Hit>, Vec<String>)> {
     if as_of != 0.0 {
         now = now.min(as_of);
     }
-    let seen = as_of_filter(as_of);
     let candidates: Vec<_> = raw_terms(query).into_iter().take(60).collect();
     if candidates.is_empty() {
         return Ok((vec![], vec![]));
     }
-    let total = db.query("select count(*) n from docs_docsize;")?[0]["n"]
-        .as_f64()
-        .unwrap_or(1.0)
-        .max(1.0);
-    db.exec(&format!("CREATE VIRTUAL TABLE IF NOT EXISTS temp.grounding_vocab USING fts5vocab(main, docs, row); CREATE VIRTUAL TABLE IF NOT EXISTS temp.grounding_instances USING fts5vocab(main, docs, instance); CREATE VIRTUAL TABLE IF NOT EXISTS temp.grounding_tokens USING fts5(text, tokenize='porter unicode61 remove_diacritics 2'); CREATE VIRTUAL TABLE IF NOT EXISTS temp.grounding_stems USING fts5vocab(temp, grounding_tokens, instance); DELETE FROM temp.grounding_tokens; INSERT INTO temp.grounding_tokens(text) VALUES ({});", quote(&candidates.iter().map(|(w,_)|w.as_str()).collect::<Vec<_>>().join(" "))))?;
+    let total = (index.docs()? as f64).max(1.0);
+    let words: Vec<&str> = candidates.iter().map(|(w, _)| w.as_str()).collect();
     let mut stems = HashMap::<String, String>::new();
-    for row in db.query("select offset, term from temp.grounding_stems;")? {
-        if let Some((w, _)) = candidates.get(row["offset"].as_u64().unwrap_or(0) as usize) {
-            stems.insert(w.clone(), s(&row, "term"));
+    for ((word, _), stem) in candidates.iter().zip(index.graph.text_stems(&words)?) {
+        if let Some(stem) = stem {
+            stems.insert(word.clone(), stem);
         }
     }
-    let stats =
-        |db: &mut Sqlite, stems: &HashMap<String, String>| -> Result<HashMap<String, f64>> {
-            Ok(db
-                .query(&format!(
-                    "select term, doc from temp.grounding_vocab where term in ({});",
-                    stems
-                        .values()
-                        .map(|s| quote(s))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                ))?
-                .into_iter()
-                .map(|r| (s(&r, "term"), num(&r, "doc")))
-                .collect())
-        };
-    let mut df = stats(db, &stems)?;
-    let candidates = match db.bound.terms {
+    let mut df = frequencies(index, &stems)?;
+    let candidates = match index.bound.terms {
         Some(keep) => rarest(candidates, &stems, &df, total, keep),
         None => candidates,
     };
     stems.retain(|word, _| candidates.iter().any(|(kept, _)| kept == word));
     let mut repaired = HashMap::new();
     for (word, _) in &candidates {
-        let Some(stem) = stems.get(word) else {
-            continue;
-        };
-        if df.contains_key(stem) || word.len() < 6 || db.bound.expired() {
+        let Some(stem) = stems.get(word) else { continue };
+        if df.contains_key(stem) || word.len() < 6 || index.bound.expired() {
             continue;
         }
-        let rows=db.query(&format!("select term, doc from temp.grounding_vocab where length(term) between {} and {} and (substr(term,1,2)={} or substr(term,-2)={}) order by doc desc limit 2000;",stem.len().saturating_sub(2),stem.len()+2,quote(&stem[..stem.len().min(2)]),quote(&stem[stem.len().saturating_sub(2)..])))?;
         let mut best = 3;
-        for row in rows {
-            let term = s(&row, "term");
+        for (term, _) in index.graph.text_spelling_candidates(stem, 2, 2000)? {
             let edits = distance(stem, &term);
             if edits < best {
                 best = edits;
@@ -337,15 +377,13 @@ pub fn search(
         stems.insert(word.clone(), term.clone());
     }
     if !repaired.is_empty() {
-        df = stats(db, &stems)?;
+        df = frequencies(index, &stems)?;
     }
-    let domain: HashMap<_,_>=db.query(&format!("select v.term, count(distinct case when d.source!='projects' then v.doc end) catalog, count(distinct case when d.source='projects' then v.doc end) projects from temp.grounding_instances v join docs d on d.rowid=v.doc where v.term in ({}) and (d.source in ('settings','projects') or (d.source='policy' and d.title not like 'handoff %')) group by v.term;",stems.values().map(|s|quote(s)).collect::<Vec<_>>().join(",")))?.into_iter().map(|r|(s(&r,"term"),(num(&r,"catalog"),num(&r,"projects")))).collect();
+    let domain = domain(index, &stems)?;
     let long = query.split_whitespace().count() > 40;
     let mut weights: Vec<(String, f64)> = vec![];
     for (raw, distinct) in &candidates {
-        let Some(stem) = stems.get(raw) else {
-            continue;
-        };
+        let Some(stem) = stems.get(raw) else { continue };
         let word = repaired.get(raw).unwrap_or(raw);
         let count = *df.get(stem).unwrap_or(&0.0);
         if count == 0.0 || (total > 1000.0 && count > total * 0.2) {
@@ -359,8 +397,7 @@ pub fn search(
         if catalog + projects < 3.0 && !distinct {
             idf *= 0.5;
         }
-        let weight =
-            idf * if *distinct { 1.5 } else { 1.0 } * (1.0 + catalog.ln_1p() / count.ln_1p());
+        let weight = idf * if *distinct { 1.5 } else { 1.0 } * (1.0 + catalog.ln_1p() / count.ln_1p());
         if let Some(entry) = weights.iter_mut().find(|(w, _)| w == word) {
             entry.1 = weight;
         } else {
@@ -370,90 +407,65 @@ pub fn search(
     if weights.is_empty() {
         return Ok((vec![], vec![]));
     }
-    let weight = |word: &str| {
-        weights
-            .iter()
-            .find(|(w, _)| w == word)
-            .map(|(_, v)| *v)
-            .unwrap_or(0.0)
-    };
+    let weight = |word: &str| weights.iter().find(|(w, _)| w == word).map(|(_, v)| *v).unwrap_or(0.0);
     let mut queries = vec![weights.iter().map(|(w, _)| w.clone()).collect::<Vec<_>>()];
     for clause in clauses(query) {
-        let words: Vec<_> = raw_terms(&clause)
-            .into_iter()
-            .map(|(w, _)| repaired.get(&w).cloned().unwrap_or(w))
-            .filter(|w| weight(w) > 0.0)
-            .collect();
+        let words: Vec<_> = raw_terms(&clause).into_iter().map(|(w, _)| repaired.get(&w).cloned().unwrap_or(w)).filter(|w| weight(w) > 0.0).collect();
         if words.len() >= 2 && words != queries[0] {
             queries.push(words);
         }
     }
-    queries.truncate(db.bound.terms.map_or(usize::MAX, |_| QUERIES));
-    let mut fused: Vec<(i64, f64)> = vec![];
+    queries.truncate(index.bound.terms.map_or(usize::MAX, |_| QUERIES));
+    let mut fused: Vec<(String, f64)> = vec![];
     let mut families = HashMap::new();
     for (n, words) in queries.iter().enumerate() {
-        if n > 0 && db.bound.expired() {
+        if n > 0 && index.bound.expired() {
             break;
         }
         let mut top = words.clone();
         top.sort_by(|a, b| weight(b).total_cmp(&weight(a)));
         top.truncate(16);
-        let q = top
-            .iter()
-            .map(|w| match_term(w))
-            .collect::<Vec<_>>()
-            .join(" OR ");
+        let q = top.iter().map(|w| match_term(w)).collect::<Vec<_>>().join(" OR ");
         let mut counts = HashMap::<String, usize>::new();
-        for row in db.query(&format!("select rowid, {FAMILY} family from docs where docs match {} and rank match 'bm25(0, 0, 0, 4.0, 1.0, 0, 0)'{seen} order by rank;",quote(&q)))? {
-            let family=s(&row,"family");let rank=*counts.get(&family).unwrap_or(&0);if rank>=80 || !FAMILIES.contains(&family.as_str()) {continue;}
-            counts.insert(family.clone(),rank+1);let id=row["rowid"].as_i64().unwrap_or(0);families.insert(id,family);
-            if let Some((_,v))=fused.iter_mut().find(|(i,_)|*i==id){*v+=1.0/(40+rank)as f64;}else{fused.push((id,1.0/(40+rank)as f64));}
-            if FAMILIES.iter().all(|f|counts.get(*f)==Some(&80)){break;}
+        for (id, family, _) in index.ranked(&q, None, as_of, CAP)? {
+            if !FAMILIES.contains(&family.as_str()) {
+                continue;
+            }
+            let rank = counts.entry(family.clone()).or_default();
+            let gain = 1.0 / (40 + *rank) as f64;
+            *rank += 1;
+            families.insert(id.clone(), family);
+            if let Some((_, v)) = fused.iter_mut().find(|(i, _)| *i == id) {
+                *v += gain;
+            } else {
+                fused.push((id, gain));
+            }
         }
     }
     let qwords: Vec<_> = weights.iter().map(|(w, _)| w.clone()).collect();
-    let q = format!(
-        "title : ({})",
-        qwords
-            .iter()
-            .map(|w| match_term(w))
-            .collect::<Vec<_>>()
-            .join(" OR ")
-    );
-    let generic = [
-        "skill",
-        "main",
-        "index",
-        "notes",
-        "readme",
-        "agents",
-        "test",
-        "lib",
-        "references",
-        "brief",
-        "status",
-    ];
-    let titled = if db.bound.expired() { vec![] } else { db.query(&format!("select rowid, ref, {FAMILY} family from docs where docs match {} and source in ('policy','projects'){seen} limit 400;",quote(&q)))? };
-    for row in titled {
-        let reference=s(&row,"ref");let base=reference.split('#').next().unwrap_or("").rsplit('/').next().unwrap_or("").to_lowercase();let base=re(r"\.[a-z]+$").replace(&base,"");
-        let parts:Vec<_>=base.split(|c:char|!c.is_ascii_alphanumeric()).filter(|p|p.len()>2 && !generic.contains(p)).map(str::to_owned).collect();
-        let names=if parts.is_empty(){reference.split('/').rev().nth(1).unwrap_or("").to_lowercase().split(|c:char|!c.is_ascii_alphanumeric()).map(str::to_owned).collect()}else{parts};
-        if !names.is_empty() && names.iter().all(|p|qwords.iter().any(|w|p.starts_with(w)||w.starts_with(p))){let id=row["rowid"].as_i64().unwrap_or(0);families.insert(id,s(&row,"family"));if let Some((_,v))=fused.iter_mut().find(|(i,_)|*i==id){*v+=0.05;}else{fused.push((id,0.05));}}
+    let q = qwords.iter().map(|w| match_term(w)).collect::<Vec<_>>().join(" OR ");
+    let generic = ["skill", "main", "index", "notes", "readme", "agents", "test", "lib", "references", "brief", "status"];
+    let titled = if index.bound.expired() { vec![] } else { index.ranked(&q, Some(Field::Name), as_of, 400)? };
+    for (id, family, reference) in titled {
+        let reference = reference.unwrap_or_default();
+        let base = reference.split('#').next().unwrap_or("").rsplit('/').next().unwrap_or("").to_lowercase();
+        let base = re(r"\.[a-z]+$").replace(&base, "");
+        let parts: Vec<_> = base.split(|c: char| !c.is_ascii_alphanumeric()).filter(|p| p.len() > 2 && !generic.contains(p)).map(str::to_owned).collect();
+        let names = if parts.is_empty() { reference.split('/').rev().nth(1).unwrap_or("").to_lowercase().split(|c: char| !c.is_ascii_alphanumeric()).map(str::to_owned).collect() } else { parts };
+        if !names.is_empty() && names.iter().all(|p| qwords.iter().any(|w| p.starts_with(w) || w.starts_with(p))) {
+            families.insert(id.clone(), family);
+            if let Some((_, v)) = fused.iter_mut().find(|(i, _)| *i == id) {
+                *v += 0.05;
+            } else {
+                fused.push((id, 0.05));
+            }
+        }
     }
     let mut ranked = fused.clone();
     ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
     let mut ids = Vec::new();
     for rank in 0..500 {
-        let next: Vec<_> = FAMILIES
-            .iter()
-            .filter_map(|f| {
-                ranked
-                    .iter()
-                    .filter(|(id, _)| families.get(id).is_some_and(|v| v == f))
-                    .nth(rank)
-                    .map(|(id, _)| *id)
-            })
-            .collect();
+        let next: Vec<_> = FAMILIES.iter().filter_map(|f| ranked.iter().filter(|(id, _)| families.get(id).is_some_and(|v| v == f)).nth(rank).map(|(id, _)| id.clone())).collect();
         if next.is_empty() {
             break;
         }
@@ -468,73 +480,27 @@ pub fn search(
     let top_fused = fused.iter().map(|(_, v)| *v).fold(0.0, f64::max);
     let mut hit_families = HashMap::new();
     let mut out = Vec::new();
-    for row in db.query(&format!(
-        "select rowid, source, id, ref, title, text, at, decays from docs where rowid in ({});",
-        ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
-    ))? {
-        let id = row["rowid"].as_i64().unwrap_or(0);
-        let hay = format!("{}\n{}", s(&row, "title"), s(&row, "text")).to_lowercase();
-        let mut matched: Vec<_> = qwords
-            .iter()
-            .filter(|w| {
-                hay.contains(&if ulen(w) > 5 {
-                    cut(w, ulen(w) - 2)
-                } else {
-                    (*w).clone()
-                })
-            })
-            .cloned()
-            .collect();
+    for id in &ids {
+        let Some(doc) = index.doc(&Term::string(id))? else { continue };
+        let hay = format!("{}\n{}", doc.title, doc.text).to_lowercase();
+        let mut matched: Vec<_> = qwords.iter().filter(|w| hay.contains(&if ulen(w) > 5 { cut(w, ulen(w) - 2) } else { (*w).clone() })).cloned().collect();
         matched.sort();
         let cover = queries
             .iter()
             .map(|words| {
                 let mass: f64 = words.iter().map(|w| weight(w)).sum();
-                words
-                    .iter()
-                    .filter(|w| matched.contains(w))
-                    .map(|w| weight(w))
-                    .sum::<f64>()
-                    / mass
+                words.iter().filter(|w| matched.contains(w)).map(|w| weight(w)).sum::<f64>() / mass
             })
             .fold(0.0, f64::max);
-        let doc = Doc {
-            source: s(&row, "source"),
-            id: s(&row, "id"),
-            reference: s(&row, "ref"),
-            title: s(&row, "title"),
-            text: s(&row, "text"),
-            at: num(&row, "at"),
-            decays: num(&row, "decays") != 0.0,
-        };
-        let decay = if doc.decays {
-            0.5f64.powf(((now - doc.at) / 86400.0).max(0.0) / 7.0)
-        } else {
-            1.0
-        };
-        let score = (fused.iter().find(|(i, _)| *i == id).unwrap().1 / top_fused + cover)
-            * (0.5 + 0.5 * decay);
-        hit_families.insert(format!("{}\0{}", doc.source, doc.id), families[&id].clone());
-        out.push(Hit {
-            doc,
-            cover,
-            score,
-            matched,
-        });
+        let decay = if doc.decays { 0.5f64.powf(((now - doc.at) / 86400.0).max(0.0) / 7.0) } else { 1.0 };
+        let score = (fused.iter().find(|(i, _)| i == id).map_or(0.0, |(_, v)| *v) / top_fused + cover) * (0.5 + 0.5 * decay);
+        hit_families.insert(format!("{}\0{}", doc.source, doc.id), families[id].clone());
+        out.push(Hit { doc, cover, score, matched });
     }
     out.sort_by(|a, b| b.score.total_cmp(&a.score));
     let mut retained = HashSet::new();
     for family in FAMILIES {
-        for (i, _) in out
-            .iter()
-            .enumerate()
-            .filter(|(_, h)| {
-                hit_families
-                    .get(&format!("{}\0{}", h.source, h.id))
-                    .is_some_and(|f| f == family)
-            })
-            .take(limit / 8)
-        {
+        for (i, _) in out.iter().enumerate().filter(|(_, h)| hit_families.get(&format!("{}\0{}", h.source, h.id)).is_some_and(|f| f == family)).take(limit / 8) {
             retained.insert(i);
         }
     }
@@ -546,11 +512,5 @@ pub fn search(
     }
     let mut words = weights.clone();
     words.sort_by(|a, b| b.1.total_cmp(&a.1));
-    Ok((
-        out.into_iter()
-            .enumerate()
-            .filter_map(|(i, h)| retained.contains(&i).then_some(h))
-            .collect(),
-        words.into_iter().map(|(w, _)| w).collect(),
-    ))
+    Ok((out.into_iter().enumerate().filter_map(|(i, h)| retained.contains(&i).then_some(h)).collect(), words.into_iter().map(|(w, _)| w).collect()))
 }

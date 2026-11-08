@@ -86,3 +86,13 @@ fn text(payload: &[u8]) -> Result<String, TermError> {
 fn array<const N: usize>(payload: &[u8]) -> Result<[u8; N], TermError> {
     payload.try_into().map_err(|_| TermError::InvalidKey(format!("payload is {} bytes, expected {N}", payload.len())))
 }
+
+pub const HASH_BYTES: usize = 16;
+
+pub fn key_hash(key: &[u8]) -> [u8; HASH_BYTES] {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(key);
+    let mut hash = [0; HASH_BYTES];
+    hash.copy_from_slice(&digest[..HASH_BYTES]);
+    hash
+}
