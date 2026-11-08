@@ -100,7 +100,7 @@ pub fn unavailable(reason: &str) -> String {
 }
 
 /// Holds one of the host's `JUDGE_SLOTS` judge slots until dropped, so concurrent candidate checks wait in turn instead of each starting its own model runs; `None` when the slot directory cannot be made.
-fn slot(directory: &Path) -> Option<File> {
+fn slot(directory: &Path) -> Option<JudgeSlot> {
     fs::create_dir_all(directory).ok()?;
     loop {
         if let Some(held) = try_slot(directory)? {
@@ -110,11 +110,19 @@ fn slot(directory: &Path) -> Option<File> {
     }
 }
 
-fn try_slot(directory: &Path) -> Option<Option<File>> {
+struct JudgeSlot(File);
+
+impl Drop for JudgeSlot {
+    fn drop(&mut self) {
+        let _ = flock(&self.0, FlockOperation::Unlock);
+    }
+}
+
+fn try_slot(directory: &Path) -> Option<Option<JudgeSlot>> {
     for index in 0..JUDGE_SLOTS {
         let file = OpenOptions::new().create(true).truncate(false).write(true).open(directory.join(format!("slot-{index}.lock"))).ok()?;
         if flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok() {
-            return Some(Some(file));
+            return Some(Some(JudgeSlot(file)));
         }
     }
     Some(None)
