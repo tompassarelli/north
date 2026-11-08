@@ -129,7 +129,11 @@ fn recorded(done: &Path) -> Vec<Round> {
         let Ok(ticket) = queue::read(&path) else { continue };
         let Some(verdict) = ticket.verdict.filter(|verdict| replay::recorded_class(verdict).is_some()) else { continue };
         let decided = fs::metadata(&path).and_then(|metadata| metadata.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-        let key = if verdict.starts_with("landed ") { verdict.clone() } else { path.display().to_string() };
+        let key = match (verdict.starts_with("landed "), &ticket.decided_on) {
+            (true, Some(base)) => format!("landed on {base}"),
+            (true, None) => verdict.clone(),
+            (false, _) => path.display().to_string(),
+        };
         let round = rounds.entry(key).or_insert_with(|| Round { lanes: Vec::new(), verdict, decided, decided_on: ticket.decided_on.clone() });
         round.decided = round.decided.max(decided);
         round.lanes.push(Lane { path, branch: ticket.branch, head: ticket.head });
@@ -148,6 +152,9 @@ fn count(checkout: &Path, base: &str, head: &str) -> Option<usize> {
 }
 
 fn base_of(checkout: &Path, round: &Round) -> Option<String> {
+    if round.decided_on.is_some() {
+        return round.decided_on.clone();
+    }
     if let Some(landed) = round.verdict.strip_prefix("landed ") {
         return (0..=WALK).find_map(|depth| {
             let base = git(checkout, &["rev-parse", "-q", "--verify", &format!("{landed}~{depth}^{{commit}}")]).ok()?;

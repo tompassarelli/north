@@ -105,30 +105,30 @@ fn follow_once(lander: &Lander, base: &str, head: &str) {
     }
 }
 
-pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &Stages, tickets: Vec<(PathBuf, Ticket)>) -> Result<(), String> {
+pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &Stages, tickets: Vec<(PathBuf, Ticket, String)>) -> Result<(), String> {
     let _ = fetch_main(lander);
     let state = state_home();
     let batch_size = tickets.len();
     let log = push_ledger::landing_log(&lander.repo, &state, &north_goals::code_root());
     let mut spans = trace::landing::shared(stages, head);
-    for (path, ticket) in tickets {
+    for (path, ticket, tip) in tickets {
         let name = name_of(&path);
         let queued = crate::platform::land_queue::rfc3339_seconds(&ticket.queued_at).unwrap_or_else(|| stages.started_at());
         let ticket_name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
         spans.extend(trace::landing::spans(stages, &trace::landing::Landed { ticket: &ticket_name, branch: &ticket.branch, queued, landed: head, batch: batch_size }));
         let repository = push_ledger::repository(&ticket.origin);
-        let push = push_ledger::Push { at_secs: telemetry::seconds(), repository: &repository, branch: &ticket.branch, oid: &ticket.head, landed: head, session: ticket.session.as_deref().unwrap_or("") };
+        let push = push_ledger::Push { at_secs: telemetry::seconds(), repository: &repository, branch: &ticket.branch, oid: &ticket.head, landed: &tip, session: ticket.session.as_deref().unwrap_or("") };
         if let Some(log) = &log && let Err(error) = push_ledger::record(log, &push) {
             println!("north land: could not record the push of {}: {error}", ticket.branch);
         }
         if let Err(error) = stages.flush(&state, &repository, &ticket.branch) {
             println!("north land: could not record stages of {}: {error}", ticket.branch);
         }
-        records::write(lander, &path, &ticket, &Candidate { head, batch_size, stages }, &Decision::Landed { sha: head });
-        notify(lander, &name, &ticket, head);
+        records::write(lander, &path, &ticket, &Candidate { head, batch_size, stages }, &Decision::Landed { sha: &tip });
+        notify(lander, &name, &ticket, &tip);
         cleanup::report(lander, &path, &ticket);
-        println!("north land: {} ({}): landed {head}", ticket.branch, ticket.head);
-        queue::decide(&path, ticket, format!("landed {head}")).map_err(|error| error.to_string())?;
+        println!("north land: {} ({}): landed {tip} in {head}", ticket.branch, ticket.head);
+        queue::decide(&path, Ticket { decided_on: Some(base.to_owned()), ..ticket }, format!("landed {tip}")).map_err(|error| error.to_string())?;
     }
     if let Err(error) = trace::Spans::beside(&lander.queue.join("logs")).append(&spans) {
         println!("north land: could not record the spans of {head}: {error}");
@@ -162,7 +162,8 @@ pub fn recover(lander: &Lander, claim: &Path) -> Result<Option<Recovered>, Strin
     };
     let ticket_of = |name: &String| queue::read(&lander.queue.join(name)).or_else(|_| queue::read(&lander.queue.join("done").join(name))).ok();
     let lanes = intent.tickets.iter().zip(&intent.tips).filter_map(|(name, tip)| Some(LandedLane { ticket: ticket_of(name)?, tip: tip.clone() })).collect();
-    let tickets = intent.tickets.iter().filter_map(read);
+    let tip_of = |at: usize| intent.tips.get(at).cloned().unwrap_or_else(|| intent.head.clone());
+    let tickets = intent.tickets.iter().enumerate().filter_map(|(at, name)| read(name).map(|(path, ticket)| (path, ticket, tip_of(at))));
     println!("north land: finishing the interrupted landing of candidate {}", intent.head);
     finish(lander, claim, &intent.head, &intent.base, &Stages::empty(), tickets.collect())?;
     Ok(Some(Recovered { base: intent.base, head: intent.head, lanes }))

@@ -275,7 +275,7 @@ impl Probing for Lander {
         records::coverage(&self.queue, &probe.tips[..included.len().min(probe.tips.len())], &probe.log);
         watch.follow(self, base, head, included.iter().zip(&probe.tips).map(|((_, ticket), tip)| LandedLane { ticket: (*ticket).clone(), tip: tip.clone() }).collect());
         self.heartbeat.enter(Step::Finish);
-        after::finish(self, &after::intent_path(self), head, base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
+        after::finish(self, &after::intent_path(self), head, base, &stages, included.into_iter().enumerate().map(|(at, (path, ticket))| (path.clone(), ticket.clone(), probe.tips.get(at).map_or_else(|| head.to_owned(), Clone::clone))).collect())?;
         Ok(ControlFlow::Continue(()))
     }
 }

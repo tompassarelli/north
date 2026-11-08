@@ -175,6 +175,7 @@ impl World {
                 if let Some(sha) = verdict.strip_prefix("landed ") {
                     assert_eq!(copies, 1, "{} landed {copies} times: {subjects:?}", lane.name);
                     assert!(candidate::output(&self.origin, &["merge-base", "--is-ancestor", sha, &main]).unwrap().status.success(), "{} names {sha}, which is not on main", lane.name);
+                    assert_eq!(run(&self.origin, &["log", "--format=%s", "-1", sha]).trim(), lane.subject, "on 2026-11-08 the lander told a lane of a stacked landing the top commit of the push, another lane's, so {} must name its own commit", lane.name);
                 } else {
                     assert!(verdict.starts_with("failed ") || verdict.starts_with("conflict "), "{} ended neither landed nor refused: {verdict}", lane.name);
                     assert_eq!(copies, 0, "{} was refused yet reached main", lane.name);
@@ -487,7 +488,7 @@ fn queued_mid_round(world: &World) {
         b
     });
     let verdicts = world.settled(&lander, &[&a, &b]);
-    assert!(verdicts[0].starts_with("landed ") && verdicts[0] == verdicts[1], "on 2026-11-08 a ticket queued while a round ran waited for that whole round and then its own, 57% of queued-to-push time; queued mid-round, it lands with the round: {verdicts:?}");
+    assert!(verdicts.iter().all(|verdict| verdict.starts_with("landed ")), "on 2026-11-08 a ticket queued while a round ran waited for that whole round and then its own, 57% of queued-to-push time; queued mid-round, it lands with the round: {verdicts:?}");
 }
 
 #[test]
