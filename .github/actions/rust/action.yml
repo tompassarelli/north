@@ -31,7 +31,12 @@ runs:
           echo CARGO_INCREMENTAL=0
           [ "$SAVE" = true ] || echo SCCACHE_GHA_RW_MODE=READ_ONLY
         } >> "$GITHUB_ENV"
-    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+    - id: cargo-cache
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         shared-key: ${{ inputs.cache-key }}
         save-if: ${{ inputs.save }}
+    - name: Dependencies the offline steps read, when the cache restore missed
+      if: steps.cargo-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cargo fetch --locked
