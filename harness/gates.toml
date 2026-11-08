@@ -23,3 +23,7 @@ mode = "shadow"
 # A north lane whose own build drops a flag or subcommand that a nixos-config unit or script on its origin/main still runs (north#706): `north land scan tool-removal` asks the lane's build for `north PATH --help`. Would-be refusals: $XDG_STATE_HOME/north/gates/peer-invocation.jsonl on the checking host.
 [gate.peer-invocation]
 mode = "shadow"
+
+# A filed or edited issue's new unticked box that names no backticked `Done when:` command and says neither `Needs:` nor `not before` (north#872), since only its own worker can tick it. Would-be refusals: $XDG_STATE_HOME/north/gates/unrunnable-box.jsonl on the filing host.
+[gate.unrunnable-box]
+mode = "shadow"

@@ -207,6 +207,7 @@ impl HookKind {
                 crate::guard::generated_policy::evaluate,
                 crate::guard::model_identity::evaluate,
                 crate::guard::nix_activity::evaluate,
+                crate::guard::unrunnable_box::evaluate,
             ],
             Self::PreEdit => &[
                 crate::guard::proxy_role::evaluate,
