@@ -308,16 +308,60 @@ fn landed(prior: &str, head: &str) -> Result<Vec<Commit>, String> {
         .collect()
 }
 
+const GATE_WORKFLOWS: [&str; 2] = ["cargo.yml", "harness.yml"];
+
+#[derive(Debug, Deserialize)]
+struct GateRun {
+    head_sha: String,
+    conclusion: Option<String>,
+    html_url: String,
+}
+
+fn newest_culprits(body: &str) -> Vec<&str> {
+    let newest = body.rsplit(SECTION).next().unwrap_or_default();
+    let line = newest.lines().find_map(|line| line.strip_prefix("Culprit range: ")).unwrap_or_default();
+    line.split(", ").map(str::trim).filter(|sha| !sha.is_empty()).collect()
+}
+
+fn repaired_by<'a>(culprits: &[&str], newest: &'a [GateRun], reaches: impl Fn(&str, &str) -> bool) -> Option<Vec<&'a str>> {
+    let repaired = |run: &GateRun| {
+        run.conclusion.as_deref() == Some("success") && culprits.iter().all(|c| *c != run.head_sha && reaches(c, &run.head_sha))
+    };
+    (newest.len() == GATE_WORKFLOWS.len() && newest.iter().all(repaired)).then(|| newest.iter().map(|run| run.html_url.as_str()).collect())
+}
+
+fn close_when_repaired(repo: &Repo) -> Result<(), String> {
+    let Some(issue) = open_issue()? else {
+        return Ok(());
+    };
+    git(&["fetch", "-q", "origin", "main"])?;
+    let mut newest = Vec::new();
+    for workflow in GATE_WORKFLOWS {
+        let runs: Runs = repo.api(&format!("actions/workflows/{workflow}/runs?branch=main&event=push&status=completed&per_page=1"))?;
+        let Some(run) = runs.workflow_runs.into_iter().next().and_then(|run| serde_json::from_value::<GateRun>(run).ok()) else {
+            return Ok(());
+        };
+        newest.push(run);
+    }
+    let Some(links) = repaired_by(&newest_culprits(&issue.body), &newest, is_ancestor) else {
+        return Ok(());
+    };
+    let comment = format!("Main is green again: the newest Cargo and Harness runs on main passed after the newest culprit range: {}", links.join(", "));
+    gh(&["issue", "close", &issue.number.to_string(), "--comment", &comment])?;
+    println!("{comment}");
+    Ok(())
+}
+
 pub fn sheriff(id: u64) -> Result<(), String> {
     let repo = Repo::from_env()?;
     let ci: CiRun = repo.api(&format!("actions/runs/{id}"))?;
     if ci.head_branch.as_deref() != Some("main") || ci.event != "push" {
         return Ok(());
     }
-    let original = repo.jobs(id, 1)?;
     if ci.conclusion.as_deref() == Some("success") && ci.run_attempt == 1 {
-        return Ok(());
+        return close_when_repaired(&repo);
     }
+    let original = repo.jobs(id, 1)?;
     let existing = open_issue()?;
     let marker = format!("<!-- main-red:{id}:{} -->", ci.run_attempt);
     if existing.as_ref().is_some_and(|i| i.body.contains(&marker)) {
