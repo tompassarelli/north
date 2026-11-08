@@ -160,6 +160,18 @@ impl LaunchRequest {
         self.claim_box.clone().or_else(|| boxed(&self.prompt)).or_else(|| self.named_brief().and_then(|brief| boxed(&brief)))
     }
 
+    /// The claim keys of the other boxes the prompt and the brief it points at name: see [`other_box_claims`].
+    pub fn other_claims(&self) -> Vec<String> {
+        let brief = self.named_brief();
+        let mut keys: Vec<String> = Vec::new();
+        for key in std::iter::once(self.prompt.as_str()).chain(brief.as_deref()).flat_map(other_box_claims) {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        keys
+    }
+
     /// The box the brief names, in the prompt or else in the brief it points at: see [`box_name`].
     pub fn box_name(&self) -> Option<String> {
         box_name(&self.prompt).or_else(|| self.named_brief().and_then(|brief| box_name(&brief)))
@@ -250,6 +262,25 @@ pub fn box_name(text: &str) -> Option<String> {
     boxed(text).or_else(|| named_line(text, "Item:").filter(|item| item.split_whitespace().any(|word| issue_word(word).is_none())).map(str::to_owned))
 }
 
+/// The claim keys of the boxes `text` names past its first `Box:` and first `Item:` line, which name the launch's own: each further such line that opens with `repo#N` and goes on with the box's text claims that box of that issue.
+pub fn other_box_claims(text: &str) -> Vec<String> {
+    let (mut boxes, mut items) = (0, 0);
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim_start_matches(|c: char| c == '#' || c.is_whitespace());
+            let (seen, value) = match (line.strip_prefix("Box:"), line.strip_prefix("Item:")) {
+                (Some(value), _) => (&mut boxes, value),
+                (_, Some(value)) => (&mut items, value),
+                _ => return None,
+            };
+            *seen += 1;
+            let (issue, box_text) = value.trim().split_once(char::is_whitespace)?;
+            let (repo, number) = issue_word(issue).filter(|(repo, _)| !repo.is_empty())?;
+            (*seen > 1 && !box_text.trim().is_empty()).then(|| super::claims::claim_key(&format!("{repo}#{number}"), Some(box_text.trim())))
+        })
+        .collect()
+}
+
 pub fn first_item_issue(text: &str) -> Option<String> {
     item_issues(text).into_iter().next()
 }
@@ -313,6 +344,9 @@ pub struct SessionRecord {
     /// The box of its task its claim covers instead of the whole issue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim_box: Option<String>,
+    /// The claim keys of the other boxes its brief names, held beside its own task.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub other_claims: Vec<String>,
     /// The brief file its launch prompt pointed at, which a handover hands the new conversation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<PathBuf>,
@@ -365,6 +399,7 @@ impl SessionRecord {
             budget: request.budget(),
             box_name: request.box_name(),
             claim_box: request.claimed_box(),
+            other_claims: request.other_claims(),
             brief: request.brief_path(),
             adopted_ms: None,
             revived_mid_task_ms: None,
@@ -408,7 +443,7 @@ impl SessionRecord {
     /// The keys of the claims this session holds: each task, the first as the box its launch named.
     pub fn claim_keys(&self) -> Vec<String> {
         let tasks: Vec<String> = self.tasks().map(str::to_owned).collect();
-        super::claims::claim_keys(&tasks, self.claim_box.as_deref())
+        super::claims::claim_keys(&tasks, self.claim_box.as_deref(), &self.other_claims)
     }
 
     /// The oldest message to this session's name it takes: its own start, or the start of the session it took the name over from.

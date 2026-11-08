@@ -25,9 +25,9 @@ pub fn split_key(key: &str) -> (&str, Option<&str>) {
     key.split_once(BOX_MARK).map_or((key, None), |(task, text)| (task, Some(text)))
 }
 
-/// The keys of the claims a launch of `tasks` makes: the box applies to the first task, whose issue it is a box of.
-pub fn claim_keys(tasks: &[String], box_text: Option<&str>) -> Vec<String> {
-    tasks.iter().enumerate().map(|(index, task)| claim_key(task, box_text.filter(|_| index == 0))).collect()
+/// The keys of the claims a launch of `tasks` makes: the box applies to the first task, whose issue it is a box of, and `others` are the boxes its brief names of other issues.
+pub fn claim_keys(tasks: &[String], box_text: Option<&str>, others: &[String]) -> Vec<String> {
+    tasks.iter().enumerate().map(|(index, task)| claim_key(task, box_text.filter(|_| index == 0))).chain(others.iter().cloned()).collect()
 }
 
 pub trait Claims: Send + Sync {
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn a_launch_claims_the_box_it_names_on_its_first_task_and_a_lead_holding_the_whole_issue_covers_it() {
         let tasks = ["north#782".to_owned(), "north#9".to_owned()];
-        let keys = claim_keys(&tasks, Some("the staffing replays"));
+        let keys = claim_keys(&tasks, Some("the staffing replays"), &[]);
         assert_eq!(keys, ["north#782@the staffing replays", "north#9"]);
         assert_eq!(split_key(&keys[0]), ("north#782", Some("the staffing replays")));
         let claims = Held::default();
@@ -207,5 +207,16 @@ mod tests {
         let lead = BTreeSet::from(["n-lead".to_owned()]);
         assert_eq!(own_tasks(&claims, &keys, &lead), ["north#9"], "the lead's whole claim covers the box its child works");
         assert_eq!(own_tasks(&claims, &keys, &BTreeSet::new()), keys);
+    }
+
+    #[test]
+    fn a_brief_naming_another_issues_box_claims_that_box_too() {
+        let brief = "Item: north#882 Graph context in dispatched briefs\nBox: Graph context in dispatched briefs: dispatch forwards the declared Files\nBox: north#873 Arm: dispatch and `north fleet launch` draw `Arm: context-pack`\nItem: north#880 as-of views\nItem: north#879\n";
+        let others = crate::fleet::model::other_box_claims(brief);
+        assert_eq!(others, ["north#873@Arm: dispatch and `north fleet launch` draw `Arm: context-pack`", "north#880@as-of views"]);
+        let keys = claim_keys(&["north#882".to_owned()], Some("Graph context in dispatched briefs"), &others);
+        assert_eq!(keys.len(), 3);
+        assert_eq!(split_key(&keys[1]).0, "north#873");
+        assert!(crate::fleet::model::other_box_claims("Item: north#888 a box\nBox: the box\n").is_empty(), "a brief that names only its own box claims nothing more");
     }
 }
