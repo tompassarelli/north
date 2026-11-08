@@ -1,6 +1,5 @@
 //! The classes of Tom's corrections declared in harness/corrections.toml: the rule that names each,
 //! its neutral paraphrase, the issue that owns its guard, and the recurrences of a guarded class.
-use std::path::Path;
 use std::sync::OnceLock;
 
 use regex::Regex;
@@ -79,18 +78,6 @@ pub fn named(name: &str) -> Option<&'static Class> {
 
 pub fn paraphrase(class: &str) -> String {
     named(class).map_or(UNCLASSIFIED_PARAPHRASE, |class| class.paraphrase.as_str()).to_owned()
-}
-
-pub fn seen(ledger: &Path) -> Vec<(String, f64)> {
-    let text = std::fs::read_to_string(ledger).unwrap_or_default();
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|row| row["kind"] == "correction")
-        .filter_map(|row| {
-            let at = Timestamp::parse_loose(row["at"].as_str()?)?.unix_seconds_f64();
-            Some((row["class"].as_str().unwrap_or(UNCLASSIFIED).to_owned(), at))
-        })
-        .collect()
 }
 
 #[derive(Debug, PartialEq)]

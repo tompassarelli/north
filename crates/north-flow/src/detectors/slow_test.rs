@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+pub use north_graph_loops::slow_test::{Slow as Crossing, read as told, tell};
+
 use regex::Regex;
 
 use super::{Detector, Finding, Limits};
@@ -30,12 +32,6 @@ pub fn passed(log: &str) -> Run {
     times
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Crossing {
-    pub binary: String,
-    pub name: String,
-    pub seconds: Vec<f64>,
-}
 
 pub fn crossing(runs: &[Run], limits: &Limits) -> Vec<Crossing> {
     let mut samples: BTreeMap<(&str, &str), Vec<f64>> = BTreeMap::new();
@@ -48,7 +44,7 @@ pub fn crossing(runs: &[Run], limits: &Limits) -> Vec<Crossing> {
         .into_iter()
         .filter_map(|((binary, name), seconds)| {
             let newest = seconds.get(seconds.len().checked_sub(limits.slow_test_runs)?..)?;
-            newest.iter().all(|seconds| *seconds > limits.slow_test_seconds).then(|| Crossing { binary: binary.to_owned(), name: name.to_owned(), seconds: newest.to_vec() })
+            newest.iter().all(|seconds| *seconds > limits.slow_test_seconds).then(|| Crossing { binary: binary.to_owned(), name: name.to_owned(), seconds: *newest.last().expect("slow_test_runs newest runs, at least one") })
         })
         .collect()
 }
@@ -75,13 +71,12 @@ pub fn slow(facts: &Facts, limits: &Limits) -> Vec<Finding> {
         .iter()
         .map(|slow| {
             let Crossing { binary, name, seconds } = &slow.crossing;
-            let times: Vec<String> = seconds.iter().map(|seconds| format!("{seconds:.1} s")).collect();
             Finding {
                 detector: Detector::SlowTest,
                 key: key(binary, name),
                 owner: Some(slow.owner.clone()),
                 title: format!("Speed up the slow test {name}"),
-                detail: format!("`{binary} {name}` in {} took {} in its newest {} land check runs, over the {:.0} s line; {}", slow.file, times.join(", "), seconds.len(), limits.slow_test_seconds, slow.profile),
+                detail: format!("`{binary} {name}` in {} took {seconds:.1} s in its newest land check run and was over the {:.0} s line in each of its newest {} runs; {}", slow.file, limits.slow_test_seconds, limits.slow_test_runs, slow.profile),
                 done_when: format!("`{binary} {name}` passes in at most {:.0} s in each of {} later land check runs per `north land profile`.", limits.slow_test_seconds, limits.slow_test_runs),
                 instances: vec![format!("{binary} {name}")],
             }

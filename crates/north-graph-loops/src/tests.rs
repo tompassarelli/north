@@ -1,7 +1,7 @@
 use north_graph::Graph;
 use serde_json::json;
 
-use crate::{Cells, read_from, tell_to as tell, ticks_from};
+use crate::{Cells, corrections, read_from, slow_test, tell_to as tell, ticks_from};
 
 #[test]
 fn a_tick_that_moves_a_cell_leaves_dispatch_only_the_new_value_and_the_new_tick() {
@@ -47,4 +47,24 @@ fn a_reaper_tick_leaves_the_fleet_only_the_sessions_it_still_holds_and_the_new_d
     crate::tell_retirement_to(&mut graph, &second, 2_000).unwrap();
     assert_eq!(crate::retirement_from(&graph).unwrap(), second);
     assert_eq!(ticks_from(&graph).unwrap().get("fleet"), Some(&2_000));
+}
+
+#[test]
+fn a_distill_tick_leaves_the_detector_each_correction_once_and_a_flow_tick_the_tests_still_over_their_line() {
+    let mut graph = Graph::open_in_memory().unwrap();
+    let first = [("pace".to_owned(), 1_000), ("pace".to_owned(), 2_000), ("overbuilt".to_owned(), 3_000)];
+    corrections::tell_to(&mut graph, &first, 4_000).unwrap();
+    let mut told = corrections::seen_from(&graph).unwrap();
+    told.sort();
+    assert_eq!(told, vec![("overbuilt".to_owned(), 3_000), ("pace".to_owned(), 1_000), ("pace".to_owned(), 2_000)]);
+    corrections::tell_to(&mut graph, &first[..1], 5_000).unwrap();
+    assert_eq!(corrections::seen_from(&graph).unwrap(), vec![("pace".to_owned(), 1_000)]);
+    assert_eq!(ticks_from(&graph).unwrap().get("distill"), Some(&5_000));
+
+    let slow = |seconds| slow_test::Slow { binary: "north::it".into(), name: "slow::sleeps".into(), seconds };
+    slow_test::tell_to(&mut graph, &[slow(16.2)], 6_000).unwrap();
+    slow_test::tell_to(&mut graph, &[slow(17.5)], 7_000).unwrap();
+    assert_eq!(slow_test::read_from(&graph).unwrap(), vec![slow(17.5)]);
+    slow_test::tell_to(&mut graph, &[], 8_000).unwrap();
+    assert_eq!((slow_test::read_from(&graph).unwrap(), ticks_from(&graph).unwrap().get("flow").copied()), (vec![], Some(8_000)));
 }

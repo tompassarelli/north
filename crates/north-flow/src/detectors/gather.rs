@@ -30,7 +30,6 @@ const REFUSAL_DOC: &str = "landing-train";
 const DISK_DOC: &str = "capacity-scheduler";
 const CRATE_DOC: &str = "crate-split";
 const OWNER_PREFIX: &str = "Owner: ";
-const GROUNDING_LEDGER: &str = "north/grounding/ledger.jsonl";
 const RUN_HISTORY: usize = 30;
 const PROFILES_PER_PASS: usize = 1;
 const PROFILE_GRACE: Duration = Duration::from_secs(30);
@@ -208,7 +207,7 @@ impl<'a> Gatherer<'a> {
     }
 
     pub fn corrections(&self) -> correction::Facts {
-        correction::Facts { seen: crate::threads::incidents::corrections::seen(&self.places.state.join(GROUNDING_LEDGER)) }
+        correction::seen(&self.places.graph)
     }
 
     pub fn signals(&self) -> signal::Facts {
@@ -319,10 +318,17 @@ impl Gatherer<'_> {
 
     pub fn slow_tests(&self, limits: &Limits, now: f64) -> slow_test::Facts {
         let runs: Vec<slow_test::Run> = self.check_logs().iter().map(|log| slow_test::passed(&fs::read_to_string(log).unwrap_or_default())).collect();
+        if let Err(error) = slow_test::tell(&self.places.graph, &slow_test::crossing(&runs, limits), now as i64) {
+            eprintln!("detectors: the graph did not take the slow tests: {error}");
+        }
         let filed = Filer::new(self.places, self.host).filed_keys();
         let documents = self.owner_documents();
         let fallback = default_text("detector_slow_test_owner");
-        let mut found: Vec<(slow_test::Crossing, String)> = slow_test::crossing(&runs, limits)
+        let mut found: Vec<(slow_test::Crossing, String)> = slow_test::told(&self.places.graph)
+            .unwrap_or_else(|error| {
+                eprintln!("detectors: the slow tests are unread from the graph: {error}");
+                Vec::new()
+            })
             .into_iter()
             .filter(|crossing| !filed.contains(&slow_test::key(&crossing.binary, &crossing.name)))
             .filter_map(|crossing| {

@@ -1,0 +1,4 @@
+{"find": "slow", "rules": [
+  {"head": {"rel": "slow", "args": [{"var": "test"}, {"var": "seconds"}]},
+   "body": [{"rel": "assertion", "args": ["flow", {"var": "test"}, ["keyword", "test/slow"], true]},
+            {"rel": "assertion", "args": ["flow", {"var": "test"}, ["keyword", "test/pass-s"], {"var": "seconds"}]}]}]}

@@ -234,7 +234,8 @@ sites = [
 signal = "Tom's corrections in the grounding ledger, classed by harness/corrections.toml and counted per class per week; the weekly count is the harness's learning score, a class seen twice gets a guard box on its owner, and a guarded class that recurs is red in the proxy's fleet tick"
 updated_by = "north graph ground distill, run 15 s after each of Tom's prompts in a proxy session; north ledger flow detect files the guard boxes"
 cadence_hours = 24
-record = "north/grounding/ledger.jsonl"
+store = "graph"
+writer = "distill"
 score = "north/grounding/corrections-week.txt"
 
 [[loop]]
@@ -273,10 +274,11 @@ constants = [
 name = "slow-test"
 decision = "which test is profiled on a build host and gets a box on its owning issue because it ran over the line in each of its newest land check runs"
 sites = ["crates/north-flow/src/detectors/slow_test.rs"]
-signal = "per-test PASS times in the nextest output of the lander's candidate, speculative and finished after-landing logs under land-queue/*/logs, the newest runs of each test binary"
+signal = "per-test PASS times in the nextest output of the lander's candidate, speculative and finished after-landing logs under land-queue/*/logs, the newest runs of each test binary; a test over the line in each of its newest runs is told to the graph with its newest time"
 updated_by = "north ledger flow detect, run every 5 minutes by agents-flow-stall.timer"
 cadence_hours = 24
-record = "agents/flow/detectors.json"
+store = "graph"
+writer = "flow"
 
 host = "lander"
 defaults = [

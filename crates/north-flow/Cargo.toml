@@ -14,6 +14,7 @@ north-base = { path = "../north-base" }
 north-capacity-host = { path = "../north-capacity-host" }
 north-dispatch = { path = "../north-dispatch" }
 north-fleet = { path = "../north-fleet" }
+north-graph-loops = { path = "../north-graph-loops" }
 north-health = { path = "../north-health" }
 north-pace = { path = "../north-pace" }
 north-providers = { path = "../north-providers" }

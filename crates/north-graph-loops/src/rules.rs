@@ -1,12 +1,12 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 
-use north_graph::{Action, Graph, Term, parse_query};
+use north_graph::{Action, Graph, Term, Triple, parse_query};
 
 use crate::cells::{self, Cells, Learned, Measure, TICK_AT};
 
-const PATIENCE: Duration = Duration::from_millis(400);
+pub(crate) const PATIENCE: Duration = Duration::from_millis(400);
 const TICKED: &str = "harness/graph-rules/ticked.json";
 
 pub(crate) fn ask(graph: &Graph, rule: &'static str) -> Result<Vec<Vec<Term>>, String> {
@@ -64,12 +64,20 @@ pub fn tell(db: &Path, writer: &str, prior: &Learned, cells: &Cells, at: i64) ->
 }
 
 /// Retracts the writer's prior tick instant, when it had one, and asserts the new one.
-pub(crate) fn tick_actions(writer: &str, was: Option<i64>, at: i64) -> Result<Vec<Action>, String> {
-    let tick = |seconds| Term::instant(seconds, 0).map(|instant| north_graph::Triple::new(Term::string(cells::subject(writer)), Term::keyword(TICK_AT), instant)).map_err(|why| why.to_string());
+fn tick_actions(writer: &str, was: Option<i64>, at: i64) -> Result<Vec<Action>, String> {
+    let tick = |seconds| Term::instant(seconds, 0).map(|instant| Triple::new(Term::string(cells::subject(writer)), Term::keyword(TICK_AT), instant)).map_err(|why| why.to_string());
     let mut actions = Vec::new();
     if let Some(was) = was {
         actions.push(Action::retract(tick(was)?));
     }
     actions.push(Action::assert(tick(at)?));
     Ok(actions)
+}
+
+/// Tells one tick of a writer whose facts are a set of triples: retracts each prior triple the tick no
+/// longer holds, asserts each new one, and moves the tick, all in one transaction.
+pub(crate) fn tell_set(graph: &mut Graph, writer: &str, prior: &BTreeSet<Triple>, next: &BTreeSet<Triple>, at: i64) -> Result<(), String> {
+    let mut actions: Vec<Action> = prior.difference(next).cloned().map(Action::retract).chain(next.difference(prior).cloned().map(Action::assert)).collect();
+    actions.extend(tick_actions(writer, ticks_from(graph)?.get(writer).copied(), at)?);
+    graph.apply(writer, &actions).map(drop).map_err(|why| why.to_string())
 }

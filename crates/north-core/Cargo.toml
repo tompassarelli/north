@@ -13,6 +13,7 @@ north-pace = { path = "../north-pace" }
 north-threads = { path = "../north-threads", features = ["test-support"] }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
 north-graph-ground = { path = "../north-graph-ground" }
+north-graph-loops = { path = "../north-graph-loops" }
 fancy-regex.workspace = true
 regex.workspace = true
 rustix.workspace = true

@@ -42,7 +42,7 @@ impl Host for Scripted {
 }
 
 fn places(root: &Path) -> Places {
-    let places = Places { home: root.join("home"), state: root.join("state"), ledger: root.join("threads.db") };
+    let places = Places { home: root.join("home"), state: root.join("state"), ledger: root.join("threads.db"), graph: root.join("graph.db") };
     let checkout = places.checkout("north");
     fs::create_dir_all(checkout.join("docs/rationale")).unwrap();
     fs::write(checkout.join("docs/rationale/speed.md"), "# Speed\n\nOwner: north#777\n\nThe tests live in `tests/it/slow.rs`.\n").unwrap();
@@ -106,7 +106,7 @@ fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_ow
     let edits = host.edits.borrow();
     assert_eq!(edits.len(), 1);
     let box_line = edits[0].lines().last().unwrap();
-    assert!(box_line.starts_with("- [ ] **Speed up the slow test slow::sixteen_seconds.** `north::it slow::sixteen_seconds` in tests/it/slow.rs took 16.2 s, 16.1 s, 16.3 s in its newest 3 land check runs, over the 15 s line;"), "{box_line}");
+    assert!(box_line.starts_with("- [ ] **Speed up the slow test slow::sixteen_seconds.** `north::it slow::sixteen_seconds` in tests/it/slow.rs took 16.3 s in its newest land check run and was over the 15 s line in each of its newest 3 runs;"), "{box_line}");
     assert!(box_line.contains("clock_nanosleep 99.9% 16.00 s in 1 calls"), "{box_line}");
     assert!(box_line.contains(" Done when: `north::it slow::sixteen_seconds` passes in at most 15 s in each of 3 later land check runs"), "{box_line}");
     assert!(box_line.ends_with("(detector slow-test:north::it:slow::sixteen_seconds)"));

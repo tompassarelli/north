@@ -1,0 +1,3 @@
+{"find": "seen", "rules": [
+  {"head": {"rel": "seen", "args": [{"var": "class"}, {"var": "at"}]},
+   "body": [{"rel": "assertion", "args": ["distill", {"var": "class"}, ["keyword", "corrections/seen-at"], {"var": "at"}]}]}]}

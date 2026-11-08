@@ -17,6 +17,18 @@ pub struct Facts {
     pub seen: Vec<(String, f64)>,
 }
 
+pub fn seen(graph: &std::path::Path) -> Facts {
+    if !graph.exists() {
+        return Facts::default();
+    }
+    Facts {
+        seen: north_graph_loops::corrections::seen(graph).unwrap_or_else(|error| {
+            eprintln!("detectors: corrections unread from the graph: {error}");
+            Vec::new()
+        }),
+    }
+}
+
 pub fn repeated(facts: &Facts, classes: &[Class], landed: impl Fn(&str) -> bool) -> Vec<Finding> {
     let mut grouped: BTreeMap<&str, Vec<f64>> = BTreeMap::new();
     for (class, at) in facts.seen.iter().filter(|(class, _)| class != UNCLASSIFIED) {

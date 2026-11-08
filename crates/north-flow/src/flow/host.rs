@@ -72,6 +72,7 @@ pub struct Places {
     pub home: PathBuf,
     pub state: PathBuf,
     pub ledger: PathBuf,
+    pub graph: PathBuf,
 }
 
 impl Places {
@@ -82,7 +83,7 @@ impl Places {
             || state.join("threads").join(if home.join(".config/threads/remote").exists() { "snapshot.db" } else { "threads.db" }),
             PathBuf::from,
         );
-        Self { home, state, ledger }
+        Self { home, state, ledger, graph: north_graph_loops::graph_path() }
     }
 
     pub fn flow(&self) -> PathBuf {

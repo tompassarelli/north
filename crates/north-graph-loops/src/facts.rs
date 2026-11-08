@@ -1,7 +1,9 @@
-use north_graph::{Action, Atom, Graph, Term, Triple};
+use std::collections::BTreeSet;
+
+use north_graph::{Atom, Graph, Term, Triple};
 
 use crate::cells;
-use crate::rules::{ask, tick_actions, ticks_from};
+use crate::rules::{ask, tell_set};
 
 /// One asserted triple of a writer: its subject, its predicate and its value.
 pub type Fact = (String, String, Term);
@@ -19,9 +21,6 @@ pub fn facts_from(graph: &Graph, rule: &'static str) -> Result<Vec<Fact>, String
 
 /// Tells one tick as one transaction: retracts each prior fact that moved or went, asserts each new one, and moves the writer's tick to `at`.
 pub fn tell_facts_to(graph: &mut Graph, writer: &str, prior: &[Fact], facts: &[Fact], at: i64) -> Result<(), String> {
-    let triple = |(subject, predicate, value): &Fact| Triple::new(Term::string(subject.clone()), Term::keyword(predicate.clone()), value.clone());
-    let mut actions: Vec<Action> = prior.iter().filter(|fact| !facts.contains(fact)).map(|fact| Action::retract(triple(fact))).collect();
-    actions.extend(facts.iter().filter(|fact| !prior.contains(fact)).map(|fact| Action::assert(triple(fact))));
-    actions.extend(tick_actions(writer, ticks_from(graph)?.get(writer).copied(), at)?);
-    graph.apply(writer, &actions).map(drop).map_err(|why| why.to_string())
+    let triples = |facts: &[Fact]| facts.iter().map(|(subject, predicate, value)| Triple::new(Term::string(subject.clone()), Term::keyword(predicate.clone()), value.clone())).collect::<BTreeSet<_>>();
+    tell_set(graph, writer, &triples(prior), &triples(facts), at)
 }

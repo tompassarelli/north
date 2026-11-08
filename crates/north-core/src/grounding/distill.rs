@@ -47,7 +47,7 @@ session's transcript counts once, and so does a burst of Tom's corrections of on
 session within two minutes (a retyped or split message); lines Tom copies from the reply before his
 message are not read as his words. Each run also writes corrections-week.txt beside the ledger:
 the last seven days' corrections counted per class, which `north loops check` prints as the
-corrections loop's score. The prompt-grounding hook starts `run --after-prompt` on each of Tom's
+corrections loop's score, and tells every correction by class and instant to the graph (writer distill), where the repeated-correction detector and the proxy's recurrence check read them. The prompt-grounding hook starts `run --after-prompt` on each of Tom's
 prompts, and the Stop hook at the end of each turn in his window, so a message he typed while the
 turn ran is read too: it waits 15 s for the transcript, then refreshes the convo index and runs.
 
@@ -118,6 +118,7 @@ struct Paths {
     ledger: PathBuf,
     watermark: PathBuf,
     score: PathBuf,
+    graph: PathBuf,
 }
 
 fn paths() -> Paths {
@@ -129,6 +130,7 @@ fn paths() -> Paths {
         ledger: env::var_os("NORTH_GROUNDING_LEDGER").map(PathBuf::from).unwrap_or_else(|| state.join("ledger.jsonl")),
         watermark: state.join("distill-state.json"),
         score: state.join(SCORE_FILE),
+        graph: north_graph_loops::graph_path(),
         state,
     }
 }
@@ -901,6 +903,9 @@ fn run(p: &Paths, since_arg: Option<&str>, no_refresh: bool, if_idle: bool, afte
         }
         write_ledger(&p.ledger, &rows)?;
         fs::write(&p.score, format!("{}\n", weekly_score(&rows, now)))?;
+        if let Err(why) = north_graph_loops::corrections::tell(&p.graph, &correction_instants(&rows), Timestamp::now().unix_seconds()) {
+            eprintln!("distill: the graph did not take this run's corrections: {why}");
+        }
         fs::write(&p.watermark, format!("{{\"through\":{},\"rows\":{}}}\n", json_str(&Timestamp::from_unix_millis_f64(started).iso()), rows.len()))?;
         let kinds = kinds.iter().map(|(k, n)| format!("{}:{n}", json_str(k))).collect::<Vec<_>>().join(",");
         Ok(Ok(format!(
@@ -924,8 +929,19 @@ pub fn spawn_capture() {
     let _ = Command::new("nice").args(["-n", "19", "north", "graph", "ground", "distill", "run", "--after-prompt"]).stdin(Stdio::null()).stdout(log).stderr(err).spawn();
 }
 
+fn correction_instants(rows: &[Row]) -> Vec<(String, i64)> {
+    rows.iter().filter(|row| row.kind == Kind::Correction.name()).filter_map(|row| Some((row.class.clone().unwrap_or_else(|| corrections::UNCLASSIFIED.to_owned()), Timestamp::parse_loose(&row.at)?.unix_seconds()))).collect()
+}
+
 pub fn corrections_seen() -> Vec<(String, f64)> {
-    corrections::seen(&paths().ledger)
+    let graph = paths().graph;
+    if !graph.exists() {
+        return Vec::new();
+    }
+    north_graph_loops::corrections::seen(&graph).unwrap_or_else(|why| {
+        eprintln!("distill: corrections unread from the graph: {why}");
+        Vec::new()
+    })
 }
 
 fn status() -> NorthResult<i32> {
