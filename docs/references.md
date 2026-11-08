@@ -376,6 +376,34 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
   Informed: the anthropic-cloud and Actions placement rows (cloud sessions draw plan usage with no VM charge;
   standard hosted runners are free in public repositories). Outcome: adopted as placement facts.
 
+### Knowledge graphs and Datalog
+
+Sources for the world-model plan ([docs/rationale/world-model.md](rationale/world-model.md), north#882), read 2026-11-08.
+
+- <a id="beagle-store"></a>**Beagle Store**, `~/code/beagle/main/store`, MIT or Apache-2.0 (Tom's project), accessed 2026-11-08.
+  Informed: north-graph's kernel, the text relations and the `as-of`/`since` views (the query reference in the store repository's docs directory).
+  Outcome: adopted for semantics; north ports it to Rust over SQLite and runs none of its code.
+
+- <a id="datafrog"></a>**datafrog**, https://github.com/rust-lang/datafrog, MIT or Apache-2.0, accessed 2026-11-08.
+  Informed: in-memory derived relations as sorted vectors joined by leapjoin. Outcome: model for the evaluator's derived
+  relations; not a dependency, since it has no quoted propositions or occurrence history.
+
+- <a id="souffle"></a>**Soufflé**, https://souffle-lang.github.io/, UPL-1.0, accessed 2026-11-08.
+  Informed: compiling a rule body to one specialized join. Outcome: the base-relation prefix of a rule pushes into one
+  SQL join.
+
+- <a id="cozodb"></a>**CozoDB**, https://github.com/cozodb/cozo, MPL-2.0, accessed 2026-11-08.
+  Informed: Datalog with full-text search and `Validity` time travel in one embedded store. Outcome: confirms one store
+  for text, history and rules; rejected as the engine because its tuples are flat, not recursive quoted propositions.
+
+- <a id="rdf-star"></a>**RDF 1.2 triple terms (RDF-star)**, https://www.w3.org/TR/rdf12-concepts/, accessed 2026-11-08.
+  Informed: a quoted triple is a term and is not asserted. Outcome: the same rule as north-graph's `quoted` relation,
+  which the reward and box-close readers depend on.
+
+- <a id="provenance-semirings"></a>**Provenance semirings** (Green, Karvounarakis, Tannen, PODS 2007),
+  https://doi.org/10.1145/1265530.1265535, accessed 2026-11-08. Informed: why a derived row holds, as a function of the
+  base rows that produced it. Outcome: the `corroborated` rule names the mechanical writer behind each verified box.
+
 ### Skill bibliographies
 
 Skills that cite many sources keep them beside the skill, so they are not repeated here:

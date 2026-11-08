@@ -60,3 +60,4 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Verdict reuse by recorded inputs: a test's pass carries to every tree where the files it read are the same](verdict-reuse.md): Plan of 2026-11-08 for the "Verdict reuse by recorded inputs" section of north#842.
 - [Wake paths: what wakes an agent turn, and what to cut](wake-paths.md): Measured 2026-11-04 over the 7 days 2026-10-28 to 2026-11-04 (UTC).
 - [Worker sandbox: removal confined by the kernel](worker-sandbox.md): North#706, 2026-11-08.
+- [North-graph as north's world model (north#882)](world-model.md): Tom chose on 2026-11-08 to make `north-graph` the one store every automatic decision reads, through full Beagle Store unification, over a targeted fix of its costs.
