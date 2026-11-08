@@ -13,6 +13,7 @@ pub enum Sent {
     Spooled { id: String, host: String },
     Retired { heir: String },
     Unreached,
+    Folded,
 }
 
 impl Fleet {
@@ -28,7 +29,11 @@ impl Fleet {
     }
 
     pub fn send_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
-        crate::fleet::alarms::record(&self.root, from, text, now_ms());
+        let now = now_ms();
+        if !crate::fleet::fold::admit(&self.root, from, name, text, now) {
+            return Ok(Sent::Folded);
+        }
+        crate::fleet::alarms::record(&self.root, from, text, now);
         if matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name) {
             self.log_dead_letter(name, PROXY);
             return self.deliver_message(from, PROXY, &format!("(for {name}, not live) {text}"), delivery).map(|_| Sent::Unreached);

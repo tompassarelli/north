@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use rusqlite::{Connection, Row, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
@@ -305,6 +305,13 @@ impl ReceiptBook for Ledger {
 
     fn reported(&self, session: &str) -> NorthResult<bool> {
         self.with(|conn| conn.query_row("SELECT EXISTS(SELECT 1 FROM receipts WHERE session = ?1 AND receipt LIKE 'turn:%')", params![session], |row| row.get(0)))
+    }
+
+    fn last_receipt(&self, session: &str, prefix: &str) -> NorthResult<Option<String>> {
+        self.with(|conn| {
+            conn.query_row("SELECT receipt FROM receipts WHERE session = ?1 AND substr(receipt, 1, length(?2)) = ?2 ORDER BY rowid DESC LIMIT 1", params![session, prefix], |row| row.get(0))
+                .optional()
+        })
     }
 }
 

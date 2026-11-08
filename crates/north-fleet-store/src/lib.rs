@@ -3,6 +3,7 @@ pub use north_pace::credit;
 
 pub mod alarm_stats;
 pub mod alarms;
+pub mod fold;
 pub mod ask_once;
 pub mod gate_lifecycle;
 pub mod gates;

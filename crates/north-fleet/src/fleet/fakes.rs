@@ -1,7 +1,6 @@
 #![cfg(any(test, feature = "test-support"))]
 
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -23,7 +22,7 @@ use super::turns::{RunRecord, RunSink, Tokens, TurnExit, TurnSignal, TurnTotals}
 #[derive(Default)]
 pub struct Paper {
     runs: Mutex<Vec<RunRecord>>,
-    receipts: Mutex<BTreeSet<(String, String)>>,
+    receipts: Mutex<Vec<(String, String)>>,
     gates: Mutex<Vec<Gate>>,
     landings: Mutex<BTreeMap<String, Landing>>,
 }
@@ -45,11 +44,21 @@ impl RunSink for Paper {
 
 impl ReceiptBook for Paper {
     fn claim_receipt(&self, session: &str, key: &str, _claimed_ms: u64) -> NorthResult<bool> {
-        Ok(self.receipts.lock().unwrap().insert((session.to_owned(), key.to_owned())))
+        let mut receipts = self.receipts.lock().unwrap();
+        let claim = (session.to_owned(), key.to_owned());
+        let fresh = !receipts.contains(&claim);
+        if fresh {
+            receipts.push(claim);
+        }
+        Ok(fresh)
     }
 
     fn reported(&self, session: &str) -> NorthResult<bool> {
         Ok(self.receipts.lock().unwrap().iter().any(|(owner, key)| owner == session && key.starts_with("turn:")))
+    }
+
+    fn last_receipt(&self, session: &str, prefix: &str) -> NorthResult<Option<String>> {
+        Ok(self.receipts.lock().unwrap().iter().rev().find(|(owner, key)| owner == session && key.starts_with(prefix)).map(|(_, key)| key.clone()))
     }
 }
 

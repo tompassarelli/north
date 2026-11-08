@@ -37,6 +37,10 @@ impl ReceiptBook for Recorded {
     fn reported(&self, _session: &str) -> NorthResult<bool> {
         Ok(false)
     }
+
+    fn last_receipt(&self, _session: &str, _prefix: &str) -> NorthResult<Option<String>> {
+        Ok(None)
+    }
 }
 
 impl Courier for Recorded {

@@ -221,6 +221,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Supply scan: `north supply-chain-scan` (daily user timer `supply-chain-scan.timer`) runs osv-scanner on origin/main lockfiles of makgora, wisp, north and nixos-config, alerts through `supply-alert` on new malware (urgent) or new fixable advisories (normal), and records seen IDs in `~/.local/state/supply-chain/seen.json`.
 - Self-detectors: `north ledger flow detect [--dry-run]`, and each `north ledger flow --stall-alarm` pass, run pure detectors over recorded state and file each finding once as an unticked box with a Done when on its owning issue, never a new issue, for dispatch to staff. [more](features/09-watches-and-alerts/0007-self-detectors.md)
 - Promises: a line of a session's report that names a time ahead of the report (`2:16 AM` in the laptop window's zone, or `2026-11-08T02:16Z`) and a command of two or more words in backticks is kept in the fleet root's `promises.jsonl` when the turn ends. [more](features/09-watches-and-alerts/0008-promises.md)
+- Alarm fold: `north fleet send` from an alarm service (north-health, north-land-watch, north-ops-flow, north-capacity-watchdog, north-lease-reaper, and the lander watchdog's `north land watchdog:` pages) delivers one message per cause and recipient within 30 minutes and drops the repeats, printing that it folded them (north#909). [more](features/09-watches-and-alerts/0009-alarm-fold.md)
 
 ## Development tools
 

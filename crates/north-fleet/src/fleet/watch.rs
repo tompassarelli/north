@@ -380,7 +380,8 @@ impl TurnWatch {
         if turn.exit == TurnExit::Completed {
             self.keep_promises(record, turn, number, reply.as_deref().unwrap_or_default());
         }
-        let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply };
+        let waiting = self.tickets.unlanded(&record.name).is_ok_and(|tickets| !tickets.is_empty()) || !Waits::in_root(&self.root).of(&record.name).is_empty();
+        let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply, waiting };
         if let Err(error) = deliver_report(self.ledger.as_ref(), self.ledger.as_ref(), self.courier.as_ref(), parent, &report, &lines, now_ms()) {
             eprintln!("north fleet: receipt to {parent} not sent: {}", error.user_message());
         }
