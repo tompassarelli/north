@@ -12,6 +12,8 @@ mod config;
 mod coupling;
 mod crate_lines;
 mod finding;
+mod fix;
+pub use fix::Rewrite;
 mod functions;
 mod gate;
 mod graph;
@@ -57,6 +59,10 @@ fn fail(message: &str) -> u8 {
 
 pub fn habits(root: &std::path::Path, edited: &str) -> Vec<String> {
     habits::findings(root, Some(edited)).unwrap_or_default()
+}
+
+pub fn habits_fix(root: &std::path::Path, edited: &str) -> Vec<Rewrite> {
+    habits::fix_file(root, edited).unwrap_or_default()
 }
 
 pub fn crate_headroom(root: &std::path::Path, edited: &str) -> Option<String> {

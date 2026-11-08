@@ -68,6 +68,7 @@ pub(super) fn in_file(path: &str, text: &str, added: &BTreeSet<usize>) -> Vec<Fi
                 line: *line,
                 item: body.clone(),
                 text: format!("{reason} — {FIX}"),
+                fix: None,
             })
         })
         .collect()

@@ -1,3 +1,5 @@
+use super::fix::Fix;
+
 #[derive(Debug, PartialEq)]
 pub(super) struct Finding {
     pub(super) rule: &'static str,
@@ -5,6 +7,7 @@ pub(super) struct Finding {
     pub(super) line: usize,
     pub(super) item: String,
     pub(super) text: String,
+    pub(super) fix: Option<Fix>,
 }
 
 impl Finding {

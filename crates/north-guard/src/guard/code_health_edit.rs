@@ -11,6 +11,7 @@ const SOURCE: &[&str] = &[
     ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".rs", ".c", ".h",
 ];
 const HEADER: &str = "code-health: this edit adds structural debt; fix it now (split the file or function, or move the import behind an allowed module) using the program-craftsmanship skill:";
+const HABIT_WARNING: &str = "habits: fix these before your next commit; they have no mechanical fix, and safe-push refuses a lane that still has one:";
 const MAX_LINES: usize = 20;
 const MAX_FILES: usize = 8;
 
@@ -31,10 +32,11 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         return Verdict::Allow;
     }
     let limit = limit();
-    let (mut lines, mut notes) = (Vec::new(), Vec::new());
+    let (mut lines, mut habits, mut notes) = (Vec::new(), Vec::new(), Vec::new());
     for path in paths.iter().take(MAX_FILES) {
-        let (debt, headroom) = findings(path, &cwd, limit);
+        let (debt, edit_habits, headroom) = findings(path, &cwd, limit);
         lines.extend(debt);
+        habits.extend(edit_habits);
         if let Some(note) = headroom
             && !notes.contains(&note)
         {
@@ -45,6 +47,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         lines.truncate(MAX_LINES);
         notes.insert(0, format!("{HEADER}\n{}", lines.join("\n")));
     }
+    notes.splice(0..0, habits);
     if notes.is_empty() { Verdict::Allow } else { Verdict::Advise(notes.join("\n")) }
 }
 
@@ -119,27 +122,46 @@ fn run(program: &str, args: &[&std::ffi::OsStr], dir: &Path, limit: Duration) ->
     matches!(output.status.code(), Some(0 | 1)).then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn findings(path: &Path, cwd: &Path, limit: Duration) -> (Vec<String>, Option<String>) {
+fn findings(path: &Path, cwd: &Path, limit: Duration) -> (Vec<String>, Vec<String>, Option<String>) {
     let Some(parent) = path.parent() else {
-        return (Vec::new(), None);
+        return (Vec::new(), Vec::new(), None);
     };
     let args = ["-C".as_ref(), parent.as_os_str(), "rev-parse".as_ref(), "--show-toplevel".as_ref()];
     let Some(top) = run("git", &args, cwd, limit) else {
-        return (Vec::new(), None);
+        return (Vec::new(), Vec::new(), None);
     };
     let top = PathBuf::from(top.trim());
     if top.as_os_str().is_empty() || !top.join("structure.toml").is_file() {
-        return (Vec::new(), None);
+        return (Vec::new(), Vec::new(), None);
     }
-    let mut lines: Vec<String> = run("north", &["code-health".as_ref(), "check".as_ref(), path.as_os_str()], &top, limit)
+    let lines: Vec<String> = run("north", &["code-health".as_ref(), "check".as_ref(), path.as_os_str()], &top, limit)
         .unwrap_or_default()
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(str::to_owned)
         .collect();
     let relative = path.strip_prefix(&top).ok().and_then(Path::to_str).filter(|name| name.ends_with(".rs"));
-    if let Some(relative) = relative {
-        lines.extend(crate::code_health::habits(&top, relative));
-    }
-    (lines, relative.and_then(|relative| crate::code_health::crate_headroom(&top, relative)))
+    let habits = relative.map(|relative| habit_notes(&top, relative)).unwrap_or_default();
+    (lines, habits, relative.and_then(|relative| crate::code_health::crate_headroom(&top, relative)))
 }
+
+fn habit_notes(top: &Path, relative: &str) -> Vec<String> {
+    let mut notes: Vec<String> = crate::code_health::habits_fix(top, relative)
+        .iter()
+        .map(|rewrite| {
+            format!(
+                "habits: {} rewrote {}:{} for you. Before: `{}` After: `{}` Write this form next time.",
+                rewrite.rule, rewrite.path, rewrite.line, rewrite.before, rewrite.after
+            )
+        })
+        .collect();
+    let open = crate::code_health::habits(top, relative);
+    if !open.is_empty() {
+        notes.push(format!("{HABIT_WARNING}\n{}", open.join("\n")));
+    }
+    notes
+}
+
+#[cfg(test)]
+#[path = "code_health_edit_tests.rs"]
+mod tests;

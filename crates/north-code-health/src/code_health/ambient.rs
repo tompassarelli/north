@@ -1,4 +1,5 @@
 use super::finding::Finding;
+use super::fix::Fix;
 use super::rust_text::RustFile;
 use regex::Regex;
 use std::collections::BTreeMap;
@@ -82,7 +83,8 @@ impl Ambient {
             }
             for (line, item) in reads {
                 let text = format!("{item} in test code {} — {}; {} lists {allowed} such reads for this file and only shrinks", self.input.reads(), self.fixture, self.allowlist);
-                out.push(Finding { rule: RULE, path: file.path.clone(), line, item, text });
+                let fix = Fix::declared_for(&item);
+                out.push(Finding { rule: RULE, path: file.path.clone(), line, item, text, fix });
             }
         }
         if tree {
@@ -90,7 +92,7 @@ impl Ambient {
                 let found = counted.get(path.as_str()).copied().unwrap_or(0);
                 if found < *allowed {
                     let text = format!("{} lists {allowed} such reads in tests but the file has {found} — lower the count to {found} (delete the line at 0)", self.allowlist);
-                    out.push(Finding { rule: RULE, path: path.clone(), line: 0, item: String::new(), text });
+                    out.push(Finding { rule: RULE, path: path.clone(), line: 0, item: String::new(), text, fix: None });
                 }
             }
         }

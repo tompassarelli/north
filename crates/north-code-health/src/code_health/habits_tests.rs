@@ -64,3 +64,32 @@ fixture = "inject the clock"
     let found: Vec<String> = check(&habits, &files, None).iter().map(|finding| format!("{}:{} {}", finding.path, finding.line, finding.item)).collect();
     assert_eq!(found, ["tests/racy.rs:1 thread::sleep", "tests/racy.rs:4 Instant::now", "tests/racy.rs:5 thread::sleep", "tests/racy.rs:6 time::sleep", "tests/racy.rs:7 SystemTime::now", "src/live.rs:7 Instant::now"]);
 }
+
+#[test]
+fn a_wall_clock_age_in_test_code_is_rewritten_to_a_fixed_moment_and_a_poll_loop_is_left_for_the_agent() {
+    use super::habits::fix_file;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
+    git(&["init", "-q"]);
+    std::fs::write(root.join("structure.toml"), "[rust_habits]\nchecks = [\"ambient-test-input\"]\n[[rust_habits.ambient_inputs]]\ninput = \"clock\"\nallowlist = \"clocks.tsv\"\nfixture = \"inject the clock\"\n").unwrap();
+    std::fs::write(root.join("clocks.tsv"), "").unwrap();
+    std::fs::create_dir(root.join("tests")).unwrap();
+    let denylist = "#[test]\nfn stale() {\n    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);\n    set(hour_ago);\n}\n";
+    let polling = "#[test]\nfn ready() {\n    let started = Instant::now();\n    std::thread::sleep(READY_POLL);\n    let _ = SystemTime::now();\n}\n";
+    std::fs::write(root.join("tests/denylist.rs"), denylist).unwrap();
+    std::fs::write(root.join("tests/polling.rs"), polling).unwrap();
+
+    let rewrites = fix_file(root, "tests/denylist.rs").unwrap();
+    assert_eq!(rewrites.len(), 1);
+    assert_eq!(rewrites[0].rule, "ambient-test-input");
+    assert_eq!(rewrites[0].line, 3);
+    assert_eq!(rewrites[0].before, "let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);");
+    assert_eq!(rewrites[0].after, "let hour_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000) - std::time::Duration::from_secs(3600);");
+    assert!(std::fs::read_to_string(root.join("tests/denylist.rs")).unwrap().contains(&rewrites[0].after));
+    assert!(super::habits::findings(root, Some("tests/denylist.rs")).unwrap().is_empty());
+
+    assert!(fix_file(root, "tests/polling.rs").unwrap().is_empty());
+    assert_eq!(std::fs::read_to_string(root.join("tests/polling.rs")).unwrap(), polling);
+    assert_eq!(super::habits::findings(root, Some("tests/polling.rs")).unwrap().len(), 3);
+}

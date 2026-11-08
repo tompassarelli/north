@@ -1,5 +1,6 @@
 use super::ambient::{self, Ambient};
 use super::finding::Finding;
+use super::fix::{self, Rewrite};
 use super::rust_text::RustFile;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
@@ -163,6 +164,7 @@ fn shared_findings(files: &[RustFile]) -> Vec<Finding> {
                 line,
                 text: format!("{kind} in non-test code — pass &mut down, split the borrow by field, index into a Vec or arena, or move ownership to the caller; {ALLOW}"),
                 item: kind,
+                fix: None,
             })
         })
         .collect()
@@ -190,6 +192,7 @@ fn single_findings(files: &[RustFile]) -> Vec<Finding> {
                 path: file.path.clone(),
                 line,
                 item: name.clone(),
+                fix: None,
                 text: format!("trait {name} has one implementation ({at}:{at_line}) and no test double — make the code concrete until a second implementation or a test seam uses it; {ALLOW} and item = \"{name}\""),
             });
         }
@@ -213,7 +216,7 @@ pub(super) fn check(habits: &Habits, files: &[RustFile], edited: Option<&str>) -
         for entry in habits.allow.iter().filter(|entry| !found.iter().any(|finding| allows(entry, finding))) {
             let item = entry.item.clone().unwrap_or_default();
             let text = format!("{} {item} matches nothing now — remove the entry from structure.toml", entry.rule);
-            out.push(Finding { rule: STALE, path: entry.path.clone(), line: 0, item, text });
+            out.push(Finding { rule: STALE, path: entry.path.clone(), line: 0, item, text, fix: None });
         }
     }
     let touches = |finding: &Finding| {
@@ -236,7 +239,7 @@ fn listed(root: &Path) -> Result<Vec<String>, String> {
     Ok(String::from_utf8_lossy(&output.stdout).split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect())
 }
 
-pub fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<String>, String> {
+fn found(root: &Path, edited: Option<&str>) -> Result<Vec<Finding>, String> {
     let Ok(config) = std::fs::read_to_string(root.join("structure.toml")) else {
         return Ok(Vec::new());
     };
@@ -249,7 +252,25 @@ pub fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<String>, String
         .filter_map(|path| std::fs::read_to_string(root.join(&path)).ok().map(|text| (path, text)))
         .collect();
     let files = files_of(&habits, sources);
-    let mut lines: Vec<String> = check(&habits, &files, edited).iter().map(Finding::render).collect();
+    Ok(check(&habits, &files, edited))
+}
+
+pub fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<String>, String> {
+    let mut lines: Vec<String> = found(root, edited)?.iter().map(Finding::render).collect();
     lines.dedup();
     Ok(lines)
+}
+
+pub(super) fn fix_file(root: &Path, edited: &str) -> Result<Vec<Rewrite>, String> {
+    let findings = found(root, Some(edited))?;
+    if findings.iter().all(|finding| finding.fix.is_none()) {
+        return Ok(Vec::new());
+    }
+    let path = root.join(edited);
+    let text = std::fs::read_to_string(&path).map_err(|error| format!("{edited}: {error}"))?;
+    let (fixed, rewrites) = fix::apply(&text, &findings);
+    if !rewrites.is_empty() {
+        std::fs::write(&path, fixed).map_err(|error| format!("{edited}: {error}"))?;
+    }
+    Ok(rewrites)
 }
