@@ -6,6 +6,7 @@
 # A module whose tests read the whole tree (every source file, not only what it imports) carries a trailing `# tree-wide: REASON` and runs for every lane, whatever it changes.
 # One line per module, merged as a set.
 agents_plan north-ops north-pace
+agents_sync_profiles north-core north-flow north-pace
 automation_chrome_service north
 capacity_exclusive_native north-capacity north-core
 capacity_host north-capacity-host
