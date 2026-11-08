@@ -27,7 +27,7 @@ pub fn run(arguments: &[String]) -> u8 {
         ["slots"] => slots(),
         ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
         ["warm"] => warm::run(),
-        ["trim-target", rest @ ..] => trim::run(rest).unwrap_or_else(usage),
+        ["trim-target", rest @ ..] => trim::run(rest),
         ["run", "--background", rest @ ..] => run_job(rest, ship::SlotClass::Background),
         ["run", rest @ ..] => run_job(rest, ship::SlotClass::LandCheck),
         _ => usage(),

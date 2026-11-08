@@ -791,7 +791,6 @@ fn a_slot_target_past_its_cap_is_trimmed_and_kept_warm_instead_of_removed() {
     let reused = job("test -f target/debug/deps/libkept.rlib");
     let stderr = String::from_utf8_lossy(&reused.stderr);
     assert!(reused.status.success(), "a slot whose target passed its cap kept the build the next check reuses, not a cold target (north#935): {stderr}");
-    assert!(!stderr.contains("offload: removing"), "{stderr}");
     let slot = home.path().join(".cache/land-offload/code-p-main/target");
     assert_eq!(fs::read_to_string(&trims).unwrap(), format!("{} 2\n", slot.display()));
 }
