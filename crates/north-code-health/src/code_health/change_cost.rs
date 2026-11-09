@@ -1,11 +1,7 @@
-use super::history::{BULK_COMMIT_FILES, WINDOW_COMMITS};
+use super::history::{BULK_COMMIT_FILES, WINDOW_COMMITS, reverted_shas};
 use super::snapshot::git;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::LazyLock;
-
-static REVERTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)(?:reverts commit|^(?:sheriff-)?reverts:)\s+([0-9a-f]{7,40})").unwrap());
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub(super) struct ChangeCost {
@@ -34,7 +30,7 @@ fn commits(repo: &Path, range: &str, hand: &dyn Fn(&str) -> bool) -> Result<Vec<
             let paths: Vec<&str> = names.lines().filter(|line| !line.is_empty()).collect();
             Some(Commit {
                 sha: sha.trim().to_owned(),
-                reverts: REVERTS.captures_iter(body).map(|found| found[1].to_owned()).collect(),
+                reverts: reverted_shas(body),
                 revert: subject.starts_with("Revert"),
                 hand_files: paths.iter().filter(|path| hand(path)).count(),
                 files: paths.len(),

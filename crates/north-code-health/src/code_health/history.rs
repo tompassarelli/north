@@ -1,8 +1,30 @@
+use super::functions::SourceText;
 use super::snapshot::git;
 use super::state::State;
+use regex::Regex;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::LazyLock;
+
+static REVERTS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)(?:reverts commit|^(?:sheriff-)?reverts:)\s+([0-9a-f]{7,40})").unwrap());
+static DECLARATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*;|^\s*#\[[^\]]*\]\s*$|^\s*//").unwrap());
+
+pub(super) fn reverted_shas(body: &str) -> Vec<String> {
+    REVERTS.captures_iter(body).map(|found| found[1].to_owned()).collect()
+}
+
+pub(super) fn declaration_only(sources: &[SourceText]) -> HashSet<&str> {
+    sources
+        .iter()
+        .filter(|file| file.path.ends_with(".rs"))
+        .filter(|file| {
+            let code: Vec<&str> = file.text.lines().filter(|line| !line.trim().is_empty()).collect();
+            code.iter().any(|line| line.contains("mod ")) && code.iter().all(|line| DECLARATION.is_match(line))
+        })
+        .map(|file| file.path.as_str())
+        .collect()
+}
 
 pub(super) const WINDOW_DAYS: i64 = 90;
 pub(super) const WINDOW_COMMITS: usize = 2000;
@@ -12,6 +34,7 @@ pub(super) struct History {
     pub(super) commits: usize,
     pub(super) churn: Vec<(String, usize)>,
     changes: Vec<Vec<String>>,
+    cancelled: HashSet<usize>,
 }
 
 impl History {
@@ -38,9 +61,26 @@ fn tally(changes: &[Vec<String>]) -> Vec<(String, usize)> {
 pub(super) fn history(repo: &Path, rev: &str) -> Result<History, String> {
     let at: i64 = git(repo, &["log", "-1", "--format=%ct", rev])?.trim().parse().map_err(|error| format!("commit time of {rev}: {error}"))?;
     let since = north_base::foundation::clock::Timestamp::from_unix_seconds(at - WINDOW_DAYS * 86_400).iso();
-    let out = git(repo, &["log", &format!("-n{WINDOW_COMMITS}"), &format!("--since={since}"), "--no-renames", "--no-merges", "--format=%x1e", "--name-only", rev])?;
-    let changes: Vec<Vec<String>> = out.split('\x1e').skip(1).map(|block| block.split('\n').filter(|line| !line.is_empty()).map(str::to_owned).collect()).collect();
-    Ok(History { commits: changes.len(), churn: tally(&changes), changes })
+    let out = git(repo, &["log", &format!("-n{WINDOW_COMMITS}"), &format!("--since={since}"), "--no-renames", "--no-merges", "--format=%x1e%H%x1f%b%x1f", "--name-only", rev])?;
+    let mut changes: Vec<Vec<String>> = Vec::new();
+    let mut shas: Vec<&str> = Vec::new();
+    let mut reverts: Vec<Vec<String>> = Vec::new();
+    for block in out.split('\x1e').skip(1) {
+        let mut fields = block.splitn(3, '\x1f');
+        let (sha, body, names) = (fields.next().unwrap_or_default(), fields.next().unwrap_or_default(), fields.next().unwrap_or_default());
+        shas.push(sha.trim());
+        reverts.push(reverted_shas(body));
+        changes.push(names.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect());
+    }
+    let mut cancelled = HashSet::new();
+    for (at, targets) in reverts.iter().enumerate() {
+        for target in targets {
+            if let Some(original) = shas.iter().position(|sha| sha.starts_with(target.as_str())) {
+                cancelled.extend([at, original]);
+            }
+        }
+    }
+    Ok(History { commits: changes.len(), churn: tally(&changes), changes, cancelled })
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -54,7 +94,10 @@ pub(super) struct Pair {
 pub(super) fn co_change(history: &History, keep: impl Fn(&str) -> bool, group: impl Fn(&str) -> Option<String>) -> Vec<Pair> {
     let mut counts: Vec<((String, String), usize)> = Vec::new();
     let mut position: HashMap<(String, String), usize> = HashMap::new();
-    for files in &history.changes {
+    for (at, files) in history.changes.iter().enumerate() {
+        if history.cancelled.contains(&at) {
+            continue;
+        }
         let mut kept: Vec<&String> = files.iter().filter(|file| keep(file)).collect();
         if kept.len() < 2 || kept.len() > BULK_COMMIT_FILES {
             continue;

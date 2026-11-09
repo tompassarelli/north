@@ -1,6 +1,6 @@
 use super::config::Config;
 use super::graph::module_graph;
-use super::history::{History, co_change, history};
+use super::history::{History, co_change, declaration_only, history};
 use super::report::{hand_of, import_graph, inventory, texts};
 use super::resolver::Resolver;
 use super::snapshot::Snapshot;
@@ -87,12 +87,12 @@ pub(super) fn coupling(repo: &Path, rev: &str, config: &Config) -> Result<Coupli
         }
     }
     special_cases.retain(|_, cases| cases.total() > 0);
-    Ok(Coupling { hidden_links: hidden_links(config, &past, &hand_set), volatile_imports, special_cases })
+    Ok(Coupling { hidden_links: hidden_links(config, &past, &hand_set, &declaration_only(&sources)), volatile_imports, special_cases })
 }
 
-fn hidden_links(config: &Config, past: &History, hand: &HashSet<&str>) -> Vec<HiddenLink> {
+fn hidden_links(config: &Config, past: &History, hand: &HashSet<&str>, declarations: &HashSet<&str>) -> Vec<HiddenLink> {
     let mut links: BTreeMap<(String, String), HiddenLink> = BTreeMap::new();
-    for pair in co_change(past, |path| hand.contains(path), |path| config.module_of(path).map(|module| module.name.clone())) {
+    for pair in co_change(past, |path| hand.contains(path) && !declarations.contains(path), |path| config.module_of(path).map(|module| module.name.clone())) {
         let (Some(a), Some(b)) = (config.module_of(&pair.a), config.module_of(&pair.b)) else { continue };
         if a.may_use.contains(&b.name) || b.may_use.contains(&a.name) {
             continue;

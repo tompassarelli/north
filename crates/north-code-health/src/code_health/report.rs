@@ -1,7 +1,7 @@
 use super::config::{Config, Kind, Thresholds};
 use super::functions::{Function, SourceText, measure};
 use super::graph::{Graph, LayerViolation, fan, layer_violation, module_graph, sccs};
-use super::history::{Allow, Pair, WINDOW_COMMITS, WINDOW_DAYS, allows, co_change, history};
+use super::history::{Allow, Pair, WINDOW_COMMITS, WINDOW_DAYS, allows, co_change, declaration_only, history};
 use super::resolver::Resolver;
 use super::snapshot::{Snapshot, git, line_count};
 use super::state::State;
@@ -204,6 +204,7 @@ pub(super) fn build(repo: &Path, rev: &str, config: &Config) -> Result<Report, S
     let functions: Vec<&Function> = hand.iter().flat_map(|path| files[path].functions.iter()).collect();
     let over = |path: &String, test: &dyn Fn(&Function, &Thresholds) -> bool| files[path].functions.iter().filter(|f| test(f, &config.thresholds_of(path))).count();
     let hotspot_top = config.modules.iter().map(|m| m.thresholds.hotspot_top).fold(config.thresholds.hotspot_top.max(10.0), f64::max) as usize;
+    let declarations = declaration_only(&sources);
     let grouped = !config.modules.is_empty();
     Ok(Report {
         repo: repo.to_string_lossy().into_owned(),
@@ -233,7 +234,7 @@ pub(super) fn build(repo: &Path, rev: &str, config: &Config) -> Result<Report, S
         fan_out: ranked(&file_fan.fan_out).into_iter().take(10).collect(),
         module_fan_in: ranked(&module_fan.fan_in),
         module_fan_out: ranked(&module_fan.fan_out),
-        co_change: co_change(&past, |path| hand_set.contains(path), |path| if grouped { config.module_of(path).map(|m| m.name.clone()) } else { None }).into_iter().take(10).collect(),
+        co_change: co_change(&past, |path| hand_set.contains(path) && !declarations.contains(path), |path| if grouped { config.module_of(path).map(|m| m.name.clone()) } else { None }).into_iter().take(10).collect(),
         hotspots: hotspots_of(&past.churn, |path| files.get(path).map(|row| row.complexity)).into_iter().take(hotspot_top).collect(),
         history: HistoryWindow { commits: past.commits, days: WINDOW_DAYS, max_commits: WINDOW_COMMITS },
         allowed_debt: allows(repo, &["-n", &WINDOW_COMMITS.to_string(), rev])?,
