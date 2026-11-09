@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::Path;
 
 use north_graph_loops::{Held, Remembered};
@@ -36,11 +35,11 @@ pub struct Episode {
 }
 
 impl Book {
-    /// The book the doctor last told graph.db; before its first graph tick, the record file a doctor of the old kind left.
-    pub fn load(graph: &Path, legacy: &Path) -> Result<Self, String> {
+    /// The book the doctor last told graph.db, empty before its first graph tick.
+    pub fn load(graph: &Path) -> Result<Self, String> {
         match north_graph_loops::remembered(graph)? {
             Some(told) if told.at.is_some() => Ok(Self::from(told)),
-            _ => Ok(fs::read_to_string(legacy).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()),
+            _ => Ok(Self::default()),
         }
     }
 

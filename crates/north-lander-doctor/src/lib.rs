@@ -3,8 +3,7 @@
 //! remedy as an incident row, keeps the lander builds that landed a batch green to roll back to, and pages the proxy
 //! once per episode only for a state it has no remedy for. It may use north-base and north-landing, never the root crate.
 use std::collections::BTreeSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use north_lander::land::lander::state_home;
 use north_lander::land::{queue, repositories};
@@ -25,7 +24,6 @@ use facts::{Facts, Place, Reach};
 use hands::Hands;
 
 pub use north_lander::land::promote::REFUSED;
-const LEGACY_BOOK: &str = "north/land-doctor/book.json";
 pub const UNKNOWN: &str = "lander-unknown";
 const USAGE: &str = "usage: north land doctor [--dry-run] (reads every lander health bound, applies each known remedy, pages the proxy once per unknown state)";
 
@@ -187,8 +185,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let now = facts::now();
     let graph = north_graph_loops::graph_path();
-    let legacy: PathBuf = state_home().join(LEGACY_BOOK);
-    let mut book = match Book::load(&graph, &legacy) {
+    let mut book = match Book::load(&graph) {
         Ok(book) => book,
         Err(error) => {
             eprintln!("north land doctor: {error}");
@@ -200,12 +197,9 @@ pub fn run(arguments: &[String]) -> u8 {
     for line in render(&treated).lines() {
         println!("north land doctor: {line}");
     }
-    if !dry_run {
-        if let Err(error) = book.save(&graph) {
-            eprintln!("north land doctor: {error}");
-            return 1;
-        }
-        let _ = fs::remove_file(&legacy);
+    if !dry_run && let Err(error) = book.save(&graph) {
+        eprintln!("north land doctor: {error}");
+        return 1;
     }
     u8::from(treated.iter().any(|entry| matches!(entry.finding.state, State::Unknown(_))))
 }
