@@ -73,8 +73,12 @@ impl Home {
     }
 
     fn run_in_lane_only(&self, program: &[&str]) -> Output {
+        self.run_in_lane_only_by(Path::new(env!("CARGO_BIN_EXE_north")), program)
+    }
+
+    fn run_in_lane_only_by(&self, north: &Path, program: &[&str]) -> Output {
         let mut outer = self.outer(&self.lane());
-        outer.arg("--").arg(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--lane", "--"]).args(program);
+        outer.arg("--").arg(north).args(["--worker-sandbox", "--lane", "--"]).args(program);
         outer.output().unwrap()
     }
 
@@ -175,13 +179,16 @@ fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime
     file(&home.path().join("code/north-data/accounts/key"));
     file(&home.path().join(".local/share/other/token"));
     file(&home.path().join(".local/lib/claude/versions/1/token"));
+    let north = home.path().join(".local/state/north/runtimes/host/north");
+    std::fs::create_dir_all(north.parent().unwrap()).unwrap();
+    std::fs::hard_link(env!("CARGO_BIN_EXE_north"), &north).or_else(|_| std::fs::copy(env!("CARGO_BIN_EXE_north"), &north).map(drop)).unwrap();
 
     for (program, says) in [(&shim, "shim"), (&on_path, "on-path"), (&runtime, "runtime"), (&opencode, "opencode"), (&pi, "pi")] {
-        let output = home.run_in_lane_only(&[program.to_str().unwrap()]);
+        let output = home.run_in_lane_only_by(&north, &[program.to_str().unwrap()]);
         assert!(output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == says, "{}: {}", program.display(), String::from_utf8_lossy(&output.stderr));
     }
     for hidden in ["code/north-data/accounts/key", ".local/share/other/token", ".local/lib/claude/versions/1/token"] {
-        let output = home.run_in_lane_only(&["cat", home.path().join(hidden).to_str().unwrap()]);
+        let output = home.run_in_lane_only_by(&north, &["cat", home.path().join(hidden).to_str().unwrap()]);
         assert!(!output.status.success() && String::from_utf8_lossy(&output.stderr).contains("Permission denied"), "{hidden} was read: {}", String::from_utf8_lossy(&output.stdout));
     }
 }
