@@ -27,7 +27,14 @@
                     pkgs.shellcheck
                     pkgs.cargo-mutants
                     pkgs.cargo-nextest
-                    pkgs.bun
+                    # The release firn's bunRelease installs on every host, so tests here run the bun the north services run.
+                    (pkgs.bun.overrideAttrs (_old: {
+                      version = "1.4.4";
+                      src = pkgs.fetchurl {
+                        url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-baseline.zip";
+                        hash = "sha256-4ERutVmVdy65iUvrrppr42jZhai5Jx7hJEhvmUbu3XY=";
+                      };
+                    }))
                     pkgs.openssh
                     pkgs.ast-grep
                     (pkgs.python3.withPackages (python: [ python.websockets ]))

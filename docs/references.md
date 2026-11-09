@@ -311,6 +311,22 @@ footguns plan and the nix-development skill's regrounding.
 - <a id="install-nix-action-releases"></a>**cachix/install-nix-action releases**,
   https://github.com/cachix/install-nix-action/releases.
 
+<a id="nix-leverage-sources"></a>Each source below informed [rationale/nix-leverage.md](rationale/nix-leverage.md)
+(north#968), accessed 2026-11-09.
+
+- <a id="ghuntley-nix"></a>**Geoffrey Huntley, "fix everything with a Nix overlay"** (2026-10-07),
+  https://ghuntley.com/nix/. Outcome: rejected as a whole; its force-push idea adopted as a server-side ruleset
+  (north#973), its single-expression and overlay claims already in use.
+- <a id="ghuntley-nix-demo"></a>**ghuntley/nix-demo**, https://github.com/ghuntley/nix-demo. The post's companion
+  repository; no license file, so nothing was copied. Outcome: rejected.
+- <a id="docker-sandboxes"></a>**Docker Sandboxes**, https://docs.docker.com/ai/sandboxes/ and
+  https://docs.docker.com/ai/sandboxes/architecture/. Outcome: rejected; its credential proxy kept as a proposal.
+- <a id="microvm-nix"></a>**microvm.nix**, https://github.com/microvm-nix/microvm.nix. Outcome: rejected.
+- <a id="nixos-containers"></a>**NixOS manual, containers**, https://nixos.org/manual/nixos/stable/#ch-containers.
+  Outcome: rejected.
+- <a id="bun-lifecycle"></a>**bun, lifecycle scripts**, https://bun.sh/docs/install/lifecycle. Outcome: prior only,
+  sizing north#974.
+
 ### Scheduling and capacity
 
 Sources behind [docs/rationale/capacity-scheduler.md](rationale/capacity-scheduler.md#prior-art), which states the
