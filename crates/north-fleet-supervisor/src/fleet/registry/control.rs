@@ -23,6 +23,9 @@ impl Fleet {
         };
         if verb != ControlVerb::Revive && self.placed_hosts().is_some_and(|placed| !placed.contains(&held.host)) {
             self.registrar.retire_unplaced()?;
+            if verb == ControlVerb::Forget {
+                self.release_all_claims_of(name)?;
+            }
             self.uncache_session(name)?;
             return Ok(Controlled::Retired { host: held.host });
         }
@@ -78,3 +81,48 @@ impl Fleet {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::fs;
+
+    use super::super::fixtures::fleet;
+    use super::*;
+    use crate::fleet::claims::Rows;
+    use crate::fleet::store::SessionRow;
+
+    // KEEP(bug): north-870-d0106 and north-870-d0111 were forgotten on 2026-11-08 and kept the north#870 boxes they had claimed themselves until the proxy released them by hand; north#888
+    #[test]
+    fn a_forget_of_a_session_whose_host_left_placement_releases_the_claims_it_holds() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let policy = crate::platform::orchestration::under(home.path());
+        fs::create_dir_all(policy.parent().unwrap()).unwrap();
+        fs::write(&policy, "[hosts.here]\n").unwrap();
+        let owned = BTreeSet::from(["n870-gone".to_owned()]);
+        fleet.claims.hold("north#870@the first box", "n870-gone").unwrap();
+        fleet.claims.hold("north#870@the second box", "n870-gone").unwrap();
+        fleet
+            .cache_sessions(&[SessionRow {
+                name: "n870-gone".into(),
+                host: "gone".into(),
+                status: "exited".into(),
+                created: String::new(),
+                updated: String::new(),
+                provider: "claude".into(),
+                account: "a".into(),
+                cwd: "/tmp".into(),
+                parent: None,
+                placement: None,
+                machine: None,
+                tasks: Vec::new(),
+                conversation: None,
+            }])
+            .unwrap();
+
+        let forgotten = fleet.forget_unless_queued("n870-gone", None, None).unwrap();
+
+        assert!(matches!(forgotten.controlled, Controlled::Retired { ref host } if host == "gone"));
+        assert!(fleet.claims.holders(Rows::Owners(&owned)).unwrap().is_empty(), "a forgotten session leaves no claim in the ledger even when the host that ran it is no longer placed");
+    }
+}

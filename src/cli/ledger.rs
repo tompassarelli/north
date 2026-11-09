@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const USAGE: &str = "Usage: north ledger (flow|incident|tempo|worker) ... | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
+const USAGE: &str = "Usage: north ledger (flow|incident|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
@@ -11,6 +11,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "claude-runs" => {
             crate::providers::claude::runs::run(rest).map(|()| ExitCode::SUCCESS)
         }
+        [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "duplicate" => return ExitCode::from(super::ledger_duplicate::run(rest)),
         _ => Ledger::open_default().and_then(|store| dispatch(&store, arguments)),
     };
     match outcome {

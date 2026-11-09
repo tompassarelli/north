@@ -22,6 +22,7 @@ mod gate_relay;
 mod hook_stats;
 mod hook_verb;
 mod ledger;
+mod ledger_duplicate;
 mod moved;
 mod nix;
 mod orders;
