@@ -88,6 +88,11 @@ pub fn render(inputs: &PromptInputs) -> String {
     render_from(TEMPLATE, inputs)
 }
 
+/// The standing orders north ships in this repository, which a launch to a model outside the operator's own accounts carries instead of the operator's live file.
+pub fn seed_orders() -> &'static str {
+    SEED_ORDERS
+}
+
 pub fn template() -> &'static str {
     TEMPLATE
 }

@@ -80,7 +80,7 @@ fn argument(argv: &[String], flag: &str) -> Option<String> {
 fn run_brief(runtime: &Opencode, route: Route, home: &Path, brief: &str) -> (Transcript, Vec<TurnSignal>, Vec<Value>) {
     let key = home.join("go.key");
     std::fs::write(&key, "key-material\n").unwrap();
-    let host = turns::Host { route, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), launcher: Vec::new(), program: fake(home), cwd: home.into() };
+    let host = turns::Host { route, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program: fake(home), cwd: home.into() };
     let mut transcript = Transcript { name: "worker".into(), ..Transcript::new() };
     let input = runtime.message(&transcript, "u1", brief).unwrap().join("\n");
     let mut output = Vec::new();
@@ -147,6 +147,13 @@ fn a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go() {
     assert_eq!(picked(Visibility::Private), "go");
     assert_eq!(picked(Visibility::Public), "free");
     assert_eq!(picked(Visibility::Unknown), "go");
+    let delivered = |visibility| {
+        let spec = seeing(visibility, day("2026-11-10")).host(&account, &request(home.path()), Opening::Fresh(Some("ses_x")), "LIVE-ORDER-OF-THE-OPERATOR").unwrap();
+        std::fs::read_to_string(argument(&spec.argv, "--instructions").unwrap()).unwrap()
+    };
+    let (public, private) = (delivered(Visibility::Public), delivered(Visibility::Private));
+    assert!(!public.contains("LIVE-ORDER-OF-THE-OPERATOR") && public.contains("Done:"), "{public}");
+    assert!(private.contains("LIVE-ORDER-OF-THE-OPERATOR"));
     let asked = LaunchRequest { model: Some(route::FREE_MODEL.into()), ..request(home.path()) };
     let refused = seeing(Visibility::Private, day("2026-11-10")).host(&account, &asked, Opening::Fresh(Some("ses_x")), "");
     assert!(refused.is_err_and(|error| error.user_message().contains("fixes this lane's model")));
@@ -162,6 +169,7 @@ fn a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_n
         assert!(launch(Visibility::Private, prompt).is_ok(), "{prompt}");
     }
     assert!(launch(Visibility::Public, "Item: north#1\nGo south on the map").is_ok());
+    assert!(launch(Visibility::Public, "ask-before-cost-or-exposure and task-ledger-entries-keep-their-order").is_ok());
 }
 
 fn the_launched_config_lists_only_the_one_chosen_provider_and_model() {

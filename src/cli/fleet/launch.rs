@@ -61,6 +61,7 @@ impl LaunchFlags {
             Some(account) if account.is_empty() => return Err(usage()),
             Some(account) => account,
             None if placed => String::new(),
+            None if provider.label() == crate::providers::opencode::PROVIDER => crate::providers::opencode::ACCOUNT.to_owned(),
             None => return Err(usage()),
         };
         if prompt.is_empty() {

@@ -1,15 +1,15 @@
 use regex::Regex;
 
 const SECRETS: &[&str] = &[
-    r"sk-[A-Za-z0-9_-]{20,}",
-    r"gh[pousr]_[A-Za-z0-9]{30,}",
-    r"github_pat_[A-Za-z0-9_]{30,}",
-    r"AKIA[0-9A-Z]{16}",
+    r"\bsk-[A-Za-z0-9_-]{20,}",
+    r"\bgh[pousr]_[A-Za-z0-9]{30,}",
+    r"\bgithub_pat_[A-Za-z0-9_]{30,}",
+    r"\bAKIA[0-9A-Z]{16}",
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     r"AGE-SECRET-KEY-[A-Z0-9]+",
     r"\bage1[0-9a-z]{58}\b",
-    r"xox[abprs]-[A-Za-z0-9-]{10,}",
-    r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
+    r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
+    r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
 ];
 
 /// Why a brief may not go to a model that can train on requests, or `Ok` when it names no private repository and carries no secret pattern.

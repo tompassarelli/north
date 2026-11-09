@@ -7,9 +7,10 @@ use time::Date;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::attachments;
 use crate::fleet::install;
+use crate::fleet::prompt::{PromptInputs, render, seed_orders};
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, HostSpec, Instructions, Opening, ROLE_ENV, Runtime, SESSION_ENV, new_uuid, summarize};
+use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, ROLE_ENV, Runtime, SESSION_ENV, new_uuid, summarize};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::platform::harness;
 
@@ -17,7 +18,7 @@ use super::route::{self, MODELS, Route, Visibility};
 use super::turns::Phase;
 use super::{accounts, live, screen};
 
-const PROVIDER: &str = "opencode";
+pub const PROVIDER: &str = "opencode";
 const TOOL_CHARS: usize = 400;
 const SETTINGS: &str = "harness/opencode.toml";
 const SESSION_CHARS: usize = 26;
@@ -88,10 +89,20 @@ impl Runtime for Opencode {
             Opening::Fresh(None) => return Err(NorthError::State("an opencode session needs a conversation id".into())),
         };
         let system = request.system_prompt.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
-        let route = self.route(request, &format!("{}\n{system}\n{instructions}", request.prompt))?;
+        let route = self.route(request, &format!("{}\n{system}", request.prompt))?;
+        let delivered = match route {
+            Route::Free => render(&PromptInputs { session: &request.name, role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
+            Route::Go => instructions.to_owned(),
+        };
         let mut argv = vec![north_base::platform::north_binary::north_binary().display().to_string(), "opencode-host".into()];
         argv.extend(["--route".into(), route.label().into(), "--session".into(), conversation.into(), "--scratch".into(), scratch(&request.name).display().to_string()]);
         argv.extend(["--program".into(), install::runtime("opencode").display().to_string()]);
+        if matches!(opening, Opening::Fresh(_)) && !delivered.is_empty() {
+            let file = scratch(&request.name).join("instructions.md");
+            std::fs::create_dir_all(scratch(&request.name))?;
+            std::fs::write(&file, delivered)?;
+            argv.extend(["--instructions".into(), file.display().to_string()]);
+        }
         if let Some(key) = account.token_file.as_ref().filter(|_| self.private_lanes) {
             argv.extend(["--key-file".into(), key.display().to_string()]);
         }

@@ -38,6 +38,7 @@ pub struct Host {
     pub session: String,
     pub scratch: PathBuf,
     pub key_file: Option<PathBuf>,
+    pub instructions: Option<PathBuf>,
     pub launcher: Vec<String>,
     pub program: PathBuf,
     pub cwd: PathBuf,
@@ -114,7 +115,11 @@ impl<W: Write> Serving<'_, W> {
         self.attempts += 1;
         let route = self.host.route;
         frame(self.output, &json!({"type": PHASE_FRAME, "phase": "start", "uuid": uuid, "sessionID": self.host.session, "text": text, "route": route.label(), "model": route.model(), "first": self.attempts == 1}))?;
-        self.turn = Some(begin(self.host, &self.events, uuid, text, route, self.attempts)?);
+        let sent = match self.host.instructions.as_ref().filter(|_| self.attempts == 1) {
+            Some(file) => format!("{}\n\n{text}", std::fs::read_to_string(file)?.trim_end()),
+            None => text,
+        };
+        self.turn = Some(begin(self.host, &self.events, uuid, sent, route, self.attempts)?);
         Ok(true)
     }
 
@@ -238,12 +243,12 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
     command.spawn().map_err(|error| NorthError::State(format!("{}: {error}", words[0])))
 }
 
-const USAGE: &str = "usage: north opencode-host --route go|free --session ses_ID --scratch DIR --program OPENCODE [--key-file FILE]";
+const USAGE: &str = "usage: north opencode-host --route go|free --session ses_ID --scratch DIR --program OPENCODE [--key-file FILE] [--instructions FILE]";
 
 impl Host {
     pub fn parse(arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(USAGE.into());
-        let (mut route, mut session, mut scratch, mut program, mut key_file) = (None, None, None, None, None);
+        let (mut route, mut session, mut scratch, mut program, mut key_file, mut instructions) = (None, None, None, None, None, None);
         let mut words = arguments.iter();
         while let Some(flag) = words.next() {
             let value = words.next().ok_or_else(usage)?;
@@ -253,12 +258,13 @@ impl Host {
                 "--scratch" => scratch = Some(PathBuf::from(value)),
                 "--program" => program = Some(PathBuf::from(value)),
                 "--key-file" => key_file = Some(PathBuf::from(value)),
+                "--instructions" => instructions = Some(PathBuf::from(value)),
                 _ => return Err(usage()),
             }
         }
         let cwd = std::env::current_dir()?;
         let launcher = [north_base::platform::north_binary::north_binary().display().to_string(), "--worker-sandbox".into(), "--lane".into(), "--".into()].into();
-        Ok(Self { route: route.ok_or_else(usage)?, session: session.ok_or_else(usage)?, scratch: scratch.ok_or_else(usage)?, program: program.ok_or_else(usage)?, key_file, launcher, cwd })
+        Ok(Self { route: route.ok_or_else(usage)?, session: session.ok_or_else(usage)?, scratch: scratch.ok_or_else(usage)?, program: program.ok_or_else(usage)?, key_file, instructions, launcher, cwd })
     }
 }
 

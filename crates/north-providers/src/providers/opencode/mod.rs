@@ -10,5 +10,6 @@ pub mod turns;
 #[path = "tests.rs"]
 mod tests;
 
-pub use fleet::{Opencode, slots};
+pub use accounts::LABEL as ACCOUNT;
+pub use fleet::{Opencode, PROVIDER, slots};
 pub use route::{Route, Visibility};
