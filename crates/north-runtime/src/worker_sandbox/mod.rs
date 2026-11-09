@@ -1,4 +1,4 @@
-//! `north --worker-sandbox COMMAND`: runs one worker shell command under a Landlock domain in which a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere: the domain guards removal, not edits. Reading is open too, apart from the operator's own logins, since an agent calls GitHub as an App installation. See docs/rationale/worker-sandbox.md.
+//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere: the domain guards removal, not edits. Reading is open apart from the logins. See docs/rationale/worker-sandbox.md.
 mod except;
 mod readable;
 mod removable;
@@ -8,6 +8,7 @@ use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 
+use north_base::platform::git_credential;
 use landlock::{AccessFs, BitFlags, CompatLevel, Compatible, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
 
 pub use readable::readable;
@@ -15,19 +16,21 @@ pub use removable::{Context, removable};
 
 pub const FLAG: &str = "--worker-sandbox";
 const OUTSIDE: &str = "--outside";
-const MARK: &str = "NORTH_WORKER_SANDBOXED";
+const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
+const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --outside -- PROGRAM [ARGS...]";
 
 fn removal() -> BitFlags<AccessFs> {
     AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer
 }
 
-/// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots` and to reading only files beneath `readable`.
-pub fn confine(roots: &[PathBuf], readable: &[PathBuf]) -> Result<RulesetStatus, String> {
-    let ruleset = landlock::Ruleset::default().set_compatibility(CompatLevel::HardRequirement).handle_access(removal() | AccessFs::ReadFile).map_err(|error| error.to_string())?;
+/// Restricts this process, and everything it starts, to reading only files beneath `readable` and, given `roots`, to removing and renaming away only beneath them. Refer is handled either way, so a file cannot be linked or moved to where it would become readable.
+pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf]) -> Result<RulesetStatus, String> {
+    let handled = if roots.is_some() { removal() } else { BitFlags::from(AccessFs::Refer) };
+    let ruleset = landlock::Ruleset::default().set_compatibility(CompatLevel::HardRequirement).handle_access(handled | AccessFs::ReadFile).map_err(|error| error.to_string())?;
     let ruleset = ruleset.create().map_err(|error| error.to_string())?;
     let ruleset = ruleset.add_rules(path_beneath_rules(["/"], AccessFs::Refer)).map_err(|error| error.to_string())?;
-    let ruleset = ruleset.add_rules(path_beneath_rules(roots.iter().filter(|root| root.is_dir()), removal())).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(roots.unwrap_or_default().iter().filter(|root| root.is_dir()), removal())).map_err(|error| error.to_string())?;
     let ruleset = ruleset.add_rules(path_beneath_rules(readable, AccessFs::ReadFile)).map_err(|error| error.to_string())?;
     let ruleset = ruleset.set_compatibility(CompatLevel::BestEffort).log_new_exec(true).map_err(|error| error.to_string())?;
     ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
@@ -65,15 +68,23 @@ fn outside(program: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
+/// Removal is confined for a fleet worker once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706); the proxy, leads and sessions started by hand keep removal open.
+fn confines_removal() -> bool {
+    let worker = std::env::var_os(ROLE_ENV).is_some_and(|role| role == "worker");
+    let applies = north_base::platform::harness::document("harness/gates.toml")["gate"]["worker-sandbox"]["mode"].as_str() == Some("enforce") || std::env::var_os("NORTH_WORKER_SANDBOX").is_some_and(|canary| canary == "1");
+    worker && applies
+}
+
 fn shell(command: &str) -> std::process::ExitCode {
     let context = Context::from_env(command);
-    match confine(&removable(&context), &readable(&context)) {
+    let roots = confines_removal().then(|| removable(&context));
+    match confine(roots.as_deref(), &readable(&context)) {
         Ok(RulesetStatus::FullyEnforced) => {}
         Ok(status) => eprintln!("north worker-sandbox: Landlock {status:?} on this kernel, so removal and personal logins are not confined"),
         Err(error) => eprintln!("north worker-sandbox: Landlock unavailable ({error}), so removal and personal logins are not confined"),
     }
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
-    let error = Command::new(shell).arg("-c").arg(command).env(MARK, "1").exec();
+    let error = Command::new(shell).arg("-c").arg(command).envs(git_credential::session_env()).env(MARK, "1").exec();
     eprintln!("north worker-sandbox: {error}");
     std::process::ExitCode::from(126)
 }

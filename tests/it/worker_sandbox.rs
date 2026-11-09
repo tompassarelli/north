@@ -68,7 +68,7 @@ impl Home {
         outer.args(["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/dev/shm", "--tmpfs"]);
         outer.arg(format!("/run/user/{}", rustix::process::getuid().as_raw()));
         outer.arg("--bind").arg(home).arg(home).arg("--chdir").arg(directory);
-        outer.args(["--clearenv", "--setenv", "PATH"]).arg(std::env::var_os("PATH").unwrap()).arg("--setenv").arg("HOME").arg(home).args(["--setenv", "SHELL", "bash"]);
+        outer.args(["--clearenv", "--setenv", "PATH"]).arg(std::env::var_os("PATH").unwrap()).arg("--setenv").arg("HOME").arg(home).args(["--setenv", "SHELL", "bash", "--setenv", "NORTH_FLEET_ROLE", "worker"]);
         outer.arg("--setenv").arg(CHILD).arg(home);
         if sandboxed {
             outer.arg("--").arg(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]);

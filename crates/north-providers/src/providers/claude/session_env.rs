@@ -39,14 +39,13 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
     env.extend(request.window().map(|window| (COMPACT_WINDOW_ENV.into(), window.to_string().into())));
     env.extend(git_credential::session_env().into_iter().map(|(name, value)| (name, value.into())));
-    env.extend(worker_sandbox(request));
+    env.push(worker_sandbox());
     env
 }
 
-/// The shell prefix that runs each Bash command, hook and MCP server of a worker under `north --worker-sandbox`, once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706).
-fn worker_sandbox(request: &LaunchRequest) -> Option<(String, OsString)> {
-    let applies = north_base::platform::harness::document("harness/gates.toml")["gate"]["worker-sandbox"]["mode"].as_str() == Some("enforce") || std::env::var_os("NORTH_WORKER_SANDBOX").is_some_and(|canary| canary == "1");
-    (applies && request.role() == Role::Worker).then(|| (SHELL_PREFIX_ENV.into(), format!("{} --worker-sandbox", north_base::platform::north_binary::north_binary().display()).into()))
+/// The shell prefix that runs each Bash command, hook and MCP server of every session, the proxy and leads included, under `north --worker-sandbox`, which hides the operator's logins from all of them and confines a worker's removals (north#706, north#977).
+fn worker_sandbox() -> (String, OsString) {
+    (SHELL_PREFIX_ENV.into(), format!("{} --worker-sandbox", north_base::platform::north_binary::north_binary().display()).into())
 }
 
 pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {

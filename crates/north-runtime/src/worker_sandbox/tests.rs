@@ -6,6 +6,7 @@ use landlock::RulesetStatus;
 use super::{Context, confine, readable, removable};
 
 const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
+const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
 
 fn git(directory: &Path, arguments: &[&str]) {
     let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"]).args(arguments).output().unwrap();
@@ -32,7 +33,8 @@ fn a_confined_command_child() {
     };
     let command = command.to_string_lossy().into_owned();
     let context = Context::from_env(&command);
-    assert!(matches!(confine(&removable(&context), &readable(&context)), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    let roots = std::env::var_os(LOGINS_ONLY).is_none().then(|| removable(&context));
+    assert!(matches!(confine(roots.as_deref(), &readable(&context)), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
 }
@@ -105,7 +107,7 @@ fn a_command_run_from_main_may_build_in_the_done_when_lane_north_task_check_uses
 }
 
 #[test]
-fn a_worker_command_cannot_read_or_link_away_the_operators_gh_login_north_969() {
+fn no_agent_command_of_any_role_can_read_or_link_away_the_operators_gh_login_north_969_north_977() {
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::create_dir_all(&outside_tmp).unwrap();
     let scratch = tempfile::Builder::new().prefix("north-969-gh-login").tempdir_in(outside_tmp).unwrap();
@@ -116,14 +118,13 @@ fn a_worker_command_cannot_read_or_link_away_the_operators_gh_login_north_969() 
     std::fs::write(gh.join("config.yml"), "git_protocol: https\n").unwrap();
     std::os::unix::fs::symlink(gh.join("hosts.yml"), home.join("hosts-link.yml")).unwrap();
     let command = "! cat ~/.config/gh/hosts.yml && ! cat ~/hosts-link.yml && ! ln ~/.config/gh/hosts.yml /tmp/north-969-leak-$$ && cat ~/.config/gh/config.yml";
-    let output = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"])
-        .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap())
-        .env("HOME", &home)
-        .env(COMMAND, command)
-        .current_dir(&home)
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    for logins_only in [false, true] {
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &home).env(COMMAND, command).current_dir(&home);
+        if logins_only {
+            child.env(LOGINS_ONLY, "1");
+        }
+        let output = child.output().unwrap();
+        assert!(output.status.success(), "logins only {logins_only}, {command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    }
 }
