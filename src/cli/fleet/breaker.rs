@@ -7,6 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::fleet::gates::Answerer;
+use crate::fleet::landings::{self, Push};
 use crate::fleet::model::{Delivery, Role, SessionRecord};
 use crate::fleet::registry::Fleet;
 use crate::fleet::sender::Sender;
@@ -65,10 +66,12 @@ fn spendings(fleet: &Fleet, now_ms: u64) -> Vec<Spending> {
     let live_names: BTreeSet<String> = live.iter().map(|record| record.name.clone()).collect();
     let earlier = fleet.past_sessions().into_iter().filter(|record| !live_names.contains(&record.name) && box_of(record).is_some_and(|named| boxes.contains(&named)));
     let leads: BTreeSet<String> = live.iter().filter_map(|record| record.parent.clone()).collect();
-    live.iter().map(|record| spending(fleet, record, true, &leads, now_ms)).chain(earlier.map(|record| spending(fleet, &record, false, &leads, now_ms))).flatten().collect()
+    let pushes = landings::pushes(&landings::push_log());
+    let seen = |record: &SessionRecord, live: bool| spending(fleet, record, (live, &leads), &pushes, now_ms);
+    live.iter().map(|record| seen(record, true)).chain(earlier.map(|record| seen(&record, false))).flatten().collect()
 }
 
-fn spending(fleet: &Fleet, record: &SessionRecord, live: bool, leads: &BTreeSet<String>, now_ms: u64) -> Option<Spending> {
+fn spending(fleet: &Fleet, record: &SessionRecord, (live, leads): (bool, &BTreeSet<String>), pushes: &[Push], now_ms: u64) -> Option<Spending> {
     let role = record.role();
     let workstream = record.task_ref.clone()?;
     Some(Spending {
@@ -83,6 +86,7 @@ fn spending(fleet: &Fleet, record: &SessionRecord, live: bool, leads: &BTreeSet<
         minutes: if live { now_ms.saturating_sub(record.created_ms) as f64 / 60_000.0 } else { 0.0 },
         created_ms: record.created_ms,
         estimate: record.budget.as_ref().map(|stated| Estimate { p50: stated.p50(), p90: stated.p90(), minutes: stated.minutes as f64 }),
+        landed: landed_lanes(record, pushes, now_ms),
     })
 }
 
@@ -108,4 +112,10 @@ fn answers(fleet: &Fleet, now_ms: u64) -> Vec<Answer> {
             Some(Answer { workstream: gate.request.issue?, at_ms: closure.closed_ms, by, text: closure.answer })
         })
         .collect()
+}
+
+fn landed_lanes(record: &SessionRecord, pushes: &[Push], now_ms: u64) -> u32 {
+    let Some(repository) = record.task_ref.as_deref().and_then(|task| task.split_once('#')).map(|(repository, _)| repository.rsplit('/').next().unwrap_or(repository)) else { return 0 };
+    let lanes: BTreeSet<&str> = landings::landings_by(pushes, &record.name, record.created_ms, now_ms).filter(|push| push.repository == repository).map(|push| push.branch.as_str()).collect();
+    u32::try_from(lanes.len()).unwrap_or(u32::MAX)
 }

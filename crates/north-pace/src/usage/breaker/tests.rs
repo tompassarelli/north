@@ -15,6 +15,7 @@ fn worker(name: &str, spent: f64, created_ms: u64, p90: f64) -> Spending {
         minutes: 30.0,
         created_ms,
         estimate: Some(Estimate { p50: Some(p90 / 2.0), p90, minutes: 30.0 }),
+        landed: 0,
     }
 }
 
@@ -88,5 +89,24 @@ fn fast(spent: f64) -> Vec<Spending> {
 
 fn told(judged: &Judged) -> Vec<&str> {
     judged.tells.iter().map(|tell| tell.to.as_str()).collect()
+}
+
+fn north_706(name: &str, spent: f64, (p50, p90): (f64, f64), landed: u32) -> Spending {
+    Spending { workstream: "tompassarelli/north#706".to_owned(), box_id: format!("tompassarelli/north#706@{name}"), parent: Some("proxy".to_owned()), minutes: 80.0, estimate: Some(Estimate { p50: Some(p50), p90, minutes: 72.0 }), landed, ..worker(name, spent, 0, p90) }
+}
+
+fn sandbox(wipe: f64, landed: u32) -> Vec<Spending> {
+    vec![north_706("n706-wipe", wipe, (3.62, 11.65), landed), north_706("n706-guards2", 19.07, (9.39, 76.74), 0)]
+}
+
+// KEEP(bug): a session's spend over every box its lead handed it was judged against its brief's one box, so north#706 warned early on 2026-11-08 (north#910)
+#[test]
+fn a_session_handed_more_boxes_is_judged_against_each_and_one_box_past_twice_its_p90_still_warns() {
+    let before = twice(&sandbox(28.53, 1));
+    let after = tick(3_000, &sandbox(29.20, 2), &[], &before.state);
+    let after = tick(4_000, &sandbox(29.20, 2), &[], &after.state);
+    assert!([&before, &after].iter().all(|judged| judged.alerts.is_empty() && judged.tells.is_empty()), "{before:?} {after:?}");
+    let overrun = twice(&sandbox(28.53, 0));
+    assert_eq!(overrun.alerts, ["Budget warning: tompassarelli/north#706@n706-wipe has spent $28.53 against E p50 $3.62, p90 $11.65, 2x its p90."], "{overrun:?}");
 }
 

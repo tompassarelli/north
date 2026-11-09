@@ -36,6 +36,14 @@ pub struct Spending {
     pub minutes: f64,
     pub created_ms: u64,
     pub estimate: Option<Estimate>,
+    pub landed: u32,
+}
+
+impl Spending {
+    fn expected(&self) -> Option<Estimate> {
+        let boxes = f64::from(self.landed) + 1.0;
+        self.estimate.as_ref().map(|estimate| Estimate { p50: estimate.p50.map(|p50| boxes * p50), p90: boxes * estimate.p90, minutes: boxes * estimate.minutes })
+    }
 }
 
 /// A closed gate's answer about a workstream, which clears it when it names a p90.
@@ -114,7 +122,7 @@ pub fn judge(now_ms: u64, sessions: &[Spending], answers: &[Answer], previous: &
 }
 
 fn session(spending: &Spending) -> Session {
-    let expected = spending.estimate.as_ref().map_or(
+    let expected = spending.expected().map_or(
         Expected { p50: Usd(0.0), p90: Usd(0.0), minutes: 0.0, source: EstimateSource::None },
         |estimate| Expected { p50: Usd(estimate.p50.unwrap_or(estimate.p90)), p90: Usd(estimate.p90), minutes: estimate.minutes, source: EstimateSource::Budget(Usd(estimate.p90)) },
     );
@@ -216,7 +224,7 @@ fn new_clears(sessions: &[Spending], answers: &[Answer], previous: &State) -> Ve
         let (Some(seen), Some(&since)) = (previous.tripped(workstream), previous.tripped_at_ms.get(workstream)) else { continue };
         let mut candidates: Vec<Cleared> = Vec::new();
         for newer in sessions.iter().filter(|spending| spending.workstream == workstream && !spending.tom && spending.created_ms > since) {
-            let Some(estimate) = &newer.estimate else { continue };
+            let Some(estimate) = newer.expected() else { continue };
             let others: f64 = boxes(sessions, workstream).into_iter().filter(|(id, _)| **id != newer.box_id).map(|(_, p90)| p90).sum();
             candidates.push(Cleared { workstream: workstream.to_owned(), p90: estimate.p90 + others, by: format!("the brief of {}", newer.name) });
         }
@@ -234,7 +242,7 @@ fn new_clears(sessions: &[Spending], answers: &[Answer], previous: &State) -> Ve
 fn boxes<'a>(sessions: &'a [Spending], workstream: &str) -> BTreeMap<&'a String, f64> {
     let mut boxes: BTreeMap<&String, f64> = BTreeMap::new();
     for spending in sessions.iter().filter(|spending| spending.workstream == workstream && !spending.tom && !spending.lead) {
-        let p90 = spending.estimate.as_ref().map_or(0.0, |estimate| estimate.p90);
+        let p90 = spending.expected().map_or(0.0, |estimate| estimate.p90);
         let held = boxes.entry(&spending.box_id).or_default();
         *held = held.max(p90);
     }
