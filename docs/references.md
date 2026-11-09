@@ -327,6 +327,25 @@ footguns plan and the nix-development skill's regrounding.
 - <a id="bun-lifecycle"></a>**bun, lifecycle scripts**, https://bun.sh/docs/install/lifecycle. Outcome: prior only,
   sizing north#974.
 
+<a id="agent-user-sources"></a>Each source below informed [rationale/agent-user.md](rationale/agent-user.md)
+(north#977), accessed 2026-11-09.
+
+- <a id="gvisor"></a>**gVisor, runsc** (release 20260406), https://gvisor.dev/docs/. Measured under depbox's workload:
+  about 40% slower cold builds and 50% slower tests. Outcome: rejected.
+- <a id="github-installation-token"></a>**GitHub REST API, create an installation access token for an app**,
+  https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app. A token may be limited
+  to a subset of repositories and permissions and lives one hour. Outcome: adopted for the credential broker (north#981).
+- <a id="github-rulesets"></a>**GitHub, available rules for rulesets**,
+  https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets.
+  Outcome: adopted (north#973, north#982).
+- <a id="cargo-deny"></a>**cargo-deny**, https://github.com/EmbarkStudios/cargo-deny (MIT OR Apache-2.0). Outcome:
+  adopted as the landing audit gate (north#983).
+- <a id="cargo-vet"></a>**cargo-vet**, https://mozilla.github.io/cargo-vet/. Outcome: measured before adoption
+  (north#983).
+- <a id="systemd-exec"></a>**systemd.exec, DynamicUser and credentials**,
+  https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html. Outcome: credentials adopted for the
+  broker; a dynamic user per session rejected.
+
 ### Scheduling and capacity
 
 Sources behind [docs/rationale/capacity-scheduler.md](rationale/capacity-scheduler.md#prior-art), which states the
