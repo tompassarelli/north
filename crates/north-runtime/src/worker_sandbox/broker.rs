@@ -110,9 +110,7 @@ pub fn ensure() {
         return;
     }
     let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
-    let runtime = path.parent().and_then(Path::parent).unwrap_or(Path::new("/"));
-    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime.display())).args(["--unit", UNIT, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
-    if started.is_ok_and(|status| status.success()) {
+    if start(&north, UNIT) {
         for _ in 0..40 {
             if UnixStream::connect(&path).is_ok() {
                 return;
@@ -122,7 +120,13 @@ pub fn ensure() {
     }
 }
 
-/// Serves requests until its socket is replaced or removed, or the promoted north is another one and no request is running.
+/// Starts `north` as the broker in the transient user service `unit`; whether it started.
+fn start(north: &Path, unit: &str) -> bool {
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    started.is_ok_and(|status| status.success())
+}
+
+/// Serves requests until its socket is replaced or removed, then exits once the requests it took are done. Once the promoted north is another one it exits when idle, and while requests run it starts the promoted north as its successor in a unit of its own, which takes the socket over: on a busy host the broker was never idle, so on 2026-11-10 it kept running a north three promotions old and new requests never met a landed fix (north#1023).
 pub fn serve() -> std::process::ExitCode {
     let path = socket();
     let Some(directory) = path.parent() else { return std::process::ExitCode::from(2) };
@@ -143,7 +147,16 @@ pub fn serve() -> std::process::ExitCode {
     };
     let own = inode(&path);
     let running = std::sync::Arc::new(AtomicUsize::new(0));
+    let mut handed_over = false;
     loop {
+        let idle = running.load(Ordering::SeqCst) == 0;
+        if inode(&path) != own {
+            if idle {
+                return std::process::ExitCode::SUCCESS;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        }
         match listener.accept() {
             Ok((stream, _)) => {
                 let (north, running) = (north.clone(), running.clone());
@@ -156,8 +169,16 @@ pub fn serve() -> std::process::ExitCode {
                 });
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if inode(&path) != own || (running.load(Ordering::SeqCst) == 0 && north_base::platform::north_binary::superseded()) {
-                    return std::process::ExitCode::SUCCESS;
+                if north_base::platform::north_binary::superseded() {
+                    if idle {
+                        return std::process::ExitCode::SUCCESS;
+                    }
+                    if !handed_over {
+                        handed_over = true;
+                        if !start(&north_base::platform::north_binary::north_binary(), &format!("{UNIT}-{}", std::process::id())) {
+                            eprintln!("north worker-sandbox broker: cannot start the promoted north as a successor, so this one serves until it is idle");
+                        }
+                    }
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
