@@ -107,7 +107,6 @@ mod tests {
     use crate::fleet::sender::Sender;
     use crate::fleet::store::RowKind;
 
-    // KEEP(bug): at 4:35 PM on 2026-11-09 a tick take-over archived broker-94 while a row delivery was reviving it, the revive wrote back the old launch the take-over had just retired, and the session showed as exited (north#1017)
     #[test]
     fn a_take_over_racing_a_revive_leaves_one_running_session_in_its_own_conversation() {
         let home = tempfile::tempdir().unwrap();
