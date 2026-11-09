@@ -1,5 +1,6 @@
-//! The dispatch and spend figures of the window: per task category and model mix, its runs, first tries and the
-//! cost of a closed box, and the spend of every role by model and effort.
+//! The dispatch and spend figures of the window: per task category and model mix, its runs, first tries, the cost
+//! of a first-try landing and of a closed box, the boxes reworked within 48 h, and the spend of every role by model
+//! and effort.
 use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
@@ -22,7 +23,9 @@ pub struct Row {
     pub usd: f64,
     pub first_tries: usize,
     pub first_tries_landed: usize,
+    pub usd_per_first_try_landed: Option<f64>,
     pub closed: usize,
+    pub reworked: usize,
     pub usd_per_closed: Option<f64>,
     /// The mix whose closed box costs most in a category where more than one mix closed a box.
     pub most_per_box: bool,
@@ -70,6 +73,7 @@ impl Mixes {
         for cell in &report.cells {
             let row = entry(&mut rows, &cell.category, &cell.tier);
             row.closed = cell.closed;
+            row.reworked = cell.reworked;
             row.usd_per_closed = Some(cell.usd_per_closed());
         }
         if let Ok(attempts) = &screen.attempts {
@@ -79,6 +83,9 @@ impl Mixes {
                 row.first_tries += 1;
                 row.first_tries_landed += usize::from(attempt.succeeded);
             }
+        }
+        for row in rows.values_mut() {
+            row.usd_per_first_try_landed = (row.first_tries_landed > 0).then(|| row.usd / row.first_tries_landed as f64);
         }
         let mut rows: Vec<Row> = rows.into_values().collect();
         for row in &mut rows {

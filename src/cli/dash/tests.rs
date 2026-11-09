@@ -65,6 +65,58 @@ fn run(account: &str, mix: (&str, &str), started: &str, usd: f64) -> crate::ledg
     crate::ledger::WindowRun { agent: "x".to_owned(), role: "worker".to_owned(), category: "tooling".to_owned(), tier: String::new(), model: mix.0.to_owned(), effort: mix.1.to_owned(), account: account.to_owned(), started: started.to_owned(), usd }
 }
 
+fn feature_run(agent: &str, tier: &str, model: &str, effort: &str, started: &str, usd: f64) -> crate::ledger::WindowRun {
+    crate::ledger::WindowRun { agent: agent.to_owned(), role: "worker".to_owned(), category: "feature".to_owned(), tier: tier.to_owned(), model: model.to_owned(), effort: effort.to_owned(), account: "claude-b".to_owned(), started: started.to_owned(), usd }
+}
+
+fn attempt(agent: &str, succeeded: bool) -> super::super::scoreboard::workers::Attempt {
+    super::super::scoreboard::workers::Attempt {
+        agent: agent.to_owned(),
+        category: "feature".to_owned(),
+        started: 0,
+        ended: 0,
+        succeeded,
+        repos: std::collections::BTreeSet::new(),
+        cause: crate::threads::attribution::Cause::Worker,
+        deferred: false,
+    }
+}
+
+#[test]
+fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework_within_48_h_by_model_and_effort() {
+    let started = "2026-11-09T01:00:00Z";
+    let runs = vec![
+        feature_run("s1", "sonnet-high", "claude-sonnet-5-5", "high", started, 6.0),
+        feature_run("s2", "sonnet-high", "claude-sonnet-5-5", "high", started, 4.0),
+        feature_run("o1", "opus-medium", "claude-opus-5-5", "medium", started, 20.0),
+    ];
+    let mut sonnet = crate::ledger::closed::Cell::priced("sonnet-high", "feature", 2, 10.0);
+    sonnet.reworked = 1;
+    let report = crate::ledger::ClosedReport { cells: vec![sonnet, crate::ledger::closed::Cell::priced("opus-medium", "feature", 1, 20.0)], closed: 3, ..crate::ledger::ClosedReport::default() };
+    let screen = Screen {
+        window: "24h".to_owned(),
+        now: 0,
+        bars: Err(String::new()),
+        accounts: Err(String::new()),
+        runs: Ok((runs, report)),
+        attempts: Ok(vec![attempt("s1", true), attempt("s2", false), attempt("o1", true)]),
+        habits: Err(String::new()),
+        week_runs: Err(String::new()),
+        billing: Err(String::new()),
+    };
+    let mixes = super::dispatch::Mixes::of(&screen).unwrap();
+    let sonnet = mixes.rows.iter().find(|row| row.mix == "claude-sonnet-5-5 high").expect("the sonnet feature row");
+    assert_eq!((sonnet.first_tries_landed, sonnet.closed, sonnet.reworked), (1, 2, 1));
+    assert_eq!(sonnet.usd_per_first_try_landed, Some(10.0));
+    let text = render::screen(&screen, false);
+    assert!(text.contains("Features, the routing decision"), "{text}");
+    let line = text.lines().find(|line| line.starts_with("claude-sonnet-5-5 high")).expect("the sonnet feature row");
+    assert!(line.contains("1 of 2") && line.contains("$10.00") && line.contains("$5.00"), "{line}");
+    let opus = text.lines().find(|line| line.starts_with("claude-opus-5-5 medium")).expect("the opus feature row");
+    assert!(opus.contains("0 of 1") && opus.contains("$20.00"), "{opus}");
+    assert!(line.chars().count() <= 120 && opus.chars().count() <= 120, "{line}\n{opus}");
+}
+
 #[test]
 fn a_class_uses_the_share_of_a_week_its_dollars_are_of_the_week_sized_from_the_spend_so_far_and_api_credit_runs_stay_apart() {
     let resets = Timestamp::from_unix_seconds(1_794_000_000);

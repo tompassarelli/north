@@ -3,7 +3,7 @@
 //! pass, fail and warning marks are coloured.
 use super::Screen;
 use super::billing::{self, Billing, Machine};
-use super::dispatch::Mixes;
+use super::dispatch::{Mixes, Row};
 use super::ready::Verdict;
 use super::spend::Spend;
 use crate::foundation::clock::Timestamp;
@@ -14,6 +14,7 @@ const COLUMNS: usize = 120;
 const SPEND_ROWS: usize = 5;
 const HABIT_ROWS: usize = 5;
 const NAMED_FAILURES: usize = 1;
+const FEATURE: &str = "feature";
 /// The lines the workers table needs to show a few rows, below which the passing targets fold into one line.
 const WORKERS_MIN: usize = 9;
 
@@ -339,6 +340,39 @@ fn first_try(landed: usize, tries: usize) -> String {
     }
 }
 
+fn reworked(row: &Row) -> String {
+    match row.closed {
+        0 => "-".to_owned(),
+        closed => format!("{} of {closed}", row.reworked),
+    }
+}
+
+fn closed_box_cost(row: &Row) -> String {
+    row.usd_per_closed.map_or_else(|| "-".to_owned(), |usd| format!("{}{}", money(usd), if row.most_per_box { " most per box" } else { "" }))
+}
+
+fn features(rows: &[&Row]) -> Section {
+    let mut section = Section::headed(
+        "Features, the routing decision",
+        "per model and effort, the cost of each first-try landing and the closed boxes reworked within 48 h of landing".to_owned(),
+    );
+    let mut table = vec![header(&["model and effort", "runs", "spend", "first try landed", "cost each", "closed", "rework 48 h", "per closed box"])];
+    table.extend(rows.iter().map(|row| {
+        vec![
+            row.mix.clone(),
+            row.runs.to_string(),
+            money(row.usd),
+            first_try(row.first_tries_landed, row.first_tries),
+            row.usd_per_first_try_landed.map_or_else(|| "-".to_owned(), money),
+            row.closed.to_string(),
+            reworked(row),
+            closed_box_cost(row),
+        ]
+    }));
+    grid(&table, &[Align::Left, Align::Right, Align::Right, Align::Right, Align::Right, Align::Right, Align::Left, Align::Left]).into_iter().for_each(|line| section.push(line));
+    section
+}
+
 fn workers(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: usize) -> Section {
     let title = format!("Workers: runs started in the last {window} by task category, and the boxes they closed in it");
     let mixes = match mixes {
@@ -356,17 +390,20 @@ fn workers(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: u
     if let Err(why) = &screen.attempts {
         section.unread(format!("first tries unread: {why}"));
     }
+    let (feature, others): (Vec<&Row>, Vec<&Row>) = mixes.rows.iter().partition(|row| row.category == FEATURE);
+    if !feature.is_empty() {
+        section.append(features(&feature));
+    }
     let room = room.saturating_sub(section.lines.len() + 2);
-    let shown = if mixes.rows.len() > room { room.saturating_sub(1) } else { mixes.rows.len() };
+    let shown = if others.len() > room { room.saturating_sub(1) } else { others.len() };
     let mut rows = vec![header(&["category", "model and effort", "runs", "spend", "first try landed", "closed", "per closed box"])];
     let mut previous = "";
-    for row in &mixes.rows[..shown] {
+    for row in &others[..shown] {
         let category = if row.category == previous { String::new() } else { row.category.clone() };
         previous = &row.category;
-        let per_closed = row.usd_per_closed.map_or_else(|| "-".to_owned(), |usd| format!("{}{}", money(usd), if row.most_per_box { " most per box" } else { "" }));
-        rows.push(vec![category, row.mix.clone(), row.runs.to_string(), money(row.usd), first_try(row.first_tries_landed, row.first_tries), row.closed.to_string(), per_closed]);
+        rows.push(vec![category, row.mix.clone(), row.runs.to_string(), money(row.usd), first_try(row.first_tries_landed, row.first_tries), row.closed.to_string(), closed_box_cost(row)]);
     }
-    let rest = &mixes.rows[shown..];
+    let rest = &others[shown..];
     if !rest.is_empty() {
         rows.push(vec![format!("{} more model and effort rows", rest.len()), String::new(), rest.iter().map(|row| row.runs).sum::<usize>().to_string(), money(rest.iter().map(|row| row.usd).sum())]);
     }
