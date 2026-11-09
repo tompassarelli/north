@@ -72,11 +72,8 @@ fn adopted(name: &str, sent: NorthResult<Marks>) -> Vec<String> {
 }
 
 /// Every `[hosts.NAME]` but this host's that declares an `ssh` or `deploy_ssh` destination, as (name, destination).
-fn far_hosts(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<(String, String)> {
+pub(super) fn far_hosts(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<(String, String)> {
     let hosts = cfg.get("hosts").and_then(toml_edit::Item::as_table_like);
     let declared = hosts.into_iter().flat_map(|hosts| hosts.iter());
     declared.filter(|(name, _)| *name != here).filter_map(|(name, host)| Some((name.to_owned(), gate::ssh_destination(["ssh", "deploy_ssh"].iter().find_map(|key| host.get(key)?.as_str())?)?.to_owned()))).collect()
 }
-
-#[cfg(test)]
-mod tests;

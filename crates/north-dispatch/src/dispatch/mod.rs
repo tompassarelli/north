@@ -20,6 +20,7 @@ pub use cloud::{Launch as CloudLaunch, Login, autoland as cloud_autoland, branch
 pub use fleets::holder as task_holder;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, boxless_launch_refusal, picked_tier, tier_reason, untasked};
+pub use pause::standing as paused;
 pub use survey::evidence as arm_evidence;
 pub use record::{Record as LaunchRecord, directory as launch_directory, read as launch_records};
 pub use tier::{ARM_WINDOW, Effort, Evidence, Tier, evidenced, seed_cell};
