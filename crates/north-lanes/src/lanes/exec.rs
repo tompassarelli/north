@@ -32,6 +32,16 @@ pub fn run(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<
         return 2;
     }
     let confined = confined && std::env::var_os(DEPBOX).is_none_or(|depbox| depbox.is_empty());
+    let program_checkout = std::fs::canonicalize(&program[0]).ok().filter(|_| program[0].contains('/')).and_then(|path| path.parent().and_then(toplevel));
+    let lane = match (lane, program_checkout) {
+        (Some(lane), Some(owner)) if std::fs::canonicalize(&lane).ok().as_ref() != Some(&owner) => {
+            eprintln!("lane exec: {} is built in {}, not in {}; name that checkout with --lane or run it with `north depbox run -- {}`", program[0], owner.display(), lane.display(), program.join(" "));
+            return 1;
+        }
+        (Some(lane), _) => Some(lane),
+        (None, Some(owner)) => Some(owner),
+        (None, None) => None,
+    };
     if confined && let Some(lane) = lane.or_else(|| toplevel(Path::new("."))) {
         match changed_locks(&lane) {
             Ok(changed) if changed.is_empty() => {}
@@ -70,7 +80,39 @@ fn only_workspace_packages_differ(checkout: &Path, path: &str) -> bool {
         return false;
     }
     let (Ok(base), Ok(lane)) = (git(checkout, &["show", &format!("origin/main:{path}")]), std::fs::read_to_string(checkout.join(path))) else { return false };
-    outside_packages(&base.join("\n")) == outside_packages(&lane)
+    let base = base.join("\n");
+    outside_packages(&base) == outside_packages(&lane) && local_packages(&lane).difference(&local_packages(&base)).all(|name| workspace_names(checkout).is_some_and(|members| members.contains(name)))
+}
+
+fn local_packages(lock: &str) -> std::collections::BTreeSet<String> {
+    lock.split("[[package]]").skip(1).filter(|block| !block.lines().any(|line| line.starts_with("source = "))).filter_map(|block| block.lines().find_map(|line| line.strip_prefix("name = ")).map(|name| name.trim_matches('"').to_owned())).collect()
+}
+
+fn workspace_names(checkout: &Path) -> Option<std::collections::BTreeSet<String>> {
+    let inside = std::fs::canonicalize(checkout).ok()?;
+    let name_of = |directory: &Path| -> Option<String> {
+        let manifest: toml_edit::DocumentMut = std::fs::read_to_string(directory.join("Cargo.toml")).ok()?.parse().ok()?;
+        manifest.get("package")?.get("name")?.as_str().map(str::to_owned)
+    };
+    let root: toml_edit::DocumentMut = std::fs::read_to_string(inside.join("Cargo.toml")).ok()?.parse().ok()?;
+    let mut names: std::collections::BTreeSet<String> = name_of(&inside).into_iter().collect();
+    let members = root.get("workspace").and_then(|workspace| workspace.get("members")).and_then(toml_edit::Item::as_array);
+    for member in members.into_iter().flatten() {
+        let member = member.as_str()?;
+        let directories: Vec<PathBuf> = match member.strip_suffix("/*") {
+            Some(parent) if !parent.contains('*') => std::fs::read_dir(inside.join(parent)).ok()?.flatten().map(|entry| entry.path()).collect(),
+            _ if member.contains('*') => return None,
+            _ => vec![inside.join(member)],
+        };
+        for directory in directories {
+            let Ok(directory) = std::fs::canonicalize(directory) else { continue };
+            if !directory.starts_with(&inside) {
+                return None;
+            }
+            names.extend(name_of(&directory));
+        }
+    }
+    Some(names)
 }
 
 fn outside_packages(lock: &str) -> std::collections::BTreeSet<(String, String, String, String)> {

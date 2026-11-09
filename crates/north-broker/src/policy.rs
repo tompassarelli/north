@@ -47,7 +47,8 @@ impl Policy {
     }
 
     pub fn for_user(uid: u32) -> Self {
-        let github = ["agent", "lander"].into_iter().map(|app| (app.to_owned(), Ceiling::default())).collect();
+        let lander = Ceiling { repositories: None, permissions: Some(Permissions::from([("contents".to_owned(), "write".to_owned()), ("workflows".to_owned(), "write".to_owned()), ("metadata".to_owned(), "read".to_owned())])) };
+        let github = BTreeMap::from([("agent".to_owned(), Ceiling::default()), ("lander".to_owned(), lander)]);
         let proxy = BTreeMap::from([("digitalocean".to_owned(), vec!["GET /v2/customers/my/balance".to_owned()])]);
         Self { callers: vec![Caller { uid, github, proxy }] }
     }
@@ -83,6 +84,9 @@ fn ceiling_of(table: &Table, uid: u32, app: &str) -> Result<Ceiling, String> {
             Some(granted)
         }
     };
+    if app == "lander" && permissions.is_none() {
+        return Err(format!("caller {uid}: github.lander has no permissions list; the lander App is never granted its whole installation by asking for nothing"));
+    }
     Ok(Ceiling { repositories, permissions })
 }
 

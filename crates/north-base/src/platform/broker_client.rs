@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -88,8 +89,10 @@ fn connect() -> Result<UnixStream, String> {
     if let Some(path) = std::env::var_os(SOCKET_ENV).filter(|path| !path.is_empty()) {
         return UnixStream::connect(&path).map_err(|error| format!("the broker socket {} does not answer: {error}", Path::new(&path).display()));
     }
-    if let Ok(stream) = UnixStream::connect(SYSTEM_SOCKET) {
-        return Ok(stream);
+    match UnixStream::connect(SYSTEM_SOCKET) {
+        Ok(stream) => return Ok(stream),
+        Err(error) if Path::new(SYSTEM_SOCKET).exists() => return Err(format!("the broker socket {SYSTEM_SOCKET} exists and does not answer this user: {error}")),
+        Err(_) => {}
     }
     let socket = user_socket().ok_or_else(|| format!("no broker answers at {SYSTEM_SOCKET} and XDG_RUNTIME_DIR is unset"))?;
     if let Ok(stream) = UnixStream::connect(&socket) {
@@ -102,7 +105,10 @@ fn connect() -> Result<UnixStream, String> {
 fn start_user_broker(socket: &Path) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
     let north = std::env::current_exe().map_err(|error| format!("cannot find the north binary: {error}"))?;
-    Command::new(north).args(["broker", "serve", "--user"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().map_err(|error| format!("cannot start the broker: {error}"))?;
+    let directory = socket.parent().ok_or_else(|| format!("{} has no directory", socket.display()))?;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
+    let log = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(directory.join("broker.log")).map_err(|error| format!("cannot open the broker log: {error}"))?;
+    Command::new(north).args(["broker", "serve", "--user"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(log).process_group(0).spawn().map_err(|error| format!("cannot start the broker: {error}"))?;
     let started = Instant::now();
     while started.elapsed() < START_LIMIT {
         if UnixStream::connect(socket).is_ok() {

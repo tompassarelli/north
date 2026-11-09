@@ -59,14 +59,24 @@ fn declared_for_broker(secrets: &std::path::Path, file: &std::path::Path) -> Res
 }
 
 fn decrypt(secrets: &std::path::Path, name: &str) -> Result<String, String> {
-    let file = [secrets.join(name), secrets.join("nexus").join(name)].into_iter().find(|path| path.exists()).ok_or_else(|| format!("no secret {name} under {}", secrets.display()))?;
-    declared_for_broker(secrets, &file)?;
-    let mut command = Command::new("sops");
-    command.args(["-d", "--output-type", "json"]).arg(&file);
-    match process::run_command_within(command, None, DECRYPT_LIMIT) {
-        Some(output) if output.status.success() => String::from_utf8(output.stdout).map_err(|_| format!("decrypted {name} is not text")),
-        _ => Err(format!("could not decrypt {name}")),
+    let candidates: Vec<PathBuf> = [secrets.join("nexus").join(name), secrets.join(name)].into_iter().filter(|path| path.exists()).collect();
+    if candidates.is_empty() {
+        return Err(format!("no secret {name} under {}", secrets.display()));
     }
+    let mut last = format!("could not decrypt {name}");
+    for file in candidates {
+        if let Err(why) = declared_for_broker(secrets, &file) {
+            last = why;
+            continue;
+        }
+        let mut command = Command::new("sops");
+        command.args(["-d", "--output-type", "json"]).arg(&file);
+        match process::run_command_within(command, None, DECRYPT_LIMIT) {
+            Some(output) if output.status.success() => return String::from_utf8(output.stdout).map_err(|_| format!("decrypted {name} is not text")),
+            _ => last = format!("could not decrypt {name}"),
+        }
+    }
+    Err(last)
 }
 
 pub fn parse(text: &str) -> Option<BTreeMap<String, String>> {

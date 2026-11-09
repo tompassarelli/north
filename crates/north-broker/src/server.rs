@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,7 +16,9 @@ use crate::policy::{Caller, Permissions, Policy, Rules};
 use crate::proxy::{Provider, providers, split};
 
 const REUSE_MARGIN: i64 = 300;
-const READ_LIMIT: Duration = Duration::from_secs(10);
+const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
+const MAX_CONNECTIONS: usize = 64;
+const MAX_PER_UID: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Peer {
@@ -40,6 +43,7 @@ pub struct Broker {
     minter: Minter,
     providers: Vec<Provider>,
     state: Mutex<State>,
+    slots: Mutex<HashMap<u32, usize>>,
     pub active: AtomicUsize,
     pub last: Mutex<Instant>,
 }
@@ -50,23 +54,67 @@ impl Broker {
     }
 
     pub fn with(policy: Policy, minter: Minter, providers: Vec<Provider>) -> Self {
-        Self { policy, minter, providers, state: Mutex::default(), active: AtomicUsize::new(0), last: Mutex::new(Instant::now()) }
+        Self { policy, minter, providers, state: Mutex::default(), slots: Mutex::default(), active: AtomicUsize::new(0), last: Mutex::new(Instant::now()) }
     }
 
     pub fn serve(self: &Arc<Self>, listener: &UnixListener) {
-        for stream in listener.incoming().flatten() {
-            let broker = Arc::clone(self);
-            std::thread::spawn(move || broker.connection(&stream));
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            };
+            let Some(caller) = peer(&stream) else {
+                let _ = write_response(&stream, &Response::refusal(403, "the caller's uid could not be read from the socket"));
+                continue;
+            };
+            if self.policy.caller(caller.uid).is_none() {
+                log(caller, "-", "", "refused: no policy for this uid");
+                let _ = write_response(&stream, &Response::refusal(403, &format!("uid {} has no broker policy", caller.uid)));
+                continue;
+            }
+            if !self.admit(caller.uid) {
+                let _ = write_response(&stream, &Response::refusal(503, "too many open connections"));
+                continue;
+            }
+            let (broker, served) = (Arc::clone(self), stream.try_clone());
+            let spawned = std::thread::Builder::new().spawn(move || {
+                broker.connection(&stream, caller);
+                broker.release(caller.uid);
+            });
+            if spawned.is_err() {
+                self.release(caller.uid);
+                if let Ok(stream) = served {
+                    let _ = write_response(&stream, &Response::refusal(503, "the broker has no thread to answer with"));
+                }
+            }
         }
     }
 
-    fn connection(&self, stream: &UnixStream) {
+    fn admit(&self, uid: u32) -> bool {
+        let mut slots = self.slots.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (total, mine) = (slots.values().sum::<usize>(), slots.get(&uid).copied().unwrap_or(0));
+        if total >= MAX_CONNECTIONS || mine >= MAX_PER_UID {
+            return false;
+        }
+        slots.insert(uid, mine + 1);
+        true
+    }
+
+    fn release(&self, uid: u32) {
+        let mut slots = self.slots.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(count) = slots.get_mut(&uid) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                slots.remove(&uid);
+            }
+        }
+    }
+
+    fn connection(&self, stream: &UnixStream, caller: Peer) {
         self.active.fetch_add(1, Ordering::SeqCst);
-        let _ = stream.set_read_timeout(Some(READ_LIMIT));
-        let answer = match (peer(stream), read_request(stream)) {
-            (Some(peer), Ok(request)) => self.handle(peer, &request, Timestamp::now().unix_seconds()),
-            (None, _) => Response::refusal(403, "the caller's uid could not be read from the socket"),
-            (_, Err(error)) => Response::refusal(400, &format!("unreadable request: {error}")),
+        let answer = match read_request(Deadline { stream, until: Instant::now() + REQUEST_DEADLINE }) {
+            Ok(request) => self.handle(caller, &request, Timestamp::now().unix_seconds()),
+            Err(error) => Response::refusal(400, &format!("unreadable request: {error}")),
         };
         let _ = write_response(stream, &answer);
         *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Instant::now();
@@ -75,7 +123,7 @@ impl Broker {
 
     pub fn handle(&self, peer: Peer, request: &Request, now: i64) -> Response {
         let Some(caller) = self.policy.caller(peer.uid) else {
-            log(peer, "-", &format!("{} {}", request.method, route(&request.target)), "refused: no policy for this uid");
+            log(peer, "-", &format!("{:?}", route(&request.target)), "refused: no policy for this uid");
             return Response::refusal(403, &format!("uid {} has no broker policy", peer.uid));
         };
         let body: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
@@ -93,7 +141,7 @@ impl Broker {
         let app_name = body["app"].as_str().unwrap_or_default();
         let repositories: Vec<String> = body["repositories"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
         let permissions: Permissions = body["permissions"].as_object().into_iter().flatten().filter_map(|(name, level)| Some((name.clone(), level.as_str()?.to_owned()))).collect();
-        let what = format!("github token app={app_name} repositories={} permissions={}", repositories.join(","), permissions.iter().map(|(name, level)| format!("{name}:{level}")).collect::<Vec<_>>().join(","));
+        let what = format!("github token app={app_name:?} repositories={repositories:?} permissions={permissions:?}");
         let granted = (|| {
             let Some(application) = app(app_name) else { return Err((400, format!("unknown app {app_name:?}"))) };
             let ceiling = caller.github.get(app_name).ok_or_else(|| (403, format!("uid {} may not receive {app_name} tokens", peer.uid)))?;
@@ -103,7 +151,7 @@ impl Broker {
                 return Ok(minted);
             }
             let minted = self.minter.mint(application, &scope, now).map_err(|why| (502, why))?;
-            self.remember(&key, peer.uid, app_name, &minted);
+            self.remember(&key, peer.uid, app_name, &minted, now);
             Ok(minted)
         })();
         match granted {
@@ -118,8 +166,11 @@ impl Broker {
         (Timestamp::parse_rfc3339(&minted.expires_at)?.unix_seconds() - now > REUSE_MARGIN).then(|| minted.clone())
     }
 
-    fn remember(&self, key: &str, uid: u32, app_name: &str, minted: &Minted) {
+    fn remember(&self, key: &str, uid: u32, app_name: &str, minted: &Minted, now: i64) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.held.retain(|_, held| Timestamp::parse_rfc3339(&held.minted.expires_at).is_some_and(|expires| expires.unix_seconds() > now));
+        let State { held, reused } = &mut *state;
+        reused.retain(|_, token| held.contains_key(&digest(token)));
         state.held.insert(digest(&minted.token), Held { uid, app: app_name.to_owned(), minted: minted.clone() });
         state.reused.insert(key.to_owned(), minted.token.clone());
     }
@@ -137,7 +188,7 @@ impl Broker {
     }
 
     fn proxy(&self, caller: &Caller, request: &Request, target: &str) -> (Response, String) {
-        let what = format!("{} {}", request.method, route(target));
+        let what = format!("{:?} {:?}", request.method, route(target));
         let Some((name, path, query)) = split(target) else { return (Response::refusal(404, "no such route"), what) };
         let Some(provider) = self.providers.iter().find(|provider| provider.name == name) else { return (Response::refusal(404, &format!("no provider {name}")), what) };
         let rules = match caller.proxy.get(name).map(|rules| Rules::new(rules)) {
@@ -146,6 +197,22 @@ impl Broker {
             None => return (Response::refusal(403, &format!("this caller has no {name} allowlist; {} /{path} is refused", request.method)), what),
         };
         (provider.forward(&self.minter.source, &rules, request, path, query), what)
+    }
+}
+
+struct Deadline<'a> {
+    stream: &'a UnixStream,
+    until: Instant,
+}
+
+impl Read for Deadline<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.until.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(remaining))?;
+        (&*self.stream).read(buffer)
     }
 }
 

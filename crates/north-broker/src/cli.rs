@@ -24,7 +24,7 @@ serve         run it. As a system service (the default) it listens on /run/north
 github-token  print an installation token for the app, limited to the repositories and permissions named (metadata read is
               always added); without --repo or --permission the caller's whole ceiling is granted
 inspect       read a token on stdin and print the repositories and permissions the broker granted it
-Every request is logged to stderr with the caller's uid, pid and systemd unit and what was granted. Clients take the socket
+Every request is logged to stderr with the caller's uid, pid and systemd unit and what was granted; the user broker's stderr is broker.log beside its socket. Clients take the socket
 from NORTH_BROKER_SOCKET, else /run/north-broker/broker.sock, else their own ${XDG_RUNTIME_DIR}/north-broker/broker.sock.
 A cloud call goes to the same socket as plain HTTP at /hcloud/..., /digitalocean/... or /cloudflare/... with any placeholder
 token; the broker forwards it only if the caller's allowlist names the method and path, and never returns the real token.";
@@ -122,11 +122,20 @@ fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>) -> Result
     let (socket, broker, idle) = if user {
         let socket = socket.or_else(broker_client::user_socket).ok_or("XDG_RUNTIME_DIR is unset")?;
         let uid = rustix::process::getuid().as_raw();
-        (socket, Broker::new(Policy::for_user(uid), Source::south()), Some(USER_IDLE))
+        let source = Source::south();
+        if let Source::Sops(secrets) = &source {
+            use std::os::unix::fs::MetadataExt;
+            let owner = std::fs::metadata(secrets).map(|meta| meta.uid()).map_err(|error| format!("cannot read {}: {error}", secrets.display()))?;
+            if owner != uid {
+                return Err(format!("{} belongs to uid {owner}, not uid {uid}; the user broker serves only the operator that owns the secrets", secrets.display()));
+            }
+        }
+        (socket, Broker::new(Policy::for_user(uid), source), Some(USER_IDLE))
     } else {
         let policy = Policy::load(&policy.unwrap_or_else(|| PathBuf::from(DEFAULT_POLICY)))?;
         (socket.unwrap_or_else(|| PathBuf::from(SYSTEM_SOCKET)), Broker::new(policy, Source::systemd()?), None)
     };
+    let _ = rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable);
     let Some(listener) = bind(&socket, user)? else { return Ok(()) };
     let broker = Arc::new(broker);
     if let Some(limit) = idle {
