@@ -135,6 +135,18 @@ fn scan_roots(roots: &[PathBuf]) -> Result<Vec<Finding>, Failure> {
 }
 
 fn repository_name(root: &Path) -> String {
+    let origin = git::run_without_local_env(root, &["remote", "get-url", "origin"])
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
+    if let Some(name) = origin
+        .as_deref()
+        .and_then(|url| url.rsplit(['/', ':']).next())
+        .map(|name| name.trim_end_matches(".git"))
+        .filter(|name| !name.is_empty())
+    {
+        return name.to_owned();
+    }
     let mut container = root.parent().unwrap_or(root);
     if matches!(container.file_name().and_then(|name| name.to_str()), Some("worktrees" | "pins")) {
         container = container.parent().unwrap_or(container);
@@ -261,3 +273,7 @@ fn logical_cwd() -> PathBuf {
         .filter(|logical| logical.is_absolute() && logical.canonicalize().ok() == physical.canonicalize().ok())
         .unwrap_or(physical)
 }
+
+#[cfg(test)]
+#[path = "hardcoded_paths_tests.rs"]
+mod tests;
