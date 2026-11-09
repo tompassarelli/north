@@ -63,7 +63,7 @@ fn clock_after(text: &str, now_ms: u64) -> Option<u64> {
     Some(if today > now_ms { today } else { today + DAY_MS })
 }
 
-/// Registers a `usage:` wait for each session whose last turn ended on the account's limit and that
+/// Registers a `usage:` wait for each session that stopped on the account's limit and that
 /// holds none yet; a session `north fleet stop` ended is left alone.
 pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> Vec<Parked> {
     let waits = fleet.waits();
@@ -74,7 +74,7 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
         }
         let Ok(follower) = fleet.follow_recent(&record.name) else { continue };
         let transcript = follower.transcript();
-        let Some(limit) = transcript.limit.as_ref().filter(|_| ended_on_limit(transcript)) else { continue };
+        let Some(limit) = transcript.limit.as_ref().filter(|_| stopped_on_limit(transcript, !fleet.running(&record) && !record.ended())) else { continue };
         let until_ms = lifts_at_ms(limit, now_ms, || resets.reset_ms(&record.account, now_ms));
         match park(&waits, &record, until_ms) {
             Ok(done) => parked.push(done),
@@ -87,6 +87,11 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
 /// Whether the turn the transcript ends on stopped at the account's usage limit.
 pub fn ended_on_limit(transcript: &Transcript) -> bool {
     transcript.limit.is_some() && transcript.status != Status::Working && transcript.entries.last().is_some_and(|entry| entry.kind == EntryKind::TurnEnd)
+}
+
+/// Whether the session stopped at the account's usage limit: its turn ended on it, or its host ended with the limit recorded and no turn end, as when the limit lands in the middle of a command.
+pub fn stopped_on_limit(transcript: &Transcript, host_lost: bool) -> bool {
+    transcript.limit.is_some() && (ended_on_limit(transcript) || host_lost)
 }
 
 /// Registers the `usage:ACCOUNT@TIME` wait that revives the session once its account's window lifts.

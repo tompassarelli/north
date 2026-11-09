@@ -13,7 +13,7 @@ use crate::router::pricing::{PriceTable, TokenUse};
 use super::books::{Books, Landing, SessionSpend};
 use super::gate_lifecycle::GatePhase;
 use super::gates::{Closure, Gate, GateBook, GateRequest};
-use super::model::{Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
+use super::model::{Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
 use super::receipts::ReceiptBook;
 use super::roster::Roster;
 use super::runtime::{HostSpec, Instructions, Opening, Runtime, new_uuid};
@@ -188,6 +188,7 @@ impl Runtime for Stream {
                 transcript.active_turn = None;
                 push(transcript, EntryKind::TurnEnd, frame["subtype"].as_str().unwrap_or("result").to_owned());
             }
+            Some("rate_limit_event") if frame["rate_limit_info"]["status"] == "rejected" => transcript.limit = Some(UsageLimit { resets_at_s: frame["rate_limit_info"]["resetsAt"].as_u64(), message: None }),
             _ if transcript.status == Status::Starting => transcript.status = Status::Idle,
             _ => {}
         }

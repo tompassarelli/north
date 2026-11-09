@@ -129,6 +129,10 @@ pub fn final_report(entries: &[Entry]) -> Option<&str> {
     (!instructed).then(|| entries[at].text.as_str())
 }
 
+pub fn reported_done(entries: &[Entry]) -> bool {
+    final_report(entries).is_some_and(|text| opens(text, "Done"))
+}
+
 fn instruction(text: &str) -> bool {
     let text = text.trim_start();
     !(text.starts_with("<task-notification>") || text.starts_with("[from service:"))

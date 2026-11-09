@@ -9,10 +9,13 @@ use serde_json::json;
 
 use crate::error::NorthError;
 use crate::fleet::fakes::{Paper, Stream};
+use crate::fleet::limit::{AccountResets, park_limited};
 use crate::fleet::model::{Phase, Status};
 use crate::fleet::records::read_record;
 use crate::fleet::registry::Fleet;
+use crate::fleet::runtime::now_ms;
 use crate::fleet::runtimes::Runtimes;
+use crate::fleet::waits::Run;
 
 fn fleet(home: &Path) -> Fleet {
     Fleet::at(home.into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()))
@@ -93,4 +96,55 @@ fn the_reports_mirror_names_the_newest_retired_session_of_each_task_however_old_
 
     assert_eq!(fleet.retired_names_read(u64::MAX), ["wisp-188-d1700", "wisp-87-d0221"], "dispatch noted wisp-188-d1646 report unread days after it retired");
     assert_eq!(fleet.retired_names_read(0).len(), 3, "everything archived since the cut-off is named too");
+}
+
+struct NoResets;
+
+impl AccountResets for NoResets {
+    fn reset_ms(&self, _: &str, _: u64) -> Option<u64> {
+        None
+    }
+}
+
+fn append(dir: &Path, frames: &[serde_json::Value]) {
+    use std::io::Write;
+    let mut stream = std::fs::OpenOptions::new().append(true).open(dir.join("g1/stream.jsonl")).unwrap();
+    for frame in frames {
+        writeln!(stream, "{frame}").unwrap();
+    }
+}
+
+// KEEP(bug): at 4:35 PM on 2026-11-09 broker-94's host ended in the middle of a command when its account reached its week, the turn never ended, and no usage wait was registered, so the tick had nothing to hand over (north#1013)
+#[test]
+fn a_host_that_ends_on_the_week_limit_in_the_middle_of_a_command_leaves_its_session_parked_with_a_usage_wait_north_1013() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path());
+    let dir = mid_turn(&fleet, "worker");
+    let week = now_ms() / 1000 + 3 * 86_400;
+    append(&dir, &[
+        json!({"type": "assistant", "session_id": "worker", "message": {"content": [{"type": "text", "text": "Running the build."}]}}),
+        json!({"type": "rate_limit_event", "session_id": "worker", "rate_limit_info": {"status": "rejected", "resetsAt": week}}),
+    ]);
+
+    let parked = park_limited(&fleet, &NoResets, now_ms());
+
+    assert_eq!(parked.iter().map(|parked| parked.session.as_str()).collect::<Vec<_>>(), ["worker"]);
+    let waits = fleet.waits().of("worker");
+    assert!(matches!(waits.as_slice(), [wait] if matches!(&wait.run, Run::Usage { account, at_ms } if account == "a" && *at_ms == week * 1000)), "{waits:?}");
+    assert_eq!(read_record(&dir).unwrap().phase(), Some(Phase::Parked));
+}
+
+// KEEP(bug): `north fleet revive broker-94 --account e` refused with "a session cannot move from retired to stopped" after a take-over retired broker-94 with its work unfinished (north#1013)
+#[test]
+fn a_retired_session_with_no_done_report_reopens_as_a_new_launch_of_its_own_conversation_north_1013() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path());
+    let dir = mid_turn(&fleet, "worker");
+    fleet.retire("worker", "a launch took over its name", None).unwrap();
+
+    let reopened = fleet.reopened("worker").unwrap();
+
+    assert_eq!((reopened.phase(), reopened.conversation.as_deref(), reopened.addressed_since()), (Some(Phase::Parked), Some("worker"), 1));
+    assert!(reopened.created_ms > 1);
+    assert!(dir.join("session.json").exists());
 }

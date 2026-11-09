@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
-use crate::fleet::limit::ended_on_limit;
+use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
 use crate::fleet::remote;
 use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, Status};
@@ -122,8 +122,8 @@ impl Fleet {
 
     /// Revive with a fresh placement override note and effort, which the restarted record keeps. With `account` naming another account, a running host ends first and its conversation is carried there and resumes on it; a restart that fails leaves the session stopped on its old account.
     pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>, account: Option<&str>) -> NorthResult<SessionRecord> {
-        let record = self.record(name)?;
-        let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| ended_on_limit(&transcript));
+        let record = self.reopened(name)?;
+        let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| stopped_on_limit(&transcript, !session_running(&record) && !record.ended()));
         let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
         let Some(onto) = onto else {
             let revived = {
