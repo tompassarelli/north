@@ -113,10 +113,6 @@ pub fn hand_over(
         if record.adopted() || !holds_work(record) {
             continue;
         }
-        if let Some(machine) = record.machine.as_ref().filter(|_| record.conversation.is_some()) {
-            done.lines.push(format!("{}: stays on account {}: its conversation lives on {}, where carry_conversation does not reach, so it would resume on {} without its transcript", record.name, record.account, machine.name, to.0));
-            continue;
-        }
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("handed over from account {} to {}", record.account, to.0));
         let lane = lanes.get(&record.name).and_then(|held| held.iter().max_by_key(|lane| lane.queued_ms()));
         let request = LaunchRequest {

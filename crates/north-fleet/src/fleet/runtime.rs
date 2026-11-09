@@ -96,8 +96,9 @@ pub trait Runtime: Send + Sync {
     fn tell_window(&self, _inbox: &WindowInbox, _text: &str) -> NorthResult<()> {
         Err(NorthError::Usage(format!("{} has no window inbox to deliver into", self.provider().label())))
     }
-    fn carry_conversation(&self, _from: &Account, _to: &Account, _conversation: &str) -> NorthResult<()> {
-        Ok(())
+    /// A `sh` script that copies `conversation`'s transcript from `from`'s home into `to`'s, run where the session runs; `None` when the provider keeps nothing per account.
+    fn carry_script(&self, _from: &Account, _to: &Account, _conversation: &str) -> Option<String> {
+        None
     }
     fn unguarded(&self, _account: &Account, _read: &dyn Fn(&Path) -> Seen) -> Option<String> {
         None

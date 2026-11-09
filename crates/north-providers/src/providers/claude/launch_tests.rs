@@ -104,3 +104,20 @@ fn a_profile_whose_settings_register_no_hooks_is_named_unguarded_too() {
     assert_eq!(Claude.unguarded(&account, &here), None);
     assert_eq!(Claude.unguarded(&account, &|_| Seen::Unreachable), None);
 }
+
+#[test]
+fn the_script_that_carries_a_conversation_between_account_homes_copies_it_under_its_project_and_leaves_other_conversations_north_1001() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = |label: &str| Account { provider: Claude.provider(), label: label.into(), home: scratch.path().join(label), token_file: None, api: None };
+    let (from, to) = (account("from"), account("to"));
+    std::fs::create_dir_all(from.home.join("projects/-work-lane")).unwrap();
+    std::fs::write(from.home.join("projects/-work-lane/kept.jsonl"), "turn\n").unwrap();
+    std::fs::write(from.home.join("projects/-work-lane/other.jsonl"), "other\n").unwrap();
+
+    let script = Claude.carry_script(&from, &to, "kept").unwrap();
+    assert!(std::process::Command::new("sh").args(["-c", &script]).status().unwrap().success());
+
+    assert_eq!(std::fs::read_to_string(to.home.join("projects/-work-lane/kept.jsonl")).unwrap(), "turn\n");
+    assert!(!to.home.join("projects/-work-lane/other.jsonl").exists());
+    assert!(Claude.carry_script(&from, &from, "kept").is_none());
+}

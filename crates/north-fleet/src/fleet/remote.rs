@@ -110,3 +110,27 @@ fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path) -> NorthRes
     }
     Ok(())
 }
+
+/// Copies `conversation` between two accounts' homes where the session runs: on `machine` over ssh, else here.
+pub fn carry_conversation(runtime: &dyn Runtime, machine: Option<&Machine>, from: &Account, to: &Account, conversation: &str) -> NorthResult<()> {
+    let Some(script) = runtime.carry_script(from, to, conversation) else { return Ok(()) };
+    let (mut command, place) = match machine {
+        Some(machine) => {
+            let mut ssh = Command::new(binary("ssh"));
+            ssh.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &machine.ssh, "--", &script]);
+            (ssh, machine.name.as_str())
+        }
+        None => {
+            let mut sh = Command::new("sh");
+            sh.args(["-c", &script]);
+            (sh, "here")
+        }
+    };
+    command.stdin(Stdio::null());
+    match try_run_command_within(command, None, SSH_WAIT) {
+        Ok(Some(output)) if output.status.success() => Ok(()),
+        Ok(Some(output)) => Err(NorthError::State(format!("carrying {conversation} from account {} to {} {place}: {}: {}", from.label, to.label, output.status, String::from_utf8_lossy(&output.stderr).trim()))),
+        Ok(None) => Err(NorthError::State(format!("carrying {conversation} from account {} to {} {place}: no answer within {}s", from.label, to.label, SSH_WAIT.as_secs()))),
+        Err(error) => Err(NorthError::State(format!("carrying {conversation} {place}: {error}"))),
+    }
+}

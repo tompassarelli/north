@@ -10,6 +10,7 @@ use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
+use crate::fleet::link::quote;
 
 use super::session_env::{self, claude_env};
 use super::{accounts, limit, quota, turns, user_text, window_inbox};
@@ -101,18 +102,12 @@ impl Runtime for Claude {
         })
     }
 
-    fn carry_conversation(&self, from: &Account, to: &Account, conversation: &str) -> NorthResult<()> {
+    fn carry_script(&self, from: &Account, to: &Account, conversation: &str) -> Option<String> {
         if from.home == to.home {
-            return Ok(());
+            return None;
         }
-        let file = format!("{conversation}.jsonl");
-        let Ok(projects) = std::fs::read_dir(from.home.join("projects")) else { return Ok(()) };
-        for project in projects.flatten().filter(|project| project.path().join(&file).is_file()) {
-            let into = to.home.join("projects").join(project.file_name());
-            std::fs::create_dir_all(&into)?;
-            std::fs::copy(project.path().join(&file), into.join(&file))?;
-        }
-        Ok(())
+        let (from, to, file) = (quote(&from.home.join("projects").to_string_lossy()), quote(&to.home.join("projects").to_string_lossy()), quote(&format!("{conversation}.jsonl")));
+        Some(format!("for project in {from}/*/; do [ -f \"$project\"{file} ] || continue; into={to}/$(basename \"$project\"); mkdir -p \"$into\" && cp -- \"$project\"{file} \"$into\"/ || exit 1; done"))
     }
 
     fn interactive_prompt(&self, account: &Account, request: &LaunchRequest) -> Option<String> {

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
 use crate::fleet::records::write_record;
+use crate::fleet::remote;
 use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::runtime::{Opening, Runtime, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
@@ -81,7 +82,7 @@ impl Fleet {
     fn bring_up(&self, request: &LaunchRequest, record: &mut SessionRecord, account: &Account, runtime: &dyn Runtime, predecessor: Option<&Predecessor>, conversation: Option<&str>) -> NorthResult<()> {
         let opening = match (&request.resume, predecessor) {
             (Some(kept), Some(predecessor)) => {
-                runtime.carry_conversation(&self.account(&predecessor.record().relaunch_request())?, account, kept)?;
+                remote::carry_conversation(runtime, request.machine.as_ref(), &self.account(&LaunchRequest { machine: request.machine.clone(), ..predecessor.record().relaunch_request() })?, account, kept)?;
                 Opening::Resume(kept)
             }
             (Some(kept), None) => Opening::Resume(kept),
@@ -127,14 +128,11 @@ impl Fleet {
             return self.revive_held(name, system_prompt, placement, effort);
         };
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation, so it has none to carry onto {}", onto.label)))?;
-        if let Some(machine) = &record.machine {
-            return Err(NorthError::Refused(format!("{name}'s conversation lives on {}, where carry_conversation does not reach, so it would resume on {} without its transcript", machine.name, onto.label)));
-        }
         self.refuse_beside_interactive(&record)?;
         let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;
         let revived = {
             let _start = self.start_lock(name)?;
-            self.runtime(&record)?.carry_conversation(&self.account(&record.relaunch_request())?, &onto, &conversation)?;
+            remote::carry_conversation(self.runtime(&record)?.as_ref(), record.machine.as_ref(), &self.account(&record.relaunch_request())?, &onto, &conversation)?;
             self.set_account(name, &onto.recorded_label())?;
             self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
         };
