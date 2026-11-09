@@ -30,7 +30,6 @@ type Clock = dyn Fn() -> Date + Send + Sync;
 pub struct Opencode {
     visibility: Arc<Reading>,
     today: Arc<Clock>,
-    private_lanes: bool,
 }
 
 impl Opencode {
@@ -39,12 +38,7 @@ impl Opencode {
     }
 
     pub fn reading(visibility: Arc<Reading>, today: Arc<Clock>) -> Self {
-        Self { visibility, today, private_lanes: false }
-    }
-
-    /// Admits lanes of private repositories and of unreadable visibility, which run on paid Go Flash; the live runtime refuses them until that path lands.
-    pub fn with_private_lanes(self) -> Self {
-        Self { private_lanes: true, ..self }
+        Self { visibility, today }
     }
 
     fn route(&self, request: &LaunchRequest, brief: &str) -> NorthResult<Route> {
@@ -52,9 +46,6 @@ impl Opencode {
         let route = Route::of((self.visibility)(&request.cwd));
         if let Some(model) = request.model.as_deref().filter(|model| *model != route.model()) {
             return Err(NorthError::Refused(format!("the launcher fixes this lane's model to {}; {model} was asked for", route.model())));
-        }
-        if route == Route::Go && !self.private_lanes {
-            return Err(NorthError::Refused("opencode workers run public-repository lanes only for now; this lane's repository is private or its visibility could not be read".into()));
         }
         let until = route::date(settings["go"]["zero_retention_until"].as_str().unwrap_or_default()).map_err(NorthError::State)?;
         route::admits(route, (self.today)(), until).map_err(NorthError::Refused)?;
