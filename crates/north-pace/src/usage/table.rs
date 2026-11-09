@@ -1,5 +1,5 @@
-//! The default `north fleet usage` table: one aligned row per Claude account with its 5-hour and weekly windows, the
-//! weekly reset in local time and an outlook, one line per other provider, and this week's operating cost.
+//! The default `north fleet usage` table: one aligned row per Claude account with its 5-hour and weekly windows, both
+//! resets in local time and an outlook, one line per other provider, and this week's operating cost.
 use std::collections::BTreeMap;
 
 use rusqlite::Connection;
@@ -12,7 +12,7 @@ use super::{Places, costs, credit_table, detail, py, settings, web};
 use crate::foundation::clock::Timestamp;
 
 const NO_SNAPSHOT: &str = "No usage readings yet; run `north fleet usage --refresh`.";
-const HEADER: [&str; 5] = ["Claude", "5 hours", "week", "week resets", "outlook"];
+const HEADER: [&str; 6] = ["Claude", "5 hours", "5h resets", "week", "week resets", "outlook"];
 
 const NONE: &str = "—";
 
@@ -59,7 +59,8 @@ fn claude_row(view: &View, account: &str, mine: &[&Row]) -> Result<Vec<String>, 
         Some(Plan::Key(key)) => key,
         None => String::new(),
     };
-    let session_cell = session.map_or(NONE.to_owned(), |(used, reset)| format!("{} ({})", percent(used), plain::span(py::minutes_between(now, reset))));
+    let session_cell = session.map_or(NONE.to_owned(), |(used, _)| percent(used));
+    let session_resets = session.map_or(NONE.to_owned(), |(_, reset)| plain::clock(reset, view.offset_seconds));
     let mut week_cell = week.map_or(NONE.to_owned(), |(used, _)| if used >= 100.0 { "100% (full)".to_owned() } else { percent(used) });
     for row in mine {
         let Some(model) = row.text("name").and_then(|name| name.strip_prefix("weekly_scoped/")) else { continue };
@@ -77,7 +78,7 @@ fn claude_row(view: &View, account: &str, mine: &[&Row]) -> Result<Vec<String>, 
     if age > settings::stale_minutes() {
         outlook.push(plain::ago(age));
     }
-    Ok(vec![format!("{account}  {plan}").trim_end().to_owned(), session_cell, week_cell, resets, outlook.join("; ")])
+    Ok(vec![format!("{account}  {plan}").trim_end().to_owned(), session_cell, session_resets, week_cell, resets, outlook.join("; ")])
 }
 
 fn outlook(view: &View, mine: &[&Row], session: Option<(f64, Timestamp)>, week: Option<(f64, Timestamp)>) -> Result<String, String> {
