@@ -188,6 +188,7 @@ impl Fixture {
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("NORTH_RUNTIME_LINK")
             .env("XDG_STATE_HOME", &self.state)
+            .env("NORTH_TEST_ROOT", &self.root)
             .env("PATH", path)
             .env("LAND_TRACE", &self.trace)
             .env("NORTH_LAND_NORTH", self.trace.join("north"))
@@ -261,10 +262,20 @@ impl Fixture {
     }
 
     fn land_enqueue(&self, lane: &Path, state: &Path, session: &str) -> Output {
-        let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").env("XDG_STATE_HOME", state).env("SAFE_PUSH_SOUTH", state.join("no-south")).env_remove("SAFE_PUSH_DENYLIST").env("NORTH_FLEET_SESSION", session).env_remove("NORTH_LAND_SERVING").output().unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").env("XDG_STATE_HOME", state).env("NORTH_TEST_ROOT", state).env("SAFE_PUSH_SOUTH", state.join("no-south")).env_remove("SAFE_PUSH_DENYLIST").env("NORTH_FLEET_SESSION", session).env_remove("NORTH_LAND_SERVING").output().unwrap();
         eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         output
     }
+}
+
+#[test]
+fn a_lander_whose_state_lies_outside_the_declared_fixture_root_refuses_before_it_serves() {
+    let fixture = Fixture::new();
+    let output = fixture.command().env("NORTH_TEST_ROOT", fixture.root.join("elsewhere")).output().unwrap();
+    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+
+    assert!(!output.status.success(), "{text}");
+    assert!(text.contains("outside the test fixture root"), "{text}");
 }
 
 fn json_names(directory: &Path) -> Vec<String> {

@@ -59,6 +59,7 @@ fn isolated(name: &str, scenario: fn(&World)) {
         .env(CHILD, home.path())
         .env("HOME", home.path())
         .env("XDG_STATE_HOME", home.path().join("state"))
+        .env("NORTH_TEST_ROOT", home.path())
         .env("NORTH_LAND_NORTH", &north)
         .env("NORTH_OFFLOAD_ROOT", home.path().join("offload"))
         .env("GIT_CONFIG_GLOBAL", &gitconfig)

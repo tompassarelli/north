@@ -86,7 +86,7 @@ impl Ticket {
     }
 }
 
-pub use crate::platform::land_queue::{directory, key, slug};
+pub use crate::platform::land_queue::{confined, directory, key, slug};
 
 pub const QUARANTINE: &str = "quarantine";
 pub const OUTBOX: &str = "outbox";

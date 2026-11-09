@@ -106,6 +106,7 @@ impl Fixture {
             .env("HOME", self.top().join("home"))
             .env("AGENTS_ORCHESTRATION", self.top().join("orchestration.toml"))
             .env("XDG_STATE_HOME", self.top().join("state"))
+            .env("NORTH_TEST_ROOT", self.top())
             .env("GIT_CONFIG_GLOBAL", self.top().join(config))
             .env_remove("XDG_CONFIG_HOME")
             .env("GIT_CONFIG_NOSYSTEM", "1")

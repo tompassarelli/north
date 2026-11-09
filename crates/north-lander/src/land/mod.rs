@@ -31,6 +31,10 @@ pub fn usage() -> String {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
+    if let Err(problem) = north_landing::land::queue::confined(&north_landing::land::lander::state_home()) {
+        eprintln!("north land: {problem}");
+        return 1;
+    }
     match arguments.split_first() {
         Some((name, rest)) if let Some(command) = COMMANDS.iter().find(|command| command.name == *name) => (command.run)(rest),
         Some((name, _)) if name == "-h" || name == "--help" => {

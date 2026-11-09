@@ -52,6 +52,7 @@ fn an_outbox_ticket_whose_worktree_is_gone_is_withdrawn_and_the_ticket_behind_it
         .env("PATH", path)
         .env("HOME", world.path())
         .env("XDG_STATE_HOME", world.path().join("state"))
+        .env("NORTH_TEST_ROOT", world.path())
         .env("NORTH_LAND_NORTH", world.path().join("bin/north"))
         .env("GIT_CONFIG_GLOBAL", world.path().join("gitconfig"))
         .env("GIT_CONFIG_NOSYSTEM", "1")

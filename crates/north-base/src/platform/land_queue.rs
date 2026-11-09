@@ -6,7 +6,23 @@ use std::time::UNIX_EPOCH;
 use sha2::{Digest, Sha256};
 
 pub const ROUND: &str = "NORTH_LAND_ROUND";
+pub const TEST_ROOT: &str = "NORTH_TEST_ROOT";
 const GITHUB_SSH: [&str; 2] = ["git@github.com:", "ssh://git@github.com/"];
+
+pub fn test_root() -> Option<PathBuf> {
+    std::env::var_os(TEST_ROOT).filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
+pub fn confined(path: &Path) -> Result<(), String> {
+    confined_in(path, test_root().as_deref())
+}
+
+pub fn confined_in(path: &Path, root: Option<&Path>) -> Result<(), String> {
+    match root {
+        Some(root) if !path.starts_with(root) => Err(format!("{} is outside the test fixture root {}; refusing to write there", path.display(), root.display())),
+        _ => Ok(()),
+    }
+}
 
 /// The queue a repository's landings wait in, keyed by its GitHub identity rather than the spelling of its origin URL, so hosts that clone it over ssh and over https share one queue.
 pub fn key(origin: &str) -> String {
@@ -115,4 +131,18 @@ pub fn lander_declared(checkout: &Path) -> bool {
 pub fn serving_unit(checkout: &Path) -> Option<String> {
     let own = lander_unit(checkout);
     if unit_declared(&own) { Some(own) } else { unit_declared(REST_UNIT).then(|| REST_UNIT.to_owned()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::confined_in;
+
+    #[test]
+    fn a_path_outside_the_declared_fixture_root_is_refused() {
+        assert!(confined_in(Path::new("/fixture/state"), Some(Path::new("/fixture"))).is_ok());
+        assert!(confined_in(Path::new("/home/tom/.local/state"), Some(Path::new("/fixture"))).is_err());
+        assert!(confined_in(Path::new("/home/tom/.local/state"), None).is_ok());
+    }
 }

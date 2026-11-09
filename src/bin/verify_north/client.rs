@@ -23,12 +23,13 @@ fn placed_account(listing: &str) -> Result<String, String> {
 pub struct North {
     program: PathBuf,
     directory: PathBuf,
+    state: PathBuf,
     notes: Option<Notes>,
 }
 
 impl North {
-    pub fn new(program: PathBuf, directory: PathBuf, notes: Option<Notes>) -> Self {
-        Self { program, directory, notes }
+    pub fn new(program: PathBuf, directory: PathBuf, state: PathBuf, notes: Option<Notes>) -> Self {
+        Self { program, directory, state, notes }
     }
 
     pub fn program(&self) -> &Path {
@@ -51,7 +52,13 @@ impl North {
     fn command(&self, arguments: &[&str], variables: &[(&str, &Path)]) -> Command {
         let mut command = Command::new(&self.program);
         exec::operator_environment(&mut command);
-        command.args(arguments).current_dir(&self.directory).env("NORTH_FLEET_TEST", "1");
+        command
+            .args(arguments)
+            .current_dir(&self.directory)
+            .env("NORTH_FLEET_TEST", "1")
+            .env("XDG_STATE_HOME", &self.state)
+            .env("NORTH_TEST_ROOT", &self.state)
+            .env("THREADS_DB", self.state.join("threads.db"));
         command.envs(variables.iter().copied());
         command
     }

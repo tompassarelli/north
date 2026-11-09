@@ -144,6 +144,7 @@ fn lanes_that_each_add_a_crate_an_allow_table_a_mod_line_and_a_feature_land_in_o
         .env(HOME, home.path())
         .env("HOME", home.path())
         .env("XDG_STATE_HOME", home.path().join("state"))
+        .env("NORTH_TEST_ROOT", home.path())
         .env("GIT_CONFIG_GLOBAL", &gitconfig)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()

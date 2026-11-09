@@ -41,6 +41,7 @@ const STEPS: [(&str, &str, Step); 4] = [
 pub struct Plan {
     pub stamp: u64,
     pub claude_account: Option<String>,
+    pub state: PathBuf,
 }
 
 struct Journey {
@@ -92,7 +93,7 @@ fn queue_change(journey: &mut Journey) -> Result<String, String> {
     }
     let scratch = journey.scratch()?;
     let head = scratch.lane_head()?;
-    let (queue, ticket) = queued_ticket(&scratch.origin).ok_or_else(|| format!("the worker reported {:?} but queued no ticket for {}", shorten(&report), scratch.origin.display()))?;
+    let (queue, ticket) = queued_ticket(&scratch.origin, &journey.plan.state).ok_or_else(|| format!("the worker reported {:?} but queued no ticket for {}", shorten(&report), scratch.origin.display()))?;
     journey.notes.note(&Note::Queue(queue));
     let expected = (scratch::BRANCH, head.as_str(), journey.session.as_str());
     let found = (ticket["branch"].as_str().unwrap_or_default(), ticket["head"].as_str().unwrap_or_default(), ticket["session"].as_str().unwrap_or_default());
@@ -173,9 +174,9 @@ fn run_row(ledger: &Path, conversation: &str) -> Result<Option<(String, i64, Str
     rows.next().transpose().map_err(|error| format!("{}: {error}", ledger.display()))
 }
 
-fn queued_ticket(origin: &Path) -> Option<(PathBuf, Value)> {
+fn queued_ticket(origin: &Path, state: &Path) -> Option<(PathBuf, Value)> {
     let origin = origin.to_string_lossy();
-    let queues = fs::read_dir(landing_queues()).ok()?;
+    let queues = fs::read_dir(landing_queues(state)).ok()?;
     queues.filter_map(Result::ok).map(|queue| queue.path()).find_map(|queue| {
         let tickets = fs::read_dir(&queue).ok()?;
         let ticket = tickets
@@ -188,8 +189,7 @@ fn queued_ticket(origin: &Path) -> Option<(PathBuf, Value)> {
     })
 }
 
-pub fn landing_queues() -> PathBuf {
-    let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), PathBuf::from);
+pub fn landing_queues(state: &Path) -> PathBuf {
     state.join("north/land-queue")
 }
 

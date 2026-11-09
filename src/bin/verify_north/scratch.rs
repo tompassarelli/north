@@ -18,6 +18,11 @@ pub struct Scratch {
     pub base: String,
 }
 
+pub fn state_root() -> Result<PathBuf, String> {
+    let directory = tempfile::Builder::new().prefix(PREFIX).tempdir().map_err(|error| format!("state directory: {error}"))?;
+    directory.keep().canonicalize().map_err(|error| format!("state directory: {error}"))
+}
+
 impl Scratch {
     pub fn create() -> Result<Self, String> {
         let directory = tempfile::Builder::new().prefix(PREFIX).tempdir().map_err(|error| format!("scratch directory: {error}"))?;

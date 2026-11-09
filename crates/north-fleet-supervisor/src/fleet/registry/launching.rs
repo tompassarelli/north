@@ -43,6 +43,10 @@ impl Fleet {
     }
 
     fn launch_into(&self, request: &LaunchRequest, claim: Claim, session_dir: &Path) -> NorthResult<SessionRecord> {
+        let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
+        if verification && north_base::platform::land_queue::test_root().is_none() {
+            return Err(NorthError::Refused("a test launch needs NORTH_TEST_ROOT naming the fixture root its fleet state and land queue stay inside".into()));
+        }
         if let Some(parent) = &request.parent {
             self.reaches(parent)?;
         }
@@ -58,7 +62,6 @@ impl Fleet {
             None => runtime.assign_conversation()?,
         };
         self.refuse_on_window(conversation.as_deref())?;
-        let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
         let tasks = super::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
         record.account = account.recorded_label();

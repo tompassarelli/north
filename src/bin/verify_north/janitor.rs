@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
@@ -24,8 +24,14 @@ pub struct Janitor {
 }
 
 impl Janitor {
-    pub fn spawn() -> io::Result<Self> {
-        let mut child = Command::new(std::env::current_exe()?).arg(ARGUMENT).stdin(Stdio::piped()).process_group(0).spawn()?;
+    pub fn spawn(state: PathBuf) -> io::Result<Self> {
+        let mut child = Command::new(std::env::current_exe()?)
+            .arg(ARGUMENT)
+            .env("XDG_STATE_HOME", &state)
+            .env("NORTH_TEST_ROOT", &state)
+            .stdin(Stdio::piped())
+            .process_group(0)
+            .spawn()?;
         let notes = Notes::new(child.stdin.take());
         Ok(Self { child, notes })
     }
@@ -68,8 +74,11 @@ fn sweep(manifest: &Manifest) -> Result<String, String> {
             process.terminate();
         }
     }
-    problems.extend(manifest.queue.as_deref().and_then(|queue| remove(queue, queue.parent() == Some(journey::landing_queues().as_path()))));
+    if let (Some(state), Some(queue)) = (&manifest.state, &manifest.queue) {
+        problems.extend(remove(queue, queue.parent() == Some(journey::landing_queues(state).as_path())));
+    }
     problems.extend(manifest.scratch.as_deref().and_then(|root| remove(root, scratch::removable(root))));
+    problems.extend(manifest.state.as_deref().and_then(|root| remove(root, scratch::removable(root))));
     if problems.is_empty() {
         Ok(format!("{} sessions forgotten, {} processes gone", manifest.sessions.len(), watched.len()))
     } else {
@@ -78,10 +87,10 @@ fn sweep(manifest: &Manifest) -> Result<String, String> {
 }
 
 fn forget_all(manifest: &Manifest) -> Vec<String> {
-    let (Some(program), Some(directory)) = (&manifest.north, &manifest.directory) else {
-        return manifest.sessions.iter().map(|name| format!("cannot forget {name}: no north binary was recorded")).collect();
+    let (Some(program), Some(directory), Some(state)) = (&manifest.north, &manifest.directory, &manifest.state) else {
+        return manifest.sessions.iter().map(|name| format!("cannot forget {name}: no north binary or state root was recorded")).collect();
     };
-    let north = North::new(program.clone(), directory.clone(), None);
+    let north = North::new(program.clone(), directory.clone(), state.clone(), None);
     manifest
         .sessions
         .iter()

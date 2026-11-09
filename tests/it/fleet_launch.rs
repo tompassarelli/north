@@ -70,6 +70,7 @@ pub(crate) fn environment(mut command: Command, root: &Path, host: &str) -> Comm
         .current_dir(root)
         .env("HOME", root)
         .env("XDG_STATE_HOME", root.join(".local/state"))
+        .env("NORTH_TEST_ROOT", root)
         .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
         .env("AGENTS_OPERATOR_DIR", root.join("op"))
         .env("PLACEMENT_NOW", "2026-10-16T12:00:00Z")
@@ -155,4 +156,24 @@ fn a_launch_starts_while_the_ledger_host_is_too_loaded_to_say_who_holds_its_task
     assert!(launched.status.success(), "{}", text(&launched.stderr));
     assert!(text(&launched.stderr).contains("narrow launches with its holder check left to its claim, because the ledger did not say who holds makgora#4"), "{}", text(&launched.stderr));
     assert!(listed.contains("narrow"), "{listed}");
+}
+
+#[test]
+fn a_test_launch_without_a_declared_fixture_root_refuses_before_it_writes_a_session() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let brief = brief.display().to_string();
+
+    let refused = environment(Command::new(env!("CARGO_BIN_EXE_north")), root, "here")
+        .env_remove("NORTH_TEST_ROOT")
+        .args(["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--system-prompt", &brief, "start the box"])
+        .output()
+        .unwrap();
+
+    assert!(!refused.status.success(), "{}", text(&refused.stdout));
+    assert!(text(&refused.stderr).contains("NORTH_TEST_ROOT"), "{}", text(&refused.stderr));
+    assert!(!root.join(".local/state/north/fleet/narrow").exists());
 }

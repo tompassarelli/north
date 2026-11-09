@@ -82,6 +82,7 @@ impl World {
             .args(["--exact", "serve::lander_process", "--nocapture", "--test-threads", "1"])
             .env(ARGUMENTS, arguments.join("\n"))
             .env("XDG_STATE_HOME", self.path().join("state"))
+            .env("NORTH_TEST_ROOT", self.path())
             .env("NORTH_DECISION_LOG", self.path().join("state/north/decisions"))
             .env("HOME", self.path())
             .env("NORTH_LAND_NORTH", self.path().join("bin/north"))

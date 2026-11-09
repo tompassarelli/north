@@ -77,7 +77,7 @@ pub mod fixtures;
 
 pub use follower::Follower;
 pub use home::roster;
-use home::{fleet_root, home_dir, state_dir};
+use home::{fleet_root, home_dir, live_state_dir, state_dir};
 pub use hand_in::HandedIn;
 pub use control::Controlled;
 pub use relaunching::{Choices, REVIVED_MID_TURN};
@@ -111,13 +111,29 @@ pub struct Fleet {
     recording: Arc<dyn RunRecording>,
 }
 
+struct Ports {
+    runtimes: Runtimes,
+    ledger: Arc<dyn FleetBooks>,
+    claims: Arc<dyn Claims>,
+    registrar: Arc<dyn Registrar>,
+    leases: Arc<dyn JobLeases>,
+}
+
 impl Fleet {
     pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>, leases: Arc<dyn JobLeases>) -> NorthResult<Self> {
-        Self::rooted(home_dir()?, crate::platform::orchestration::path(), runtimes, ledger, claims, registrar, leases)
+        let home = home_dir()?;
+        let state = live_state_dir(&home);
+        north_base::platform::land_queue::confined(&state).map_err(NorthError::Refused)?;
+        Self::rooted_at(home, state, crate::platform::orchestration::path(), Ports { runtimes, ledger, claims, registrar, leases })
     }
 
     fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>, leases: Arc<dyn JobLeases>) -> NorthResult<Self> {
         let state = state_dir(&home);
+        Self::rooted_at(home, state, policy, Ports { runtimes, ledger, claims, registrar, leases })
+    }
+
+    fn rooted_at(home: PathBuf, state: PathBuf, policy: PathBuf, ports: Ports) -> NorthResult<Self> {
+        let Ports { runtimes, ledger, claims, registrar, leases } = ports;
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording) };
@@ -153,7 +169,7 @@ impl Fleet {
     }
 
     pub fn roster(&self) -> Roster {
-        self.runtimes.roster(&self.state, &self.home, &self.policy)
+        self.runtimes.roster(&state_dir(&self.home), &self.home, &self.policy)
     }
 
     pub fn placed_hosts(&self) -> Option<Vec<String>> {
@@ -410,7 +426,7 @@ impl Fleet {
     }
 
     pub(crate) fn account(&self, request: &LaunchRequest) -> NorthResult<Account> {
-        self.runtimes.account(&self.state, &self.home, &self.policy, request)
+        self.runtimes.account(&state_dir(&self.home), &self.home, &self.policy, request)
     }
 
     fn runtime(&self, record: &SessionRecord) -> NorthResult<Arc<dyn Runtime>> {
