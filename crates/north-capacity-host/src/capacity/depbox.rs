@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use super::carry::{self, Boundary};
 use super::effects::Host;
+use super::depbox_mode::Mode;
 use super::gate;
 
 const USAGE: &str = "usage: north depbox fetch|run -- <command> [args...]\n  fetch  network shared, for installs and fetches\n  run    no network, for builds and tests";
@@ -22,29 +23,6 @@ const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
 const READS: [&str; 14] = [
     ".cargo/bin", ".rustup", ".gitconfig", ".config/git", ".nix-profile", ".local/bin", ".local/share/north", ".local/state/north/runtimes", ".local/state/north/dev-shells", ".local/state/nix/profile", ".local/state/nix/profiles", ".local/lib/firn/cli", "code/nixos-config/pins", "code/north/pins",
 ];
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    Fetch,
-    Run,
-}
-
-impl Mode {
-    pub fn parse(word: &str) -> Option<Self> {
-        match word {
-            "fetch" => Some(Self::Fetch),
-            "run" => Some(Self::Run),
-            _ => None,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Fetch => "fetch",
-            Self::Run => "run",
-        }
-    }
-}
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {
     if let Some(inside) = std::env::var(MARK).ok().filter(|value| !value.is_empty()) {

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use super::effects::Host;
 use super::build_offload;
 use super::build_host_command;
-use super::depbox;
+use super::depbox_mode::Mode;
 use crate::nix_command::{self, Inner};
 use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
@@ -300,14 +300,14 @@ fn script_file(path: &str) -> bool {
 }
 
 /// The depbox mode a toolchain program runs in when a shim starts it outside depbox: `fetch` for the verbs that download, `run` for every other one that may run a dependency's code, and None for a call that runs none (a version, help, metadata or formatting query), inside depbox already, or a bun or node script that landed code ships.
-pub fn sandboxed(name: &str, args: &[String]) -> Option<depbox::Mode> {
+pub fn sandboxed(name: &str, args: &[String]) -> Option<Mode> {
     if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) {
         return None;
     }
     sandbox_mode(name, args, &|script| landed(Path::new(script)))
 }
 
-pub(super) fn sandbox_mode(name: &str, args: &[String], landed: &dyn Fn(&str) -> bool) -> Option<depbox::Mode> {
+pub(super) fn sandbox_mode(name: &str, args: &[String], landed: &dyn Fn(&str) -> bool) -> Option<Mode> {
     let plain: Vec<&str> = args.iter().map(String::as_str).filter(|word| !word.starts_with(['-', '+'])).collect();
     let query = plain.is_empty() && args.iter().any(|word| matches!(word.as_str(), "--version" | "-V" | "-v" | "--help" | "-h" | "--list"));
     if query {
@@ -330,7 +330,7 @@ pub(super) fn sandbox_mode(name: &str, args: &[String], landed: &dyn Fn(&str) ->
         "npm" | "pnpm" | "yarn" => matches!(plain.first(), None | Some(&("install" | "i" | "ci" | "add" | "update" | "up" | "upgrade" | "uninstall" | "remove" | "rm" | "dlx" | "exec" | "x"))),
         _ => return None,
     };
-    Some(if fetches { depbox::Mode::Fetch } else { depbox::Mode::Run })
+    Some(if fetches { Mode::Fetch } else { Mode::Run })
 }
 
 /// Whether `script` is code that landed: inside the Nix store or a promoted north runtime, which no lane writes.
@@ -341,7 +341,7 @@ fn landed(script: &Path) -> bool {
 }
 
 /// Runs the shim's `program` again inside depbox, where the gate finds the real program and leases it as before.
-fn enter_depbox(mode: depbox::Mode, program: &str, rest: &[String]) -> u8 {
+fn enter_depbox(mode: Mode, program: &str, rest: &[String]) -> u8 {
     let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
     let error = std::process::Command::new(&north).args(["depbox", mode.name(), "--", program]).args(rest).exec();
     eprintln!("north capacity gate: {}: {error}", north.display());
