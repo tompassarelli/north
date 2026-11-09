@@ -13,8 +13,6 @@ use crate::rows::Arm;
 
 pub const REPOS: [&str; 2] = ["tompassarelli/wisp", "tompassarelli/makgora"];
 pub const SEED: u64 = 877;
-pub const T3_MODEL: &str = "claude-opus-5-5";
-pub const T3_EFFORT: &str = "default";
 pub const NORTH_PENDING: &str = "route-pick";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,6 +123,14 @@ pub fn flip(seed: u64, box_id: &str) -> Arm {
     }
 }
 
+pub(crate) fn picked_row(picked: &Box, arm: Arm, at: i64) -> AbRow {
+    let (model, effort) = match arm {
+        Arm::T3Code => (crate::live::MODEL, crate::live::EFFORT),
+        Arm::North | Arm::Plain => (NORTH_PENDING, NORTH_PENDING),
+    };
+    AbRow { task: picked.id.clone(), arm, assigned_at: at, model: model.to_owned(), effort: effort.to_owned(), landed_sha: None, landed_at: None, usage: Usage::default() }
+}
+
 pub fn load(file: &Path) -> Result<Vec<AbRow>, NorthError> {
     match fs::read_to_string(file) {
         Ok(text) => parse(&text).map_err(refusal),
@@ -167,26 +173,7 @@ pub fn assign(
             arm.label(),
             picked.text
         ));
-        rows.push(AbRow {
-            task: picked.id,
-            arm,
-            assigned_at: now,
-            model: if arm == Arm::T3Code {
-                T3_MODEL
-            } else {
-                NORTH_PENDING
-            }
-            .to_owned(),
-            effort: if arm == Arm::T3Code {
-                T3_EFFORT
-            } else {
-                NORTH_PENDING
-            }
-            .to_owned(),
-            landed_sha: None,
-            landed_at: None,
-            usage: Usage::default(),
-        });
+        rows.push(picked_row(&picked, arm, now));
     }
     save(file, &rows)?;
     Ok(text)

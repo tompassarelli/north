@@ -183,6 +183,9 @@ fn a_box_thread_runs_on_t3_codes_own_default_with_the_box_text_as_its_brief() {
     let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(base.join("userdata/settings.json")).unwrap()).unwrap();
     assert_eq!(saved["defaultModelSelection"], serde_json::json!({"instanceId": "claudeAgent", "model": "claude-opus-5-5", "options": [{"id": "effort", "value": "medium"}]}));
     assert_eq!(crate::live::brief("  the box text\n"), "the box text");
+    let picked = crate::assign::Box { id: "wisp#1:x".into(), text: "x".into(), rank: 0, number: 1 };
+    let t3 = crate::assign::picked_row(&picked, Arm::T3Code, 1);
+    assert_eq!((t3.model.as_str(), t3.effort.as_str()), (crate::live::MODEL, crate::live::EFFORT));
     std::fs::remove_dir_all(&base).unwrap();
     for flag in ["--model", "--effort", "--header"] {
         let arguments: Vec<String> = ["box", "wisp#1", flag, "x"].map(str::to_owned).to_vec();
