@@ -834,7 +834,7 @@ then S2b and S2c in parallel; then S3 and S4.
   actor (`gh api repos/tompassarelli/north/events` push event `actor.login` is the App's bot), and
   `serve-token-scoped` still passes, with the token present only in the push step's environment.
   Built 2026-11-04 (north#360): a repository names its App with `landing.push-app` in its committed
-  `.safe-push`, read from the candidate's base, and lands with the `lander` App when it names none; the lander mints with `gh-app-token --app lander` after the
+  `.safe-push`, read from the candidate's base, and lands with the `agent` App, the one fleet sessions push with, when it names none (north names `lander`, whose installation covers only the repositories it was added to); the lander mints with `gh-app-token --app lander` after the
   check and before it records the push, and hands the token to the push alone through
   `NORTH_LAND_PUSH_TOKEN` and a one-shot credential helper that replaces every inherited helper, with
   the ambient `GH_TOKEN` removed from that push. A mint failure is a transient wait that keeps the

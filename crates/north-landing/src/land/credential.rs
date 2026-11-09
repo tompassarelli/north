@@ -5,7 +5,7 @@ use super::candidate;
 
 pub const TOKEN_ENV: &str = "NORTH_LAND_PUSH_TOKEN";
 const KEY: &str = "landing.push-app";
-const DEFAULT_APP: &str = "lander";
+const DEFAULT_APP: &str = "agent";
 const HELPER: &str = "!f() { test \"$1\" = get && printf 'username=x-access-token\\npassword=%s\\n' \"$NORTH_LAND_PUSH_TOKEN\"; }; f";
 const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
@@ -72,8 +72,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_helper_overrides_every_inherited_helper_and_a_repository_naming_no_app_lands_with_the_lander_app() {
-        assert_eq!(choose(&[]), Ok("lander".to_owned()));
+    fn the_helper_overrides_every_inherited_helper_and_a_repository_naming_no_app_lands_with_the_agent_app() {
+        assert_eq!(choose(&[]), Ok("agent".to_owned()));
         let scratch = std::env::temp_dir().join(format!("north-credential-{}", std::process::id()));
         std::fs::create_dir_all(&scratch).unwrap();
         let global = scratch.join("gitconfig");
