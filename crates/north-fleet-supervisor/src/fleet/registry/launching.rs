@@ -125,7 +125,9 @@ impl Fleet {
         let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
         let Some(onto) = onto else {
             let _start = self.start_lock(name)?;
-            return self.revive_held(name, system_prompt, placement, effort);
+            let revived = self.revive_held(name, system_prompt, placement, effort)?;
+            let _ = self.waits().clear_usage_off(name, &revived.account);
+            return Ok(revived);
         };
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation, so it has none to carry onto {}", onto.label)))?;
         self.refuse_beside_interactive(&record)?;
@@ -136,7 +138,7 @@ impl Fleet {
             self.set_account(name, &onto.recorded_label())?;
             self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
         };
-        let _ = self.waits().clear_usage(name);
+        let _ = self.waits().clear_usage_off(name, &revived.account);
         if cut_short {
             self.carry_on(name, &format!("this session was moved onto account {} in the middle of a turn", onto.label))?;
         }
