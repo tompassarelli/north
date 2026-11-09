@@ -41,6 +41,8 @@ pub struct Record {
     /// The effort it overrode its tier's with, whether drawn on an arm, tuned or escalated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<String>,
 }
 
 impl Record {

@@ -1,0 +1,21 @@
+# The model and effort cells a launch may draw (north#939), and every cell it may not, with the
+# reason the cell is out. A category draws every model at every effort below unless a row names it.
+# Tom, 2026-11-09: low and max stay out of the arm set until the fleet is stable; max is reached
+# only by escalation (north#940).
+models = ["haiku", "sonnet", "opus"]
+efforts = ["medium", "high", "xhigh"]
+
+[[exclude]]
+model = "haiku"
+effort = "max"
+reason = "its token spend approaches Sonnet medium at a lower effort, which is stronger for the same cost (Tom, 2026-11-08)"
+
+[[exclude]]
+model = "sonnet"
+effort = "max"
+reason = "its token spend approaches Opus medium at a lower effort, which is stronger for the same cost (Tom, 2026-11-08)"
+
+[[exclude]]
+model = "haiku"
+categories = ["planning", "review", "performance", "netcode-determinism", "debugging-unknown-cause"]
+reason = "category error: these need the reasoning or long-context work a larger model gives, so a Haiku run would spend a box on a cell that cannot keep it"

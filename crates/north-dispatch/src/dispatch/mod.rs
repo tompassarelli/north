@@ -25,6 +25,7 @@ pub use record::{Record as LaunchRecord, directory as launch_directory, read as 
 pub use tier::{ARM_WINDOW, Effort, Evidence, Tier, evidenced};
 
 mod brief;
+pub mod cells;
 mod cloud;
 mod effects;
 mod facets;
@@ -65,6 +66,8 @@ mod wait;
 mod wait_stops;
 #[cfg(test)]
 mod backlog_tests;
+#[cfg(test)]
+mod cells_tests;
 #[cfg(test)]
 mod claim_tests;
 #[cfg(test)]

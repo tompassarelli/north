@@ -73,6 +73,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     } else {
         fleet_launch(launch, &name, survey, &home)
     };
+    let cell = launch.route.model_effort(&survey.cfg).ok().and_then(|(model, effort)| super::cells::named(&model, &effort));
     let entry = Record {
         at,
         item: launch.item.to_string(),
@@ -88,6 +89,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         hand: false,
         effort_arm: launch.route.stamp().map(str::to_owned),
         effort: launch.route.effort.map(|effort| effort.name().to_owned()),
+        cell,
     };
     record::append(&record::directory(), &entry)?;
     if result.is_ok() {

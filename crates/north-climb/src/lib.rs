@@ -39,6 +39,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
+    println!("{}", north_dispatch::dispatch::cells::table_line());
     match dry_run(span) {
         Ok(()) => 0,
         Err(error) => {
