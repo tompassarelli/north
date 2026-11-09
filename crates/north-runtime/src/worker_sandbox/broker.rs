@@ -17,6 +17,7 @@ use super::{FLAG, LANE_ONLY, MAKER, MARK, SOCKETS_HIDDEN};
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
 const UNIT: &str = "north-worker-outside";
+const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
 const NAMESPACE: &str = "--namespaces";
 const LENGTH_BYTES: usize = 8;
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
@@ -34,10 +35,14 @@ struct Request {
     environment: Vec<(String, String)>,
 }
 
+/// This user's runtime directory, where the user manager's bus and the capacity admission database live.
+fn runtime() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw())), PathBuf::from)
+}
+
 /// The broker's socket, in the runtime directory that the worker domain lets a command connect through (sockets.rs).
 fn socket() -> PathBuf {
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw())), PathBuf::from);
-    runtime.join(DIRECTORY).join(SOCKET)
+    runtime().join(DIRECTORY).join(SOCKET)
 }
 
 /// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets.
@@ -69,11 +74,12 @@ fn unsafe_name(name: &str) -> bool {
     name == MARK || name == SOCKETS_HIDDEN || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own. Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
-pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>) -> Vec<(String, String)> {
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
+pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path) -> Vec<(String, String)> {
     let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
-    sent.into_iter().filter(|(name, _)| !unsafe_name(name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).collect()
+    let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
+    sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).collect()
 }
 
 /// Runs `north ARGUMENTS` outside this process's Landlock domain through the broker, with this process's standard streams, working directory and environment; its exit code.
@@ -214,7 +220,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .args(confined(north, request.arguments.clone()))
         .current_dir(&request.directory)
         .env_clear()
-        .envs(environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref()))
+        .envs(environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref(), &runtime()))
         .stdin(Stdio::from(stdin))
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))

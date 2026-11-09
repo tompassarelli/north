@@ -76,6 +76,7 @@ fn a_reinstall_with_a_different_binary_is_refused() {
     assert_eq!(refused.0, "claude-runtime-update: existing runtime identity differs");
 }
 
+// KEEP(bug): GitHub flagged opencode 1.19.5 as latest while 2.2.6 was out, and its process-daemon tags are no program release, so the latest flag would install an old opencode (north#1023)
 #[test]
 fn the_newest_release_is_the_highest_stable_version_tag_not_githubs_latest_flag_nor_a_sidecar_tag() {
     let listing = r#"[{"tag_name":"process-daemon-v0.5.0","draft":false,"prerelease":false},{"tag_name":"v2.2.7-rc1","draft":false,"prerelease":false},{"tag_name":"v2.3.0","draft":false,"prerelease":true},{"tag_name":"v2.2.6","draft":false,"prerelease":false},{"tag_name":"v2.2.10","draft":false,"prerelease":false},{"tag_name":"v1.19.5","draft":false,"prerelease":false}]"#;
@@ -83,6 +84,7 @@ fn the_newest_release_is_the_highest_stable_version_tag_not_githubs_latest_flag_
     assert_eq!(super::github::newest(&network, "o/r").unwrap(), "2.2.10");
 }
 
+// KEEP(bug): installs killed or refused at the rename left 250 MB .stage directories piling up under ~/.local/lib (north#1023)
 #[test]
 fn an_install_clears_the_stage_directory_an_earlier_killed_install_left_behind() {
     let root = tempfile::tempdir().unwrap();
