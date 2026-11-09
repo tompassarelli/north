@@ -80,7 +80,7 @@ fn refuse_past(tx: &Transaction, row: &SessionRow, slots: &Slots) -> NorthResult
         tx.query_row(&format!("SELECT count(*) FROM fleet_sessions WHERE {ACTIVE} AND {filter}"), params![row.name, value], |found| found.get::<_, i64>(0)).map(|found| usize::try_from(found).unwrap_or(usize::MAX)).map_err(sql)
     };
     if let Some(cap) = slots.workers {
-        let working = count("name != ?2 AND COALESCE(placement, '') NOT LIKE 'adopted window%'", PROXY)?;
+        let working = count("name != ?2 AND COALESCE(NULLIF(provider, ''), 'claude') = 'claude' AND COALESCE(placement, '') NOT LIKE 'adopted window%'", PROXY)?;
         if working >= cap {
             return Err(NorthError::Refused(format!("spend cap: {working} worker sessions are starting or working across the fleet, the cap is {cap}")));
         }

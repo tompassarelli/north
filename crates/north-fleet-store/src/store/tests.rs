@@ -113,6 +113,24 @@ fn a_registration_is_refused_for_a_live_name_past_its_machine_resident_cap_and_p
 }
 
 #[test]
+fn the_fleet_spend_cap_counts_claude_workers_only_so_working_deepseek_sessions_do_not_refuse_a_claude_launch() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let worker = |name: &str, provider: &str| SessionRow { provider: provider.into(), ..session(name, "nexus", "working") };
+    let slots = Slots { workers: Some(3), resident: None };
+    for at in 0..8 {
+        store.register(&worker(&format!("ds-{at}"), "opencode"), Claim::Fresh, &Slots::default()).unwrap();
+    }
+    store.register(&worker("cl-0", "claude"), Claim::Fresh, &slots).unwrap();
+    store.register(&worker("cl-1", "claude"), Claim::Fresh, &slots).unwrap();
+
+    store.register(&worker("cl-2", "claude"), Claim::Fresh, &slots).unwrap();
+    let Err(NorthError::Refused(cap)) = store.register(&worker("cl-3", "claude"), Claim::Fresh, &slots) else { panic!("a fourth Claude worker started under a cap of 3") };
+
+    assert_eq!(cap, "spend cap: 3 worker sessions are starting or working across the fleet, the cap is 3");
+}
+
+#[test]
 fn a_settled_wait_leaves_its_registration_in_the_wait_history() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
