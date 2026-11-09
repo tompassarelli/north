@@ -117,9 +117,14 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     let tokens = totals.tokens.unwrap();
     assert_eq!((tokens.input, tokens.output, tokens.cache_read, tokens.cache_write), (150, 22, 40, 2));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Opened { model: Some(model), .. } if model == route::GO_MODEL)));
+    a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash();
+    a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go();
+    a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_not_for_go();
+    the_launched_config_lists_only_the_one_chosen_provider_and_model();
+    past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_one_is_admitted();
+    the_live_runtime_refuses_a_private_or_unreadable_lane_and_admits_a_public_one();
 }
 
-#[test]
 fn a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash() {
     let home = tempfile::tempdir().unwrap();
     let runtime = seeing(Visibility::Public, day("2026-11-10"));
@@ -131,7 +136,6 @@ fn a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash() {
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Ended { exit: TurnExit::Completed, .. })));
 }
 
-#[test]
 fn a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go() {
     let home = tempfile::tempdir().unwrap();
     let account = account(home.path());
@@ -148,7 +152,6 @@ fn a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go() {
     assert!(refused.is_err_and(|error| error.user_message().contains("fixes this lane's model")));
 }
 
-#[test]
 fn a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_not_for_go() {
     let home = tempfile::tempdir().unwrap();
     let account = account(home.path());
@@ -161,7 +164,6 @@ fn a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_n
     assert!(launch(Visibility::Public, "Item: north#1\nGo south on the map").is_ok());
 }
 
-#[test]
 fn the_launched_config_lists_only_the_one_chosen_provider_and_model() {
     let go = config::content(Route::Go);
     assert_eq!(go["enabled_providers"], json!(["opencode-go"]));
@@ -173,7 +175,6 @@ fn the_launched_config_lists_only_the_one_chosen_provider_and_model() {
     assert!(free.get("provider").is_none());
 }
 
-#[test]
 fn past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_one_is_admitted() {
     let home = tempfile::tempdir().unwrap();
     let account = account(home.path());
@@ -187,7 +188,6 @@ fn past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_on
     assert!(seeing(Visibility::Private, day("2026-11-30")).host(&account, &request(home.path()), Opening::Fresh(Some("ses_x")), "").is_ok());
 }
 
-#[test]
 fn the_live_runtime_refuses_a_private_or_unreadable_lane_and_admits_a_public_one() {
     let home = tempfile::tempdir().unwrap();
     let account = account(home.path());

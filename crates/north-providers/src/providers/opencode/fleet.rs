@@ -14,7 +14,7 @@ use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::platform::harness;
 
 use super::route::{self, MODELS, Route, Visibility};
-use super::turns::PHASE_FRAME;
+use super::turns::Phase;
 use super::{accounts, live, screen};
 
 const PROVIDER: &str = "opencode";
@@ -127,15 +127,15 @@ impl Runtime for Opencode {
         if let Some(session) = frame["sessionID"].as_str().filter(|session| !session.is_empty()) {
             transcript.conversation.get_or_insert_with(|| session.to_owned());
         }
-        match (frame["type"].as_str(), frame["phase"].as_str()) {
-            (Some(PHASE_FRAME), Some("ready")) if transcript.status == Status::Starting => transcript.status = Status::Idle,
-            (Some(PHASE_FRAME), Some("start")) => {
+        match (frame["type"].as_str(), Phase::of(frame)) {
+            (_, Some(Phase::Ready)) if transcript.status == Status::Starting => transcript.status = Status::Idle,
+            (_, Some(Phase::Start)) => {
                 transcript.status = Status::Working;
                 transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
                 push(transcript, EntryKind::User, frame["text"].as_str().unwrap_or_default().to_owned());
             }
-            (Some(PHASE_FRAME), Some("fallback")) => push(transcript, EntryKind::Notice, format!("the free model failed ({}); this turn runs again on paid Go Flash", frame["reason"].as_str().unwrap_or("no reason given"))),
-            (Some(PHASE_FRAME), Some("end")) => observe_end(frame, transcript),
+            (_, Some(Phase::Fallback)) => push(transcript, EntryKind::Notice, format!("the free model failed ({}); this turn runs again on paid Go Flash", frame["reason"].as_str().unwrap_or("no reason given"))),
+            (_, Some(Phase::End)) => observe_end(frame, transcript),
             (Some("text"), _) => push(transcript, EntryKind::Assistant, frame["part"]["text"].as_str().unwrap_or_default().to_owned()),
             (Some("tool_use"), _) => push(transcript, EntryKind::Tool, tool_text(&frame["part"])),
             (Some("error"), _) => push(transcript, EntryKind::Error, frame["error"]["message"].as_str().unwrap_or("error").to_owned()),
@@ -144,17 +144,15 @@ impl Runtime for Opencode {
     }
 
     fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
-        if frame["type"] != PHASE_FRAME {
-            return Vec::new();
-        }
+        let Some(phase) = Phase::of(frame) else { return Vec::new() };
         let Some(conversation) = frame["sessionID"].as_str().filter(|session| !session.is_empty()).map(str::to_owned) else { return Vec::new() };
-        match frame["phase"].as_str() {
-            Some("start") => {
+        match phase {
+            Phase::Start => {
                 let opened = (frame["first"] == true).then(|| TurnSignal::Opened { conversation: conversation.clone(), model: frame["model"].as_str().map(str::to_owned), effort: None });
                 opened.into_iter().chain([TurnSignal::Started { conversation: conversation.clone() }, TurnSignal::Prompt { conversation, text: frame["text"].as_str().unwrap_or_default().to_owned() }]).collect()
             }
-            Some("end") => vec![TurnSignal::Ended { conversation, exit: exit(frame["exit"].as_str()), totals: TurnTotals { tokens: Some(tokens(&frame["tokens"])), turns: None, wall_ms: frame["wall_ms"].as_u64() } }],
-            _ => Vec::new(),
+            Phase::End => vec![TurnSignal::Ended { conversation, exit: exit(frame["exit"].as_str()), totals: TurnTotals { tokens: Some(tokens(&frame["tokens"])), turns: None, wall_ms: frame["wall_ms"].as_u64() } }],
+            Phase::Ready | Phase::Fallback => Vec::new(),
         }
     }
 
@@ -171,7 +169,7 @@ impl Runtime for Opencode {
     }
 
     fn accepted_prompt(&self, frame: &Value) -> Option<String> {
-        (frame["type"] == PHASE_FRAME && frame["phase"] == "start").then(|| frame["uuid"].as_str().map(str::to_owned)).flatten()
+        (Phase::of(frame) == Some(Phase::Start)).then(|| frame["uuid"].as_str().map(str::to_owned)).flatten()
     }
 }
 

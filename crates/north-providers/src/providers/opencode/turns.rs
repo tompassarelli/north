@@ -14,6 +14,24 @@ use super::route::Route;
 
 pub const PHASE_FRAME: &str = "north_turn";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Phase {
+    Ready,
+    Start,
+    Fallback,
+    End,
+}
+
+impl Phase {
+    /// The phase a `north_turn` frame of this host reports; none for an opencode event.
+    pub fn of(frame: &Value) -> Option<Self> {
+        if frame["type"] != PHASE_FRAME {
+            return None;
+        }
+        [("ready", Self::Ready), ("start", Self::Start), ("fallback", Self::Fallback), ("end", Self::End)].into_iter().find(|(label, _)| frame["phase"] == *label).map(|(_, phase)| phase)
+    }
+}
+
 /// What one opencode host needs: the route its launcher chose, the scratch directory that holds its private data, the file that holds the paid key, and the words that start a confined `opencode` child.
 pub struct Host {
     pub route: Route,
