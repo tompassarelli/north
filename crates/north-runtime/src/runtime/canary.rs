@@ -48,6 +48,20 @@ pub(super) enum Verdict {
     Stuck,
 }
 
+fn run_probes(host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Vec<probes::Probe>, Vec<Ran>) {
+    let landers = machine.lander_repositories();
+    let plan = probes::core_loop(host, sha, &machine.installed_providers(), landers.as_ref());
+    if !plan.not_applicable.is_empty() {
+        println!("north runtime canary: {host}: {short}: not applicable here: {}", plan.not_applicable.join(", "));
+    }
+    let probes = plan.probes;
+    let ran: Vec<Ran> = std::thread::scope(|scope| {
+        let handles: Vec<_> = probes.iter().map(|probe| scope.spawn(|| machine.probe(probe))).collect();
+        handles.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Ran::Unrun("the probe panicked".to_owned()))).collect()
+    });
+    (probes, ran)
+}
+
 pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machine) -> Verdict {
     let instance = format!("{host}/{sha}");
     if lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
@@ -63,16 +77,7 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         println!("north runtime canary: {host}: {short} not judged here: {}", failure.message);
         return Verdict::Skipped;
     }
-    let landers = machine.lander_repositories();
-    let probes = probes::core_loop(host, sha, &machine.installed_providers(), landers.as_ref());
-    if !probes.not_applicable.is_empty() {
-        println!("north runtime canary: {host}: {short}: not applicable here: {}", probes.not_applicable.join(", "));
-    }
-    let probes = probes.probes;
-    let ran: Vec<Ran> = std::thread::scope(|scope| {
-        let handles: Vec<_> = probes.iter().map(|probe| scope.spawn(|| machine.probe(probe))).collect();
-        handles.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Ran::Unrun("the probe panicked".to_owned()))).collect()
-    });
+    let (probes, ran) = run_probes(host, sha, short, machine);
     let Tallies { failures, faults, unrun } = tallies(&probes, &ran);
     if failures.is_empty() {
         if !faults.is_empty() {
