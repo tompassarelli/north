@@ -8,7 +8,7 @@ Operator console:
   dash                  One screen: readiness, account usage, model mix and category cost
   fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
   gate                  Open, answer or list decision gates
-  ledger                Fleet runs and cost; worker tiers, flow, tempo, incidents, duplicate stagings
+  ledger                Fleet runs and cost; worker tiers, flow, tempo and incidents
   task                  Record a verdict, or tick boxes whose check passes
   cloud                 Launch, message, land and reap cloud sessions
   desktop               Run a private desktop or take a screenshot off the clipboard
