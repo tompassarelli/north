@@ -5,14 +5,19 @@ use super::field;
 use regex::Regex;
 use std::sync::LazyLock;
 
-const LOCAL_NEEDS: [&str; 12] = [
-    "warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop",
+const LOCAL_NEEDS: [&str; 13] = [
+    "warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop", "lander",
 ];
 
 const SYNONYMS: [(&str, &str); 3] = [("chrome-profile", "sign-ins"), ("native-client", "native"), ("gpu", "native")];
 const CHECKOUT: &str = "checkout:";
 
 static DECLARED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bNeeds:\s*([a-z][\w:.-]*(?:\s*,\s*[a-z][\w:.-]*)*)").expect("declared needs pattern"));
+static DONE_WHEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bdone when:?").expect("done when pattern"));
+static COMMAND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]+)`").expect("box command pattern"));
+
+pub const LANDER: &str = "lander";
+const LANDER_LAND: [&str; 7] = ["doctor", "gate-stats", "missed", "profile", "promote", "replay", "serve"];
 
 pub fn words(text: &str, key: &str) -> Vec<String> {
     field(text, key)
@@ -44,6 +49,18 @@ pub fn declared(line: &str) -> Option<Vec<String>> {
     needs.sort();
     needs.dedup();
     Some(needs)
+}
+
+pub fn implied(line: &str) -> Vec<String> {
+    let check = DONE_WHEN.find_iter(line).last().map_or(line, |found| &line[found.end()..]);
+    if COMMAND.captures_iter(check).any(|found| lander_state(&found[1])) { vec![LANDER.to_owned()] } else { Vec::new() }
+}
+
+fn lander_state(command: &str) -> bool {
+    let words: Vec<&str> = command.split(|character: char| character.is_whitespace() || "|&;()<>".contains(character)).filter(|word| !word.is_empty()).collect();
+    let land = words.windows(3).any(|run| run[0] == "north" && run[1] == "land" && LANDER_LAND.contains(&run[2]));
+    let loops = words.windows(3).any(|run| run[0] == "north" && run[1] == "loops" && run[2] == "check") && words.windows(2).any(|run| run[0] == "--role" && run[1] == "lander");
+    land || loops
 }
 
 pub(super) fn is_local_need(word: &str) -> bool {

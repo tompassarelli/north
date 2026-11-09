@@ -165,9 +165,16 @@ impl Issue {
         self.takeable(at).filter(move |line| window_seconds(line).is_none_or(|window| anchor + window <= at)).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).filter(|text| crate::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug)))
     }
 
-    /// The needs the boxes `lines` declare with their own `Needs:` lines; a box with none declares none, whatever its prose mentions.
+    /// The needs the boxes `lines` declare with their own `Needs:` lines, and the lander host a check reads its records from;
+    /// a box with no `Needs:` line declares none of its prose, whatever it mentions.
     pub fn needs_in<'a>(&self, lines: impl Iterator<Item = &'a str>) -> Vec<String> {
-        let mut found: Vec<String> = lines.flat_map(|line| crate::pacing::placement::needs::declared(line).unwrap_or_default()).collect();
+        let mut found: Vec<String> = lines
+            .flat_map(|line| {
+                let mut needs = crate::pacing::placement::needs::declared(line).unwrap_or_default();
+                needs.extend(crate::pacing::placement::needs::implied(line));
+                needs
+            })
+            .collect();
         found.sort();
         found.dedup();
         found

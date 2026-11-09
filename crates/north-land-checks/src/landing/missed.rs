@@ -43,6 +43,10 @@ pub fn run(arguments: &[String]) -> u8 {
         return 2;
     };
     let records = records_mirror::read("north land missed");
+    if let Some(why) = refused(&records, &since, records_mirror::now()) {
+        eprintln!("north land missed: {why}");
+        return 1;
+    }
     let landings = landings(&records.home().join("north/land-queue"));
     let runs = match failed_runs(&repo, &since) {
         Ok(runs) => runs,
@@ -75,6 +79,18 @@ pub fn run(arguments: &[String]) -> u8 {
 
 fn short(sha: &str) -> &str {
     &sha[..sha.len().min(12)]
+}
+
+fn refused(records: &records_mirror::Records, since: &str, now: f64) -> Option<String> {
+    let stamp = records.source()?;
+    let age = (now - stamp.at).max(0.0);
+    let since = crate::foundation::clock::Timestamp::parse_rfc3339(since).map(|at| at.unix_seconds_f64());
+    let before = since.is_some_and(|since| stamp.at < since);
+    if !before && age <= records_mirror::FRESH.as_secs_f64() {
+        return None;
+    }
+    let note = records.note(now).unwrap_or_default();
+    Some(format!("refusing a stale mirror: {note}; only {} holds the land records this window judges, so run it there", stamp.host))
 }
 
 fn landings(queues: &Path) -> Vec<Landing> {
@@ -114,3 +130,7 @@ fn log(repo: &Path, run: u64) -> Option<String> {
     let output = Command::new("gh").args(["run", "view", &run.to_string(), "--log-failed"]).current_dir(repo).stdin(Stdio::null()).output().ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
+
+#[cfg(test)]
+#[path = "missed_tests.rs"]
+mod tests;
