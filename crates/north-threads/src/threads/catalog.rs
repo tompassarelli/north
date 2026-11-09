@@ -12,8 +12,8 @@ pub struct Catalog {
 }
 
 const OWNER: &str = "tompassarelli";
-const REPOS: [&str; 10] = ["makgora", "makgora-client", "padbridge", "wisp", "firn", "north", "gjoa", "fram", "wake", "battlecraft"];
-const ALIASES: [(&str, &str); 1] = [("nixos-config", "firn")];
+const REPOS: [&str; 11] = ["makgora", "makgora-client", "padbridge", "wisp", "firn", "north", "south", "gjoa", "fram", "wake", "battlecraft"];
+const ALIASES: [(&str, &str); 3] = [("nixos-config", "firn"), ("smashcraft", "makgora"), ("smashcraft-client", "makgora-client")];
 const NATIVE: [&str; 4] = ["life", "accounts", "travel", "ops"];
 
 pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog {
@@ -56,5 +56,17 @@ impl Catalog {
             return Err(format!("unknown repo {name} (known: {})", known.join(", ")));
         }
         Ok((repo.to_owned(), number))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CATALOG;
+
+    #[test]
+    fn every_repo_the_fleet_staffs_is_accepted() {
+        for (text, repo) in [("south#93", "south"), ("tompassarelli/south#85", "south"), ("smashcraft#277", "makgora"), ("smashcraft-client#4", "makgora-client")] {
+            assert_eq!(CATALOG.parse_ref(text).map(|(repo, _)| repo), Ok(repo.to_owned()), "{text}");
+        }
     }
 }
