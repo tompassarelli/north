@@ -45,8 +45,9 @@ pub(super) fn land(arguments: &[String]) -> u8 {
 
 const LANE: &[(&str, Run)] = &[
     ("audit", |arguments| crate::lanes::repo_verb(&[vec!["audit".to_owned()], arguments.to_vec()].concat())),
-    ("gc", crate::lanes::lane_gc),
+    ("gc", |arguments| outside_the_sandbox("gc", crate::lanes::lane_gc, arguments)),
     ("layout", crate::lanes::layout_check),
+    ("new", crate::lanes::new_lane),
     ("reap", crate::lanes::wt_reap),
     ("reclaim", crate::ops::reclaim::run),
     ("remove", |arguments| outside_the_sandbox("remove", crate::lanes::remove, arguments)),

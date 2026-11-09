@@ -56,7 +56,8 @@ fn outside(program: &[String]) -> std::process::ExitCode {
     }
     let mut service = Command::new("systemd-run");
     service.args(["--user", "--wait", "--pipe", "--quiet", "--collect", "--same-dir", "--service-type=exec"]);
-    for (name, value) in std::env::vars_os().filter(|(name, _)| name != MARK) {
+    let settable = |name: &OsString| name.to_str().is_some_and(|name| name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    for (name, value) in std::env::vars_os().filter(|(name, _)| name != MARK && settable(name)) {
         let mut setting = OsString::from("--setenv=");
         setting.push(&name);
         setting.push("=");

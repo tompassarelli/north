@@ -310,7 +310,7 @@ fn parse_listing(listing: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
     (trees, locked)
 }
 
-fn irreplaceable_ignored(tree: &Path) -> Vec<String> {
+pub(super) fn irreplaceable_ignored(tree: &Path) -> Vec<String> {
     git_out(tree, &["ls-files", "--others", "--ignored", "--exclude-standard"])
         .unwrap_or_default()
         .lines()

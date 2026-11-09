@@ -1,14 +1,26 @@
-usage: north lane gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idle-hours H] [--state FILE]
+usage: north lane gc [--remote] [--dry-run] [--repo NAME]... [--root DIR] [--idle-hours H] [--state FILE] [--archive DIR]
        north lane gc --unlanded
 
 For every ~/code/<project> container with main/ (clients, resources and archive are
 skipped; lanes are swept only where worktrees/ exists, origin branches in every container
 whose origin is an unarchived tompassarelli GitHub repository), lane gc deletes a lane, branch or origin branch only
-when it is finished, and never backs it up or pushes a tag:
+when it is finished, and pushes no tag:
   - landed: its tip is contained in origin/main, patch-equivalent there (git cherry shows no +),
-    its tree already on main (north landed-tree) or it adds nothing when merged;
-  - superseded: a lane or local branch is not landed but every issue it names
-    (Refs/Fixes/Closes/Part of in its commits) is closed; an origin branch is superseded only
+    its tree already on main (north landed-tree), it adds nothing when merged, or, where git
+    cherry cannot judge (over 400 commits behind or no merge base, as on rewritten history),
+    its tip's tree is a tree on main or every patch it carries has a commit on main with the
+    same stable patch-id;
+  - archived: a lane or local branch that is not landed and whose issues are all closed, idle
+    7 days, or that names no issue and has no owner, idle 14 days, is first bundled to
+    --archive DIR/<project>/ (default ~/archive/lanes; uncommitted and untracked changes ride
+    as one snapshot commit on the branch) with a line in index.tsv; the bundle must verify and
+    hold the lane's head before the lane is removed with git worktree remove --force and its
+    branch deleted. A lane's issue is its branch.<name>.north-issue git config (north lane new
+    records it), else the issues its commits cite (Refs/Fixes/Closes/Part of, or a trailing
+    (repo#N) on a line). Its owner is a lock, a process inside, a live Fleet session, a live
+    claim on its issue or a peer host's hold; a lane holding ignored files beyond build output
+    or with a waiting land ticket is kept;
+  - superseded origin branch: an origin branch is superseded only
     when each of its commits has a commit on origin/main with its subject or its author and
     author date and every line the branch adds is in that file on origin/main, and the
     deletion goes through safe-push abandon --superseded BRANCH --by COMMIT naming the first
@@ -33,8 +45,9 @@ also deletes each cargo target (cargo's CACHEDIR.TAG) directly under the temp di
 target/ one level below it that no process holds open and that has had no build within --idle-hours.
 Issue state comes from the GitHub mirror, else from one search of the open issues (one GitHub call per run); no
 lane or local branch costs a call of its own.
-Everything else is kept whatever its age or uncommitted state: a lane whose issue is still
-open, a dirty worktree, and a branch that names no issue. Each is written to the unlanded report
+Everything else is kept: a lane whose issue is still open or whose state is unknown, and a
+lane inside its window. Each lane kept on an open issue is printed under it (kept on open
+REPO#N: ...). Each is written to the unlanded report
 (default ~/.local/state/agents/lane-gc/unlanded.txt: age, container, path, branch, ahead count,
 dirty, first commit subject, Refs, class) and to stale.json under its Fleet parent, with the
 state of each issue it names (issue=open|closed|unknown) or "fault: names no issue", so the
@@ -42,4 +55,5 @@ decision is made on the issue. Parents with more than 25 or any over 72h get sup
 --dry-run prints each lane's class and action. Lanes unlanded for 24h are flagged in stale.json.
 The report class is landed-by-tree, superseded or lost (everything else). --unlanded prints that
 report and the count of each class per container. A run ends with git worktree prune and
-git fetch --prune.
+git fetch --prune. It also removes an empty worktrees/ directory (and its empty parent) that
+a mistyped lane path left inside a main checkout. From a worker sandbox it runs outside it.

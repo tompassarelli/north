@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::Gc;
-use super::evidence::{item_ref, named_issues, origin_repo};
+use super::evidence::item_ref;
 use super::exec::{api, command, git, real, text, verified};
 use north_github_mirror::read;
 use north_github_mirror::store::{self, Mirror};
@@ -120,14 +120,13 @@ impl Gc {
         refs
     }
 
-    pub(super) fn local_archive_guard(&mut self, main: &Path, name: &str, base: &str, branch: &str, tip: &str, path: Option<&Path>) -> String {
-        self.archive_guard(main, name, base, branch, tip, path).unwrap_or_else(|_| "liveness unavailable".into())
+    pub(super) fn local_archive_guard(&mut self, main: &Path, name: &str, issues: &[String], branch: &str, path: Option<&Path>) -> String {
+        self.archive_guard(main, name, issues, branch, path).unwrap_or_else(|_| "liveness unavailable".into())
     }
 
-    fn archive_guard(&mut self, main: &Path, name: &str, base: &str, branch: &str, tip: &str, path: Option<&Path>) -> Result<String, String> {
+    fn archive_guard(&mut self, main: &Path, name: &str, issues: &[String], branch: &str, path: Option<&Path>) -> Result<String, String> {
         let claims = self.live_claims()?;
-        let origin = origin_repo(main);
-        if named_issues(main, &origin.unwrap_or_else(|| name.to_string()), base, tip)?.iter().any(|item| claims.contains(item)) {
+        if issues.iter().any(|item| claims.contains(item)) {
             return Ok("live holder session".into());
         }
         if let Some(path) = path

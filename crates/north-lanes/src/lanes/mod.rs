@@ -1,8 +1,10 @@
 mod gc;
 pub use gc::USAGE as GC_USAGE;
 mod hardcoded_paths;
+mod lane_issue;
 mod layout_check;
 mod live_process;
+mod new;
 mod pin_retire;
 mod reap;
 mod remove;
@@ -20,6 +22,7 @@ mod verdict;
 pub use gc::{repo as repo_verb, run as lane_gc};
 pub use hardcoded_paths::run as hardcoded_paths;
 pub use layout_check::{exempt as layout_exempt, run as layout_check};
+pub use new::run as new_lane;
 pub use pin_retire::run as pin_retire;
 pub use reap::run as wt_reap;
 pub use remove::run as remove;
@@ -28,6 +31,8 @@ pub use stray::run as stray;
 pub use target_seed::run as target_seed;
 pub use unlock::run as unlock;
 
+#[cfg(test)]
+mod new_tests;
 #[cfg(test)]
 mod pin_retire_tests;
 #[cfg(test)]

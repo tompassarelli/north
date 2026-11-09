@@ -103,6 +103,14 @@ impl Gc {
         let (home, now_ms, idle_hours, dry_run) = (self.home.clone(), self.now_ms, self.options.idle_hours, self.options.dry_run);
         let sweep = Sweep { code: &code, home: &home, container, main, common, live, now_ms, idle_hours, dry_run };
         let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        for shell in empty_shells(main) {
+            let place = self.tilde(&shell);
+            match if dry_run { Ok(()) } else { remove_shell(main, &shell) } {
+                Ok(()) if dry_run => println!("{name}: empty stray directory {place}: remove"),
+                Ok(()) => println!("{name}: empty stray directory {place}: removed"),
+                Err(error) => println!("{name}: empty stray directory {place}: kept ({error})"),
+            }
+        }
         for outcome in move_idle(&sweep, &mut |path| self.session_in(path)) {
             let (from, to) = (self.tilde(&outcome.from), self.tilde(&outcome.to));
             match outcome.result {
@@ -111,5 +119,18 @@ impl Gc {
                 Err(why) => println!("{name}: stray {from}: kept in place ({why})"),
             }
         }
+    }
+}
+
+fn empty_shells(main: &Path) -> Vec<PathBuf> {
+    let nested = std::fs::read_dir(main).into_iter().flatten().flatten().filter(|entry| entry.file_name() != ".git" && entry.path().is_dir()).map(|entry| entry.path().join("worktrees"));
+    std::iter::once(main.join("worktrees")).chain(nested).filter(|shell| std::fs::read_dir(shell).is_ok_and(|mut entries| entries.next().is_none())).collect()
+}
+
+fn remove_shell(main: &Path, shell: &Path) -> std::io::Result<()> {
+    std::fs::remove_dir(shell)?;
+    match shell.parent() {
+        Some(parent) if parent != main && std::fs::read_dir(parent).is_ok_and(|mut entries| entries.next().is_none()) => std::fs::remove_dir(parent),
+        _ => Ok(()),
     }
 }

@@ -1,5 +1,7 @@
+mod archive;
 mod audit;
 mod audit_rows;
+mod content;
 mod evidence;
 mod exec;
 mod liveness;
@@ -14,13 +16,17 @@ mod targets;
 mod trees;
 
 #[cfg(test)]
+mod archive_tests;
+#[cfg(test)]
+mod content_tests;
+#[cfg(test)]
 mod strays_tests;
 #[cfg(test)]
 mod scratch_tests;
 #[cfg(test)]
 mod targets_tests;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -49,6 +55,7 @@ pub(super) struct Options {
     repos: Vec<String>,
     idle_hours: f64,
     state: PathBuf,
+    archive: PathBuf,
 }
 
 #[derive(Debug, Default)]
@@ -60,6 +67,7 @@ pub(super) struct Counts {
     unlanded: usize,
     dropped_targets: usize,
     dropped_bytes: u64,
+    archived: usize,
 }
 
 pub(super) struct Gc {
@@ -78,6 +86,7 @@ pub(super) struct Gc {
     open: HashMap<String, Vec<Value>>,
     remote_rows: Vec<String>,
     remote_due: bool,
+    kept_open: BTreeMap<String, Vec<String>>,
 }
 
 enum Parsed {
@@ -101,6 +110,7 @@ fn parse(arguments: &[String], home: &Path) -> Parsed {
         repos: Vec::new(),
         idle_hours: 3.0,
         state: home.join(".local/state/agents/lane-gc/unlanded.txt"),
+        archive: home.join("archive/lanes"),
     };
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
@@ -112,6 +122,7 @@ fn parse(arguments: &[String], home: &Path) -> Parsed {
             "--root" => options.root = PathBuf::from(value()),
             "--idle-hours" => options.idle_hours = value().parse().unwrap_or(f64::NAN),
             "--state" => options.state = PathBuf::from(value()),
+            "--archive" => options.archive = PathBuf::from(value()),
             "--unlanded" => return Parsed::Exit(print_unlanded(home, &options.state)),
             "--scan-trees" => {
                 let root = trees::expand(&value(), home);
@@ -205,6 +216,7 @@ pub fn run(arguments: &[String]) -> u8 {
         open: HashMap::new(),
         remote_rows: Vec::new(),
         remote_due,
+        kept_open: BTreeMap::new(),
     };
     gc.sweep_all(&containers);
     gc.finish()
@@ -262,13 +274,17 @@ impl Gc {
                 println!("{summary}");
             }
         }
+        for (issue, places) in &self.kept_open {
+            println!("kept on open {issue}: {}", places.join(", "));
+        }
         let c = &self.counts;
         println!(
-            "lane gc{}: retired {} worktrees, {} local branches, {} origin branches; kept {} ({} unlanded); dropped {} build targets ({})",
+            "lane gc{}: retired {} worktrees, {} local branches, {} origin branches; bundled {} lanes to the archive before reaping them; kept {} ({} unlanded); dropped {} build targets ({})",
             if self.options.dry_run { " (dry run)" } else { "" },
             c.retired_worktrees,
             c.deleted_branches,
             c.deleted_remote,
+            c.archived,
             c.kept,
             c.unlanded,
             c.dropped_targets,

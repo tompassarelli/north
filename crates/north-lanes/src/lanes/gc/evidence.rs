@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use north_github_mirror::read::{self, Seen};
@@ -9,10 +9,13 @@ use north_github_mirror::store::Mirror;
 use regex::Regex;
 use serde_json::Value;
 
+use super::content::MainContent;
 use super::exec::{command, git};
+use super::super::lane_issue::recorded;
 
 const CHERRY_LIMIT: u64 = 400;
 static ISSUES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:Refs|Fixes|Closes|Part of)\s+([\w.-]*#\d+)").unwrap());
+static SUBJECT_ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)\(([\w.-]*#\d+)\)\s*$").unwrap());
 static REFS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bRefs\s+([\w.-]+#\d+)").unwrap());
 static ORIGIN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)tompassarelli/([^/]+?)(?:\.git)?$").unwrap()
@@ -36,10 +39,10 @@ fn base_tree(repo: &Path, base: &str) -> String {
 }
 
 pub(super) fn landed(repo: &Path, base: &str, tip: &str) -> Landed {
-    landed_against(repo, base, None, tip)
+    landed_against(repo, base, None, &OnceLock::new(), tip)
 }
 
-fn landed_against(repo: &Path, base: &str, tree_of_base: Option<&str>, tip: &str) -> Landed {
+fn landed_against(repo: &Path, base: &str, tree_of_base: Option<&str>, main: &OnceLock<MainContent>, tip: &str) -> Landed {
     let yes = |ahead, how: &str| Landed { landed: true, ahead, how: how.to_string() };
     if git(repo, &["merge-base", "--is-ancestor", tip, base]).ok {
         return yes(0, "ancestor");
@@ -53,11 +56,13 @@ fn landed_against(repo: &Path, base: &str, tree_of_base: Option<&str>, tip: &str
     if merged.ok && merged.out.lines().next() == Some(tree_of_base.map_or_else(|| base_tree(repo, base), str::to_owned).as_str()) {
         return yes(ahead, "adds nothing");
     }
-    if behind <= CHERRY_LIMIT {
-        let cherry = git(repo, &["cherry", base, tip]);
-        if cherry.ok && !cherry.out.lines().any(|line| line.starts_with('+')) {
+    let cherry = (behind <= CHERRY_LIMIT).then(|| git(repo, &["cherry", base, tip])).filter(|cherry| cherry.ok);
+    if let Some(cherry) = &cherry {
+        if !cherry.out.lines().any(|line| line.starts_with('+')) {
             return yes(ahead, "patch-equivalent");
         }
+    } else if let Some(how) = main.get_or_init(|| MainContent::read(repo, base)).holds(repo, base, tip) {
+        return yes(ahead, how);
     }
     Landed { landed: false, ahead, how: String::new() }
 }
@@ -105,7 +110,15 @@ pub(super) fn own_repo(main: &Path, name: &str) -> String {
 pub(super) fn named_issues(main: &Path, own: &str, base: &str, tip: &str) -> Result<Vec<String>, String> {
     let text = bodies(main, base, tip, "issue evidence unavailable")?;
     let qualified = |item: &str| if item.starts_with('#') { format!("{own}{item}") } else { item.to_string() };
-    Ok(unique(ISSUES.captures_iter(&text).map(|found| item_ref(&qualified(&found[1])))))
+    let cited = ISSUES.captures_iter(&text).chain(SUBJECT_ISSUE.captures_iter(&text));
+    Ok(unique(cited.map(|found| item_ref(&qualified(&found[1])))))
+}
+
+pub(super) fn lane_issues(main: &Path, own: &str, base: &str, branch: &str, tip: &str) -> Result<Vec<String>, String> {
+    match recorded(main, branch) {
+        Some(item) => Ok(vec![item_ref(&item)]),
+        None => named_issues(main, own, base, tip),
+    }
 }
 
 pub(super) fn cited_issues(text: &str) -> Vec<String> {
@@ -224,6 +237,7 @@ impl LaneClass {
 
 pub(super) fn landed_each(repo: &Path, base: &str, tips: &[String]) -> HashMap<String, Landed> {
     let tree_of_base = base_tree(repo, base);
+    let main = OnceLock::new();
     let next = AtomicUsize::new(0);
     let workers = std::thread::available_parallelism().map_or(1, NonZeroUsize::get).min(tips.len());
     std::thread::scope(|scope| {
@@ -232,7 +246,7 @@ pub(super) fn landed_each(repo: &Path, base: &str, tips: &[String]) -> HashMap<S
                 scope.spawn(|| {
                     let mut verdicts = Vec::new();
                     while let Some(tip) = tips.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        verdicts.push((tip.clone(), landed_against(repo, base, Some(&tree_of_base), tip)));
+                        verdicts.push((tip.clone(), landed_against(repo, base, Some(&tree_of_base), &main, tip)));
                     }
                     verdicts
                 })
