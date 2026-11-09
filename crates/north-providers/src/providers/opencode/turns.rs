@@ -81,7 +81,7 @@ pub fn serve(host: &Host, input: impl BufRead + Send + 'static, output: &mut imp
         let _ = reader.send(Event::Closed);
     });
     frame(output, &json!({"type": PHASE_FRAME, "phase": "ready", "sessionID": host.session}))?;
-    let mut serving = Serving { host, events, output, queue: VecDeque::new(), turn: None, attempts: 0, closed: false };
+    let mut serving = Serving { host, route: host.route, events, output, queue: VecDeque::new(), turn: None, attempts: 0, closed: false };
     loop {
         if serving.turn.is_none() && !serving.next()? {
             return Ok(());
@@ -97,6 +97,7 @@ pub fn serve(host: &Host, input: impl BufRead + Send + 'static, output: &mut imp
 
 struct Serving<'a, W> {
     host: &'a Host,
+    route: Route,
     events: Sender<Event>,
     output: &'a mut W,
     queue: VecDeque<(String, String)>,
@@ -108,12 +109,9 @@ struct Serving<'a, W> {
 impl<W: Write> Serving<'_, W> {
     /// Starts the next queued turn; false once the input has closed and nothing is left to run.
     fn next(&mut self) -> NorthResult<bool> {
-        if self.closed {
-            return Ok(false);
-        }
-        let Some((uuid, text)) = self.queue.pop_front() else { return Ok(true) };
+        let Some((uuid, text)) = self.queue.pop_front() else { return Ok(!self.closed) };
         self.attempts += 1;
-        let route = self.host.route;
+        let route = self.route;
         frame(self.output, &json!({"type": PHASE_FRAME, "phase": "start", "uuid": uuid, "sessionID": self.host.session, "text": text, "route": route.label(), "model": route.model(), "first": self.attempts == 1}))?;
         let sent = match self.host.instructions.as_ref().filter(|_| self.attempts == 1) {
             Some(file) => format!("{}\n\n{text}", std::fs::read_to_string(file)?.trim_end()),
@@ -153,6 +151,7 @@ impl<W: Write> Serving<'_, W> {
         let paid = running.route.fallback().filter(|_| running.error.is_some() && !running.progressed && !running.interrupted && self.host.key_file.is_some());
         let Some(route) = paid else { return frame(self.output, &running.end(self.host)) };
         self.attempts += 1;
+        self.route = route;
         frame(self.output, &json!({"type": PHASE_FRAME, "phase": "fallback", "uuid": running.uuid, "sessionID": self.host.session, "from": running.route.label(), "to": route.label(), "reason": running.error}))?;
         self.turn = Some(begin(self.host, &self.events, running.uuid, running.text, route, self.attempts)?);
         Ok(())

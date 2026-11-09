@@ -103,7 +103,7 @@ impl Runtime for Opencode {
             std::fs::write(&file, delivered)?;
             argv.extend(["--instructions".into(), file.display().to_string()]);
         }
-        if let Some(key) = account.token_file.as_ref().filter(|_| self.private_lanes) {
+        if let Some(key) = account.token_file.as_ref() {
             argv.extend(["--key-file".into(), key.display().to_string()]);
         }
         let mut env: Vec<(String, std::ffi::OsString)> = vec![(SESSION_ENV.into(), request.name.clone().into()), (ROLE_ENV.into(), request.role().label().into()), (ACTOR_ENV.into(), request.name.clone().into())];

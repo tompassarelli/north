@@ -77,12 +77,13 @@ fn argument(argv: &[String], flag: &str) -> Option<String> {
     argv.iter().position(|word| word == flag).and_then(|at| argv.get(at + 1)).cloned()
 }
 
-fn run_brief(runtime: &Opencode, route: Route, home: &Path, brief: &str) -> (Transcript, Vec<TurnSignal>, Vec<Value>) {
+fn run_briefs(runtime: &Opencode, route: Route, home: &Path, briefs: &[&str]) -> (Transcript, Vec<TurnSignal>, Vec<Value>) {
     let key = home.join("go.key");
     std::fs::write(&key, "key-material\n").unwrap();
     let host = turns::Host { route, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program: fake(home), cwd: home.into() };
     let mut transcript = Transcript { name: "worker".into(), ..Transcript::new() };
-    let input = runtime.message(&transcript, "u1", brief).unwrap().join("\n");
+    let input: Vec<String> = briefs.iter().enumerate().flat_map(|(at, brief)| runtime.message(&transcript, &format!("u{at}"), brief).unwrap()).collect();
+    let input = input.join("\n");
     let mut output = Vec::new();
     turns::serve(&host, Cursor::new(input), &mut output).unwrap();
     let frames: Vec<Value> = String::from_utf8(output).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
@@ -103,7 +104,7 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("go"));
     assert!(spec.argv.iter().all(|word| !word.contains("key-material")), "{:?}", spec.argv);
 
-    let (transcript, signals, _) = run_brief(&runtime, Route::Go, home.path(), "Item: north#1\nBox: add a.txt");
+    let (transcript, signals, _) = run_briefs(&runtime, Route::Go, home.path(), &["Item: north#1\nBox: add a.txt"]);
 
     let launched = std::fs::read_to_string(home.path().join("args.txt")).unwrap();
     assert!(launched.contains("run --standalone ") && launched.contains("-m opencode-go/deepseek-v4.1-flash"), "opencode must run on a private server, not the background service that sits outside the sandbox: {launched}");
@@ -129,9 +130,14 @@ fn a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash() {
     let home = tempfile::tempdir().unwrap();
     let runtime = seeing(Visibility::Public, day("2026-11-10"));
 
-    let (transcript, signals, frames) = run_brief(&runtime, Route::Free, home.path(), "Box: add a.txt");
+    let (transcript, signals, frames) = run_briefs(&runtime, Route::Free, home.path(), &["Box: add a.txt", "Box: add b.txt"]);
 
-    assert!(frames.iter().any(|frame| frame["phase"] == "fallback" && frame["from"] == "free" && frame["to"] == "go"));
+    let falls = frames.iter().filter(|frame| frame["phase"] == "fallback" && frame["from"] == "free" && frame["to"] == "go").count();
+    assert_eq!(falls, 1, "a lane that found the free model limited stays on Go instead of trying free again each turn");
+    let starts: Vec<_> = frames.iter().filter(|frame| frame["phase"] == "start").map(|frame| frame["route"].as_str().unwrap()).collect();
+    assert_eq!(starts, ["free", "go"]);
+    let launched = std::fs::read_to_string(home.path().join("args.txt")).unwrap();
+    assert_eq!(launched.lines().filter(|line| line.contains("-free")).count(), 1, "{launched}");
     assert!(transcript.entries.iter().any(|entry| entry.kind == EntryKind::Assistant && entry.text == "Done: wrote a.txt"));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Ended { exit: TurnExit::Completed, .. })));
 }
