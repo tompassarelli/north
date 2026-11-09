@@ -229,8 +229,8 @@ worker updates its own class's line when its lane lands.
   The scan offloads to `landing.remote-hosts = gex45`, which cpx62 cannot resolve, and safe-push
   exited 75, twice for n882-retain.
 - Invariant: read the source of truth by revision (4). Placement uses measured reachability.
-- Mechanism: the kill scan surveys only hosts this host reaches, and a build host that reaches
-  none runs the scan itself.
+- Mechanism: the kill scan surveys only hosts this host reaches, and a host that reaches none
+  runs the scan itself.
 - Replay: `cargo nextest run -p north-land-scans test_admission` covers cpx62's case.
 - Status: in flight. n892-hostinput, in the same lane 149b044696.
 

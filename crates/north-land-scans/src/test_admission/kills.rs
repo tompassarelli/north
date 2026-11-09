@@ -170,7 +170,7 @@ fn hosts(directory: &Path, named: Option<String>) -> Vec<String> {
     fallbacks(in_slot, || choose(directory, &here), &declared, orchestration::read().ok().as_ref(), &here)
 }
 
-/// A check inside an offload slot runs on the slot's host, which took it, as coverage does; any other tries the host with room, then each declared host this host reaches, and a build host that reaches none runs it itself.
+/// A check inside an offload slot runs on the slot's host, which took it, as coverage does; any other tries the host with room, then each declared host this host reaches, and runs it itself when it reaches none.
 fn fallbacks(in_slot: bool, chosen: impl FnOnce() -> Option<String>, declared: &str, cfg: Option<&DocumentMut>, here: &str) -> Vec<String> {
     if in_slot {
         return vec![here.to_owned()];
@@ -182,8 +182,7 @@ fn fallbacks(in_slot: bool, chosen: impl FnOnce() -> Option<String>, declared: &
             hosts.push(host.to_owned());
         }
     }
-    let builds_here = cfg.and_then(|cfg| cfg.get("hosts")?.get(here)?.get("offload_builds")?.as_bool()) == Some(true);
-    if hosts.is_empty() && builds_here {
+    if hosts.is_empty() {
         hosts.push(here.to_owned());
     }
     hosts
