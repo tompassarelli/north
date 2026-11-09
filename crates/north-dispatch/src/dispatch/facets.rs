@@ -91,13 +91,17 @@ pub fn overbuilt(issue: &Issue) -> Option<String> {
     issue.body.lines().filter_map(|line| line.trim_start().strip_prefix("- [ ]").or_else(|| line.trim_start().strip_prefix("* [ ]"))).find_map(|line| HEAVIER.captures(line)).map(|found| found.get(1).or_else(|| found.get(2)).map_or("", |named| named.as_str()).to_lowercase())
 }
 
+/// A line that names a failure or a repro, the only lines whose backticked test command is a repro, so a
+/// Done when's passing check is not one.
+static FAILS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:fail|repro)").unwrap());
 static REPRO: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"`((?:cargo (?:test|nextest run)|bun (?:run )?test|npm (?:run )?test|pnpm test|npx (?:vitest|jest|playwright test)|just test|go test)\b[^`]*)`|(?i:\bfailing test)\s+`([^`]+)`").unwrap()
 });
 
-/// The failing test or repro command `text` names: its `Repro:` line, else a backticked test command or
-/// a backticked name after "failing test". An unknown-cause bug naming one starts on Sonnet, whose
-/// failed try the repro exposes in one attempt.
+/// The failing test or repro command `text` names: its `Repro:` line, else a backticked test command on a
+/// line naming a failure or repro, or a backticked name after "failing test". An unknown-cause bug naming
+/// one starts on Sonnet, whose failed try the repro exposes in one attempt.
 pub fn repro(text: &str) -> Option<String> {
-    declared_in(text, "Repro").map(str::to_owned).or_else(|| REPRO.captures(text).and_then(|found| found.get(1).or_else(|| found.get(2))).map(|named| named.as_str().to_owned()))
+    let named = |line: &str| REPRO.captures(line).and_then(|found| found.get(1).or_else(|| found.get(2))).map(|named| named.as_str().to_owned());
+    declared_in(text, "Repro").map(str::to_owned).or_else(|| text.lines().filter(|line| FAILS.is_match(line)).find_map(named))
 }

@@ -185,6 +185,7 @@ fn an_unknown_cause_bug_naming_a_repro_starts_on_sonnet_and_escalates_once_to_op
     let repro = bug("Fails under `cargo nextest run -p north-dispatch stops`.");
     assert_eq!(rung(&repro, &History::default()), (Tier::Sonnet, None));
     assert_eq!(rung(&bug("Workers stall at random."), &History::default()), (Tier::Opus, Some(Effort::Medium)));
+    assert_eq!(rung(&bug("Workers stall at random.\nDone when: `cargo nextest run -p north-dispatch` passes"), &History::default()), (Tier::Opus, Some(Effort::Medium)), "a passing check is no repro");
     let mut history = History::default();
     let first = route(&repro, &history, &unread).unwrap();
     history.launched("north#966", "sonnet-try", &first);
