@@ -27,7 +27,7 @@ pub(crate) use update::collect;
 use crate::land_offload;
 use std::path::Path;
 
-const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|agy [VERSION] | north runtime covers [--head REV] [--code PATH,...]
+const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|agy|pi|opencode [VERSION] | north runtime covers [--head REV] [--code PATH,...]
 
 update [--sha SHA]     bring this host's current runtime to origin/main (or SHA): pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health fails; an agents sync failure keeps the code, alerts the proxy and retries each tick
 settle                 on the host that settles the fleet: update here, deploy where current differs, probe every host, run one offloaded canary land check per promoted runtime per host and roll a host back when it fails, and judge each landing once by landing_live_deadline_sec
@@ -37,8 +37,8 @@ rollback --from SHA    relink current to the previous runtime and hold SHA back 
 promote                after a landing: wait for any running update, bring this host to origin/main in one pass, then ship the runtime now live here to every declared host; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
 follow --repo-dir DIR  after a landing: start promote in the background when DIR's origin is north
 mirror                 on the host that settles the fleet: copy its lander and runtime records into north/records-mirror on every host it ships runtimes to, as each fleet tick does in the background
-agents [VERSION]       update this host's north runtime, then the Claude and Agy runtimes, as the twice-daily timer does
-claude|agy [VERSION]   install a checksum-verified Claude or Agy runtime and select it
+agents [VERSION]       update this host's north runtime, then the Claude, Agy, Pi and OpenCode runtimes, as the twice-daily timer does
+claude|agy|pi|opencode [VERSION]   install a checksum-verified Claude, Agy, Pi or OpenCode runtime and select it
 covers [--head REV] [--code PATH,...]
                        print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor rust-toolchain.toml nor any package Cargo.lock held at the live runtime (a lock that only adds packages still covers), so a land check runs it instead of building north from the tree";
 

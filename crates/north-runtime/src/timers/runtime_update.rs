@@ -10,6 +10,8 @@ pub(super) fn steps(version: &str, exec: &mut dyn FnMut(&str, &[&str]) -> i32) -
         (north_program().to_string_lossy().into_owned(), vec!["runtime", "update"]),
         (north_program().to_string_lossy().into_owned(), vec!["runtime", "claude", version]),
         (north_program().to_string_lossy().into_owned(), vec!["runtime", "agy", version]),
+        (north_program().to_string_lossy().into_owned(), vec!["runtime", "pi", version]),
+        (north_program().to_string_lossy().into_owned(), vec!["runtime", "opencode", version]),
     ];
     plan.iter()
         .filter_map(|(program, args)| {

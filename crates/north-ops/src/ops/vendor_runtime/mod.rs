@@ -1,5 +1,8 @@
 mod agy;
 mod claude;
+mod github;
+mod opencode;
+mod pi;
 #[cfg(test)]
 mod tests;
 
@@ -14,6 +17,8 @@ use sha2::{Digest, Sha256};
 
 pub use agy::Agy;
 pub use claude::Claude;
+pub use opencode::Opencode;
+pub use pi::Pi;
 
 pub struct Failure(pub String, pub u8);
 
@@ -22,6 +27,7 @@ pub trait Network {
     fn download(&self, url: &str, destination: &Path) -> Result<(), String>;
     fn unzstd(&self, input: &Path, output: &Path) -> Result<(), String>;
     fn untar_member(&self, archive: &Path, member: &str, output: &Path) -> Result<(), String>;
+    fn untar_into(&self, archive: &Path, directory: &Path, strip: u32) -> Result<(), String>;
 }
 
 pub struct Fetched {
@@ -66,6 +72,10 @@ impl Network for Curl {
     fn untar_member(&self, archive: &Path, member: &str, output: &Path) -> Result<(), String> {
         let extracted = run_ok(Command::new("tar").arg("-xOzf").arg(archive).arg(member))?;
         fs::write(output, extracted.stdout).map_err(|error| error.to_string())
+    }
+
+    fn untar_into(&self, archive: &Path, directory: &Path, strip: u32) -> Result<(), String> {
+        run_ok(Command::new("tar").arg("-xzf").arg(archive).arg("-C").arg(directory).arg(format!("--strip-components={strip}"))).map(|_| ())
     }
 }
 
@@ -174,4 +184,12 @@ pub fn run_claude(arguments: &[String]) -> u8 {
 
 pub fn run_agy(arguments: &[String]) -> u8 {
     run_vendor(&Agy, arguments)
+}
+
+pub fn run_pi(arguments: &[String]) -> u8 {
+    run_vendor(&Pi, arguments)
+}
+
+pub fn run_opencode(arguments: &[String]) -> u8 {
+    run_vendor(&Opencode, arguments)
 }

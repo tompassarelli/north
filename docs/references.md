@@ -268,6 +268,16 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   review brief's method and the change-together section of program-craftsmanship.
   Outcome: ideas adopted in north's own words and code; no text copied, and the co-change script ported to Rust.
 
+- <a id="pi-opencode-releases"></a>**Pi (badlogic/pi-mono) and OpenCode (anomalyco/opencode) release builds**,
+  https://github.com/badlogic/pi-mono/releases and https://github.com/anomalyco/opencode/releases, both MIT (LICENSE
+  in each repository; GitHub reports `MIT` for both); accessed 2026-11-09, Pi 1.5.0 (`pi-linux-x64.tar.gz`) and OpenCode
+  2.2.6 (`opencode-linux-x64.tar.gz`).
+  Informed: [vendor_runtime](../crates/north-ops/src/ops/vendor_runtime/mod.rs), which downloads each program's newest
+  stable release asset, checks it against the SHA-256 GitHub records for that asset and installs it under
+  `~/.local/lib/pi` and `~/.local/lib/opencode`; north#1023.
+  Outcome: adopted as unmodified upstream binaries run as separate programs; nothing is copied into North or
+  redistributed, so the MIT notice stays with each upstream archive and repository.
+
 - <a id="threejs-skills"></a>**CloudAI-X/threejs-skills**,
   https://github.com/CloudAI-X/threejs-skills/blob/b1c623076c661fc9b03dac19292e825a5d106823/README.md; accessed:
   not recorded.

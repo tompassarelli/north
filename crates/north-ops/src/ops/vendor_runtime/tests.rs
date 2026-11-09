@@ -16,7 +16,7 @@ struct Fake {
 impl Network for Fake {
     fn text(&self, url: &str, _: bool) -> Result<String, String> {
         self.calls.borrow_mut().push(url.to_owned());
-        if url.ends_with("/manifest.json") { Ok(self.manifest.clone()) } else { Ok("9.9.9\n".to_owned()) }
+        if url.ends_with("/manifest.json") || url.contains("/releases") { Ok(self.manifest.clone()) } else { Ok("9.9.9\n".to_owned()) }
     }
 
     fn download(&self, url: &str, destination: &Path) -> Result<(), String> {
@@ -30,6 +30,10 @@ impl Network for Fake {
 
     fn untar_member(&self, archive: &Path, _: &str, output: &Path) -> Result<(), String> {
         fs::copy(archive, output).map(|_| ()).map_err(|error| error.to_string())
+    }
+
+    fn untar_into(&self, archive: &Path, directory: &Path, _: u32) -> Result<(), String> {
+        Err(format!("{} into {}", archive.display(), directory.display()))
     }
 }
 
@@ -70,4 +74,11 @@ fn a_reinstall_with_a_different_binary_is_refused() {
     fs::write(root.path().join("versions/9.9.9/bin/claude"), "tampered").unwrap();
     let refused = run(&Claude, &claude_fake(false), root.path(), &|_| true, "9.9.9").err().unwrap();
     assert_eq!(refused.0, "claude-runtime-update: existing runtime identity differs");
+}
+
+#[test]
+fn the_newest_release_is_the_highest_stable_version_tag_not_githubs_latest_flag_nor_a_sidecar_tag() {
+    let listing = r#"[{"tag_name":"process-daemon-v0.5.0","draft":false,"prerelease":false},{"tag_name":"v2.2.7-rc1","draft":false,"prerelease":false},{"tag_name":"v2.3.0","draft":false,"prerelease":true},{"tag_name":"v2.2.6","draft":false,"prerelease":false},{"tag_name":"v2.2.10","draft":false,"prerelease":false},{"tag_name":"v1.19.5","draft":false,"prerelease":false}]"#;
+    let network = Fake { payload: "", manifest: listing.to_owned(), calls: RefCell::default() };
+    assert_eq!(super::github::newest(&network, "o/r").unwrap(), "2.2.10");
 }
