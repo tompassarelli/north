@@ -38,7 +38,7 @@ pub(super) fn newest_finished(fleet: &Path) -> Option<f64> {
 }
 
 fn host_running(session: &Path) -> bool {
-    let Some(pid) = fs::read_to_string(session.join("host.pid")).ok().and_then(|text| text.trim().parse::<u32>().ok()) else { return false };
+    let Some(pid) = crate::platform::session_host_files::pid(session) else { return false };
     let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).unwrap_or_default();
     stat.rsplit_once(')').is_some_and(|(_, rest)| !rest.trim_start().starts_with('Z'))
 }

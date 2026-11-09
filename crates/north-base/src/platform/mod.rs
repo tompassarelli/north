@@ -55,6 +55,7 @@ pub mod stdio;
 pub mod store_refs;
 pub mod terminal;
 pub mod session_scope;
+pub mod session_host_files;
 pub mod pyjson;
 pub mod pystats;
 pub mod replay_verdict;

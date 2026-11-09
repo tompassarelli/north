@@ -36,7 +36,7 @@ impl Live {
         let mut owners = BTreeMap::new();
         let fleet = self.home.join(".local/state/north/fleet");
         for entry in fs::read_dir(&fleet).into_iter().flatten().flatten() {
-            let Ok(unit) = fs::read_to_string(entry.path().join("host.scope")) else { continue };
+            let Ok(unit) = fs::read_to_string(crate::platform::session_host_files::scope_path(&entry.path())) else { continue };
             let session = entry.file_name().to_string_lossy().into_owned();
             let parent = parents.get(&session).cloned().flatten();
             let owner = Owner { session, parent };

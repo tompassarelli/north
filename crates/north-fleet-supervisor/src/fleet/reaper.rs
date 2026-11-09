@@ -285,7 +285,7 @@ impl Evidence for Here {
                 }
                 continue;
             }
-            let scope = std::fs::read_to_string(record.host_dir.join("host.scope")).ok().map(|unit| unit.trim().to_owned()).filter(|unit| !unit.is_empty());
+            let scope = crate::platform::session_host_files::scope(&record.host_dir);
             units.extend(scope.into_iter().chain(Prior::all(&record.host_dir).into_iter().map(|prior| prior.unit)).map(|unit| (record.name.clone(), unit)));
         }
         let ssh = &binary("ssh");

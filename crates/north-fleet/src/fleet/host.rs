@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use rustix::process::{Pid, Signal, kill_process, kill_process_group, test_kill_process};
 
 use crate::error::{NorthError, NorthResult};
-use crate::platform::session_scope;
+use crate::platform::{session_host_files, session_scope};
 
 use super::detached::{self, Prior};
 use super::model::ProviderName;
@@ -41,7 +41,7 @@ impl Host {
     }
 
     pub fn pid(&self) -> Option<u32> {
-        fs::read_to_string(self.dir.join("host.pid")).ok()?.trim().parse().ok()
+        session_host_files::pid(&self.dir)
     }
 
     pub fn running(&self) -> bool {
@@ -58,14 +58,14 @@ impl Host {
         if self.socket().is_dir() {
             return Err(NorthError::Refused(format!("{} is held by an interactive window; the fleet starts no host there", self.dir.display())));
         }
-        if self.dir.join("host.scope").exists() {
+        if session_host_files::scope_path(&self.dir).exists() {
             self.retire()?;
         }
         let socket = self.socket();
         let _ = fs::remove_file(&socket);
         fs::write(self.dir.join(SERVED_BY), served_by)?;
         let unit = session_scope::session_unit(provider.label(), &new_uuid()?);
-        fs::write(self.dir.join("host.scope"), &unit)?;
+        fs::write(session_host_files::scope_path(&self.dir), &unit)?;
         let mut command = Command::new(binary("setsid"));
         command
             .arg(binary("systemd-run"))
@@ -96,7 +96,7 @@ impl Host {
             command.env(key, value);
         }
         command.env("NORTH_FLEET_SCOPE", &unit);
-        let _ = fs::remove_file(self.dir.join("host.pid"));
+        let _ = fs::remove_file(session_host_files::pid_path(&self.dir));
         let pid = command.spawn()?.id();
         if let Err(error) = self.await_socket(pid) {
             self.terminate()?;
@@ -128,7 +128,7 @@ impl Host {
     /// detached, recorded beside `host.scope` for the new host to read. A host that is already gone
     /// left no tree to tell from those runs, so its whole scope is stopped.
     fn retire(&self) -> NorthResult<()> {
-        let unit = fs::read_to_string(self.dir.join("host.scope")).unwrap_or_default();
+        let unit = fs::read_to_string(session_host_files::scope_path(&self.dir)).unwrap_or_default();
         let tree = self.pid().filter(|pid| alive(*pid)).map(|pid| (pid, detached::host_tree(&self.proc, &self.cgroups, pid)));
         let Some((host, tree)) = tree.filter(|(_, tree)| !tree.is_empty()) else { return self.terminate() };
         let pids: Vec<Pid> = tree.iter().filter_map(|pid| i32::try_from(*pid).ok().and_then(Pid::from_raw)).collect();
@@ -147,7 +147,7 @@ impl Host {
             std::thread::sleep(POLL);
         }
         Prior { unit: unit.trim().to_owned(), host }.remember(&self.dir)?;
-        let _ = fs::remove_file(self.dir.join("host.scope"));
+        let _ = fs::remove_file(session_host_files::scope_path(&self.dir));
         Ok(())
     }
 
@@ -165,7 +165,7 @@ impl Host {
     pub fn terminate(&self) -> NorthResult<()> {
         self.stop_priors()?;
         let pid = self.pid();
-        if let Ok(unit) = fs::read_to_string(self.dir.join("host.scope")) {
+        if let Ok(unit) = fs::read_to_string(session_host_files::scope_path(&self.dir)) {
             let stopped = Command::new(binary("systemctl")).args(["--user", "stop", unit.trim()]).stdin(Stdio::null()).stderr(Stdio::piped()).output()?;
             if stopped.status.code() == Some(5) {
                 return Ok(());
@@ -288,15 +288,15 @@ mod tests {
             enroll(&proc, pid, "north-session-old.scope");
         }
         enroll(&proc, std::process::id(), "north-session-new.scope");
-        fs::write(dir.join("host.scope"), "north-session-old.scope").unwrap();
-        fs::write(dir.join("host.pid"), old_host.id().to_string()).unwrap();
+        fs::write(session_host_files::scope_path(&dir), "north-session-old.scope").unwrap();
+        fs::write(session_host_files::pid_path(&dir), old_host.id().to_string()).unwrap();
 
         Host::new(dir.clone()).reading(proc.clone(), cgroups.clone()).retire().unwrap();
         let _ = old_host.wait();
 
         assert!(!alive(old_host.id()) && !alive(child), "the previous host's tree outlived the revival");
         assert!(alive(run.id()), "the revival killed the run the session detached");
-        assert!(!dir.join("host.scope").exists());
+        assert!(!session_host_files::scope_path(&dir).exists());
         let revived = Procfs::new(proc, cgroups, std::process::id()).after(Prior::all(&dir));
         let before = revived.detached();
         assert_eq!(before.iter().map(|run| run.pid).collect::<Vec<_>>(), [run.id()], "the new host counts the prior scope's run: {before:?}");
