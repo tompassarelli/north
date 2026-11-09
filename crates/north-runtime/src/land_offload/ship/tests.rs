@@ -798,3 +798,43 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(fs::read_to_string(&seen).unwrap(), "xy");
 }
+
+// KEEP(bug): on 2026-11-09 a south#96 push queued 36 land checks at once on idle gex45 and the host admitted one per 30 s settle window though each had already ended, so the push timed out (north#996)
+#[test]
+fn many_checks_queued_at_once_on_an_idle_host_all_start() {
+    let (home, head, _) = host_with_a_shipped_bundle();
+    let repo = home.path().join("code/p/main");
+    let bin = tempfile::tempdir().unwrap();
+    crate::foundation::shim::write_script(&bin.path().join("north"), NORTH_SHIM);
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+    let script = super::remote_script("code-p-main", super::SlotClass::LandCheck);
+    let mut jobs: Vec<std::process::Child> = (0..6)
+        .map(|index| {
+            let job_ref = format!("refs/land-offload/job-{index}");
+            let bundle = home.path().join(format!("job-{index}.bundle"));
+            git(&repo, &["update-ref", &job_ref, &head]);
+            git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), &job_ref]);
+            git(&repo, &["update-ref", "-d", &job_ref]);
+            Command::new("setsid")
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", &job_ref, "SAFE_PUSH_LANDING='1'"])
+                .env("HOME", home.path())
+                .env("NORTH_OFFLOAD_SETTLE_SECONDS", "30")
+                .env("PATH", &path)
+                .env_remove(north_base::foundation::offload::SLOT_ENV)
+                .env_remove("NORTH_OFFLOAD_ROOT")
+                .stdin(fs::File::open(&bundle).unwrap())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let all_ended = north_base::platform::wait::until(std::time::Duration::from_secs(20), || jobs.iter_mut().all(|job| job.try_wait().unwrap().is_some()));
+    for job in &mut jobs {
+        if job.try_wait().unwrap().is_none() {
+            let _ = rustix::process::kill_process_group(rustix::process::Pid::from_raw(job.id() as i32).unwrap(), rustix::process::Signal::Kill);
+        }
+    }
+    let statuses: Vec<_> = jobs.iter_mut().map(|job| job.wait().unwrap()).collect();
+    assert!(all_ended && statuses.iter().all(std::process::ExitStatus::success), "six quick checks queued at once on an idle host did not all run within 20 s, inside one 30 s settle window: {statuses:?}");
+}

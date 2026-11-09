@@ -6,7 +6,7 @@ const DRAIN_POLL: &str = "0.1";
 const BACKGROUND_WAIT_SECONDS: u32 = 3600;
 const BACKGROUND_SUFFIX: &str = ".background";
 
-/// Whether the host starts this job now: a lander job (a red fix, an after-landing run, a culprit probe) at once, its floor; any other job while the host's `capacity host admit-job` admits one and the job last admitted here has settled, so the next pressure reading includes it; `NORTH_OFFLOAD_MAX_JOBS` caps the host's jobs for safety.
+/// Whether the host starts this job now: a lander job (a red fix, an after-landing run, a culprit probe) at once, its floor; any other job while the host's `capacity host admit-job` admits one and the job last admitted here has settled or already ended, so the next pressure reading includes it; `NORTH_OFFLOAD_MAX_JOBS` caps the host's jobs for safety.
 pub(super) const ADMIT: &str = r#"host_cap=${NORTH_OFFLOAD_MAX_JOBS:-}
 admitted=$root/admitted why=
 north_bin=
@@ -16,11 +16,12 @@ north_bin=
 admits() {
   [ -z "$host_cap" ] || [ "$(host_jobs)" -lt "$host_cap" ] || { why="the host runs at most $host_cap jobs"; return 1; }
   [ "${1:-}" != floor ] || return 0
-  last=0
+  last=0 last_slot=
   [ ! -r "$admitted" ] || read -r last <"$admitted" || last=0
+  [ ! -r "$admitted.slot" ] || read -r last_slot <"$admitted.slot" || last_slot=
   since=$(($(date +%s) - last))
   settle=${NORTH_OFFLOAD_SETTLE_SECONDS:-@SETTLE@}
-  [ "$since" -ge "$settle" ] || { why="the job admitted ${since}s ago settles for $settle s"; return 1; }
+  [ "$since" -ge "$settle" ] || { [ -n "$last_slot" ] && ! slot_held "$root/$last_slot.lock"; } || { why="the job admitted ${since}s ago settles for $settle s"; return 1; }
   if [ -n "$north_bin" ]; then
     rc=0
     why=$("$north_bin" capacity host admit-job 2>/dev/null) || rc=$?
@@ -156,13 +157,13 @@ while :; do
   polled=1
   sleep @POLL@
 done
-[ -n "$lander" ] || [ -n "@BACKGROUND@" ] || [ -n "$nested" ] || date +%s >"$admitted"
 if [ -n "$polled" ]; then
   waited=$(( ($(date +%s%N) - started) / 1000000 ))
   echo "@WAITED@$((waited / 1000)).$((waited % 1000 / 100))s in line for $s" >&2
 fi
 exec 4>>"$root/$s.busy"
 flock -s 4
+[ -n "$lander" ] || [ -n "@BACKGROUND@" ] || [ -n "$nested" ] || { echo "$s" >"$admitted.slot"; date +%s >"$admitted"; }
 date +%s%N >"$served/$name"
 rm -f "$ticket"
 exec 8>&-
