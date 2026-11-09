@@ -130,10 +130,8 @@ fn no_agent_command_of_any_role_can_read_or_link_away_the_operators_gh_login_nor
 }
 
 fn runnable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_script(path, "exit 0\n");
 }
 
 // KEEP(bug): a lane's test binary or package script run by its path ran outside depbox, so the code a lane's dependencies bring ran past depbox whenever an agent typed its path (south#93)
