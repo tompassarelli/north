@@ -17,6 +17,7 @@ mod rank;
 mod records;
 mod render;
 mod sessions;
+mod speaker;
 mod text;
 #[cfg(test)]
 mod core_tests;
