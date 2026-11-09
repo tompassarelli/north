@@ -97,6 +97,13 @@ pub fn rate_limit_tier(config: &Path, credentials: &Path) -> Option<String> {
     Some(tier.strip_prefix("default_claude_").unwrap_or(&tier).replace('_', "-"))
 }
 
+/// The catalog's current name for a plan key: a retired key such as `max-20x` resolves to the plan that replaced it.
+pub fn current_plan(provider: &str, key: &str) -> String {
+    let catalog = super::settings::catalog();
+    let renamed = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|account| account.get("plans")).and_then(|plans| plans.get(key)).and_then(|plan| plan.get("renamed_to")).and_then(|to| to.as_str());
+    renamed.unwrap_or(key).to_owned()
+}
+
 pub fn observed_plan(home: &Path, directory: Option<&Path>) -> String {
     let credentials = directory.map_or_else(|| home.join(".claude"), Path::to_path_buf).join(".credentials.json");
     match rate_limit_tier(&directory.unwrap_or(home).join(".claude.json"), &credentials) {

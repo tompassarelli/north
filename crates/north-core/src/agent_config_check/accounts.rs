@@ -96,7 +96,7 @@ fn problems(orchestration: &str, costs: &str, profiles: &Machines<'_>) -> Vec<St
                     found.push(format!("accounts.{provider}.{account} has no profile directory {path} on {host}"));
                 }
                 if let (Some(plan), Some(tier)) = (plan, profiles.tier(host, path))
-                    && plan != tier
+                    && crate::usage::profiles::current_plan(provider, plan) != crate::usage::profiles::current_plan(provider, &tier)
                 {
                     found.push(format!("accounts.{provider}.{account} plans entry {plan} differs from the {tier} rate-limit tier of its profile on {host}"));
                 }
@@ -106,3 +106,31 @@ fn problems(orchestration: &str, costs: &str, profiles: &Machines<'_>) -> Vec<St
     found
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::{Machines, problems};
+
+    fn profile(tier: &str) -> (tempfile::TempDir, String) {
+        let home = tempfile::tempdir().unwrap();
+        let directory = home.path().join("profile");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join(".claude.json"), format!(r#"{{"oauthAccount":{{"organizationRateLimitTier":"default_claude_{tier}"}}}}"#)).unwrap();
+        (home, "~/profile".to_owned())
+    }
+
+    fn found(plan: &str, tier: &str) -> Vec<String> {
+        let (home, path) = profile(tier);
+        let orchestration = format!("[accounts.claude]\nplans = {{ a = \"{plan}\" }}\n[accounts.claude.profiles.a]\nhere = {{ path = \"{path}\" }}\n");
+        let costs = "[[service]]\nid = \"claude-a\"\n";
+        problems(&orchestration, costs, &Machines { here: "here".to_owned(), home: home.path(), ssh: Vec::new() })
+    }
+
+    #[test]
+    fn an_ultra_plan_matches_the_retired_max_20x_tier_claude_code_still_reports() {
+        assert_eq!(found("ultra-10x", "max_20x"), Vec::<String>::new());
+        assert_eq!(found("max-20x", "max_20x"), Vec::<String>::new());
+        assert_eq!(found("max-5x", "max_20x").len(), 1);
+        assert_eq!(found("ultra-10x", "max_5x").len(), 1);
+    }
+}
