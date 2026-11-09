@@ -4,10 +4,12 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
+use crate::fleet::records::write_record;
 use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, Status};
 use crate::fleet::runtime::{Opening, Runtime, new_uuid, now_ms};
 use crate::fleet::store::{Claim, SessionRow};
 
+use super::stopping::Halt;
 use super::takeover::Predecessor;
 use super::{Fleet, efforts, session_running};
 
@@ -113,14 +115,39 @@ impl Fleet {
     }
 
     pub fn revive(&self, name: &str, system_prompt: Option<PathBuf>) -> NorthResult<SessionRecord> {
-        self.revive_placed(name, system_prompt, None, None)
+        self.revive_placed(name, system_prompt, None, None, None)
     }
 
-    /// Revive with a fresh placement override note and effort, which the restarted record keeps.
-    pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {
-        self.record(name)?;
-        let _start = self.start_lock(name)?;
-        self.revive_held(name, system_prompt, placement, effort)
+    /// Revive with a fresh placement override note and effort, which the restarted record keeps. With `account` naming another account, a running host ends first and its conversation is carried there and resumes on it; a restart that fails leaves the session stopped on its old account.
+    pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>, account: Option<&str>) -> NorthResult<SessionRecord> {
+        let record = self.record(name)?;
+        let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
+        let Some(onto) = onto else {
+            let _start = self.start_lock(name)?;
+            return self.revive_held(name, system_prompt, placement, effort);
+        };
+        let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation, so it has none to carry onto {}", onto.label)))?;
+        if let Some(machine) = &record.machine {
+            return Err(NorthError::Refused(format!("{name}'s conversation lives on {}, where carry_conversation does not reach, so it would resume on {} without its transcript", machine.name, onto.label)));
+        }
+        self.refuse_beside_interactive(&record)?;
+        let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;
+        let revived = {
+            let _start = self.start_lock(name)?;
+            self.runtime(&record)?.carry_conversation(&self.account(&record.relaunch_request())?, &onto, &conversation)?;
+            self.set_account(name, &onto.recorded_label())?;
+            self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
+        };
+        if cut_short {
+            self.carry_on(name, &format!("this session was moved onto account {} in the middle of a turn", onto.label))?;
+        }
+        Ok(revived)
+    }
+
+    fn set_account(&self, name: &str, account: &str) -> NorthResult<()> {
+        let mut record = self.record(name)?;
+        account.clone_into(&mut record.account);
+        write_record(&self.session_dir(name)?, &record)
     }
 
     pub(super) fn revive_held(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {

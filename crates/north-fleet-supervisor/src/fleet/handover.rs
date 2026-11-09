@@ -1,6 +1,6 @@
 //! A session is taken over onto another source when `usage::decide::assess` says so: a worker with
-//! unlanded work once its source is out, a proxy or lead before its source runs out. The new session
-//! gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
+//! unlanded work once its source is out or paused, a proxy or lead before its source runs out. A worker
+//! resumes its own conversation there; one that never started a conversation gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod proxy;
@@ -113,12 +113,17 @@ pub fn hand_over(
         if record.adopted() || !holds_work(record) {
             continue;
         }
+        if let Some(machine) = record.machine.as_ref().filter(|_| record.conversation.is_some()) {
+            done.lines.push(format!("{}: stays on account {}: its conversation lives on {}, where carry_conversation does not reach, so it would resume on {} without its transcript", record.name, record.account, machine.name, to.0));
+            continue;
+        }
         attribution::record(&record.name, "fleet", Cause::Harness(Harness::Capacity), &format!("handed over from account {} to {}", record.account, to.0));
         let lane = lanes.get(&record.name).and_then(|held| held.iter().max_by_key(|lane| lane.queued_ms()));
         let request = LaunchRequest {
             account: to.0.clone(),
-            prompt: brief(record, lane, &to.0),
+            prompt: record.conversation.as_ref().map_or_else(|| brief(record, lane, &to.0), |_| proxy::resumed(record, &to.0)),
             placement: Some(format!("handed over from account {}", record.account)),
+            resume: record.conversation.clone(),
             ..record.relaunch_request()
         };
         match take_over(&request) {

@@ -415,6 +415,23 @@ fn a_working_session_whose_five_hour_window_is_spent_is_parked_by_the_tick_and_r
     assert!(waits.of("worker").is_empty(), "the wait is released once the session is told");
 }
 
+#[test]
+fn a_worker_whose_five_hour_window_is_spent_resumes_its_own_conversation_on_an_account_above_the_floor_instead_of_parking_north_998() {
+    use crate::usage::decide::world::Window;
+    let host = host("nexus");
+    with_accounts(&host, &["b", "e"]);
+    working_on(&host, "root-from-github-91", "e", Some("proxy"), &lane(&host, "root-from-github-91"));
+    let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "e", Window::Week, 60.0, 3 * 86_400), read(1, "e", Window::FiveHour, 100.0, 3 * 3_600), read(2, "b", Window::Week, 97.0, 2 * 86_400)], ..Default::default() });
+    let launches = Launches::default();
+
+    let done = hand_over_with(&host, &table, &launches);
+
+    let launched = launches.borrow();
+    assert_eq!(launched.iter().map(|request| (request.name.as_str(), request.account.as_str(), request.resume.as_deref())).collect::<Vec<_>>(), [("root-from-github-91", "b", Some("root-from-github-91"))], "{:?}", done.lines);
+    assert!(launched[0].prompt.contains("same conversation"), "{}", launched[0].prompt);
+    assert!(host.fleet.waits().of("root-from-github-91").is_empty(), "{:?}", done.lines);
+}
+
 
 struct Sleepy;
 
@@ -589,6 +606,7 @@ fn a_worker_handed_over_from_the_primary_checkout_with_no_land_ticket_is_pointed
     let file = host.root().join("chr-north-1107-B/session.json");
     let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     record["brief"] = json!(brief);
+    record["conversation"] = Value::Null;
     std::fs::write(file, record.to_string()).unwrap();
     let table = Table(crate::fleet::handover::Observed { readings: vec![read(0, "a", Window::FiveHour, 40.0, 3_600), read(1, "a", Window::Week, 100.0, 86_400), read(2, "c", Window::FiveHour, 10.0, 3_600), read(3, "c", Window::Week, 10.0, 86_400)], ..Default::default() });
     let launches = Launches::default();

@@ -155,7 +155,7 @@ fn successor(record: &SessionRecord, to: &str, handover: &str) -> String {
     )
 }
 
-fn resumed(record: &SessionRecord, to: &str) -> String {
+pub(super) fn resumed(record: &SessionRecord, to: &str) -> String {
     format!(
         "[north: account {from} is at or past its floor, so `north fleet tick` moved {name} onto account {to}, the source above the floor with the most headroom] This is the same conversation; carry on where it stopped.",
         from = record.account,

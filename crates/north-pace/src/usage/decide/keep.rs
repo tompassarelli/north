@@ -1,6 +1,6 @@
 //! Continuity before spending: a proxy or lead leaves its source before the source runs out, for the
 //! source above the floor that keeps it running longest, and with none above the floor waits for the
-//! soonest windfall.
+//! soonest windfall. A worker whose source pauses moves to that same source above the floor, and parks only when none is.
 use super::state::{State, state};
 use super::work::Action;
 use super::world::{Account, Credit, Label, ModelFamily, Percent, Session, Unix, Usd, World};
@@ -64,7 +64,7 @@ pub(super) fn strand(world: &World, session: &Session) -> Option<Action> {
     session.parked_since.is_none().then_some(Action::Park { resumes_at: windfall })
 }
 
-fn roomiest(world: &World, session: &Session) -> Option<Label> {
+pub(super) fn roomiest(world: &World, session: &Session) -> Option<Label> {
     let provider = world.accounts.iter().find(|account| account.label == session.account)?.provider;
     world
         .accounts

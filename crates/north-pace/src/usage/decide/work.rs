@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use super::keep::{Footing, footing, keep, strand};
+use super::keep::{Footing, footing, keep, roomiest, strand};
 use super::state::{State, state};
 use super::world::{Account, Label, ModelFamily, Name, Owner, Provider, Session, Standing, Unix, World};
 
@@ -27,7 +27,11 @@ pub fn actions(world: &World) -> Vec<(Name, Action)> {
             continue;
         }
         match state(world, &session.account, session.family) {
-            State::Paused { resumes_at } if session.parked_since.is_none() => rest.push((true, session.name.clone(), Action::Park { resumes_at })),
+            State::Paused { resumes_at } => match roomiest(world, session) {
+                Some(to) => rest.push((true, session.name.clone(), Action::HandOver { to })),
+                None if session.parked_since.is_none() => rest.push((true, session.name.clone(), Action::Park { resumes_at })),
+                None => {}
+            },
             State::WeekOut { .. } | State::ScopeOut { .. } => {
                 if let Some(to) = soonest_expiring(world, session) {
                     rest.push((true, session.name.clone(), Action::HandOver { to }));
