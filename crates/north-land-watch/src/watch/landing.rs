@@ -14,6 +14,7 @@ const MIN_SAMPLES: usize = 5;
 const RECENT: f64 = 3600.0;
 const PUSH_ERROR_WINDOW: f64 = 900.0;
 const SETTLE_FRESH: u64 = 1800;
+const FOLLOW_PROGRESS_SECONDS: u64 = 15 * 60;
 const TEST_WORKFLOW: &str = "Cargo";
 
 pub(super) fn probe(context: &WatchContext) -> Vec<Alert> {
@@ -137,9 +138,13 @@ fn runtime(context: &WatchContext) -> Vec<Alert> {
     }
     let short = &landing[..landing.len().min(12)];
     let landed = context.events.iter().find(|event| event.status == "landed" && event.sha == landing);
-    let summary = format!("north landing {short} is not live and healthy past its live deadline: {}", failing.join(" | "));
+    let following = context.follow.as_ref().filter(|follow| follow.contains_landing);
+    let held = following.is_some_and(|follow| context.now.saturating_sub(follow.at) < FOLLOW_PROGRESS_SECONDS);
+    let stalled = if held || following.is_none() { "" } else { "; the runtime follower has made no progress for 15 min" };
+    let summary = format!("north landing {short} is not live and healthy past its live deadline{stalled}: {}", failing.join(" | "));
     let owner = landed.and_then(|event| (!event.session.is_empty()).then(|| event.session.clone()));
-    vec![Alert { key: format!("land:north:runtime-not-live:{short}"), severity: Severity::Warn, repo: Some("north".into()), owner, summary, since: landed.map_or(checked, |event| event.time as u64), detail: Detail::default() }]
+    let severity = if held { Severity::Info } else { Severity::Warn };
+    vec![Alert { key: format!("land:north:runtime-not-live:{short}"), severity, repo: Some("north".into()), owner, summary, since: landed.map_or(checked, |event| event.time as u64), detail: Detail::default() }]
 }
 
 #[cfg(test)]

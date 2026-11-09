@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 const LIMIT: usize = 3;
+const WINDOW_MS: u64 = 6 * 60 * 60 * 1000;
 const ERROR_WORDS: [&str; 10] = ["error", "fail", "denied", "cannot", "unable", "broken", "panic", "fatal", "timed out", "timeout"];
 
 #[derive(Debug, PartialEq)]
@@ -15,13 +16,12 @@ pub(super) struct Failing {
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 pub(super) struct Told {
     #[serde(default)]
-    units: BTreeMap<String, Notice>,
+    units: BTreeMap<String, BTreeMap<String, Notice>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 struct Notice {
-    cause: String,
-    count: usize,
+    at_ms: u64,
 }
 
 #[derive(Default)]
@@ -71,7 +71,7 @@ fn cause(seen: &Seen) -> String {
     if seen.timed_out {
         return "start operation timed out".into();
     }
-    let errorish = seen.output.iter().rev().find(|line| {
+    let errorish = seen.output.iter().find(|line| {
         let lower = line.to_lowercase();
         ERROR_WORDS.iter().any(|word| lower.contains(word))
     });
@@ -94,15 +94,13 @@ fn shape(cause: &str) -> String {
     })
 }
 
-pub(super) fn announce(failing: &[Failing], told: &mut Told, send: &mut dyn FnMut(&str) -> bool) {
+pub(super) fn announce(failing: &[Failing], told: &mut Told, now_ms: u64, send: &mut dyn FnMut(&str) -> bool) {
     for one in failing {
         let cause = shape(&one.cause);
-        let news = match told.units.get(&one.unit) {
-            None => true,
-            Some(notice) => notice.cause != cause || one.count >= notice.count * 2,
-        };
+        let notices = told.units.entry(one.unit.clone()).or_default();
+        let news = notices.get(&cause).is_none_or(|notice| now_ms.saturating_sub(notice.at_ms) >= WINDOW_MS);
         if news && send(&format!("harness unit {} failed to start {} times in the last hour: {}", one.unit, one.count, one.cause)) {
-            told.units.insert(one.unit.clone(), Notice { cause, count: one.count });
+            notices.insert(cause, Notice { at_ms: now_ms });
         }
     }
     let recovered: Vec<String> = told.units.keys().filter(|unit| !failing.iter().any(|one| &one.unit == *unit)).cloned().collect();
@@ -126,12 +124,12 @@ pub(super) fn tell_proxy(message: &str) -> bool {
     super::command("north", &["fleet", "send", "--from", "service:north-health", "proxy", message], None, 20).is_ok()
 }
 
-pub(super) fn check(dry_run: bool, state_file: &std::path::Path, read: &dyn Fn() -> Result<String, String>, send: &mut dyn FnMut(&str) -> bool) -> Result<(), String> {
+pub(super) fn check(dry_run: bool, state_file: &std::path::Path, read: &dyn Fn() -> Result<String, String>, send: &mut dyn FnMut(&str) -> bool, now_ms: u64) -> Result<(), String> {
     let failing = scan(&read()?);
     if !dry_run {
         let mut told: Told = std::fs::read(state_file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
         if !failing.is_empty() || !told.units.is_empty() {
-            announce(&failing, &mut told, send);
+            announce(&failing, &mut told, now_ms, send);
             super::save(state_file, &told)?;
         }
     }

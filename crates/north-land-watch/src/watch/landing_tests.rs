@@ -51,6 +51,25 @@ fn two_hosts_seeing_one_github_event_alarm_only_from_the_lander_host() {
     assert!(other.is_empty(), "{other:?}");
 }
 
+#[test]
+fn a_landing_behind_a_follower_still_building_is_not_paged() {
+    let settle = serde_json::json!({"landing": "abc", "checkedAt": NOW, "hosts": [{"host": "gex45", "problems": ["not live"]}]});
+    let watch = |at: u64, contains_landing: bool| WatchContext {
+        now: NOW,
+        settle: Some(settle.clone()),
+        follow: Some(crate::watch::Follow { sha: "def".into(), contains_landing, at }),
+        ..WatchContext::default()
+    };
+    let building = runtime(&watch(NOW - 60, true));
+    assert_eq!(building.len(), 1);
+    assert_eq!(building[0].severity, Severity::Info, "the follower is building a main containing the landing: {}", building[0].summary);
+    let stalled = runtime(&watch(NOW - FOLLOW_PROGRESS_SECONDS, true));
+    assert_eq!(stalled[0].severity, Severity::Warn);
+    assert!(stalled[0].summary.contains("no progress for 15 min"), "{}", stalled[0].summary);
+    let elsewhere = runtime(&watch(NOW - 60, false));
+    assert_eq!(elsewhere[0].severity, Severity::Warn, "a follower building a main without the landing does not hold it");
+}
+
 fn iso(unix: u64) -> String {
     let (days, rest) = (unix / 86_400, unix % 86_400);
     let date = time::Date::from_julian_day(i32::try_from(days).unwrap() + 2_440_588).unwrap();

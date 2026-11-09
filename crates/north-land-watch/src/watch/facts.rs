@@ -6,7 +6,7 @@ use std::process::Command;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::WatchContext;
+use super::{Follow, WatchContext};
 
 const DEFAULT_REPOS: [&str; 5] = ["north", "south", "nixos-config", "makgora", "wisp"];
 const EVENTS: &str = "safe-push/events.jsonl";
@@ -70,6 +70,8 @@ pub fn gather(state: &Path) -> WatchContext {
     let defers_fleet_alarms = defers_to_lander();
     let repos: Vec<RepoFacts> = if defers_fleet_alarms { Vec::new() } else { repo_names().iter().filter_map(|name| repo_facts(name, state)).collect() };
     let unavailable = repos.iter().filter(|repo| repo.error.is_some()).map(|repo| format!("gh:{}:", repo.name)).collect();
+    let settle: Option<Value> = fs::read_to_string(state.join("north/runtime-settle.json")).ok().and_then(|text| serde_json::from_str(&text).ok());
+    let follow = settle.as_ref().and_then(|report| report["landing"].as_str()).and_then(|landing| following(state, landing));
     WatchContext {
         now,
         state: state.to_path_buf(),
@@ -77,10 +79,30 @@ pub fn gather(state: &Path) -> WatchContext {
         stages: read_stages(&state.join("safe-push/stages.tsv")),
         live: live_safe_pushes(),
         repos,
-        settle: fs::read_to_string(state.join("north/runtime-settle.json")).ok().and_then(|text| serde_json::from_str(&text).ok()),
+        settle,
+        follow,
         unavailable,
         defers_fleet_alarms,
     }
+}
+
+fn following(state: &Path, landing: &str) -> Option<Follow> {
+    let record: Value = serde_json::from_str(&fs::read_to_string(state.join("north/runtime-promote.json")).ok()?).ok()?;
+    let phase = record["state"].as_str()?;
+    if !matches!(phase, "building" | "installing") {
+        return None;
+    }
+    let sha = record["sha"].as_str()?.to_owned();
+    let recorded = record["at"].as_u64()?;
+    let logged = state.join("north/runtime-build-logs").join(format!("{sha}.log"));
+    let at = fs::metadata(&logged)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(recorded, |since| recorded.max(since.as_secs()));
+    let checkout = home().join("code/north/main");
+    let contains_landing = Command::new("git").current_dir(&checkout).args(["merge-base", "--is-ancestor", landing, &sha]).status().is_ok_and(|status| status.success());
+    Some(Follow { sha, contains_landing, at })
 }
 
 fn repo_names() -> Vec<String> {

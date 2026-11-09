@@ -9,12 +9,13 @@ use crate::error::NorthResult;
 use super::ask_once;
 use super::gates::{Gate, GateBook, GateRequest};
 use super::model::{Delivery, Entry, SessionRecord};
-use super::runtime::summarize;
+use super::runtime::{PROXY, summarize};
 use super::turns::TurnExit;
 pub use super::upward::is_final;
 use super::upward::{Facts, opens};
 
 const REPORT_CHARS: usize = 4_000;
+const HEAD_LINES: usize = 3;
 const LINE_CHARS: usize = 300;
 const LAST_LINES: usize = 5;
 const MID_TASK_REVIVE_WINDOW_MS: u64 = 60 * 60 * 1000;
@@ -85,13 +86,13 @@ pub struct Report {
 }
 
 impl Report {
-    fn notice(&self, lines: &[Entry]) -> Option<(String, Delivery)> {
+    fn notice(&self, lines: &[Entry], head_only: bool) -> Option<(String, Delivery)> {
         let reply = self.reply.as_deref().unwrap_or_default().trim();
         if reply.is_empty() {
             return None;
         }
         match self.exit {
-            TurnExit::Completed => Some((self.receipt(), Delivery::Queued)),
+            TurnExit::Completed => Some((self.receipt(head_only), Delivery::Queued)),
             TurnExit::Failed => Some((format!("{} The turn failed. {}", self.header(), last_lines(lines)), Delivery::Queued)),
             TurnExit::Interrupted | TurnExit::Killed => None,
         }
@@ -110,8 +111,11 @@ impl Report {
         format!("[from {} · turn {} · exit {}{landed}]", self.child, self.turn, self.exit.label())
     }
 
-    fn receipt(&self) -> String {
+    fn receipt(&self, head_only: bool) -> String {
         let reply = self.reply.as_deref().map(str::trim).unwrap_or_default();
+        if head_only {
+            return format!("{} {}\n[read it all with `north fleet show {}`]", self.header(), head(reply).join("\n"), self.child);
+        }
         match reply.char_indices().nth(REPORT_CHARS) {
             Some((cut, _)) => format!("{} {}…\n[report truncated; read it all with `north fleet show {}`]", self.header(), &reply[..cut], self.child),
             None => format!("{} {reply}", self.header()),
@@ -119,10 +123,22 @@ impl Report {
     }
 }
 
+fn head(reply: &str) -> Vec<String> {
+    let lines: Vec<&str> = reply.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    let mut head: Vec<&str> = lines.iter().take(HEAD_LINES).copied().collect();
+    if let Some(stop) = lines.iter().find(|line| opens(line, "Stop"))
+        && !head.contains(stop)
+    {
+        head.pop();
+        head.push(stop);
+    }
+    head.into_iter().map(|line| summarize(line, LINE_CHARS)).collect()
+}
+
 pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
     let open: BTreeSet<i64> = gates.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && gate.request.session == report.child).map(|gate| gate.id).collect();
     let facts = Facts::of(report.reply.as_deref().unwrap_or_default().trim(), report.landed.as_deref(), open, report.waiting);
-    let Some((text, delivery)) = report.notice(lines) else { return Ok(false) };
+    let Some((text, delivery)) = report.notice(lines, parent == PROXY) else { return Ok(false) };
     let told = (report.exit == TurnExit::Completed).then_some(facts);
     if let Some(facts) = &told
         && (!facts.worth_telling() || facts.repeats(book.last_receipt(&report.child, Facts::PREFIX)?.as_deref()))
@@ -283,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn a_report_reaches_the_parent_only_with_a_new_fact_so_a_wait_on_its_own_queued_ticket_or_a_repeat_is_nothing() {
+    fn a_report_to_the_proxy_is_its_head_only_and_reaches_it_only_with_a_new_fact_so_a_wait_on_its_own_queued_ticket_or_a_repeat_is_nothing() {
         let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
         let report = |turn, landed: Option<&str>, waiting, reply: &str| Report { child: "land-lead".into(), turn, exit: TurnExit::Completed, landed: landed.map(str::to_owned), reply: Some(reply.into()), waiting };
         let deliver = |report: Report| deliver_report(&book, &book, &inbox, "proxy", &report, &[], 1).unwrap();
@@ -293,7 +309,22 @@ mod tests {
         assert!(!deliver(report(41, None, false, "Not done: the build host refused the lease again.")), "a repeat of the last report that went up");
         assert!(deliver(report(42, Some("be5886ab3b"), true, "Not done: half of it landed.")), "a landing always goes up");
         assert!(deliver(report(43, None, false, "Not done: the build host refused the lease.")), "the same stop after a different report is news again");
-        assert!(deliver(report(44, None, true, "Done: ticked the box with be5886ab3b.\nNext: none")));
-        assert_eq!(inbox.0.into_inner().unwrap().len(), 4);
+        let done = "Done: ticked the box with be5886ab3b.\nBox: A health alarm pages once per cause.\nBox: Land-watch holds a landing behind its follower.\nEvidence: cargo nextest passed; clippy clean; origin/main carries be5886ab3b.\nNext: none";
+        assert!(deliver(report(44, Some("be5886ab3b"), true, done)));
+        let blocked = "Blocked: the broker token expired.\nEvidence: the last call answered 401 at 04:12.\nMore evidence: the token log shows no renewal.\nStop: wait until 2026-11-10T12:00Z";
+        assert!(deliver(report(45, None, false, blocked)));
+        let posted = inbox.0.into_inner().unwrap();
+        assert_eq!(posted.len(), 5);
+        let notice = &posted[3].1;
+        assert!(notice.contains("Done: ticked the box with be5886ab3b.") && notice.contains("landed be5886ab3b"), "{notice}");
+        assert!(notice.contains("Box: A health alarm pages once per cause.") && notice.contains("Box: Land-watch holds a landing behind its follower."), "{notice}");
+        assert!(!notice.contains("Evidence:") && !notice.contains("Next: none"), "the head leaves the evidence in the transcript: {notice}");
+        assert!(notice.contains("[read it all with `north fleet show land-lead`]"), "{notice}");
+        assert_eq!(notice.lines().filter(|line| !line.starts_with("[read it all")).count(), 3, "at most three head lines: {notice}");
+        let decision = &posted[4].1;
+        assert!(decision.contains("Blocked: the broker token expired."), "{decision}");
+        assert!(decision.contains("Stop: wait until 2026-11-10T12:00Z"), "the head keeps the one decision: {decision}");
+        assert!(!decision.contains("More evidence:"), "{decision}");
+        assert_eq!(decision.lines().filter(|line| !line.starts_with("[read it all")).count(), 3, "{decision}");
     }
 }

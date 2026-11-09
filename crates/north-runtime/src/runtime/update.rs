@@ -168,15 +168,18 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
         println!("{notice}");
     }
     if let Verdict::Held(_) = verdict {
+        note_promotion(layout, target, "held");
         return Ok(Pass::Settled);
     }
     let promoted = promote(layout, checkout, target, previous);
     if let Err((stopped, failure)) = &promoted {
+        note_promotion(layout, target, "failed");
         let stopped = if failure.code == DEFERRED { Promotion::Unfinished } else { *stopped };
         lifecycle::move_to::<Promoting>(layout, target, stopped, &failure.message)?;
     }
     let synced = promoted.map_err(|(_, failure)| failure)?;
     lifecycle::went_live(layout, target, was)?;
+    note_promotion(layout, target, "live");
     live::note_swap(layout, &layout::link(target));
     println!("{synced}north runtime promoted: {short} (was {})", was.unwrap_or("none"));
     host_facts::record_after_promotion(layout, target);
@@ -212,11 +215,19 @@ fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     let building = !usable(&layout.runtime(target));
     if building {
         lifecycle::move_to::<Promoting>(layout, target, Promotion::Building, "pulling a peer's build or building here").map_err(unfinished)?;
+        note_promotion(layout, target, "building");
     }
     let runtime = built(layout, checkout, target).map_err(|failure| (Promotion::BuildFailed, failure))?;
     let cause = if building { "built; swapping current to it and checking it" } else { "built elsewhere and shipped; swapping current to it and checking it" };
     lifecycle::move_to::<Promoting>(layout, target, Promotion::Installing, cause).map_err(unfinished)?;
+    note_promotion(layout, target, "installing");
     install(layout, checkout, target, &runtime, previous).map_err(|failure| (if failure.denied { Promotion::Unfinished } else { Promotion::InstallFailed }, failure))
+}
+
+fn note_promotion(layout: &Layout, target: &str, state: &str) {
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let record = serde_json::json!({"sha": target, "state": state, "at": at});
+    let _ = fs::write(layout.state.join("runtime-promote.json"), format!("{record}\n"));
 }
 
 fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {

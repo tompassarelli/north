@@ -43,6 +43,13 @@ pub struct Detail {
     pub items: Vec<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Follow {
+    pub sha: String,
+    pub contains_landing: bool,
+    pub at: u64,
+}
+
 #[derive(Debug, Default)]
 pub struct WatchContext {
     pub now: u64,
@@ -52,6 +59,7 @@ pub struct WatchContext {
     pub live: BTreeSet<u32>,
     pub repos: Vec<RepoFacts>,
     pub settle: Option<Value>,
+    pub follow: Option<Follow>,
     pub unavailable: Vec<String>,
     pub defers_fleet_alarms: bool,
 }
