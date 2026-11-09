@@ -148,6 +148,16 @@ impl Issue {
         self.product_lines().any(|line| north_graph_ground::due_landings(line).is_some())
     }
 
+    /// Whether a missed check reopened the box a launch staffs: its own box when the brief names one, else
+    /// any unticked box of the issue.
+    pub fn reopened(&self, box_text: Option<&str>) -> bool {
+        let mut unticked = self.body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line));
+        match box_text.map(str::trim).filter(|text| !text.is_empty()) {
+            Some(text) => unticked.filter(|line| line.contains(text)).any(|line| MISSED.is_match(line)),
+            None => unticked.any(|line| MISSED.is_match(line)),
+        }
+    }
+
     /// The takeable boxes whose text holds `text`, the Done-when box a lane's `Box:` line names.
     pub fn takeable_box<'a>(&'a self, text: &'a str, at: f64) -> impl Iterator<Item = &'a str> {
         let wanted = text.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim();

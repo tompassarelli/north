@@ -5,7 +5,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 fn launch(item: &str, name: &str, at: f64) -> Record {
-    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, effort_arm: None, effort: None, cell: None }
+    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None }
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn a_forgotten_sessions_unread_report_is_no_try_but_an_unread_listed_one_still_c
     let forgotten = std::collections::BTreeSet::from(["north-255-d0900".to_owned()]);
     let mut notes = Vec::new();
     let unread = |launch: &Record| Err::<serde_json::Value, String>(format!("error: no session named {}", launch.name));
-    let unspent = super::survey::unspent(&records, now, &forgotten, unread, &mut notes);
+    let unspent = super::survey::unspent(&records, now, &forgotten, unread, &[], &super::grounds::Ledger::default(), &mut notes);
     assert!(unspent.contains_key("north-255-d0900"), "the forgotten session spends no try: {unspent:?}");
     assert!(!unspent.contains_key("north-255-d1100") && notes.len() == 1, "an unread session that is not forgotten still counts and is noted: {unspent:?} {notes:?}");
     assert!(!record::holds(&records, now, &unspent, &forgotten).values().any(|why| why.contains("tries in 24 h")), "one counted try does not hand the item to the proxy");

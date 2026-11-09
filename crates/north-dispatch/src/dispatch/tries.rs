@@ -6,6 +6,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::sync::LazyLock;
 
+use super::spin::Evidence;
 use super::work::did_work;
 
 static CAPACITY: LazyLock<Regex> = LazyLock::new(|| {
@@ -16,11 +17,11 @@ static CAPACITY: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Why the session in `north fleet show NAME --json` spent no try, or None when it did work.
-pub fn unspent(session: &Value) -> Option<String> {
+pub fn unspent(session: &Value, evidence: &Evidence) -> Option<String> {
     let entries = session["entries"].as_array()?;
     let text = |kind: &'static str| entries.iter().filter(move |entry| entry["kind"] == kind).filter_map(|entry| entry["text"].as_str());
-    if let Some(why) = super::stops::nowhere(session) {
-        return Some(format!("got nowhere on its rung ({why}), so its box climbs one"));
+    if let Some(spin) = super::spin::observed(session, evidence) {
+        return Some(format!("got nowhere on its rung ({}), so its box climbs one", spin.evidence));
     }
     if text("tool").any(did_work) {
         return None;

@@ -280,7 +280,7 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_wind
 fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_program_on_path() {
     let (hosts, accounts) = fleet();
     let survey = survey(Vec::new(), Cloud::Unreachable(String::new()), hosts, accounts);
-    let route = super::tier::Route { tier: super::tier::Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, follows: None, why: String::new() };
+    let route = super::tier::Route { tier: super::tier::Tier::Sonnet, category: "feature".into(), effort: None, effort_arm: false, signal: None, follows: None, why: String::new() };
     let launch = super::plan::Launch { item: super::issues::IssueRef { repo: "north".into(), number: 742 }, host: "whiterabbit".into(), account: "claude:a".into(), brief: "brief".into(), route, cloud: false, local: None };
 
     let (program, words) = super::effects::command(&launch, "north-742-d1756", &survey, "/home/tom", "/runtime/bin/north").unwrap();

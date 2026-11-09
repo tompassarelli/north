@@ -73,7 +73,7 @@ struct World {
 }
 
 fn launch_record(world: &World, number: u64, name: &str, started: bool, hand: bool, cloud: bool, host: &str) -> Record {
-    Record { at: world.at, item: item(number).to_string(), host: host.into(), account: "claude:b".into(), name: name.into(), cloud, launched: started, detail: String::new(), tier: None, category: None, box_text: None, hand, effort_arm: None, effort: None, cell: None }
+    Record { at: world.at, item: item(number).to_string(), host: host.into(), account: "claude:b".into(), name: name.into(), cloud, launched: started, detail: String::new(), tier: None, category: None, box_text: None, hand, signal: None, effort_arm: None, effort: None, cell: None }
 }
 
 struct Snapshot {
@@ -354,7 +354,7 @@ fn a_session_spends_a_try_when_it_committed_or_checked_and_otherwise_only_when_i
         entries.extend(tools.iter().map(|tool| json!({"kind": "tool", "text": tool})));
         entries.push(json!({"kind": "assistant", "text": report}));
         let session = json!({"entries": entries, "turns": [{"exit": "completed", "ended_ms": 1_000_000}]});
-        let spent = tries::unspent(&session).is_none();
+        let spent = tries::unspent(&session, &super::spin::Evidence::default()).is_none();
         assert_eq!(spent, worked || !limited, "tools {tools:?}, report {report:?}");
     }
 }

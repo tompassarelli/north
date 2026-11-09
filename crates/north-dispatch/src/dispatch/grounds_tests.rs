@@ -40,7 +40,7 @@ fn ledger(prior: &[(&str, Vec<PriorReport>)]) -> Ledger {
 }
 
 fn route() -> Route {
-    Route { tier: Tier::Sonnet, category: "tooling".into(), effort: None, effort_arm: false, follows: Some("north#240".into()), why: "tooling arm sonnet-high".into() }
+    Route { tier: Tier::Sonnet, category: "tooling".into(), effort: None, effort_arm: false, signal: None, follows: Some("north#240".into()), why: "tooling arm sonnet-high".into() }
 }
 
 fn reported(ended: f64, report: &str) -> PriorReport {

@@ -31,7 +31,13 @@ all_patterns = true
 
 [[read]]
 file = "crates/north-dispatch/src/dispatch/stops.rs"
-lines = 5
+lines = 3
+kind = "verdict"
+all_patterns = true
+
+[[read]]
+file = "crates/north-dispatch/src/dispatch/spin.rs"
+lines = 3
 kind = "verdict"
 all_patterns = true
 

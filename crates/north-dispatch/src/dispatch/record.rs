@@ -38,6 +38,9 @@ pub struct Record {
     /// The effort arm it ran on, as its `Arm:` stamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_arm: Option<String>,
+    /// The spin signal that climbed this launch, which makes it one row of the escalation ledger.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
     /// The effort it overrode its tier's with, whether drawn on an arm, tuned or escalated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,

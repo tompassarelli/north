@@ -106,26 +106,34 @@ confound thin evidence with new, harder work).
 ## 5. Start cheap, escalate on evidence
 
 Every box starts on its pick. The dispatcher, not the proxy, relaunches it one rung up (Haiku, Sonnet, Opus medium,
-Opus high, Opus xhigh, Opus max) with the failed report attached as `Prior report:` when either holds:
+Opus high, Opus xhigh, Opus max) with the failed report attached as `Prior report:` when the run shows one named spin
+signal:
 
-- the worker reports `Not done:` with `Stop: reasoning`; or
+- the worker reports `Not done:` with `Stop: reasoning`, having run out of approach (north#940);
 - verification failed twice in the same lane without the error count falling: the lander refused the lane twice running
-  for its own failing checks, the second time with as many errors or more, and nothing of the session landed after.
-  The landing's checks are the verification counted, because their refusal is the one record of a lane's check runs
-  that reaches dispatch: the lander's notice to the session that queued the lane (`north_base::platform::land_notice`)
-  carries `errors: N`, which `check_findings::errors` counts from the full check log (each failing test or harness
-  check once, each compiler or clippy error at its own line, at least one), and dispatch reads the notices back from
-  the session's transcript, so no host has to reach the lander host. A conflict, an origin that refused the push and a
-  persistent transient carry no count, because they are not the lane's checks. This trigger holds whatever the
-  report's `Stop:` word, since a landing refused by the lane's own checks is the worker's (section 1).
+  for its own failing checks, the second time with as many errors or more, and nothing of the session landed after
+  (north#940). The landing's checks are the verification counted, because their refusal is the one record of a lane's
+  check runs that reaches dispatch: the lander's notice to the session that queued the lane
+  (`north_base::platform::land_notice`) carries `errors: N`, which `check_findings::errors` counts from the full check
+  log (each failing test or harness check once, each compiler or clippy error at its own line, at least one), and
+  dispatch reads the notices back from the session's transcript, so no host has to reach the lander host;
+- the lander refused the same lane twice with the same verdict and no error count, as when the south checkout's lock
+  held a lane twice on 2026-11-08: the count goes with the lane's own checks, so a refusal another process caused
+  carries none, and two identical refusals are still the box spinning on its rung (north#940);
+- a missed check reopened the box the run staffs, so the fix that ticked it did not hold (north#940); or
+- the run took twice the ETA its brief stated, as the lander's 18-minute candidate check left the box that waited on it
+  running far past its ETA on 2026-11-08 (north#940). It counts only when the report is `Not done:` and names none of
+  the stops below a worker hands on, since a wait on capacity or a host is no evidence about the rung.
 
 `Stop: leash`, `Stop: landing`, `Stop: capacity` and `Stop: client` never escalate on their own word, as the escalation
-tiers already refuse them; only the lane evidence above climbs past them.
+tiers already refuse them; the lane evidence above and an ETA overrun climb past them.
 
 A harness cause never escalates; the existing stop holds (`Stop: decision`, `wait until`, `host`) keep the box where
 it is until the cause clears, and it relaunches on the same rung. Opus xhigh gets two tries: its first failure relaunches it on Opus xhigh, its second climbs to Opus max once. After a failed Opus max try the box waits as after `Stop: decision`: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus max.
 
-Built 2026-11-07: `dispatch::stops::nowhere` reads both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. `dispatch::tier::History` counts the item's Opus xhigh launches, and `Rung::climbed` repeats xhigh until its second failure. A climb is no try toward the two a day that hand a box to the proxy, since the ladder's top bounds it.
+Built 2026-11-07: `dispatch::stops::nowhere` read both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. `dispatch::tier::History` counts the item's Opus xhigh launches, and `Rung::climbed` repeats xhigh until its second failure. A climb is no try toward the two a day that hand a box to the proxy, since the ladder's top bounds it.
+
+Built 2026-11-10 (north#940): `dispatch::spin` reads all four triggers as one `Signal`, from the session, the run's ETA and minutes in the ledger (`ledger::run_times`) and the missed check on the issue's box (`Issue::reopened`); `dispatch::stops::stop` carries the signal on its `Climb`, and the launch record keeps its `key()` in `signal`, so every escalation is one row naming its box, category, rung and signal beside the run that follows it.
 
 ## 6. Learning
 

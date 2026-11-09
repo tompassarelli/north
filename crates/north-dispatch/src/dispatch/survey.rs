@@ -280,14 +280,15 @@ pub(super) fn shown(launch: &record::Record, laptop: Option<&str>, reports: &Val
 
 /// Reads the holds of each open box's last dispatched session's final report, from the session while the fleet lists it
 /// and from its archive once the reaper has retired it.
-pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: impl Fn(&record::Record) -> Result<Value, String>, retired: impl Fn(&str) -> Option<RetiredReport>, notes: &mut Vec<String>) {
+pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: impl Fn(&record::Record) -> Result<Value, String>, retired: impl Fn(&str) -> Option<RetiredReport>, grounds: &Ledger, notes: &mut Vec<String>) {
     let launches = super::stops::last_launches(records);
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
         let Some(launch) = launches.get(&issue.reference()) else { continue };
+        let evidence = super::spin::Evidence { reopened: issue.reopened(launch.box_text.as_deref()), time: grounds.time(&launch.name) };
         match show(launch) {
-            Ok(session) => issue.stop = super::stops::stop(&session, launch),
+            Ok(session) => issue.stop = super::stops::stop(&session, launch, &evidence),
             Err(why) => match retired(&launch.name) {
-                Some(report) => issue.stop = super::stops::retired_stop(&report, launch),
+                Some(report) => issue.stop = super::stops::retired_stop(&report, launch, &evidence),
                 None => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
             },
         }
@@ -296,11 +297,13 @@ pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: im
 
 /// The sessions of contested tries that did no work on their item, each with why its try is not spent.
 /// A forgotten session's report went with it, so its try is not counted against the item.
-pub(super) fn unspent(records: &[record::Record], at: f64, forgotten: &BTreeSet<String>, report: impl Fn(&record::Record) -> Result<Value, String>, notes: &mut Vec<String>) -> BTreeMap<String, String> {
+pub(super) fn unspent(records: &[record::Record], at: f64, forgotten: &BTreeSet<String>, report: impl Fn(&record::Record) -> Result<Value, String>, issues: &[Issue], grounds: &Ledger, notes: &mut Vec<String>) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
     for launch in record::contested(records, at) {
+        let issue = IssueRef::parse(&launch.item).and_then(|item| issues.iter().find(|issue| issue.reference() == item));
+        let evidence = super::spin::Evidence { reopened: issue.is_some_and(|issue| issue.reopened(launch.box_text.as_deref())), time: grounds.time(&launch.name) };
         match report(launch) {
-            Ok(session) => found.extend(super::tries::unspent(&session).map(|why| (launch.name.clone(), why))),
+            Ok(session) => found.extend(super::tries::unspent(&session, &evidence).map(|why| (launch.name.clone(), why))),
             Err(_) if forgotten.contains(&launch.name) => {
                 found.insert(launch.name.clone(), "was forgotten before its report was read".to_owned());
             }
@@ -413,7 +416,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let copies = fleets::copy_times(&record::directory(), "fleet", laptop.as_deref());
     let forgotten = fleets::forgotten(&fleet_lists, &copies, &records, at);
     let listed = fleets::listed(&fleet_lists);
-    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref(), &laptop_reports), &mut notes);
+    let unspent = unspent(&records, at, &forgotten, |launch| shown(launch, laptop.as_deref(), &laptop_reports), &issues, &grounds, &mut notes);
     holds.extend(record::holds(&records, at, &unspent, &fleets::gone(&fleet_lists, &copies, &records, at)));
     let mut box_tries = record::BoxHolds::new();
     for (item, boxes) in record::box_retries(&records, at, &unspent) {
@@ -441,7 +444,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     let rules = Rules::configured();
     let spend = spend_view(&cfg, roster, &here, &rules, &sessions, at);
-    stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref(), &laptop_reports), crate::fleet::registry::retired_report_here, &mut notes);
+    stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref(), &laptop_reports), crate::fleet::registry::retired_report_here, &grounds, &mut notes);
     let launches = super::stops::last_launches(&records);
     let learned = super::host_needs::read(&record::directory());
     let (waits, fresh_waits) = super::wait_stops::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {

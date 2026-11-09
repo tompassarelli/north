@@ -262,6 +262,35 @@ pub fn tier_briers(window: &str) -> NorthResult<Vec<Brier>> {
     predictions::score(&db, &since).map_err(failed)
 }
 
+/// A run's wall minutes and the ETA its brief stated.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RunTime {
+    pub minutes: u64,
+    pub eta_min: u64,
+}
+
+/// Each named run's wall minutes and stated ETA, for the runs the ledger holds one for.
+pub fn run_times() -> NorthResult<BTreeMap<String, RunTime>> {
+    run_times_in(&threads_database())
+}
+
+pub fn run_times_in(database: &std::path::Path) -> NorthResult<BTreeMap<String, RunTime>> {
+    let rows = sqlite::rows(
+        database,
+        Access::ReadOnly,
+        Duration::from_secs(5),
+        "SELECT agent, minutes, eta_min FROM runs WHERE eta_min > 0 AND minutes >= 0",
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let agent = text(row, "agent");
+            Some((agent, RunTime { minutes: row["minutes"].as_u64()?, eta_min: row["eta_min"].as_u64()? }))
+        })
+        .filter(|(agent, _)| !agent.is_empty())
+        .collect())
+}
+
 /// A worker's Not done or Stop report and when its run ended, as unix seconds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorReport {

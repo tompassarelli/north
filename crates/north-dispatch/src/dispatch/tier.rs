@@ -13,6 +13,7 @@ use super::facets;
 use super::issues::Issue;
 use super::record::Record;
 use super::shares::{Shares, arm_outcomes, experiment_arms};
+use super::spin::Signal;
 use crate::ledger::closed::{ArmBox, ClosedReport};
 pub use crate::router::brief::{ART, known_category as known};
 use crate::router::settle::{self, Outcome};
@@ -230,6 +231,8 @@ pub struct Route {
     pub effort: Option<Effort>,
     pub effort_arm: bool,
     pub follows: Option<String>,
+    /// The spin signal that climbed this launch off its box's last rung, which the launch record keeps.
+    pub signal: Option<Signal>,
     pub why: String,
 }
 
@@ -359,7 +362,7 @@ pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidenc
     } else {
         format!("escalates {}'s {} from {} to {}", climb.session, climb.why, climb.rung.name(), rung.name())
     };
-    Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, follows: Some(format!("{} ({})", climb.session, climb.rung.name())), why })
+    Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, follows: Some(format!("{} ({})", climb.session, climb.rung.name())), signal: Some(climb.signal), why })
 }
 
 pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Route, String> {
@@ -377,7 +380,7 @@ pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, 
 }
 
 fn tiered(item: &str, category: &str, facet: &dyn Fn(&str) -> String, history: &History) -> Route {
-    let on = |tier: Tier, why: String| Route { tier, category: category.to_owned(), effort: None, effort_arm: false, follows: None, why };
+    let on = |tier: Tier, why: String| Route { tier, category: category.to_owned(), effort: None, effort_arm: false, follows: None, signal: None, why };
     if art(category, facet) {
         return on(Tier::Sonnet, "art goes to sonnet-high".into());
     }

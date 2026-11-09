@@ -48,7 +48,7 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
     };
     let named = declared("Tier").map(|name| named_tier(&name)).transpose()?;
     let route = match named {
-        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), effort: None, effort_arm: false, follows: None, why: format!("the brief names {}", tier.name()) },
+        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), effort: None, effort_arm: false, signal: None, follows: None, why: format!("the brief names {}", tier.name()) },
         None => tier::route_for(ask.item, &facet, history, ledger)?,
     };
     let (picked, tier_effort) = route.model_effort(cfg)?;
@@ -175,6 +175,7 @@ impl Start {
             box_text: None,
             hand: true,
             effort_arm: self.route.stamp().filter(|_| !overridden).map(str::to_owned),
+            signal: self.route.signal.filter(|_| !overridden).map(|signal| signal.key().to_owned()),
             effort: self.route.effort.filter(|_| !overridden).map(|effort| effort.name().to_owned()),
             cell: super::cells::named(&self.model, self.effort.as_deref().unwrap_or_default()),
         })

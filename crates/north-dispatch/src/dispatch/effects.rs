@@ -88,6 +88,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         box_text: super::facets::declared_in(&launch.brief, "Box").map(str::to_owned),
         hand: false,
         effort_arm: launch.route.stamp().map(str::to_owned),
+        signal: launch.route.signal.map(|signal| signal.key().to_owned()),
         effort: launch.route.effort.map(|effort| effort.name().to_owned()),
         cell,
     };

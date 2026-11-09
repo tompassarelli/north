@@ -272,3 +272,24 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
     assert!(verified(&path), "the checker passing the box's Done-when command at the claimed commit corroborates the claim");
     assert!(verified(&directory.path().join("absent.db")), "where no graph exists the box's stamp is read");
 }
+
+#[test]
+fn run_times_names_each_run_its_wall_minutes_and_the_eta_its_brief_stated() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
+    let insert = |agent: &str, minutes: u32, eta: Option<u32>| {
+        db.execute(
+            "INSERT INTO runs(agent, tier, category, ended, minutes, eta_min, outcome) VALUES (?1, 'claude:sonnet-high', 'feature', '2026-11-10T00:00:00Z', ?2, ?3, 'not done')",
+            rusqlite::params![agent, minutes, eta],
+        )
+        .unwrap();
+    };
+    insert("n940-d0900", 36, Some(18));
+    insert("n940-d0901", 5, None);
+    drop(db);
+    let times = super::run_times_in(&path).unwrap();
+    assert_eq!(times.get("n940-d0900"), Some(&super::RunTime { minutes: 36, eta_min: 18 }));
+    assert_eq!(times.get("n940-d0901"), None, "a run whose brief stated no ETA climbs on no ETA signal");
+}

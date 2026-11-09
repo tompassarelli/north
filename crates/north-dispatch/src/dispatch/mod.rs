@@ -52,6 +52,7 @@ mod report;
 mod revive;
 mod screen;
 mod slots;
+mod spin;
 mod stops;
 mod strands;
 mod survey;
