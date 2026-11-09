@@ -70,6 +70,8 @@ pub trait Courier: Send + Sync {
     fn notify(&self, parent: &str, text: String, delivery: Delivery);
     fn ask(&self, request: GateRequest);
     fn answer(&self, host_dir: &Path, frame: String);
+    /// Keeps a report that opens nothing for `parent` in the digest instead of waking it.
+    fn hold(&self, _parent: &str, _text: String) {}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -83,14 +85,13 @@ pub struct Report {
 }
 
 impl Report {
-    fn notice(&self, facts: &Facts, lines: &[Entry]) -> Option<(String, Delivery)> {
+    fn notice(&self, lines: &[Entry]) -> Option<(String, Delivery)> {
         let reply = self.reply.as_deref().unwrap_or_default().trim();
         if reply.is_empty() {
             return None;
         }
         match self.exit {
-            TurnExit::Completed if facts.worth_telling() => Some((self.receipt(), Delivery::Queued)),
-            TurnExit::Completed => None,
+            TurnExit::Completed => Some((self.receipt(), Delivery::Queued)),
             TurnExit::Failed => Some((format!("{} The turn failed. {}", self.header(), last_lines(lines)), Delivery::Queued)),
             TurnExit::Interrupted | TurnExit::Killed => None,
         }
@@ -121,11 +122,14 @@ impl Report {
 pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
     let open: BTreeSet<i64> = gates.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && gate.request.session == report.child).map(|gate| gate.id).collect();
     let facts = Facts::of(report.reply.as_deref().unwrap_or_default().trim(), report.landed.as_deref(), open, report.waiting);
-    let Some((text, delivery)) = report.notice(&facts, lines) else { return Ok(false) };
+    let Some((text, delivery)) = report.notice(lines) else { return Ok(false) };
     let told = (report.exit == TurnExit::Completed).then_some(facts);
     if let Some(facts) = &told
-        && facts.repeats(book.last_receipt(&report.child, Facts::PREFIX)?.as_deref())
+        && (!facts.worth_telling() || facts.repeats(book.last_receipt(&report.child, Facts::PREFIX)?.as_deref()))
     {
+        if book.claim_receipt(&report.child, &format!("held:{}", report.turn), now_ms)? {
+            courier.hold(parent, text);
+        }
         return Ok(false);
     }
     let text = if report.asks_a_decision() {

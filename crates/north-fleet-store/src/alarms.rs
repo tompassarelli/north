@@ -17,10 +17,6 @@ pub struct Alarm {
     pub text: String,
 }
 
-fn is_notice_of_clearing(text: &str) -> bool {
-    text.ends_with(": recovered") || text.starts_with("north ops watch: cleared after")
-}
-
 /// The alarm source a message came from: north-health, north-land-watch and north-ops-flow by their service name, and the fleet's due-promise check by its text. Anything else, and a notice that an alarm cleared, is none.
 pub fn source_of(sender: &Sender, text: &str) -> Option<&'static str> {
     let Sender::Service(unit) = sender else { return None };
@@ -28,7 +24,7 @@ pub fn source_of(sender: &Sender, text: &str) -> Option<&'static str> {
     if unit == "north-fleet" {
         return text.starts_with(PROMISE_PREFIX).then_some("promise-checker");
     }
-    SERVICES.iter().find(|(service, _)| *service == unit).map(|(_, source)| *source).filter(|_| !is_notice_of_clearing(text))
+    SERVICES.iter().find(|(service, _)| *service == unit).map(|(_, source)| *source).filter(|_| !crate::fold::clears(text))
 }
 
 /// Append the message to `root`'s alarm log when it is an alarm; any other message leaves the log alone.

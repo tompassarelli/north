@@ -1,8 +1,9 @@
 //! What a child's end-of-turn report tells its parent: upward messages are by exception, because the
-//! child holds more of its box than its lead. A report goes up when it opens Done, Split or Blocked,
-//! lands a commit, holds an open gate, or ends while the child waits on nothing the fleet records, and
-//! only when those facts differ from the last report that went up; a turn that ends waiting on its
-//! own queued ticket or registered wait, or that says it stops on a landing or a clock, reaches nobody.
+//! child holds more of its box than its lead. A report goes up when it opens Done, Split or Blocked, or
+//! opens Not done and lands a commit, holds an open gate or ends while the child waits on nothing the
+//! fleet records, and only when those facts differ from the last report that went up; an interim turn
+//! opening no report word, a repeat, and a Not done waiting on its own queued ticket or registered wait
+//! or saying it stops on a landing or a clock are held for the digest instead.
 //! The child's own words can only silence a report, never move a harness number, so they are a hint
 //! (harness/agent-text-reads.toml); every other fact is mechanical: the landed sha from the push log, open gates from the ledger, tickets from the land
 //! queue and waits from the wait registry (docs/rationale/attribution.md).
@@ -33,9 +34,13 @@ impl Facts {
         Self { opening: OPENINGS.into_iter().find(|word| opens(reply, word)), landed: landed.map(|sha| sha[..SHA_CHARS.min(sha.len())].to_owned()), gates, waiting }
     }
 
-    /// Whether the parent has anything to act on: a Done, Split or Blocked, a landing, an open gate, or a stop while the child holds no queued ticket and no registered wait and does not itself say it waits on a landing or a clock.
+    /// Whether the parent has anything to act on: a Done, Split or Blocked, or a Not done that lands, holds an open gate, or stops while the child holds no queued ticket and no registered wait and does not itself say it waits on a landing or a clock.
     pub fn worth_telling(&self) -> bool {
-        matches!(self.opening, Some("Done" | "Split" | "Blocked")) || self.landed.is_some() || !self.gates.is_empty() || !self.waiting
+        match self.opening {
+            Some("Done" | "Split" | "Blocked") => true,
+            Some("Not done") => self.landed.is_some() || !self.gates.is_empty() || !self.waiting,
+            _ => false,
+        }
     }
 
     /// The receipt key recording that these facts went up on `turn`; its tail is what the next report is compared with.

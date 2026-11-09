@@ -1,12 +1,15 @@
-//! The text of `north fleet digest`: what landed, what is in flight, the open gates with their recommendation, and stalls.
+//! The text of `north fleet digest`: what landed, what is in flight, the open gates with their recommendation, stalls, and the messages held back from waking their recipient.
 use std::fmt::Write;
 
 use crate::fleet::books::Landing;
+use crate::fleet::held::Held;
 use crate::fleet::model::Status;
+use crate::fleet::runtime::summarize;
 use crate::fleet::store::{LAUNCH_GRACE_MS, SessionRow};
 use crate::router::moment::Moment;
 
 pub const STALL_AFTER_MS: u64 = 2 * 60 * 60 * 1000;
+const HELD_CHARS: usize = 300;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GateLine {
@@ -24,6 +27,7 @@ pub struct Facts<'a> {
     pub landed: &'a [Landing],
     pub sessions: &'a [SessionRow],
     pub gates: &'a [GateLine],
+    pub held: &'a [Held],
 }
 
 fn span(ms: u64) -> String {
@@ -70,6 +74,10 @@ pub fn render(facts: &Facts) -> String {
     let _ = writeln!(text, "Stalls: {}", stalls.len());
     for stall in stalls {
         let _ = writeln!(text, "  {stall}");
+    }
+    let _ = writeln!(text, "Held from waking their recipient: {}", facts.held.len());
+    for held in facts.held {
+        let _ = writeln!(text, "  {} ago to {} from {}: {}", span(facts.now_ms.saturating_sub(held.at_ms)), held.to, held.from, summarize(&held.text.replace('\n', " "), HELD_CHARS));
     }
     text
 }

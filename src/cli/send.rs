@@ -36,7 +36,7 @@ fn send(fleet: &Fleet, from: Option<&str>, name: &str, text: &str, delivery: Del
         Sent::Spooled { id, host } => eprintln!("north fleet: {name} runs on {host}; spooled {id} for the fleet tick to deliver"),
         Sent::Retired { heir } => eprintln!("north fleet: {name} is retired; the message went to {heir}"),
         Sent::Unreached => eprintln!("north fleet: no live or parked session is named {name}; the message went to the proxy"),
-        Sent::Folded => eprintln!("north fleet: {name} had this alarm's cause within the last {} min; folded into it", crate::fleet::fold::WINDOW_MS / 60_000),
+        Sent::Held => eprintln!("north fleet: held for `north fleet digest`: {name} already has this alarm open, or it cleared"),
         Sent::HandedIn => {}
     }
     Ok(())

@@ -122,6 +122,10 @@ impl Courier for Fleet {
         self.tell(parent, &text, delivery);
     }
 
+    fn hold(&self, parent: &str, text: String) {
+        crate::fleet::held::hold(&self.root, parent, &Sender::fleet().to_string(), &text, now_ms());
+    }
+
     fn ask(&self, request: GateRequest) {
         let fleet = self.clone();
         std::thread::spawn(move || raise(&fleet, &request));
@@ -138,6 +142,10 @@ struct Inline<'a>(&'a Fleet);
 impl Courier for Inline<'_> {
     fn notify(&self, parent: &str, text: String, delivery: Delivery) {
         self.0.tell(parent, &text, delivery);
+    }
+
+    fn hold(&self, parent: &str, text: String) {
+        Courier::hold(self.0, parent, text);
     }
 
     fn ask(&self, request: GateRequest) {

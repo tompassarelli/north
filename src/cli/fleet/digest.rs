@@ -26,7 +26,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         default_at_ms: row.default_at_ms(),
     }));
     let sessions = fleet.cached_sessions()?.unwrap_or_default();
-    print!("{}", render(&Facts { now: Moment::now(), now_ms: now, since_label: label, landed: &books.landed, sessions: &sessions, gates: &gates }));
+    print!("{}", render(&Facts { now: Moment::now(), now_ms: now, since_label: label, landed: &books.landed, sessions: &sessions, gates: &gates, held: &fleet.held_since(now.saturating_sub(window_ms)) }));
     Ok(())
 }
 

@@ -13,7 +13,7 @@ pub enum Sent {
     Spooled { id: String, host: String },
     Retired { heir: String },
     Unreached,
-    Folded,
+    Held,
 }
 
 impl Fleet {
@@ -28,10 +28,15 @@ impl Fleet {
         Spool::at(&self.root)
     }
 
+    pub fn held_since(&self, since_ms: u64) -> Vec<crate::fleet::held::Held> {
+        crate::fleet::held::since(&self.root, since_ms)
+    }
+
     pub fn send_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         let now = now_ms();
-        if !crate::fleet::fold::admit(&self.root, from, name, text, now) {
-            return Ok(Sent::Folded);
+        if crate::fleet::fold::admit(&self.root, from, name, text, now) == crate::fleet::fold::Admit::Hold {
+            crate::fleet::held::hold(&self.root, name, &from.to_string(), text, now);
+            return Ok(Sent::Held);
         }
         crate::fleet::alarms::record(&self.root, from, text, now);
         if matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name) {
@@ -236,5 +241,33 @@ mod tests {
         holder.join().unwrap();
 
         assert!(handed.is_err(), "{handed:?}");
+    }
+
+    #[test]
+    fn an_interim_worker_turn_and_a_cleared_alert_go_to_the_digest_not_the_proxy() {
+        use crate::fleet::receipts::{Report, deliver_report};
+        use crate::fleet::turns::TurnExit;
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let proxy = live(&fleet, PROXY);
+        let books = crate::fleet::fakes::Paper::default();
+        let turn = |turn, reply: &str| deliver_report(&books, &books, &fleet, PROXY, &Report { child: "broker-94".into(), turn, exit: TurnExit::Completed, landed: Some("be5886ab3b".into()), reply: Some(reply.into()), waiting: false }, &[], 1).unwrap();
+        let (watch, health) = (Sender::Service("north-land-watch@gex45".into()), Sender::Service("north-health".into()));
+        let red = "north main is red: Cargo failed on main commit 4e387709b975";
+        let alert = |sender: &Sender, text: &str| fleet.send_message(sender, PROXY, text, Delivery::Queued).unwrap();
+
+        assert!(!turn(1, "Landing in progress; waiting for the runtime update."), "north#1019: broker-94's interim turns woke the proxy on 2026-11-09");
+        assert_eq!(alert(&watch, &format!("north ops watch: {red}")), Sent::HandedIn);
+        assert_eq!(alert(&watch, &format!("north ops watch: still, 12 min: {red}")), Sent::Held);
+        assert_eq!(alert(&watch, &format!("north ops watch: cleared after 13 min: {red}")), Sent::Held);
+        assert_eq!(alert(&health, "health: ci: recovered"), Sent::Held);
+        assert!(turn(2, "Done: landed be5886ab3b.\nNext: none"));
+
+        let frames = proxy.frames.lock().unwrap();
+        assert_eq!(frames.len(), 2, "{frames:?}");
+        assert!(frames[0].contains("main is red") && frames[1].contains("Done: landed be5886ab3b"), "{frames:?}");
+        let held: Vec<String> = fleet.held_since(0).into_iter().map(|held| held.text).collect();
+        assert_eq!(held.len(), 4, "{held:?}");
+        assert!(held[0].contains("Landing in progress") && held[2].contains("cleared after 13 min") && held[3] == "health: ci: recovered", "{held:?}");
     }
 }
