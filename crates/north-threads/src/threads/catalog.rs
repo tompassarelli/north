@@ -13,7 +13,7 @@ pub struct Catalog {
 
 const OWNER: &str = "tompassarelli";
 const REPOS: [&str; 11] = ["makgora", "makgora-client", "padbridge", "wisp", "firn", "north", "south", "gjoa", "fram", "wake", "battlecraft"];
-const ALIASES: [(&str, &str); 3] = [("nixos-config", "firn"), ("smashcraft", "makgora"), ("smashcraft-client", "makgora-client")];
+const ALIASES: [(&str, &str); 4] = [("nixos-config", "firn"), ("smashcraft", "makgora"), ("smashcraft-client", "makgora-client"), ("smashcraft-dev", "makgora")];
 const NATIVE: [&str; 4] = ["life", "accounts", "travel", "ops"];
 
 pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog {
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn every_repo_the_fleet_staffs_is_accepted() {
-        for (text, repo) in [("south#93", "south"), ("tompassarelli/south#85", "south"), ("smashcraft#277", "makgora"), ("smashcraft-client#4", "makgora-client")] {
+        for (text, repo) in [("south#93", "south"), ("tompassarelli/south#85", "south"), ("smashcraft#277", "makgora"), ("smashcraft-client#4", "makgora-client"), ("tompassarelli/smashcraft-dev#2", "makgora")] {
             assert_eq!(CATALOG.parse_ref(text).map(|(repo, _)| repo), Ok(repo.to_owned()), "{text}");
         }
     }
