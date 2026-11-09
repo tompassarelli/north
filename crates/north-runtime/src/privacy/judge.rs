@@ -145,7 +145,7 @@ pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Re
 
 fn ask_agy(prompt: &str) -> Result<String, String> {
     let prompt_arg = format!("-p={prompt}");
-    let args = ["--model", AGY_MODEL, prompt_arg.as_str()];
+    let args = ["--model", AGY_MODEL, "--dangerously-skip-permissions", "--disable-slash-commands", prompt_arg.as_str()];
     let output = crate::platform::process::run_with_input_within(&crate::fleet::install::runtime("agy").to_string_lossy(), &args, None, ATTEMPT_LIMIT).ok_or("agy did not finish")?;
     let answer = String::from_utf8_lossy(&output.stdout).into_owned();
     if output.status.success() && !answer.trim().is_empty() {
