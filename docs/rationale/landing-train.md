@@ -862,7 +862,11 @@ then S2b and S2c in parallel; then S3 and S4.
   ticket for the first lane whose removal passes them, which sorts first and is checked like any
   lane, and messages that lane's session. A failure that persists without every lane is recorded as
   `environment` under the queue's `sheriff/` and nothing is queued. The request ref is deleted once
-  answered.
+  answered. Since 2026-11-09 (north#979) every sheriff
+  rerun of a step passes `north land checks --after --fresh`, which never reuses a verdict-cache pass: the
+  firn `land-checks.sh dotfiles` reverts of 27b05b0f and c78620bd rested on cached passes of main while the
+  test failed on main since north#523. A failure that persists without every lane is reported to the proxy
+  as a main breakage.
 - **S11 Remote enqueue, pulled by the lander.** Files land/{enqueue,lander,serve,queue}.rs. Pull, not
   push: writing tickets to the laptop over ssh would need a new inbound command on the laptop, while
   the laptop already reaches gex45 over ssh for build offloads (redesigned 2026-11-04). On a host

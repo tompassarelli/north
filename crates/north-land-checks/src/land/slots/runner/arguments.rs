@@ -22,6 +22,7 @@ pub(super) struct Arguments {
     pub(super) portable: bool,
     pub(super) any: bool,
     pub(super) after: bool,
+    pub(super) fresh: bool,
     pub(super) leased: bool,
     pub(super) replay: bool,
     pub(super) records: Option<PathBuf>,
@@ -42,6 +43,7 @@ pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
             "--portable" => parsed.portable = true,
             "--any" => parsed.any = true,
             "--after" => parsed.after = true,
+            "--fresh" => parsed.fresh = true,
             "--leased" => parsed.leased = true,
             "--replay" => parsed.replay = true,
             "--base" | "--head" | "--tree" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" | "--lane" | "--ran" => {

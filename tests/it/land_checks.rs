@@ -622,4 +622,7 @@ fn land_after_reuses_the_candidates_selection() {
     assert_eq!(runs.len(), 2, "{seen}\n{}\n{}", text(&candidate), text(&after));
     assert!(runs[0].contains("test(/m1::/)") && !runs[0].contains("m2::"), "the candidate's selection should name only the module of the changed crate: {seen}");
     assert_eq!(runs[0], runs[1], "the after-landing run selected differently from its candidate: {seen}");
+    let fresh = fixture.command_between(&tip, &tip).args(["--after", "--fresh", "--command", record]).output().unwrap();
+    assert_eq!(fresh.status.code(), Some(0), "the sheriff's --fresh rerun is a flag of the after-landing runner: {}", text(&fresh));
+    assert_eq!(fs::read_to_string(fixture.path("seen")).unwrap().lines().count(), 3, "a --fresh after-landing run runs its check: {}", text(&fresh));
 }

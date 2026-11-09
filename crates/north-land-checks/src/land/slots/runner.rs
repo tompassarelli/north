@@ -42,7 +42,7 @@ use north_base::foundation::exit::{CANCELLED_STATUS, KILLED_STATUS, NO_VERDICT_S
 
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const BASE_FAILS: &str = "and also fails on base tree";
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--tree TREE] [--outcome FILE] [--fresh]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
 const OFFLOAD_GRACE: u64 = 900;
 const BATCH_GRACE: u64 = 30;
 const REAP: Duration = Duration::from_secs(5);
@@ -232,7 +232,7 @@ async fn run_set(root: PathBuf, arguments: Arguments, config: Config, environmen
     if shared.arguments.leased {
         return Arc::new(shared).run_list(&commands).await.status();
     }
-    let commands = shared.reuse(commands).await;
+    let commands = if shared.arguments.fresh { commands } else { shared.reuse(commands).await };
     if commands.is_empty() {
         return 0;
     }

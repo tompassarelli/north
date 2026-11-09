@@ -23,7 +23,7 @@ use crate::land::setting;
 pub(crate) fn rerun(lander: &Lander, base: &str, tree: &str, failing: &[String], host: &str) -> Option<BTreeSet<Failure>> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
     let landed = Landed { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: tree.to_owned(), heads: Vec::new(), lanes: Vec::new(), tips: Vec::new(), ran: Vec::new() };
-    let mut runner = vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()];
+    let mut runner = vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--fresh".to_owned(), "--dry".to_owned(), "1".to_owned()];
     for step in failing {
         runner.extend(["--command".to_owned(), step.clone()]);
     }
