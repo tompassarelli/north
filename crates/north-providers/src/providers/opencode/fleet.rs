@@ -10,35 +10,39 @@ use crate::fleet::install;
 use crate::fleet::prompt::{PromptInputs, render, seed_orders};
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, ROLE_ENV, Runtime, SESSION_ENV, new_uuid, summarize};
+use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, ROLE_ENV, Runtime, SESSION_ENV, new_uuid};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::platform::harness;
 
 use super::route::{self, MODELS, Route, Visibility};
+use super::harness::{Harness, OPENCODE};
 use super::turns::Phase;
 use super::{accounts, live, screen};
 
 pub const PROVIDER: &str = "opencode";
-const TOOL_CHARS: usize = 400;
 const SETTINGS: &str = "harness/opencode.toml";
-const SESSION_CHARS: usize = 26;
 
 type Reading = dyn Fn(&Path) -> Visibility + Send + Sync;
 type Clock = dyn Fn() -> Date + Send + Sync;
 
-/// The OpenCode runtime: a worker that runs DeepSeek V4.1 Flash on a lane, with the model chosen here from the lane's repository visibility and never by the agent.
-pub struct Opencode {
+/// The runtime of a worker that runs DeepSeek V4.1 Flash on a lane through one harness, with the model chosen here from the lane's repository visibility and never by the agent.
+pub struct Deepseek {
+    harness: &'static dyn Harness,
     visibility: Arc<Reading>,
     today: Arc<Clock>,
 }
 
-impl Opencode {
-    pub fn live() -> Self {
-        Self::reading(Arc::new(live::lane_visibility), Arc::new(route::today))
+impl Deepseek {
+    pub fn opencode() -> Self {
+        Self::live(&OPENCODE)
     }
 
-    pub fn reading(visibility: Arc<Reading>, today: Arc<Clock>) -> Self {
-        Self { visibility, today }
+    pub fn live(harness: &'static dyn Harness) -> Self {
+        Self::reading(harness, Arc::new(live::lane_visibility), Arc::new(route::today))
+    }
+
+    pub fn reading(harness: &'static dyn Harness, visibility: Arc<Reading>, today: Arc<Clock>) -> Self {
+        Self { harness, visibility, today }
     }
 
     fn route(&self, request: &LaunchRequest, brief: &str) -> NorthResult<Route> {
@@ -57,9 +61,9 @@ impl Opencode {
     }
 }
 
-impl Runtime for Opencode {
+impl Runtime for Deepseek {
     fn provider(&self) -> ProviderName {
-        ProviderName::new(PROVIDER)
+        ProviderName::new(self.harness.provider())
     }
 
     fn models(&self) -> &'static [&'static str] {
@@ -71,13 +75,13 @@ impl Runtime for Opencode {
     }
 
     fn assign_conversation(&self) -> NorthResult<Option<String>> {
-        Ok(Some(format!("ses_{}", new_uuid()?.replace('-', "").chars().take(SESSION_CHARS).collect::<String>())))
+        Ok(Some(self.harness.conversation(&new_uuid()?)))
     }
 
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec> {
         let conversation = match opening {
             Opening::Fresh(Some(conversation)) | Opening::Resume(conversation) => conversation,
-            Opening::Fresh(None) => return Err(NorthError::State("an opencode session needs a conversation id".into())),
+            Opening::Fresh(None) => return Err(NorthError::State(format!("a {} session needs a conversation id", self.harness.provider()))),
         };
         let system = request.system_prompt.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
         let route = self.route(request, &format!("{}\n{system}", request.prompt))?;
@@ -85,12 +89,12 @@ impl Runtime for Opencode {
             Route::Free => render(&PromptInputs { session: &request.name, role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
             Route::Go => instructions.to_owned(),
         };
-        let mut argv = vec![north_base::platform::north_binary::north_binary().display().to_string(), "opencode-host".into()];
-        argv.extend(["--route".into(), route.label().into(), "--session".into(), conversation.into(), "--scratch".into(), scratch(&request.name).display().to_string()]);
-        argv.extend(["--program".into(), install::runtime("opencode").display().to_string()]);
+        let mut argv = vec![north_base::platform::north_binary::north_binary().display().to_string(), self.harness.host_verb().into()];
+        argv.extend(["--route".into(), route.label().into(), "--session".into(), conversation.into(), "--scratch".into(), scratch(self.harness, &request.name).display().to_string()]);
+        argv.extend(["--program".into(), install::runtime(self.harness.provider()).display().to_string()]);
         if matches!(opening, Opening::Fresh(_)) && !delivered.is_empty() {
-            let file = scratch(&request.name).join("instructions.md");
-            std::fs::create_dir_all(scratch(&request.name))?;
+            let file = scratch(self.harness, &request.name).join("instructions.md");
+            std::fs::create_dir_all(scratch(self.harness, &request.name))?;
             std::fs::write(&file, delivered)?;
             argv.extend(["--instructions".into(), file.display().to_string()]);
         }
@@ -112,7 +116,7 @@ impl Runtime for Opencode {
 
     fn message(&self, _transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {
         if !attachments::paths(text).is_empty() {
-            return Err(NorthError::Usage("opencode sessions do not take image attachments".into()));
+            return Err(NorthError::Usage(format!("{} sessions do not take image attachments", self.harness.provider())));
         }
         Ok(vec![json!({"type": "user", "uuid": id, "text": text}).to_string()])
     }
@@ -129,19 +133,24 @@ impl Runtime for Opencode {
         if let Some(session) = frame["sessionID"].as_str().filter(|session| !session.is_empty()) {
             transcript.conversation.get_or_insert_with(|| session.to_owned());
         }
-        match (frame["type"].as_str(), Phase::of(frame)) {
-            (_, Some(Phase::Ready)) if transcript.status == Status::Starting => transcript.status = Status::Idle,
-            (_, Some(Phase::Start)) => {
+        match Phase::of(frame) {
+            Some(Phase::Ready) => {
+                if transcript.status == Status::Starting {
+                    transcript.status = Status::Idle;
+                }
+            }
+            Some(Phase::Start) => {
                 transcript.status = Status::Working;
                 transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
                 push(transcript, EntryKind::User, frame["text"].as_str().unwrap_or_default().to_owned());
             }
-            (_, Some(Phase::Fallback)) => push(transcript, EntryKind::Notice, format!("the free model failed ({}); this turn runs again on paid Go Flash", frame["reason"].as_str().unwrap_or("no reason given"))),
-            (_, Some(Phase::End)) => observe_end(frame, transcript),
-            (Some("text"), _) => push(transcript, EntryKind::Assistant, frame["part"]["text"].as_str().unwrap_or_default().to_owned()),
-            (Some("tool_use"), _) => push(transcript, EntryKind::Tool, tool_text(&frame["part"])),
-            (Some("error"), _) => push(transcript, EntryKind::Error, frame["error"]["message"].as_str().unwrap_or("error").to_owned()),
-            _ => {}
+            Some(Phase::Fallback) => push(transcript, EntryKind::Notice, format!("the free model failed ({}); this turn runs again on paid Go Flash", frame["reason"].as_str().unwrap_or("no reason given"))),
+            Some(Phase::End) => observe_end(frame, transcript),
+            None => {
+                for (kind, text) in self.harness.entries(frame) {
+                    push(transcript, kind, text);
+                }
+            }
         }
     }
 
@@ -175,13 +184,8 @@ impl Runtime for Opencode {
     }
 }
 
-/// How many opencode workers may run at once, apart from the Claude worker cap.
-pub fn slots() -> usize {
-    harness::document(SETTINGS)["go"]["slots"].as_integer().and_then(|slots| usize::try_from(slots).ok()).unwrap_or(1)
-}
-
-fn scratch(name: &str) -> PathBuf {
-    PathBuf::from(format!("/tmp/north-opencode-{name}"))
+fn scratch(harness: &dyn Harness, name: &str) -> PathBuf {
+    PathBuf::from(format!("/tmp/north-{}-{name}", harness.provider()))
 }
 
 fn exit(label: Option<&str>) -> TurnExit {
@@ -195,12 +199,6 @@ fn exit(label: Option<&str>) -> TurnExit {
 fn tokens(counts: &Value) -> Tokens {
     let count = |key: &str| counts[key].as_u64().unwrap_or(0);
     Tokens { input: count("input"), output: count("output"), cache_read: count("cache_read"), cache_write: count("cache_write") }
-}
-
-fn tool_text(part: &Value) -> String {
-    let input = &part["state"]["input"];
-    let detail = ["command", "filePath", "path", "pattern", "description"].iter().find_map(|key| input[*key].as_str()).map_or_else(|| input.to_string(), str::to_owned);
-    format!("{} {}", part["tool"].as_str().unwrap_or("tool"), summarize(&detail, TOOL_CHARS))
 }
 
 fn observe_end(frame: &Value, transcript: &mut Transcript) {

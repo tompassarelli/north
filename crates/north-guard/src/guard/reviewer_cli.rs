@@ -9,7 +9,7 @@ const MAINTENANCE: [&str; 5] = ["--version", "--help", "-h", "-v", "models"];
 
 fn reviewer(prefix: &str) -> Regex {
     Regex::new(&format!(
-        r"{prefix}\s*{WRAPPERS}(?:\S*/)?(?P<tool>agy|antigravity|gemini|opencode|codex{FLAGS}[ \t]+(?:exec{FLAGS}[ \t]+)?review)(?:\s|$)",
+        r"{prefix}\s*{WRAPPERS}(?:\S*/)?(?P<tool>agy|antigravity|gemini|opencode|pi|codex{FLAGS}[ \t]+(?:exec{FLAGS}[ \t]+)?review)(?:\s|$)",
     ))
     .unwrap()
 }
@@ -27,7 +27,7 @@ fn refuses<'a>(text: &'a str, pattern: &Regex) -> Option<&'a str> {
     })
 }
 
-/// The tool a command runs in command position that no agent may start itself: a non-Claude model as a reviewer, or opencode outside its launcher.
+/// The tool a command runs in command position that no agent may start itself: a non-Claude model as a reviewer, or opencode or pi outside its launcher.
 pub(super) fn refused_tool(command: &str) -> Option<String> {
     let text = strip_heredocs(command);
     refuses(&blank_quotes(&text), &COMMAND_POSITION).or_else(|| refuses(&text, &SHELL_PAYLOAD)).map(str::to_owned)
@@ -46,9 +46,9 @@ pub(super) fn decide(input: &HookInput) -> Verdict {
     };
     match refused_tool(&command).as_deref() {
         None => Verdict::Allow,
-        Some("opencode") => Verdict::Deny(
-            "No. opencode runs only through `north fleet launch --provider opencode`, which fixes its model and confines it to one lane; started here it would send repo data to a model nobody routed it to.".into(),
-        ),
+        Some(tool @ ("opencode" | "pi")) => Verdict::Deny(format!(
+            "No. {tool} runs only through `north fleet launch --provider {tool}`, which fixes its model and confines it to one lane; started here it would send repo data to a model nobody routed it to."
+        )),
         Some(_) => Verdict::Deny(
             "No. Tom's standing order is Claude only: no Gemini, Codex or other non-Claude model as a reviewer. Get the review from a fresh Claude reviewer of a different tier (Opus for a Sonnet author, or Sonnet for an Opus author) by spawning one.".into(),
         ),

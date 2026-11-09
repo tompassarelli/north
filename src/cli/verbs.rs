@@ -136,6 +136,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("ops watch", Status),
     ("ops", Status),
     ("outside-watch", Status),
+    ("pi-host", Diagnosis),
     ("pin-retire", Bookkeeping),
     ("policy-replay", Diagnosis),
     ("private-check", Diagnosis),

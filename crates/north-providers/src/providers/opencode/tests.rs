@@ -1,5 +1,4 @@
 use std::io::Cursor;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,7 +11,8 @@ use crate::fleet::runtime::{Opening, Runtime};
 use crate::fleet::turns::{TurnExit, TurnSignal};
 
 use super::route::{self, Route, Visibility};
-use super::{Opencode, config, turns};
+use super::harness::OPENCODE;
+use super::{Deepseek, config, turns};
 
 const FAKE: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$(dirname "$0")/args.txt"
@@ -31,7 +31,7 @@ fn request(cwd: &Path) -> LaunchRequest {
     LaunchRequest {
         verification: false,
         name: "worker".into(),
-        provider: Opencode::live().provider(),
+        provider: Deepseek::opencode().provider(),
         account: "go".into(),
         cwd: cwd.into(),
         model: None,
@@ -55,11 +55,11 @@ fn request(cwd: &Path) -> LaunchRequest {
 }
 
 fn account(home: &Path) -> Account {
-    Account { provider: Opencode::live().provider(), label: "go".into(), home: home.into(), token_file: Some(home.join("go.key")), api: None }
+    Account { provider: Deepseek::opencode().provider(), label: "go".into(), home: home.into(), token_file: Some(home.join("go.key")), api: None }
 }
 
-fn seeing(visibility: Visibility, today: Date) -> Opencode {
-    Opencode::reading(Arc::new(move |_| visibility), Arc::new(move || today))
+fn seeing(visibility: Visibility, today: Date) -> Deepseek {
+    Deepseek::reading(&OPENCODE, Arc::new(move |_| visibility), Arc::new(move || today))
 }
 
 fn day(text: &str) -> Date {
@@ -68,8 +68,7 @@ fn day(text: &str) -> Date {
 
 fn fake(directory: &Path) -> PathBuf {
     let program = directory.join("opencode");
-    std::fs::write(&program, FAKE).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    north_base::foundation::shim::write_script(&program, FAKE.trim_start_matches("#!/bin/sh\n"));
     program
 }
 
@@ -77,10 +76,10 @@ fn argument(argv: &[String], flag: &str) -> Option<String> {
     argv.iter().position(|word| word == flag).and_then(|at| argv.get(at + 1)).cloned()
 }
 
-fn run_briefs(runtime: &Opencode, route: Route, home: &Path, briefs: &[&str]) -> (Transcript, Vec<TurnSignal>, Vec<Value>) {
+fn run_briefs(runtime: &Deepseek, route: Route, home: &Path, briefs: &[&str]) -> (Transcript, Vec<TurnSignal>, Vec<Value>) {
     let key = home.join("go.key");
     std::fs::write(&key, "key-material\n").unwrap();
-    let host = turns::Host { route, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program: fake(home), cwd: home.into() };
+    let host = turns::Host { harness: &OPENCODE, route, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program: fake(home), cwd: home.into() };
     let mut transcript = Transcript { name: "worker".into(), ..Transcript::new() };
     let input: Vec<String> = briefs.iter().enumerate().flat_map(|(at, brief)| runtime.message(&transcript, &format!("u{at}"), brief).unwrap()).collect();
     let input = input.join("\n");
@@ -208,7 +207,7 @@ fn past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_on
 fn a_private_or_unreadable_lane_is_admitted_on_paid_go_flash() {
     let home = tempfile::tempdir().unwrap();
     let account = account(home.path());
-    let live = |visibility| Opencode::reading(Arc::new(move |_| visibility), Arc::new(|| day("2026-11-10"))).host(&account, &request(home.path()), Opening::Fresh(Some("ses_x")), "");
+    let live = |visibility| Deepseek::reading(&OPENCODE, Arc::new(move |_| visibility), Arc::new(|| day("2026-11-10"))).host(&account, &request(home.path()), Opening::Fresh(Some("ses_x")), "");
 
     for visibility in [Visibility::Private, Visibility::Unknown] {
         let spec = live(visibility).unwrap();

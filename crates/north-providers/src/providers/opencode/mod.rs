@@ -1,8 +1,9 @@
 mod accounts;
 mod config;
 mod fleet;
+pub mod harness;
 mod live;
-mod route;
+pub mod route;
 mod screen;
 pub mod turns;
 
@@ -11,5 +12,5 @@ pub mod turns;
 mod tests;
 
 pub use accounts::LABEL as ACCOUNT;
-pub use fleet::{Opencode, PROVIDER, slots};
+pub use fleet::{Deepseek, PROVIDER};
 pub use route::{Route, Visibility};

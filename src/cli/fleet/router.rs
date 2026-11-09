@@ -12,7 +12,8 @@ use crate::fleet::runtimes::Runtimes;
 use crate::pacing::placement::{self as pacing_placement, config};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
-use crate::providers::opencode::Opencode;
+use crate::providers::opencode::Deepseek;
+use crate::providers::pi::PI;
 use crate::ledger::Ledger;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
@@ -77,7 +78,7 @@ fn sweep_gates(fleet: &Fleet) {
 }
 
 fn runtimes() -> Runtimes {
-    Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex), Arc::new(Opencode::live())])
+    Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex), Arc::new(Deepseek::opencode()), Arc::new(Deepseek::live(&PI))])
 }
 
 pub(in crate::cli) fn roster() -> NorthResult<Roster> {
