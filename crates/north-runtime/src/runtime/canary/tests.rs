@@ -165,6 +165,7 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
     let _ = lander.kill();
     let _ = lander.wait();
     assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
+    assert!(!String::from_utf8_lossy(&probe.stdout).contains("ghs_host_token") && !String::from_utf8_lossy(&probe.stderr).contains("ghs_host_token"));
 }
 
 #[test]

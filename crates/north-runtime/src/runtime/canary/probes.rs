@@ -43,7 +43,7 @@ fn is_hub(destination: &str) -> bool {
 
 pub(super) fn lander_tokens(north: &str) -> String {
     format!(
-        "pids=$(pgrep -f 'land serve') || exit 0\n\
+        "pids=$(pgrep -u \"$(id -u)\" -f 'land serve') || exit 0\n\
          program=\n\
          for pid in $pids; do\n\
          program=$(tr '\\0' '\\n' < \"/proc/$pid/cmdline\" 2>/dev/null | awk 'wanted {{ print; exit }} $0 == \"--app-token\" {{ wanted = 1 }}')\n\
@@ -52,7 +52,7 @@ pub(super) fn lander_tokens(north: &str) -> String {
          for file in \"$HOME\"/code/*/main/.safe-push; do\n\
          [ -f \"$file\" ] || continue\n\
          app=$(git config -f \"$file\" --get landing.push-app || echo agent)\n\
-         if [ -n \"$program\" ] && \"$program\" --app \"$app\" >/dev/null 2>&1; then continue; fi\n\
+         if [ -n \"$program\" ] && [ -O \"$program\" ] && \"$program\" --app \"$app\" >/dev/null 2>&1; then continue; fi\n\
          {north} broker github-token --app \"$app\" >/dev/null 2>&1 && continue\n\
          printf 'this host cannot mint the %s push token for %s by the lander program or the broker\\n' \"$app\" \"$file\" >&2\n\
          exit {}\n\
