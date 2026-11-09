@@ -15,6 +15,7 @@ pub struct Context {
     pub cargo_target: Option<PathBuf>,
     pub named_lanes: Vec<PathBuf>,
     pub named_projects: Vec<PathBuf>,
+    pub runtimes: Option<PathBuf>,
 }
 
 impl Context {
@@ -34,6 +35,7 @@ impl Context {
             cargo_target: set("CARGO_TARGET_DIR"),
             named_lanes: named.lanes,
             named_projects: named.projects,
+            runtimes: runtimes(),
         }
     }
 }
@@ -134,4 +136,10 @@ fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
         Err(_) => git_dir,
     };
     common.canonicalize().ok()
+}
+
+/// The `runtimes` directory that holds the north this process runs, wherever its host keeps north's state.
+fn runtimes() -> Option<PathBuf> {
+    let north = std::env::current_exe().ok()?.canonicalize().ok()?;
+    north.ancestors().find(|directory| directory.file_name().is_some_and(|name| name == "runtimes")).map(Path::to_path_buf)
 }

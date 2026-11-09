@@ -197,3 +197,20 @@ fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
     let forged = sent().into_iter().chain([(super::LANE_ONLY.to_owned(), "1".to_owned())]).collect();
     assert_eq!(marker(&super::broker::environment(forged, Some(OPEN_SCOPE))), Some("1".to_owned()), "a caller may narrow itself");
 }
+
+// KEEP(bug): the lane-only domain hid ~/.local/state, where the north runtime lives, so north and the cargo shim exited "Permission denied" and DeepSeek workers cold-built the workspace in /tmp outside depbox and its lease (north#1023)
+#[test]
+fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
+    let home = tempfile::tempdir().unwrap();
+    let home = home.path().canonicalize().unwrap();
+    let state = home.join(".local/state/north");
+    let runtimes = state.join("runtimes");
+    for directory in [runtimes.join("a/tree/bin"), state.join("profiles"), home.join("code/north/main")] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    std::os::unix::fs::symlink("runtimes/a", state.join("current")).unwrap();
+    let context = Context { home: home.clone(), cwd: home.join("code/north/main"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: Some(runtimes.clone()) };
+    let hidden: Vec<PathBuf> = super::lane_only::hidden(&context).iter().map(|path| path.canonicalize().unwrap_or_else(|_| path.clone())).collect();
+    assert!(!hidden.iter().any(|path| runtimes.join("a/tree/bin").starts_with(path)), "the north runtime is hidden: {hidden:?}");
+    assert!(hidden.contains(&state.join("profiles")), "the agent state beside the runtime is readable: {hidden:?}");
+}
