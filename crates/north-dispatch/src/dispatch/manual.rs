@@ -153,12 +153,12 @@ fn stamped(prompt: &str, route: &Route, defaulted: Option<bool>, calibrated: boo
 }
 
 impl Start {
-    pub fn record(&self, host: &str, account: &str, name: &str) -> Result<(), String> {
+    pub fn entry(&self, host: &str, account: &str, name: &str) -> Option<Record> {
         if self.routed {
-            return Ok(());
+            return None;
         }
         let overridden = self.overridden.is_some();
-        let entry = Record {
+        Some(Record {
             at: placement::now(),
             item: self.item.clone(),
             host: host.to_owned(),
@@ -173,8 +173,11 @@ impl Start {
             hand: true,
             effort_arm: self.route.stamp().filter(|_| !overridden).map(str::to_owned),
             effort: self.route.effort.filter(|_| !overridden).map(|effort| effort.name().to_owned()),
-        };
-        record::append(&record::directory(), &entry)
+        })
+    }
+
+    pub fn record(&self, host: &str, account: &str, name: &str) -> Result<(), String> {
+        self.entry(host, account, name).map_or(Ok(()), |entry| record::append(&record::directory(), &entry))
     }
 }
 

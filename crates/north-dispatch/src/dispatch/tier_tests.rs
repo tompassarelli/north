@@ -91,6 +91,51 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
 }
 
 #[test]
+fn a_task_launch_without_a_model_draws_its_category_arm() {
+    use super::manual::{Ask, start};
+    use super::tier::{Effort, History, Tier, route_for};
+    use std::collections::BTreeMap;
+    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    let unread = BTreeMap::new();
+    let launched = |category: &str, model: Option<&str>, reason: Option<&str>| {
+        let brief = format!("Item: north#991\nCategory: {category}\n\nStaff the box.");
+        let ask = Ask { item: "north#991", brief: &brief, prompt: &brief, model, reason, worker: true, places: false };
+        start(&ask, "", &cfg, &History::default(), &unread, &|_| super::grounds::Grounds::default()).unwrap()
+    };
+    let facet = |category: &str| {
+        let category = category.to_owned();
+        move |key: &str| if key == "Category" { category.clone() } else { super::facets::default(key).to_owned() }
+    };
+
+    let reviewed = launched("review", None, None);
+    let drawn = route_for("north#991", &facet("review"), &History::default(), &unread).unwrap();
+    assert_eq!((reviewed.route.tier, reviewed.route.effort), (Tier::Opus, drawn.effort), "{:?}", reviewed.route);
+    let arm = drawn.stamp().unwrap();
+    assert!(drawn.effort_arm && matches!(arm, "effort-high" | "effort-xhigh"), "{}", drawn.why);
+    assert_eq!((reviewed.model.as_str(), reviewed.effort.as_deref()), ("claude-opus-5-5", drawn.effort.map(Effort::name)));
+    let head: Vec<&str> = reviewed.prompt.lines().take_while(|line| !line.is_empty()).collect();
+    let arm_line = format!("Arm: {arm}");
+    assert!(head.contains(&"Tier: worker") && head.contains(&arm_line.as_str()), "{head:?}");
+    let entry = reviewed.entry("gex45", "claude:b", "n991-draw").unwrap();
+    assert_eq!((entry.tier.as_deref(), entry.category.as_deref()), (Some("worker"), Some("review")), "{entry:?}");
+    assert_eq!((entry.effort_arm.as_deref(), entry.effort.as_deref()), (Some(arm), drawn.effort.map(Effort::name)), "{entry:?}");
+    assert!(entry.hand && entry.launched && entry.detail.contains(&format!("effort arm {arm}")), "{}", entry.detail);
+
+    let featured = launched("feature", None, None);
+    let dispatched = route_for("north#991", &facet("feature"), &History::default(), &unread).unwrap();
+    assert_eq!((featured.route.tier, featured.route.effort), (Tier::Sonnet, None));
+    assert_eq!(dispatched.tier, Tier::Sonnet);
+    let entry = featured.entry("gex45", "claude:b", "n991-draw").unwrap();
+    assert_eq!((entry.tier.as_deref(), entry.category.as_deref(), entry.effort.as_deref(), entry.effort_arm.as_deref()), (Some("sonnet-high"), Some("feature"), None, None), "{entry:?}");
+    assert!(entry.detail.contains("feature starts on sonnet-high"), "{}", entry.detail);
+
+    let overridden = launched("feature", Some("claude-opus-5-5"), Some("the proxy staffs this box on Opus"));
+    assert_eq!(overridden.route.tier, Tier::Sonnet);
+    let entry = overridden.entry("gex45", "claude:b", "n991-draw").unwrap();
+    assert_eq!((entry.detail.as_str(), entry.tier.as_deref(), entry.effort_arm.as_deref()), ("tier override: the proxy staffs this box on Opus", None, None), "{entry:?}");
+}
+
+#[test]
 fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_launches_claude_with_its_auto_compact_window() {
     use super::manual::{Ask, start};
     use super::tier::{Evidence, History, context_arm};
