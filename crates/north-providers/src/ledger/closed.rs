@@ -19,6 +19,7 @@ pub struct SpendRun {
     pub arm: String,
     pub box_text: Option<String>,
     pub model: Option<String>,
+    pub effort: String,
     pub started: String,
     pub ended: String,
     pub landed: bool,
@@ -170,9 +171,22 @@ fn interval(values: &mut [f64], percent: usize) -> (f64, f64) {
     (values[rank((n * q - spread).floor())], values[rank((n * q + spread).ceil())])
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct CellBox {
+    pub item: String,
+    pub category: String,
+    pub cell: String,
+    pub usd: f64,
+    #[serde(default = "closed_by_default")]
+    pub closed: bool,
+    #[serde(default)]
+    pub reworked: bool,
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub struct ClosedReport {
     pub cells: Vec<Cell>,
+    pub cell_boxes: Vec<CellBox>,
     /// Repositories outside the catalog whose landed runs could not be matched to a closed issue, with the count of those runs.
     pub skipped: Vec<(String, usize)>,
     pub arms: Vec<ArmBox>,
@@ -224,6 +238,12 @@ pub fn tier_label(tier: &str) -> String {
     }
 }
 
+pub fn cell_name(model: Option<&str>, effort: &str) -> Option<String> {
+    let model = model?.to_lowercase();
+    let family = ["haiku", "sonnet", "opus", "fable"].into_iter().find(|family| model.contains(family))?;
+    ["low", "medium", "high", "xhigh", "max"].contains(&effort).then(|| format!("{family}-{effort}"))
+}
+
 pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, prices: &PriceTable) -> ClosedReport {
     let mut boxes: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
     for run in runs.iter().filter(|run| run.role == WORKER) {
@@ -233,6 +253,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
     }
     let staffed: HashSet<String> = runs.iter().filter(|run| run.role == WORKER && run.started.as_str() >= since).map(|run| tier_label(&run.tier)).collect();
     let mut cells: HashMap<(String, String), Cell> = HashMap::new();
+    let mut cell_boxes = Vec::new();
     let mut arms = Vec::new();
     let mut spent_boxes = Vec::new();
     let mut distinct_closed = 0;
@@ -263,6 +284,9 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         if !runs[0].arm.is_empty() {
             arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: true, reworked, verified: false, issue_verified: false, box_text: runs[0].box_text.clone() });
         }
+        if let Some(cell) = cell_name(runs[0].model.as_deref(), &runs[0].effort) {
+            cell_boxes.push(CellBox { item: (*item).to_owned(), category: category.to_owned(), cell, usd: spent, closed: true, reworked });
+        }
     }
     let mut open: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
     for run in runs.iter().filter(|run| run.role == WORKER) {
@@ -284,6 +308,9 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         if !runs[0].arm.is_empty() {
             arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent, category: category.to_owned(), closed: false, reworked: false, verified: false, issue_verified: false, box_text: runs[0].box_text.clone() });
         }
+        if let Some(cell) = cell_name(runs[0].model.as_deref(), &runs[0].effort) {
+            cell_boxes.push(CellBox { item: (*item).to_owned(), category: category.to_owned(), cell, usd: spent, closed: false, reworked: false });
+        }
     }
     let mut cells: Vec<Cell> = cells.into_values().collect();
     cells.sort_by(|a, b| (&a.tier, &a.category).cmp(&(&b.tier, &b.category)));
@@ -297,6 +324,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         skipped: Vec::new(),
         closed: distinct_closed,
         cells,
+        cell_boxes,
         arms,
         boxes: spent_boxes,
         loaded,

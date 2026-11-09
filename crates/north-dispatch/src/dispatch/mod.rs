@@ -22,7 +22,7 @@ pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, boxless_launch_refusal, picked_tier, tier_reason, untasked};
 pub use survey::evidence as arm_evidence;
 pub use record::{Record as LaunchRecord, directory as launch_directory, read as launch_records};
-pub use tier::{ARM_WINDOW, Effort, Evidence, Tier, evidenced};
+pub use tier::{ARM_WINDOW, Effort, Evidence, Tier, evidenced, seed_cell};
 
 mod brief;
 pub mod cells;
@@ -337,6 +337,9 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         }
     };
     report::print(&survey);
+    if dry_run {
+        report::cells(&survey);
+    }
     let outcome = decide(&survey, &format!("north fleet dispatch on {}", survey.here));
     for (place, item) in outcome.ready.iter().enumerate() {
         let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));

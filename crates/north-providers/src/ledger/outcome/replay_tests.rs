@@ -62,6 +62,7 @@ pub fn spend_runs(db: &Connection, judged: &BTreeMap<String, Judged>) -> Vec<Spe
                 arm: row.get(4)?,
                 box_text: None,
                 model: row.get(5)?,
+                effort: String::new(),
                 started: row.get(6)?,
                 ended: row.get(7)?,
                 landed: row.get::<_, i64>(8)? == 1,

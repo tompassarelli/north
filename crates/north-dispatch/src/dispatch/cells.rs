@@ -1,7 +1,12 @@
 use north_base::platform::harness;
 
+use super::tier::{Effort, Tier};
+use crate::ledger::closed::ClosedReport;
+use crate::router::settle::{self, Arm, Outcome};
+
 pub const TABLE: &str = "harness/routing-cells.toml";
 const EFFORT_WORDS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+pub const LIVE: usize = 3;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Cell {
@@ -13,6 +18,52 @@ impl Cell {
     pub fn name(self) -> String {
         format!("{}-{}", self.model, self.effort)
     }
+
+    pub fn tier(self) -> Tier {
+        match self.model {
+            "haiku" => Tier::Haiku,
+            "sonnet" => Tier::Sonnet,
+            _ => Tier::Opus,
+        }
+    }
+
+    pub fn effort(self) -> Effort {
+        Effort::parse(self.effort).unwrap_or(Effort::High)
+    }
+
+    pub fn seed(tier: Tier, effort: Option<Effort>) -> Self {
+        let effort = effort.unwrap_or(match tier {
+            Tier::Haiku | Tier::Sonnet => Effort::High,
+            Tier::Opus => Effort::Medium,
+        });
+        let model = match tier {
+            Tier::Haiku => "haiku",
+            Tier::Sonnet => "sonnet",
+            Tier::Opus => "opus",
+        };
+        Self { model, effort: effort.name() }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Role {
+    Leader,
+    Challenger,
+}
+
+impl Role {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Leader => "leader",
+            Self::Challenger => "challenger",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Live {
+    pub cell: Cell,
+    pub role: Role,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -85,4 +136,83 @@ pub fn named(model: &str, effort: &str) -> Option<String> {
     let model = family(model)?;
     let effort = EFFORT_WORDS.into_iter().find(|word| *word == effort)?;
     Some(format!("{model}-{effort}"))
+}
+
+pub fn outcomes(report: &ClosedReport, category: &str) -> std::collections::BTreeMap<String, Vec<Outcome>> {
+    let mut outcomes: std::collections::BTreeMap<String, Vec<Outcome>> = std::collections::BTreeMap::new();
+    for armed in report.cell_boxes.iter().filter(|armed| armed.category == category) {
+        outcomes.entry(armed.cell.clone()).or_default().push(Outcome { usd: armed.usd, closed: armed.closed, kept: armed.closed && !armed.reworked });
+    }
+    outcomes
+}
+
+fn boxes(outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>, cell: Cell) -> &[Outcome] {
+    outcomes.get(&cell.name()).map_or(&[], Vec::as_slice)
+}
+
+fn cost(outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>, cell: Cell) -> Option<f64> {
+    settle::usd_per_kept(boxes(outcomes, cell))
+}
+
+fn beats(outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>, first: Cell, second: Cell) -> bool {
+    let arm = |cell: Cell| Arm { runs: boxes(outcomes, cell).len(), boxes: boxes(outcomes, cell) };
+    settle::settled(arm(first), arm(second)) == Some(settle::Side::First)
+}
+
+fn distance(first: Cell, second: Cell) -> usize {
+    let model = |cell: Cell| models().iter().position(|model| *model == cell.model).unwrap_or(0);
+    let effort = |cell: Cell| efforts().iter().position(|effort| *effort == cell.effort).unwrap_or(0);
+    model(first).abs_diff(model(second)) + effort(first).abs_diff(effort(second))
+}
+
+pub fn leader(category: &str, seed: Cell, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> Cell {
+    let allowed = allowed(category);
+    let priced: Vec<Cell> = allowed.iter().copied().filter(|cell| !boxes(outcomes, *cell).is_empty()).collect();
+    let cheapest = |cells: &[Cell]| cells.iter().copied().min_by(|a, b| cost(outcomes, *a).unwrap_or(f64::INFINITY).total_cmp(&cost(outcomes, *b).unwrap_or(f64::INFINITY)).then(a.cmp(b)));
+    let mut leader = if priced.contains(&seed) { seed } else { cheapest(&priced).unwrap_or(seed) };
+    for cell in priced {
+        if cell != leader && beats(outcomes, cell, leader) {
+            leader = cell;
+        }
+    }
+    if allowed.contains(&leader) { leader } else { allowed[0] }
+}
+
+pub fn live(category: &str, seed: Cell, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> Vec<Live> {
+    let allowed = allowed(category);
+    if allowed.is_empty() {
+        return Vec::new();
+    }
+    let leader = leader(category, seed, outcomes);
+    let mut candidates: Vec<Cell> = allowed.iter().copied().filter(|cell| *cell != leader).collect();
+    candidates.sort_by(|a, b| distance(*a, leader).cmp(&distance(*b, leader)).then(a.cmp(b)));
+    let mut live = vec![Live { cell: leader, role: Role::Leader }];
+    for cell in candidates {
+        if live.len() >= LIVE {
+            break;
+        }
+        if beats(outcomes, leader, cell) {
+            continue;
+        }
+        live.push(Live { cell, role: Role::Challenger });
+    }
+    live
+}
+
+pub fn shares(live: &[Live], outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>, category: &str) -> (Vec<f64>, bool) {
+    let arms: Vec<&[Outcome]> = live.iter().map(|live| boxes(outcomes, live.cell)).collect();
+    settle::shares(&arms, &format!("{category} cell"))
+}
+
+pub fn draw(category: &str, seed: Cell, seed_text: &str, outcomes: &std::collections::BTreeMap<String, Vec<Outcome>>) -> (Cell, Role, String) {
+    let live = live(category, seed, outcomes);
+    if let [only] = live.as_slice() {
+        return (only.cell, only.role, format!("draws {} as its leader, the only live cell of {}", only.cell.name(), allowed(category).len()));
+    }
+    let (weights, settled) = shares(&live, outcomes, category);
+    let at = settle::pick(&weights, seed_text);
+    let drawn = live[at];
+    let listed: Vec<String> = live.iter().zip(&weights).map(|(live, share)| format!("{} ({}) {:.0}%", live.cell.name(), live.role.name(), 100.0 * share)).collect();
+    let settled = if settled { ", settled" } else { "" };
+    (drawn.cell, drawn.role, format!("draws {} as a {} on its {:.0}% share of the live cells ({}{settled}) seeded {seed_text}", drawn.cell.name(), drawn.role.name(), 100.0 * weights[at], listed.join(", ")))
 }

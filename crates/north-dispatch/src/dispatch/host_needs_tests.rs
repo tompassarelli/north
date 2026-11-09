@@ -17,7 +17,7 @@ fn a_lander_state_box_is_placed_on_the_lander_host() {
     let code = issue("north", 990, "- [ ] Make `north land missed` refuse a stale mirror. Done when: `cargo nextest run -p north-land-checks -E 'test(/a_stale_lander_mirror_is_refused_not_passed/)'` exits 0", &[]);
     assert!(of_with(&code, &[], at, &lander).is_empty(), "a code-only check stays off the lander, even when its prose names a lander command");
 
-    let route = Route { tier: Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, signal: None, follows: None, why: String::new() };
+    let route = Route { tier: Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() };
     let brief = super::brief::brief(&Issue { needs: vec!["whiterabbit".into()], ..land }, "dispatch", &route, &super::grounds::Grounds::default(), None);
     assert!(brief.lines().any(|line| line == "Needs: whiterabbit"), "{brief}");
     let cfg: toml_edit::DocumentMut = "[hosts.gex45]\nlaunches = true\nserves = []\n[hosts.whiterabbit]\nlaunches = true\nserves = [\"lander\"]\n".parse().unwrap();

@@ -46,6 +46,8 @@ pub struct Record {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cell: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_role: Option<String>,
 }
 
 impl Record {

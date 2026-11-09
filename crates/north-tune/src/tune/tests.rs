@@ -18,6 +18,7 @@ fn run(item: &str, (tier, model): (&str, &str), category: &str, started: &str, e
         arm: String::new(),
         box_text: None,
         model: Some(model.into()),
+        effort: String::new(),
         started: started.into(),
         ended: ended.into(),
         landed: true,

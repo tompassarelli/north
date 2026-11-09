@@ -21,6 +21,7 @@ fn run(item: &str, minutes: u32) -> SpendRun {
         arm: String::new(),
         box_text: None,
         model: Some("claude-sonnet-5-5".into()),
+        effort: String::new(),
         started: "2026-10-27T10:00:00Z".into(),
         ended: format!("2026-10-27T{:02}:{:02}:00Z", 10 + minutes / 60, minutes % 60),
         landed: true,
@@ -40,7 +41,7 @@ fn ledger(prior: &[(&str, Vec<PriorReport>)]) -> Ledger {
 }
 
 fn route() -> Route {
-    Route { tier: Tier::Sonnet, category: "tooling".into(), effort: None, effort_arm: false, signal: None, follows: Some("north#240".into()), why: "tooling arm sonnet-high".into() }
+    Route { tier: Tier::Sonnet, category: "tooling".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: Some("north#240".into()), why: "tooling arm sonnet-high".into() }
 }
 
 fn reported(ended: f64, report: &str) -> PriorReport {

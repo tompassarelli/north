@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
 
+use north_dispatch::dispatch::{cells, seed_cell};
+
 use super::Screen;
 
 #[derive(Clone, Debug, Serialize)]
@@ -33,10 +35,22 @@ pub struct Row {
     mixes: BTreeMap<String, usize>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct CellRow {
+    pub category: String,
+    pub cell: String,
+    pub role: String,
+    pub runs: usize,
+    pub first_tries: usize,
+    pub first_tries_landed: usize,
+    pub share: f64,
+}
+
 pub struct Mixes {
     pub spend: Vec<Spend>,
     pub models: Vec<Spend>,
     pub rows: Vec<Row>,
+    pub cells: Vec<CellRow>,
     /// The distinct boxes closed in the window, each counted once though several mixes worked it.
     pub closed: usize,
 }
@@ -104,8 +118,48 @@ impl Mixes {
             }
         }
         rows.sort_by(|a, b| categories[&b.category].total_cmp(&categories[&a.category]).then_with(|| a.category.cmp(&b.category)).then_with(|| b.runs.cmp(&a.runs)));
-        Ok(Self { spend, models, rows, closed: report.closed })
+        let cells = cell_rows(runs, &screen.attempts, report);
+        Ok(Self { spend, models, rows, cells, closed: report.closed })
     }
+}
+
+fn cell_rows(runs: &[crate::ledger::WindowRun], attempts: &Result<Vec<crate::cli::scoreboard::workers::Attempt>, String>, report: &crate::ledger::ClosedReport) -> Vec<CellRow> {
+    let mut counted: BTreeMap<(String, String), (usize, usize, usize)> = BTreeMap::new();
+    let mut agents: HashMap<&str, (String, String)> = HashMap::new();
+    for run in runs.iter().filter(|run| run.role == "worker") {
+        let Some(cell) = cells::named(&run.model, &run.effort) else { continue };
+        agents.insert(&run.agent, (run.category.clone(), cell.clone()));
+        counted.entry((run.category.clone(), cell)).or_default().0 += 1;
+    }
+    if let Ok(attempts) = attempts {
+        for attempt in attempts {
+            let Some((category, cell)) = agents.get(attempt.agent.as_str()) else { continue };
+            let entry = counted.entry((category.clone(), cell.clone())).or_default();
+            entry.1 += 1;
+            entry.2 += usize::from(attempt.succeeded);
+        }
+    }
+    let categories: std::collections::BTreeSet<&str> = counted.keys().map(|(category, _)| category.as_str()).collect();
+    let mut rows = Vec::new();
+    for category in categories {
+        let outcomes = cells::outcomes(report, category);
+        let live = cells::live(category, seed_cell(category), &outcomes);
+        let (shares, _) = cells::shares(&live, &outcomes, category);
+        let current: BTreeMap<String, (&str, f64)> = live.iter().zip(&shares).map(|(live, share)| (live.cell.name(), (live.role.name(), *share))).collect();
+        for ((cell_category, cell), (runs, first_tries, landed)) in counted.iter().filter(|((cell_category, _), _)| cell_category == category) {
+            let (role, share) = current.get(cell).copied().unwrap_or(("-", 0.0));
+            rows.push(CellRow { category: cell_category.clone(), cell: cell.clone(), role: role.to_owned(), runs: *runs, first_tries: *first_tries, first_tries_landed: *landed, share });
+        }
+        for (at, live) in live.iter().enumerate() {
+            let cell = live.cell.name();
+            if counted.contains_key(&(category.to_owned(), cell.clone())) {
+                continue;
+            }
+            rows.push(CellRow { category: category.to_owned(), cell, role: live.role.name().to_owned(), runs: 0, first_tries: 0, first_tries_landed: 0, share: shares[at] });
+        }
+    }
+    rows.sort_by(|a, b| a.category.cmp(&b.category).then_with(|| (a.role != "leader").cmp(&(b.role != "leader"))).then_with(|| a.cell.cmp(&b.cell)));
+    rows
 }
 
 fn entry<'a>(rows: &'a mut BTreeMap<(String, String), Row>, category: &str, tier: &str) -> &'a mut Row {

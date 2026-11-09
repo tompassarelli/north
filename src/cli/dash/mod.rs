@@ -169,6 +169,7 @@ fn figures(screen: &Screen) -> Value {
         "spend_by_model": section(mixes.as_ref().map(|mixes| json!(mixes.models))),
         "infra": section(screen.billing.as_ref().map(|billing| json!({"machines": billing.machines, "monthly_usd": billing.total_usd(), "capped": billing.capped()}))),
         "dispatch": section(mixes.as_ref().map(|mixes| json!(mixes.rows))),
+        "cells": section(mixes.as_ref().map(|mixes| json!(mixes.cells))),
         "habits": section(habits),
     })
 }

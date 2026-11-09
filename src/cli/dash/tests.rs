@@ -95,7 +95,13 @@ fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework
     ];
     let mut sonnet = crate::ledger::closed::Cell::priced("sonnet-high", "feature", 2, 10.0);
     sonnet.reworked = 1;
-    let report = crate::ledger::ClosedReport { cells: vec![sonnet, crate::ledger::closed::Cell::priced("opus-medium", "feature", 1, 20.0)], closed: 3, ..crate::ledger::ClosedReport::default() };
+    let cell = |name: &str, usd: f64| crate::ledger::closed::CellBox { item: "north#1".to_owned(), category: "feature".to_owned(), cell: name.to_owned(), usd, closed: true, reworked: false };
+    let report = crate::ledger::ClosedReport {
+        cells: vec![sonnet, crate::ledger::closed::Cell::priced("opus-medium", "feature", 1, 20.0)],
+        cell_boxes: vec![cell("sonnet-high", 10.0), cell("opus-medium", 20.0)],
+        closed: 3,
+        ..crate::ledger::ClosedReport::default()
+    };
     let screen = Screen {
         window: "24h".to_owned(),
         now: 0,
@@ -118,6 +124,10 @@ fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework
     let opus = text.lines().find(|line| line.starts_with("claude-opus-5-5 medium")).expect("the opus feature row");
     assert!(opus.contains("0 of 1") && opus.contains("$20.00"), "{opus}");
     assert!(line.chars().count() <= 120 && opus.chars().count() <= 120, "{line}\n{opus}");
+    let leader = text.lines().find(|line| line.contains("sonnet-high") && line.contains("leader")).expect("the sonnet cell row");
+    assert!(leader.contains("1 of 2") && leader.contains("80%"), "{leader}");
+    let challenger = text.lines().find(|line| line.contains("opus-medium") && line.contains("1 of 1")).expect("the opus cell row");
+    assert!(challenger.contains("0%"), "a cell outside the live set holds no share: {challenger}");
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use super::cells;
 use super::plan;
 use super::slots::Pools;
 use super::survey::Survey;
@@ -27,5 +28,15 @@ pub(super) fn print(survey: &Survey) {
     }
     for note in &survey.notes {
         println!("note: {note}");
+    }
+}
+
+pub(super) fn cells(survey: &Survey) {
+    for category in crate::router::brief::CATEGORIES {
+        let seed = super::tier::seed_cell(category);
+        let outcomes = survey.ledger.get(category).map(|evidence| &evidence.cell_boxes).cloned().unwrap_or_default();
+        let live = cells::live(category, seed, &outcomes);
+        let named: Vec<String> = live.iter().map(|live| format!("{} ({})", live.cell.name(), live.role.name())).collect();
+        println!("arm cells {category}: {} live of {}: {}", live.len(), cells::allowed(category).len(), named.join(", "));
     }
 }

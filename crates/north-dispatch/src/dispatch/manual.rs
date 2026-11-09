@@ -48,7 +48,7 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
     };
     let named = declared("Tier").map(|name| named_tier(&name)).transpose()?;
     let route = match named {
-        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), effort: None, effort_arm: false, signal: None, follows: None, why: format!("the brief names {}", tier.name()) },
+        Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: format!("the brief names {}", tier.name()) },
         None => tier::route_for(ask.item, &facet, history, ledger)?,
     };
     let (picked, tier_effort) = route.model_effort(cfg)?;
@@ -178,6 +178,7 @@ impl Start {
             signal: self.route.signal.filter(|_| !overridden).map(|signal| signal.key().to_owned()),
             effort: self.route.effort.filter(|_| !overridden).map(|effort| effort.name().to_owned()),
             cell: super::cells::named(&self.model, self.effort.as_deref().unwrap_or_default()),
+            cell_role: self.route.cell_role.filter(|_| !overridden).map(str::to_owned),
         })
     }
 
@@ -199,7 +200,7 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
     };
     let category = facets::settled(facets::declared_in(ask.brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase(), &format!("{}\n{body}", ask.brief));
     let mut notes = Vec::new();
-    let ledger = if tier::OPUS.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut notes) } else { BTreeMap::new() };
+    let ledger = survey::evidence(&[category.as_str()], &mut notes);
     let grounds = grounds::Ledger::read(&mut notes);
     let needs = IssueRef::parse(ask.item).filter(|_| ask.places).map(|item| super::host_needs::for_launch(&item, &body, facets::declared_in(ask.brief, "Box"), placement::now(), &mut notes)).unwrap_or_default();
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));

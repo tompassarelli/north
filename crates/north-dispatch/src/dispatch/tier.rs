@@ -9,6 +9,7 @@
 //! those arms takes one auto-compact window of `CONTEXT_WINDOWS`. Every arm is a seeded draw from the
 //! shares `Shares` reads off the ledger, the same shares `north ops climb run --dry-run` prints: equal
 //! while the arms hold no boxes, then Thompson sampling on cost per kept box with a floor per arm.
+use super::cells::{self, Cell};
 use super::facets;
 use super::issues::Issue;
 use super::record::Record;
@@ -38,10 +39,8 @@ pub const SPANNING: [&str; 2] = ["cross-module", "cross-repo"];
 /// share each at the start, stamped `Arm: context-NNNk` (docs/rationale/context-economics.md).
 pub const CONTEXT_WINDOWS: [u64; 4] = [200_000, 300_000, 400_000, 500_000];
 
-/// Categories whose ledger evidence dispatch and the tune tick read: every category but mechanical
-/// work, which never runs on Opus.
 pub fn evidenced() -> Vec<&'static str> {
-    crate::router::brief::CATEGORIES.into_iter().filter(|category| *category != "mechanical").collect()
+    crate::router::brief::CATEGORIES.to_vec()
 }
 
 /// The effort an Opus box runs at, compared as an arm on its own `Arm:` stamp.
@@ -152,6 +151,7 @@ pub struct Evidence {
     pub tuned_effort: Option<Effort>,
     /// Every arm's boxes in the category, keyed by its `Arm:` stamp, which the arm draws read.
     pub outcomes: BTreeMap<String, Vec<Outcome>>,
+    pub cell_boxes: BTreeMap<String, Vec<Outcome>>,
 }
 
 impl Evidence {
@@ -179,7 +179,8 @@ impl Evidence {
     pub fn priced(self, report: &ClosedReport, category: &str) -> Self {
         let outcomes = arm_outcomes(report, category);
         let efforts = self.efforts.clone().priced(&outcomes, Effort::parse_arm);
-        Self { efforts, outcomes, ..self }
+        let cell_boxes = cells::outcomes(report, category);
+        Self { efforts, outcomes, cell_boxes, ..self }
     }
 
     /// The shares of the category's next boxes among the arms of its `family` experiment.
@@ -202,11 +203,6 @@ impl Evidence {
         self.efforts.settled(Effort::Medium, Effort::High)
     }
 
-    /// The effort a planner or reviewer run settles on: high on a tie.
-    pub fn settled_planned_effort(&self) -> Option<Effort> {
-        self.efforts.settled(Effort::High, Effort::Xhigh)
-    }
-
     /// Both effort arms' stamped runs behind the decision.
     pub fn effort_runs(&self) -> usize {
         Effort::ARMS.into_iter().map(|effort| self.efforts.runs(effort)).sum()
@@ -215,10 +211,6 @@ impl Evidence {
     /// Both effort arms' figures, as a launch reason or a tune cell's claim shows them.
     pub fn effort_figures(&self) -> String {
         Effort::ARMS.map(|effort| self.efforts.figures(effort, effort.arm())).join("; ")
-    }
-
-    fn all_runs(&self, tier: Tier) -> usize {
-        self.tiers.get(tier.key()).map_or(0, |(_, runs)| *runs)
     }
 }
 
@@ -234,6 +226,8 @@ pub struct Route {
     /// The spin signal that climbed this launch off its box's last rung, which the launch record keeps.
     pub signal: Option<Signal>,
     pub why: String,
+    pub cell: Option<Cell>,
+    pub cell_role: Option<&'static str>,
 }
 
 impl Route {
@@ -276,7 +270,7 @@ impl History {
     }
 
     /// The seed of `item`'s next draw in the `family` experiment; a relaunch draws again.
-    fn seed(&self, family: &str, item: &str) -> String {
+    pub(super) fn seed(&self, family: &str, item: &str) -> String {
         format!("{family}:{item}#{}", self.tried.get(item).map_or(0, Vec::len))
     }
 
@@ -362,7 +356,7 @@ pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidenc
     } else {
         format!("escalates {}'s {} from {} to {}", climb.session, climb.why, climb.rung.name(), rung.name())
     };
-    Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, follows: Some(format!("{} ({})", climb.session, climb.rung.name())), signal: Some(climb.signal), why })
+    Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, cell: None, cell_role: None, follows: Some(format!("{} ({})", climb.session, climb.rung.name())), signal: Some(climb.signal), why })
 }
 
 pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Route, String> {
@@ -370,17 +364,31 @@ pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, 
     known(&category)?;
     let evidence = ledger.get(&category).cloned().unwrap_or_default();
     let route = tiered(item, &category, facet, history);
-    Ok(if route.effort.is_some() || route.tier != Tier::Opus {
-        route
-    } else if PLANNED.contains(&category.as_str()) {
-        planned(route, item, history, &evidence)
-    } else {
-        efforted(route, item, history, &evidence)
+    if route.follows.is_some() {
+        return Ok(route);
+    }
+    let seed = Cell::seed(route.tier, route.effort);
+    let seed_text = history.seed("cell", item);
+    let (cell, role, drawn) = cells::draw(&category, seed, &seed_text, &evidence.cell_boxes);
+    Ok(Route {
+        tier: cell.tier(),
+        effort: Some(cell.effort()),
+        effort_arm: false,
+        cell: Some(cell),
+        cell_role: Some(role.name()),
+        why: format!("{}, {drawn}", route.why),
+        ..route
     })
 }
 
+pub fn seed_cell(category: &str) -> Cell {
+    let facet = |key: &str| facets::default(key).to_owned();
+    let route = tiered("north#939", category, &facet, &History::default());
+    Cell::seed(route.tier, route.effort)
+}
+
 fn tiered(item: &str, category: &str, facet: &dyn Fn(&str) -> String, history: &History) -> Route {
-    let on = |tier: Tier, why: String| Route { tier, category: category.to_owned(), effort: None, effort_arm: false, follows: None, signal: None, why };
+    let on = |tier: Tier, why: String| Route { tier, category: category.to_owned(), effort: None, effort_arm: false, cell: None, cell_role: None, follows: None, signal: None, why };
     if art(category, facet) {
         return on(Tier::Sonnet, "art goes to sonnet-high".into());
     }
@@ -407,45 +415,6 @@ fn tiered(item: &str, category: &str, facet: &dyn Fn(&str) -> String, history: &
         return on(Tier::Opus, format!("{category} starts on worker"));
     }
     on(Tier::Sonnet, format!("{category} starts on sonnet-high"))
-}
-
-/// An Opus box takes north tune's effort cell, else the ledger's settled effort, else
-/// an effort arm drawn from the category's effort shares once it holds `ARM_RUNS` Opus runs; every
-/// other box keeps its tier's effort.
-fn efforted(route: Route, item: &str, history: &History, evidence: &Evidence) -> Route {
-    if route.tier != Tier::Opus {
-        return route;
-    }
-    let (effort, arm, why) = if let Some(effort) = evidence.tuned_effort {
-        (effort, false, format!("at {} effort by north tune's effort cell, written within {}h", effort.name(), super::tuned::FRESH_HOURS))
-    } else if let Some(effort) = evidence.settled_effort() {
-        (effort, false, format!("at {} effort by the ledger's cost per kept box ({})", effort.name(), evidence.effort_figures()))
-    } else if evidence.all_runs(Tier::Opus) >= ARM_RUNS {
-        let (effort, drawn) = drawn_effort(&route.category, item, history, evidence);
-        (effort, true, format!("on effort arm {} {drawn} ({}; {ARM_RUNS} each to decide)", effort.arm(), evidence.effort_figures()))
-    } else {
-        return route;
-    };
-    Route { effort: Some(effort), effort_arm: arm, why: format!("{}, {why}", route.why), ..route }
-}
-
-/// A reviewer run's effort: the ledger's settled arm, else the high or xhigh arm drawn from
-/// the category's effort shares.
-fn planned(route: Route, item: &str, history: &History, evidence: &Evidence) -> Route {
-    let figures = || [Effort::High, Effort::Xhigh].map(|effort| evidence.efforts.figures(effort, effort.arm())).join("; ");
-    let (effort, arm, why) = if let Some(effort) = evidence.settled_planned_effort() {
-        (effort, false, format!("at {} effort by the ledger's cost per kept box ({})", effort.name(), figures()))
-    } else {
-        let (effort, drawn) = drawn_effort(&route.category, item, history, evidence);
-        (effort, true, format!("on effort arm {} {drawn} ({}; {ARM_RUNS} each to decide)", effort.arm(), figures()))
-    };
-    Route { tier: Tier::Opus, effort: Some(effort), effort_arm: arm, why: format!("{}, {why}", route.why), ..route }
-}
-
-fn drawn_effort(category: &str, item: &str, history: &History, evidence: &Evidence) -> (Effort, String) {
-    let shares = evidence.shares(category, "effort");
-    let (arm, drawn) = shares.draw(&history.seed("effort", item));
-    (Effort::parse_arm(arm).unwrap_or(Effort::High), drawn)
 }
 
 /// The context arm this item's next launch draws from the category's context shares, and the words

@@ -373,6 +373,20 @@ fn features(rows: &[&Row]) -> Section {
     section
 }
 
+fn cells(rows: &[super::dispatch::CellRow]) -> Section {
+    let mut section = Section::default();
+    section.push("Cells: each category's live arms, with this window's runs, first tries and share".to_owned());
+    let mut table = vec![header(&["category", "cell", "role", "runs", "first try landed", "share"])];
+    let mut previous = "";
+    for row in rows {
+        let category = if row.category == previous { String::new() } else { row.category.clone() };
+        previous = &row.category;
+        table.push(vec![category, row.cell.clone(), row.role.clone(), row.runs.to_string(), first_try(row.first_tries_landed, row.first_tries), percent(100.0 * row.share)]);
+    }
+    grid(&table, &[Align::Left, Align::Left, Align::Left, Align::Right, Align::Right, Align::Right]).into_iter().for_each(|line| section.push(line));
+    section
+}
+
 fn workers(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: usize) -> Section {
     let title = format!("Workers: runs started in the last {window} by task category, and the boxes they closed in it");
     let mixes = match mixes {
@@ -410,6 +424,10 @@ fn workers(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: u
     let per_closed = if mixes.closed > 0 { money(usd / mixes.closed as f64) } else { "-".to_owned() };
     rows.push(vec!["all categories".to_owned(), String::new(), runs.to_string(), money(usd), first_try(landed, tries), mixes.closed.to_string(), per_closed]);
     grid(&rows, &[Align::Left, Align::Left, Align::Right, Align::Right, Align::Right, Align::Right, Align::Left]).into_iter().for_each(|line| section.push(line));
+    if !mixes.cells.is_empty() {
+        section.push(String::new());
+        section.append(cells(&mixes.cells));
+    }
     section
 }
 

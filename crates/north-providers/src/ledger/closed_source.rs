@@ -59,7 +59,7 @@ fn spend_runs(database: &std::path::Path) -> NorthResult<Vec<SpendRun>> {
         Access::ReadOnly,
         Duration::from_secs(5),
         &format!(
-            "SELECT agent, item, {ROLE_SQL} AS role, tier, category, COALESCE(arm, '') AS arm, box, model, COALESCE(started, '') AS started, ended, (COALESCE(landed, 0) = 1 OR landed_sha IS NOT NULL) AS landed, \
+            "SELECT agent, item, {ROLE_SQL} AS role, tier, category, COALESCE(arm, '') AS arm, box, model, COALESCE(effort, '') AS effort, COALESCE(started, '') AS started, ended, (COALESCE(landed, 0) = 1 OR landed_sha IS NOT NULL) AS landed, \
          COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
          FROM runs WHERE outcome != 'running' AND ended != ''"
         ),
@@ -75,6 +75,7 @@ fn spend_runs(database: &std::path::Path) -> NorthResult<Vec<SpendRun>> {
             arm: text(row, "arm"),
             box_text: row["box"].as_str().filter(|text| !text.is_empty()).map(str::to_owned),
             model: row["model"].as_str().map(str::to_owned),
+            effort: text(row, "effort"),
             started: text(row, "started"),
             ended: text(row, "ended"),
             landed: row["landed"].as_i64() == Some(1),
