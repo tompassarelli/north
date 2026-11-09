@@ -20,17 +20,14 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     }
-    let transcript = match own_transcript() {
-        Ok(transcript) => transcript,
-        Err(error) => {
-            eprintln!("lane stray: {error}");
-            return 1;
-        }
-    };
+    let transcript = own_transcript().unwrap_or_else(|error| {
+        eprintln!("lane stray: {error}; only a merge temporary can go");
+        String::new()
+    });
     let mut code = 0;
     for path in arguments.iter().map(PathBuf::from) {
         match remove(&path, &transcript) {
-            Ok(()) => println!("removed {}: an untracked file this session's own tool call created", path.display()),
+            Ok(why) => println!("removed {}: {why}", path.display()),
             Err(reason) => {
                 eprintln!("kept {}: {reason}", path.display());
                 code = 1;
@@ -40,7 +37,7 @@ pub fn run(arguments: &[String]) -> u8 {
     code
 }
 
-pub fn remove(path: &Path, transcript: &str) -> Result<(), String> {
+pub fn remove(path: &Path, transcript: &str) -> Result<&'static str, String> {
     if !path.is_absolute() {
         return Err("name it by its absolute path, as the session's tool call did".to_owned());
     }
@@ -55,13 +52,13 @@ pub fn remove(path: &Path, transcript: &str) -> Result<(), String> {
     }
     let born = meta.created().or_else(|_| meta.modified()).map_err(|error| error.to_string())?;
     if merge_leftover(path, meta.modified().unwrap_or(born)) {
-        return std::fs::remove_file(path).map_err(|error| error.to_string());
+        return std::fs::remove_file(path).map(|()| "a git merge temporary left at the top of a main checkout").map_err(|error| error.to_string());
     }
     let named = first_named(transcript, &path.to_string_lossy()).ok_or("no tool call of this session names it")?;
     if born + RECORDED_SLACK < named {
         return Err("it existed before this session's first tool call naming it".to_owned());
     }
-    std::fs::remove_file(path).map_err(|error| error.to_string())
+    std::fs::remove_file(path).map(|()| "an untracked file this session's own tool call created").map_err(|error| error.to_string())
 }
 
 fn merge_leftover(path: &Path, last_written: SystemTime) -> bool {

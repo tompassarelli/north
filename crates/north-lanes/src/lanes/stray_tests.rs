@@ -21,7 +21,7 @@ fn only_an_untracked_file_born_after_the_sessions_own_tool_call_named_it_is_remo
 
     assert_eq!(remove(&human, &transcript), Err("it existed before this session's first tool call naming it".to_owned()));
     assert_eq!(remove(&unnamed, &transcript), Err("no tool call of this session names it".to_owned()));
-    assert_eq!(remove(&stray, &transcript), Ok(()));
+    assert!(remove(&stray, &transcript).is_ok());
     assert!(!stray.exists() && human.exists() && unnamed.exists());
 }
 
@@ -40,5 +40,5 @@ fn a_merge_temporary_in_a_main_checkout_goes_without_a_transcript_north_1006() {
     std::fs::File::options().write(true).open(&leftover).unwrap().set_modified(old).unwrap();
 
     assert_eq!(remove(&lookalike, ""), Err("no tool call of this session names it".to_owned()));
-    assert_eq!(remove(&leftover, ""), Ok(()));
+    assert!(remove(&leftover, "").is_ok());
 }
