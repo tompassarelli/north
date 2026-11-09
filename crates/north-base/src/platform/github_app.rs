@@ -128,9 +128,8 @@ impl Host {
         let var = |name| std::env::var(name).ok().filter(|value: &String| !value.is_empty());
         let secrets = var("SOUTH_SECRETS").map_or_else(|| Path::new(&var("HOME").unwrap_or_default()).join("code/south/main/secrets"), PathBuf::from);
         let api = var("GH_APP_API").unwrap_or_else(|| "https://api.github.com".to_owned()).trim_end_matches('/').to_owned();
-        let key_file = std::env::var("SOPS_AGE_KEY_FILE").unwrap_or_else(|_| "/var/lib/sops-nix/key.txt".to_owned());
         let pushed = var("HOME").map(|home| Path::new(&home).join(PUSHED_TOKEN));
-        Self { secrets, runtime: var("XDG_RUNTIME_DIR").map(PathBuf::from), pushed, api, decrypt: Box::new(move |file| sops_decrypt(&key_file, file)) }
+        Self { secrets, runtime: var("XDG_RUNTIME_DIR").map(PathBuf::from), pushed, api, decrypt: Box::new(sops_decrypt) }
     }
 
     pub fn pushed_file(&self) -> Option<&Path> {
@@ -138,13 +137,9 @@ impl Host {
     }
 }
 
-fn sops_decrypt(key_file: &str, file: &Path) -> Option<Vec<u8>> {
-    let readable = fs::File::open(key_file).is_ok();
-    let mut command = if readable { Command::new("sops") } else { Command::new("sudo") };
-    if !readable {
-        command.args(["-n", "env", &format!("SOPS_AGE_KEY_FILE={key_file}"), "sops"]);
-    }
-    command.args(["-d", "--output-type", "json"]).arg(file).env("SOPS_AGE_KEY_FILE", key_file);
+fn sops_decrypt(file: &Path) -> Option<Vec<u8>> {
+    let mut command = Command::new("sops");
+    command.args(["-d", "--output-type", "json"]).arg(file);
     match process::run_command_within(command, None, DECRYPT_LIMIT) {
         Some(output) if output.status.success() => Some(output.stdout),
         _ => None,

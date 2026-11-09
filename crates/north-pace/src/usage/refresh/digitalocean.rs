@@ -11,7 +11,6 @@ use crate::foundation::clock::Timestamp;
 use crate::usage::{profiles, py};
 
 const API: &str = "https://api.digitalocean.com/v2/customers/my/balance";
-const FALLBACK_KEY: &str = "/var/lib/sops-nix/key.txt";
 const LIMIT: Duration = Duration::from_secs(20);
 
 pub(super) fn refresh() {
@@ -36,19 +35,8 @@ fn write(now: Timestamp) -> Result<(), String> {
 
 fn token() -> Result<String, String> {
     let secret = env_path("SOUTH_SECRETS").unwrap_or_else(|| profiles::home().join("code/south/main/secrets")).join("digitalocean.yaml");
-    let key = std::env::var("SOPS_AGE_KEY_FILE").ok().filter(|key| !key.is_empty()).unwrap_or_else(|| FALLBACK_KEY.to_owned());
-    let readable = std::fs::File::open(&key).is_ok();
-    let sops = ["sops".to_owned(), "-d".into(), "--extract".into(), "[\"token\"]".into(), secret.display().to_string()];
-    let mut command = if readable {
-        let mut command = Command::new(&sops[0]);
-        command.args(&sops[1..]);
-        command
-    } else {
-        let mut command = Command::new("sudo");
-        command.args(["-n", "env"]).arg(format!("SOPS_AGE_KEY_FILE={key}")).args(&sops);
-        command
-    };
-    command.env("SOPS_AGE_KEY_FILE", &key);
+    let mut command = Command::new("sops");
+    command.args(["-d", "--extract", "[\"token\"]"]).arg(&secret);
     let output = crate::platform::process::run_command_within(command, None, LIMIT).filter(|output| output.status.success());
     let token = output.map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|token| !token.is_empty());
     token.ok_or_else(|| format!("could not decrypt {}", secret.file_name().and_then(|name| name.to_str()).unwrap_or_default()))
