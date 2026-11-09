@@ -4,6 +4,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -11,12 +12,14 @@ use north_base::platform::git_credential;
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, recvmsg, sendmsg};
 use serde::{Deserialize, Serialize};
 
-use super::{FLAG, MARK, SOCKETS_HIDDEN};
+use super::{FLAG, MAKER, MARK, SOCKETS_HIDDEN};
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
 const UNIT: &str = "north-worker-outside";
+const NAMESPACE: &str = "--namespaces";
 const LENGTH_BYTES: usize = 8;
+const ANSWER_WAIT: Duration = Duration::from_secs(10);
 const REQUEST_LIMIT: usize = 4 << 20;
 const STDIO: usize = 3;
 const INJECTED_NAMES: [&str; 19] = [
@@ -100,7 +103,8 @@ pub fn ensure() {
         return;
     }
     let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
-    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure", "--unit", UNIT, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let runtime = path.parent().and_then(Path::parent).unwrap_or(Path::new("/"));
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime.display())).args(["--unit", UNIT, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if started.is_ok_and(|status| status.success()) {
         for _ in 0..40 {
             if UnixStream::connect(&path).is_ok() {
@@ -184,6 +188,9 @@ fn handle(north: &Path, stream: UnixStream) -> Result<(), String> {
         return Err(format!("refused a request from uid {}", peer.uid.as_raw()));
     }
     let Some((request, streams)) = receive(&stream)? else { return Ok(()) };
+    if request.arguments == [NAMESPACE] {
+        return answer_namespaces(north, &stream, &request);
+    }
     let code = match run(north, request, streams, &stream) {
         Ok(code) => code,
         Err(message) => {
@@ -232,4 +239,72 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
 /// Whether the client end of `stream` is gone: it sends nothing after its request, so an end of stream is a closed one.
 fn hung_up(stream: &UnixStream) -> bool {
     rustix::net::recv(stream, &mut [0u8; 1], RecvFlags::PEEK | RecvFlags::DONTWAIT).is_ok_and(|read| read == 0)
+}
+
+struct Namespaces {
+    hidden: Vec<PathBuf>,
+    user: OwnedFd,
+    mount: OwnedFd,
+}
+
+static NAMESPACES: Mutex<Option<Namespaces>> = Mutex::new(None);
+
+/// Asks the broker for the namespaces that hide this host's process-starting sockets and joins them. Works from inside a Landlock domain, which cannot lay the overlay itself.
+pub fn join_namespaces() -> Result<(), String> {
+    let stream = UnixStream::connect(socket()).map_err(|error| format!("the outside broker does not answer ({error})"))?;
+    stream.set_read_timeout(Some(ANSWER_WAIT)).map_err(|error| error.to_string())?;
+    let tmux = std::env::var("TMUX_TMPDIR").ok();
+    let body = serde_json::to_vec(&Request { arguments: vec![NAMESPACE.to_owned()], directory: PathBuf::from("/"), environment: tmux.into_iter().map(|value| ("TMUX_TMPDIR".to_owned(), value)).collect() }).map_err(|error| error.to_string())?;
+    (&stream).write_all(&(body.len() as u64).to_le_bytes()).and_then(|()| (&stream).write_all(&body)).map_err(|error| error.to_string())?;
+    let mut answer = [0u8; 1];
+    let mut space = [0u8; 64];
+    let mut control = RecvAncillaryBuffer::new(&mut space);
+    let received = recvmsg(&stream, &mut [IoSliceMut::new(&mut answer)], &mut control, RecvFlags::empty()).map_err(|error| error.to_string())?;
+    let fds: Vec<OwnedFd> = control.drain().filter_map(|message| if let RecvAncillaryMessage::ScmRights(fds) = message { Some(fds.collect::<Vec<_>>()) } else { None }).flatten().collect();
+    let [user, mount]: [OwnedFd; 2] = fds.try_into().map_err(|_| format!("the outside broker made no namespaces ({})", if received.bytes == 0 { "it closed the request" } else { "it refused" }))?;
+    super::sockets::join(user.as_fd(), mount.as_fd())
+}
+
+fn multiplexer(request: &Request) -> PathBuf {
+    let uid = rustix::process::getuid().as_raw();
+    super::sockets::multiplexer(uid, request.environment.iter().find(|(name, _)| name == "TMUX_TMPDIR").map(|(_, value)| value.into()))
+}
+
+/// The namespaces for the sockets there are now, the last made ones when they already hide all of them.
+fn namespaces(north: &Path, request: &Request) -> Result<[OwnedFd; 2], String> {
+    let runtime = socket().parent().and_then(Path::parent).map(Path::to_path_buf).ok_or("the broker has no runtime directory")?;
+    let now = super::sockets::hidden(&runtime, &multiplexer(request));
+    let mut held = NAMESPACES.lock().map_err(|error| error.to_string())?;
+    if !held.as_ref().is_some_and(|made| now.iter().all(|path| made.hidden.contains(path))) {
+        *held = Some(make(north, &runtime, now)?);
+    }
+    let made = held.as_ref().ok_or("no namespaces")?;
+    Ok([made.user.try_clone().map_err(|error| error.to_string())?, made.mount.try_clone().map_err(|error| error.to_string())?])
+}
+
+fn make(north: &Path, runtime: &Path, hidden: Vec<PathBuf>) -> Result<Namespaces, String> {
+    let mut maker = Command::new(north).args([FLAG, MAKER]).arg(runtime).args(&hidden).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().map_err(|error| format!("{}: {error}", north.display()))?;
+    let mut ready = vec![0u8; super::sockets::READY.len()];
+    let laid = maker.stdout.take().ok_or("no output")?.read_exact(&mut ready).is_ok() && ready == super::sockets::READY;
+    let own = |name: &str| std::fs::File::open(format!("/proc/{}/ns/{name}", maker.id())).map(OwnedFd::from).map_err(|error| format!("{name} namespace: {error}"));
+    let opened = if laid { own("user").and_then(|user| own("mnt").map(|mount| Namespaces { hidden, user, mount })) } else { Err("the namespace maker did not lay its overlay".to_owned()) };
+    drop(maker.stdin.take());
+    let _ = maker.wait();
+    opened
+}
+
+fn answer_namespaces(north: &Path, stream: &UnixStream, request: &Request) -> Result<(), String> {
+    match namespaces(north, request) {
+        Ok(fds) => {
+            let borrowed: [BorrowedFd; 2] = [fds[0].as_fd(), fds[1].as_fd()];
+            let mut space = [0u8; 64];
+            let mut control = SendAncillaryBuffer::new(&mut space);
+            control.push(SendAncillaryMessage::ScmRights(&borrowed));
+            sendmsg(stream, &[IoSlice::new(&[0])], &mut control, SendFlags::empty()).map(|_| ()).map_err(|error| error.to_string())
+        }
+        Err(message) => {
+            let _ = (&*stream).write_all(&[1]);
+            Err(message)
+        }
+    }
 }

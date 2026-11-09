@@ -9,7 +9,7 @@ mod sockets;
 
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use north_base::platform::git_credential;
@@ -18,11 +18,12 @@ use landlock::{AccessFs, BitFlags, CompatLevel, Compatible, RulesetAttr, Ruleset
 pub use executable::{build_outputs, executable};
 pub use readable::readable;
 pub use removable::{Context, removable};
-pub use sockets::{hidden, hide, runtime};
+pub use sockets::runtime;
 
 pub const FLAG: &str = "--worker-sandbox";
 const OUTSIDE: &str = "--outside";
 const BROKER: &str = "--broker";
+const MAKER: &str = "--make-namespaces";
 const BUILT: &str = "--built";
 const LANE: &str = "--lane";
 const PROGRAM: &str = "--program";
@@ -52,6 +53,7 @@ pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Opti
 pub fn run(arguments: &[String]) -> std::process::ExitCode {
     match arguments {
         [broker] if broker == BROKER => broker::serve(),
+        [maker, runtime, paths @ ..] if maker == MAKER => sockets::make(Path::new(runtime), &paths.iter().map(PathBuf::from).collect::<Vec<_>>()),
         [outside, separator, north, words @ ..] if outside == OUTSIDE && separator == "--" && !north.is_empty() => self::outside(north, words),
         [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true),
         [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program),
@@ -124,12 +126,14 @@ fn in_lane(program: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
-/// Hides the sockets that start processes outside the domain, before the domain is applied: Landlock refuses mount(2), and a kernel before its ABI 9 cannot limit which Unix sockets a command connects through. Whether they are hidden. A command already inside the domain keeps what its outer pass did, since a fresh user namespace whose mounts the domain then refuses would show every root-owned file as nobody's and ssh would refuse its own configuration.
+/// Hides the sockets that start processes outside the domain, before the domain is applied: a kernel before Landlock ABI 9 cannot limit which Unix sockets a command connects through, and Landlock refuses mount(2), so a session that already runs inside a domain (one launched from a confined command) joins the namespaces the broker laid, and one that does not lays them itself. Whether they are hidden.
 fn hide_sockets(context: &Context) -> bool {
-    if std::env::var_os(MARK).is_some_and(|mark| mark == "1") {
-        return std::env::var_os(SOCKETS_HIDDEN).is_some_and(|hidden| hidden == "1");
+    if std::env::var_os(SOCKETS_HIDDEN).is_some_and(|hidden| hidden == "1") {
+        return true;
     }
-    match hide(&runtime(context), &hidden(context)) {
+    let runtime = sockets::runtime(context);
+    let direct = || sockets::hide(&runtime, &sockets::hidden(&runtime, &sockets::multiplexer(context.uid, std::env::var_os("TMUX_TMPDIR"))));
+    match broker::join_namespaces().or_else(|brokered| direct().map_err(|error| format!("{brokered}; {error}"))) {
         Ok(()) => true,
         Err(error) => {
             eprintln!("north worker-sandbox: cannot hide the sockets that start processes outside the domain ({error}), so they stay reachable");

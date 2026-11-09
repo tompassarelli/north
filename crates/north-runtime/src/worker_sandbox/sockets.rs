@@ -1,29 +1,37 @@
+use std::ffi::OsString;
+use std::io::{Read, Write};
+use std::os::fd::BorrowedFd;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
 use rustix::mount::{MountPropagationFlags, mount_bind, mount_change};
-use rustix::thread::{UnshareFlags, unshare};
+use rustix::thread::{LinkNameSpaceType, UnshareFlags, move_into_link_name_space, unshare};
 
 use super::Context;
 
 const KEPT: [&str; 6] = ["wayland-", "pipewire-", "pulse", "private-desktop", "cc-socks", "north"];
 const DEPTH: usize = 4;
+/// What `make` prints when its namespaces are laid.
+pub const READY: &[u8] = b"ready\n";
 
 pub fn runtime(context: &Context) -> PathBuf {
     context.runtime.clone().unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", context.uid)))
 }
 
+/// Where the terminal multiplexer keeps its server sockets: `TMUX_TMPDIR`, or `/tmp`, beneath `tmux-UID`.
+pub fn multiplexer(uid: u32, tmpdir: Option<OsString>) -> PathBuf {
+    tmpdir.filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from).join(format!("tmux-{uid}"))
+}
+
 /// The sockets a worker command may not connect to: every socket in the runtime directory other than those of the display and audio servers, north's own and Claude Code's proxy, and the sockets of the terminal multiplexer. The kernel's Landlock before ABI 9 cannot refuse a connect(2), so `hide` puts a null device over each.
-pub fn hidden(context: &Context) -> Vec<PathBuf> {
-    let runtime = runtime(context);
-    let multiplexer = std::env::var_os("TMUX_TMPDIR").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from("/tmp"), PathBuf::from).join(format!("tmux-{}", context.uid));
+pub fn hidden(runtime: &Path, multiplexer: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    for entry in std::fs::read_dir(&runtime).into_iter().flatten().flatten() {
+    for entry in std::fs::read_dir(runtime).into_iter().flatten().flatten() {
         if !KEPT.iter().any(|prefix| entry.file_name().to_string_lossy().starts_with(prefix)) {
             sockets(&entry.path(), DEPTH, &mut found);
         }
     }
-    sockets(&multiplexer, DEPTH, &mut found);
+    sockets(multiplexer, DEPTH, &mut found);
     found
 }
 
@@ -70,4 +78,23 @@ fn own_includes_only(runtime: &Path) -> Result<(), String> {
         std::fs::create_dir_all(&directory).and_then(|()| std::fs::write(&partial, &kept)).and_then(|()| std::fs::rename(&partial, &copy)).map_err(|error| format!("{}: {error}", copy.display()))?;
     }
     mount_bind(&copy, &real).map_err(|error| format!("{}: {error}", real.display()))
+}
+
+/// Moves this single-threaded process into the user and mount namespaces whose descriptors the broker passed, the namespaces `hide` made in a process outside every domain, and back into its working directory. A process inside a Landlock domain cannot make such an overlay itself (the domain refuses mount(2)), but nothing refuses it joining one. The overlay cannot be lifted from there for the same reason.
+pub fn join(user: BorrowedFd<'_>, mount: BorrowedFd<'_>) -> Result<(), String> {
+    let directory = std::env::current_dir().ok();
+    move_into_link_name_space(user, Some(LinkNameSpaceType::User)).map_err(|error| format!("setns user: {error}"))?;
+    move_into_link_name_space(mount, Some(LinkNameSpaceType::Mount)).map_err(|error| format!("setns mount: {error}"))?;
+    directory.map_or(Ok(()), std::env::set_current_dir).map_err(|error| format!("chdir: {error}"))
+}
+
+/// The broker's namespace maker: hides `paths` as `hide` does, says it is ready, and holds the namespaces open until its standard input closes.
+pub fn make(runtime: &Path, paths: &[PathBuf]) -> std::process::ExitCode {
+    if let Err(error) = hide(runtime, paths) {
+        eprintln!("north worker-sandbox: {error}");
+        return std::process::ExitCode::from(1);
+    }
+    let _ = std::io::stdout().write_all(READY).and_then(|()| std::io::stdout().flush());
+    let _ = std::io::stdin().read_to_end(&mut Vec::new());
+    std::process::ExitCode::SUCCESS
 }
