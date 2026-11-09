@@ -1,5 +1,4 @@
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::fs;use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub use crate::platform::store_refs::RUNTIME_PROGRAMS as PROGRAMS;
@@ -122,9 +121,16 @@ pub(super) fn stamp(runtime: &Path, commit: &str) -> std::io::Result<()> {
     fs::write(runtime.join(BUILT_FROM), format!("{commit} {}\n", binary_hash(&runtime.join("north"))?))
 }
 
+/// A runtime built before the record existed is accepted once and stamped when its built-here names its commit, so a change that adds a health requirement can be promoted by the runtime it replaces.
 pub(super) fn built_from_own_commit(runtime: &Path) -> Result<(), String> {
     let commit = runtime.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    let stamp = fs::read_to_string(runtime.join(BUILT_FROM)).map_err(|error| format!("{} has no {BUILT_FROM} record ({error})", runtime.display()))?;
+    let stamp = match fs::read_to_string(runtime.join(BUILT_FROM)) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && fs::read_to_string(runtime.join(BUILT_HERE)).is_ok_and(|here| here.trim() == short(&commit)) => {
+            stamp(runtime, &commit).map_err(|error| format!("{}: {error}", runtime.display()))?;
+            return Ok(());
+        }
+        read => read.map_err(|error| format!("{} has no {BUILT_FROM} record ({error})", runtime.display()))?,
+    };
     let hash = binary_hash(&runtime.join("north")).map_err(|error| format!("{}: {error}", runtime.join("north").display()))?;
     match stamp.split_whitespace().collect::<Vec<_>>()[..] {
         [stamped, recorded] if stamped == commit && recorded == hash => Ok(()),

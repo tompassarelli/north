@@ -67,3 +67,14 @@ fn a_runtime_whose_binary_was_stamped_for_another_commit_is_refused_and_the_curr
     assert_ne!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
 }
+
+#[test]
+fn a_runtime_built_before_the_built_from_record_existed_is_promoted_and_stamped() {
+    let host = skewed();
+    fs::remove_file(host.runtime(&host.target).join("built-from")).unwrap();
+    fs::write(host.runtime(&host.target).join("built-here"), &host.target[..8]).unwrap();
+    let output = host.update(0, 0);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
+    assert!(host.runtime(&host.target).join("built-from").is_file());
+}
