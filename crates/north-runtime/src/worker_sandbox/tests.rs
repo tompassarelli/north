@@ -3,7 +3,7 @@ use std::process::Command;
 
 use landlock::RulesetStatus;
 
-use super::{Context, confine, readable, removable};
+use super::{Context, confine, executable, readable, removable};
 
 const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
 const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
@@ -34,7 +34,7 @@ fn a_confined_command_child() {
     let command = command.to_string_lossy().into_owned();
     let context = Context::from_env(&command);
     let roots = std::env::var_os(LOGINS_ONLY).is_none().then(|| removable(&context));
-    assert!(matches!(confine(roots.as_deref(), &readable(&context)), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    assert!(matches!(confine(roots.as_deref(), &readable(&context), Some(&executable(&context))), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
 }
@@ -127,4 +127,40 @@ fn no_agent_command_of_any_role_can_read_or_link_away_the_operators_gh_login_nor
         let output = child.output().unwrap();
         assert!(output.status.success(), "logins only {logins_only}, {command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     }
+}
+
+fn runnable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// KEEP(bug): a lane's test binary or package script run by its path ran outside depbox, so the code a lane's dependencies bring ran past depbox whenever an agent typed its path (south#93)
+#[test]
+fn a_lane_test_binary_run_by_path_outside_depbox_is_refused() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("south-93-build-output").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    let lane = home.join("code/alpha/worktrees/lane");
+    let fresh = home.join("code/alpha/worktrees/fresh");
+    let built = ["target/debug/deps/it-0123", "node_modules/.bin/vitest", "web/node_modules/.bin/tsc"];
+    for path in built.iter().chain(&["bin/tool"]) {
+        runnable(&lane.join(path));
+        assert!(Command::new(lane.join(path)).status().unwrap().success(), "{path} does not run outside the domain");
+    }
+    std::fs::create_dir_all(&fresh).unwrap();
+    let refused: Vec<String> = built.iter().map(|path| format!("{{ ./{path}; test $? = 126; }}")).collect();
+    let command = format!("{} && ./bin/tool && cd {} && mkdir -p target/debug && cp {}/bin/tool target/debug/fresh && {{ ./target/debug/fresh; test $? = 126; }}", refused.join(" && "), fresh.display(), lane.display());
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", &home)
+        .env(COMMAND, &command)
+        .current_dir(&lane)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }

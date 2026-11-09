@@ -1,3 +1,4 @@
+mod exec;
 mod gc;
 pub use gc::USAGE as GC_USAGE;
 mod hardcoded_paths;
@@ -19,6 +20,7 @@ mod unpushed;
 mod test_git;
 mod verdict;
 
+pub use exec::{changed_locks, run as lane_exec};
 pub use gc::{repo as repo_verb, run as lane_gc};
 pub use hardcoded_paths::run as hardcoded_paths;
 pub use layout_check::{exempt as layout_exempt, run as layout_check};

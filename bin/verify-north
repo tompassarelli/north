@@ -6,4 +6,5 @@ if [[ ! -x "$runtime" ]]; then
   printf 'verify-north: the selected north runtime has no verify-north: %s; run north runtime update\n' "$runtime" >&2
   exit 127
 fi
+! "${runtime%/*}/north" lane exec --help 2>/dev/null | grep -q "lane exec \\[--lane" || exec "${runtime%/*}/north" lane exec -- "$runtime" "$@"
 exec "$runtime" "$@"

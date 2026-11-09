@@ -243,6 +243,7 @@ Commands:
   lane stray PATH...                               Remove an untracked file this session's own tool call created, named in its transcript before the file was born
   lane remove LANE...                              Remove a finished lane directory under worktrees/ that holds no unlanded or uncommitted work, from outside a worker sandbox, so no unregistered directory is left behind
   lane new --issue REPO#N [--from REF] LANE        Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config
+  lane exec [--lane CHECKOUT] [--] PROGRAM [ARGS...]  Run a lane's own build output (target/, node_modules/) outside depbox, which an agent's worker sandbox refuses by path, only when the lane's lock files equal origin/main's
   usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)

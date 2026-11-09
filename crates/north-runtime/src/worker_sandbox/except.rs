@@ -15,9 +15,9 @@ fn identity(path: &Path) -> Option<Identity> {
     std::fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
 }
 
-/// The entries under `root` other than the `protected` paths. A Landlock rule holds an inode, and one inode can sit at several paths (two mounts of one btrfs subvolume at `/home` and `/nix` make `/nix/USER` the same directory as `/home/USER`), so entries are matched by device and inode: an entry that is a protected path is left out, one that holds a protected path is walked instead of granted, each such directory once, and a symlink is followed only toward a protected path and never granted itself (`~/.local/state/north` links to `~/code/north-data`, which holds the profiles).
+/// The entries under `root` other than the `protected` paths. A Landlock rule holds an inode, and one inode can sit at several paths (two mounts of one btrfs subvolume at `/home` and `/nix` make `/nix/USER` the same directory as `/home/USER`), so entries are matched by device and inode: an entry that is a protected path is left out, one that holds a protected path is walked instead of granted, each such directory once, a protected path that does not exist yet keeps its directory walked so it stays protected once created, and a symlink is followed only toward a protected path and never granted itself (`~/.local/state/north` links to `~/code/north-data`, which holds the profiles).
 pub fn beneath_except(root: &Path, protected: &[PathBuf], entries: Entries) -> Vec<PathBuf> {
-    let real: Vec<PathBuf> = protected.iter().filter_map(|path| path.canonicalize().ok()).collect();
+    let real: Vec<PathBuf> = protected.iter().filter_map(|path| path.canonicalize().ok().or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))).collect();
     let hidden: HashSet<Identity> = real.iter().filter_map(|path| identity(path)).collect();
     let holders: HashSet<Identity> = real.iter().flat_map(|path| path.ancestors().skip(1)).filter_map(identity).collect();
     let mut walk = Walk { hidden, holders, entries, visited: HashSet::new(), rules: Vec::new() };
