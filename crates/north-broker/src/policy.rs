@@ -49,7 +49,10 @@ impl Policy {
     pub fn for_user(uid: u32) -> Self {
         let lander = Ceiling { repositories: None, permissions: Some(Permissions::from([("contents".to_owned(), "write".to_owned()), ("workflows".to_owned(), "write".to_owned()), ("metadata".to_owned(), "read".to_owned())])) };
         let github = BTreeMap::from([("agent".to_owned(), Ceiling::default()), ("lander".to_owned(), lander)]);
-        let proxy = BTreeMap::from([("digitalocean".to_owned(), vec!["GET /v2/customers/my/balance".to_owned()])]);
+        let proxy = BTreeMap::from([
+            ("digitalocean".to_owned(), vec!["GET /v2/customers/my/balance".to_owned()]),
+            ("hcloud".to_owned(), ["GET /v1/server_types", "GET /v1/server_types?*", "GET /v1/servers", "GET /v1/servers?*", "POST /v1/servers"].map(str::to_owned).to_vec()),
+        ]);
         Self { callers: vec![Caller { uid, github, proxy }] }
     }
 
