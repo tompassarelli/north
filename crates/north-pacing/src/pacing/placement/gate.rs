@@ -459,11 +459,16 @@ pub fn verdicts(gate: &Value, roster: &Roster, basis: &Basis) -> Vec<Verdict> {
     verdicts_of(gate, &standings(gate, roster), basis)
 }
 
-/// The verdicts on each account given its recorded standing in the roster.
+/// The verdicts on each account given its recorded standing in the roster; an account held until another is
+/// spent is unavailable while that one has week left.
 pub fn verdicts_of(gate: &Value, standings: &BTreeMap<String, record::Standing>, basis: &Basis) -> Vec<Verdict> {
+    let windows = &gate["claude"]["windows"];
     standing_verdicts(gate, standings)
         .into_iter()
-        .map(|verdict| Verdict { rank: basis.rank(verdict.available, &verdict.account, &gate["claude"]["windows"][&verdict.account]), ..verdict })
+        .map(|verdict| match basis.held(&verdict.account, windows).filter(|_| verdict.available) {
+            Some(why) => Verdict { owners: verdict.owners, ..unavailable(&verdict.account, why) },
+            None => Verdict { rank: basis.rank(verdict.available, &verdict.account, &windows[&verdict.account]), ..verdict },
+        })
         .collect()
 }
 

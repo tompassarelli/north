@@ -149,10 +149,16 @@ pub fn account(name: &str, usage: &Value, basis: &Basis, hosts: Vec<String>, at:
 }
 
 fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
-    let usage = placement::pace_state("usage-gate.json");
     let basis = Basis::new(cfg, at);
-    let sampled = usage["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
-    let mut found: Vec<Account> = sampled.map(|(name, windows)| account(name, windows, &basis, signed_in(cfg, roster, name, here), at, notes)).collect();
+    let usage = placement::pace_state("usage-gate.json");
+    let windows = &usage["claude"]["windows"];
+    let mut found = Vec::new();
+    for (name, sample) in windows.as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:")) {
+        match basis.held(name, windows) {
+            Some(why) => notes.push(format!("{name} {why}")),
+            None => found.push(account(name, sample, &basis, signed_in(cfg, roster, name, here), at, notes)),
+        }
+    }
     found.extend(grants(cfg, roster, here, grants_left(at)));
     found
 }

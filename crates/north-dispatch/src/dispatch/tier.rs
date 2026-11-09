@@ -1,8 +1,11 @@
 //! Which worker tier a launch starts on: the cheapest its category allows. Haiku for mechanical work
 //! with its retry on Sonnet, Opus for the categories in `OPUS`, and Sonnet at high effort for art and
-//! every other category. An Opus box in a category with 15 Opus runs takes the medium or high effort
-//! arm until the tune tick or the ledger settles the cheaper one. A planner or reviewer run takes the
-//! high or xhigh effort arm until the ledger settles the cheaper of the two. A local box on none of
+//! every other category. An unknown-cause bug that names a failing test or repro command starts on
+//! Sonnet and escalates once to Opus medium; one naming neither starts on Opus medium. A plan runs at
+//! Opus high when its scope spans modules, else at medium. Another Opus box in a category with 15 Opus
+//! runs takes the medium or high effort arm until the tune tick or the ledger settles the cheaper one.
+//! A reviewer run takes the high or xhigh effort arm until the ledger settles the cheaper of the two.
+//! No route starts at max effort. A local box on none of
 //! those arms takes one auto-compact window of `CONTEXT_WINDOWS`. Every arm is a seeded draw from the
 //! shares `Shares` reads off the ledger, the same shares `north ops climb run --dry-run` prints: equal
 //! while the arms hold no boxes, then Thompson sampling on cost per kept box with a floor per arm.
@@ -20,10 +23,16 @@ use toml_edit::DocumentMut;
 
 /// Window of the ledger's arm boxes whose cost per kept box decides an effort arm.
 pub const ARM_WINDOW: &str = "30d";
-/// Categories that start on Opus: architecture-class work and unknown-cause debugging.
+/// Categories that start on Opus: architecture-class work, and unknown-cause debugging that names no repro.
 pub const OPUS: [&str; 5] = ["debugging-unknown-cause", "netcode-determinism", "performance", "planning", "review"];
-/// Categories of planner and reviewer runs, whose effort arms are high and xhigh.
-pub const PLANNED: [&str; 2] = ["planning", "review"];
+/// Categories of reviewer runs, whose effort arms are high and xhigh.
+pub const PLANNED: [&str; 1] = ["review"];
+/// Categories whose effort the staffing rules fix rather than an arm draw: planning by its scope, and
+/// unknown-cause debugging, which starts on Sonnet when it names a repro and else on Opus medium.
+pub const PINNED: [&str; 2] = ["planning", UNKNOWN_CAUSE];
+pub const UNKNOWN_CAUSE: &str = "debugging-unknown-cause";
+/// The `Scope:` words of a plan that spans modules, which plans at Opus high; narrower plans run at medium.
+pub const SPANNING: [&str; 2] = ["cross-module", "cross-repo"];
 /// The auto-compact windows a local Claude box on no tier or effort arm launches with, one equal seeded
 /// share each at the start, stamped `Arm: context-NNNk` (docs/rationale/context-economics.md).
 pub const CONTEXT_WINDOWS: [u64; 4] = [200_000, 300_000, 400_000, 500_000];
@@ -265,8 +274,8 @@ impl History {
         format!("{family}:{item}#{}", self.tried.get(item).map_or(0, Vec::len))
     }
 
-    fn haiku_try(&self, item: &str) -> Option<&str> {
-        self.tried.get(item)?.iter().rev().find(|(tier, _)| *tier == Tier::Haiku).map(|(_, name)| name.as_str())
+    fn tried_on(&self, item: &str, on: Tier) -> Option<&str> {
+        self.tried.get(item)?.iter().rev().find(|(tier, _)| *tier == on).map(|(_, name)| name.as_str())
     }
 }
 
@@ -335,7 +344,13 @@ pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, 
     known(&category)?;
     let evidence = ledger.get(&category).cloned().unwrap_or_default();
     let route = tiered(item, &category, facet, history);
-    Ok(if PLANNED.contains(&category.as_str()) { planned(route, item, history, &evidence) } else { efforted(route, item, history, &evidence) })
+    Ok(if route.effort.is_some() || route.tier != Tier::Opus {
+        route
+    } else if PLANNED.contains(&category.as_str()) {
+        planned(route, item, history, &evidence)
+    } else {
+        efforted(route, item, history, &evidence)
+    })
 }
 
 fn tiered(item: &str, category: &str, facet: &dyn Fn(&str) -> String, history: &History) -> Route {
@@ -344,10 +359,23 @@ fn tiered(item: &str, category: &str, facet: &dyn Fn(&str) -> String, history: &
         return on(Tier::Sonnet, "art goes to sonnet-high".into());
     }
     if category == "mechanical" {
-        return match history.haiku_try(item) {
+        return match history.tried_on(item, Tier::Haiku) {
             Some(name) => Route { follows: Some(format!("{name} (worker-haiku)")), ..on(Tier::Sonnet, format!("retries the Haiku miss {name} on sonnet-high")) },
             None => on(Tier::Haiku, "mechanical work goes to worker-haiku".into()),
         };
+    }
+    if category == UNKNOWN_CAUSE {
+        let repro = facet("Repro");
+        return match history.tried_on(item, Tier::Sonnet) {
+            Some(name) if !repro.is_empty() => Route { follows: Some(format!("{name} (worker-sonnet)")), effort: Some(Effort::Medium), ..on(Tier::Opus, format!("escalates the Sonnet try {name} on an unknown-cause bug with repro {repro} to worker at medium effort, its one escalation")) },
+            None if !repro.is_empty() => on(Tier::Sonnet, format!("an unknown-cause bug naming repro {repro} starts on sonnet-high")),
+            _ => Route { effort: Some(Effort::Medium), ..on(Tier::Opus, "an unknown-cause bug naming no failing test or repro command starts on worker at medium effort".into()) },
+        };
+    }
+    if category == "planning" {
+        let scope = facet("Scope").to_lowercase();
+        let (effort, why) = if SPANNING.contains(&scope.as_str()) { (Effort::High, "spans modules, so worker at high effort") } else { (Effort::Medium, "stays in one module, so worker at medium effort") };
+        return Route { effort: Some(effort), ..on(Tier::Opus, format!("planning at Scope: {scope} {why}")) };
     }
     if OPUS.contains(&category) {
         return on(Tier::Opus, format!("{category} starts on worker"));
@@ -375,7 +403,7 @@ fn efforted(route: Route, item: &str, history: &History, evidence: &Evidence) ->
     Route { effort: Some(effort), effort_arm: arm, why: format!("{}, {why}", route.why), ..route }
 }
 
-/// A planner or reviewer run's effort: the ledger's settled arm, else the high or xhigh arm drawn from
+/// A reviewer run's effort: the ledger's settled arm, else the high or xhigh arm drawn from
 /// the category's effort shares.
 fn planned(route: Route, item: &str, history: &History, evidence: &Evidence) -> Route {
     let figures = || [Effort::High, Effort::Xhigh].map(|effort| evidence.efforts.figures(effort, effort.arm())).join("; ");

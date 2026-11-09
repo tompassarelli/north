@@ -28,19 +28,17 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     let facet = |category: &'static str| move |key: &str| if key == "Category" { category.to_owned() } else { super::facets::default(key).to_owned() };
     let unread = BTreeMap::new();
     let draw = |category: &'static str| (1..=1000).map(|n| route_for(&format!("north#{n}"), &facet(category), &History::default(), &unread).unwrap()).collect::<Vec<_>>();
-    for category in ["planning", "review"] {
-        let routes = draw(category);
-        let xhigh = routes.iter().filter(|route| route.effort == Some(Effort::Xhigh)).count();
-        assert!((450..=550).contains(&xhigh), "{category}: {xhigh} of 1000 drew xhigh");
-        assert!(routes.iter().all(|route| route.tier == Tier::Opus && matches!(route.effort, Some(Effort::High | Effort::Xhigh)) && route.stamp() == route.effort.map(Effort::arm)), "{routes:?}");
-        assert_eq!(routes, draw(category), "the draw is seeded by the item and its launch count");
-    }
-    let drawn = draw("planning").into_iter().enumerate().find(|(_, route)| route.effort == Some(Effort::Xhigh)).unwrap();
+    let routes = draw("review");
+    let xhigh = routes.iter().filter(|route| route.effort == Some(Effort::Xhigh)).count();
+    assert!((450..=550).contains(&xhigh), "review: {xhigh} of 1000 drew xhigh");
+    assert!(routes.iter().all(|route| route.tier == Tier::Opus && matches!(route.effort, Some(Effort::High | Effort::Xhigh)) && route.stamp() == route.effort.map(Effort::arm)), "{routes:?}");
+    assert_eq!(routes, draw("review"), "the draw is seeded by the item and its launch count");
+    let drawn = draw("review").into_iter().enumerate().find(|(_, route)| route.effort == Some(Effort::Xhigh)).unwrap();
     assert_eq!(drawn.1.stamp(), Some("effort-xhigh"));
     let mut history = History::default();
     let item = format!("north#{}", drawn.0 + 1);
     history.launched(&item, "first", &drawn.1);
-    assert!(drawn.1.why.contains(&format!("seeded effort:{item}#0")) && route_for(&item, &facet("planning"), &history, &unread).unwrap().why.contains(&format!("seeded effort:{item}#1")));
+    assert!(drawn.1.why.contains(&format!("seeded effort:{item}#0")) && route_for(&item, &facet("review"), &history, &unread).unwrap().why.contains(&format!("seeded effort:{item}#1")));
 
     let full = |usd: f64| (15, 15, usd);
     let boxes = |(_, closed, usd): (usize, usize, f64)| vec![crate::router::settle::Outcome { usd, closed: true, kept: true }; closed];
@@ -48,7 +46,7 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
         runs: BTreeMap::from([(Effort::High, high.0), (Effort::Xhigh, xhigh.0)]),
         boxes: Some(BTreeMap::from([(Effort::High, boxes(high)), (Effort::Xhigh, boxes(xhigh))])),
     };
-    let settled = |efforts| route_for("north#1", &facet("planning"), &History::default(), &BTreeMap::from([("planning".to_owned(), Evidence { efforts, ..Evidence::default() })])).unwrap();
+    let settled = |efforts| route_for("north#1", &facet("review"), &History::default(), &BTreeMap::from([("review".to_owned(), Evidence { efforts, ..Evidence::default() })])).unwrap();
     let cheaper_xhigh = settled(trial(full(12.0), full(9.0)));
     assert_eq!((cheaper_xhigh.effort, cheaper_xhigh.stamp()), (Some(Effort::Xhigh), None));
     assert_eq!(settled(trial(full(9.0), full(12.0))).effort, Some(Effort::High));
@@ -175,4 +173,27 @@ fn a_hand_launch_on_a_tier_override_carries_the_eta_and_budget_of_the_tier_it_ru
     for facet in ["Scope: module", "Surface: ts", "Verify: local-test"] {
         assert!(head.contains(&facet), "{facet} missing: {head:?}");
     }
+}
+
+#[test]
+fn an_unknown_cause_bug_naming_a_repro_starts_on_sonnet_and_escalates_once_to_opus_medium_and_planning_effort_follows_its_scope() {
+    use super::tier::{Effort, History, Tier, route};
+    use std::collections::BTreeMap;
+    let unread = BTreeMap::new();
+    let bug = |body: &str| super::issues::Issue { body: format!("Category: debugging-unknown-cause\n{body}\n- [ ] a box"), ..issue("north", 966, "", &[]) };
+    let rung = |issue: &super::issues::Issue, history: &History| route(issue, history, &unread).map(|route| (route.tier, route.effort)).unwrap();
+    let repro = bug("Fails under `cargo nextest run -p north-dispatch stops`.");
+    assert_eq!(rung(&repro, &History::default()), (Tier::Sonnet, None));
+    assert_eq!(rung(&bug("Workers stall at random."), &History::default()), (Tier::Opus, Some(Effort::Medium)));
+    let mut history = History::default();
+    let first = route(&repro, &history, &unread).unwrap();
+    history.launched("north#966", "sonnet-try", &first);
+    let second = route(&repro, &history, &unread).unwrap();
+    assert_eq!((second.tier, second.effort, second.follows.as_deref()), (Tier::Opus, Some(Effort::Medium), Some("sonnet-try (worker-sonnet)")));
+    history.launched("north#966", "opus-try", &second);
+    assert_eq!(rung(&repro, &history), (Tier::Opus, Some(Effort::Medium)), "never a second Sonnet try");
+
+    let plan = |scope: &str| super::issues::Issue { body: format!("Category: planning\nScope: {scope}\n- [ ] a box"), ..issue("north", 940, "", &[]) };
+    assert_eq!(rung(&plan("module"), &History::default()), (Tier::Opus, Some(Effort::Medium)));
+    assert_eq!(rung(&plan("cross-module"), &History::default()), (Tier::Opus, Some(Effort::High)));
 }

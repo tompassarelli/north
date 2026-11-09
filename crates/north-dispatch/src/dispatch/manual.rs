@@ -37,6 +37,9 @@ pub struct Start {
 pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>, grounds: &dyn Fn(&Route) -> Grounds) -> Result<Start, String> {
     let declared = |key: &str| facets::declared_in(ask.brief, key).map(str::to_owned);
     let facet = |key: &str| {
+        if key == "Repro" {
+            return facets::repro(&format!("{}\n{body}", ask.brief)).unwrap_or_default();
+        }
         let value = declared(key).unwrap_or_else(|| facets::default(key).to_owned());
         if key == "Category" { facets::settled(value.to_lowercase(), &format!("{}\n{body}", ask.brief)) } else { value }
     };

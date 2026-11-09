@@ -1,6 +1,6 @@
 ---
 name: worker-sonnet
-description: "Middle-band implementation on the Claude side: features, tooling, fixes with a known cause and multi-step middle work that names its files and Done when. Sonnet 5.5 high. Not planning, architecture or unknown-cause debugging; a failed attempt goes to worker."
+description: "Middle-band implementation on the Claude side: features, tooling, fixes with a known cause and multi-step middle work that names its files and Done when. Sonnet 5.5 high. Also the first try on an unknown-cause bug whose issue names a failing test or repro command, escalating once to worker (Opus medium) on failure. Not planning, architecture or unknown-cause debugging without a repro; a failed attempt goes to worker."
 model: claude-sonnet-5-5
 effort: high
 permissionMode: bypassPermissions

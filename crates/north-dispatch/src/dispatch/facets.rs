@@ -40,11 +40,13 @@ pub fn category(issue: &Issue) -> Option<String> {
     named.filter(|word| !word.is_empty()).or_else(labelled).map(|category| settled(category.to_lowercase(), &issue.body))
 }
 
-/// A facet the issue declares, else `native` for Verify on a native box, else the default.
+/// A facet the issue declares, else `native` for Verify on a native box, else the default; `Repro` is
+/// the repro the body names, empty when none.
 pub fn facet(issue: &Issue, key: &str) -> String {
     let default = default(key);
     match (key, declared(issue, key)) {
         ("Category", _) => category(issue).unwrap_or_else(|| default.into()),
+        ("Repro", _) => repro(&issue.body).unwrap_or_default(),
         (_, Some(value)) => value.to_owned(),
         ("Verify", None) if native(issue) => "native".into(),
         _ => default.into(),
@@ -87,4 +89,15 @@ pub fn overbuilt(issue: &Issue) -> Option<String> {
         return None;
     }
     issue.body.lines().filter_map(|line| line.trim_start().strip_prefix("- [ ]").or_else(|| line.trim_start().strip_prefix("* [ ]"))).find_map(|line| HEAVIER.captures(line)).map(|found| found.get(1).or_else(|| found.get(2)).map_or("", |named| named.as_str()).to_lowercase())
+}
+
+static REPRO: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"`((?:cargo (?:test|nextest run)|bun (?:run )?test|npm (?:run )?test|pnpm test|npx (?:vitest|jest|playwright test)|just test|go test)\b[^`]*)`|(?i:\bfailing test)\s+`([^`]+)`").unwrap()
+});
+
+/// The failing test or repro command `text` names: its `Repro:` line, else a backticked test command or
+/// a backticked name after "failing test". An unknown-cause bug naming one starts on Sonnet, whose
+/// failed try the repro exposes in one attempt.
+pub fn repro(text: &str) -> Option<String> {
+    declared_in(text, "Repro").map(str::to_owned).or_else(|| REPRO.captures(text).and_then(|found| found.get(1).or_else(|| found.get(2))).map(|named| named.as_str().to_owned()))
 }

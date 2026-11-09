@@ -218,3 +218,18 @@ fn a_brief_with_no_surface_line_takes_its_repositorys_default_so_a_build_host_ca
     let configured: DocumentMut = "[placement.surfaces]\nnorth = \"ts\"\n".parse().unwrap();
     assert_eq!(gate::surfaced(brief, &configured).lines().next(), Some("Surface: ts"));
 }
+
+#[test]
+fn an_account_held_until_another_is_spent_takes_no_launch_while_that_one_has_week_left() {
+    let cfg: DocumentMut = "[accounts.claude]\nheld_until_spent = { b = \"a\" }\n".parse().unwrap();
+    let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
+    let listed = roster(&[("a", None), ("b", None)]);
+    let placed = |a_week: f64| {
+        let quota = gate(&[("claude:a", control((100.0, "2026-10-19T03:00:00Z"), a_week)), ("claude:b", control((0.0, "2026-10-19T03:00:00Z"), 0.0))]);
+        let decision = gate::decide(CODE_ONLY, &cfg, gate::verdicts(&quota, &listed, &Basis::new(&cfg, at)), (false, String::new()), &[], "here", false);
+        (target(&decision), decision.verdict("claude:b").unwrap().line.clone())
+    };
+    let (held, line) = placed(40.0);
+    assert!(held.starts_with("held") && line.contains("held until claude:a is spent"), "{held}: {line}");
+    assert_eq!(placed(100.0).0, "claude:b");
+}

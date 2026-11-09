@@ -1,6 +1,6 @@
 ---
 name: planner
-description: "Trump-card planning at Opus high, about 90% of plans (pass effort xhigh, about 8%, or max, about 2%, only when our own ledger shows high planning failing that kind of decision): an issue's second Not done, a category below 40% success, or an architectural change (netcode, engine boundary, release shape). Writes the plan; never implements."
+description: "Trump-card planning on Opus: high when the plan spans crates or modules, medium (pass effort medium) for one module; pass xhigh only when our own ledger shows high planning failing that kind of decision. Opus max is break-glass only, after two failed xhigh attempts on one problem, for one try before the box parks for Tom. Plans an issue's second Not done, a category below 40% success, or an architectural change (netcode, engine boundary, release shape). Writes the plan; never implements."
 model: opus
 effort: high
 permissionMode: bypassPermissions
