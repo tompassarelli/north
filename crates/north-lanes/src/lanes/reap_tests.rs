@@ -104,6 +104,24 @@ fn branch_exists(container: &Container, name: &str) -> bool {
 }
 
 #[test]
+fn a_landed_lane_leaves_no_cargo_target() {
+    let container = Container::new();
+    let lane = container.add("landed-live", true);
+    fs::create_dir_all(lane.join("target/debug")).unwrap();
+    fs::write(lane.join("target/debug/out"), vec![7u8; 64 * 1024]).unwrap();
+    fs::write(container.main().join(".git/info/exclude"), "target/\n").unwrap();
+    let mut live: Child = Command::new("sleep").arg("60").current_dir(&lane).spawn().unwrap();
+
+    let (lines, counts) = container.sweep(false);
+    live.kill().unwrap();
+    live.wait().unwrap();
+
+    assert!(lane.is_dir() && branch_exists(&container, "landed-live"), "a process inside keeps the lane: {lines:#?}");
+    assert!(!lane.join("target").exists(), "a landed lane leaves no cargo target: {lines:#?}");
+    assert_eq!(counts.kept_protected, 1, "{lines:#?}");
+}
+
+#[test]
 fn a_sweep_reaps_only_spent_lanes_and_keeps_every_other_shape() {
     let container = Container::new();
     container.add("merged-fresh", false);

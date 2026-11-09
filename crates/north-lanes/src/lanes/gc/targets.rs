@@ -9,7 +9,7 @@ use super::super::live_process::{any_inside, open_paths};
 use super::super::target_seed::hold;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum BuildTarget {
+pub(in crate::lanes) enum BuildTarget {
     Absent,
     InUse,
     Dropped(u64),
@@ -32,7 +32,7 @@ pub(super) fn walk(path: &Path, delete: bool) -> io::Result<u64> {
     Ok(bytes)
 }
 
-pub(super) fn drop_build_target(lane: &Path, live: &[PathBuf], proc_root: &Path, dry_run: bool) -> BuildTarget {
+pub(in crate::lanes) fn drop_build_target(lane: &Path, live: &[PathBuf], proc_root: &Path, dry_run: bool) -> BuildTarget {
     let target = real(lane).join("target");
     let is_dir = fs::symlink_metadata(&target).is_ok_and(|meta| meta.is_dir());
     if !is_dir || !git(lane, &["check-ignore", "-q", "target/"]).ok {
@@ -48,7 +48,7 @@ pub(super) fn drop_build_target(lane: &Path, live: &[PathBuf], proc_root: &Path,
     }
 }
 
-pub(super) fn gib(bytes: u64) -> String {
+pub(in crate::lanes) fn gib(bytes: u64) -> String {
     format!("{:.1}G", bytes as f64 / f64::from(1u32 << 30))
 }
 

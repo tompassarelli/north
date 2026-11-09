@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::gc::{BuildTarget, drop_build_target, gib};
 use super::live_process;
 use super::repo::{find_container, git_checked, git_ok, git_out, is_lander_tree};
 use super::verdict::{Facts, Verdict, retirement_verdict};
@@ -28,7 +29,10 @@ working inside it, is not locked or a rescue branch, AND either:
             already on main (the rebase-landed lane).
 
 Every reap is held back by ignored files that are not disposable caches
-(.direnv/, result symlinks) — docs/private/ notes live there.
+(.direnv/, result symlinks) — docs/private/ notes live there. A lane it keeps
+whose tip is on main, or patch-equivalent to a commit there, loses its
+git-ignored target/ at once unless a process holds it open, so a landed lane
+leaves no build output behind.
 Both reap modes are held back by: a rescue-* branch, a locked worktree, a
 live process whose CWD is inside the tree, or an age under 2h. Equivalence
 reaping is also held back by any merge commit the lane is ahead by.
@@ -247,46 +251,75 @@ impl Sweep {
     fn act(&self, lane: &Lane, outcome: Outcome, report: &mut Report) -> Result<(), String> {
         let tree = lane.tree.display();
         let counts = &mut report.counts;
-        let line = match outcome {
+        let (line, kept) = match outcome {
             Outcome::Retire { branch } => {
                 counts.reaped += 1;
                 if self.dry_run {
-                    format!("would reap: {tree} ({branch})")
+                    (format!("would reap: {tree} ({branch})"), false)
                 } else {
                     self.remove(lane, &branch, "-d")?;
-                    format!("reaped: {tree} ({branch})")
+                    (format!("reaped: {tree} ({branch})"), false)
                 }
             }
             Outcome::RetireEquivalent { branch, head } => {
                 counts.reaped_equivalent += 1;
                 if self.dry_run {
-                    format!("would reap (equiv): {tree} ({branch} was {head})")
+                    (format!("would reap (equiv): {tree} ({branch} was {head})"), false)
                 } else {
                     self.remove(lane, &branch, "-D")?;
-                    format!("reaped (equiv): {tree} ({branch} was {head})")
+                    (format!("reaped (equiv): {tree} ({branch} was {head})"), false)
                 }
             }
             Outcome::KeepDirty => {
                 counts.kept_dirty += 1;
-                format!("kept: dirty ({tree})")
+                (format!("kept: dirty ({tree})"), true)
             }
             Outcome::KeepIgnored { first, total } => {
                 counts.kept_protected += 1;
-                format!("kept: ignored files ({first}, {total} total) ({tree})")
+                (format!("kept: ignored files ({first}, {total} total) ({tree})"), true)
             }
             Outcome::KeepProtected { reason, branch } => {
                 counts.kept_protected += 1;
-                format!("kept: {reason} ({branch}) ({tree})")
+                (format!("kept: {reason} ({branch}) ({tree})"), true)
             }
             Outcome::KeepUnmerged { branch, head } => {
                 counts.kept_unmerged += 1;
                 let range = format!("{}..{head}", lane.main_ref);
                 let ahead = git_out(lane.main_dir, &["rev-list", "--count", &range]).unwrap_or_else(|| "?".into());
-                format!("kept: unmerged ({branch}, {ahead} commits ahead) ({tree})")
+                (format!("kept: unmerged ({branch}, {ahead} commits ahead) ({tree})"), true)
             }
         };
         report.lines.push(line);
+        if kept {
+            self.drop_landed_target(lane, report);
+        }
         Ok(())
+    }
+
+    fn drop_landed_target(&self, lane: &Lane, report: &mut Report) {
+        if !self.landed(lane) {
+            return;
+        }
+        let target = lane.tree.join("target");
+        match drop_build_target(&lane.tree, &[], &self.proc_root, self.dry_run) {
+            BuildTarget::Absent | BuildTarget::InUse => {}
+            BuildTarget::Dropped(bytes) => report.lines.push(format!(
+                "{} build target {} of the landed lane ({})",
+                if self.dry_run { "would drop" } else { "dropped" },
+                target.display(),
+                gib(bytes)
+            )),
+            BuildTarget::Failed(error) => report.lines.push(format!("kept build target {} of the landed lane: {error}", target.display())),
+        }
+    }
+
+    fn landed(&self, lane: &Lane) -> bool {
+        let Some(head) = git_out(&lane.tree, &["rev-parse", "HEAD"]) else { return false };
+        if git_ok(lane.main_dir, &["merge-base", "--is-ancestor", &head, &lane.main_ref]) {
+            return true;
+        }
+        let branch_ref = git_out(&lane.tree, &["symbolic-ref", "--quiet", "HEAD"]).unwrap_or_default();
+        !branch_ref.is_empty() && all_commits_equivalent(lane.main_dir, &lane.main_ref, &branch_ref)
     }
 
     fn remove(&self, lane: &Lane, branch: &str, delete_flag: &str) -> Result<(), String> {

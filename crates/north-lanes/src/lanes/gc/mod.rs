@@ -41,6 +41,7 @@ use liveness::Hosts;
 use state::{StaleReport, write_atomically};
 
 pub use audit::run as repo;
+pub(super) use targets::{BuildTarget, drop_build_target, gib};
 
 const SKIP: [&str; 3] = ["clients", "resources", "archive"];
 pub const USAGE: &str = include_str!("usage.txt").trim_ascii_end();
