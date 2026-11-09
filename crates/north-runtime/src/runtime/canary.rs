@@ -1,26 +1,23 @@
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Canarying, Canary};
 use super::update;
-use crate::pacing::placement::{config, gate};
-use crate::platform::process;
-use std::path::Path;
-use std::process::Command;
-use std::time::Duration;
+use probes::Probe;
 
-const CHECK: &str = "true";
-const BOUND: Duration = Duration::from_secs(5 * 60);
-const CHECK_SECONDS: u64 = 4 * 60;
+mod launch;
+mod probes;
+
+pub(super) use launch::probe as launch_probe;
+
 const TAIL_LINES: usize = 12;
 const TAIL_BYTES: usize = 1200;
-const UNREACHED: [u8; 4] = [255, 96, 97, 75];
 
 pub(super) enum Ran {
     Exited { code: u8, log: String },
     Unrun(String),
 }
 
-pub(super) trait Machine {
-    fn offload(&self, sha: &str) -> Ran;
+pub(super) trait Machine: Sync {
+    fn probe(&self, probe: &Probe) -> Ran;
     fn roll_back(&self, sha: &str) -> Result<String, String>;
     fn alarm(&self, text: &str);
 }
@@ -45,24 +42,35 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
             eprintln!("north runtime canary: {host}: {short}: {}", failure.message);
         }
     };
-    if let Err(failure) = lifecycle::move_to::<Canarying>(layout, &instance, Canary::Judging, "running the land check offloaded to the host") {
+    if let Err(failure) = lifecycle::move_to::<Canarying>(layout, &instance, Canary::Judging, "running the core-loop probes on the host") {
         println!("north runtime canary: {host}: {short} not judged here: {}", failure.message);
         return Verdict::Skipped;
     }
-    let (code, log) = match machine.offload(sha) {
-        Ran::Unrun(why) => {
-            println!("north runtime canary: {host}: {short} not judged: {why}");
-            finish(Canary::Unjudged, &why);
-            return Verdict::Unrun(why);
-        }
-        Ran::Exited { code: 0, .. } => {
-            finish(Canary::Passed, &format!("the land check `{CHECK}` exited 0"));
-            println!("north runtime canary: {host}: {short} passed the land check `{CHECK}`");
+    let probes = probes::core_loop(host, sha);
+    let ran: Vec<Ran> = std::thread::scope(|scope| {
+        let handles: Vec<_> = probes.iter().map(|probe| scope.spawn(|| machine.probe(probe))).collect();
+        handles.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Ran::Unrun("the probe panicked".to_owned()))).collect()
+    });
+    let failures: Vec<String> = probes.iter().zip(&ran).filter_map(|(probe, ran)| match ran {
+        Ran::Exited { code: 0, .. } | Ran::Unrun(_) => None,
+        Ran::Exited { code, log } => Some(format!("probe `{}` exited {code}; log tail: {}", probe.name, tail(log))),
+    }).collect();
+    if failures.is_empty() {
+        let unrun: Vec<String> = probes.iter().zip(&ran).filter_map(|(probe, ran)| match ran {
+            Ran::Unrun(why) => Some(format!("probe `{}` not run: {why}", probe.name)),
+            Ran::Exited { .. } => None,
+        }).collect();
+        if unrun.is_empty() {
+            finish(Canary::Passed, &format!("all {} core-loop probes exited 0", probes.len()));
+            println!("north runtime canary: {host}: {short} passed {} core-loop probes", probes.len());
             return Verdict::Passed;
         }
-        Ran::Exited { code, log } => (code, log),
-    };
-    let failure = format!("land check `{CHECK}` on {host} exited {code} for runtime {short}; log tail: {}", tail(&log));
+        let why = unrun.join("; ");
+        println!("north runtime canary: {host}: {short} not judged: {why}");
+        finish(Canary::Unjudged, &why);
+        return Verdict::Unrun(why);
+    }
+    let failure = format!("{} on {host} for runtime {short}", failures.join("; "));
     match machine.roll_back(sha) {
         Ok(previous) => {
             finish(Canary::RolledBack, &failure);
@@ -87,54 +95,21 @@ pub(super) fn tail(log: &str) -> String {
 
 pub(super) fn classify(code: Option<i32>, log: String) -> Ran {
     match code.and_then(|code| u8::try_from(code).ok()) {
-        Some(code) if UNREACHED.contains(&code) => Ran::Unrun(format!("the offload did not reach a slot (exit {code}): {}", tail(&log))),
         Some(code) => Ran::Exited { code, log },
-        None => Ran::Unrun(format!("the offload was killed by a signal: {}", tail(&log))),
+        None => Ran::Unrun(format!("the probe was killed by a signal: {}", tail(&log))),
     }
 }
 
 pub(super) struct Live<'a> {
     pub(super) layout: &'a Layout,
-    pub(super) checkout: &'a Path,
     pub(super) host: &'a super::probe::Shell,
 }
 
-impl Live<'_> {
-    fn machine(&self) -> Option<String> {
-        let name = self.host.name();
-        let cfg = config().ok()?;
-        gate::machines(&cfg).into_iter().find(|machine| machine.name == name || machine.ssh == name).map(|machine| machine.name)
-    }
-
-    fn parent(&self, sha: &str) -> Result<String, String> {
-        let output = process::run("git", Some(self.checkout), &["rev-parse", "--verify", "--quiet", &format!("{sha}^")]).map_err(|error| format!("git: {error}"))?;
-        let parent = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        match output.status.success() && layout::is_sha(&parent) {
-            true => Ok(parent),
-            false => Err(format!("{sha} has no parent commit in {}", self.checkout.display())),
-        }
-    }
-}
-
 impl Machine for Live<'_> {
-    fn offload(&self, sha: &str) -> Ran {
-        let Some(machine) = self.machine() else {
-            return Ran::Unrun("no [hosts.NAME] with an ssh destination to offload to".to_owned());
-        };
-        let base = match self.parent(sha) {
-            Ok(base) => base,
-            Err(why) => return Ran::Unrun(why),
-        };
-        let Ok(north) = std::env::current_exe() else {
-            return Ran::Unrun("this north has no executable path".to_owned());
-        };
-        let mut command = Command::new(north);
-        command
-            .current_dir(self.checkout)
-            .args(["capacity", "offload", "run", "--host", &machine, "--base", &base, "--head", sha, "--timeout", &CHECK_SECONDS.to_string(), "--", CHECK]);
-        match process::try_run_command_within(command, None, BOUND) {
+    fn probe(&self, probe: &Probe) -> Ran {
+        match self.host.exec(&probe.script, probe.limit) {
             Ok(Some(output)) => classify(output.status.code(), format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))),
-            Ok(None) => Ran::Unrun(format!("no verdict within {}s", BOUND.as_secs())),
+            Ok(None) => Ran::Unrun(format!("no verdict within {}s", probe.limit.as_secs())),
             Err(error) => Ran::Unrun(format!("could not start: {error}")),
         }
     }

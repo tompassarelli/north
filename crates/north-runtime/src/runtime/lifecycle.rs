@@ -1,5 +1,5 @@
 //! The runtime promotion machines on this host (docs/rationale/state-machines.md, entry 5), each kept in `ledger.db`
-//! through `north_base::lifecycle`: a runtime's journey to `current` and back, the land check that judges it on a
+//! through `north_base::lifecycle`: a runtime's journey to `current` and back, the core-loop probes that judge it on a
 //! host, and the one judgement settle makes of each landing.
 use super::failure::{Failure, failed};
 use super::layout::Layout;
@@ -77,7 +77,7 @@ impl Lifecycle for Promoting {
     }
 }
 
-/// The land check run for a runtime on a host, by `HOST/SHA`.
+/// The core-loop probes run for a runtime on a host, by `HOST/SHA`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Canary {
     Judging,

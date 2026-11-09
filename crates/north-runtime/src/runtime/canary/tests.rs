@@ -1,6 +1,7 @@
 use super::*;
+use super::probes::Probe;
 use super::lifecycle::{Promoting, Promotion};
-use std::cell::RefCell;
+use std::sync::Mutex;
 use std::fs;
 use std::os::unix::fs::symlink;
 
@@ -9,17 +10,18 @@ const PROMOTED: &str = "2222222222222222222222222222222222222222";
 
 struct Fleet<'a> {
     layout: &'a Layout,
-    exit: Ran,
-    offloads: RefCell<u32>,
-    alarms: RefCell<Vec<String>>,
+    failing: Option<(&'static str, Ran)>,
+    probed: Mutex<Vec<String>>,
+    alarms: Mutex<Vec<String>>,
 }
 
 impl Machine for Fleet<'_> {
-    fn offload(&self, _: &str) -> Ran {
-        *self.offloads.borrow_mut() += 1;
-        match &self.exit {
-            Ran::Exited { code, log } => Ran::Exited { code: *code, log: log.clone() },
-            Ran::Unrun(why) => Ran::Unrun(why.clone()),
+    fn probe(&self, probe: &Probe) -> Ran {
+        self.probed.lock().unwrap().push(probe.name.clone());
+        match &self.failing {
+            Some((name, Ran::Exited { code, log })) if probe.name.contains(name) => Ran::Exited { code: *code, log: log.clone() },
+            Some((name, Ran::Unrun(why))) if probe.name.contains(name) => Ran::Unrun(why.clone()),
+            _ => Ran::Exited { code: 0, log: String::new() },
         }
     }
 
@@ -28,7 +30,7 @@ impl Machine for Fleet<'_> {
     }
 
     fn alarm(&self, text: &str) {
-        self.alarms.borrow_mut().push(text.to_owned());
+        self.alarms.lock().unwrap().push(text.to_owned());
     }
 }
 
@@ -53,8 +55,8 @@ impl Host {
         Self { _dir: dir, layout }
     }
 
-    fn fleet(&self, exit: Ran) -> Fleet<'_> {
-        Fleet { layout: &self.layout, exit, offloads: RefCell::new(0), alarms: RefCell::new(Vec::new()) }
+    fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
+        Fleet { layout: &self.layout, failing, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
     }
 
     fn current(&self) -> std::path::PathBuf {
@@ -67,18 +69,27 @@ fn exited(code: u8, log: &str) -> Ran {
 }
 
 #[test]
-fn a_promoted_runtime_that_fails_the_canary_land_check_is_rolled_back_with_an_alarm_naming_the_check() {
+fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming_the_probe() {
     let host = Host::promoted();
-    let fleet = host.fleet(exited(127, "nix develop: exec loop\nbash: nix: command not found\n"));
-    assert_eq!(check(&host.layout, "gex45", PROMOTED, &fleet), Verdict::RolledBack);
+    let fleet = host.fleet(Some(("ssh gex45 true", exited(255, "ssh: Could not resolve hostname gex45\n"))));
+    assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::RolledBack);
+    assert_eq!(fleet.probed.lock().unwrap().len(), 4);
     assert_eq!(host.current(), layout::link(PREVIOUS));
     assert_eq!(lifecycle::state_of::<Promoting>(&host.layout, PROMOTED).unwrap(), Some(Promotion::RolledBack));
-    let alarms = fleet.alarms.borrow();
+    let alarms = fleet.alarms.lock().unwrap();
     assert_eq!(alarms.len(), 1);
-    assert!(alarms[0].contains("land check `true` on gex45 exited 127"), "{}", alarms[0]);
-    assert!(alarms[0].contains("bash: nix: command not found"), "{}", alarms[0]);
+    assert!(alarms[0].contains("probe `a sandboxed worker shell runs ssh gex45 true` exited 255"), "{}", alarms[0]);
+    assert!(alarms[0].contains("Could not resolve hostname gex45"), "{}", alarms[0]);
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
     assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true).unwrap(), update::hold::Verdict::Held(_)));
-    assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("gex45/{PROMOTED}")).unwrap(), Some(Canary::RolledBack));
+    assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("nexus/{PROMOTED}")).unwrap(), Some(Canary::RolledBack));
 }
 
+#[test]
+fn a_probe_that_could_not_run_leaves_the_promotion_in_place_and_unjudged() {
+    let host = Host::promoted();
+    let fleet = host.fleet(Some(("opencode", Ran::Unrun("no verdict within 150s".to_owned()))));
+    assert!(matches!(check(&host.layout, "gex45", PROMOTED, &fleet), Verdict::Unrun(why) if why.contains("opencode")));
+    assert_eq!(host.current(), layout::link(PROMOTED));
+    assert!(fleet.alarms.lock().unwrap().is_empty());
+}

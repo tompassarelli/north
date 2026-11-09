@@ -5,7 +5,7 @@ use crate::platform::{hook_commands, process};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::LazyLock;
 use std::time::Duration;
 use toml_edit::DocumentMut;
@@ -169,6 +169,10 @@ impl Shell {
         }
         command.arg("-s");
         command
+    }
+
+    pub(super) fn exec(&self, script: &str, within: Duration) -> std::io::Result<Option<Output>> {
+        process::try_run_command_within(self.bash(), Some(script.as_bytes()), limit(within))
     }
 
     pub(super) fn run(&self, script: &str) -> Result<String, String> {

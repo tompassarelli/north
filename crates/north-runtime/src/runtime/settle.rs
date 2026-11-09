@@ -56,7 +56,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut incidents = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     for host in &hosts {
-        let facts = probed(layout, &checkout, host);
+        let facts = probed(layout, host);
         swaps.push((facts.host.clone(), facts.swaps.clone()));
         let problems = judged_problems(&facts, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
@@ -115,10 +115,10 @@ fn ship_behind(hosts: &[Shell], here: &str, runtime: &Path, checkout: &Path) {
     });
 }
 
-fn probed(layout: &Layout, checkout: &Path, host: &Shell) -> probe::Facts {
+fn probed(layout: &Layout, host: &Shell) -> probe::Facts {
     let facts = probe::facts(host);
     let judged = match &facts.runtime {
-        Some(runtime) if facts.unreachable.is_none() => canary::check(layout, &facts.host, runtime, &canary::Live { layout, checkout, host }),
+        Some(runtime) if facts.unreachable.is_none() => canary::check(layout, &facts.host, runtime, &canary::Live { layout, host }),
         _ => Verdict::Skipped,
     };
     match judged {
