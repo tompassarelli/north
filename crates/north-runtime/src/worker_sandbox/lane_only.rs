@@ -5,8 +5,10 @@ use super::except::{Entries, beneath_except};
 use super::readable::personal_logins;
 use super::removable::{lane, project};
 
-/// Home entries an agent confined to its lane still reads: the toolchains and git's own configuration.
-const TOOLCHAINS: [&str; 5] = [".cargo", ".rustup", ".bun", ".npm", ".gitconfig"];
+/// Home entries an agent confined to its lane still reads: the toolchains, git's own configuration and `.local`, of which only `bin` and `share/north` stay readable, the places the toolchain shims and the north runtime live: `cargo` and `north` on `PATH` resolve through them, and a lane's tests and builds run only through those shims, which enter depbox (south#93).
+const TOOLCHAINS: [&str; 6] = [".cargo", ".rustup", ".bun", ".npm", ".gitconfig", ".local"];
+/// What stays readable of `~/code/north-data`, the runtime the `north` on `PATH` execs; its logins, accounts, keys and sessions stay hidden.
+const RUNTIMES: &str = "runtimes";
 const SCRATCH_ENV: &str = "NORTH_SANDBOX_SCRATCH";
 
 /// Every file a command confined to its lane may read: all of them but the operator's logins, every other checkout, lane and project, the agent state under `~/.local`, the rest of `~/.config`, and other sessions' scratch under `/tmp`, `/var/tmp` and the runtime directory. What stays readable is the lane, its project's `main` checkout (git's common directory), the toolchains, and the system.
@@ -21,13 +23,18 @@ fn hidden(context: &Context) -> Vec<PathBuf> {
     let kept: Vec<PathBuf> = TOOLCHAINS.iter().map(|name| home.join(name)).chain([code.clone(), home.join(".config")]).collect();
     hidden.extend(others(home, &kept));
     hidden.extend(others(&home.join(".config"), &[home.join(".config/git")]));
+    let local = home.join(".local");
+    hidden.extend(others(&local, &[local.join("bin"), local.join("share")]));
+    hidden.extend(others(&local.join("share"), &[local.join("share/north")]));
+    let data = code.join("north-data");
+    hidden.extend(others(&data, &[data.join(RUNTIMES)]));
     match project(home, &context.cwd) {
         Some(project) => {
-            hidden.extend(others(&code, std::slice::from_ref(&project)));
+            hidden.extend(others(&code, &[project.clone(), data]));
             hidden.extend(others(&project, &[project.join("main"), project.join("worktrees")]));
             hidden.extend(others(&project.join("worktrees"), &lane(home, &context.cwd).into_iter().collect::<Vec<_>>()));
         }
-        None => hidden.push(code),
+        None => hidden.extend(others(&code, &[data])),
     }
     let scratch: Vec<PathBuf> = std::env::var_os(SCRATCH_ENV).map(PathBuf::from).into_iter().collect();
     for shared in ["/tmp", "/var/tmp"] {

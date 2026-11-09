@@ -30,6 +30,7 @@ const PROGRAM: &str = "--program";
 const SOCKETS_HIDDEN: &str = north_base::platform::session_scope::SOCKETS_HIDDEN;
 const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
 const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
+const LANE_ONLY: &str = "NORTH_WORKER_LANE_ONLY";
 const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
 
 fn removal() -> BitFlags<AccessFs> {
@@ -106,11 +107,13 @@ fn shell(command: &str) -> std::process::ExitCode {
 /// Runs `program` under the command's domain, with the rule against executing build output unless `lift` says a lane's own build output that `north lane exec` vouched for.
 fn program(program: &[String], lift: bool) -> std::process::ExitCode {
     let context = Context::from_env(&program.join(" "));
-    let confined = confines_worker();
+    let fenced = std::env::var_os(LANE_ONLY).is_some();
+    let confined = fenced || confines_worker();
     let hidden = confined && hide_sockets(&context);
     let roots = confined.then(|| removable(&context));
     let executable = (!lift).then(|| executable(&context));
-    report(confine(roots.as_deref(), &readable(&context), executable.as_deref()));
+    let readable = if fenced { lane_only::readable_in_lane(&context) } else { readable(&context) };
+    report(confine(roots.as_deref(), &readable, executable.as_deref()));
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
@@ -121,7 +124,7 @@ fn in_lane(program: &[String]) -> std::process::ExitCode {
     let context = Context::from_env(&program.join(" "));
     let hidden = hide_sockets(&context);
     report(confine(Some(&removable(&context)), &lane_only::readable_in_lane(&context), Some(&executable(&context))));
-    let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").env(LANE_ONLY, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
 }

@@ -157,3 +157,28 @@ fn a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sop
         assert!(!output.status.success() && String::from_utf8_lossy(&output.stderr).contains("Permission denied"), "{hidden} was read: {}", String::from_utf8_lossy(&output.stdout));
     }
 }
+
+#[test]
+fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime_that_run_a_lane_build_north_1020() {
+    let home = Home::new();
+    let script = |relative: &str, says: &str| {
+        let path = home.path().join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        north_core::foundation::shim::write_script(&path, &format!("echo {says}\n"));
+        path
+    };
+    let shim = script(".local/share/north/bin/cargo", "shim");
+    let on_path = script(".local/bin/north", "on-path");
+    let runtime = script("code/north-data/runtimes/abc/north", "runtime");
+    file(&home.path().join("code/north-data/accounts/key"));
+    file(&home.path().join(".local/share/other/token"));
+
+    for (program, says) in [(&shim, "shim"), (&on_path, "on-path"), (&runtime, "runtime")] {
+        let output = home.run_in_lane_only(&[program.to_str().unwrap()]);
+        assert!(output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == says, "{}: {}", program.display(), String::from_utf8_lossy(&output.stderr));
+    }
+    for hidden in ["code/north-data/accounts/key", ".local/share/other/token"] {
+        let output = home.run_in_lane_only(&["cat", home.path().join(hidden).to_str().unwrap()]);
+        assert!(!output.status.success() && String::from_utf8_lossy(&output.stderr).contains("Permission denied"), "{hidden} was read: {}", String::from_utf8_lossy(&output.stdout));
+    }
+}
