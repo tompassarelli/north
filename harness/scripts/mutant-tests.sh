@@ -8,7 +8,7 @@ names=() bun=() every=
 for name in "${claimed[@]}"; do
   if [ "$name" = "*" ]; then every=1; elif [[ $name =~ ^[A-Za-z0-9_:]+$ ]]; then names+=("$name"); else bun+=("$name"); fi
 done
-need=(); ((${#bun[@]})) && need+=(bun); { ((${#names[@]})) || [ -n "$every" ]; } && need+=(cargo flock rsync)
+need=(); ((${#bun[@]})) && need+=(bun); { ((${#names[@]})) || [ -n "$every" ]; } && need+=(cargo flock rsync git)
 for tool in "${need[@]}"; do command -v "$tool" >/dev/null || { printf "mutant-tests: required tool %s not found on PATH\n" "$tool" >&2; exit 127; }; done
 while IFS= read -r tree; do
   for name in "${bun[@]}"; do
@@ -39,6 +39,7 @@ if [ -z "$slot" ]; then
 fi
 dir=$root/slot-$slot
 mkdir -p "$dir/src"
+[ -d "$dir/.git" ] || git init -q "$dir"
 seed=$root/slot-seed/target
 if [ ! -d "$dir/target" ] && [ -d "$seed" ]; then
   cp -a --reflink=auto "$seed" "$dir/target.seed" && mv "$dir/target.seed" "$dir/target" || rm -rf "${dir:?}/target.seed"
