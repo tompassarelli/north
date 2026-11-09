@@ -37,6 +37,7 @@
                       };
                     }))
                     pkgs.openssh
+                    pkgs.age
                     pkgs.ast-grep
                     (pkgs.python3.withPackages (python: [ python.websockets ]))
                   ];

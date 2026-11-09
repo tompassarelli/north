@@ -1,6 +1,7 @@
 mod archive;
 mod args;
 mod blake;
+mod cold;
 mod commands;
 mod compress;
 mod corpus;
@@ -137,8 +138,8 @@ fn query(env: &Env, io: &mut Console, args: &Args, pal: &Palette) -> Result<u8> 
     let con = db::connect(&env.db(), &env.state, true)?;
     let code = match args.command.as_str() {
         "status" => return sessions::status(&con, env, io),
-        "show" => return commands::show(&con, io, args, pal),
-        "session" => sessions::session(&con, io, args, pal)?,
+        "show" => return commands::show(&con, env, io, args, pal),
+        "session" => sessions::session(&con, env, io, args, pal)?,
         _ => commands::search(&con, env, io, args, pal)?,
     };
     if let Some(issue) = issue {

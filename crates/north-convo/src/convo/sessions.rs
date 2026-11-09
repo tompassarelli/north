@@ -59,7 +59,7 @@ fn mentions(con: &Connection, prefix: &str, limit: i64) -> Vec<(Option<String>, 
     run().unwrap_or_default()
 }
 
-fn print_transcripts(con: &Connection, io: &mut Console, rows: &[Transcript], shown: &[&Transcript], args: &Args, pal: &Palette) -> Result<()> {
+fn print_transcripts(con: &Connection, env: &Env, io: &mut Console, rows: &[Transcript], shown: &[&Transcript], args: &Args, pal: &Palette) -> Result<()> {
     let limit = if args.limit != 0 { args.limit } else { 20 } as usize;
     let live = rows.iter().filter(|row| row.nmsg != 0).count();
     writeln!(io.out, "{}{}{}  {live} transcripts", pal.bold, rows[0].session_id.as_deref().unwrap_or("None"), pal.off)?;
@@ -75,6 +75,7 @@ fn print_transcripts(con: &Connection, io: &mut Console, rows: &[Transcript], sh
             writeln!(io.out, "  ask · {}", snippet(&ask, &[], 200))?;
         }
     }
+    super::cold::recall(env, io, shown.iter().take(limit).map(|row| row.path.as_str()))?;
     for row in shown.iter().take(limit) {
         let last: String = stamp(row.last_ts.as_deref()).chars().skip(11).collect();
         let span = format!("{} → {last}", stamp(row.first_ts.as_deref()));
@@ -95,7 +96,7 @@ fn print_transcripts(con: &Connection, io: &mut Console, rows: &[Transcript], sh
     Ok(())
 }
 
-pub(super) fn session(con: &Connection, io: &mut Console, args: &Args, pal: &Palette) -> Result<u8> {
+pub(super) fn session(con: &Connection, env: &Env, io: &mut Console, args: &Args, pal: &Palette) -> Result<u8> {
     let prefix = session_prefix(&args.query[0]);
     let rows = transcripts(con, &prefix)?;
     let mut sessions: Vec<String> = rows.iter().map(|row| row.session_id.clone().unwrap_or_else(|| "None".to_owned())).collect();
@@ -112,7 +113,7 @@ pub(super) fn session(con: &Connection, io: &mut Console, args: &Args, pal: &Pal
     let live: Vec<&Transcript> = rows.iter().filter(|row| row.nmsg != 0).collect();
     let shown: Vec<&Transcript> = if args.verbose { rows.iter().collect() } else { live };
     if !shown.is_empty() {
-        print_transcripts(con, io, &rows, &shown, args, pal)?;
+        print_transcripts(con, env, io, &rows, &shown, args, pal)?;
     }
     let mentioned = mentions(con, &prefix, limit);
     if shown.is_empty() && mentioned.is_empty() {

@@ -36,6 +36,8 @@ impl Lab {
             pooled_home: None,
             claude_config: None,
             corpus: dir.path().join("tom-corpus"),
+            cold: None,
+            identity: None,
             ledger: dir.path().join("ledger.db"),
             self_ids: Vec::new(),
             lock_wait: Duration::from_millis(100),
@@ -162,6 +164,10 @@ fn zstd_available() -> bool {
     Command::new("zstd").arg("--version").output().is_ok_and(|out| out.status.success())
 }
 
+fn age_available() -> bool {
+    ["age", "age-keygen"].iter().all(|program| Command::new(program).arg("--version").output().is_ok_and(|out| out.status.success()))
+}
+
 #[test]
 fn compression_holds_back_open_warm_and_rostered_files_and_restores_byte_for_byte() {
     assert!(zstd_available(), "the compression test needs zstd on PATH");
@@ -233,6 +239,49 @@ fn a_claude_transcript_idle_30_days_is_compressed_and_still_found() {
     has(&lab.out(&["PELICANGATE", "-m", "--json"]), &format!("{CSID}.jsonl\""));
     has(&lab.index(), "from 0 changed files");
     has(&lab.out(&["HERONLOOP", "-m"]), "HERONLOOP");
+}
+
+#[test]
+fn an_evicted_transcript_is_fetched_from_its_cold_copy() {
+    assert!(zstd_available(), "the cold fetch test needs zstd on PATH");
+    assert!(age_available(), "the cold fetch test needs age and age-keygen on PATH");
+    let mut lab = Lab::new();
+    let dir = lab.codex_dir("01");
+    let plain = dir.join("rollout-evicted.jsonl");
+    write(&plain, &records("EVICTEDTOKEN", "2026-08-05T10:00:00Z"));
+    let original = fs::read(&plain).unwrap();
+    lab.index();
+    has(&lab.out(&["EVICTEDTOKEN"]), "EVICTEDTOKEN");
+    assert!(Command::new("zstd").args(["-q", "--long=27", "--rm"]).arg(&plain).status().unwrap().success());
+    let warm = dir.join("rollout-evicted.jsonl.zst");
+    assert!(!plain.exists() && warm.exists());
+    let identity = lab.env.home.join("age-identity.txt");
+    fs::create_dir_all(&lab.env.home).unwrap();
+    let keygen = Command::new("age-keygen").arg("-o").arg(&identity).output().unwrap();
+    assert!(keygen.status.success(), "{}", String::from_utf8_lossy(&keygen.stderr));
+    let recipient = String::from_utf8(keygen.stderr)
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("Public key: "))
+        .expect("age-keygen prints its public key")
+        .trim()
+        .to_owned();
+    let cold = lab.env.home.join("cold");
+    let object = super::cold::object(&cold, warm.to_str().unwrap());
+    fs::create_dir_all(object.parent().unwrap()).unwrap();
+    assert!(Command::new("age").args(["-r", &recipient, "-o"]).arg(&object).arg(&warm).status().unwrap().success());
+    lab.env.cold = Some(cold);
+    lab.env.identity = Some(identity);
+    fs::remove_file(&warm).unwrap();
+    let (code, _, err) = lab.run(&["EVICTEDTOKEN"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("fetched"), "the evicted transcript was not fetched on the query: {err}");
+    assert!(warm.exists(), "the evicted transcript did not come back to {}", warm.display());
+    assert_eq!(Command::new("zstd").args(["-dcq"]).arg(&warm).output().unwrap().stdout, original);
+    has(&lab.out(&["index"]), "from 1 changed files");
+    let (again, _, err) = lab.run(&["EVICTEDTOKEN"]);
+    assert_eq!(again, 0);
+    assert!(!err.contains("fetched"), "a query fetched a transcript that was already back: {err}");
 }
 
 #[test]

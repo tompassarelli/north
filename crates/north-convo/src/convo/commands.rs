@@ -76,6 +76,7 @@ pub(super) fn search(con: &Connection, env: &Env, io: &mut Console, args: &Args,
     let text = args.query.join(" ");
     if text.trim().is_empty() {
         let hits = recent(con, &filters, if args.limit != 0 { args.limit } else { 20 })?;
+        super::cold::recall(env, io, hits.iter().map(|hit| hit.path.as_str()))?;
         return emit_messages(con, io, &hits, &[], args, pal, false);
     }
     let Some(plan) = plan_query(&text, args.exact, args.all_terms) else {
@@ -91,9 +92,11 @@ pub(super) fn search(con: &Connection, env: &Env, io: &mut Console, args: &Args,
     if args.messages {
         let mut ranked = rank_messages(&hits, &mine, filters.keep_calls, &plan.terms);
         ranked.truncate(limit);
+        super::cold::recall(env, io, ranked.iter().map(|hit| hit.path.as_str()))?;
         return emit_messages(con, io, &ranked, &plan.terms, args, pal, partial);
     }
     groups.truncate(limit);
+    super::cold::recall(env, io, groups.iter().map(|group| group.best.path.as_str()))?;
     let infos = infos_for(con, groups.iter().map(|group| group.session.as_str()))?;
     if args.json {
         let rows: Vec<String> = groups
@@ -202,7 +205,7 @@ fn print_message(con: &Connection, io: &mut Console, shown: &Shown, args: &Args,
     Ok(())
 }
 
-pub(super) fn show(con: &Connection, io: &mut Console, args: &Args, pal: &Palette) -> Result<u8> {
+pub(super) fn show(con: &Connection, env: &Env, io: &mut Console, args: &Args, pal: &Palette) -> Result<u8> {
     let (mut code, mut rows) = (0, Vec::new());
     for reference in &args.query {
         let digits: String = reference.chars().filter(char::is_ascii_digit).collect();
@@ -212,6 +215,7 @@ pub(super) fn show(con: &Connection, io: &mut Console, args: &Args, pal: &Palett
             code = 1;
             continue;
         };
+        super::cold::recall(env, io, [shown.path.as_str()])?;
         if args.json {
             rows.push(shown_json(&shown));
         } else {
