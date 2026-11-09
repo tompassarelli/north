@@ -20,8 +20,6 @@ macro_rules! re {
     }};
 }
 
-mod inventory;
-
 fn origin(s: &str) -> bool {
     matches!(s, "tom" | "experiment" | "prior-art" | "incident")
 }
@@ -526,15 +524,6 @@ fn check(repo: &Path, base: &str, head: &str) -> Result<u8, String> {
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
-fn expand(path: &str) -> PathBuf {
-    if path == "~" {
-        home()
-    } else if let Some(p) = path.strip_prefix("~/") {
-        home().join(p)
-    } else {
-        PathBuf::from(path)
-    }
-}
 fn repos(args: &[String]) -> Vec<PathBuf> {
     if !args.is_empty() {
         return args.iter().map(PathBuf::from).collect();
@@ -629,201 +618,16 @@ fn debt(paths: &[String], only_due: bool) -> Result<(), String> {
     }
     Ok(())
 }
-fn evidence(repo: &Path, pointer: &str) -> BTreeMap<String, serde_json::Value> {
-    let Some(word) = crate::shell::shlex_split(pointer).and_then(|words| words.into_iter().next()) else {
-        return BTreeMap::new();
-    };
-    let path = expand(&word);
-    let path = if path.is_absolute() {
-        path
-    } else {
-        repo.join(path)
-    };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return BTreeMap::new();
-    };
-    if path.extension().is_some_and(|e| e == "json") {
-        serde_json::from_str::<serde_json::Value>(&text)
-            .ok()
-            .and_then(|v| {
-                v.as_object()
-                    .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-            })
-            .unwrap_or_default()
-    } else if path.extension().is_some_and(|e| e == "toml") {
-        text.parse::<toml_edit::DocumentMut>()
-            .map(|doc| {
-                doc.iter()
-                    .map(|(k, v)| {
-                        (
-                            k.to_owned(),
-                            if let Some(s) = v.as_str() {
-                                s.into()
-                            } else if let Some(n) = v.as_integer() {
-                                n.into()
-                            } else if let Some(n) = v.as_float() {
-                                serde_json::json!(n)
-                            } else if let Some(b) = v.as_bool() {
-                                b.into()
-                            } else if let Some(d) = v.as_datetime() {
-                                let text = d.to_string().replace('T', " ").replace('Z', "+00:00");
-                                let text =
-                                    re!(r"\.(\d+)").replace(&text, |c: &regex::Captures<'_>| {
-                                        let digits = format!("{:<06}", &c[1]).replace(' ', "0");
-                                        let digits = &digits[..6];
-                                        if digits == "000000" {
-                                            String::new()
-                                        } else {
-                                            format!(".{digits}")
-                                        }
-                                    });
-                                text.into_owned().into()
-                            } else {
-                                serde_json::Value::Null
-                            },
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    } else {
-        BTreeMap::new()
-    }
-}
-fn evidence_text(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Null => "None".into(),
-        serde_json::Value::Bool(b) => if *b { "True" } else { "False" }.into(),
-        _ => value.to_string(),
-    }
-}
-fn audit(paths: &[String], events: &[String]) -> Result<(), String> {
-    let mut rows = Vec::new();
-    let mut triggers = BTreeMap::new();
-    for repo in repos(paths) {
-        if !repo.is_dir() {
-            return Err(format!("repository does not exist: {}", repo.display()));
-        }
-        let output = platform_git::run(&repo, &["log", "origin/main", "-z", "--format=%H%x00%B"])
-            .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            continue;
-        }
-        let log = String::from_utf8_lossy(&output.stdout);
-        let parts: Vec<_> = log.split('\0').collect();
-        for pair in parts.chunks_exact(2) {
-            let (sha, body) = (pair[0], pair[1]);
-            for value in records(body, "Provenance:") {
-                let (claim, named, _) = fields(value);
-                let mut origin_value = named.get("origin").copied().unwrap_or("none recorded");
-                if !origin(origin_value) && origin_value != "none" {
-                    origin_value = "none recorded";
-                }
-                let rationale = named
-                    .get("rationale")
-                    .filter(|s| !s.is_empty())
-                    .copied()
-                    .unwrap_or("rationale not recorded");
-                let pointer = named.get("pointer").copied().unwrap_or("");
-                let revisit = named.get("revisit").copied().unwrap_or("");
-                let info = if origin_value == "experiment" {
-                    evidence(&repo, pointer)
-                } else {
-                    BTreeMap::new()
-                };
-                let runs_value = info.get("n");
-                let runs = runs_value.map(evidence_text).unwrap_or_default();
-                let at = info
-                    .get("date")
-                    .filter(|v| {
-                        !v.is_null()
-                            && **v != serde_json::json!(false)
-                            && **v != serde_json::json!(0)
-                            && **v != serde_json::json!("")
-                    })
-                    .map(evidence_text)
-                    .unwrap_or_default();
-                let model = info.get("model").and_then(|v| v.as_str()).unwrap_or("");
-                let mut reasons = Vec::new();
-                let mut priority = 5;
-                if matches!(rationale, "not recorded" | "rationale not recorded") {
-                    reasons.push("rationale not recorded");
-                    priority = 1;
-                }
-                if matches!(origin_value, "none" | "none recorded") {
-                    reasons.push("none recorded");
-                    priority = 1;
-                }
-                let fired = if revisit.is_empty() {
-                    false
-                } else if let Some(fired) = triggers.get(revisit) {
-                    *fired
-                } else {
-                    let fired = events.iter().any(|e| e == revisit) || due(revisit, false)?;
-                    triggers.insert(revisit.to_owned(), fired);
-                    fired
-                };
-                if fired {
-                    reasons.push("fired trigger");
-                    priority = priority.min(2);
-                }
-                if origin_value == "experiment"
-                    && (runs_value
-                        .is_some_and(|v| v.as_f64() == Some(1.0) || v.as_bool() == Some(true))
-                        || re!(r"(?i)\b(?:single[ -]run|1 run)\b").is_match(pointer))
-                {
-                    reasons.push("single-run evidence");
-                    priority = priority.min(3);
-                }
-                rows.push((
-                    priority,
-                    repo_name(&repo),
-                    sha.to_owned(),
-                    vec![
-                        claim.to_owned(),
-                        origin_value.into(),
-                        pointer.into(),
-                        rationale.into(),
-                        revisit.into(),
-                        runs,
-                        at,
-                        model.into(),
-                        reasons.join("; "),
-                    ],
-                ));
-            }
-        }
-    }
-    println!(
-        "repo\tcommit\tpriority\treasons\tclaim\torigin\tpointer\trationale\trevisit\truns\tevidence_date\tmodel"
-    );
-    rows.sort();
-    for (priority, name, sha, values) in rows {
-        println!(
-            "{name}\t{}\t{priority}\t{}\t{}",
-            &sha[..sha.len().min(12)],
-            values[8],
-            values[..8].join("\t")
-        );
-    }
-    Ok(())
-}
-const HELP: &str = r#"usage: north check provenance [-h] {check,debt,audit,inventory} ...
+const HELP: &str = r#"usage: north check provenance [-h] {check,debt} ...
 
-provenance: audit recorded grounding, refuse new steering without provenance,
-and list Target-debt.
+provenance: refuse new steering without provenance, and list Target-debt.
 
 positional arguments:
-  {check,debt,audit,inventory}
+  {check,debt}
     check             list new gating bars, hooks and policy lines without a
                       Provenance record
     debt              list Target-debt trailers on origin/main not named by a
                       Target-paid
-    audit             rank recorded claims for re-grounding using their
-                      evidence and model release dates
-    inventory         count every hook, AGENTS.md policy line, tier and gating
-                      bar on a revision without a Provenance record
 
 options:
   -h, --help          show this help message and exit
@@ -845,28 +649,9 @@ options:
                event text
   --repo REPO  repository path (default ~/code/*/main)
 "#;
-const HELP_AUDIT: &str = r#"usage: north check provenance audit [-h] [--repo REPO] [--event EVENT]
-
-options:
-  -h, --help     show this help message and exit
-  --repo REPO    repository path (default ~/code/*/main)
-  --event EVENT  exact recorded event trigger that fired
-"#;
-const HELP_INVENTORY: &str = r#"usage: north check provenance inventory [-h] [--repo REPO] [--rev REV] [--stubs]
-
-options:
-  -h, --help   show this help message and exit
-  --repo REPO  repository path (default .)
-  --rev REV    revision whose tree is audited (default HEAD)
-  --stubs      print a none-recorded record for each item without one, with
-               the commit git log -S finds first adding it
-"#;
-
 enum Invocation {
     Check { base: String, head: String },
     Debt { paths: Vec<String>, only_due: bool },
-    Audit { paths: Vec<String>, events: Vec<String> },
-    Inventory { repo: String, rev: String, stubs: bool },
 }
 
 #[derive(Debug)]
@@ -901,8 +686,6 @@ impl Exit {
         let help = match command.as_str() {
             "check" => HELP_CHECK,
             "debt" => HELP_DEBT,
-            "audit" => HELP_AUDIT,
-            "inventory" => HELP_INVENTORY,
             _ => HELP,
         };
         let name = if command.is_empty() { "provenance".to_owned() } else { format!("provenance {command}") };
@@ -973,17 +756,13 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
         }
         return Ok(Invocation::Check { base: positional[0].clone(), head: positional[1].clone() });
     }
-    if command == "inventory" {
-        return parse_inventory(leading, &args[1..]);
-    }
-    if command != "debt" && command != "audit" {
+    if command != "debt" {
         return Err(Exit::usage(
             "",
-            format!("argument command: invalid choice: '{command}' (choose from 'check', 'debt', 'audit', 'inventory')"),
+            format!("argument command: invalid choice: '{command}' (choose from 'check', 'debt')"),
         ));
     }
     let mut paths = Vec::new();
-    let mut events = Vec::new();
     let mut only_due = false;
     let mut unknown: Vec<_> = leading.iter().map(String::as_str).collect();
     let mut i = 1;
@@ -999,13 +778,9 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
             if let Some(value) = inline {
                 return Err(Exit::usage(command, format!("argument -h/--help: ignored explicit argument '{value}'")));
             }
-            return Err(Exit::Help(if command == "debt" { HELP_DEBT } else { HELP_AUDIT }));
+            return Err(Exit::Help(HELP_DEBT));
         }
-        let options: &[&str] = if command == "debt" {
-            &["--due", "--repo"]
-        } else {
-            &["--repo", "--event"]
-        };
+        let options: &[&str] = &["--due", "--repo"];
         let candidates: Vec<_> = options
             .iter()
             .copied()
@@ -1016,13 +791,13 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
         }
         let key = candidates.first().copied().unwrap_or(key);
         match key {
-            "--due" if command == "debt" => {
+            "--due" => {
                 if let Some(value) = inline {
                     return Err(Exit::usage(command, format!("argument --due: ignored explicit argument '{value}'")));
                 }
                 only_due = true;
             }
-            "--repo" | "--event" if options.contains(&key) => {
+            "--repo" => {
                 let value = if let Some(v) = inline {
                     v
                 } else {
@@ -1035,11 +810,7 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
                     }
                     &args[i]
                 };
-                match key {
-                    "--repo" => paths.push(value.to_owned()),
-                    "--event" => events.push(value.to_owned()),
-                    _ => unreachable!(),
-                }
+                paths.push(value.to_owned());
             }
             _ => {
                 unknown.push(args[i].as_str());
@@ -1050,48 +821,7 @@ fn parse(args: &[String]) -> Result<Invocation, Exit> {
     if !unknown.is_empty() {
         return Err(Exit::usage("", format!("unrecognized arguments: {}", unknown.join(" "))));
     }
-    Ok(if command == "debt" { Invocation::Debt { paths, only_due } } else { Invocation::Audit { paths, events } })
-}
-
-fn parse_inventory(leading: &[String], args: &[String]) -> Result<Invocation, Exit> {
-    let mut repo = ".".to_owned();
-    let mut rev = "HEAD".to_owned();
-    let mut stubs = false;
-    let mut unknown: Vec<_> = leading.iter().map(String::as_str).collect();
-    let mut i = 0;
-    while i < args.len() {
-        let (key, inline) = args[i]
-            .split_once('=')
-            .map_or((args[i].as_str(), None), |(k, v)| (k, Some(v)));
-        if is_help(key) {
-            return Err(Exit::Help(HELP_INVENTORY));
-        }
-        match key {
-            "--stubs" => stubs = true,
-            "--repo" | "--rev" => {
-                let value = match inline {
-                    Some(v) => v.to_owned(),
-                    None => {
-                        i += 1;
-                        args.get(i).cloned().ok_or_else(|| {
-                            Exit::usage("inventory", format!("argument {key}: expected one argument"))
-                        })?
-                    }
-                };
-                if key == "--repo" {
-                    repo = value;
-                } else {
-                    rev = value;
-                }
-            }
-            _ => unknown.push(args[i].as_str()),
-        }
-        i += 1;
-    }
-    if !unknown.is_empty() {
-        return Err(Exit::usage("", format!("unrecognized arguments: {}", unknown.join(" "))));
-    }
-    Ok(Invocation::Inventory { repo, rev, stubs })
+    Ok(Invocation::Debt { paths, only_due })
 }
 
 pub fn run(args: &[String]) -> u8 {
@@ -1114,16 +844,6 @@ pub fn run(args: &[String]) -> u8 {
             };
         }
         Invocation::Debt { paths, only_due } => debt(&paths, only_due),
-        Invocation::Audit { paths, events } => audit(&paths, &events),
-        Invocation::Inventory { repo, rev, stubs } => {
-            return match inventory::inventory(&expand(&repo), &rev, stubs) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("provenance: {e}");
-                    1
-                }
-            };
-        }
     };
     if let Err(error) = result {
         eprintln!("provenance: {error}");

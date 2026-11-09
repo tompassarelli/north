@@ -3,7 +3,7 @@ use crate::foundation::redact::redact;
 use rustix::fs::{FlockOperation, flock};
 use store::Doc;
 mod refresh;
-pub use refresh::{import, refresh};
+pub use refresh::refresh;
 use crate::threads::catalog::CATALOG;
 mod history;
 mod issues;

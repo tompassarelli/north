@@ -192,7 +192,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             1
         }
         Err(error) => {
-            eprintln!("agents usage: {error}");
+            eprintln!("fleet usage: {error}");
             1
         }
     }

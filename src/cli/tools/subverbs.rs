@@ -102,7 +102,6 @@ pub(in crate::cli) fn ledger_runner(verb: &str) -> Option<Run> {
 
 const RUNTIME: &[(&str, Run)] = &[
     ("agents", agent_runtime_update),
-    ("agy", crate::ops::vendor_runtime::run_agy),
     ("claude", crate::ops::vendor_runtime::run_claude),
     ("opencode", crate::ops::vendor_runtime::run_opencode),
     ("pi", crate::ops::vendor_runtime::run_pi),

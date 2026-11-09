@@ -29,7 +29,6 @@ const UPDATE_LOCK: &str = "runtime-update.lock";
 
 pub(super) mod hold;
 mod build;
-mod grounding;
 mod preswap;
 mod sync;
 
@@ -245,7 +244,6 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     }
     super::deploy::stage_for_lander(layout, target, runtime);
     let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
-    grounding::import(layout);
     Ok(synced)
 }
 

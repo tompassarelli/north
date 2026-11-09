@@ -7,7 +7,7 @@ use super::store::Row;
 use super::{Places, burn, costs, py, settings, web};
 use crate::foundation::clock::Timestamp;
 
-const NO_SNAPSHOT: &str = "agents usage: no snapshot yet; run `agents usage --refresh`";
+const NO_SNAPSHOT: &str = "fleet usage: no snapshot yet; run `north fleet usage --refresh`";
 pub(super) const RESET_NAME: &str = "cedar_ember";
 
 pub(super) fn render(db: &Connection, places: &Places, now: Timestamp) -> Result<(String, u8), String> {

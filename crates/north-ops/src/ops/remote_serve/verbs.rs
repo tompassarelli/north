@@ -22,7 +22,7 @@ pub(super) fn authorize(argv: &[String]) -> Result<String, Refusal> {
         ["north", "fleet", "dispatch", "need", _session, _need] | ["north", "fleet", "dispatch", "need", _session, _need, _] => Some("dispatch need".to_string()),
         ["north", "fleet", "row", verb, ..] if FLEET_ROW.contains(verb) => Some(format!("fleet row {verb}")),
         ["north", "fleet", "laptop", "status"] | ["north", "fleet", "laptop", "status", "--json"] => Some("laptop status".to_string()),
-        ["agents", "usage", "--refresh", "--local", "--json"] => Some("agents usage".to_string()),
+        ["north", "fleet", "usage", "--refresh", "--local", "--json"] => Some("fleet usage".to_string()),
         ["readlink", ".local/state/north/current"] => Some("readlink current".to_string()),
         ["north", "runtime", "health"] => Some("runtime health".to_string()),
         ["south", "land"] => Some("south land".to_string()),

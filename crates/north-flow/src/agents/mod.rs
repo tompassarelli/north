@@ -7,7 +7,7 @@ pub mod routines;
 mod status;
 mod tiers;
 
-pub const USAGE: &str = "usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|busy|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|usage [--refresh [--local]] [--write-pace-gate] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]}";
+pub const USAGE: &str = "usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|busy|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]}";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Verb {
@@ -16,7 +16,6 @@ pub enum Verb {
     Plan,
     Busy,
     Routines,
-    Usage,
 }
 
 impl Verb {
@@ -26,7 +25,6 @@ impl Verb {
             "sync" => Self::Sync,
             "plan" => Self::Plan,
             "busy" => Self::Busy,
-            "usage" => Self::Usage,
             "routines" => Self::Routines,
             _ => return None,
         })

@@ -72,7 +72,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   1. `:83` op `grant_for` looks for a proxy grant in `pace-control.json`.
   2. `C/guard/spawn_capacity/usage.rs:5` `verdict` reads `usage-gate.json[provider]`, requiring a reading newer than
      `min(usage_stale_min x 60, 120)` = 120 s (`:41`) and, when paced, a fresh control (`:44-55`); otherwise it runs
-     `agents usage --gate claude` (45 s, `world.rs:138`), which samples through `north fleet pace gate`. Refresh
+     `north fleet usage --gate claude` (45 s, `world.rs:138`), which samples through `north fleet pace gate`. Refresh
      unavailable: "Hold: claude usage refresh unavailable; needs a reading <=120s old" (`:10`); still stale:
      "... remains stale after refresh" (`:13`).
   3. `:86` a gate-file `refusal` denies: the money refusal written at `C/usage/gate.rs:99-106` from
@@ -167,7 +167,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   `quota_ceiling = min(plan_stop, 100 - target_left)`; `:99-107` per-account money refusal whose text at `:15` tells
   the lead to "wait for the window to reset").
 - `P/mod.rs:63` `north fleet pace gate PROVIDER` (exit 3 when refused); `src/cli/agents.rs:28` `agents pace`, `:51`
-  `agents usage --gate P`.
+  `north fleet usage --gate P`.
 
 ### 1.5 Grants and reservations
 
@@ -192,7 +192,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
   pace-control.json" with each account's windows and `allowed_workers N[ held]` (called from
   `C/grounding/compose.rs:357,378`). With the controller marking every account `held`, every lead that asks about
   usage reads "held", which is how leads come to hold on projections the written rule forbids.
-- `north fleet usage --verbose` / `agents usage` (`C/usage/detail.rs`, the default view until 2026-11-06): per account `{windows} | {resets} | {burn}{plan}`;
+- `north fleet usage --verbose` (`C/usage/detail.rs`, the default view until 2026-11-06): per account `{windows} | {resets} | {burn}{plan}`;
   `:41` each window; `C/usage/burn.rs:18-48` the burn column, including the projection "burn X%/h, empty in
   {duration} ({time})"; `C/usage/mod.rs:152-161` JSON with `stale` past `usage_stale_min`.
 - `C/usage/fast.rs:8-24` `north fleet usage --fast` and `C/router/route.rs:143` allow fast mode only while every window
@@ -235,7 +235,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
 
 - `harness/skills/workers/SKILL.md:10`: "`agents plan` picks provider, account and fast mode from live headroom".
 - `harness/skills/workers/references/tiers.md:5`: choose provider and fast mode with `agents plan` from live
-  `agents usage` headroom.
+  `north fleet usage` headroom.
 - `harness/skills/workers/references/cloud.md:12`: an account is out at five-hour 95%, five-hour burn over 50 %/h, or a
   provider-exhausted week; pace lines, projections and held/over/allowed never hold; `:20` cloud placement under
   any account with headroom; `:34` `agents plan --credit`.
@@ -299,7 +299,7 @@ under `~/.local/state/agents` unless named otherwise. Line numbers are at origin
 - `south/agents/rules.toml:747`: agents take usage numbers from `~/.local/state/agents/pace-control.json`.
 - `south/agents/routines/pace-enforcement.md`: says fleet sessions receive pace transitions.
 - `south/agents/orchestration.toml:163-167`: the `[pace]` comment and `enforce_from`.
-- The worker-ledger timer runs `agents usage --refresh` every 15 minutes (nixos-config
+- The worker-ledger timer runs `north fleet usage --refresh` every 15 minutes (nixos-config
   `modules/worker-ledger/default.nix:44`), which takes `pace-control.lock` and rewrites `usage-gate.json`
   (`C/usage/refresh/mod.rs:43-55`).
 - `C/ops/timers/cross_project.rs:99-168` picks a Claude account by trying each until one is not "at its usage limit".
@@ -349,7 +349,7 @@ n and date (box 4), never a constant; a p90 box of $4.54 is then about 0.7 weekl
 
 Box 4b keeps a reader that runs every minute (a header read takes about a second), so a reading older than 10 minutes
 means the reader is broken, not slow. Without it the only idle reader would be the worker-ledger timer's
-`agents usage --refresh` every 15 minutes (nixos-config `modules/worker-ledger/default.nix:44`), and token-only
+`north fleet usage --refresh` every 15 minutes (nixos-config `modules/worker-ledger/default.nix:44`), and token-only
 account d, read only by headers, would never be read again. Pairs of readings of the same window at most 10
 minutes apart (`usage` table, 2026-10-24
 to 2026-11-04): the five-hour window rose 4 or more points in 1,251 of 18,634 pairs and 10 or more in 155 (0.8%); the
@@ -705,7 +705,7 @@ Parts of files:
 - `C/grounding/live.rs`: the controller readout, replaced by 3.5's lines.
 - `C/health.rs:92-102` check `pace`; the `usage` check stays at `FRESH_FOR`.
 - `C/usage/refresh/mod.rs:43-55`: the `pace-control.lock` and gate rewrite after a refresh.
-- CLI: `north fleet pace` (all subcommands), `agents pace`, `agents usage --gate`, `north fleet usage --write-pace-gate`,
+- CLI: `north fleet pace` (all subcommands), `agents pace`, `north fleet usage --gate`, `north fleet usage --write-pace-gate`,
   `north fleet usage --fast`'s headroom rule.
 - `north ledger flow` has no account pace or projection line (1.6); nothing to delete there.
 - `harness/defaults.toml`: `placement_drain_margin`, `reservation_fallback_points`, `usage_stale_min`,

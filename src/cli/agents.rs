@@ -37,7 +37,6 @@ pub(super) fn run(arguments: &[String]) -> u8 {
                 },
             )
         }),
-        Verb::Usage => usage(rest),
     }
 }
 

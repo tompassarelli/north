@@ -67,7 +67,7 @@ impl Ctx {
     pub fn money_refusal(&self, name: &str) -> Option<String> {
         let Some(acct) = self.accounts.get(name) else {
             return Some(format!(
-                "no usage snapshot for {name} could be read (`agents usage --refresh` shows why)"
+                "no usage snapshot for {name} could be read (`north fleet usage --refresh` shows why)"
             ));
         };
         if self.price(name) != f64::INFINITY {

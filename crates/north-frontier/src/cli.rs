@@ -257,20 +257,6 @@ fn grade_all(flags: &Flags) -> Result<String, NorthError> {
     Ok(text)
 }
 
-fn oracles(flags: &Flags) -> Result<String, NorthError> {
-    let tasks = flags.tasks()?;
-    let out = flags.path("out")?;
-    let source = mirror(flags, &out)?;
-    let mut text = String::new();
-    for task in &tasks {
-        let _ = match oracle::build(task, &source, &out.join(&task.id).join("oracle"), &out.join("oracle-target")) {
-            Ok(found) => writeln!(text, "{}: fail-to-pass {}, passing at the landing {}, at the base {}", task.id, found.fail_to_pass.len(), found.reference.len(), found.base.len()),
-            Err(error) => writeln!(text, "{}: no oracle: {error}", task.id),
-        };
-    }
-    Ok(text)
-}
-
 fn rows(flags: &Flags) -> Result<Vec<Run>, NorthError> {
     let tasks = flags.tasks()?;
     let out = flags.path("out")?;
@@ -366,7 +352,6 @@ pub fn dispatch(arguments: &[String]) -> Result<String, NorthError> {
     let flags = Flags::parse(arguments);
     match flags.positional.first().map(String::as_str) {
         Some("tasks") => candidates(&flags),
-        Some("oracle") => oracles(&flags),
         Some("run") => run(&flags),
         Some("box") => live_box(&flags),
         Some("grade") => grade_all(&flags),

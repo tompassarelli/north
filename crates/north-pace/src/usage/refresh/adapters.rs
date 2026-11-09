@@ -59,7 +59,7 @@ impl<'a> Readers<'a> {
     }
 
     fn remote_command(&self, host: &str) -> Command {
-        let argv = (self.ssh)(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host, "agents", "usage", "--refresh", "--local", "--json"]);
+        let argv = (self.ssh)(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host, "north", "fleet", "usage", "--refresh", "--local", "--json"]);
         let mut command = Command::new(&argv[0]);
         command.args(&argv[1..]);
         command

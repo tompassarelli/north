@@ -119,24 +119,20 @@ fn command(program: &str, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 pub use prompt_hook::run as prompt_hook;
-pub fn main(args: &[String], grounded: &dyn Fn(&str) -> bool) -> NorthResult<i32> {
+pub fn main(args: &[String]) -> NorthResult<i32> {
     if args.first().is_some_and(|a| a == "distill") {
         return distill::main(&args[1..]);
     }
     if args.first().is_some_and(|a| a == "score") {
         return score::main(&args[1..]);
     }
-    run(args, grounded).map_err(|e| NorthError::Configuration(e.to_string()))
+    run(args).map_err(|e| NorthError::Configuration(e.to_string()))
 }
-fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
+fn run(args: &[String]) -> Result<i32> {
     if has(args, "--help") || has(args, "-h") {
         println!(
-            "usage: north graph ground query [--query TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | import | hook | distill | score"
+            "usage: north graph ground query [--query TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | distill | score"
         );
-        return Ok(0);
-    }
-    if args.first().is_some_and(|a| a == "import") {
-        println!("{}", sources::import()?);
         return Ok(0);
     }
     if args.first().is_some_and(|a| a == "refresh") {
@@ -156,18 +152,6 @@ fn run(args: &[String], grounded: &dyn Fn(&str) -> bool) -> Result<i32> {
             sources::refresh(&only, has(args, "--force"), !has(args, "--if-idle"))?
         );
         return Ok(0);
-    }
-    if args.first().is_some_and(|a| a == "hook") {
-        let mut raw = String::new();
-        std::io::stdin().take(1048577).read_to_string(&mut raw)?;
-        return Ok(match hook_reply(&raw, grounded, None)? {
-            HookReply::Silent => 0,
-            HookReply::Unparsable => 65,
-            HookReply::Context(text) => {
-                println!("{}", hook_json(&text));
-                0
-            }
-        });
     }
     let query = flag(args, "--query")
         .or_else(|| flag(args, "-q"))

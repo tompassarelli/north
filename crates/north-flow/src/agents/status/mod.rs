@@ -219,7 +219,7 @@ fn print_bands(config: &Config, mode: &Mode, providers: &Providers, live: &Live,
     let labels: Vec<String> = config.tiers.iter().filter(|tier| available.contains(&tier.key)).map(Tier::label).collect();
     println!("escalation: {}, then recommend to Tom", labels.join(", "));
     if live.ctx["accounts"].as_object().is_none_or(|accounts| accounts.is_empty()) {
-        println!("accounts: no usage snapshot; run `agents usage --refresh`");
+        println!("accounts: no usage snapshot; run `north fleet usage --refresh`");
     }
 }
 

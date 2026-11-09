@@ -16,8 +16,6 @@ Commands:
   check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
   check provenance check BASE HEAD              List each new gating bar, hook or policy line with no Provenance record
   check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers
-  check provenance audit [--repo REPO] [--event EVENT]  Audit grounding events
-  check provenance inventory [--repo REPO] [--rev REV] [--stubs]  Count the hooks, policy lines, tiers and bars no record names
   work review PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
   ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per new failure on each open "main is red" issue
   red-main-notify                               Tell each open "main is red" issue's culprit lane session and the proxy, once per culprit commit
@@ -34,8 +32,6 @@ Commands:
   guard language                                PreToolUse language guard
   graph ground query [--query TEXT] [--tier A|B] [--hook]  Retrieve existing infrastructure and history for a query
   graph ground refresh [--force] [--if-idle] [--source NAME]...  Refresh the grounding docs in the graph from their sources
-  graph ground import                              Move the retired grounding/index.db docs into the graph and delete it
-  graph ground hook                                Ground the prompt read on stdin, as the prompt hook does
   graph ground distill run [--since SINCE] [--no-refresh] [--if-idle] [--after-prompt]  Distill new corrections into grounding records
   graph ground distill status                      Show the distill state
   graph ground distill capture                     Capture a correction for the next distill run
@@ -63,7 +59,6 @@ Commands:
   config agents routines list [--crons FILE|-]  List the operator routines
   config agents routines show NAME [--crons FILE|-]  Show one operator routine
   config agents routines pointer NAME [--crons FILE|-]  Print the pointer to one operator routine
-  config agents usage [--refresh [--local]] [--write-pace-gate] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]  Read account usage
   config check guides [--refresh] [--guides DIR]  List the vendored agent-policy guides and fail when one is over 90 days old; --refresh re-fetches them at their upstream head
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
@@ -98,7 +93,6 @@ Commands:
   land train red ...                            Record a red-main interval in the threads ledger
   ledger incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]  Record a failure the moment it happens
   ledger incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]  Record the guard that closes a failure class
-  ledger incident import < ROWS.jsonl           Import incident rows
   ledger incident report [--days N] [--since EPOCH --until EPOCH]  Read incidents by class, detector-first rate and recurrences
   ledger duplicate [--days N] [--json]          Count the worker runs that started on a box another run still worked, by day; a day without one reads 0
   ledger opencode [--since 7d]                  Per week and DeepSeek model: boxes attempted, landed Done, checked, escalated to Claude and its cost, Go window share and limit wait, against the ledger's Sonnet rate
@@ -232,7 +226,6 @@ Commands:
   ops strategy replay [--since 24h] [--invariants] [--budget]  Decide the window's logged placement, admission and lander cases again with this binary's code and print each kind's outcome counts beside the logged ones; exits 1 when a count shifts past replay_outcome_shift_ratio, and with --invariants also when a launch is placed on an account at its provider's limit, a lease asked from inside an offload slot is deferred behind the land check waiting for it, or the replayed landing p90 passes replay_landing_p90_seconds
   ops climb run --dry-run [--since 7d]  Print the week's largest measured loss from the worker ledger (repeat-run and unclosed-box dollars per tier and category), the one candidate policy change the generator writes for it, the candidate's score from strategy replay against the current policy, and every live arm's share with the ledger boxes behind it
   test frontier tasks --since DATE --until DATE --repo DIR --briefs DIR  Pick landed boxes to replay
-  test frontier oracle TASKS.json --out DIR [--only ID]...  Check each task's landing tests on its own tree
   test frontier run TASKS.json --briefs DIR --out DIR [--arm north|plain|t3code]... [--t3 DIR --t3-node PATH] [--plan ACCOUNT] [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M]  Replay each task from its base under north's harness and under plain Claude Code, each in its own sandbox
   test frontier grade TASKS.json --out DIR [--only ID]...  Grade each arm's tree by the landing's own tests
   test frontier report TASKS.json --out DIR [--rows FILE]  Write one run row per arm and task for north dash --frontier (docs/rationale/frontier.md)
@@ -258,9 +251,8 @@ Commands:
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
   github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)
   ops github budget                              Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log
-  runtime agents [VERSION]                      Update the North, Claude, Agy, Pi and OpenCode runtimes
+  runtime agents [VERSION]                      Update the North, Claude, Pi and OpenCode runtimes
   runtime claude [VERSION]                      Install a checksum-verified Claude runtime, probe it and select it
-  runtime agy [VERSION]                         Install a checksum-verified Agy runtime and select it
   runtime pi [VERSION]                       Install a checksum-verified Pi runtime from the newest stable earendil-works/pi release and select it
   runtime opencode [VERSION]                 Install a checksum-verified OpenCode runtime from the newest stable anomalyco/opencode release and select it
   capacity nexus [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs

@@ -1,4 +1,4 @@
-//! `north ledger incident record|guard|import|report`: one row per failure the moment a lander verdict, a
+//! `north ledger incident record|guard|report`: one row per failure the moment a lander verdict, a
 //! withdrawal or a detector finding names it, the guard that closes each failure class, and the
 //! weekly reading `north ledger flow` prints. The tables are created here, on first write; the reader in
 //! `report` tolerates a ledger that has none yet.
@@ -8,8 +8,6 @@ pub mod report;
 use std::io::{Read, Write};
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Deserialize;
-
 use super::verb::{Args, Context, Failure, Outcome, immediate, open};
 use crate::foundation::clock::Timestamp;
 
@@ -40,7 +38,7 @@ CREATE TABLE IF NOT EXISTS incident_guards(
   issue TEXT NOT NULL DEFAULT ''
 ) STRICT;";
 
-const USAGE: &str = "usage: north ledger incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]\n       north ledger incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]\n       north ledger incident import < ROWS.jsonl\n       north ledger incident report [--days N] [--since EPOCH --until EPOCH]";
+const USAGE: &str = "usage: north ledger incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]\n       north ledger incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]\n       north ledger incident report [--days N] [--since EPOCH --until EPOCH]";
 
 pub struct Incident {
     pub key: String,
@@ -60,30 +58,10 @@ pub struct Guard {
     pub issue: String,
 }
 
-#[derive(Deserialize)]
-struct Imported {
-    key: String,
-    class: String,
-    noticed_by: String,
-    #[serde(default)]
-    repo: String,
-    #[serde(default)]
-    subject: String,
-    started_at: Option<String>,
-    detected_at: String,
-    #[serde(default)]
-    detail: String,
-    guard: Option<String>,
-    guard_landed_at: Option<String>,
-    #[serde(default)]
-    issue: String,
-}
-
-pub fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+pub fn run(argv: &[String], context: &Context, _stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let result = match argv.get(1).map(String::as_str) {
         Some("record") => record(&argv[2..], context),
         Some("guard") => guard(&argv[2..], context),
-        Some("import") => import(context, stdin),
         Some("report") => report::verb(&argv[2..], context),
         _ => Err(Failure::Usage(USAGE.into())),
     };
@@ -94,10 +72,6 @@ fn time(args: &Args, flag: &str) -> Result<Option<String>, Failure> {
     let Some(text) = args.get(flag) else { return Ok(None) };
     let seconds: f64 = text.parse().map_err(|_| Failure::Usage(format!("{flag} {text} is not epoch seconds")))?;
     Ok(Some(Timestamp::from_unix_seconds_f64(seconds).iso()))
-}
-
-fn iso(text: &str, field: &str) -> Result<String, Failure> {
-    Timestamp::parse_python_datetime(text).map(Timestamp::iso).ok_or_else(|| Failure::Usage(format!("{field} {text} is not an ISO time")))
 }
 
 fn required(args: &Args, flag: &str) -> Result<String, Failure> {
@@ -185,35 +159,4 @@ fn guard(argv: &[String], context: &Context) -> Outcome {
         issue: args.get("--issue").unwrap_or_default().to_owned(),
     };
     write(context, |db| Ok(format!("incident guard {} for {}: {} open incidents fixed\n", guard.guard, guard.class, set_guard(db, &guard)?)))
-}
-
-fn import(context: &Context, stdin: &mut dyn Read) -> Outcome {
-    let mut text = String::new();
-    stdin.read_to_string(&mut text).map_err(|error| Failure::Refused(error.to_string()))?;
-    let mut rows = Vec::new();
-    for (number, line) in text.lines().enumerate().filter(|(_, line)| !line.trim().is_empty()) {
-        let row: Imported = serde_json::from_str(line).map_err(|error| Failure::Usage(format!("line {}: {error}", number + 1)))?;
-        rows.push(row);
-    }
-    write(context, |db| {
-        let (mut inserted, mut guards) = (0, 0);
-        for row in &rows {
-            let incident = Incident {
-                key: row.key.clone(),
-                class: row.class.clone(),
-                noticed_by: row.noticed_by.clone(),
-                repo: row.repo.clone(),
-                subject: row.subject.clone(),
-                started_at: row.started_at.as_deref().map(|text| iso(text, "started_at")).transpose()?,
-                detected_at: iso(&row.detected_at, "detected_at")?,
-                detail: row.detail.clone(),
-            };
-            inserted += usize::from(insert(db, &incident)?);
-            if let (Some(guard), Some(landed_at)) = (&row.guard, &row.guard_landed_at) {
-                set_guard(db, &Guard { class: row.class.clone(), guard: guard.clone(), landed_at: iso(landed_at, "guard_landed_at")?, issue: row.issue.clone() })?;
-                guards += 1;
-            }
-        }
-        Ok(format!("incident import: {inserted} of {} rows recorded, {guards} guards set\n", rows.len()))
-    })
 }

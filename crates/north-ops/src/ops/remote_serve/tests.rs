@@ -23,7 +23,7 @@ fn verbs_off_the_allowlist_are_refused() {
         "threads agent-event x", "threads label-runs", "threads calibrate --write", "threads annotate-runs",
         "threads routing-compare", "threads snapshot-pull", "threads", "north fleet laptop open", "north fleet laptop close",
         "north fleet laptop drain", "north fleet laptop toggle", "north fleet laptop tick", "north runtime update", "north runtime deploy",
-        "scp x y", "nix-store --serve", "north fleet row delete", "north fleet row leased", "agents usage",
+        "scp x y", "nix-store --serve", "north fleet row delete", "north fleet row leased", "north fleet usage",
         "readlink /etc/passwd", "env north", "env -i threads list", "bash", "south land x",
     ] {
         assert!(matches!(plan(command), Err(Refusal::Verb(_))), "{command}");

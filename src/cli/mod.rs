@@ -238,7 +238,7 @@ fn dispatch(command: Command) -> ExitCode {
             Err(error) => failure(error),
         },
         Command::Grounding(arguments) => in_runtime(async move {
-            grounding::main(&arguments, &hook_verb::grounded_session).map(|code| ExitCode::from(code as u8))
+            grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
         }),
     }
 }

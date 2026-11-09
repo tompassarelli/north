@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 use store::{Doc, WRITER, source_predicate};
 
 const WATERMARKS: &str = "watermarks.json";
-const RETIRED: &str = "index.db";
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub(super) struct Mark {
@@ -104,41 +103,6 @@ fn write(graph: &mut Graph, source: &str, docs: Vec<Doc>, whole: bool, floor: Op
 
 fn stored(d: &Doc) -> Doc {
     Doc { title: redact(&d.title), text: redact(&cut(&d.text, 4000)), ..d.clone() }
-}
-
-pub fn import() -> Result<Value> {
-    let retired = state_dir().join(RETIRED);
-    match fs::File::open(&retired) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!({"imported": 0})),
-        opened => drop(opened?),
-    }
-    let Some(lock) = refresh_lock(&state_dir(), true)? else {
-        return Ok(json!({"busy": true}));
-    };
-    let result = (|| {
-        let read = |sql: &str| crate::platform::sqlite::rows(&retired, crate::platform::sqlite::Access::ReadOnly, super::super::common::SQLITE_BUSY, sql);
-        let mut sources: HashMap<String, Vec<Doc>> = HashMap::new();
-        for row in read("select source, id, ref, title, text, at, decays from docs")? {
-            let doc = Doc { source: s(&row, "source"), id: s(&row, "id"), reference: s(&row, "ref"), title: s(&row, "title"), text: s(&row, "text"), at: num(&row, "at"), decays: num(&row, "decays") != 0.0 };
-            sources.entry(doc.source.clone()).or_default().push(doc);
-        }
-        let mut graph = Graph::open(&north_graph::default_path())?;
-        let mut counts = serde_json::Map::new();
-        for (source, docs) in sources {
-            counts.insert(source.clone(), json!(write(&mut graph, &source, docs, true, None)?));
-        }
-        let mut marks = marks();
-        for row in read("select source, at, refreshed, rows from watermarks")? {
-            marks.insert(s(&row, "source"), Mark { at: num(&row, "at"), refreshed: num(&row, "refreshed"), rows: num(&row, "rows") as usize });
-        }
-        save(&marks)?;
-        fs::remove_file(&retired)?;
-        graph.compact()?;
-        let _ = fs::remove_file(retired.with_extension("db-journal"));
-        Ok(Value::Object(counts))
-    })();
-    drop(lock);
-    result
 }
 
 #[cfg(test)]

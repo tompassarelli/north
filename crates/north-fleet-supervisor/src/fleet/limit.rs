@@ -24,7 +24,7 @@ pub const FULL_PCT: f64 = 99.5;
 
 static CLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bresets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(utc\)").expect("limit clock pattern"));
 
-/// The reset of an account's usage window as `agents usage` reports it, for a limit whose turn named none.
+/// The reset of an account's usage window as `north fleet usage` reports it, for a limit whose turn named none.
 pub trait AccountResets {
     fn reset_ms(&self, account: &str, now_ms: u64) -> Option<u64>;
 }
