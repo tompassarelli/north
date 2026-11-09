@@ -111,8 +111,11 @@ fn program(program: &[String], lift: bool) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
-/// Hides the sockets that start processes outside the domain, before the domain is applied: Landlock refuses mount(2), and a kernel before its ABI 9 cannot limit which Unix sockets a command connects through. Whether they are hidden.
+/// Hides the sockets that start processes outside the domain, before the domain is applied: Landlock refuses mount(2), and a kernel before its ABI 9 cannot limit which Unix sockets a command connects through. Whether they are hidden. A command already inside the domain keeps what its outer pass did, since a fresh user namespace whose mounts the domain then refuses would show every root-owned file as nobody's and ssh would refuse its own configuration.
 fn hide_sockets(context: &Context) -> bool {
+    if std::env::var_os(MARK).is_some_and(|mark| mark == "1") {
+        return std::env::var_os(SOCKETS_HIDDEN).is_some_and(|hidden| hidden == "1");
+    }
     match hide(&runtime(context), &hidden(context)) {
         Ok(()) => true,
         Err(error) => {

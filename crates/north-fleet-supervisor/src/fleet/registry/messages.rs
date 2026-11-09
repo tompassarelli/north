@@ -217,28 +217,36 @@ mod tests {
     // KEEP(bug): the fleet tick's wait on a session's delivery lock had no bound, so one delivery that never let go held every tick past systemd's 50 s start timeout (north#637)
     #[test]
     fn a_hand_in_gives_up_on_a_delivery_lock_another_holds_and_leaves_the_row_for_the_next_tick() {
+        use std::{sync::mpsc::channel, thread::spawn, time::Duration};
         let home = tempfile::tempdir().unwrap();
-        let laptop = fleet(home.path());
-        let _worker = live(&laptop, "worker");
-        let outer = laptop.spool_message(&Sender::Tom, "worker", "outer", Delivery::Queued).unwrap();
-        laptop.journaled(&outer, || laptop.send_signed(&Sender::fleet(), "worker", "nested", Delivery::Queued)).unwrap();
-        let ((held, holding), (release, released)) = (std::sync::mpsc::channel(), std::sync::mpsc::channel::<()>());
+        let _worker = live(&fleet(home.path()), "worker");
+        let ((ready, readied), (go, going), (gave_up, gave)) = (channel(), channel::<()>(), channel());
         let root = home.path().to_owned();
-        let holder = std::thread::spawn(move || {
+        spawn(move || {
+            let laptop = fleet(&root);
+            let outer = laptop.spool_message(&Sender::Tom, "worker", "outer", Delivery::Queued).unwrap();
+            laptop.journaled(&outer, || laptop.send_signed(&Sender::fleet(), "worker", "nested", Delivery::Queued)).unwrap();
+            ready.send(()).unwrap();
+            going.recv().unwrap();
+            let row = laptop.spool_message(&Sender::Tom, "worker", "late", Delivery::Queued).unwrap();
+            gave_up.send(laptop.hand_in(&row).map_err(|error| error.user_message())).unwrap();
+        });
+        readied.recv_timeout(Duration::from_secs(10)).expect("the first hand-in never finished");
+        let ((held, holding), (release, released)) = (channel(), channel::<()>());
+        let root = home.path().to_owned();
+        spawn(move || {
             let other = fleet(&root);
             let row = other.spool_message(&Sender::Tom, "worker", "held", Delivery::Queued).unwrap();
             other.journaled(&row, || {
                 held.send(()).unwrap();
-                released.recv().unwrap();
+                let _ = released.recv();
                 Ok(())
             })
-            .unwrap();
         });
-        holding.recv().unwrap();
-        let row = laptop.spool_message(&Sender::Tom, "worker", "late", Delivery::Queued).unwrap();
-        let handed = laptop.hand_in(&row);
+        holding.recv_timeout(Duration::from_secs(10)).expect("the holder never took the delivery lock");
+        go.send(()).unwrap();
+        let handed = gave.recv_timeout(Duration::from_secs(10)).expect("the hand-in waited on the held delivery lock without a bound");
         release.send(()).unwrap();
-        holder.join().unwrap();
 
         assert!(handed.is_err(), "{handed:?}");
     }
