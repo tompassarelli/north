@@ -176,4 +176,21 @@ fn a_test_launch_without_a_declared_fixture_root_refuses_before_it_writes_a_sess
     assert!(!refused.status.success(), "{}", text(&refused.stdout));
     assert!(text(&refused.stderr).contains("NORTH_TEST_ROOT"), "{}", text(&refused.stderr));
     assert!(!root.join(".local/state/north/fleet/narrow").exists());
+
+    let orchestration = root.join("op/orchestration.toml");
+    let mut hosts = fs::read_to_string(&orchestration).unwrap();
+    hosts.push_str("[hosts.gex45]\nssh = \"gex45\"\n");
+    fs::write(&orchestration, hosts).unwrap();
+    executable(&root.join("bin/ssh"), "exit 1\n");
+    let brief = root.join(".local/state/agents/handoffs/proxy-ds/b1020loop.md");
+    fs::create_dir_all(brief.parent().unwrap()).unwrap();
+    fs::write(&brief, "the box\n").unwrap();
+    let prompt = format!("read {} before you start", brief.display());
+    let placed = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--cwd", "gex45:/tmp", &prompt]);
+    let stderr = text(&placed.stderr);
+
+    assert!(!placed.status.success(), "{}", text(&placed.stdout));
+    assert!(stderr.contains(&brief.display().to_string()), "{stderr}");
+    assert!(stderr.contains("under this host's home, which gex45 cannot read"), "{stderr}");
+    assert!(!root.join(".local/state/north/fleet/narrow").exists(), "{stderr}");
 }
