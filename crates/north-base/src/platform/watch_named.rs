@@ -5,9 +5,14 @@ use std::path::{Path, PathBuf};
 
 pub const NAMED: &str = "north/watch/named.jsonl";
 
+pub struct Alert {
+    pub at: u64,
+    pub summary: String,
+}
+
 pub struct Named {
     pub began: u64,
-    pub summaries: Vec<String>,
+    pub alerts: Vec<Alert>,
 }
 
 fn path(state: &Path) -> PathBuf {
@@ -39,8 +44,8 @@ pub fn read(state: &Path) -> Option<Named> {
     let text = std::fs::read_to_string(path(state)).ok()?;
     let rows: Vec<Value> = text.lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
     let began = rows.iter().find_map(|row| row["began"].as_u64())?;
-    let summaries = rows.iter().filter_map(|row| row["summary"].as_str().map(str::to_owned)).collect();
-    Some(Named { began, summaries })
+    let alerts = rows.iter().filter_map(|row| Some(Alert { at: row["at"].as_u64()?, summary: row["summary"].as_str()?.to_owned() })).collect();
+    Some(Named { began, alerts })
 }
 
 pub fn run_time(text: &str) -> Option<u64> {

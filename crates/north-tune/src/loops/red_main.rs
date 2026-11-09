@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const RED_SECONDS: u64 = 600;
 const SHORT: usize = 12;
 const UNJUDGED: [&str; 3] = ["cancelled", "skipped", "neutral"];
+const MAIN_RED: &str = "north main is red";
 const RUNS: &str = "north/watch/runs-north.json";
 
 #[derive(Debug, PartialEq)]
@@ -14,9 +15,10 @@ pub(super) struct Red {
     pub shas: Vec<String>,
     pub since: u64,
     pub seconds: u64,
+    pub from: u64,
 }
 
-pub(super) fn unwatched(runs: &str, began: u64, now: u64, named: &dyn Fn(&str) -> bool, reverted: &dyn Fn(&str) -> bool) -> Result<Vec<Red>, String> {
+pub(super) fn unwatched(runs: &str, began: u64, now: u64, named: &dyn Fn(&str) -> bool, alerted: &dyn Fn(u64, u64) -> bool, reverted: &dyn Fn(&str) -> bool) -> Result<Vec<Red>, String> {
     let body: Value = serde_json::from_str(runs).map_err(|error| format!("{RUNS}: {error}"))?;
     let mut judged: Vec<(String, u64, bool, String)> = body["workflow_runs"]
         .as_array()
@@ -29,9 +31,10 @@ pub(super) fn unwatched(runs: &str, began: u64, now: u64, named: &dyn Fn(&str) -
         })
         .collect();
     judged.sort();
+    let oldest = body["workflow_runs"].as_array().into_iter().flatten().filter_map(|run| watch_named::run_time(run["created_at"].as_str()?)).min().unwrap_or(0);
     let mut reds: Vec<Red> = Vec::new();
     let mut red_run = false;
-    for (_, finished, success, sha) in &judged {
+    for (index, (created, finished, success, sha)) in judged.iter().enumerate() {
         if *success {
             if let Some(open) = reds.last_mut().filter(|_| red_run) {
                 open.seconds = finished.saturating_sub(open.since);
@@ -42,14 +45,15 @@ pub(super) fn unwatched(runs: &str, began: u64, now: u64, named: &dyn Fn(&str) -
                 open.shas.push(sha.clone());
             }
         } else {
-            reds.push(Red { shas: vec![sha.clone()], since: *finished, seconds: now.saturating_sub(*finished) });
+            let from = if index == 0 { oldest } else { watch_named::run_time(created).unwrap_or(*finished) };
+            reds.push(Red { shas: vec![sha.clone()], since: *finished, seconds: now.saturating_sub(*finished), from });
             red_run = true;
         }
     }
     if let Some(open) = reds.last_mut().filter(|_| red_run) {
         open.seconds = now.saturating_sub(open.since);
     }
-    Ok(reds.into_iter().filter(|red| red.since >= began && red.seconds > RED_SECONDS && !red.shas.iter().any(|sha| named(sha) || reverted(sha))).collect())
+    Ok(reds.into_iter().filter(|red| red.since >= began && red.seconds > RED_SECONDS && !red.shas.iter().any(|sha| named(sha) || reverted(sha)) && !alerted(red.from, red.since.saturating_add(red.seconds))).collect())
 }
 
 fn reverted_on_origin(sha: &str) -> bool {
@@ -67,8 +71,9 @@ pub(super) fn finding(state: &Path, at: SystemTime) -> Finding {
         Ok(runs) => runs,
         Err(error) => return failed(format!("FAIL {RUNS} unread: {error}")),
     };
-    let was_named = |sha: &str| named.summaries.iter().any(|summary| summary.contains(&sha[..sha.len().min(SHORT)]));
-    match unwatched(&runs, named.began, now, &was_named, &reverted_on_origin) {
+    let was_named = |sha: &str| named.alerts.iter().any(|alert| alert.summary.contains(&sha[..sha.len().min(SHORT)]));
+    let was_alerted = |from: u64, until: u64| named.alerts.iter().any(|alert| alert.summary.starts_with(MAIN_RED) && (from..=until).contains(&alert.at));
+    match unwatched(&runs, named.began, now, &was_named, &was_alerted, &reverted_on_origin) {
         Err(error) => failed(format!("FAIL {error}")),
         Ok(reds) if reds.is_empty() => Finding { name, verdict: "ok: no main red over 10 min went unnamed and unreverted".to_owned(), failed: false },
         Ok(reds) => {

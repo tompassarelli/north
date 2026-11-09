@@ -61,7 +61,7 @@ A loop that learns tells its learned values to north's graph (`~/.local/state/no
 
 `north tune` runs the check after its own work and appends the registry's lines to its output. Its exit code is 1 when any closed loop it holds is stale or never updated, or when the registry cannot be parsed, which fires the nexus unit's failure alert. The same code that fails `north tune` fails `north loops check`.
 
-On the lander host the check also reads the watch's cargo.yml run history (`north/watch/runs-north.json`) and fails when main stayed red over 10 minutes with neither a sheriff revert (`Sheriff-Reverts:` on origin/main after the red commit) nor a fleet message naming the commit, recorded in `north/watch/named.jsonl` by `north ops watch`; reds from before the record began are not judged. Added 2026-11-08 under north#634 after Tom twice had to be the alarm for a red main (class tom-as-monitor in `harness/corrections.toml`).
+On the lander host the check also reads the watch's cargo.yml run history (`north/watch/runs-north.json`) and fails when main stayed red over 10 minutes with neither a sheriff revert (`Sheriff-Reverts:` on origin/main after the red commit) nor a fleet message naming the commit, recorded in `north/watch/named.jsonl` by `north ops watch`. A main-is-red alert for north recorded while the red interval was open also covers it, so a red whose first run has left the bounded run list stays covered (north#987); reds from before the record began are not judged. Added 2026-11-08 under north#634 after Tom twice had to be the alarm for a red main (class tom-as-monitor in `harness/corrections.toml`).
 
 ## Completeness
 
