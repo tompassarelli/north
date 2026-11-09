@@ -274,6 +274,27 @@ fn corroborated_reads_a_self_ticked_box_unverified_until_the_checker_passes_its_
 }
 
 #[test]
+fn a_dash_window_counts_only_runs_that_started_inside_it_and_never_a_run_stamped_after_its_end() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("threads.db");
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
+    let insert = |agent: &str, started: &str, ended: &str| {
+        db.execute(
+            "INSERT INTO runs(agent, item, tier, category, started, ended, outcome, minutes, model, input_tokens, tokens, brief_text) VALUES (?1, 'life#1', 'sonnet', 'feature', ?2, ?3, 'done', 60, 'claude-sonnet-5-5', 1000, 100, '')",
+            rusqlite::params![agent, started, ended],
+        )
+        .unwrap();
+    };
+    insert("inside", "2026-11-09T05:00:00Z", "2026-11-09T06:00:00Z");
+    insert("before", "2026-11-08T05:00:00Z", "2026-11-08T06:00:00Z");
+    insert("after", "2026-11-09T13:00:00Z", "2026-11-09T14:00:00Z");
+    let now = crate::foundation::clock::Timestamp::parse("2026-11-09T12:00:00Z").unwrap();
+    let runs = super::closed_source::runs_inside_in(&path, "24h", now).unwrap();
+    assert_eq!(runs.iter().map(|run| run.agent.as_str()).collect::<Vec<_>>(), ["inside"], "a run started before the window or stamped after its end is not in it");
+}
+
+#[test]
 fn run_times_names_each_run_its_wall_minutes_and_the_eta_its_brief_stated() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");

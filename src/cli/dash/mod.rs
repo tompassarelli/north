@@ -102,7 +102,7 @@ fn read(window: &str) -> Result<Screen, String> {
         let accounts = scope.spawn(accounts);
         let runs = scope.spawn(|| ledger::inside(window).map_err(|error| error.user_message()));
         let attempts = scope.spawn(|| first_tries(since, now));
-        let habits = scope.spawn(|| habits::rows(&ledger::threads_database(), &Timestamp::from_unix_seconds(since).iso()));
+        let habits = scope.spawn(|| habits::rows(&ledger::threads_database(), &Timestamp::from_unix_seconds(since).iso(), &Timestamp::from_unix_seconds(now).iso()));
         let week_runs = scope.spawn(|| ledger::runs_inside("7d").map_err(|error| error.user_message()));
         let joined = |name: &str| format!("{name} reader panicked");
         (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))))
@@ -128,7 +128,7 @@ fn first_tries(since: i64, now: i64) -> Result<Vec<workers::Attempt>, String> {
     let db = scoreboard::open(&path)?;
     let missed = workers::missed_checks(&north_github_mirror::store::Mirror::local());
     let attempts = workers::attempts(&db, since, &missed, &workers::Pending::read(&db, now)).map_err(|why| format!("{}: {why}", path.display()))?;
-    Ok(attempts.into_iter().filter(|attempt| attempt.started >= since && !attempt.deferred).collect())
+    Ok(attempts.into_iter().filter(|attempt| attempt.started >= since && attempt.started < now && !attempt.deferred).collect())
 }
 
 fn runway(runway: Runway) -> Value {

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
@@ -21,7 +22,7 @@ const OWNER: &str = "tompassarelli";
 const ISSUE_LIMIT: &str = "1000";
 
 pub fn window_start(window: &str) -> NorthResult<String> {
-    Ok(Timestamp::from_unix_seconds(Timestamp::now().unix_seconds() - span_seconds(window)?).iso())
+    window_bounds(window, Timestamp::now()).map(|(since, _)| since)
 }
 
 fn span_seconds(window: &str) -> NorthResult<i64> {
@@ -160,27 +161,41 @@ pub fn adjacent_windows(now: Timestamp, span: i64) -> [(String, String); 2] {
 }
 
 fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> {
-    report_over(since, until, |_| true)
+    let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
+    report_over(&threads_database(), since, until, |_| true, corroborated)
 }
 
 /// The same runs without the closed-box report, for a caller that needs only what each run cost.
 pub fn runs_inside(window: &str) -> NorthResult<Vec<WindowRun>> {
-    window_runs(&window_start(window)?)
+    runs_inside_in(&threads_database(), window, Timestamp::now())
+}
+
+/// The runs of every role that started between `now - window` and `now`, read from `database`, so a caller can read a
+/// window other than this host's clock.
+pub fn runs_inside_in(database: &Path, window: &str, now: Timestamp) -> NorthResult<Vec<WindowRun>> {
+    let (since, until) = window_bounds(window, now)?;
+    window_runs(database, &since, &until)
 }
 
 /// The runs of every role that started in the last `window`, each priced at API-equivalent rates, and the closed-box
 /// report over those runs alone, so a box closed in the window counts only the spend its runs made inside it.
 pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport)> {
-    let (since, until) = (window_start(window)?, Timestamp::now().iso());
-    Ok((window_runs(&since)?, report_over(&since, &until, |run| run.started.as_str() >= since.as_str())?))
+    let database = threads_database();
+    let (since, until) = window_bounds(window, Timestamp::now())?;
+    let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
+    let started = |run: &SpendRun| run.started.as_str() >= since.as_str() && run.started.as_str() < until.as_str();
+    Ok((window_runs(&database, &since, &until)?, report_over(&database, &since, &until, started, corroborated)?))
 }
 
-fn report_over(since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool) -> NorthResult<ClosedReport> {
-    let database = threads_database();
-    let runs: Vec<SpendRun> = spend_runs(&database)?.into_iter().filter(|run| run.ended.as_str() < until && keep(run)).collect();
-    let native = native_namespaces(&database)?;
-    let closed = native_closed(&database, since, until)?;
-    let corroborated = super::corroborated::checked_boxes(&north_graph::default_path())?;
+/// The `[since, until)` bounds of `window` ending at `now`, both in the ledger's timestamp text.
+fn window_bounds(window: &str, now: Timestamp) -> NorthResult<(String, String)> {
+    Ok((Timestamp::from_unix_seconds(now.unix_seconds() - span_seconds(window)?).iso(), now.iso()))
+}
+
+fn report_over(database: &Path, since: &str, until: &str, keep: impl Fn(&SpendRun) -> bool, corroborated: Option<HashSet<String>>) -> NorthResult<ClosedReport> {
+    let runs: Vec<SpendRun> = spend_runs(database)?.into_iter().filter(|run| run.ended.as_str() < until && keep(run)).collect();
+    let native = native_namespaces(database)?;
+    let closed = native_closed(database, since, until)?;
     report_between(&Inputs { runs, native, closed, corroborated, catalog: &CATALOG }, since, until, github_closed, &PriceTable::load()?)
 }
 
@@ -338,15 +353,16 @@ impl WindowRun {
     }
 }
 
-fn window_runs(since: &str) -> NorthResult<Vec<WindowRun>> {
+fn window_runs(database: &Path, since: &str, until: &str) -> NorthResult<Vec<WindowRun>> {
     let rows = sqlite::rows(
-        &threads_database(),
+        database,
         Access::ReadOnly,
         Duration::from_secs(5),
         &format!(
             "SELECT agent, {ROLE_SQL} AS role, tier, category, model, COALESCE(effort, '') AS effort, COALESCE(account, '') AS account, COALESCE(started, '') AS started, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
-             FROM runs WHERE started >= '{}'",
-            since.replace('\'', "")
+             FROM runs WHERE started >= '{}' AND started < '{}'",
+            since.replace('\'', ""),
+            until.replace('\'', "")
         ),
     )?;
     let prices = PriceTable::load()?;

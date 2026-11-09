@@ -153,8 +153,9 @@ fn the_habit_section_counts_each_rules_rewrites_and_warnings_inside_the_window()
     record("shared-mutability", "rewrite", "2026-11-09T03:00:00Z");
     record("other", "advisory", "2026-11-09T03:00:00Z");
     record("ambient-test-input", "rewrite", "2026-11-01T03:00:00Z");
+    record("ambient-test-input", "rewrite", "2026-11-09T13:00:00Z");
 
-    let rows = super::habits::rows(&path, "2026-11-09T00:00:00Z").unwrap();
+    let rows = super::habits::rows(&path, "2026-11-09T00:00:00Z", "2026-11-09T12:00:00Z").unwrap();
     assert_eq!(
         rows,
         [
