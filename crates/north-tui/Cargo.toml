@@ -9,7 +9,6 @@ publish = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor" }
-north-providers = { path = "../north-providers" }
 crossterm.workspace = true
 ratatui.workspace = true
 sha2.workspace = true
@@ -17,6 +16,7 @@ tui-markdown.workspace = true
 tui-textarea-2.workspace = true
 
 [dev-dependencies]
+north-providers = { path = "../north-providers" }
 proptest = { version = "1", default-features = false, features = ["std"] }
 serde_json.workspace = true
 tempfile.workspace = true

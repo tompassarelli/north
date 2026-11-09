@@ -128,8 +128,8 @@ fn a_tui_launch_on_a_label_logged_into_another_labels_account_is_refused_naming_
         std::fs::write(profile.join(".credentials.json"), "{}").unwrap();
         std::fs::write(profile.join(".claude.json"), r#"{"oauthAccount": {"accountUuid": "one-login"}}"#).unwrap();
     }
-    let ledger = Arc::new(crate::ledger::Ledger::open(&home.path().join("ledger.db")).unwrap());
-    let runtimes = crate::fleet::runtimes::Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]);
+    let ledger = Arc::new(north_providers::ledger::Ledger::open(&home.path().join("ledger.db")).unwrap());
+    let runtimes = crate::fleet::runtimes::Runtimes::new(vec![Arc::new(north_providers::providers::claude::fleet::Claude)]);
     let fleet = crate::fleet::registry::Fleet::at(home.path().into(), runtimes, ledger).unwrap();
     assert_eq!(fleet.accounts().iter().map(|account| account.label.as_str()).collect::<Vec<_>>(), ["a"]);
 
