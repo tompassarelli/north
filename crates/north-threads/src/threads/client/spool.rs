@@ -41,6 +41,12 @@ impl State for Phase {
 /// One spooled write, named by its file in the spool directory.
 pub(super) struct SpooledWrite;
 
+struct Sent {
+    code: i32,
+    verb: Option<String>,
+    stderr: String,
+}
+
 impl Lifecycle for SpooledWrite {
     const NAME: &'static str = "threads-spool";
     type State = Phase;
@@ -245,13 +251,14 @@ impl Client {
     }
 
     fn send_and_settle(&self, spool: &mut Spool, name: &str, path: &Path, file: File, dest: &str, err: &mut dyn Write) -> NorthResult<Option<Flush>> {
-        let code = match self.send_spooled(path, file, dest, err) {
-            Ok(code) => code,
+        let sent = match self.send_spooled(path, file, dest, err) {
+            Ok(sent) => sent,
             Err(error) => {
                 spool.release(name, &format!("the flush failed before the ledger host answered: {error}"), (self.clock)())?;
                 return Err(error);
             }
         };
+        let code = sent.code;
         if code == TRANSPORT_FAILED_STATUS {
             spool.release(name, "ledger host unreachable", (self.clock)())?;
             return Ok(Some(Flush::Down));
@@ -259,6 +266,13 @@ impl Client {
         if matches!(code, ingest_lock::RETRY | TIMED_OUT_STATUS) {
             spool.release(name, if code == TIMED_OUT_STATUS { "ledger host timed out" } else { "ledger host busy" }, (self.clock)())?;
             return Ok(Some(Flush::Busy));
+        }
+        let refused_for_good = code == NOT_EXECUTABLE_STATUS && sent.stderr.contains("remote-serve: refused");
+        if let Some(verb) = sent.verb.filter(|_| refused_for_good) {
+            let why = sent.stderr.lines().find(|line| line.contains("remote-serve: refused")).map(str::trim).unwrap_or("the ledger host refused it");
+            spool.refuse(name, &format!("the ledger host will not run `{verb}`: {why}"), (self.clock)())?;
+            writeln!(err, "NorthThreads: the ledger host will not run `{verb}`; {} will not be sent again", path.display())?;
+            return Ok(None);
         }
         if matches!(code, NOT_EXECUTABLE_STATUS | COMMAND_NOT_FOUND_STATUS) {
             spool.release(name, &format!("the ledger host could not run the ingest (exit {code})"), (self.clock)())?;
@@ -276,15 +290,17 @@ impl Client {
         }
     }
 
-    fn send_spooled(&self, path: &Path, mut file: File, dest: &str, err: &mut dyn Write) -> NorthResult<i32> {
+    fn send_spooled(&self, path: &Path, mut file: File, dest: &str, err: &mut dyn Write) -> NorthResult<Sent> {
         if path.extension().is_some_and(|extension| extension == "argv") {
             let mut text = String::new();
             file.read_to_string(&mut text)?;
             let args: Vec<String> = serde_json::from_str(&text)?;
             let quiet = args.first().is_some_and(|verb| verb == "agent-event");
-            self.ssh(dest, &args, Input::Null, quiet, err)
+            let (code, stderr) = self.ssh_capturing(dest, &args, Input::Null, quiet, err)?;
+            Ok(Sent { code, verb: args.into_iter().next(), stderr })
         } else {
-            self.ssh(dest, &["ingest".to_owned()], Input::File(file), false, err)
+            let (code, stderr) = self.ssh_capturing(dest, &["ingest".to_owned()], Input::File(file), false, err)?;
+            Ok(Sent { code, verb: None, stderr })
         }
     }
 

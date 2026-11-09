@@ -141,3 +141,32 @@ fn a_running_worker_is_no_finished_work_for_the_recording_check() {
     }
     assert!(world.judge().iter().all(|flow| flow.verdict.is_ok()), "no worker finished, one runs: quiet");
 }
+
+#[test]
+fn a_hosts_refused_threads_spool_writes_are_one_finding_per_verb_not_one_per_file() {
+    let at_ms = |text: &str| Timestamp::parse_rfc3339(text).unwrap().unix_millis();
+    let refused = |instance: &str, verb: &str, cause: &str, since: &str| north_base::lifecycle::Fault {
+        machine: "threads-spool".into(),
+        instance: instance.into(),
+        state: "refused".into(),
+        since_ms: at_ms(since),
+        kind: north_base::lifecycle::FaultKind::Overdue { due_ms: at_ms(since) },
+        cause: format!("the ledger host will not run `{verb}`: {cause}"),
+    };
+    let mut world = healthy(at("2026-11-08T09:49:00Z"));
+    facts(&mut world, "gex45").lifecycles = Lifecycles::Read(vec![
+        refused("a.argv", "claim", "remote-serve: refused for gex45: command claim is not on the allowlist", "2026-11-08T09:15:00Z"),
+        refused("b.argv", "claim", "the ledger host exited 126", "2026-11-07T05:15:00Z"),
+        refused("c.argv", "claim", "remote-serve: refused for gex45: command claim is not on the allowlist", "2026-11-08T08:00:00Z"),
+        refused("d.argv", "release", "remote-serve: refused for gex45: command release is not on the allowlist", "2026-11-08T09:00:00Z"),
+    ]);
+    let judged = world.judge();
+    let verdict = judged.iter().find(|flow| flow.name == "state-machines").unwrap().verdict.as_ref().unwrap_err();
+    assert_eq!(verdict.matches("threads-spool writes").count(), 2, "{verdict}");
+    assert!(verdict.contains("gex45: 3 threads-spool writes refused, oldest 28 h 34 min ago"), "{verdict}");
+    assert!(verdict.contains("gex45: 1 threads-spool writes refused, oldest 49 min ago"), "{verdict}");
+    assert!(verdict.contains("`claim`") && verdict.contains("`release`"), "{verdict}");
+    assert!(verdict.contains("the ledger host will not run `claim`: remote-serve: refused for gex45"), "the newest cause names the reason: {verdict}");
+    assert!(!verdict.contains("exited 126"), "a verb's entries share one line with its newest cause: {verdict}");
+    assert!(!verdict.contains(".argv"), "{verdict}");
+}

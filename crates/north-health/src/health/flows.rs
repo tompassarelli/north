@@ -1,6 +1,8 @@
 //! The outcome watchdog: each critical flow declares the outcome it must keep producing and how stale that outcome
 //! may grow, and `north health` judges every flow from what it finds recorded, never from the writer's exit code.
 //! A flow that stops alarms the proxy through health's episode alerts, with the flow, the age and the first cause.
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use north_base::lifecycle::Fault;
@@ -212,13 +214,50 @@ impl World {
     /// holder died, or a move the machine does not have.
     fn lifecycles(&self) -> Flow {
         let now = Timestamp::from_unix_seconds_f64(self.now);
-        let faults = self
-            .reached()
-            .flat_map(|(name, facts)| match &facts.lifecycles {
-                Lifecycles::Read(faults) => faults.iter().map(|fault| format!("{name}: {}", fault.line(now))).collect(),
-                Lifecycles::Unreadable(why) => vec![format!("{name}: its lifecycle store is unreadable: {why}")],
-            })
-            .collect();
+        let mut faults = Vec::new();
+        for (name, facts) in self.reached() {
+            match &facts.lifecycles {
+                Lifecycles::Unreadable(why) => faults.push(format!("{name}: its lifecycle store is unreadable: {why}")),
+                Lifecycles::Read(found) => {
+                    let (refused, rest): (Vec<&Fault>, Vec<&Fault>) = found.iter().partition(|fault| fault.machine == "threads-spool" && fault.state == "refused");
+                    faults.extend(rest.into_iter().map(|fault| format!("{name}: {}", fault.line(now))));
+                    faults.extend(refused_lines(name, &refused, now));
+                }
+            }
+        }
         flow("state-machines", Some(0.0), faults)
     }
+}
+
+fn refused_lines(host: &str, faults: &[&Fault], now: Timestamp) -> Vec<String> {
+    let mut groups: BTreeMap<&str, Refused> = BTreeMap::new();
+    for fault in faults {
+        let group = groups
+            .entry(refused_verb(&fault.cause).unwrap_or(fault.cause.as_str()))
+            .or_insert(Refused { writes: 0, oldest: fault.since_ms, newest: i64::MIN, cause: &fault.cause });
+        group.writes += 1;
+        group.oldest = group.oldest.min(fault.since_ms);
+        if fault.since_ms >= group.newest {
+            group.newest = fault.since_ms;
+            group.cause = &fault.cause;
+        }
+    }
+    groups
+        .into_values()
+        .map(|group| {
+            let age = (now.unix_millis() - group.oldest).max(0) as f64 / 1000.0;
+            format!("{host}: {} threads-spool writes refused, oldest {} ago: {}", group.writes, minutes(age), group.cause)
+        })
+        .collect()
+}
+
+struct Refused<'a> {
+    writes: usize,
+    oldest: i64,
+    newest: i64,
+    cause: &'a str,
+}
+
+fn refused_verb(cause: &str) -> Option<&str> {
+    cause.strip_prefix("the ledger host will not run `")?.split_once('`').map(|(verb, _)| verb)
 }

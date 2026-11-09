@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::Duration;
@@ -92,6 +92,37 @@ pub(super) fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Dura
     };
     let mut child = feed(command.spawn()?, bytes);
     Ok(child_within(&mut child, wait)?)
+}
+
+pub(super) fn execute_capturing_stderr(argv: &[OsString], input: Input, stdout: Stdio, wait: Duration) -> NorthResult<(Option<ExitStatus>, String)> {
+    let mut command = Command::new(&argv[0]);
+    command.args(&argv[1..]).stdout(stdout).stderr(Stdio::piped());
+    let bytes = match input {
+        Input::Inherit => None,
+        Input::Null => {
+            command.stdin(Stdio::null());
+            None
+        }
+        Input::File(file) => {
+            command.stdin(file);
+            None
+        }
+        Input::Bytes(bytes) => {
+            command.stdin(Stdio::piped());
+            Some(bytes)
+        }
+    };
+    let mut child = feed(command.spawn()?, bytes);
+    let stderr = child.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = stderr.read_to_string(&mut text);
+            text
+        })
+    });
+    let status = child_within(&mut child, wait)?;
+    let text = stderr.and_then(|handle| handle.join().ok()).unwrap_or_default();
+    Ok((status, text))
 }
 
 pub(super) fn code_of(status: ExitStatus) -> i32 {

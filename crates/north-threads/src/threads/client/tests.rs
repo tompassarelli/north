@@ -27,6 +27,7 @@ struct Rig {
 const FAKE_SSH: &str = r#"for a; do last=$a; done
 printf '%s\n' "$*" >> "$ROOT/ssh.log"
 [ -f "$ROOT/sleep" ] && exec sleep "$(cat "$ROOT/sleep")"
+[ -f "$ROOT/refusal" ] && case "$last" in *"threads job-run"*) cat "$ROOT/refusal" >&2; exit 126 ;; esac
 case "$last" in
   *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
   "north threads snapshot-pages") cat >/dev/null; cat "$ROOT/pages" ;;
@@ -258,6 +259,44 @@ fn a_replayed_ingest_the_host_could_not_run_stays_queued_while_one_refused_for_a
     let sent = log(&rig, "ingest.log").len();
     call(&rig, &["claim", "north#63"], b"");
     assert_eq!(log(&rig, "ingest.log").len(), sent, "a refused row is not sent again");
+}
+
+#[test]
+fn a_spooled_write_the_ledger_host_refuses_for_good_is_refused_once_naming_its_verb() {
+    let rig = rig(&[]);
+    fs::write(rig.root.join("code"), "255").unwrap();
+    assert_eq!(call(&rig, &["job-run", "nightly", "--host", "laptop"], b"").0, 0);
+    assert_eq!(spooled(&rig).len(), 1);
+    fs::write(rig.root.join("code"), "0").unwrap();
+    fs::write(rig.root.join("refusal"), "remote-serve: refused for gex45: command job-run is not on the allowlist\n").unwrap();
+    let (_, err) = call(&rig, &["claim", "north#63"], b"");
+    assert!(err.contains("will not run `job-run`"), "{err}");
+    let attempts = log(&rig, "ssh.log").iter().filter(|line| line.contains("threads job-run")).count();
+    assert_eq!(attempts, 2, "one unreachable send and one refused replay");
+
+    let now = Timestamp::now();
+    let faults = north_base::lifecycle::Store::open(&rig.root.join(".local/state/north/ledger.db")).unwrap().faults(now).unwrap();
+    let refused = faults.iter().find(|fault| fault.machine == "threads-spool").expect("a refused spool write is reported");
+    assert!(refused.cause.contains("`job-run`") && refused.cause.contains("not on the allowlist"), "{:?}", refused.cause);
+    assert_eq!(refused.state, "refused");
+
+    assert_eq!(call(&rig, &["spool-flush", "ledger-host"], b"").0, 0);
+    assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.contains("threads job-run")).count(), attempts, "a write refused for good is not sent again");
+}
+
+#[test]
+fn a_spooled_verb_the_host_could_not_run_at_all_stays_queued_for_the_next_flush() {
+    let rig = rig(&[]);
+    fs::write(rig.root.join("code"), "255").unwrap();
+    assert_eq!(call(&rig, &["job-run", "nightly", "--host", "laptop"], b"").0, 0);
+    fs::write(rig.root.join("code"), "126").unwrap();
+    let (_, err) = call(&rig, &["claim", "north#63"], b"");
+    assert!(!err.contains("will not run"), "a 126 with no refusal says the host could not run the binary, not that the verb is refused: {err}");
+    assert_eq!(spooled(&rig).len(), 1);
+    fs::write(rig.root.join("code"), "0").unwrap();
+    assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+    assert!(spooled(&rig).is_empty());
+    assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.contains("threads job-run")).count(), 3, "the unreachable send, the 126 that could not run it, and the replay");
 }
 
 #[test]

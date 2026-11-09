@@ -15,7 +15,7 @@ use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 mod process;
 mod spool;
 pub use process::shell_quote;
-use process::{Input, agent_event_checks, code_of, detach, execute, has_usage, python_json};
+use process::{Input, agent_event_checks, code_of, detach, execute, execute_capturing_stderr, has_usage, python_json};
 
 const READS: [&str; 10] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate",
@@ -553,6 +553,36 @@ impl Client {
     }
 
     fn ssh(&self, dest: &str, args: &[String], input: Input, quiet: bool, err: &mut dyn Write) -> NorthResult<i32> {
+        let command = self.remote_command(args);
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
+        let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
+        let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
+        match execute(&argv, input, stdout, wait)? {
+            Some(status) => Ok(code_of(status)),
+            None => {
+                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
+                Ok(TIMED_OUT_STATUS)
+            }
+        }
+    }
+
+    fn ssh_capturing(&self, dest: &str, args: &[String], input: Input, quiet: bool, err: &mut dyn Write) -> NorthResult<(i32, String)> {
+        let command = self.remote_command(args);
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
+        let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
+        let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
+        let (status, stderr) = execute_capturing_stderr(&argv, input, stdout, wait)?;
+        err.write_all(stderr.as_bytes())?;
+        match status {
+            Some(status) => Ok((code_of(status), stderr)),
+            None => {
+                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
+                Ok((TIMED_OUT_STATUS, stderr))
+            }
+        }
+    }
+
+    fn remote_command(&self, args: &[String]) -> String {
         let mut remote = Vec::new();
         if let Some(actor) = self.var("THREADS_ACTOR") {
             remote.push(format!("THREADS_ACTOR={actor}"));
@@ -572,17 +602,7 @@ impl Client {
         }
         remote.extend(["north".to_owned(), "threads".to_owned()]);
         remote.extend(args.iter().cloned());
-        let command = remote.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
-        let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
-        let wait = if first == Some("job-run") { self.record_wait } else { self.ssh_wait };
-        match execute(&argv, input, stdout, wait)? {
-            Some(status) => Ok(code_of(status)),
-            None => {
-                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok(TIMED_OUT_STATUS)
-            }
-        }
+        remote.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ")
     }
 
     fn forward(&self, words: &[&str], input: &[u8], err: &mut dyn Write) -> NorthResult<Option<i32>> {

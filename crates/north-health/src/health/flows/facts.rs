@@ -7,7 +7,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use north_base::agents_sync::UNPUBLISHED;
 use north_base::dispatch_pause::{RECORD, TIMER};
 use north_base::error::NorthResult;
-use north_base::lifecycle::Store;
+use north_base::lifecycle::{Fault, Store};
 use north_pace::usage::profiles;
 
 use super::{Dispatch, Held, HostFacts, Lifecycles};
@@ -116,7 +116,24 @@ fn lifecycles(home: &Path) -> Lifecycles {
             Err(error) => return Lifecycles::Unreadable(error.to_string()),
         }
     }
+    name_spool_verbs(home, &mut faults);
     Lifecycles::Read(faults)
+}
+
+fn name_spool_verbs(home: &Path, faults: &mut [Fault]) {
+    let spool = home.join(".local/state/threads/spool");
+    for fault in faults.iter_mut().filter(|fault| fault.machine == "threads-spool" && fault.state == "refused") {
+        let Some(verb) = spool_verb(&spool.join(&fault.instance)) else { continue };
+        let canonical = format!("the ledger host will not run `{verb}`");
+        if !fault.cause.starts_with(&canonical) {
+            fault.cause = format!("{canonical}: {}", fault.cause);
+        }
+    }
+}
+
+fn spool_verb(path: &Path) -> Option<String> {
+    let argv: Vec<String> = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
+    argv.into_iter().next()
 }
 
 pub fn gather(home: &Path) -> HostFacts {
@@ -134,5 +151,35 @@ pub fn gather(home: &Path) -> HostFacts {
         recording_interval_s: recording_interval(),
         newest_finished: newest_finished(&state.join("fleet")),
         lifecycles: lifecycles(home),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use north_base::lifecycle::FaultKind;
+
+    use super::*;
+
+    fn refused(instance: &str) -> Fault {
+        Fault { machine: "threads-spool".into(), instance: instance.into(), state: "refused".into(), since_ms: 0, kind: FaultKind::Overdue { due_ms: 0 }, cause: "the ledger host exited 126".into() }
+    }
+
+    fn naming(instance: &str, cause: &str) -> Fault {
+        Fault { cause: cause.into(), ..refused(instance) }
+    }
+
+    #[test]
+    fn a_refused_spool_write_names_the_verb_from_its_own_argv_in_the_health_line() {
+        let home = tempfile::tempdir().unwrap();
+        let spool = home.path().join(".local/state/threads/spool");
+        fs::create_dir_all(&spool).unwrap();
+        fs::write(spool.join("a.argv"), r#"["claim", "north#7", "--by", "gex45"]"#).unwrap();
+        fs::write(spool.join("b.argv"), r#"["release", "north#7"]"#).unwrap();
+        let mut faults = vec![refused("a.argv"), refused("b.argv"), refused("gone.argv"), naming("a.argv", "the ledger host will not run `claim`: remote-serve: refused for gex45")];
+        name_spool_verbs(home.path(), &mut faults);
+        assert_eq!(faults[0].cause, "the ledger host will not run `claim`: the ledger host exited 126");
+        assert_eq!(faults[1].cause, "the ledger host will not run `release`: the ledger host exited 126");
+        assert_eq!(faults[2].cause, "the ledger host exited 126", "a record whose write is gone keeps the cause it had");
+        assert_eq!(faults[3].cause, "the ledger host will not run `claim`: remote-serve: refused for gex45", "a cause that already names the verb is not prefixed twice");
     }
 }
