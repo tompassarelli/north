@@ -1,12 +1,14 @@
 //! The lander's own queue: tickets waiting in `land-queue/<origin key>/`, the newest landing it
 //! recorded and the candidate check it is running, read per repository so a stalled lander shows
 //! even when GitHub has nothing pending; a queue holding lanes while origin/main stays unmoved past its limit is stalled.
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
 
-use north_base::land_ticket::{self, Phase};
+use north_base::land_ticket::{self, LandTicket, Phase};
+use north_base::lifecycle::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toml_edit::DocumentMut;
@@ -17,7 +19,6 @@ const OUTBOX: &str = "outbox";
 const HISTORY_S: f64 = 7.0 * 86_400.0;
 const MIN_CHECKS: usize = 5;
 const VERDICT_LINE: &str = "safe-push: verdict ";
-const LANE_GATES: &str = ".lane-gates.log";
 
 pub(super) fn default_number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
@@ -67,6 +68,11 @@ fn finished(path: &Path) -> bool {
     fs::read_to_string(path).is_ok_and(|text| text.lines().any(|line| line.starts_with(VERDICT_LINE)))
 }
 
+fn checking_started_at(store: &Store, queue: &Path) -> Option<f64> {
+    let prefix = land_ticket::instance(queue, OsStr::new(""));
+    store.instances_under::<LandTicket>(&prefix).ok()?.into_iter().filter(|record| record.state == Phase::Checking).map(|record| record.since.unix_seconds_f64()).reduce(f64::min)
+}
+
 fn percentile_90(samples: &mut [f64]) -> Option<f64> {
     if samples.len() < MIN_CHECKS {
         return None;
@@ -93,9 +99,8 @@ pub fn read(directory: &Path, now: f64) -> Facts {
         })
         .filter_map(|path| modified(&path))
         .reduce(f64::max);
-    let mut logs: Vec<(f64, PathBuf)> = listed(&directory.join("logs"), "log").into_iter().filter(|path| !path.to_string_lossy().ends_with(LANE_GATES)).filter_map(|path| Some((started_at(&path)?, path))).collect();
-    logs.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let check_started_at = logs.last().filter(|(_, path)| !finished(path)).map(|(started, _)| *started);
+    let check_started_at = records.as_ref().and_then(|store| checking_started_at(store, directory));
+    let logs: Vec<(f64, PathBuf)> = listed(&directory.join("logs"), "log").into_iter().filter_map(|path| Some((started_at(&path)?, path))).collect();
     let mut durations: Vec<f64> = logs.iter().filter(|(started, path)| now - started <= HISTORY_S && finished(path)).filter_map(|(started, path)| Some(modified(path)? - started)).collect();
     let newest = logs.iter().filter_map(|(_, path)| Some((modified(path)?, path))).max_by(|a, b| a.0.total_cmp(&b.0));
     Facts {
