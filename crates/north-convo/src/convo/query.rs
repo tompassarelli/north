@@ -14,7 +14,7 @@ use super::text::{norm, strip};
 
 pub(super) const CANDIDATES: i64 = 400;
 pub(super) const RELAX_BELOW: usize = 3;
-pub(super) const ROLES: [&str; 5] = ["user", "assistant", "thinking", "tool", "system"];
+pub(super) const ROLES: [&str; 6] = ["user", "sent", "assistant", "thinking", "tool", "system"];
 
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w+").expect("word expression"));
 static TOKENS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""[^"]*"?|[()]|[^\s()"]+"#).expect("token expression"));
@@ -127,7 +127,7 @@ impl Filters {
             filters.add("f.project LIKE ?".to_owned(), [Value::Text(format!("%{project}%"))]);
         }
         if let Some(provider) = &args.provider {
-            filters.add("f.provider = ?".to_owned(), [Value::Text(if provider == "claude" { "anthropic" } else { "openai" }.to_owned())]);
+            filters.add("f.provider = ?".to_owned(), [Value::Text(provider_column(provider).to_owned())]);
         }
         if let Some(since) = &args.since {
             filters.add("m.ts >= ?".to_owned(), [Value::Text(parse_when(since, now)?)]);
@@ -251,10 +251,19 @@ pub(super) struct Info {
     pub provider: String,
 }
 
+fn provider_column(name: &str) -> &'static str {
+    match name {
+        "claude" => "anthropic",
+        "codex" => "openai",
+        _ => "tom",
+    }
+}
+
 pub(super) fn provider_name(provider: Option<String>) -> String {
     match provider.as_deref() {
         Some("anthropic") => "claude".to_owned(),
         Some("openai") => "codex".to_owned(),
+        Some("tom") => "corpus".to_owned(),
         Some(other) => other.to_owned(),
         None => "?".to_owned(),
     }

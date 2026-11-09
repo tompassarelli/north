@@ -10,6 +10,7 @@ use super::failure::Result;
 use super::records::Kind;
 use super::render::Palette;
 
+pub(super) const CLAUDE_IDLE_HOURS: f64 = 30.0 * 24.0;
 const BAND_RATIOS: [(u64, f64); 5] = [(256 << 20, 15.83), (64 << 20, 7.13), (8 << 20, 5.70), (1 << 20, 4.25), (0, 4.00)];
 
 pub(super) fn gib(bytes: u64) -> String {
@@ -19,7 +20,6 @@ pub(super) fn gib(bytes: u64) -> String {
 struct Plan {
     eligible: Vec<(String, super::discover::Stat)>,
     total: usize,
-    index_only: usize,
     skip_open: usize,
     skip_live: usize,
     skip_hot: usize,
@@ -28,15 +28,17 @@ struct Plan {
 
 fn plan(env: &Env, args: &Args, roots: &[super::discover::Root], open: &std::collections::HashSet<String>, roster: &std::collections::HashSet<String>) -> Result<Plan> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64());
-    let cutoff = now - args.older_than * 3600.0;
-    let mut plan = Plan { eligible: Vec::new(), total: 0, index_only: 0, skip_open: 0, skip_live: 0, skip_hot: 0, warm: 0 };
+    let cutoff = |kind| {
+        let hours = if kind == Kind::Claude { args.older_than.max(CLAUDE_IDLE_HOURS) } else { args.older_than };
+        now - hours * 3600.0
+    };
+    let mut plan = Plan { eligible: Vec::new(), total: 0, skip_open: 0, skip_live: 0, skip_hot: 0, warm: 0 };
     let _ = env;
     for found in discover(roots)? {
         if found.disk != found.logical {
             continue;
         }
-        if found.kind == Kind::Claude {
-            plan.index_only += 1;
+        if found.kind == Kind::Corpus {
             continue;
         }
         plan.total += 1;
@@ -45,7 +47,7 @@ fn plan(env: &Env, args: &Args, roots: &[super::discover::Root], open: &std::col
             plan.skip_open += 1;
         } else if roster.iter().any(|id| lower.contains(id)) {
             plan.skip_live += 1;
-        } else if found.stat.mtime_secs() > cutoff {
+        } else if found.stat.mtime_secs() > cutoff(found.kind) {
             plan.skip_hot += 1;
             plan.warm += found.stat.size;
         } else {
@@ -61,12 +63,11 @@ fn plan(env: &Env, args: &Args, roots: &[super::discover::Root], open: &std::col
 
 fn report(io: &mut Console, plan: &Plan, roots: &[super::discover::Root], args: &Args, pal: &Palette, ebytes: u64) -> Result<()> {
     let names: Vec<&str> = roots.iter().map(|root| root.path.as_str()).collect();
-    writeln!(io.out, "corpus     {} uncompressed transcripts under {}{}{}", plan.total, pal.dim, names.join(", "), pal.off)?;
-    writeln!(io.out, "never      {} Claude transcripts (index-only)", plan.index_only)?;
+    writeln!(io.out, "plain      {} uncompressed transcripts under {}{}{}", plan.total, pal.dim, names.join(", "), pal.off)?;
     writeln!(
         io.out,
-        "eligible   {} files  {}  (untouched for {}h, no open fd, not on the roster)",
-        plan.eligible.len(), gib(ebytes), args.older_than
+        "eligible   {} files  {}  (Codex untouched for {}h, Claude for {}h, no open fd, not on the roster)",
+        plan.eligible.len(), gib(ebytes), args.older_than, args.older_than.max(CLAUDE_IDLE_HOURS)
     )?;
     writeln!(
         io.out,

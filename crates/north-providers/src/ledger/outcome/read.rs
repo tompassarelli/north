@@ -27,7 +27,7 @@ impl Places {
         let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
         Self {
             ledger: ledger.to_path_buf(),
-            convo: var("CONVO_STATE").unwrap_or_else(|| state.join("convo")).join("index-v4.db"),
+            convo: var("CONVO_STATE").unwrap_or_else(|| state.join("convo")).join(north_base::foundation::convo_index::FILE),
             grounding: var("NORTH_GROUNDING_STATE").unwrap_or_else(|| state.join("north/grounding")).join("ledger.jsonl"),
             rework: Sources::live(),
         }
@@ -98,7 +98,7 @@ pub fn alerts(path: &Path, since: i64) -> rusqlite::Result<Vec<(String, i64, Str
     let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
     let mut statement = db.prepare(
         "SELECT coalesce(f.session_id, f.path), m.ts, b.text FROM files f JOIN msg m ON m.file_id = f.id JOIN body b ON b.id = m.body \
-         WHERE f.agent IS NULL AND f.last_ts >= ?1 AND m.role = 'user' AND m.tool IS NULL AND m.dup = 0 ORDER BY f.id, m.line",
+         WHERE f.agent IS NULL AND f.last_ts >= ?1 AND m.role IN ('user', 'sent') AND m.tool IS NULL AND m.dup = 0 ORDER BY f.id, m.line",
     )?;
     let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, seconds(row.get(1)?), row.get::<_, String>(2)?)))?;
     Ok(rows.filter_map(Result::ok).filter(|(_, _, text)| detector(text)).filter_map(|(session, at, text)| Some((session, at?, text))).collect())

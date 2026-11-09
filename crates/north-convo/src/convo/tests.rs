@@ -33,6 +33,7 @@ impl Lab {
             codex_home: None,
             pooled_home: None,
             claude_config: None,
+            corpus: dir.path().join("tom-corpus"),
             self_ids: Vec::new(),
             lock_wait: Duration::from_millis(100),
         };
@@ -207,20 +208,56 @@ fn compression_holds_back_open_warm_and_rostered_files_and_restores_byte_for_byt
 }
 
 #[test]
-fn compression_never_touches_claude_transcripts() {
+fn a_claude_transcript_idle_30_days_is_compressed_and_still_found() {
     assert!(zstd_available(), "the compression test needs zstd on PATH");
     let mut lab = Lab::new();
     demo(&lab);
     let roster = lab.root.join("roster.json");
     fs::write(&roster, r#"{"version":"north:agent-roster:v1","agents":[]}"#).unwrap();
     lab.env.roster_cmd = Some(format!("cat {}", roster.display()));
-    let transcript = lab.root.join(format!("anthropic/acct/projects/-synthetic-claude/{CSID}.jsonl"));
-    let before = fs::read(&transcript).unwrap();
-    let old = std::time::SystemTime::now() - Duration::from_secs(3 * 86400);
-    File::options().write(true).open(&transcript).unwrap().set_modified(old).unwrap();
-    has(&lab.out(&["compress"]), "never      2 Claude");
-    assert!(!transcript.with_extension("jsonl.zst").exists());
-    assert_eq!(fs::read(&transcript).unwrap(), before);
+    let project = lab.root.join("anthropic/acct/projects/-synthetic-claude");
+    let idle = project.join(format!("{CSID}.jsonl"));
+    let recent = project.join(CSID).join("subagents/agent-a1.jsonl");
+    let before = fs::read(&idle).unwrap();
+    let age = |path: &Path, days: u64| File::options().write(true).open(path).unwrap().set_modified(std::time::SystemTime::now() - Duration::from_secs(days * 86400)).unwrap();
+    age(&idle, 31);
+    age(&recent, 29);
+    lab.run(&["compress", "-q"]);
+    let archive = project.join(format!("{CSID}.jsonl.zst"));
+    assert!(archive.exists() && !idle.exists(), "a Claude transcript idle 31 days stayed plain");
+    assert!(recent.exists() && !recent.with_extension("jsonl.zst").exists(), "a Claude transcript idle 29 days was compressed");
+    assert_eq!(Command::new("zstd").args(["-dcq"]).arg(&archive).output().unwrap().stdout, before);
+    has(&lab.out(&["PELICANGATE", "-m", "--json"]), &format!("{CSID}.jsonl\""));
+    has(&lab.index(), "from 0 changed files");
+    has(&lab.out(&["HERONLOOP", "-m"]), "HERONLOOP");
+}
+
+#[test]
+fn the_tom_corpus_holds_every_typed_message_and_no_agent_text() {
+    let lab = Lab::new();
+    demo_claude(&lab);
+    let fleet = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    let sdk = |text: &str, prompt: u64| json!({"type": "user", "sessionId": fleet, "cwd": "/synthetic/fleet", "timestamp": format!("2026-08-09T10:0{prompt}:00Z"), "promptSource": "sdk", "turnPosition": {"promptIndex": prompt}, "message": {"role": "user", "content": text}}).to_string();
+    write(
+        &lab.root.join(format!("anthropic/acct/projects/-synthetic-fleet/{fleet}.jsonl")),
+        &[sdk("LAUNCHBRIEFTOKEN from the proxy", 0), sdk("[from lead] FROMLEADTOKEN", 1), sdk("TOMFLEETTOKEN typed in the fleet view", 2)],
+    );
+    write(&lab.env.corpus.join("codex.jsonl"), &[json!({"session_id": SID, "timestamp": "2026-08-01T10:00:00Z", "cwd": "/synthetic/demo", "text": "CODEXTYPEDTOKEN kept after its rollout was deleted"}).to_string()]);
+    lab.index();
+    has(&lab.out(&["corpus"]), "corpus     2 typed messages added");
+    let kept = fs::read_to_string(lab.env.corpus.join("claude.jsonl")).unwrap();
+    for typed in ["please check PELICANGATE status", "TOMFLEETTOKEN"] {
+        has(&kept, typed);
+    }
+    for agent in ["PELICANGATE is open", "PELICANTHINK", "CLAUDETOOLRESULT", "task-notification", "HERONLOOP", "LAUNCHBRIEFTOKEN", "FROMLEADTOKEN", "machine-capacity"] {
+        hasnt(&kept, agent);
+    }
+    has(&kept, &format!(r#""session":"{CSID}""#));
+    has(&lab.out(&["corpus"]), "corpus     0 typed messages added");
+    assert_eq!(fs::read_to_string(lab.env.corpus.join("claude.jsonl")).unwrap(), kept);
+    has(&lab.out(&["CODEXTYPEDTOKEN", "-m", "--json"]), "codex.jsonl\"");
+    has(&lab.out(&["LAUNCHBRIEFTOKEN", "-m", "-r", "sent"]), "LAUNCHBRIEFTOKEN");
+    assert_eq!(lab.run(&["-r", "user", "LAUNCHBRIEFTOKEN"]).0, 1, "a launch brief counted as typed");
 }
 
 #[test]

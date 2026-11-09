@@ -4,7 +4,7 @@ use regex::Regex;
 use regex::bytes::Regex as ByteRegex;
 
 use super::json::{Json, dumps};
-use super::text::{clip, short_lower};
+use super::text::{clip, short_lower, strip};
 
 const TOOL_KEYS: [&str; 13] = [
     "skill", "command", "cmd", "file_path", "path", "pattern", "query", "prompt", "description", "old_string", "new_string", "url", "content",
@@ -15,6 +15,7 @@ const INJECTED: [&str; 10] = [
     "[system notification",
 ];
 const PING: &str = "[north real-time ping";
+const SENT: [&str; 3] = ["[from ", "[gate ", "[urgent message"];
 
 static TAG: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -62,12 +63,28 @@ impl Meta {
 pub(super) enum Kind {
     Claude,
     Codex,
+    Corpus,
 }
 
 pub(super) fn speaker(role: &str, text: &str) -> String {
     let head = short_lower(text, 80);
     let injected = TAG.is_match(text) || head.starts_with(PING) || INJECTED.iter().any(|prefix| head.starts_with(prefix));
-    (if role == "user" && injected { "system" } else { role }).to_owned()
+    let sent = SENT.iter().any(|prefix| strip(text).starts_with(prefix));
+    (if role != "user" {
+        role
+    } else if injected {
+        "system"
+    } else if sent {
+        "sent"
+    } else {
+        role
+    })
+    .to_owned()
+}
+
+fn launch_brief(record: &Json, opening: bool) -> bool {
+    let human = record.get("origin").and_then(|origin| origin.text_of("kind")) == Some("human");
+    opening && !human && record.text_of("promptSource") == Some("sdk")
 }
 
 pub(super) fn tool_text(name: &str, args: Option<&Json>) -> String {
@@ -112,7 +129,7 @@ fn typed_mid_turn(record: &Json) -> Option<Message> {
     (!text.is_empty()).then(|| Message { role: speaker("user", &text), text, tool: None })
 }
 
-pub(super) fn extract_claude(record: &Json) -> (Vec<Message>, Meta) {
+pub(super) fn extract_claude(record: &Json, opening: bool) -> (Vec<Message>, Meta) {
     let mut meta = claude_meta(record);
     let kind = record.text_of("type").unwrap_or("");
     if kind == "ai-title" {
@@ -131,6 +148,7 @@ pub(super) fn extract_claude(record: &Json) -> (Vec<Message>, Meta) {
     let content = message.get("content");
     let single = [Json::Object(vec![("type".to_owned(), Json::Text("text".to_owned())), ("text".to_owned(), content.and_then(Json::text).map_or(Json::Null, |t| Json::Text(t.to_owned())))])];
     let blocks = if content.and_then(Json::text).is_some() { &single[..] } else { content.map_or(&[][..], Json::items) };
+    let brief = kind == "user" && launch_brief(record, opening);
     let injected = kind == "user" && (record.get("isMeta").is_some_and(Json::truthy) || record.get("isCompactSummary").is_some_and(Json::truthy));
     let mut out = Vec::new();
     for block in blocks.iter().filter(|block| block.is_object()) {
@@ -144,7 +162,11 @@ pub(super) fn extract_claude(record: &Json) -> (Vec<Message>, Meta) {
             _ => continue,
         };
         if !text.is_empty() {
-            let role = if injected { "system".to_owned() } else { speaker(&role, &text) };
+            let role = match speaker(&role, &text) {
+                _ if injected => "system".to_owned(),
+                role if brief && role == "user" => "sent".to_owned(),
+                role => role,
+            };
             out.push(Message { role, text, tool });
         }
     }
@@ -213,8 +235,16 @@ fn codex_items(payload: &Json) -> Vec<Message> {
     }
 }
 
+const CORPUS_TEXT: [&str; 4] = ["text", "message", "prompt", "content"];
+
+pub(super) fn extract_corpus(record: &Json) -> Vec<Message> {
+    let text = clip(CORPUS_TEXT.iter().find_map(|key| record.text_of(key).filter(|value| !value.is_empty())).unwrap_or(""));
+    (!text.is_empty()).then(|| Message { role: "user".to_owned(), text, tool: None }).into_iter().collect()
+}
+
 pub(super) fn wanted(kind: Kind, line: &[u8]) -> bool {
     match kind {
+        Kind::Corpus => true,
         Kind::Codex => {
             let head = &line[..line.len().min(200)];
             head.windows(13).any(|window| window == b"response_item") || head.windows(12).any(|window| window == b"session_meta")

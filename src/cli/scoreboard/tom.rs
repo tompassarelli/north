@@ -73,7 +73,7 @@ fn conversation_turns(db: &Connection, path: &str, typed: &BTreeMap<i64, i64>) -
     for row in rows {
         let (id, line, at, role, tool, text) = row?;
         match (role.as_deref(), tool) {
-            (Some("user"), None) => {
+            (Some("user" | "sent"), None) => {
                 if let Some(open) = turns.last_mut() {
                     open.end_line = Some(line);
                     open.recommends = recommends(&reply);

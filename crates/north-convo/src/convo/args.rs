@@ -1,16 +1,16 @@
-pub(super) const COMMANDS: [&str; 7] = ["search", "show", "session", "status", "index", "compress", "restore"];
+pub(super) const COMMANDS: [&str; 8] = ["search", "show", "session", "status", "index", "compress", "restore", "corpus"];
 const CLOSED_AFTER_HOURS: f64 = 48.0;
 
 const VALUE_OPTIONS: [&str; 16] = [
     "-n", "--limit", "-p", "--project", "-r", "--role", "-t", "--tool", "--since", "--until", "-s", "--session", "--provider", "--color", "-C", "--older-than",
 ];
 
-pub(super) const HELP: &str = "usage: north convo [-h] [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider {claude,codex}]
+pub(super) const HELP: &str = "usage: north convo [-h] [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider {claude,codex,corpus}]
              [--since WHEN] [--until WHEN] [-m] [-n LIMIT] [--full] [-C N] [--json] [-u] [-q] [-v]
              [--color {auto,always,never}] [--dry-run] [--older-than HOURS] [--max-files N]
              [query ...]
 
-find past agent work across Claude Code and Codex transcripts
+find past agent work across Claude Code transcripts and the Tom corpus
 
 positional arguments:
   query                 search terms, or the id for show/session
@@ -18,11 +18,13 @@ positional arguments:
 options:
   -x, --exact           literal string
   -a, --all-terms       no partial-match fallback
-  -r, --role ROLE       user|assistant|thinking|tool|system, comma-separated
+  -r, --role ROLE       user|sent|assistant|thinking|tool|system, comma-separated
+                        (user: typed by a person; sent: a prompt an agent or
+                        service delivered, such as a launch brief or [from X])
   -t, --tool NAME       tool calls of one tool (Bash, Skill…)
   -p, --project NAME    project name substring
   -s, --session ID      session or subagent id prefix
-  --provider {claude,codex}
+  --provider {claude,codex,corpus}
   --since WHEN          12h, 3d, 2w, 6m, 1y or YYYY-MM-DD
   --until WHEN          same forms as --since
   -m, --messages        list messages, not sessions
@@ -35,7 +37,8 @@ options:
   -v, --verbose
   --color {auto,always,never}
   --dry-run             compress: report only
-  --older-than HOURS    compress: only transcripts untouched this long
+  --older-than HOURS    compress: only Codex transcripts untouched this long;
+                        Claude transcripts wait at least 30 days
   --max-files N         compress: only the N largest eligible files
 
 commands:
@@ -43,6 +46,8 @@ commands:
   north convo show ID…        one message in full, with -C neighbours
   north convo session ID      a session's transcripts, its first ask, and mentions
   north convo status | index [--full] | compress [--dry-run] | restore FILE…
+  north convo corpus           append Claude messages typed by a person to the
+                               Tom corpus (~/code/north-data/tom-corpus) and index it
 
 query:
   words must all appear in one message; a token with punctuation
@@ -139,7 +144,7 @@ fn set(args: &mut Args, flag: &str, value: String) -> Result<(), String> {
         "-t" | "--tool" => args.tool = Some(value),
         "-p" | "--project" => args.project = Some(value),
         "-s" | "--session" => args.session = Some(value),
-        "--provider" => args.provider = Some(choice(flag, value, &["claude", "codex"])?),
+        "--provider" => args.provider = Some(choice(flag, value, &["claude", "codex", "corpus"])?),
         "--since" => args.since = Some(value),
         "--until" => args.until = Some(value),
         "-n" | "--limit" => args.limit = number(flag, &value)?,

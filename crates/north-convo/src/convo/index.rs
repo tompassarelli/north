@@ -14,7 +14,7 @@ use super::env::Env;
 use super::failure::Result;
 use super::json::Json;
 use super::lines::{CHUNK, HEAD_BYTES, LINE_CAP, Source, head_hash, scan_lines};
-use super::records::{Kind, Meta, extract_claude, extract_codex, wanted};
+use super::records::{Kind, Meta, extract_claude, extract_codex, extract_corpus, wanted};
 
 const BATCH: usize = 5000;
 
@@ -220,7 +220,8 @@ fn read_file(at: &mut Reading, item: &Item) -> Result<usize> {
         Some(row) => (row.id, row.off as u64, row.nline),
     };
     let Ok(mut source) = Source::open(&at.env.zstd, &found.disk, start) else { return Ok(0) };
-    let mut state = Scan { meta: Meta::default(), pending: Vec::new(), added: 0, first_ts: None, last_ts: None, off: start };
+    let prompted = start > 0 && prompted(at.con, file)?;
+    let mut state = Scan { meta: Meta::default(), pending: Vec::new(), added: 0, first_ts: None, last_ts: None, off: start, prompted };
     let outcome = scan_lines(&mut source, start, CHUNK, LINE_CAP, |from, end, line| {
         line_no += 1;
         state.off = end;
@@ -267,14 +268,20 @@ struct Scan {
     first_ts: Option<String>,
     last_ts: Option<String>,
     off: u64,
+    prompted: bool,
 }
 
 impl Scan {
     fn take(&mut self, kind: Kind, line: &[u8], line_no: i64) {
         let Some(record) = Json::parse(line).filter(Json::is_object) else { return };
-        let (messages, meta) = if kind == Kind::Claude { extract_claude(&record) } else { extract_codex(&record) };
+        let (messages, meta) = match kind {
+            Kind::Claude => extract_claude(&record, !self.prompted),
+            Kind::Codex => extract_codex(&record),
+            Kind::Corpus => (extract_corpus(&record), Meta::default()),
+        };
+        self.prompted |= messages.iter().any(|message| message.role == "user" || message.role == "sent");
         self.meta.merge(meta);
-        let ts = record.text_of("timestamp").map(str::to_owned);
+        let ts = record.text_of("timestamp").or_else(|| record.text_of("ts")).map(str::to_owned);
         if let Some(ts) = &ts {
             self.first_ts.get_or_insert_with(|| ts.clone());
             self.last_ts = Some(ts.clone());
@@ -295,6 +302,10 @@ impl Scan {
         at.con.execute_batch("COMMIT; BEGIN")?;
         Ok(())
     }
+}
+
+fn prompted(con: &Connection, file: i64) -> Result<bool> {
+    Ok(con.query_row("SELECT 1 FROM msg WHERE file_id = ? AND role IN ('user', 'sent') LIMIT 1", [file], |_| Ok(())).optional()?.is_some())
 }
 
 fn first_free_id(con: &Connection) -> Result<i64> {

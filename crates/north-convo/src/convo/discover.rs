@@ -65,7 +65,7 @@ type Candidate<'a> = (Option<String>, &'a str, &'a str, &'static str, bool, &'a 
 pub(super) fn transcript_roots(env: &Env) -> Result<Vec<Root>> {
     let local = |path: &str| env.home.join(path).to_string_lossy().into_owned();
     let candidates: Vec<Candidate> = if env.root_pinned {
-        vec![(Some(display(&env.root)), "", "", "accounts", true, "CONVO_ROOT")]
+        vec![(Some(display(&env.root)), "", "", "accounts", true, "CONVO_ROOT"), (Some(display(&env.corpus)), "tom", "corpus", "corpus", false, "Tom corpus")]
     } else {
         vec![
             (Some(display(&env.root)), "", "", "accounts", false, "account transcript root"),
@@ -75,6 +75,7 @@ pub(super) fn transcript_roots(env: &Env) -> Result<Vec<Root>> {
             (Some(local(".local/state/north/profiles")), "anthropic", "", "profiles", false, "north account profiles root"),
             (env.claude_config.as_ref().map(|dir| format!("{dir}/projects")), "anthropic", "local", "claude", env.claude_config.is_some(), "CLAUDE_CONFIG_DIR projects"),
             (Some(local(".claude/projects")), "anthropic", "local", "claude", false, "Claude Code projects root"),
+            (Some(display(&env.corpus)), "tom", "corpus", "corpus", false, "Tom corpus"),
         ]
     };
     let mut roots: Vec<Root> = Vec::new();
@@ -154,6 +155,7 @@ fn trees(root: &Root) -> Result<Vec<(String, String, String, Kind)>> {
     let tree = |provider: &str, account: &str, base: String, kind| (provider.to_owned(), account.to_owned(), base, kind);
     match root.layout {
         "claude" => Ok(vec![tree(&root.provider, &root.account, root.path.clone(), Kind::Claude)]),
+        "corpus" => Ok(vec![tree(&root.provider, &root.account, root.path.clone(), Kind::Corpus)]),
         "profiles" => {
             let top = Path::new(&root.path);
             let mut out = Vec::new();

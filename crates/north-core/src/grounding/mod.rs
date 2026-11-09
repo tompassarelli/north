@@ -52,7 +52,7 @@ fn handoffs_dir() -> PathBuf {
 fn convo_path() -> PathBuf {
     env_path(
         "NORTH_GROUNDING_CONVO_DB",
-        home().join(".local/state/convo/index-v4.db"),
+        north_base::foundation::convo_index::default_path(&home()),
     )
 }
 fn s(v: &Value, key: &str) -> String {

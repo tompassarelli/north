@@ -3,6 +3,7 @@ mod args;
 mod blake;
 mod commands;
 mod compress;
+mod corpus;
 mod db;
 pub(crate) mod discover;
 mod env;
@@ -67,8 +68,12 @@ fn dispatch(env: &Env, io: &mut Console, args: &Args, pal: &Palette) -> Result<u
         write!(io.out, "{}", args::HELP)?;
         return Ok(0);
     }
+    if args.command != "restore" {
+        upgrade(env, io)?;
+    }
     match args.command.as_str() {
         "restore" => compress::restore(env, io, args),
+        "corpus" => corpus::corpus(env, io, args),
         "compress" => {
             if !(args.dry_run || args.no_update) && env.db().exists() {
                 index::refresh(env, args.quiet, false, env.lock_wait, false)?;
@@ -78,6 +83,27 @@ fn dispatch(env: &Env, io: &mut Console, args: &Args, pal: &Palette) -> Result<u
         "index" => rebuild(env, io, args),
         _ => query(env, io, args, pal),
     }
+}
+
+fn upgrade(env: &Env, io: &mut Console) -> Result<()> {
+    if env.db().exists() {
+        return Ok(());
+    }
+    let current = north_base::foundation::convo_index::FILE;
+    let Ok(entries) = std::fs::read_dir(&env.state) else { return Ok(()) };
+    let older: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("index-v") && !name.starts_with(current)))
+        .collect();
+    if older.is_empty() {
+        return Ok(());
+    }
+    writeln!(io.err, "convo: the index schema changed; rebuilding it once from every transcript")?;
+    if index::refresh(env, true, false, env.lock_wait, false)?.is_some() {
+        older.iter().for_each(|path| drop(std::fs::remove_file(path)));
+    }
+    Ok(())
 }
 
 fn rebuild(env: &Env, io: &mut Console, args: &Args) -> Result<u8> {

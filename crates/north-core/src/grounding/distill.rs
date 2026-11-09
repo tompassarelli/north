@@ -125,7 +125,7 @@ fn paths() -> Paths {
     let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
     let state = state_dir();
     Paths {
-        db: env::var_os("NORTH_GROUNDING_CONVO_DB").map(PathBuf::from).unwrap_or_else(|| home.join(".local/state/convo/index-v4.db")),
+        db: env::var_os("NORTH_GROUNDING_CONVO_DB").map(PathBuf::from).unwrap_or_else(|| north_base::foundation::convo_index::default_path(&home)),
         handoffs: env::var_os("NORTH_GROUNDING_HANDOFFS").map(PathBuf::from).unwrap_or_else(|| home.join(".local/state/agents/handoffs")),
         ledger: env::var_os("NORTH_GROUNDING_LEDGER").map(PathBuf::from).unwrap_or_else(|| state.join("ledger.jsonl")),
         watermark: state.join("distill-state.json"),

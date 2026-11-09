@@ -237,7 +237,7 @@ fn utf16_head(s: &str, units: usize) -> String {
 
 fn convo_db() -> PathBuf {
     env::var_os("NORTH_GROUNDING_CONVO_DB").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".local/state/convo/index-v4.db")
+        north_base::foundation::convo_index::default_path(&PathBuf::from(env::var_os("HOME").unwrap_or_default()))
     })
 }
 

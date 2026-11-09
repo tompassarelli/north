@@ -2,6 +2,7 @@ pub mod activation;
 pub mod check_lane;
 pub mod check_log;
 pub mod clock;
+pub mod convo_index;
 pub mod exit;
 pub mod hook_deadline;
 pub mod offload;

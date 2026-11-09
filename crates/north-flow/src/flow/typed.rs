@@ -71,9 +71,9 @@ type TextsByFile = BTreeMap<String, BTreeMap<i64, Indexed>>;
 fn indexed_texts(index: &Path, start: &str, end: &str) -> rusqlite::Result<TextsByFile> {
     let db = Connection::open_with_flags(index, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut query = db.prepare(
-        "SELECT f.path,f.cwd,m.line,m.id,m.ts,b.text,m.line=(SELECT MIN(first.line) FROM msg first WHERE first.file_id=f.id AND first.role='user' AND first.tool IS NULL AND first.dup=0) \
+        "SELECT f.path,f.cwd,m.line,m.id,m.ts,b.text,m.line=(SELECT MIN(first.line) FROM msg first WHERE first.file_id=f.id AND first.role IN ('user','sent') AND first.tool IS NULL AND first.dup=0) \
          FROM files f JOIN msg m INDEXED BY msg_file ON m.file_id=f.id JOIN body b ON b.id=m.body \
-         WHERE f.provider='anthropic' AND f.agent IS NULL AND m.role='user' AND m.tool IS NULL AND m.dup=0 AND m.ts>=?1 AND m.ts<=?2",
+         WHERE f.provider='anthropic' AND f.agent IS NULL AND m.role IN ('user','sent') AND m.tool IS NULL AND m.dup=0 AND m.ts>=?1 AND m.ts<=?2",
     )?;
     let mut grouped: TextsByFile = BTreeMap::new();
     let rows = query.query_map((start, end), |row| {
