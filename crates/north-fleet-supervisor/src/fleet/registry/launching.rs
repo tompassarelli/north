@@ -126,11 +126,7 @@ impl Fleet {
         let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| stopped_on_limit(&transcript, !session_running(&record) && !record.ended()));
         let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
         let Some(onto) = onto else {
-            let revived = {
-                let _start = self.start_lock(name)?;
-                self.revive_held(name, system_prompt, placement, effort)?
-            };
-            let _ = self.waits().clear_usage(name);
+            let revived = self.wake_placed(name, system_prompt, placement, effort)?;
             if on_limit {
                 self.carry_on(name, "this session was revived after its usage limit ended its turn")?;
             }
@@ -151,6 +147,20 @@ impl Fleet {
         } else if on_limit {
             self.carry_on(name, &format!("this session was moved onto account {} after its usage limit ended its turn", onto.label))?;
         }
+        Ok(revived)
+    }
+
+    /// Revives `name` for a message the caller hands it next, so it sends no carry-on of its own beside that message.
+    pub(super) fn wake(&self, name: &str) -> NorthResult<SessionRecord> {
+        self.wake_placed(name, None, None, None)
+    }
+
+    fn wake_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {
+        let revived = {
+            let _start = self.start_lock(name)?;
+            self.revive_held(name, system_prompt, placement, effort)?
+        };
+        let _ = self.waits().clear_usage(name);
         Ok(revived)
     }
 

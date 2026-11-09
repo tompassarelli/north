@@ -1,6 +1,10 @@
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use north_session_host::row_delivery::{Phase, RowDelivery, instance};
 use rustix::fs::{FlockOperation, flock};
@@ -13,6 +17,22 @@ use crate::fleet::unaccepted::Unaccepted;
 use super::Fleet;
 
 const LOCK: &str = ".delivery.lock";
+const LOCK_WAIT: Duration = Duration::from_secs(2);
+
+thread_local! {
+    static HELD: RefCell<BTreeSet<PathBuf>> = const { RefCell::new(BTreeSet::new()) };
+}
+
+/// A session's delivery lock; a hand-in nested in one this thread already holds, such as a revive's carry-on, shares it rather than waiting on itself.
+struct DeliveryLock(Option<(PathBuf, File)>);
+
+impl Drop for DeliveryLock {
+    fn drop(&mut self) {
+        if let Some((path, _)) = &self.0 {
+            HELD.with_borrow_mut(|held| held.remove(path));
+        }
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum HandedIn {
@@ -68,10 +88,24 @@ impl Fleet {
         Ok(HandedIn::Delivered)
     }
 
-    fn delivery_lock(&self, name: &str) -> NorthResult<File> {
-        let lock = OpenOptions::new().create(true).append(true).open(self.session_dir(name)?.join(LOCK))?;
-        flock(&lock, FlockOperation::LockExclusive).map_err(|error| NorthError::State(format!("{name} delivery lock: {error}")))?;
-        Ok(lock)
+    fn delivery_lock(&self, name: &str) -> NorthResult<DeliveryLock> {
+        let path = self.session_dir(name)?.join(LOCK);
+        if HELD.with_borrow(|held| held.contains(&path)) {
+            return Ok(DeliveryLock(None));
+        }
+        let lock = OpenOptions::new().create(true).append(true).open(&path)?;
+        let started = Instant::now();
+        loop {
+            match flock(&lock, FlockOperation::NonBlockingLockExclusive) {
+                Ok(()) => {
+                    HELD.with_borrow_mut(|held| held.insert(path.clone()));
+                    return Ok(DeliveryLock(Some((path, lock))));
+                }
+                Err(rustix::io::Errno::WOULDBLOCK) if started.elapsed() < LOCK_WAIT => thread::sleep(Duration::from_millis(10)),
+                Err(rustix::io::Errno::WOULDBLOCK) => return Err(NorthError::State(format!("{name} delivery lock is still held after {} s by another delivery, so the row waits for the next tick", LOCK_WAIT.as_secs()))),
+                Err(error) => return Err(NorthError::State(format!("{name} delivery lock: {error}"))),
+            }
+        }
     }
 
     fn deliver(&self, row: &FleetRow) -> NorthResult<()> {

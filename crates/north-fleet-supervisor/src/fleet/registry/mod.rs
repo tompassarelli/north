@@ -196,11 +196,11 @@ impl Fleet {
         if held.adopted() {
             return self.tell_window(&held, text);
         }
-        let record = self.revive(name, None)?;
+        let record = self.wake(name)?;
         match self.prompt_live(&record, id, text, delivery) {
             Err(_) if Host::new(record.host_dir.clone()).closed() => {
                 Host::new(record.host_dir.clone()).await_end()?;
-                self.prompt_live(&self.revive(name, None)?, id, text, delivery)
+                self.prompt_live(&self.wake(name)?, id, text, delivery)
             }
             sent => sent,
         }

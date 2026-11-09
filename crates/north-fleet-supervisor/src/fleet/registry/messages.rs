@@ -191,4 +191,50 @@ mod tests {
         let log = std::fs::read_to_string(fleet.root.join(".dead-letters.jsonl")).unwrap();
         assert_eq!(log.lines().count(), 1, "{log}");
     }
+
+    // KEEP(bug): on 2026-11-09 the fleet tick hung at its first hand-in until systemd killed it, run after run: a revive inside a hand-in sent its carry-on through a second hand-in, which waited forever on the delivery lock the first held (north#637)
+    #[test]
+    fn a_hand_in_nested_in_another_to_the_same_session_is_delivered_instead_of_waiting_on_its_lock() {
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let home = tempfile::tempdir().unwrap();
+            let fleet = fleet(home.path());
+            let worker = live(&fleet, "worker");
+            let row = fleet.spool_message(&Sender::Tom, "worker", "outer", Delivery::Queued).unwrap();
+            let handed = fleet.journaled(&row, || fleet.send_signed(&Sender::fleet(), "worker", "nested", Delivery::Queued));
+            done.send((handed.map_err(|error| error.user_message()), worker.frames.lock().unwrap().clone())).unwrap();
+        });
+        let (handed, frames) = finished.recv_timeout(std::time::Duration::from_secs(20)).expect("the nested hand-in waited on its own delivery lock");
+        assert_eq!(handed, Ok(HandedIn::Delivered));
+        assert!(frames.iter().any(|frame| frame.contains("nested")), "{frames:?}");
+    }
+
+    // KEEP(bug): the fleet tick's wait on a session's delivery lock had no bound, so one delivery that never let go held every tick past systemd's 50 s start timeout (north#637)
+    #[test]
+    fn a_hand_in_gives_up_on_a_delivery_lock_another_holds_and_leaves_the_row_for_the_next_tick() {
+        let home = tempfile::tempdir().unwrap();
+        let laptop = fleet(home.path());
+        let _worker = live(&laptop, "worker");
+        let outer = laptop.spool_message(&Sender::Tom, "worker", "outer", Delivery::Queued).unwrap();
+        laptop.journaled(&outer, || laptop.send_signed(&Sender::fleet(), "worker", "nested", Delivery::Queued)).unwrap();
+        let ((held, holding), (release, released)) = (std::sync::mpsc::channel(), std::sync::mpsc::channel::<()>());
+        let root = home.path().to_owned();
+        let holder = std::thread::spawn(move || {
+            let other = fleet(&root);
+            let row = other.spool_message(&Sender::Tom, "worker", "held", Delivery::Queued).unwrap();
+            other.journaled(&row, || {
+                held.send(()).unwrap();
+                released.recv().unwrap();
+                Ok(())
+            })
+            .unwrap();
+        });
+        holding.recv().unwrap();
+        let row = laptop.spool_message(&Sender::Tom, "worker", "late", Delivery::Queued).unwrap();
+        let handed = laptop.hand_in(&row);
+        release.send(()).unwrap();
+        holder.join().unwrap();
+
+        assert!(handed.is_err(), "{handed:?}");
+    }
 }

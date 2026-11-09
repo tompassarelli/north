@@ -61,7 +61,7 @@ impl Fleet {
     }
 
     pub fn ask(&self, from: &Sender, name: &str, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
-        let record = self.revive(name, None)?;
+        let record = self.wake(name)?;
         let asked_from = stream_len(&record.host_dir);
         self.send_signed(from, name, question, Delivery::Now)?;
         await_reply(self.runtime(&record)?.as_ref(), &record, asked_from, question, timeout)

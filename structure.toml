@@ -1019,6 +1019,11 @@ reason = "Activity, the prompt counter and the frame watcher are shared between 
 
 [[rust_habits.allow]]
 rule = "shared-mutability"
+path = "crates/north-fleet-supervisor/src/fleet/registry/hand_in.rs"
+reason = "A thread's held delivery locks, so a hand-in nested in one it already holds, such as a revive's carry-on, shares the lock instead of flocking the same file again and waiting on itself; the guard cannot be passed down the prompt, revive and send chain between them (north#637)."
+
+[[rust_habits.allow]]
+rule = "shared-mutability"
 path = "crates/north-flow/src/flow/jobs.rs"
 reason = "Memo of fetched run jobs behind a &self read API; candidate for &mut self."
 
