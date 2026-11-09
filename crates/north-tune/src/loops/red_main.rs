@@ -9,6 +9,7 @@ const SHORT: usize = 12;
 const UNJUDGED: [&str; 3] = ["cancelled", "skipped", "neutral"];
 const MAIN_RED: &str = "north main is red";
 const RUNS: &str = "north/watch/runs-north.json";
+const UNKNOWN_START_REACH: u64 = 24 * 3600;
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Red {
@@ -45,7 +46,7 @@ pub(super) fn unwatched(runs: &str, began: u64, now: u64, named: &dyn Fn(&str) -
                 open.shas.push(sha.clone());
             }
         } else {
-            let from = if index == 0 { oldest } else { watch_named::run_time(created).unwrap_or(*finished) };
+            let from = if index == 0 { oldest.saturating_sub(UNKNOWN_START_REACH) } else { watch_named::run_time(created).unwrap_or(*finished) };
             reds.push(Red { shas: vec![sha.clone()], since: *finished, seconds: now.saturating_sub(*finished), from });
             red_run = true;
         }

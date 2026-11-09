@@ -29,8 +29,8 @@ fn a_main_red_whose_first_run_aged_out_is_covered_by_an_alert_recorded_while_it_
     let began = 1_700_000_000;
     let now = 1_794_000_000;
     let aged = history(&[run("aaaaaaaaaaaaaaaa", 40, false), run("bbbbbbbbbbbbbbbb", 55, true)]);
-    let oldest = watch_named::run_time("2026-11-06T06:40:00Z").unwrap();
-    let until = watch_named::run_time("2026-11-06T06:55:30Z").unwrap();
-    assert!(unwatched(&aged, began, now, &|_| false, &|from, to| from <= oldest && oldest < to && to == until, &|_| false).unwrap().is_empty(), "an alert recorded inside the interval covers it though no sha in the run list was named");
+    let before_oldest = watch_named::run_time("2026-11-06T06:16:02Z").unwrap();
+    let alert_at = |at: u64| move |from: u64, to: u64| (from..=to).contains(&at);
+    assert!(unwatched(&aged, began, now, &|_| false, &alert_at(before_oldest), &|_| false).unwrap().is_empty(), "an alert recorded before the oldest run in the list covers an interval that began there, whose real start is earlier");
     assert_eq!(unwatched(&aged, began, now, &|_| false, &|_, _| false, &|_| false).unwrap().len(), 1, "no alert during the interval leaves it unwatched");
 }
