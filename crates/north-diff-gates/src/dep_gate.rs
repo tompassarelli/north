@@ -29,6 +29,7 @@ struct LockCandidate {
     name: String,
     version: String,
     published: Option<f64>,
+    owner: Option<String>,
 }
 
 impl LockCandidate {
@@ -699,6 +700,61 @@ fn first_party_flake(locked: &Value) -> bool {
     )
 }
 
+fn github_owner(location: &str) -> Option<String> {
+    let path = [
+        "git+https://github.com/",
+        "git+ssh://git@github.com/",
+        "https://github.com/",
+        "http://github.com/",
+        "ssh://git@github.com/",
+        "git@github.com:",
+    ]
+    .iter()
+    .find_map(|prefix| location.strip_prefix(prefix))?;
+    path.split('/').next().filter(|owner| !owner.is_empty()).map(str::to_ascii_lowercase)
+}
+
+fn flake_owner(locked: &Value) -> Option<String> {
+    match get(locked, "type").as_str() {
+        Some("github") => get(locked, "owner").as_str().map(str::to_ascii_lowercase),
+        Some("git") => get(locked, "url").as_str().and_then(github_owner),
+        _ => None,
+    }
+}
+
+pub(crate) fn flake_owners(settings: &str) -> BTreeSet<String> {
+    let mut owners = BTreeSet::new();
+    let mut section = "";
+    for line in settings.lines().map(str::trim) {
+        if let Some(header) = line.strip_prefix('[') {
+            section = header.split(']').next().unwrap_or("").trim();
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        if section == "flake" && key.trim() == "owner" {
+            let owner = value.trim().trim_matches('"').trim();
+            if !owner.is_empty() {
+                owners.insert(owner.to_ascii_lowercase());
+            }
+        }
+    }
+    owners
+}
+
+fn owner_violations(candidates: &[LockCandidate], owners: &BTreeSet<String>) -> Vec<String> {
+    if owners.is_empty() {
+        return Vec::new();
+    }
+    candidates
+        .iter()
+        .filter(|candidate| candidate.ecosystem == "flake")
+        .filter_map(|candidate| {
+            let owner = candidate.owner.as_ref()?;
+            (!owners.contains(owner)).then(|| format!("dep-gate: {}: {}: owner {owner} is not in the .safe-push flake allowlist", candidate.path, candidate.name))
+        })
+        .collect()
+}
+
 fn input_node<'a>(nodes: &'a Value, root: &'a str, input: &'a Value, depth: usize) -> Option<&'a str> {
     if let Some(name) = input.as_str() {
         return Some(name);
@@ -769,6 +825,7 @@ fn lock_candidates(
                             name: string(&name.into())?.to_owned(),
                             version: version.to_owned(),
                             published: get(&locked, "lastModified").as_i64().map(|t| t as f64),
+                            owner: flake_owner(&locked),
                         });
                     }
                 }
@@ -790,6 +847,7 @@ fn lock_candidates(
                         name: name.clone(),
                         version: version.clone(),
                         published: None,
+                        owner: None,
                     });
                 }
             }
@@ -953,10 +1011,12 @@ pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 pub(crate) struct Snapshot {
     manifests: BTreeMap<String, String>,
     pub(crate) locks: BTreeMap<String, String>,
+    settings: Option<String>,
 }
 
 const MANIFEST_NAMES: [&str; 3] = ["package.json", "Cargo.toml", "pyproject.toml"];
 const LOCK_NAMES: [&str; 3] = ["bun.lock", "Cargo.lock", "flake.lock"];
+const SETTINGS: &str = ".safe-push";
 
 pub(crate) fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, String> {
     let listing = git(root, &["ls-tree", "-r", "-z", revision])?;
@@ -966,7 +1026,7 @@ pub(crate) fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, Str
         let Some(oid) = meta.split(' ').nth(2) else { continue };
         let filename = path.rsplit('/').next().unwrap_or("");
         let manifest = MANIFEST_NAMES.contains(&filename);
-        if !path.starts_with("repos/") && (manifest || LOCK_NAMES.contains(&filename)) {
+        if !path.starts_with("repos/") && (manifest || LOCK_NAMES.contains(&filename) || path == SETTINGS) {
             wanted.push((path, oid, manifest));
         }
     }
@@ -982,7 +1042,7 @@ pub(crate) fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, Str
     .ok_or("git cat-file failed; check repository and revisions")?;
     let bytes = output.stdout;
     let mut at = 0;
-    let mut snapshot = Snapshot { manifests: BTreeMap::new(), locks: BTreeMap::new() };
+    let mut snapshot = Snapshot { manifests: BTreeMap::new(), locks: BTreeMap::new(), settings: None };
     for (path, _, manifest) in wanted {
         let header_end = at + bytes[at..].iter().position(|&byte| byte == b'\n').ok_or("git cat-file output ended early")?;
         let header = String::from_utf8_lossy(&bytes[at..header_end]);
@@ -990,7 +1050,7 @@ pub(crate) fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, Str
         let body = bytes.get(header_end + 1..header_end + 1 + size).ok_or("git cat-file output ended early")?;
         let text = String::from_utf8(body.to_vec()).map_err(|e| e.to_string())?;
         at = header_end + 1 + size + 1;
-        if manifest { snapshot.manifests.insert(path.to_owned(), text); } else { snapshot.locks.insert(path.to_owned(), text); }
+        if manifest { snapshot.manifests.insert(path.to_owned(), text); } else if path == SETTINGS { snapshot.settings = Some(text); } else { snapshot.locks.insert(path.to_owned(), text); }
     }
     Ok(snapshot)
 }
@@ -1050,7 +1110,9 @@ fn review_reasons(root: &Path, args: &[String]) -> Result<Reviewed, (u8, String)
     .split('\0')
     .map(str::to_owned)
     .collect();
-    let failures = violations(&before, &after, &dependency_reasons(&messages));
+    let mut failures = violations(&before, &after, &dependency_reasons(&messages));
+    let candidates = lock_candidates(&base_snapshot.locks, &head_snapshot.locks).map_err(|error| (1, error))?;
+    failures.extend(owner_violations(&candidates, &flake_owners(base_snapshot.settings.as_deref().unwrap_or_default())));
     Ok(Reviewed { base: base_snapshot, head: head_snapshot, messages, failures })
 }
 

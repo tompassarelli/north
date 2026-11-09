@@ -264,9 +264,13 @@ struct Published {
 }
 
 impl crate::dep_gate::Registry for Published {
-    fn read(&self, _host: &str, path: &str) -> Result<String, &'static str> {
+    fn read(&self, host: &str, path: &str) -> Result<String, &'static str> {
         let name = path.rsplit('/').next().unwrap_or_default();
         let at = super::rfc3339(time::OffsetDateTime::now_utc() - time::Duration::days(self.days_ago));
+        if host == "registry.npmjs.org" {
+            let time: serde_json::Map<String, serde_json::Value> = self.versions.iter().map(|version| ((*version).to_owned(), json!(at))).collect();
+            return Ok(json!({"time": time}).to_string());
+        }
         Ok(self.versions.iter().map(|version| json!({"name": name, "vers": version, "pubtime": at}).to_string()).collect::<Vec<_>>().join("\n"))
     }
 }
@@ -311,4 +315,89 @@ fn a_lane_locking_a_version_with_an_open_advisory_is_refused() {
     let (gates, detail) = refused.unwrap_err();
     assert!(gates.contains("dependency advisory") && !gates.contains("dependency age"), "{gates}: {detail}");
     assert!(detail.contains("Cargo.lock: itoa@1.0.18: RUSTSEC-2026-9999"), "{detail}");
+}
+
+fn stored_zip(entries: &[(&str, &str)]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = u32::MAX;
+        for byte in bytes {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
+            }
+        }
+        !crc
+    }
+    let (mut body, mut directory) = (Vec::new(), Vec::new());
+    for (name, text) in entries {
+        let offset = body.len() as u32;
+        let (crc, size, name) = (crc32(text.as_bytes()), text.len() as u32, name.as_bytes());
+        body.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        body.extend_from_slice(&20u16.to_le_bytes());
+        body.extend_from_slice(&[0; 8]);
+        body.extend_from_slice(&crc.to_le_bytes());
+        body.extend_from_slice(&size.to_le_bytes());
+        body.extend_from_slice(&size.to_le_bytes());
+        body.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        body.extend_from_slice(&[0; 2]);
+        body.extend_from_slice(name);
+        body.extend_from_slice(text.as_bytes());
+        directory.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        directory.extend_from_slice(&20u16.to_le_bytes());
+        directory.extend_from_slice(&20u16.to_le_bytes());
+        directory.extend_from_slice(&[0; 8]);
+        directory.extend_from_slice(&crc.to_le_bytes());
+        directory.extend_from_slice(&size.to_le_bytes());
+        directory.extend_from_slice(&size.to_le_bytes());
+        directory.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        directory.extend_from_slice(&[0; 12]);
+        directory.extend_from_slice(&offset.to_le_bytes());
+        directory.extend_from_slice(name);
+    }
+    let start = body.len() as u32;
+    let count = entries.len() as u16;
+    body.extend_from_slice(&directory);
+    body.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    body.extend_from_slice(&[0; 4]);
+    body.extend_from_slice(&count.to_le_bytes());
+    body.extend_from_slice(&count.to_le_bytes());
+    body.extend_from_slice(&(directory.len() as u32).to_le_bytes());
+    body.extend_from_slice(&start.to_le_bytes());
+    body.extend_from_slice(&[0; 2]);
+    body
+}
+
+const BUN_BEFORE: &str = "{\"lockfileVersion\":1,\"workspaces\":{\"\":{\"name\":\"fixture\"}},\"packages\":{}}";
+
+fn lane_locking_npm(name: &str, version: &str, advisories: &[(&str, &str)]) -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, state) = (dir.path().join("repo"), dir.path().join("state/north"));
+    let advisories: Vec<(String, String)> = advisories
+        .iter()
+        .map(|(id, fixed)| {
+            let advisory = json!({"schema_version": "1.6.0", "id": id, "modified": "2026-11-01T00:00:00Z", "summary": "fixture advisory", "affected": [{"package": {"ecosystem": "npm", "name": name}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": fixed}]}]}]});
+            (format!("{id}.json"), advisory.to_string())
+        })
+        .collect();
+    let entries: Vec<(&str, &str)> = advisories.iter().map(|(id, advisory)| (id.as_str(), advisory.as_str())).collect();
+    fs::create_dir_all(state.join("osv-scanner/npm")).unwrap();
+    fs::write(state.join("osv-scanner/npm/all.zip"), stored_zip(&entries)).unwrap();
+    fs::write(state.join("osv-scanner-fetched"), "").unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    run(&repo, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("bun.lock"), BUN_BEFORE).unwrap();
+    let main = commit(&repo, "main");
+    run(&repo, &["checkout", "-q", "-b", "lane"]);
+    fs::write(repo.join("bun.lock"), format!("{{\"lockfileVersion\":1,\"workspaces\":{{\"\":{{\"name\":\"fixture\"}}}},\"packages\":{{\"{name}\":[\"{name}@{version}\",\"\",{{}},\"\"]}}}}")).unwrap();
+    commit(&repo, "lane locks an npm package");
+    (dir, main)
+}
+
+#[test]
+fn a_lane_locking_an_npm_version_with_an_open_advisory_is_refused() {
+    let (dir, main) = lane_locking_npm("fixture-npm", "1.0.0", &[("GHSA-fixture", "1.0.1")]);
+    let refused = super::refuse::refuse_lane_gates(&dir.path().join("repo"), &main, "HEAD", &dir.path().join("state"), None, &Published { versions: &["1.0.0"], days_ago: 30 }).unwrap();
+    let (gates, detail) = refused.unwrap_err();
+    assert!(gates.contains("dependency advisory") && !gates.contains("dependency age"), "{gates}: {detail}");
+    assert!(detail.contains("bun.lock: fixture-npm@1.0.0: GHSA-fixture"), "{detail}");
 }

@@ -78,6 +78,8 @@ These run for every provider, because every landing goes through `safe-push`.
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
 | A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory (the root `nixpkgs` locked to a `NixOS/nixpkgs` `nixos-*` channel is exempt, so nightly security inputs land) | `north dep-gate`, and the lander's `dependency age` lane gate |
 | A lane adds no locked crate version with an open advisory, a banned crate or an unknown source unless a `Dependency-Advisory:` trailer accepts the advisory | the lander's `dependency advisory` lane gate (cargo-deny) |
+| A lane adds no locked npm version with an open advisory unless a `Dependency-Advisory:` trailer accepts the advisory | the lander's `dependency advisory` lane gate (osv-scanner over a changed bun.lock) |
+| A lane adds no flake input from an owner outside the `[flake] owner` list in `.safe-push` | `north dep-gate`, and the lander's `dependency age` lane gate |
 | `cargo update` and every other fetch-mode cargo command in depbox leaves no lock entry under 7 days old | `north depbox` |
 | No new structural debt in a repo with structure.toml | `north after-landing` code-health gate (`code-health gate`) |
 | A lane adds no Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint | `north code-health habits --base --head` in `.safe-push` (`[gate.code-comment]`) |

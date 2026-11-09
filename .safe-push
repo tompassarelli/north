@@ -16,6 +16,9 @@
 	source = ":(exclude,glob)**/tests/**"
 [flake]
 	build = cargo test --locked --offline --no-run --message-format=json-render-diagnostics
+	owner = NixOS
+	owner = tompassarelli
+	owner = oxalica
 [ci]
 	budget = cargo.yml 162 600
 	budget = harness.yml 80 600

@@ -26,6 +26,7 @@
                     rustToolchain
                     pkgs.shellcheck
                     pkgs.cargo-deny
+                    pkgs.osv-scanner
                     pkgs.cargo-mutants
                     pkgs.cargo-nextest
                     # The release firn's bunRelease installs on every host, so tests here run the bun the north services run.

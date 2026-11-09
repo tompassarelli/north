@@ -24,7 +24,7 @@ pub fn past_deadline() -> bool {
     DEADLINE.get().is_some_and(|deadline| Instant::now() >= deadline)
 }
 
-pub fn wait_when_busy(db: &Connection) -> rusqlite::Result<()> {
+pub fn wait_when_busy(db: &mut Connection) -> rusqlite::Result<()> {
     db.busy_handler(Some(wait))
 }
 

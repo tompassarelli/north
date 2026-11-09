@@ -21,7 +21,7 @@ pub(super) fn training_db(path: &Path, cutoff: &str) -> Result<Connection, Strin
     let schema: String = source.query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runs'", [], |row| row.get(0)).map_err(fail)?;
     db.execute(&schema, []).map_err(fail)?;
     let mut select = source.prepare("SELECT * FROM runs ORDER BY ended, agent").map_err(fail)?;
-    let columns: Vec<String> = select.column_names().into_iter().map(str::to_owned).collect();
+    let columns: Vec<String> = select.column_names().map(str::to_owned).collect();
     let at = |name: &str| columns.iter().position(|column| column == name);
     let (ended, started, outcome, cost, landed, landed_at) = (at("ended"), at("started"), at("outcome"), at("cost_usd"), at("landed"), at("landed_at"));
     let insert = format!("INSERT INTO runs VALUES ({})", vec!["?"; columns.len()].join(","));

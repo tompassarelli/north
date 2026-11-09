@@ -138,8 +138,8 @@ impl Args {
 pub fn open(path: &Path, write: bool) -> Result<Connection, Failure> {
     let access = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
     let failed = |error: rusqlite::Error| Failure::Refused(format!("ledger {}: {error}", path.display()));
-    let db = Connection::open_with_flags(path, access | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
-    crate::threads::hold::wait_when_busy(&db).map_err(failed)?;
+    let mut db = Connection::open_with_flags(path, access | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
+    crate::threads::hold::wait_when_busy(&mut db).map_err(failed)?;
     Ok(db)
 }
 

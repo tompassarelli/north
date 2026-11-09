@@ -14,6 +14,8 @@ use crate::dep_gate::{self, Snapshot};
 
 const ACCEPTED_FORMAT: &str = "Dependency-Advisory: <advisory-id> — <reason> (ASCII - also accepted)";
 const FETCHED_STAMP: &str = "fetched";
+const OSV_STAMP: &str = "osv-scanner-fetched";
+const OSV_SAMPLE: &str = "{\"lockfileVersion\":1,\"workspaces\":{\"\":{\"name\":\"refresh\"}},\"packages\":{\"left-pad\":[\"left-pad@1.3.0\",\"\",{},\"\"]}}";
 const DAY: Duration = Duration::from_secs(86_400);
 
 type Locked = BTreeSet<(String, String)>;
@@ -40,27 +42,31 @@ pub fn refuse(root: &Path, base: &str, head: &str, database: &Path, out: &mut im
 
 fn refusals(root: &Path, base: &str, head: &str, database: &Path) -> Result<Vec<String>, String> {
     let (before, after) = (dep_gate::read_snapshot(root, base)?, dep_gate::read_snapshot(root, head)?);
-    let changed = added_versions(&before, &after)?;
-    if changed.is_empty() {
+    let changed = added_versions(&before, &after, "Cargo.lock")?;
+    let npm = added_versions(&before, &after, "bun.lock")?;
+    if changed.is_empty() && npm.is_empty() {
         return Ok(Vec::new());
     }
     let messages: Vec<String> = dep_gate::git(root, &["log", "--format=%B%x00", &format!("{base}..{head}")])?.split('\0').map(str::to_owned).collect();
     let accepted = accepted(&messages);
-    refresh(database)?;
     let mut found = Vec::new();
-    for (path, added) in changed {
-        for (name, version, id, message) in flagged(&after.locks[&path], database)? {
-            if added.contains(&(name.clone(), version.clone())) && !accepted.contains(&id) {
-                found.push(format!("advisory-gate: {path}: {name}@{version}: {id} {message}"));
+    if !changed.is_empty() {
+        refresh(database)?;
+        for (path, added) in changed {
+            for (name, version, id, message) in flagged(&after.locks[&path], database)? {
+                if added.contains(&(name.clone(), version.clone())) && !accepted.contains(&id) {
+                    found.push(format!("advisory-gate: {path}: {name}@{version}: {id} {message}"));
+                }
             }
         }
     }
+    found.extend(npm_refusals(&npm, &after, database, &accepted)?);
     Ok(found)
 }
 
-fn added_versions(before: &Snapshot, after: &Snapshot) -> Result<BTreeMap<String, Locked>, String> {
+fn added_versions(before: &Snapshot, after: &Snapshot, filename: &str) -> Result<BTreeMap<String, Locked>, String> {
     let mut changed = BTreeMap::new();
-    for (path, text) in after.locks.iter().filter(|(path, _)| path.rsplit('/').next() == Some("Cargo.lock")) {
+    for (path, text) in after.locks.iter().filter(|(path, _)| path.rsplit('/').next() == Some(filename)) {
         if before.locks.get(path) == Some(text) {
             continue;
         }
@@ -72,6 +78,68 @@ fn added_versions(before: &Snapshot, after: &Snapshot) -> Result<BTreeMap<String
         }
     }
     Ok(changed)
+}
+
+fn npm_refusals(changed: &BTreeMap<String, Locked>, after: &Snapshot, database: &Path, accepted: &BTreeSet<String>) -> Result<Vec<String>, String> {
+    if changed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cache = database.parent().ok_or("advisory-gate: the advisory database has no parent")?;
+    refresh_osv(cache)?;
+    let mut found = Vec::new();
+    for (path, added) in changed {
+        for (name, version, id, message) in osv_flagged(&after.locks[path], cache)? {
+            if added.contains(&(name.clone(), version.clone())) && !accepted.contains(&id) {
+                found.push(format!("advisory-gate: {path}: {name}@{version}: {id} {message}"));
+            }
+        }
+    }
+    Ok(found)
+}
+
+fn refresh_osv(cache: &Path) -> Result<(), String> {
+    let stamp = cache.join(OSV_STAMP);
+    let fresh = fs::metadata(&stamp).and_then(|meta| meta.modified()).is_ok_and(|at| SystemTime::now().duration_since(at).is_ok_and(|age| age < DAY));
+    if fresh {
+        return Ok(());
+    }
+    fs::create_dir_all(cache).map_err(|error| format!("{}: {error}", cache.display()))?;
+    let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
+    fs::write(scratch.path().join("bun.lock"), OSV_SAMPLE).map_err(|error| error.to_string())?;
+    let output = osv(scratch.path(), cache).arg("--download-offline-databases").output().map_err(|error| format!("osv-scanner: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("cannot fetch the npm advisory database into {}: {}", cache.display(), String::from_utf8_lossy(&output.stderr).trim_end()));
+    }
+    fs::write(&stamp, "").map_err(|error| format!("{}: {error}", stamp.display()))
+}
+
+fn osv(directory: &Path, cache: &Path) -> Command {
+    let mut command = Command::new("osv-scanner");
+    command
+        .current_dir(directory)
+        .env("OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY", cache)
+        .args(["scan", "source", "--offline-vulnerabilities", "--format", "json", "--lockfile", "bun.lock"])
+        .stdin(Stdio::null());
+    command
+}
+
+fn osv_flagged(lock: &str, cache: &Path) -> Result<Vec<(String, String, String, String)>, String> {
+    let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
+    fs::write(scratch.path().join("bun.lock"), lock).map_err(|error| error.to_string())?;
+    let output = osv(scratch.path(), cache).output().map_err(|error| format!("osv-scanner: {error}; it runs from the lander's PATH"))?;
+    if !matches!(output.status.code(), Some(0 | 1)) {
+        return Err(format!("osv-scanner gave no verdict: {}", String::from_utf8_lossy(&output.stderr).lines().rev().take(3).collect::<Vec<_>>().join(" | ")));
+    }
+    let report: Value = serde_json::from_slice(&output.stdout).map_err(|error| format!("osv-scanner output: {error}"))?;
+    let mut found = Vec::new();
+    for package in report["results"].as_array().into_iter().flatten().flat_map(|result| result["packages"].as_array().into_iter().flatten()) {
+        let (Some(name), Some(version)) = (package["package"]["name"].as_str(), package["package"]["version"].as_str()) else { continue };
+        for vulnerability in package["vulnerabilities"].as_array().into_iter().flatten() {
+            let Some(id) = vulnerability["id"].as_str() else { continue };
+            found.push((name.to_owned(), version.to_owned(), id.to_owned(), vulnerability["summary"].as_str().unwrap_or("").to_owned()));
+        }
+    }
+    Ok(found)
 }
 
 fn accepted(messages: &[String]) -> BTreeSet<String> {

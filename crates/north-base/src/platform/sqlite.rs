@@ -16,7 +16,7 @@ pub enum Access {
 pub fn rows(db: &Path, access: Access, busy: Duration, query: &str) -> NorthResult<Vec<Value>> {
     let connection = open(db, access, busy)?;
     let mut statement = connection.prepare(query).map_err(|error| failure(db, error))?;
-    let names: Vec<String> = statement.column_names().into_iter().map(str::to_owned).collect();
+    let names: Vec<String> = statement.column_names().map(str::to_owned).collect();
     let mut cursor = statement.query([]).map_err(|error| failure(db, error))?;
     let mut result = Vec::new();
     while let Some(row) = cursor.next().map_err(|error| failure(db, error))? {

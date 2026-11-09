@@ -98,6 +98,39 @@ fn recorded_lock_ages_preserve_cooldown_boundary_urgent_and_first_party_exemptio
     }
 }
 
+fn git(root: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git").arg("-C").arg(root).args(args).output().unwrap();
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn commit(root: &std::path::Path, path: &str, text: &str) -> String {
+    std::fs::write(root.join(path), text).unwrap();
+    git(root, &["add", "--all"]);
+    git(root, &["commit", "-q", "-m", path]);
+    git(root, &["rev-parse", "HEAD"])
+}
+
+#[test]
+fn a_flake_input_from_an_unlisted_owner_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-q", "-b", "main"]);
+    git(root, &["config", "user.name", "t"]);
+    git(root, &["config", "user.email", "t@example.com"]);
+    git(root, &["config", "commit.gpgsign", "false"]);
+    commit(root, ".safe-push", "[flake]\n\tbuild = cargo test --locked\n\towner = NixOS\n\towner = tompassarelli\n\towner = oxalica\n");
+    let base = commit(root, "flake.lock", r#"{"nodes":{"root":{"inputs":{}}},"root":"root"}"#);
+    let lane = commit(
+        root,
+        "flake.lock",
+        r#"{"nodes":{"allowed":{"locked":{"type":"github","owner":"oxalica","repo":"rust-overlay","rev":"a","lastModified":1}},"unlisted":{"locked":{"type":"github","owner":"someone","repo":"flake","rev":"b","lastModified":1}},"local":{"locked":{"type":"path","path":"/home/recorded/code/galileo","lastModified":1}},"root":{"inputs":{"allowed":"allowed","unlisted":"unlisted","local":"local"}}},"root":"root"}"#,
+    );
+    assert!(!check_reasons(root, &base, &lane));
+    let widened = commit(root, ".safe-push", "[flake]\n\tbuild = cargo test --locked\n\towner = NixOS\n\towner = tompassarelli\n\towner = oxalica\n\towner = someone\n");
+    assert!(!check_reasons(root, &base, &widened), "a lane that adds its own owner to the allowlist is judged by the base allowlist");
+}
+
 #[test]
 fn publish_times_keep_fractional_seconds_and_timezone_offsets() {
     let utc = Timestamp::parse_publish_time("2026-10-01T12:34:56.123456+00:00").unwrap();

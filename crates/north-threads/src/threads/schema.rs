@@ -32,7 +32,7 @@ fn attempt(path: &Path) -> Result<(), Failure> {
         std::fs::create_dir_all(parent).map_err(|error| Failure::Refused(format!("ledger {}: {error}", parent.display())))?;
     }
     let mut db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
-    crate::threads::hold::wait_when_busy(&db).map_err(failed)?;
+    crate::threads::hold::wait_when_busy(&mut db).map_err(failed)?;
     let mode: String = db.query_row("PRAGMA journal_mode", [], |row| row.get(0)).map_err(failed)?;
     if mode != "wal" {
         db.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(())).map_err(failed)?;
