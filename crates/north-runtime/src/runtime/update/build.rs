@@ -29,6 +29,7 @@ impl<'a> Lane<'a> {
     fn remove(&self) {
         let _ = git(self.checkout, &[OsStr::new("worktree"), "remove".as_ref(), "--force".as_ref(), self.path.as_os_str()]);
         let _ = git(self.checkout, &["worktree", "prune"]);
+        let _ = fs::remove_dir_all(&self.path);
     }
 }
 
