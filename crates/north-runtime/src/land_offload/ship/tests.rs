@@ -799,7 +799,7 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     assert_eq!(fs::read_to_string(&seen).unwrap(), "xy");
 }
 
-// KEEP(bug): on 2026-11-09 a south#96 push queued 36 land checks at once on idle gex45 and the host admitted one per 30 s settle window though each had already ended, so the push timed out (north#996)
+// KEEP(bug): on 2026-11-09 pushes queued dozens of land checks at once on idle gex45 and whiterabbit, and the host started each only once the one before it had ended or settled for 30 s, so every slot but one sat idle and checks timed out (north#996)
 #[test]
 fn many_checks_queued_at_once_on_an_idle_host_all_start() {
     let (home, head, _) = host_with_a_shipped_bundle();
@@ -816,7 +816,7 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
             git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), &job_ref]);
             git(&repo, &["update-ref", "-d", &job_ref]);
             Command::new("setsid")
-                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "true", &job_ref, "SAFE_PUSH_LANDING='1'"])
+                .args(["-w", "sh", "-c", &script, "offload", "code/p/main", "", &head, "30", "code-p-main", "sleep 8", &job_ref, "SAFE_PUSH_LANDING='1'"])
                 .env("HOME", home.path())
                 .env("NORTH_OFFLOAD_SETTLE_SECONDS", "30")
                 .env("PATH", &path)
@@ -836,5 +836,5 @@ fn many_checks_queued_at_once_on_an_idle_host_all_start() {
         }
     }
     let statuses: Vec<_> = jobs.iter_mut().map(|job| job.wait().unwrap()).collect();
-    assert!(all_ended && statuses.iter().all(std::process::ExitStatus::success), "six quick checks queued at once on an idle host did not all run within 20 s, inside one 30 s settle window: {statuses:?}");
+    assert!(all_ended && statuses.iter().all(std::process::ExitStatus::success), "six 8 s land checks queued at once on an idle host did not run side by side within 20 s, inside one 30 s settle window: {statuses:?}");
 }
