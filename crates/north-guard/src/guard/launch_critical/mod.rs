@@ -19,7 +19,6 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::LazyLock;
 
-const ID: &str = "north-hook";
 const GENERIC_REASON: &str = "`main` is the clean checkout of a project — nothing is edited there, by anyone, and uncommitted state in it belongs to the human.";
 const MUTATING_GIT: &[&str] = &[
     "commit",
@@ -303,9 +302,6 @@ impl Hit {
     }
 }
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off(ID) {
-        return Verdict::Allow;
-    }
     let raw = String::from_utf8_lossy(&input.raw);
     if std::env::var("LAUNCH_CRITICAL_CODE_ROOT")
         .unwrap_or_default()
@@ -356,7 +352,7 @@ pub fn record_invalid_input(bytes: &[u8]) {
         return;
     }
     let input = data.get("tool_input").unwrap_or(&Value::Null);
-    if input.is_null() || input.is_object() || crate::guard::activation::authoring_guards_off(ID) {
+    if input.is_null() || input.is_object() {
         return;
     }
     let raw = String::from_utf8_lossy(bytes);

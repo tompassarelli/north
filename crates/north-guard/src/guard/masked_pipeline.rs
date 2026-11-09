@@ -10,14 +10,7 @@ const FILTERS: &[&str] = &["tail", "head", "grep", "rg"];
 
 static DESCRIPTOR_DUPLICATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d*>&(\d+|-)").unwrap());
 
-pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
-    decide(input)
-}
-
-pub(super) fn decide(input: &HookInput) -> Verdict {
+pub fn decide(input: &HookInput) -> Verdict {
     if !input.is_shell() {
         return Verdict::Allow;
     }

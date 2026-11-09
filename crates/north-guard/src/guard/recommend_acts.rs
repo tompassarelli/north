@@ -61,9 +61,6 @@ pub struct Turn {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     if !proxy_role::is_tom_window(&proxy_role::Live, input) {
         return Verdict::Allow;
     }

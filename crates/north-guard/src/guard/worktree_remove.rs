@@ -9,9 +9,6 @@ use std::sync::LazyLock;
 static WORKTREE: LazyLock<Regex> = LazyLock::new(|| invocation("worktree", true));
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     decide(input, &land_queue::queues(&state_home()), &land_queue::local_host())
 }
 

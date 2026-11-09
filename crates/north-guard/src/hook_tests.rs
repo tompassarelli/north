@@ -104,7 +104,7 @@ fn provider_events_select_matching_guard_list() {
         process(
             bytes.as_slice(),
             &mut output,
-            &[|_| panic!("unknown event reached guard")],
+            &[guard("", |_| panic!("unknown event reached guard"))],
             "",
         )
         .unwrap();
@@ -131,7 +131,7 @@ fn fixture_denial_preserves_both_provider_inputs_and_first_message() {
         process(
             serde_json::to_vec(&payload).unwrap().as_slice(),
             &mut out,
-            &[deny, |_| panic!("ran after deny")],
+            &[guard("", deny), guard("", |_| panic!("ran after deny"))],
             "PreToolUse",
         )
         .unwrap();
@@ -146,10 +146,10 @@ fn fixture_denial_preserves_both_provider_inputs_and_first_message() {
         br#"{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"wtype hi\ud800","opaque":"\ud800"}}"#.as_slice(),
     ] {
         let mut output = Vec::new();
-        process(bytes, &mut output, &[|input| {
+        process(bytes, &mut output, &[guard("", |input| {
             assert!(input.command().unwrap().codepoints.starts_with(&"wtype hi".chars().map(u32::from).collect::<Vec<_>>()));
             Verdict::Deny("No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.".into())
-        }, |_| panic!("ran after deny")], "PreToolUse").unwrap();
+        }), guard("", |_| panic!("ran after deny"))], "PreToolUse").unwrap();
         assert_eq!(output, b"{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.\"}}\n");
         eprintln!("desktop-action opaque surrogate: fixture deny matches Python's 260-byte denial");
     }
@@ -170,7 +170,7 @@ fn malformed_and_oversized_payloads_fail_open() {
         process(
             bytes.as_slice(),
             &mut output,
-            &[|_| panic!("invalid payload reached guard")],
+            &[guard("", |_| panic!("invalid payload reached guard"))],
             "PreToolUse",
         )
         .unwrap();
@@ -182,7 +182,7 @@ fn malformed_and_oversized_payloads_fail_open() {
     process(
         bytes.as_slice(),
         &mut output,
-        &[|_| Verdict::Deny("at limit".into())],
+        &[guard("", |_| Verdict::Deny("at limit".into()))],
         "Stop",
     )
     .unwrap();
@@ -196,11 +196,10 @@ fn stop_denial_blocks_verbatim_and_no_guards_say_nothing() {
     assert_eq!(
         serde_output(evaluate(
             &input,
-            &[|_| Verdict::Deny("stop\nverbatim".into())],
+            &[guard("", |_| Verdict::Deny("stop\nverbatim".into()))],
             "Stop"
         )),
         Some(json!({"decision":"block", "reason":"stop\nverbatim"}))
     );
 }
-
 

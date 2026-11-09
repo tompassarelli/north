@@ -7,17 +7,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const LEASH_STEP_MIN: i64 = 10;
 
-pub(super) struct Env<'a> {
+pub(super) struct Env {
     pub home: PathBuf,
     pub now: f64,
-    pub off: &'a dyn Fn() -> bool,
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let off = || crate::guard::activation::authoring_guards_off("north-hook");
     let home = std::env::home_dir().unwrap_or_default();
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64());
-    let env = Env { home, now, off: &off };
+    let env = Env { home, now };
     decide(input, &env).map_or(Verdict::Allow, Verdict::Advise)
 }
 
@@ -40,7 +38,7 @@ fn lease(input: &HookInput, env: &Env) -> Option<String> {
     let transcript = Path::new(session).join("subagents").join(format!("agent-{agent_id}.jsonl"));
     let leash = (crate::platform::harness::default_number("overtime_min") as u64) as i64;
     let minutes = transcript::started_at(&transcript).map_or(0, |start| ((env.now - start) / 60.0).floor() as i64);
-    if minutes < leash || (env.off)() {
+    if minutes < leash {
         return None;
     }
     let handoffs = env.home_dir().join(".local/state/agents/handoffs");
@@ -49,7 +47,7 @@ fn lease(input: &HookInput, env: &Env) -> Option<String> {
     })
 }
 
-impl Env<'_> {
+impl Env {
     fn home_dir(&self) -> PathBuf {
         let text = self.home.to_string_lossy();
         let trimmed = text.trim_end_matches('/');

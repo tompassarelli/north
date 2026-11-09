@@ -6,7 +6,6 @@ use regex::Regex;
 use std::path::Path;
 use std::sync::LazyLock;
 
-const ID: &str = "north-hook";
 const POLICY: &str = "Never hand-edit generated agent policy (~/.claude/CLAUDE.md, ~/.codex). Edit south:agents/ or north:harness/ and run `agents sync`.";
 const NIX: &str = "Never hand-edit a .nix generated from .bnix. Edit the .bnix and regenerate the .nix from it.";
 const UNKNOWN_DIR: &str = "Can't resolve the directory after `cd`/`popd`, so this write to a CLAUDE.md, AGENTS.md or SKILL.md may hit generated agent policy. Use an absolute path; for ~/.claude or ~/.codex edit south:agents/ or north:harness/ and run `agents sync`.";
@@ -417,9 +416,6 @@ fn find_envelope(value: &Value) -> Option<&str> {
 pub fn evaluate(input: &HookInput) -> Verdict {
     let raw = String::from_utf8_lossy(&input.raw);
     if !MENTIONS.iter().any(|mention| raw.contains(mention)) {
-        return Verdict::Allow;
-    }
-    if crate::guard::activation::authoring_guards_off(ID) {
         return Verdict::Allow;
     }
     let home = std::env::var("HOME").unwrap_or_default();

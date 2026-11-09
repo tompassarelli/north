@@ -13,9 +13,6 @@ static TASK_REF: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:tompassarelli/)?([\w.-]+)#(\d+)$").unwrap());
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let home = std::env::var("HOME").unwrap_or_default();
     let cwd = input.data["cwd"].as_str().map(Path::new);
     let scope = Scope { home: &home, container: cwd.and_then(|cwd| container(cwd, &home)) };

@@ -23,10 +23,7 @@ const REASON: &str = "No. A Wine/Proton/Warcraft client started here runs in you
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()) {
-        Some(command)
-            if launches_unwrapped_client(command)
-                && !crate::guard::activation::authoring_guards_off("native-launch-guard") =>
-        {
+        Some(command) if launches_unwrapped_client(command) => {
             Verdict::Deny(REASON.into())
         }
         _ => Verdict::Allow,

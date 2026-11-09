@@ -14,7 +14,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         return Verdict::Allow;
     };
     match refusal(input, session.as_deref(), &root) {
-        Some(reason) if !crate::guard::activation::authoring_guards_off("north-hook") => Verdict::Deny(reason),
+        Some(reason) => Verdict::Deny(reason),
         _ => Verdict::Allow,
     }
 }

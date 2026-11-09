@@ -7,9 +7,6 @@ use std::time::Duration;
 const DIGEST_LIMIT: Duration = Duration::from_secs(5);
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     decide(proxy_role::is_tom_window(&proxy_role::Live, input), read_digest)
 }
 

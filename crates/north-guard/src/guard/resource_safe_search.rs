@@ -4,57 +4,10 @@ use crate::shell;
 use regex::Regex;
 use std::sync::LazyLock;
 
-const UNIT: &str = "resource-safe-search-guard";
 const ALWAYS_RECURSIVE: &[&str] = &[
     "rg", "ripgrep", "ag", "ack", "ack-grep", "fd", "fdfind", "rgrep",
 ];
 const GREP_LIKE: &[&str] = &["grep", "egrep", "fgrep", "zgrep", "zegrep", "zfgrep"];
-const VALUED_OPTIONS: &[&str] = &[
-    "-e",
-    "--regexp",
-    "-f",
-    "--file",
-    "-m",
-    "--max-count",
-    "-A",
-    "--after-context",
-    "-B",
-    "--before-context",
-    "-C",
-    "--context",
-    "-d",
-    "--directories",
-    "-D",
-    "--devices",
-    "--include",
-    "--exclude",
-    "--exclude-dir",
-    "--exclude-from",
-    "--binary-files",
-    "--color",
-    "--colour",
-    "--label",
-    "--group-separator",
-    "-g",
-    "--glob",
-    "--iglob",
-    "-t",
-    "--type",
-    "-T",
-    "--type-not",
-    "--replace",
-    "--max-depth",
-    "--max-filesize",
-    "--sort",
-    "--sortr",
-    "-j",
-    "--threads",
-    "--pre",
-    "--ignore-file",
-    "-E",
-    "--encoding",
-    "--path-separator",
-];
 const INFORMATIONAL: &[&str] = &[
     "--help",
     "--version",
@@ -84,7 +37,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     };
     let home = std::env::var("HOME").unwrap_or_default();
     match refusal(command, &cwd, &home) {
-        Some(reason) if !crate::guard::activation::authoring_guards_off(UNIT) => Verdict::Deny(reason),
+        Some(reason) => Verdict::Deny(reason),
         _ => Verdict::Allow,
     }
 }
@@ -214,7 +167,7 @@ fn scan(arguments: &[String]) -> Scan {
         found.explicit_pattern |= matches!(option, "-e" | "--regexp" | "-f" | "--file");
         found.files_mode |= option == "--files";
         if dashed && argument != "-" {
-            skip = !argument.contains('=') && VALUED_OPTIONS.contains(&option);
+            skip = !argument.contains('=') && search_words::VALUED_OPTIONS.contains(&option);
         } else {
             found.words.push(argument.clone());
         }

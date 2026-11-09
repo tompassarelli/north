@@ -56,9 +56,6 @@ fn row(input: &HookInput, now: f64) -> Option<serde_json::Value> {
 
 pub(super) fn record(input: &HookInput, env: &Env) -> Option<String> {
     let row = row(input, env.now)?;
-    if (env.off)() {
-        return None;
-    }
     let data = &input.data;
     let lead = py_str(if truthy(&data["agent_id"]) { &data["agent_id"] } else { &data["session_id"] });
     if let Err(miss) = ingest(&format!("{row}\n")) {

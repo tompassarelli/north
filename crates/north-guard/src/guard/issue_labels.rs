@@ -9,9 +9,6 @@ const TYPES: [&str; 3] = ["bug", "enhancement", "documentation"];
 type Repository = Option<(String, Vec<String>)>;
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let cwd = input.cwd().map(str::to_owned);
     let mut cache: HashMap<String, Option<Vec<String>>> = HashMap::new();
     decide_with(input, |named| {

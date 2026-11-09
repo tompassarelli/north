@@ -9,9 +9,6 @@ const ADOPT_LIMIT: Duration = Duration::from_secs(5);
 const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let window = proxy_role::is_tom_window(&Live, input).then(|| Live.claude_start()).flatten().and_then(|start| start.conversation);
     adoption(input, window.as_deref(), |session| adopt(session, input.data["cwd"].as_str()))
 }

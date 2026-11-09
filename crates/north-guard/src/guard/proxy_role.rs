@@ -95,9 +95,6 @@ pub(super) fn lane_changes(cwd: &str) -> Option<Vec<String>> {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     decide(&Live, input)
 }
 

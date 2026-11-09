@@ -21,9 +21,6 @@ pub const OFFERS: [&str; 10] = [
 pub const REASON: &str = "Your report hands Tom reversible work as a question. If it's reversible, do it now under standing authority. If it needs Tom (cost, access, accounts, direction), rewrite it as a decision: your recommendation first and why, then at least one alternative with what it costs.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
     decide(input, &session)
 }
@@ -102,9 +99,6 @@ const HANDOFF_PHRASES: [&str; 8] = ["type this", "paste this", "run this", "type
 pub const HANDOFF_REASON: &str = "BLOCKED (command-handoff): your reply hands Tom a shell command to run. Agents run commands themselves under standing authority and never give Tom one to type. Clear a stale git lock with `north lane unlock CHECKOUT` and a stray file your own tool call left with `north lane stray PATH`; a write a guard refuses that no sanctioned verb covers is a harness gap to file as an issue and report, not a command for Tom. Run it yourself, or rewrite the reply without the command.";
 
 pub fn evaluate_handoff(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
     decide_handoff(input, &session)
 }

@@ -9,7 +9,6 @@ use regex::Regex;
 use std::path::Path;
 use std::sync::LazyLock;
 
-const ID: &str = "north-hook";
 const REASON: &str = "BLOCKED: a todo model field must name an exact concrete runtime model, not a selection or lineage placeholder. Record the exact concrete model from run or dispatch evidence (for example `gpt-6-sol`); if that evidence is unavailable, record the evidence gap outside the model field instead of inventing an identity.";
 
 static PATCH_HEADER: LazyLock<Regex> = LazyLock::new(|| {
@@ -150,9 +149,6 @@ impl Context {
 pub fn evaluate(input: &HookInput) -> Verdict {
     let raw = String::from_utf8_lossy(&input.raw).to_lowercase();
     if !(raw.contains("model") || raw.contains("estimate-calibration")) {
-        return Verdict::Allow;
-    }
-    if crate::guard::activation::authoring_guards_off(ID) {
         return Verdict::Allow;
     }
     let cwd = input

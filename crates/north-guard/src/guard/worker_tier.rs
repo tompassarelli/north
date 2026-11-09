@@ -99,9 +99,6 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(decision) = decision(input, &routed_tier) else {
         return Verdict::Allow;
     };
-    if crate::guard::activation::authoring_guards_off("worker-tier-guard") {
-        return Verdict::Allow;
-    }
     match decision {
         Decision::Rewrite(updated, note) => Verdict::Rewrite(updated, note),
         Decision::Deny(reason) => Verdict::Deny(reason),

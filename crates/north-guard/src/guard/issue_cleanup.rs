@@ -70,9 +70,6 @@ impl World for Live {
 }
 
 pub fn close(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     refuse_close(input, &mut Live { cwd: input.cwd().map(str::to_owned) })
 }
 

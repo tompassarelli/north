@@ -48,7 +48,7 @@ box says so.
 | --- | --- | --- | --- |
 | 1. Unreferenced functions and duplicate bodies | 494 lines | Low | Each of the 46 names is checked and the 104 duplicate lines are byte identical |
 | 2. Tests that assert nothing | 246 lines | Low | 26 `#[test]` functions with no assertion in their body |
-| 3. Guard rule boilerplate | 1,661 lines | Medium | 46 `north-guard` rule files of at most 60 lines each, nine repeating one `evaluate` shape; one decision shape, bar 500 lines |
+| 3. Guard rule boilerplate | 1,661 lines | Medium | 46 `north-guard` rule files of at most 60 lines each (662 test lines and 996 lines across 25 distinct rules); one decision shape and shared search-option table, bar 213 lines (`21,700` to `21,487`) |
 | 4. Test-guarantee audit | 12,000 lines of a 49,745-line pool | Medium | Each deleted test names the journey test that already pins its guarantee; the test-admission rule stays intact |
 | 5. `north-convo` | 7,665 lines | High | `north convo`, `north incident-mine`, `north tool-mine` and the `incident-retro` timer read transcripts |
 | 6. `north-tui` | 3,156 lines | High | `north fleet` is Tom's screen; nothing else draws it |
@@ -79,8 +79,8 @@ because a landing moves the total and the box's bar must match the tree it lands
 
 ## The arithmetic
 
-The safe cuts remove 494 + 246 + 500 + 12,000 = 13,240 lines, 16.8% of the bar. Adding all eight small
-features in cuts 5 to 12, 20,113 lines together, reaches 33,353 lines and still leaves 45,301. Reaching
+The safe cuts remove 494 + 246 + 213 + 12,000 = 12,953 lines, 16.5% of the bar. Adding all eight small
+features in cuts 5 to 12, 20,113 lines together, reaches 33,066 lines and still leaves 45,588. Reaching
 78,654 requires retiring capabilities on the scale of cut 14, or most of the test suite plus cut 14; either
 way it is a project-scope choice.
 
@@ -108,7 +108,7 @@ Paste these onto north#970; the issue's own text is edited by whoever holds the 
 
 - [ ] Cut 1, dead and duplicate helpers: delete the 46 functions with one occurrence that the cut confirms unreferenced, and the 8 byte-identical bodies. Done when: the cut's commit removes at least 400 lines by `git show --numstat` and clippy for every touched crate is green.
 - [ ] Cut 2, tests that assert nothing: delete the 26 `#[test]` functions with no assertion, or give each the assertion its name claims. Done when: the listed functions are gone or assert, and `cargo nextest run --workspace` and the land checks are green.
-- [ ] Cut 3, guard rule boilerplate: one decision shape for the 46 `north-guard` files of at most 60 lines, removing at least 500 lines. Done when: the cut's commit removes at least 500 lines from `crates/north-guard/src/guard/` and every guard test passes.
+- [ ] Cut 3, guard rule boilerplate: one decision shape for the 54 `north-guard` rule modules and one shared search-option table, removing 213 lines (`21,700` to `21,487`). Done when: `test $(git -C /home/tom/code/north/main ls-files "crates/north-guard/*.rs" | xargs -d "\n" cat | wc -l) -le 21487` exits 0 and every guard test passes.
 - [ ] Cut 4, test-guarantee audit: delete 12,000 lines of tests whose guarantee an existing journey test already pins, naming that test per deletion. Done when: the cut's commits remove at least 12,000 test lines and `north land scan test-admission` and `north land scan test-integrity` are green.
 - [ ] Cut 5, `north-convo`: retire transcript search, incident mining and their timer callers, 7,665 lines. Needs Tom's decision.
 - [ ] Cut 6, `north-tui`: retire the fleet screen, 3,156 lines. Needs Tom's decision.

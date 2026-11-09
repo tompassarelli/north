@@ -5,9 +5,6 @@ const UNIT: &str = "question-box";
 pub const QUESTION_TOOL: &str = "AskUserQuestion";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     decide(&proxy_role::Live, input)
 }
 

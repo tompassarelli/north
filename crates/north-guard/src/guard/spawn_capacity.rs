@@ -16,7 +16,6 @@ pub use world::Live;
 const PROTECTED_PRESSURE_LIMIT: f64 = 20.0;
 const LOCAL_CLAUDE_TYPES: [&str; 8] = ["worker", "worker-high", "worker-xhigh", "worker-haiku", "worker-sonnet", "general-purpose", "Explore", "fork"];
 const EXEMPT_MARKER: &str = "[routine:watchdog]";
-const UNIT: &str = "spawn-capacity-guard";
 const HOOKED: Live = Live;
 
 pub trait World {
@@ -28,13 +27,6 @@ pub trait World {
     fn billed(&self, provider: &str) -> Option<String>;
     fn cpus(&self) -> f64;
     fn today(&self) -> String;
-}
-
-pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off(UNIT) {
-        return Verdict::Allow;
-    }
-    admission(input)
 }
 
 pub fn admission(input: &HookInput) -> Verdict {

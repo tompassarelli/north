@@ -52,9 +52,6 @@ impl World for Live {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
     let Some(state) = var("XDG_STATE_HOME").or_else(|| var("HOME").map(|home| home.join(".local/state"))) else {
         return Verdict::Allow;

@@ -5,9 +5,6 @@ use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredoc
 const OWNER: &str = "tompassarelli/";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let cwd = input.cwd().map(str::to_owned);
     let Ok(topics) = frozen_topics::load().map(crate::threads::catalog::canonical_topics) else {
         return Verdict::Allow;

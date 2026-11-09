@@ -21,7 +21,7 @@ const COMMITS_SHOWN: usize = 10;
 const TRANSCRIPT_LINES: usize = 400;
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if input.data["source"] != SOURCE || crate::guard::activation::authoring_guards_off("north-hook") {
+    if input.data["source"] != SOURCE {
         return Verdict::Allow;
     }
     let name = std::env::var(SESSION_ENV).unwrap_or_default();

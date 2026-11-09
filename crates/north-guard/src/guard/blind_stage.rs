@@ -6,14 +6,7 @@ use std::sync::LazyLock;
 static ADD: LazyLock<Regex> = LazyLock::new(|| invocation("add", false));
 static COMMIT: LazyLock<Regex> = LazyLock::new(|| invocation("commit", false));
 
-pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
-    decide(input)
-}
-
-pub(super) fn decide(input: &HookInput) -> Verdict {
+pub fn decide(input: &HookInput) -> Verdict {
     let Some(command) = bash_command(input) else {
         return Verdict::Allow;
     };

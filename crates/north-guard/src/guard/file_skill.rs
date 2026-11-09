@@ -29,9 +29,6 @@ pub struct Roots {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     match roots() {
         Some(roots) => decide(input, &roots),
         None => Verdict::Allow,

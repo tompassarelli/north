@@ -33,14 +33,7 @@ pub(super) fn refused_tool(command: &str) -> Option<String> {
     refuses(&blank_quotes(&text), &COMMAND_POSITION).or_else(|| refuses(&text, &SHELL_PAYLOAD)).map(str::to_owned)
 }
 
-pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
-    decide(input)
-}
-
-pub(super) fn decide(input: &HookInput) -> Verdict {
+pub fn decide(input: &HookInput) -> Verdict {
     let Some(command) = input.command().map(|command| command.lossy()) else {
         return Verdict::Allow;
     };

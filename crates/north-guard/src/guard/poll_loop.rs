@@ -8,14 +8,7 @@ const LIMIT_SECONDS: f64 = 60.0;
 const PREFIXES: &[&str] = &["exec", "command", "env", "nohup", "setsid", "nice", "ionice", "stdbuf", "time"];
 const KEYWORDS: &[&str] = &["do", "then", "else", "{", "(", "!"];
 
-pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("poll-loop-guard") {
-        return Verdict::Allow;
-    }
-    verdict(input)
-}
-
-pub(super) fn verdict(input: &HookInput) -> Verdict {
+pub fn verdict(input: &HookInput) -> Verdict {
     if input.runs_in_background() {
         return Verdict::Allow;
     }

@@ -55,7 +55,7 @@ pub(super) enum Hit {
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     let hits = input.command().and_then(|s| s.as_str()).map(decide).unwrap_or_default();
-    if hits.is_empty() || crate::guard::activation::authoring_guards_off("session-kill-guard") {
+    if hits.is_empty() {
         return Verdict::Allow;
     }
     managed(input, &hits).map_or_else(

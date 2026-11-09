@@ -4,9 +4,6 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     let session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
     let now = crate::foundation::clock::Timestamp::now().unix_seconds_f64();
     decide(input, &session, &|paragraph| crate::guard::host::recorded_decisions(paragraph, now))

@@ -6,14 +6,7 @@ const SCRATCH: [&str; 2] = ["brief", "status"];
 
 const ADVICE: &str = "handoff-record: handoff files are scratch and are not backed up. A decision, audit, review or research record belongs in the repository that owns it: public method in docs/rationale/ and docs/references.md, Tom-specific facts and full reviews in south agents/decisions/. Write it there and leave only a pointer in the handoff.";
 
-pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
-    decide(input)
-}
-
-pub(super) fn decide(input: &HookInput) -> Verdict {
+pub fn decide(input: &HookInput) -> Verdict {
     if edited_paths(input).iter().any(|path| durable_record(path)) {
         Verdict::Advise(ADVICE.into())
     } else {

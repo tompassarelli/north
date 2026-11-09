@@ -8,7 +8,6 @@ use crate::hook::{HookInput, Verdict};
 use crate::shell;
 
 const GREP_LIKE: &[&str] = &["grep", "egrep", "fgrep", "rgrep"];
-const UNIT: &str = "modern-search-guard";
 const REWRITE_NOTE: &str = "modern-search-guard: rewrote a recursive grep or find tree search to rg or fd before it ran, keeping every shell argument and the rest of the command. rg and fd skip hidden and git-ignored files; add --hidden or -uu (rg), or -H and -I (fd), when you need them. Write rg and fd directly next time.";
 
 struct Hit {
@@ -25,9 +24,6 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(decision) = decide(command, &cwd, &home) else {
         return Verdict::Allow;
     };
-    if crate::guard::activation::authoring_guards_off(UNIT) {
-        return Verdict::Allow;
-    }
     match decision {
         Decision::Deny(reason) => Verdict::Deny(reason),
         Decision::Rewrite(candidate) => {

@@ -5,7 +5,6 @@ use crate::shell;
 use std::collections::HashMap;
 use std::path::Path;
 
-const UNIT: &str = "corpus-scan-guard";
 const CHEAP_DEPTH: i64 = 3;
 const GREP_LIKE: &[&str] = &[
     "grep", "egrep", "fgrep", "rgrep", "zgrep", "zegrep", "zfgrep",
@@ -30,54 +29,6 @@ const WRAPPER_VALUED: &[&str] = &[
     "-k",
     "-s",
 ];
-const VALUED: &[&str] = &[
-    "-e",
-    "--regexp",
-    "-f",
-    "--file",
-    "-m",
-    "--max-count",
-    "-A",
-    "--after-context",
-    "-B",
-    "--before-context",
-    "-C",
-    "--context",
-    "-d",
-    "--directories",
-    "-D",
-    "--devices",
-    "--include",
-    "--exclude",
-    "--exclude-dir",
-    "--exclude-from",
-    "--binary-files",
-    "--color",
-    "--colour",
-    "--label",
-    "--group-separator",
-    "-g",
-    "--glob",
-    "--iglob",
-    "-t",
-    "--type",
-    "-T",
-    "--type-not",
-    "-r",
-    "--replace",
-    "--max-depth",
-    "--maxdepth",
-    "--max-filesize",
-    "--sort",
-    "--sortr",
-    "-j",
-    "--threads",
-    "--pre",
-    "--ignore-file",
-    "-E",
-    "--encoding",
-    "--path-separator",
-];
 const GREP_NOT_VALUED: &[&str] = &["-r", "-R", "-E", "-d", "-D"];
 const DEPTH_OPTIONS: &[&str] = &["--max-depth", "--maxdepth", "-maxdepth", "--depth", "-d"];
 
@@ -87,7 +38,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     };
     let home = std::env::var("HOME").unwrap_or_default();
     match refusal(command, &cwd, &home) {
-        Some(reason) if !crate::guard::activation::authoring_guards_off(UNIT) => Verdict::Deny(reason),
+        Some(reason) => Verdict::Deny(reason),
         _ => Verdict::Allow,
     }
 }
@@ -347,7 +298,7 @@ fn operands(tool: &str, arguments: &[String]) -> Vec<String> {
         } else if token == "--" {
             words.extend(rest.by_ref().cloned());
         } else if token.starts_with('-') && token != "-" {
-            let valued = VALUED.contains(&token.as_str())
+            let valued = (search_words::VALUED_OPTIONS.contains(&token.as_str()) || matches!(token.as_str(), "-r" | "--maxdepth"))
                 && !(grep && GREP_NOT_VALUED.contains(&token.as_str()));
             skip = !token.contains('=') && valued;
         } else {

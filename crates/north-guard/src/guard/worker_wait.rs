@@ -56,9 +56,7 @@ static LONG_TIMEOUT: LazyLock<Regex> =
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     match refusal(input) {
-        Some(reason) if !crate::guard::activation::authoring_guards_off("worker-wait-guard") => {
-            Verdict::Deny(reason)
-        }
+        Some(reason) => Verdict::Deny(reason),
         _ => Verdict::Allow,
     }
 }

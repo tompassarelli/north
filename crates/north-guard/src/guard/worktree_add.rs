@@ -9,14 +9,7 @@ static WORKTREE: LazyLock<Regex> = LazyLock::new(|| invocation("worktree", true)
 
 const VALUE_OPTIONS: [&str; 4] = ["-b", "-B", "--reason", "--orphan"];
 
-pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
-    decide(input)
-}
-
-pub(super) fn decide(input: &HookInput) -> Verdict {
+pub fn decide(input: &HookInput) -> Verdict {
     let Some(command) = bash_command(input) else {
         return Verdict::Allow;
     };

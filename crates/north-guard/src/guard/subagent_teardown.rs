@@ -22,9 +22,6 @@ const MONITOR_CEILING_MS: f64 = 3_600_000.0;
 const TERMINAL_REPORTS: [&str; 4] = ["Done:", "Not done:", "Split:", "Blocked:"];
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") {
-        return Verdict::Allow;
-    }
     refusal(input).map_or(Verdict::Allow, Verdict::Deny)
 }
 
