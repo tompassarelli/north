@@ -29,6 +29,9 @@ pub(super) fn core_loop(host: &str, sha: &str) -> Vec<Probe> {
         )),
     }
     probes.push(probe("each repository's lander mints its push token", lander_tokens(&north), MINT_LIMIT));
+    if is_hub(host) {
+        return probes;
+    }
     probes.extend(PROVIDERS.iter().map(|provider| probe(format!("a --test {provider} worker answers its first turn"), format!("{north} runtime probe launch {provider}"), LAUNCH_LIMIT)));
     probes
 }

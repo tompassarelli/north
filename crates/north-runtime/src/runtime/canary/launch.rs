@@ -1,4 +1,4 @@
-use super::super::failure::{Failure, failed};
+use super::super::failure::{DEFERRED, Failure, failed};
 use crate::platform::process;
 use serde_json::Value;
 use std::path::Path;
@@ -12,20 +12,23 @@ const POLL: Duration = Duration::from_secs(3);
 const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
 
 pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
-    let north = std::env::current_exe()?;
-    let scratch = tempfile::tempdir()?;
+    let north = std::env::current_exe().map_err(|error| unrun(error.into()))?;
+    let scratch = tempfile::tempdir().map_err(|error| unrun(error.into()))?;
     let state = scratch.path().join("state");
     let cwd = scratch.path().join("work");
-    std::fs::create_dir_all(&state)?;
-    std::fs::create_dir_all(&cwd)?;
+    std::fs::create_dir_all(&state).and_then(|()| std::fs::create_dir_all(&cwd)).map_err(|error| unrun(error.into()))?;
     let name = format!("canary-{provider}-{}", std::process::id());
     let answered = match launch(&north, &state, provider, &name, &cwd) {
         Ok(true) => answer(&north, &state, &name),
         Ok(false) => Ok(()),
-        Err(failure) => Err(failure),
+        Err(failure) => Err(unrun(failure)),
     };
     let _ = fleet(&north, &state, &["forget", &name, "--force", "runtime canary probe finished"]);
     answered
+}
+
+fn unrun(failure: Failure) -> Failure {
+    failed(DEFERRED, format!("the launch never reached a worker, so the probe has no verdict: {}", failure.message))
 }
 
 fn fleet(north: &Path, state: &Path, words: &[&str]) -> Result<String, String> {

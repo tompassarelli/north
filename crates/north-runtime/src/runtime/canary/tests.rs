@@ -89,7 +89,7 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
 fn a_probe_that_could_not_run_leaves_the_promotion_in_place_and_unjudged() {
     let host = Host::promoted();
     let fleet = host.fleet(Some(("opencode", Ran::Unrun("no verdict within 150s".to_owned()))));
-    assert!(matches!(check(&host.layout, "gex45", PROMOTED, &fleet), Verdict::Unrun(why) if why.contains("opencode")));
+    assert!(matches!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Unrun(why) if why.contains("opencode")));
     assert_eq!(host.current(), layout::link(PROMOTED));
     assert!(fleet.alarms.lock().unwrap().is_empty());
 }
@@ -102,6 +102,7 @@ fn the_hub_reached_as_user_at_host_probes_its_fetch_and_never_ssh_to_itself() {
     let probed = fleet.probed.lock().unwrap();
     assert!(probed.iter().all(|name| !name.contains("ssh gex45")), "{probed:?}");
     assert!(probed.iter().any(|name| name.contains("gex45 fetches")), "{probed:?}");
+    assert!(probed.iter().all(|name| !name.contains("--test")), "{probed:?}");
 }
 
 #[test]
