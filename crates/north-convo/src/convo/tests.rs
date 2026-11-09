@@ -237,10 +237,10 @@ fn the_tom_corpus_holds_every_typed_message_and_no_agent_text() {
     let lab = Lab::new();
     demo_claude(&lab);
     let fleet = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    let sdk = |text: &str, prompt: u64| json!({"type": "user", "sessionId": fleet, "cwd": "/synthetic/fleet", "timestamp": format!("2026-08-09T10:0{prompt}:00Z"), "promptSource": "sdk", "turnPosition": {"promptIndex": prompt}, "message": {"role": "user", "content": text}}).to_string();
+    let sdk = |text: &str, prompt: u64, day: &str| json!({"type": "user", "sessionId": fleet, "cwd": "/synthetic/fleet", "timestamp": format!("{day}T10:0{prompt}:00Z"), "promptSource": "sdk", "turnPosition": {"promptIndex": prompt}, "message": {"role": "user", "content": text}}).to_string();
     write(
         &lab.root.join(format!("anthropic/acct/projects/-synthetic-fleet/{fleet}.jsonl")),
-        &[sdk("LAUNCHBRIEFTOKEN from the proxy", 0), sdk("[from lead] FROMLEADTOKEN", 1), sdk("TOMFLEETTOKEN typed in the fleet view", 2)],
+        &[sdk("LAUNCHBRIEFTOKEN from the proxy", 0, "2026-11-07"), sdk("HOLDSPAWNSTOKEN claude:c allowed=1", 1, "2026-11-01"), sdk("[from lead] FROMLEADTOKEN", 2, "2026-11-07"), sdk("TOMFLEETTOKEN typed in the fleet view", 3, "2026-11-07")],
     );
     write(&lab.env.corpus.join("codex.jsonl"), &[json!({"session_id": SID, "timestamp": "2026-08-01T10:00:00Z", "cwd": "/synthetic/demo", "text": "CODEXTYPEDTOKEN kept after its rollout was deleted"}).to_string()]);
     lab.index();
@@ -249,7 +249,7 @@ fn the_tom_corpus_holds_every_typed_message_and_no_agent_text() {
     for typed in ["please check PELICANGATE status", "TOMFLEETTOKEN"] {
         has(&kept, typed);
     }
-    for agent in ["PELICANGATE is open", "PELICANTHINK", "CLAUDETOOLRESULT", "task-notification", "HERONLOOP", "LAUNCHBRIEFTOKEN", "FROMLEADTOKEN", "machine-capacity"] {
+    for agent in ["PELICANGATE is open", "PELICANTHINK", "CLAUDETOOLRESULT", "task-notification", "HERONLOOP", "LAUNCHBRIEFTOKEN", "FROMLEADTOKEN", "HOLDSPAWNSTOKEN", "machine-capacity"] {
         hasnt(&kept, agent);
     }
     has(&kept, &format!(r#""session":"{CSID}""#));

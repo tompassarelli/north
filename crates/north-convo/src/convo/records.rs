@@ -16,6 +16,7 @@ const INJECTED: [&str; 10] = [
 ];
 const PING: &str = "[north real-time ping";
 const SENT: [&str; 3] = ["[from ", "[gate ", "[urgent message"];
+const SIGNED_SINCE: &str = "2026-11-06";
 
 static TAG: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -82,9 +83,10 @@ pub(super) fn speaker(role: &str, text: &str) -> String {
     .to_owned()
 }
 
-fn launch_brief(record: &Json, opening: bool) -> bool {
+fn delivered(record: &Json, opening: bool, home: &str) -> bool {
     let human = record.get("origin").and_then(|origin| origin.text_of("kind")) == Some("human");
-    opening && !human && record.text_of("promptSource") == Some("sdk")
+    let unsigned = record.text_of("timestamp").is_none_or(|ts| ts < SIGNED_SINCE) && record.text_of("cwd") != Some(home);
+    !human && record.text_of("promptSource") == Some("sdk") && (opening || unsigned)
 }
 
 pub(super) fn tool_text(name: &str, args: Option<&Json>) -> String {
@@ -129,7 +131,7 @@ fn typed_mid_turn(record: &Json) -> Option<Message> {
     (!text.is_empty()).then(|| Message { role: speaker("user", &text), text, tool: None })
 }
 
-pub(super) fn extract_claude(record: &Json, opening: bool) -> (Vec<Message>, Meta) {
+pub(super) fn extract_claude(record: &Json, opening: bool, home: &str) -> (Vec<Message>, Meta) {
     let mut meta = claude_meta(record);
     let kind = record.text_of("type").unwrap_or("");
     if kind == "ai-title" {
@@ -148,7 +150,7 @@ pub(super) fn extract_claude(record: &Json, opening: bool) -> (Vec<Message>, Met
     let content = message.get("content");
     let single = [Json::Object(vec![("type".to_owned(), Json::Text("text".to_owned())), ("text".to_owned(), content.and_then(Json::text).map_or(Json::Null, |t| Json::Text(t.to_owned())))])];
     let blocks = if content.and_then(Json::text).is_some() { &single[..] } else { content.map_or(&[][..], Json::items) };
-    let brief = kind == "user" && launch_brief(record, opening);
+    let brief = kind == "user" && delivered(record, opening, home);
     let injected = kind == "user" && (record.get("isMeta").is_some_and(Json::truthy) || record.get("isCompactSummary").is_some_and(Json::truthy));
     let mut out = Vec::new();
     for block in blocks.iter().filter(|block| block.is_object()) {

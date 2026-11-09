@@ -221,13 +221,14 @@ fn read_file(at: &mut Reading, item: &Item) -> Result<usize> {
     };
     let Ok(mut source) = Source::open(&at.env.zstd, &found.disk, start) else { return Ok(0) };
     let prompted = start > 0 && prompted(at.con, file)?;
+    let home = at.env.home.to_string_lossy().into_owned();
     let mut state = Scan { meta: Meta::default(), pending: Vec::new(), added: 0, first_ts: None, last_ts: None, off: start, prompted };
     let outcome = scan_lines(&mut source, start, CHUNK, LINE_CAP, |from, end, line| {
         line_no += 1;
         state.off = end;
         at.progress.bytes += end - from;
         let Some(line) = line.filter(|line| wanted(found.kind, line)) else { return Ok(()) };
-        state.take(found.kind, line, line_no);
+        state.take(found.kind, line, line_no, &home);
         if state.pending.len() >= BATCH {
             state.flush(at, file, &found.hint, line_no).map_err(|failure| std::io::Error::other(failure.to_string()))?;
             at.progress.tick();
@@ -272,10 +273,10 @@ struct Scan {
 }
 
 impl Scan {
-    fn take(&mut self, kind: Kind, line: &[u8], line_no: i64) {
+    fn take(&mut self, kind: Kind, line: &[u8], line_no: i64, home: &str) {
         let Some(record) = Json::parse(line).filter(Json::is_object) else { return };
         let (messages, meta) = match kind {
-            Kind::Claude => extract_claude(&record, !self.prompted),
+            Kind::Claude => extract_claude(&record, !self.prompted, home),
             Kind::Codex => extract_codex(&record),
             Kind::Corpus => (extract_corpus(&record), Meta::default()),
         };
