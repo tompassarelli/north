@@ -121,6 +121,7 @@ impl Repository {
             several_commits: None,
             red_fix: None,
             urgent: None,
+            urgent_at: None,
             lander_fix: None,
             decided_on: None,
             verdict: None,

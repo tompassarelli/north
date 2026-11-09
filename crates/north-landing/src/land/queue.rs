@@ -59,6 +59,8 @@ pub struct Ticket {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub urgent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub urgent_at: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lander_fix: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decided_on: Option<String>,
@@ -140,6 +142,16 @@ pub fn queued_micros(path: &Path) -> u128 {
     recorded_micros(path).or_else(|| named_micros(path)).unwrap_or(u128::MAX)
 }
 
+pub fn rank(ticket: &Ticket, position: u128, path: &Path) -> (bool, bool, bool, std::cmp::Reverse<u128>, u128, PathBuf) {
+    (ticket.lander_fix.is_none(), ticket.red_fix.is_none(), !ticket.goes_first(), std::cmp::Reverse(ticket.urgent_at.unwrap_or(0)), position, path.to_path_buf())
+}
+
+pub fn queue_position(directory: &Path, path: &Path) -> io::Result<Option<(usize, usize)>> {
+    let tickets = pending(directory)?;
+    let total = tickets.len();
+    Ok(tickets.iter().position(|(candidate, _)| candidate == path).map(|at| (at + 1, total)))
+}
+
 pub type Lane = (String, PathBuf, String);
 
 pub fn lane(ticket: &Ticket) -> Lane {
@@ -196,7 +208,7 @@ fn listed(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     }
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
     let positions = positions(directory, &tickets, now);
-    tickets.sort_by_key(|(path, ticket)| (ticket.lander_fix.is_none(), ticket.red_fix.is_none(), !ticket.goes_first(), positions[path], path.clone()));
+    tickets.sort_by_key(|(path, ticket)| rank(ticket, positions[path], path));
     Ok(tickets)
 }
 

@@ -15,7 +15,7 @@ pub fn ordered(tickets: Vec<(PathBuf, Ticket)>, host: &str) -> Vec<(PathBuf, Tic
         *entry = (*entry).max(queue::queued_micros(path));
     }
     let mut kept: Vec<_> = tickets.into_iter().filter(|(path, ticket)| ticket.verdict.is_none() && ticket.host == host && newest[&(ticket.root.clone(), ticket.branch.clone())] == queue::queued_micros(path)).collect();
-    kept.sort_by_key(|(path, ticket)| (!ticket.goes_first(), queue::queued_micros(path), path.clone()));
+    kept.sort_by_key(|(path, ticket)| queue::rank(ticket, queue::queued_micros(path), path));
     kept
 }
 

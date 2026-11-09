@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::candidate::git;
 use super::lander::state_home;
@@ -29,9 +30,13 @@ fn parse(arguments: &[String]) -> Option<Options> {
 
 pub fn mark(queue: &Path, wanted: &str, reason: &str) -> Result<String, String> {
     let (path, mut ticket) = find(queue, wanted)?;
+    let at = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
     ticket.urgent = Some(reason.trim().to_owned());
+    ticket.urgent_at = Some(at);
     queue::write(&path, &ticket).map_err(|error| format!("{}: {error}", path.display()))?;
-    Ok(format!("north land: {} ({}) goes first: {}", ticket.branch, ticket.head, reason.trim()))
+    let directory = path.parent().ok_or_else(|| format!("{} has no queue", path.display()))?;
+    let (place, total) = queue::queue_position(directory, &path).map_err(|error| format!("{}: {error}", directory.display()))?.ok_or_else(|| format!("{} is not queued in {}", path.display(), directory.display()))?;
+    Ok(format!("north land: {} ({}) is {place} of {total} queued: {}", ticket.branch, ticket.head, reason.trim()))
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -51,3 +56,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "urgent_tests.rs"]
+mod tests;
