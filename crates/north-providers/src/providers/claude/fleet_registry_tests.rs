@@ -62,7 +62,11 @@ struct Window {
 }
 
 fn open_window(home: &Path, pid: u32, conversation: &str, started: u64) -> Window {
-    let sessions = home.join(".local/state/north/profiles/claude-a/sessions");
+    open_window_on(home, "a", pid, conversation, started)
+}
+
+fn open_window_on(home: &Path, account: &str, pid: u32, conversation: &str, started: u64) -> Window {
+    let sessions = home.join(format!(".local/state/north/profiles/claude-{account}/sessions"));
     fs::create_dir_all(&sessions).unwrap();
     let socket = home.join(format!("{pid}.sock"));
     let token = format!("{pid:032x}");
@@ -364,4 +368,34 @@ fn a_forgotten_session_with_no_retired_note_still_shows_its_final_report_from_it
 
     let replies: Vec<_> = follower.transcript().entries.iter().filter(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.as_str()).collect();
     assert_eq!(replies, ["Not done: the box needs the laptop.\nStop: host"], "dispatch noted its report unread and relaunched the box");
+}
+
+#[test]
+fn adopting_a_conversation_resumed_in_a_new_window_on_another_account_hangs_up_the_old_window_and_records_the_new_one() {
+    let home = tempfile::tempdir().unwrap();
+    let here = crate::platform::host::name();
+    let fleet = fleet(home.path(), &format!("[accounts.claude.profiles.b]\n\"{here}\" = {{ path = \"~/.local/state/north/profiles/claude-b\" }}\n"));
+    let local = home.path().join(".local/state/north/profiles/claude-b");
+    fs::create_dir_all(&local).unwrap();
+    fs::write(local.join(".credentials.json"), "{}").unwrap();
+    fs::write(local.join(".claude.json"), r#"{"oauthAccount":{"accountUuid":"local-login-b"}}"#).unwrap();
+    let spawn = || {
+        let mut child = std::process::Command::new("sleep").arg("600").spawn().unwrap();
+        let pid = child.id();
+        std::thread::spawn(move || child.wait());
+        pid
+    };
+    let (old, new) = (spawn(), spawn());
+    let _old = open_window_on(home.path(), "a", old, "window-a", 1);
+    assert_eq!(fleet.adopt("proxy", "window-a", "/tmp".into()).unwrap().account, "a");
+
+    let _new = open_window_on(home.path(), "b", new, "window-a", 2);
+    let record = fleet.adopt("proxy", "window-a", "/tmp".into()).unwrap();
+
+    assert_eq!((record.account.as_str(), record.placement.as_deref()), ("b", Some(format!("adopted window, process {new}").as_str())));
+    assert_eq!(fleet.session("proxy").unwrap().account, "b");
+    assert!(!crate::fleet::host::alive(old), "the old window is hung up");
+    assert!(crate::fleet::host::alive(new), "the new window stays");
+    assert!(fleet.past_sessions().iter().any(|record| record.account == "a"), "the old record is archived as a take-over does");
+    std::process::Command::new("kill").arg(new.to_string()).status().unwrap();
 }

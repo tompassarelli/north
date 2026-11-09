@@ -22,19 +22,23 @@ impl Fleet {
     pub fn adopt(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<SessionRecord> {
         let (runtime, inbox) = self.window_of(conversation).ok_or_else(|| NorthError::State(format!("no live interactive window holds conversation {conversation}")))?;
         let session_dir = self.session_dir(name)?;
+        let placement = format!("adopted window, process {}", inbox.pid);
         if let Ok(held) = self.record(name)
             && held.adopted()
             && held.conversation.as_deref() == Some(conversation)
         {
-            bar_hosts(&session_dir)?;
-            return Ok(held);
+            if held.account == inbox.account && held.placement.as_deref() == Some(placement.as_str()) {
+                bar_hosts(&session_dir)?;
+                return Ok(held);
+            }
+            self.hang_up_other_windows(conversation, inbox.pid)?;
         }
         let role = if name == PROXY { Role::Proxy } else { Role::Lead };
         let request = LaunchRequest {
             verification: false,
             name: name.to_owned(),
             provider: runtime.provider(),
-            account: inbox.account.clone(),
+            account: inbox.account,
             cwd,
             model: None,
             effort: None,
@@ -46,7 +50,7 @@ impl Fleet {
             parent: None,
             task_ref: None,
             claim_box: None,
-            placement: Some(format!("adopted window, process {}", inbox.pid)),
+            placement: Some(placement),
             machine: None,
             capacity_need: None,
             role: Some(role),
@@ -83,8 +87,14 @@ impl Fleet {
         let accounts = self.accounts();
         self.providers().into_iter().filter_map(|provider| self.runtimes.get(&provider).ok()).find_map(|runtime| {
             let own: Vec<_> = accounts.iter().filter(|account| account.provider == runtime.provider()).cloned().collect();
-            runtime.window_inbox(&own, conversation).map(|inbox| (runtime, inbox))
+            let newest = runtime.windows(&own).into_iter().filter(|window| window.conversation == conversation).max_by_key(|window| window.started_ms).map(|window| window.inbox);
+            newest.or_else(|| runtime.window_inbox(&own, conversation)).map(|inbox| (runtime, inbox))
         })
+    }
+
+    fn hang_up_other_windows(&self, conversation: &str, keep: u32) -> NorthResult<()> {
+        let others: Vec<LiveWindow> = self.live_windows().into_iter().filter(|window| window.conversation == conversation && window.inbox.pid != keep).collect();
+        others.iter().try_for_each(|window| hang_up(&window.inbox))
     }
 
     pub(super) fn window_status(&self, record: &SessionRecord) -> Status {
@@ -98,15 +108,7 @@ impl Fleet {
     /// Hangs up the interactive window holding an adopted session and waits until its process is gone; false when no window held it.
     pub fn close_window(&self, record: &SessionRecord) -> NorthResult<bool> {
         let Some((_, inbox)) = record.conversation.as_deref().and_then(|conversation| self.window_of(conversation)) else { return Ok(false) };
-        let pid = i32::try_from(inbox.pid).ok().and_then(Pid::from_raw).ok_or_else(|| NorthError::State(format!("window process {} has no pid", inbox.pid)))?;
-        let _ = kill_process(pid, Signal::Hup);
-        let deadline = Instant::now() + WINDOW_CLOSE;
-        while alive(inbox.pid) {
-            if Instant::now() > deadline {
-                return Err(NorthError::Refused(format!("window process {} of {} was still running {} s after it was hung up", inbox.pid, record.name, WINDOW_CLOSE.as_secs())));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        hang_up(&inbox)?;
         Ok(true)
     }
 
@@ -175,6 +177,19 @@ impl Fleet {
     fn holds(&self, record: &SessionRecord) -> bool {
         !matches!(self.status(record), Status::Exited | Status::Parked)
     }
+}
+
+fn hang_up(inbox: &WindowInbox) -> NorthResult<()> {
+    let pid = i32::try_from(inbox.pid).ok().and_then(Pid::from_raw).ok_or_else(|| NorthError::State(format!("window process {} has no pid", inbox.pid)))?;
+    let _ = kill_process(pid, Signal::Hup);
+    let deadline = Instant::now() + WINDOW_CLOSE;
+    while alive(inbox.pid) {
+        if Instant::now() > deadline {
+            return Err(NorthError::Refused(format!("window process {} was still running {} s after it was hung up", inbox.pid, WINDOW_CLOSE.as_secs())));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
 }
 
 fn bar_hosts(session_dir: &Path) -> NorthResult<()> {
