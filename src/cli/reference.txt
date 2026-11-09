@@ -117,9 +117,7 @@ Commands:
   nix gc [--dry-run] [--max-freed SIZE]          Root every promoted runtime, live worktree dev shell and rustup wrapper store path, then collect the store
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   test coverage select BASE HEAD [--map FILE]   Pick the Rust tests that reach the functions a change touches
-  test coverage test BASE HEAD [--map FILE] [--timeout SECONDS]  Run the selected tests
   test coverage miss BASE HEAD --log FILE [--map FILE]  Name the after-push failures the selection missed and refresh the map
-  test coverage agreement --landings COUNT [--queue DIRECTORY]  Judge the newest landings' selection share and misses
   test coverage record [NEXTEST-ARGUMENT...]    Record the test-to-function coverage map on a check host
   test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]  Refresh the coverage map on a check host
   graph tell [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Record a fact in the triple graph

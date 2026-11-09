@@ -16,7 +16,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Concerns: standing judgments with history, one registry and four views](concerns.md): Design of 2026-11-07 for north#709, which asks that north be supervised as standing concerns, things managed indefinitely, rather than as tickets that close and are forgotten.
 - [Conflict-free landing: no lane starves, no author round-trip for a mechanical conflict](conflict-free-landing.md): On 2026-11-05 Tom asked for a fix by construction after the lane that puts every repository on the lander (s18-integrated) lost the race to main four times in 20 minutes while its author rebased by hand.
 - [Context economics: what a worker's context costs, and where it compacts](context-economics.md): Decided 2026-11-06 under north#636.
-- [Coverage test selection: the tests a change reaches, before the push](coverage-test-selection.md): North lands first and verifies after the push, so a failing test costs a revert.
+- [Coverage test selection: the tests a change reaches](coverage-test-selection.md): North lands first and verifies after the push, so a failing test costs a revert.
 - [Crate split: why a leaf edit rebuilt 141k lines](crate-split.md): Owner: north#722
 - [Credentials registry: no agent work depends on a human sign-in](credentials-registry.md): Decided 2026-11-06 under north#522.
 - [Dispatch spread: one run bounded by spend, sessions, builds and disk on every host](dispatch-spread.md): At 12:05 PM on 2026-11-06 (laptop time) one `north fleet dispatch` run launched 17 boxes, all on gex45, several times what the account bound allowed.

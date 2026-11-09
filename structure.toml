@@ -474,8 +474,8 @@ may_use = ["strategy_types", "foundation", "platform.host"]
 
 [[module]]
 name = "platform.records"
-paths = ["crates/north-base/src/platform/land_queue.rs", "crates/north-base/src/platform/land_notice.rs", "crates/north-base/src/platform/decision_log.rs", "crates/north-base/src/platform/coverage_record.rs", "crates/north-base/src/platform/reader_stamp.rs", "crates/north-base/src/platform/disk_ledger.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/south_land_limits.rs", "crates/north-base/src/dispatch_pause.rs"]
-responsibility = "The state records hosts share under ~/.local/state and south: the land queue and notices, decision and coverage logs, reader stamps, the disk ledger, admission roots and the dispatch pause."
+paths = ["crates/north-base/src/platform/land_queue.rs", "crates/north-base/src/platform/land_notice.rs", "crates/north-base/src/platform/decision_log.rs", "crates/north-base/src/platform/reader_stamp.rs", "crates/north-base/src/platform/disk_ledger.rs", "crates/north-base/src/platform/admission_root.rs", "crates/north-base/src/platform/south_land_limits.rs", "crates/north-base/src/dispatch_pause.rs"]
+responsibility = "The state records hosts share under ~/.local/state and south: the land queue and notices, decision logs, reader stamps, the disk ledger, admission roots and the dispatch pause."
 may_use = ["strategy_types", "foundation", "platform.harness", "platform.host"]
 
 [[module]]
@@ -691,8 +691,8 @@ may_use = ["crate-roots", "lifecycle", "platform.git"]
 [[module]]
 name = "coverage"
 paths = ["crates/north-coverage/src/**"]
-responsibility = "The map from each Rust test to the functions it executes, recorded on a check host, and the pre-push selection of the tests that reach a change."
-may_use = ["crate-roots", "foundation", "lifecycle", "build_inputs", "platform.records", "platform.host"]
+responsibility = "The map from each Rust test to the functions it executes, recorded on a check host, and the tests that reach a change."
+may_use = ["crate-roots", "foundation", "lifecycle", "build_inputs", "platform.host"]
 
 [[module]]
 name = "context_pack"
@@ -776,7 +776,7 @@ may_use = ["threads", "domain", "foundation", "crate-roots", "lifecycle"]
 name = "providers"
 paths = ["crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/rpc.rs", "crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
-may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.process", "platform.harness"]
+may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket"]
 
 [[module]]
 name = "tui"

@@ -4,12 +4,9 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use north_base::platform::coverage_record::{self, Line};
-
-use crate::agreement::queue;
 use crate::map::{self, Test};
 use crate::pick::Selection;
-use crate::run_selected::{MOST_BEFORE_PUSH, git, north, repository, selection_between};
+use crate::run_selected::{MOST_BEFORE_PUSH, north, repository, selection_between};
 
 const USAGE: &str = "usage: north test coverage miss BASE HEAD --log FILE [--map FILE]";
 const FAILED: [&str; 6] = ["FAIL", "SIGSEGV", "SIGABRT", "SIGKILL", "TIMEOUT", "ABORT"];
@@ -101,20 +98,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let selection = selection_between(base, head, map_path).unwrap_or_else(Selection::Unmapped);
-    let judged = agreement(&selection, &failed(&text));
-    record(head, &judged);
-    report(judged, start_refresh)
-}
-
-fn record(head: &str, judged: &Agreement) {
-    let misses = if let Agreement::Missed(missed) = judged { missed.len() } else { 0 };
-    let written = git(Path::new("."), &["rev-parse", &format!("{head}^{{commit}}")]).and_then(|sha| {
-        let path = coverage_record::path(&queue(Path::new("."))?);
-        coverage_record::append(&path, &[Line::Judged { sha, misses }]).map_err(|error| format!("{}: {error}", path.display()))
-    });
-    if let Err(why) = written {
-        eprintln!("north test coverage: cannot record the judgement of {head}: {why}");
-    }
+    report(agreement(&selection, &failed(&text)), start_refresh)
 }
 
 fn usage() -> u8 {

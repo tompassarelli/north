@@ -8,28 +8,24 @@ use crate::hunks::{self, Hunks};
 use crate::map::{self, Map, Test};
 use crate::pick::{Added, Change, Selection, added_before_push, before_push, select as pick};
 
-const DEFAULT_TIMEOUT: &str = "1800";
 pub const MOST_BEFORE_PUSH: usize = 400;
 const OLDEST_MAP_SECONDS: u64 = 3 * 86_400;
 const REACHED: &str = "tests reach the changed";
 const STOOD_DOWN: &str = "no coverage-selected tests run before the push";
-const OVER: &str = "run before a push; the full suite runs after it";
 
 struct Request {
     base: String,
     head: String,
     map: Option<PathBuf>,
-    timeout: String,
 }
 
 fn request(arguments: &[String]) -> Option<Request> {
     let [base, head, rest @ ..] = arguments else { return None };
-    let mut request = Request { base: base.clone(), head: head.clone(), map: None, timeout: DEFAULT_TIMEOUT.to_owned() };
+    let mut request = Request { base: base.clone(), head: head.clone(), map: None };
     let mut rest = rest.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
             ("--map", Some(path)) => request.map = Some(PathBuf::from(path)),
-            ("--timeout", Some(seconds)) if seconds.parse::<u64>().is_ok() => request.timeout.clone_from(seconds),
             _ => return None,
         }
     }
@@ -52,29 +48,8 @@ pub fn select(arguments: &[String]) -> u8 {
     }
 }
 
-pub fn test(arguments: &[String]) -> u8 {
-    let Some(request) = request(arguments) else { return usage() };
-    let selection = selection_between(&request.base, &request.head, request.map.clone()).unwrap_or_else(Selection::Unmapped);
-    report(&selection);
-    if let Selection::Tests { tests, added, .. } = &selection
-        && tests.len() + added.len() > MOST_BEFORE_PUSH
-    {
-        eprintln!("north test coverage: {} tests is over the {MOST_BEFORE_PUSH} {OVER}", tests.len() + added.len());
-    }
-    let tests = before_push(&selection, MOST_BEFORE_PUSH);
-    let added = added_before_push(&selection, MOST_BEFORE_PUSH);
-    if tests.is_empty() && added.is_empty() {
-        return 0;
-    }
-    let command = format!("CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo nextest run --locked --offline --no-tests=pass {}", nextest_arguments(&tests, &added).join(" "));
-    let host = host();
-    eprintln!("north test coverage: running {} selected tests on {host}", tests.len() + added.len());
-    let status = Command::new(north()).args(["capacity", "offload", "run", "--host", &host, "--base", &request.base, "--head", &request.head, "--timeout", &request.timeout, "--", &command]).status();
-    status.ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1))
-}
-
 fn usage() -> u8 {
-    eprintln!("usage: north test coverage select|test BASE HEAD [--map FILE] [--timeout SECONDS]");
+    eprintln!("usage: north test coverage select BASE HEAD [--map FILE]");
     2
 }
 
@@ -88,23 +63,6 @@ fn report(selection: &Selection) {
         Selection::Tests { tests, file_level, added } if file_level.is_empty() => eprintln!("north test coverage: {} {REACHED} functions, and {} tests the lane adds run too", tests.len(), added.len()),
         Selection::Tests { tests, file_level, added } => eprintln!("north test coverage: {} {REACHED} code, and {} tests the lane adds run too; a change outside every function, newer than the map, or in a file or input the map cannot place in a function selects every test reaching the whole file ({})", tests.len(), added.len(), file_level.join(", ")),
         Selection::Unmapped(why) => eprintln!("north test coverage: {why}; {STOOD_DOWN}, the full suite runs after it"),
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ran {
-    Selected,
-    StoodDown,
-}
-
-pub fn ran(candidate_log: &str) -> Option<Ran> {
-    let lines = || candidate_log.lines().filter_map(|line| line.trim_start().strip_prefix("north test coverage: "));
-    if lines().any(|line| line.contains(STOOD_DOWN) || line.contains(OVER)) {
-        Some(Ran::StoodDown)
-    } else if lines().any(|line| line.contains(REACHED)) {
-        Some(Ran::Selected)
-    } else {
-        None
     }
 }
 

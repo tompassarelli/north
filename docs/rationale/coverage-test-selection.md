@@ -1,10 +1,12 @@
-# Coverage test selection: the tests a change reaches, before the push
+# Coverage test selection: the tests a change reaches
 
 North lands first and verifies after the push, so a failing test costs a revert. Before this, the
 cheap way to catch most of those before the push was to run each affected crate's tests, but that
 costs as much as the after-push run (north#634). A test that never executes the code a change
 touches cannot be broken by it, unless the change is to a constant, a type or a macro that the map
-below does not trace. So the pre-push run can be the few tests that reach the changed functions.
+below does not trace. The change graph reads the map for those edges, so the nextest land check can
+run the few tests that reach the changed functions. The `coverage test` land check that ran this
+selection itself is retired (north#944).
 
 ## Method
 
@@ -58,16 +60,13 @@ below does not trace. So the pre-push run can be the few tests that reach the ch
     minutes, not seconds. The full suite after the push still runs them.
 - Miss: when the after-push run is red and its prefix search names a culprit lane, the lander runs
   `north test coverage miss BASE TIP --log LOG` on that lane's own landed range. A test that failed
-  in that log but that the selection did not run is a miss; the verb names each one and starts
+  in that log but that the map's selection does not reach is a miss; the verb names each one and starts
   `north test coverage refresh` in the background, so the next selection reads a map with that reach.
   A selection that ran nothing (an untraced input, an old map, over 400 tests) is not judged. One
   refresh runs at a time, whether nightly or after a miss.
-- Record: the lander appends one `landed` line per landed lane tip, naming its candidate log, to
-  `logs/coverage-record.tsv` in its queue, and `north test coverage miss` appends a `judged` line with
-  the tip's miss count. `north test coverage agreement --landings N` reads the newest N landings: of
-  those whose candidate ran the coverage check, the share that ran a selection instead of standing
-  down, and the misses among them. It exits 0 only when that share is at least half and no test
-  was missed (north#686).
+- Agreement: `north test coverage agreement` and the land queue's `logs/coverage-record.tsv` are
+  retired with the land check that wrote it, so nothing measures a selection share any more
+  (north#944). The graph's selection is measured by the after-push run it chose, not by a record.
 
 ## Measured, 2026-11-06
 

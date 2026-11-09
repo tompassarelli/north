@@ -570,13 +570,6 @@ review = "2026-11-08"
 owner = "tompassarelli/north#636"
 
 [[check]]
-id = "n634-the-pre-push-coverage-selection"
-box = "The pre-push coverage selection runs before most Rust landings instead of standing down"
-command = "north test coverage agreement --landings 20"
-review = "2026-11-10"
-owner = "tompassarelli/north#634"
-
-[[check]]
 id = "n631-no-claims-warning-for-a-day"
 box = "prints no `claims not cleared` warning for a day after it lands"
 command = "n=$(journalctl --user -u fleet-tick.service --since '2026-11-06 00:57:22 UTC' --no-pager -o cat | grep -c 'claims not cleared'); echo $n"
