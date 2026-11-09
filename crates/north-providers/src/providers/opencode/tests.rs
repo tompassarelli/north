@@ -215,3 +215,28 @@ fn a_private_or_unreadable_lane_is_admitted_on_paid_go_flash() {
     }
     assert_eq!(argument(&live(Visibility::Public).unwrap().argv, "--route").as_deref(), Some("free"));
 }
+
+// KEEP(bug): ds-952 made its lane inside the main checkout and ds-991 registered its worktree by hand, because the lane-only sandbox cannot run `north lane new` (north#1020)
+#[test]
+fn a_deepseek_worker_launched_from_a_primary_checkout_starts_in_a_lane_the_launcher_made() {
+    let project = tempfile::tempdir().unwrap();
+    let main = project.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    std::fs::create_dir_all(project.path().join("worktrees")).unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let made = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = made.clone();
+    let runtime = seeing(Visibility::Private, day("2026-11-10")).with_lanes(Arc::new(move |lane, issue| {
+        record.lock().unwrap().push((lane.to_owned(), issue.to_owned()));
+        std::fs::create_dir_all(lane).map_err(|error| error.to_string())
+    }));
+
+    let spec = runtime.host(&account(home.path()), &request(&main), Opening::Fresh(Some("ses_x")), "").unwrap();
+
+    let lane = project.path().join("worktrees/worker");
+    assert_eq!(spec.cwd, lane);
+    assert_eq!(*made.lock().unwrap(), [(lane.clone(), "north#1".to_owned())]);
+    let resumed = runtime.host(&account(home.path()), &request(&main), Opening::Resume("ses_x"), "").unwrap();
+    assert_eq!(resumed.cwd, lane);
+    assert_eq!(made.lock().unwrap().len(), 1, "a resumed worker keeps its lane");
+}

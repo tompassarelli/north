@@ -17,6 +17,7 @@ use crate::platform::harness;
 use super::route::{self, MODELS, Route, Visibility};
 use super::harness::{Harness, OPENCODE};
 use super::turns::Phase;
+use super::lane::{self, Making};
 use super::{accounts, live, screen};
 
 pub const PROVIDER: &str = "opencode";
@@ -30,6 +31,7 @@ pub struct Deepseek {
     harness: &'static dyn Harness,
     visibility: Arc<Reading>,
     today: Arc<Clock>,
+    lanes: Arc<Making>,
 }
 
 impl Deepseek {
@@ -42,7 +44,11 @@ impl Deepseek {
     }
 
     pub fn reading(harness: &'static dyn Harness, visibility: Arc<Reading>, today: Arc<Clock>) -> Self {
-        Self { harness, visibility, today }
+        Self { harness, visibility, today, lanes: Arc::new(|_, _| Err("this runtime was built without a lane maker".to_owned())) }
+    }
+
+    pub fn with_lanes(self, lanes: Arc<Making>) -> Self {
+        Self { lanes, ..self }
     }
 
     fn route(&self, request: &LaunchRequest, brief: &str) -> NorthResult<Route> {
@@ -85,6 +91,7 @@ impl Runtime for Deepseek {
         };
         let system = request.system_prompt.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
         let route = self.route(request, &format!("{}\n{system}", request.prompt))?;
+        let cwd = lane::prepared(&request.cwd, &request.name, &request.tasks(), &*self.lanes)?;
         let delivered = match route {
             Route::Free => render(&PromptInputs { session: &request.name, role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
             Route::Go => instructions.to_owned(),
@@ -103,7 +110,7 @@ impl Runtime for Deepseek {
         }
         let mut env: Vec<(String, std::ffi::OsString)> = vec![(SESSION_ENV.into(), request.name.clone().into()), (ROLE_ENV.into(), request.role().label().into()), (ACTOR_ENV.into(), request.name.clone().into())];
         env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
-        Ok(HostSpec { key: request.name.clone(), shared: false, argv, env, env_remove: Vec::new(), cwd: request.cwd.clone() })
+        Ok(HostSpec { key: request.name.clone(), shared: false, argv, env, env_remove: Vec::new(), cwd })
     }
 
     fn handshake(&self) -> Vec<String> {

@@ -77,8 +77,12 @@ fn sweep_gates(fleet: &Fleet) {
     }
 }
 
+fn lane_maker() -> Arc<crate::providers::opencode::Making> {
+    Arc::new(|lane, issue| north_lanes::lanes::create_lane(lane, issue, None).map(drop))
+}
+
 fn runtimes() -> Runtimes {
-    Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex), Arc::new(Deepseek::opencode()), Arc::new(Deepseek::live(&PI))])
+    Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex), Arc::new(Deepseek::opencode().with_lanes(lane_maker())), Arc::new(Deepseek::live(&PI).with_lanes(lane_maker()))])
 }
 
 pub(in crate::cli) fn roster() -> NorthResult<Roster> {

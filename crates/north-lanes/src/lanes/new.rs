@@ -73,7 +73,7 @@ fn qualified(main: &Path, issue: &str) -> Result<String, String> {
     if lane_issue::valid(&item) { Ok(item) } else { Err(format!("{issue} is not an issue; give REPO#N such as north#995")) }
 }
 
-pub(super) fn create(lane: &Path, issue: &str, from: Option<&str>) -> Result<String, String> {
+pub fn create(lane: &Path, issue: &str, from: Option<&str>) -> Result<String, String> {
     if !lane.is_absolute() {
         return Err("name the lane by its absolute path".to_owned());
     }
