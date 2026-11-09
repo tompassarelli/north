@@ -126,6 +126,7 @@ impl Repository {
             lander_fix: None,
             decided_on: None,
             verdict: None,
+            deferral: None,
             keep_lane: false,
             published: None,
             alone_green: Some(git(&lane, &["rev-parse", "HEAD"])),

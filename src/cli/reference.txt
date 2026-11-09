@@ -73,6 +73,7 @@ Commands:
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
   land abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land serve [--once] [--repo DIR] [--checker PROGRAM]  Land the queued lanes of this origin: one candidate, checked once by safe-push --check-candidate, pushed to main by lease
+  land status TICKET [--repo DIR]               Read a ticket's place in the landing queue and the reason the lander last deferred, refused or withdrew it, from the records mirror on a host that is not the lander's
   land promote [--dry-run] [--shadow-minutes N] [--repo DIR]  Replay recorded rounds and shadow the queue with the current runtime, then point the lander link at it
   land withdraw TICKET --reason TEXT [--repo DIR]  Move a queued ticket out of the landing queue, tell its session why and record the incident
   land clear-withdrawal TICKET --reason TEXT [--repo DIR]  Let the withdrawn ticket's session queue the same head again; enqueue refuses it until then or a changed head

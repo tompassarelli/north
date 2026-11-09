@@ -54,6 +54,8 @@ pub struct Ticket {
     pub red_fix: Option<RedFix>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deferral: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub keep_lane: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,6 +125,12 @@ pub fn write(path: &Path, ticket: &Ticket) -> io::Result<()> {
 
 pub fn read(path: &Path) -> io::Result<Ticket> {
     serde_json::from_str(&fs::read_to_string(path)?).map_err(|error| io::Error::other(format!("{}: {error}", path.display())))
+}
+
+pub fn defer(path: &Path, reason: &str) -> io::Result<()> {
+    let mut ticket = read(path)?;
+    ticket.deferral = Some(reason.trim().to_owned());
+    write(path, &ticket)
 }
 
 fn named_micros(path: &Path) -> Option<u128> {
@@ -272,6 +280,7 @@ pub fn requeue(queue: &Path, decided: &Path, cause: &str) -> io::Result<PathBuf>
     }
     records.moved(decided, Phase::Queued, cause)?;
     ticket.verdict = None;
+    ticket.deferral = None;
     ticket.decided_on = None;
     place(queue, decided, &ticket, Phase::Queued)
 }

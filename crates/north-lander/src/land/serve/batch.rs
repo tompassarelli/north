@@ -186,7 +186,12 @@ impl Batching for Lander {
                     pass.progressed = true;
                 }
                 Pick::Undecided(reason) => undecided = Some(reason.clone()),
-                Pick::Deferred(reason) => println!("north land: {reason}"),
+                Pick::Deferred(reason) => {
+                    if let Err(error) = queue::defer(path, reason) {
+                        println!("north land: could not record {}'s deferral: {error}", ticket.branch);
+                    }
+                    println!("north land: {reason}");
+                }
             }
         }
         Ok((included, undecided))

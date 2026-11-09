@@ -217,6 +217,7 @@ fn ticket(branch: &str, verdict: Option<String>) -> Ticket {
         several_commits: None,
         red_fix: None,
         verdict,
+        deferral: None,
         keep_lane: false,
         urgent: None,
         urgent_at: None,

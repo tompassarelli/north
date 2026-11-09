@@ -152,6 +152,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Lander break-glass (north#930): `north land break-glass TICKET --reason TEXT --approval GATE` lands one queued ticket straight onto main without a lander round, only under Tom's recorded approval. [more](features/04-landing-and-lanes/0039-lander-break-glass.md)
 - Lane removal from a worker sandbox (north#954): `north lane remove LANE...` removes each lane directory directly under a project's `worktrees/`, named by its absolute path, from outside the worker sandbox, so no unregistered directory is left behind. [more](features/04-landing-and-lanes/0040-lane-remove.md)
 - Lanes record their issue and stale ones are archived, then reaped (north#995): `north lane new --issue REPO#N LANE` creates the lane `~/code/<project>/worktrees/SLUG` on branch SLUG from origin/main and records its issue as git config `branch.SLUG.north-issue`, which outlives the worktree. [more](features/04-landing-and-lanes/0041-lane-issue-and-archive.md)
+- Land ticket status: `north land status TICKET [--repo DIR]` reads the queue under the records mirror (`north/records-mirror/north/land-queue/<origin key>/`) on a host that is not the lander's, and prints the ticket's current place among the queued lanes, the reason the lander last deferred it (written onto the queued ticket beside its verdict), or, for a decided ticket, its phase and refusal reason, so a worker on a build host learns why its lane waits without reading the laptop (north#929).
 
 ## Ledger, calibration and reports
 

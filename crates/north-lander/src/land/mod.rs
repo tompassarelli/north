@@ -12,6 +12,7 @@ pub mod push_refusal;
 pub mod replay;
 pub mod serve;
 pub mod shadow;
+pub mod status;
 pub mod urgent;
 pub mod watch;
 pub mod watchdog;
