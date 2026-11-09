@@ -106,7 +106,7 @@ confound thin evidence with new, harder work).
 ## 5. Start cheap, escalate on evidence
 
 Every box starts on its pick. The dispatcher, not the proxy, relaunches it one rung up (Haiku, Sonnet, Opus medium,
-Opus high, Opus xhigh) with the failed report attached as `Prior report:` when either holds:
+Opus high, Opus xhigh, Opus max) with the failed report attached as `Prior report:` when either holds:
 
 - the worker reports `Not done:` with `Stop: reasoning`; or
 - verification failed twice in the same lane without the error count falling: the lander refused the lane twice running
@@ -123,9 +123,9 @@ Opus high, Opus xhigh) with the failed report attached as `Prior report:` when e
 tiers already refuse them; only the lane evidence above climbs past them.
 
 A harness cause never escalates; the existing stop holds (`Stop: decision`, `wait until`, `host`) keep the box where
-it is until the cause clears, and it relaunches on the same rung. After Opus xhigh the box waits as after `Stop: decision`: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus xhigh.
+it is until the cause clears, and it relaunches on the same rung. Opus xhigh gets two tries: its first failure relaunches it on Opus xhigh, its second climbs to Opus max once. After a failed Opus max try the box waits as after `Stop: decision`: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus max.
 
-Built 2026-11-07: `dispatch::stops::nowhere` reads both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. A climb is no try toward the two a day that hand a box to the proxy, since the ladder's top bounds it.
+Built 2026-11-07: `dispatch::stops::nowhere` reads both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. `dispatch::tier::History` counts the item's Opus xhigh launches, and `Rung::climbed` repeats xhigh until its second failure. A climb is no try toward the two a day that hand a box to the proxy, since the ladder's top bounds it.
 
 ## 6. Learning
 

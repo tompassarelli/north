@@ -123,7 +123,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     }
     assert_eq!(failed("Done: landed abc123.\nStop: reasoning", &on("sonnet-high", None)).stop.climb, None, "only a Not done report climbs");
     assert!(super::tries::unspent(&session(reasoning)).is_some(), "a climb is no try toward the two that hand the box to the proxy");
-    let topped = failed(reasoning, &on("worker", Some("xhigh")));
+    let topped = failed(reasoning, &on("worker", Some("max")));
     assert_eq!(issues::readiness(&topped, &world(0.0)), Err("last worker stopped for a decision".into()), "the top rung parks the box");
     assert_eq!(issues::readiness(&Issue { touched: 1001.0, ..topped }, &world(0.0)), Ok(()), "a decision on the issue relaunches it");
 
@@ -143,6 +143,55 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     assert_eq!(verified(vec![refused(3), refused(3), lander(Notice::Landed { branch: "n705-verify".into(), sha: "def".into() })]).stop.climb, None, "a landing after clears it");
     let unsigned = serde_json::json!({"kind": "user", "text": Notice::Refused { branch: "n705-verify".into(), head: "abc".into(), verdict: "failed".into(), errors: Some(3) }.text()});
     assert_eq!(verified(vec![refused(3), unsigned]).stop.climb, None, "only the lander's notice counts");
+}
+
+#[test]
+fn dispatch_retries_opus_xhigh_once_then_runs_opus_max_once_and_parks_the_box_after_a_failed_max() {
+    use super::tier::{History, Rung};
+    let report = "Not done: the parser rewrite still fails the round trip.\nStop: reasoning";
+    let session = serde_json::json!({
+        "entries": [
+            {"kind": "assistant", "text": "Working."},
+            {"kind": "assistant", "text": report}
+        ],
+        "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
+    });
+    let launched = |name: &str, effort: &str| record::Record {
+        at: 10.0,
+        item: "north#940".into(),
+        host: "gex45".into(),
+        account: "claude:c".into(),
+        name: name.into(),
+        cloud: false,
+        launched: true,
+        detail: String::new(),
+        tier: Some("worker".into()),
+        category: Some("feature".into()),
+        box_text: None,
+        hand: false,
+        effort_arm: None,
+        effort: Some(effort.into()),
+    };
+    let failed = |ran: &record::Record| Issue { stop: super::stops::stop(&session, ran), touched: 900.0, ..issue("north", 940, "- [ ] a", &[]) };
+    let first = launched("n940-xhigh-1", "xhigh");
+    let second = launched("n940-xhigh-2", "xhigh");
+    let max = launched("n940-max", "max");
+
+    let retry = super::tier::route(&failed(&first), &History::new(std::slice::from_ref(&first)), &BTreeMap::new()).unwrap();
+    assert_eq!((retry.tier, retry.effort), (Tier::Opus, Some(Effort::Xhigh)), "{}", retry.why);
+    assert!(retry.why.contains("retries n940-xhigh-1") && retry.follows.as_deref() == Some("n940-xhigh-1 (worker at xhigh effort)"), "{}", retry.why);
+
+    let climb = super::tier::route(&failed(&second), &History::new(&[first, second]), &BTreeMap::new()).unwrap();
+    assert_eq!((climb.tier, climb.effort), (Tier::Opus, Some(Effort::Max)), "{}", climb.why);
+    assert_eq!(climb.follows.as_deref(), Some("n940-xhigh-2 (worker at xhigh effort)"));
+    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    assert_eq!(climb.invocation(&cfg).unwrap(), ["--model", "claude-opus-5-5", "--effort", "max"].map(str::to_owned));
+
+    let parked = failed(&max);
+    assert_eq!(parked.stop.climb.as_ref().map(|climb| climb.rung), Some(Rung::of(Tier::Opus, Some(Effort::Max))), "the max launch is recorded as the climb's top rung");
+    let world = World { open: &BTreeSet::new(), holds: &BTreeMap::new(), box_holds: &BTreeMap::new(), box_tries: &BTreeMap::new(), live: &BTreeSet::new(), planned: &BTreeMap::new(), backlog: None, at: 1000.0 };
+    assert_eq!(issues::readiness(&parked, &world), Err("last worker stopped for a decision".into()), "a failed max try parks the box for a decision");
+    assert_eq!(issues::readiness(&Issue { touched: 1001.0, ..parked }, &world), Ok(()), "a newer decision relaunches it");
 }
 
 #[test]

@@ -49,11 +49,12 @@ pub enum Effort {
     Medium,
     High,
     Xhigh,
+    Max,
 }
 
 impl Effort {
     pub const ARMS: [Self; 2] = [Self::Medium, Self::High];
-    pub const ALL: [Self; 3] = [Self::Medium, Self::High, Self::Xhigh];
+    pub const ALL: [Self; 4] = [Self::Medium, Self::High, Self::Xhigh, Self::Max];
 
     /// The `--effort` word Claude Code takes, which is also the tune cell's value.
     pub fn name(self) -> &'static str {
@@ -61,6 +62,7 @@ impl Effort {
             Self::Medium => "medium",
             Self::High => "high",
             Self::Xhigh => "xhigh",
+            Self::Max => "max",
         }
     }
 
@@ -70,6 +72,7 @@ impl Effort {
             Self::Medium => "effort-medium",
             Self::High => "effort-high",
             Self::Xhigh => "effort-xhigh",
+            Self::Max => "effort-max",
         }
     }
 
@@ -184,7 +187,7 @@ impl Evidence {
     }
 
     pub fn tuned_effort(self, efforts: &BTreeMap<String, Effort>, category: &str) -> Self {
-        Self { tuned_effort: efforts.get(category).copied(), ..self }
+        Self { tuned_effort: efforts.get(category).copied().filter(|effort| *effort != Effort::Max), ..self }
     }
 
     /// Adds the runs the ledger holds stamped with each effort's arm in this category.
@@ -246,10 +249,10 @@ impl Route {
     }
 }
 
-/// Dispatch's earlier launches: each item's tiers and sessions.
+/// Dispatch's earlier launches: each item's rungs and sessions.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct History {
-    tried: BTreeMap<String, Vec<(Tier, String)>>,
+    tried: BTreeMap<String, Vec<(Rung, String)>>,
 }
 
 impl History {
@@ -258,15 +261,15 @@ impl History {
         let mut started: Vec<&Record> = records.iter().filter(|record| record.launched).collect();
         started.sort_by(|a, b| a.at.total_cmp(&b.at));
         for record in started {
-            if let Some(tier) = record.tier.as_deref().and_then(Tier::parse) {
-                history.tried.entry(record.item.clone()).or_default().push((tier, record.name.clone()));
+            if let Some(rung) = Rung::recorded(record) {
+                history.tried.entry(record.item.clone()).or_default().push((rung, record.name.clone()));
             }
         }
         history
     }
 
     pub fn launched(&mut self, item: &str, name: &str, route: &Route) {
-        self.tried.entry(item.to_owned()).or_default().push((route.tier, name.to_owned()));
+        self.tried.entry(item.to_owned()).or_default().push((Rung::of(route.tier, route.effort), name.to_owned()));
     }
 
     /// The seed of `item`'s next draw in the `family` experiment; a relaunch draws again.
@@ -275,7 +278,12 @@ impl History {
     }
 
     fn tried_on(&self, item: &str, on: Tier) -> Option<&str> {
-        self.tried.get(item)?.iter().rev().find(|(tier, _)| *tier == on).map(|(_, name)| name.as_str())
+        self.tried.get(item)?.iter().rev().find(|(rung, _)| rung.tier == on).map(|(_, name)| name.as_str())
+    }
+
+    /// The launches `item` has already spent on Opus xhigh.
+    fn xhigh_attempts(&self, item: &str) -> usize {
+        self.tried.get(item).map_or(0, |tried| tried.iter().filter(|(rung, _)| rung.effort == Some(Effort::Xhigh)).count())
     }
 }
 
@@ -293,13 +301,17 @@ pub struct Rung {
     pub effort: Option<Effort>,
 }
 
+/// The Opus xhigh launches a box gets before its climb reaches Opus max.
+pub const XHIGH_ATTEMPTS: usize = 2;
+
 impl Rung {
-    pub const LADDER: [Self; 5] = [
+    pub const LADDER: [Self; 6] = [
         Self { tier: Tier::Haiku, effort: None },
         Self { tier: Tier::Sonnet, effort: None },
         Self { tier: Tier::Opus, effort: Some(Effort::Medium) },
         Self { tier: Tier::Opus, effort: Some(Effort::High) },
         Self { tier: Tier::Opus, effort: Some(Effort::Xhigh) },
+        Self { tier: Tier::Opus, effort: Some(Effort::Max) },
     ];
 
     /// The rung `tier` runs on at `effort`; Opus with no override runs at its medium default.
@@ -318,6 +330,12 @@ impl Rung {
         Self::LADDER.iter().position(|rung| *rung == self).and_then(|at| Self::LADDER.get(at + 1)).copied()
     }
 
+    /// The rung the next launch climbs to after `attempts` launches have failed here: xhigh retries
+    /// once, then every other rung climbs one up.
+    pub fn climbed(self, attempts: usize) -> Option<Self> {
+        if self.effort == Some(Effort::Xhigh) && attempts < XHIGH_ATTEMPTS { Some(self) } else { self.above() }
+    }
+
     pub fn name(self) -> String {
         self.effort.map_or_else(|| self.tier.name().to_owned(), |effort| format!("{} at {} effort", self.tier.name(), effort.name()))
     }
@@ -334,8 +352,13 @@ pub fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidenc
     };
     let category = facet("Category").to_lowercase();
     known(&category)?;
-    let rung = climb.rung.above().unwrap_or(climb.rung);
-    let why = format!("escalates {}'s {} from {} to {}", climb.session, climb.why, climb.rung.name(), rung.name());
+    let attempts = history.xhigh_attempts(&issue.reference().to_string());
+    let rung = climb.rung.climbed(attempts).unwrap_or(climb.rung);
+    let why = if rung == climb.rung {
+        format!("retries {}'s {} at {} before Opus max", climb.session, climb.why, rung.name())
+    } else {
+        format!("escalates {}'s {} from {} to {}", climb.session, climb.why, climb.rung.name(), rung.name())
+    };
     Ok(Route { tier: rung.tier, category, effort: rung.effort, effort_arm: false, follows: Some(format!("{} ({})", climb.session, climb.rung.name())), why })
 }
 

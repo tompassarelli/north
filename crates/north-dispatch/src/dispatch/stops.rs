@@ -3,7 +3,7 @@
 //! stays skipped until that UTC time, and so does every later launch on a box that wait named (`wait_stops`); after a worker recorded a need with `north fleet need` the next brief carries `Needs: NEED`, and every later one while a box
 //! it named stays unticked (`host_needs`), so placement sends it to a host that serves it instead of the one that could not. After `Not done:` with `Stop: reasoning`, or after the
 //! lander refused one of the session's lanes twice for its own failing checks without fewer errors, the next launch
-//! climbs one rung of `Rung::LADDER`, and from its top rung the box waits for a decision like `Stop: decision`.
+//! climbs one rung of `Rung::LADDER` (Opus xhigh twice, then Opus max once), and from its top rung the box waits for a decision like `Stop: decision`.
 use super::issues::{Issue, IssueRef};
 use super::record::Record;
 use super::work::did_work;
