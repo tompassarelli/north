@@ -119,9 +119,8 @@ impl Gh {
 
 impl Tracker for Gh {
     fn open(&self, title: &str) -> Result<Option<Issue>, String> {
-        let search = format!("in:title \"{title}\"");
-        let found = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--search", &search, "--json", "number,title,body"])?;
-        Ok(found.as_array().into_iter().flatten().find(|issue| issue["title"] == title).and_then(|issue| {
+        let listed = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--limit", "500", "--json", "number,title,body"])?;
+        Ok(listed.as_array().into_iter().flatten().find(|issue| issue["title"] == title).and_then(|issue| {
             Some(Issue { number: issue["number"].as_u64()?, body: issue["body"].as_str().unwrap_or_default().to_owned() })
         }))
     }
