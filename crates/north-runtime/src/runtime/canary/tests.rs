@@ -12,6 +12,7 @@ const PROMOTED: &str = "2222222222222222222222222222222222222222";
 struct Fleet<'a> {
     layout: &'a Layout,
     failing: Option<(&'static str, Ran)>,
+    installed: Vec<String>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
 }
@@ -33,6 +34,10 @@ impl Machine for Fleet<'_> {
 
     fn alarm(&self, text: &str) {
         self.alarms.lock().unwrap().push(text.to_owned());
+    }
+
+    fn installed_providers(&self) -> Vec<String> {
+        self.installed.clone()
     }
 }
 
@@ -58,7 +63,13 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, installed: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+    }
+
+    fn fleet_without(&self, provider: &str) -> Fleet<'_> {
+        let mut fleet = self.fleet(None);
+        fleet.installed.retain(|installed| installed != provider);
+        fleet
     }
 
     fn current(&self) -> std::path::PathBuf {
@@ -166,6 +177,21 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
     let _ = lander.wait();
     assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
     assert!(!String::from_utf8_lossy(&probe.stdout).contains("ghs_host_token") && !String::from_utf8_lossy(&probe.stderr).contains("ghs_host_token"));
+}
+
+#[test]
+fn a_host_without_a_provider_is_not_probed_for_it() {
+    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()]);
+    assert_eq!(plan.not_applicable, ["opencode"]);
+    assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
+    assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode")));
+
+    let host = Host::promoted();
+    let fleet = host.fleet_without("opencode");
+    assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Passed);
+    let probed = fleet.probed.lock().unwrap();
+    assert!(probed.iter().any(|name| name.contains("claude")), "{probed:?}");
+    assert!(probed.iter().all(|name| !name.contains("opencode")), "{probed:?}");
 }
 
 #[test]

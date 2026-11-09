@@ -35,6 +35,7 @@ pub(super) trait Machine: Sync {
     fn probe(&self, probe: &Probe) -> Ran;
     fn roll_back(&self, sha: &str) -> Rollback;
     fn alarm(&self, text: &str);
+    fn installed_providers(&self) -> Vec<String>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,7 +62,11 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         println!("north runtime canary: {host}: {short} not judged here: {}", failure.message);
         return Verdict::Skipped;
     }
-    let probes = probes::core_loop(host, sha);
+    let probes = probes::core_loop(host, sha, &machine.installed_providers());
+    if !probes.not_applicable.is_empty() {
+        println!("north runtime canary: {host}: {short}: not applicable here because the host cannot launch them: {}", probes.not_applicable.join(", "));
+    }
+    let probes = probes.probes;
     let ran: Vec<Ran> = std::thread::scope(|scope| {
         let handles: Vec<_> = probes.iter().map(|probe| scope.spawn(|| machine.probe(probe))).collect();
         handles.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Ran::Unrun("the probe panicked".to_owned()))).collect()
@@ -193,6 +198,13 @@ impl Machine for Live<'_> {
 
     fn alarm(&self, text: &str) {
         update::alert_proxy(text);
+    }
+
+    fn installed_providers(&self) -> Vec<String> {
+        match self.host.run(&probes::installed_script()) {
+            Ok(listing) => probes::PROVIDERS.iter().filter(|provider| listing.lines().any(|line| line.trim() == **provider)).map(|provider| (*provider).to_owned()).collect(),
+            Err(_) => probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(),
+        }
     }
 }
 

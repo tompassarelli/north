@@ -5,7 +5,7 @@ const SHELL_LIMIT: Duration = Duration::from_secs(45);
 const MINT_LIMIT: Duration = Duration::from_secs(90);
 const LAUNCH_LIMIT: Duration = Duration::from_secs(150);
 const FETCH: &str = "for file in \"$HOME\"/code/*/main/.safe-push; do\n  [ -f \"$file\" ] || continue\n  git -C \"$(dirname \"$file\")\" ls-remote origin HEAD >/dev/null || { echo \"$file: fetch failed\" >&2; exit 1; }\ndone";
-const PROVIDERS: [&str; 2] = ["claude", "opencode"];
+pub(super) const PROVIDERS: [&str; 2] = ["claude", "opencode"];
 
 pub(in crate::runtime) struct Probe {
     pub(super) name: String,
@@ -13,11 +13,16 @@ pub(in crate::runtime) struct Probe {
     pub(super) limit: Duration,
 }
 
+pub(super) struct CoreLoop {
+    pub(super) probes: Vec<Probe>,
+    pub(super) not_applicable: Vec<&'static str>,
+}
+
 fn probe(name: impl Into<String>, script: String, limit: Duration) -> Probe {
     Probe { name: name.into(), script, limit }
 }
 
-pub(super) fn core_loop(host: &str, sha: &str) -> Vec<Probe> {
+pub(super) fn core_loop(host: &str, sha: &str, installed: &[String]) -> CoreLoop {
     let north = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}/north\"");
     let mut probes = Vec::new();
     match is_hub(host) {
@@ -30,10 +35,20 @@ pub(super) fn core_loop(host: &str, sha: &str) -> Vec<Probe> {
     }
     probes.push(probe("each repository's lander mints its push token", lander_tokens(&north), MINT_LIMIT));
     if is_hub(host) {
-        return probes;
+        return CoreLoop { probes, not_applicable: Vec::new() };
     }
-    probes.extend(PROVIDERS.iter().map(|provider| probe(format!("a --test {provider} worker answers its first turn"), format!("{north} runtime probe launch {provider}"), LAUNCH_LIMIT)));
-    probes
+    let not_applicable = PROVIDERS.iter().copied().filter(|provider| !installed.iter().any(|present| present.as_str() == *provider)).collect();
+    for provider in PROVIDERS.iter().filter(|provider| installed.iter().any(|present| present.as_str() == **provider)) {
+        probes.push(probe(format!("a --test {provider} worker answers its first turn"), format!("{north} runtime probe launch {provider}"), LAUNCH_LIMIT));
+    }
+    CoreLoop { probes, not_applicable }
+}
+
+pub(super) fn installed_script() -> String {
+    format!(
+        "for provider in {}; do\n  if [ -x \"$HOME/.local/lib/$provider/current/bin/$provider\" ] || [ -f \"$HOME/.local/bin/$provider\" ] || command -v \"$provider\" >/dev/null 2>&1; then printf '%s\\n' \"$provider\"; fi\ndone\ntrue\n",
+        PROVIDERS.join(" ")
+    )
 }
 
 fn is_hub(destination: &str) -> bool {
