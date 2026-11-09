@@ -110,24 +110,3 @@ fn blank(text: &str) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_same_cause_alarm_folds_within_the_window_and_its_clearing_is_held_and_opens_it_again() {
-        let root = tempfile::tempdir().unwrap();
-        let (watch, watchdog, lander) = (Sender::Service("north-land-watch@gex45".into()), Sender::Service("north-capacity-watchdog".into()), Sender::Service("north-land".into()));
-        let admit = |sender: &Sender, text: &str, at: u64| admit(root.path(), sender, "proxy", text, at) == Admit::Send;
-
-        assert!(admit(&watchdog, "watchdog: host overload, load 107.96 (4.5/core), cpu pressure 72.02% over 60 s. Top process trees: n882-lead2", 0));
-        assert!(!admit(&watchdog, "watchdog: host overload, load 98.10 (4.1/core), cpu pressure 64.5% over 60 s. Top process trees: n909-relay", 60_000), "north#909: one overload re-sent with moved numbers");
-        assert!(admit(&watchdog, "watchdog: host overload, load 99.1 (4.1/core), cpu pressure 61% over 60 s.", WINDOW_MS), "a new window sends again");
-        assert!(admit(&watch, "north ops watch: north main is red: Cargo failed on main commit 4e387709b975", 0));
-        assert!(!admit(&watch, "north ops watch: still, 12 min: north main is red: Cargo failed on main commit 4e387709b975", 1));
-        assert!(!admit(&watch, "north ops watch: cleared after 13 min: north main is red: Cargo failed on main commit 4e387709b975", 2));
-        assert!(admit(&watch, "north ops watch: north main is red: Cargo failed on main commit 4e387709b975", 3), "a cleared cause opens again");
-        assert!(admit(&lander, "landed a82759cff8 n909-policy", 0) && admit(&lander, "landed a82759cff8 n909-policy", 1), "a landing notice is no alarm");
-    }
-}

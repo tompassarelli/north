@@ -262,12 +262,22 @@ mod tests {
         assert_eq!(alert(&watch, &format!("north ops watch: cleared after 13 min: {red}")), Sent::Held);
         assert_eq!(alert(&health, "health: ci: recovered"), Sent::Held);
         assert!(turn(2, "Done: landed be5886ab3b.\nNext: none"));
+        assert_eq!(alert(&watch, &format!("north ops watch: {red}")), Sent::HandedIn, "a cleared cause opens again");
+        let lander = Sender::Service("north-land".into());
+        assert_eq!((alert(&lander, "landed a82759cff8 n909-policy"), alert(&lander, "landed a82759cff8 n909-policy")), (Sent::HandedIn, Sent::HandedIn), "a landing notice is no alarm");
 
         let frames = proxy.frames.lock().unwrap();
-        assert_eq!(frames.len(), 2, "{frames:?}");
+        assert_eq!(frames.len(), 5, "{frames:?}");
         assert!(frames[0].contains("main is red") && frames[1].contains("Done: landed be5886ab3b"), "{frames:?}");
         let held: Vec<String> = fleet.held_since(0).into_iter().map(|held| held.text).collect();
         assert_eq!(held.len(), 4, "{held:?}");
         assert!(held[0].contains("Landing in progress") && held[2].contains("cleared after 13 min") && held[3] == "health: ci: recovered", "{held:?}");
+
+        use crate::fleet::fold::{Admit, WINDOW_MS, admit};
+        let watchdog = Sender::Service("north-capacity-watchdog".into());
+        let overload = |text: &str, at: u64| admit(home.path(), &watchdog, PROXY, text, at);
+        assert_eq!(overload("watchdog: host overload, load 107.96 (4.5/core), cpu pressure 72.02% over 60 s. Top process trees: n882-lead2", 0), Admit::Send);
+        assert_eq!(overload("watchdog: host overload, load 98.10 (4.1/core), cpu pressure 64.5% over 60 s. Top process trees: n909-relay", 60_000), Admit::Hold, "north#909: one overload re-sent with moved numbers");
+        assert_eq!(overload("watchdog: host overload, load 99.1 (4.1/core), cpu pressure 61% over 60 s.", 60_000 + WINDOW_MS), Admit::Send, "a new window sends again");
     }
 }
