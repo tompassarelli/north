@@ -12,7 +12,7 @@ const PROMOTED: &str = "2222222222222222222222222222222222222222";
 struct Fleet<'a> {
     layout: &'a Layout,
     failing: Option<(&'static str, Ran)>,
-    installed: Vec<String>,
+    launchable: Vec<String>,
     launches: bool,
     landers: Option<probes::Landers>,
     probed: Mutex<Vec<String>>,
@@ -38,8 +38,8 @@ impl Machine for Fleet<'_> {
         self.alarms.lock().unwrap().push(text.to_owned());
     }
 
-    fn installed_providers(&self) -> Vec<String> {
-        self.installed.clone()
+    fn launchable_providers(&self) -> Vec<String> {
+        self.launchable.clone()
     }
 
     fn launches_sessions(&self, _host: &str) -> bool {
@@ -73,12 +73,12 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, installed: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), launches: true, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), launches: true, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
     }
 
     fn fleet_without(&self, provider: &str) -> Fleet<'_> {
         let mut fleet = self.fleet(None);
-        fleet.installed.retain(|installed| installed != provider);
+        fleet.launchable.retain(|launchable| launchable != provider);
         fleet
     }
 
@@ -195,11 +195,27 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
 }
 
 #[test]
-fn a_host_without_a_provider_is_not_probed_for_it() {
+fn a_host_with_a_provider_binary_but_no_launch_route_is_not_probed_for_it() {
     let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, None);
     assert_eq!(plan.not_applicable, ["opencode"]);
     assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode")));
+
+    let home = tempfile::tempdir().unwrap();
+    let bin = home.path().join(".local/bin");
+    fs::create_dir_all(&bin).unwrap();
+    north_base::foundation::shim::write_executable(&bin.join("opencode"), "#!/bin/sh\nexit 0\n");
+    let listed = || {
+        let output = Command::new(bash_program()).arg("-c").arg(probes::launchable_script()).env("HOME", home.path()).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let binary_only = listed();
+    assert!(!binary_only.contains("opencode"), "a host that carries the opencode binary but not the Go key kills the worker at its first turn, so it cannot launch the probe: {binary_only:?}");
+    let key = home.path().join(".local/state/north/accounts/opencode/go.key");
+    fs::create_dir_all(key.parent().unwrap()).unwrap();
+    fs::write(&key, "go-key\n").unwrap();
+    assert!(listed().contains("opencode"), "a host that holds the Go key launches the probe");
 
     let host = Host::promoted();
     let fleet = host.fleet_without("opencode");

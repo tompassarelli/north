@@ -55,7 +55,7 @@ fn probe(name: impl Into<String>, script: String, limit: Duration) -> Probe {
     Probe { name: name.into(), script, limit }
 }
 
-pub(super) fn core_loop(host: &str, sha: &str, installed: &[String], launches: bool, landers: Option<&Landers>) -> CoreLoop {
+pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], launches: bool, landers: Option<&Landers>) -> CoreLoop {
     let north = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}/north\"");
     let mut probes = Vec::new();
     match (is_hub(host), launches) {
@@ -81,17 +81,19 @@ pub(super) fn core_loop(host: &str, sha: &str, installed: &[String], launches: b
     if is_hub(host) {
         return CoreLoop { probes, not_applicable };
     }
-    not_applicable.extend(PROVIDERS.iter().copied().filter(|provider| !installed.iter().any(|present| present.as_str() == *provider)).map(str::to_owned));
-    for provider in PROVIDERS.iter().filter(|provider| installed.iter().any(|present| present.as_str() == **provider)) {
+    not_applicable.extend(PROVIDERS.iter().copied().filter(|provider| !launchable.iter().any(|present| present.as_str() == *provider)).map(str::to_owned));
+    for provider in PROVIDERS.iter().filter(|provider| launchable.iter().any(|present| present.as_str() == **provider)) {
         probes.push(probe(format!("a --test {provider} worker answers its first turn"), format!("{north} runtime probe launch {provider}"), LAUNCH_LIMIT));
     }
     CoreLoop { probes, not_applicable }
 }
 
-pub(super) fn installed_script() -> String {
+pub(super) fn launchable_script() -> String {
+    let key = crate::providers::opencode::key_file(std::path::Path::new(".local/state/north"));
     format!(
-        "for provider in {}; do\n  if [ -x \"$HOME/.local/lib/$provider/current/bin/$provider\" ] || [ -f \"$HOME/.local/bin/$provider\" ] || command -v \"$provider\" >/dev/null 2>&1; then printf '%s\\n' \"$provider\"; fi\ndone\ntrue\n",
-        PROVIDERS.join(" ")
+        "for provider in {}; do\n  if [ \"$provider\" = opencode ] && [ ! -f \"$HOME/{}\" ]; then continue; fi\n  if [ -x \"$HOME/.local/lib/$provider/current/bin/$provider\" ] || [ -f \"$HOME/.local/bin/$provider\" ] || command -v \"$provider\" >/dev/null 2>&1; then printf '%s\\n' \"$provider\"; fi\ndone\ntrue\n",
+        PROVIDERS.join(" "),
+        key.display()
     )
 }
 

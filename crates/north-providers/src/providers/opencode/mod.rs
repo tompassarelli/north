@@ -14,7 +14,7 @@ pub mod turns;
 #[path = "tests.rs"]
 mod tests;
 
-pub use accounts::LABEL as ACCOUNT;
+pub use accounts::{LABEL as ACCOUNT, key_file};
 pub use fleet::{Deepseek, PROVIDER};
 pub use lane::Making;
 pub use route::{Route, Visibility};
