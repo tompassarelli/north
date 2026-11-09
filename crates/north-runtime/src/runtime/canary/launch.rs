@@ -1,7 +1,8 @@
 use super::super::failure::{DEFERRED, Failure, failed};
 use crate::platform::process;
+use north_providers::threads::{schema, verb::Failure as LedgerFailure};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -14,9 +15,7 @@ const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
 pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
     let north = std::env::current_exe().map_err(|error| unrun(error.into()))?;
     let scratch = tempfile::tempdir().map_err(|error| unrun(error.into()))?;
-    let state = scratch.path().join("state");
-    let cwd = scratch.path().join("work");
-    std::fs::create_dir_all(&state).and_then(|()| std::fs::create_dir_all(&cwd)).map_err(|error| unrun(error.into()))?;
+    let (state, cwd) = scratch_root(scratch.path())?;
     let name = format!("canary-{provider}-{}", std::process::id());
     let answered = match launch(&north, &state, provider, &name, &cwd) {
         Ok(true) => answer(&north, &state, &name),
@@ -29,6 +28,19 @@ pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
 
 fn unrun(failure: Failure) -> Failure {
     failed(DEFERRED, format!("the launch never reached a worker, so the probe has no verdict: {}", failure.message))
+}
+
+pub(super) fn scratch_root(scratch: &Path) -> Result<(PathBuf, PathBuf), Failure> {
+    let state = scratch.join("state");
+    let cwd = scratch.join("work");
+    std::fs::create_dir_all(&state).and_then(|()| std::fs::create_dir_all(&cwd)).map_err(|error| unrun(error.into()))?;
+    schema::ensure(&state.join("threads.db")).map_err(|failure| {
+        let why = match failure {
+            LedgerFailure::Usage(why) | LedgerFailure::Refused(why) => why,
+        };
+        unrun(failed(1, format!("the scratch root's ledger, which north fleet opens and widens, could not be created: {why}")))
+    })?;
+    Ok((state, cwd))
 }
 
 fn fleet(north: &Path, state: &Path, words: &[&str]) -> Result<String, String> {

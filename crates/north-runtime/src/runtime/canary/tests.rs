@@ -115,6 +115,18 @@ fn a_runtime_that_lacks_the_probe_subcommand_is_unrun_not_rolled_back() {
 }
 
 #[test]
+fn the_launch_probes_scratch_root_carries_the_ledger_north_fleet_opens() {
+    let scratch = tempfile::tempdir().unwrap();
+
+    let (state, cwd) = launch::scratch_root(scratch.path()).unwrap();
+
+    assert!(cwd.is_dir());
+    let ledger = rusqlite::Connection::open_with_flags(state.join("threads.db"), rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
+    let events: i64 = ledger.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'events'", [], |row| row.get(0)).unwrap();
+    assert_eq!(events, 1);
+}
+
+#[test]
 fn the_rollback_target_is_trusted_and_never_judged_again() {
     let host = Host::promoted();
     let failing = host.fleet(Some(("opencode", exited(1, "a test launch needs NORTH_TEST_ROOT\n"))));
