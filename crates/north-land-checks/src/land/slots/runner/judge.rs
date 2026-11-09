@@ -11,7 +11,7 @@ use super::{BASE_FAILS, BROKEN_BASE};
 use crate::landing::check_findings;
 use crate::landing::check_timings::{Base, BaseResult, Deadline, Timings};
 use super::{Shared, host_name, say, timeout_row, warn};
-use super::checkout::Checkout;
+use super::checkout::BaseTree;
 use super::log::{log_findings, first_error};
 use super::spawn::{Attempt, Ran};
 
@@ -145,17 +145,13 @@ impl Shared {
 
     pub(super) async fn base_run(&self, command: &str, leased: bool, timeout: u64) -> Result<Ran, String> {
         let base = self.arguments.base.clone();
-        let checkout = if self.offload_host_for(command).is_some() {
+        let tree = if self.offload_host_for(command).is_some() {
             None
         } else {
-            Some(Checkout::switch(&self.root, &base)?)
+            Some(BaseTree::detached(&self.root, &base)?)
         };
-        let ran = self.spawn_check(command, leased, &base, timeout).await;
-        if let Some(checkout) = checkout
-            && let Err(error) = checkout.restore()
-        {
-            warn(&format!("safe-push: {error}"));
-        }
+        let dir = tree.as_ref().map_or(self.root.as_path(), BaseTree::path);
+        let ran = self.spawn_check(command, leased, &base, timeout, dir).await;
         ran.map_err(|_| format!("land check {command} could not start on the base tree"))
     }
 

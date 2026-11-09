@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
@@ -156,7 +156,7 @@ impl Shared {
         }
     }
 
-    pub(super) async fn spawn_check(&self, command: &str, leased: bool, tree: &str, timeout: u64) -> Result<Ran, i32> {
+    pub(super) async fn spawn_check(&self, command: &str, leased: bool, tree: &str, timeout: u64, dir: &Path) -> Result<Ran, i32> {
         let environment = &self.environment;
         let observing = self.observes(command);
         let argv = if let Some(host) = self.offload_host_for(command) {
@@ -179,7 +179,7 @@ impl Shared {
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(timeout, &local))
         };
-        let ran = self.spawn_argv(command, argv, tree, timeout).await;
+        let ran = self.spawn_argv(command, argv, tree, timeout, dir).await;
         if observing && let Ok(ran) = &ran {
             unit_reuse::harvest::harvest(&ran.log, &unit_reuse::harvest::directory());
             if environment.record_reuse && let Some(host) = self.offload_host_for(command) {
@@ -189,7 +189,7 @@ impl Shared {
         ran
     }
 
-    pub(super) async fn spawn_argv(&self, command: &str, argv: Vec<String>, tree: &str, timeout: u64) -> Result<Ran, i32> {
+    pub(super) async fn spawn_argv(&self, command: &str, argv: Vec<String>, tree: &str, timeout: u64, dir: &Path) -> Result<Ran, i32> {
         let Some(log) = new_log() else {
             warn("safe-push: could not create a land check log; NOT pushed.");
             return Err(1);
@@ -198,7 +198,7 @@ impl Shared {
         let started_at = epoch();
         let mut child = match Command::new(&argv[0])
             .args(&argv[1..])
-            .current_dir(&self.root)
+            .current_dir(dir)
             .envs(self.scope_environment())
             .env("SAFE_PUSH_LAND_BASE", &self.arguments.base)
             .env("SAFE_PUSH_LAND_HEAD", tree)
@@ -287,7 +287,7 @@ impl Shared {
         say(&format!("safe-push: land check{label}: {command} ({deadline}; started {})", north_base::foundation::clock::Timestamp::now().iso_millis()));
         let measured = self.offload_host_for(&command).is_none();
         let before = children_cpu_seconds();
-        let ran = match self.spawn_check(&command, leased, self.arguments.tree(), timeout).await {
+        let ran = match self.spawn_check(&command, leased, self.arguments.tree(), timeout, &self.root).await {
             Ok(ran) => ran,
             Err(status) => return status,
         };

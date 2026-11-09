@@ -92,7 +92,8 @@ impl Fixture {
         script(&stubs.join("north"), NORTH_STUB);
         script(&stubs.join("safe-push"), SCAN_STUB);
         script(&stubs.join("lease-probe.sh"), LEASE_PROBE);
-        fs::create_dir_all(root.path().join("state")).unwrap();
+        fs::create_dir_all(root.path().join("state/safe-push")).unwrap();
+        std::os::unix::fs::symlink(root.path(), root.path().join("state/safe-push/base-trees")).unwrap();
         fs::create_dir_all(root.path().join("runtime")).unwrap();
         fs::write(root.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
         Self { root, repo, base, head }

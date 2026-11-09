@@ -27,9 +27,9 @@ impl Trees {
     }
 }
 
-pub(super) struct Checkout {
-    root: PathBuf,
-    back: Vec<String>,
+pub(super) struct BaseTree {
+    repo: PathBuf,
+    root: tempfile::TempDir,
 }
 
 fn git_in(root: &Path, arguments: &[&str]) -> Result<String, String> {
@@ -40,19 +40,36 @@ fn git_in(root: &Path, arguments: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-impl Checkout {
-    pub(super) fn switch(root: &Path, base: &str) -> Result<Self, String> {
-        let back = match git_in(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
-            Ok(branch) if !branch.is_empty() => vec![branch],
-            _ => vec!["--detach".to_owned(), git_in(root, &["rev-parse", "HEAD"])?],
-        };
-        git_in(root, &["checkout", "-q", "--force", "--detach", base])?;
-        Ok(Self { root: root.to_owned(), back })
+fn state_dir() -> PathBuf {
+    let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"), PathBuf::from);
+    state.join("safe-push/base-trees")
+}
+
+impl BaseTree {
+    pub(super) fn detached(repo: &Path, base: &str) -> Result<Self, String> {
+        Self::detached_in(repo, base, &state_dir())
     }
 
-    pub(super) fn restore(self) -> Result<(), String> {
-        let mut arguments = vec!["checkout", "-q", "--force"];
-        arguments.extend(self.back.iter().map(String::as_str));
-        git_in(&self.root, &arguments).map(drop)
+    pub(super) fn detached_in(repo: &Path, base: &str, state: &Path) -> Result<Self, String> {
+        std::fs::create_dir_all(state).map_err(|error| format!("{}: {error}", state.display()))?;
+        let root = tempfile::Builder::new().prefix("base-").tempdir_in(state).map_err(|error| error.to_string())?;
+        git_in(repo, &["worktree", "add", "--quiet", "--detach", &root.path().to_string_lossy(), base])?;
+        Ok(Self { repo: repo.to_owned(), root })
+    }
+
+    pub(super) fn path(&self) -> &Path {
+        self.root.path()
     }
 }
+
+impl Drop for BaseTree {
+    fn drop(&mut self) {
+        if let Err(error) = git_in(&self.repo, &["worktree", "remove", "--force", &self.root.path().to_string_lossy()]) {
+            super::warn(&format!("safe-push: {error}"));
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "checkout_tests.rs"]
+mod tests;
