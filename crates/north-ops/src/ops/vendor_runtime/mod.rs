@@ -112,6 +112,9 @@ pub fn install(request: &Install, requested: &str) -> Result<String, Failure> {
     fs::create_dir_all(request.root.join("versions")).map_err(io)?;
     let lock = fs::OpenOptions::new().create(true).append(true).open(request.root.join("update.lock")).map_err(io)?;
     flock(&lock, FlockOperation::LockExclusive).map_err(|error| fail(vendor, &error.to_string(), 1))?;
+    for stale in fs::read_dir(request.root).map_err(io)?.flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with(".stage.")) {
+        let _ = fs::remove_dir_all(stale.path());
+    }
     let stage = tempfile::Builder::new().prefix(".stage.").tempdir_in(request.root).map_err(io)?;
     fs::create_dir(stage.path().join("bin")).map_err(io)?;
     let fetched = vendor.fetch(request.network, stage.path(), &version)?;

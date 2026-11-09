@@ -82,3 +82,11 @@ fn the_newest_release_is_the_highest_stable_version_tag_not_githubs_latest_flag_
     let network = Fake { payload: "", manifest: listing.to_owned(), calls: RefCell::default() };
     assert_eq!(super::github::newest(&network, "o/r").unwrap(), "2.2.10");
 }
+
+#[test]
+fn an_install_clears_the_stage_directory_an_earlier_killed_install_left_behind() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join(".stage.dead/bin")).unwrap();
+    run(&Claude, &claude_fake(false), root.path(), &|_| true, "9.9.9").ok().unwrap();
+    assert!(!root.path().join(".stage.dead").exists() && root.path().join("current").exists());
+}

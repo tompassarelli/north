@@ -27,7 +27,7 @@ impl Vendor for Opencode {
     }
 
     fn expected(&self, version: &str) -> String {
-        format!("v{version}")
+        format!("opencode v{version}")
     }
 
     fn probe_before_promotion(&self) -> bool {
