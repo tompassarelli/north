@@ -90,8 +90,9 @@ uses: its gex45-farm-slice check asserts the runner units' slice and weight from
 A VM test adds value only for behaviour that exists at run time across processes, such as a firewall that must drop
 a packet, and none of our incidents was of that kind.
 
-Verdict: reject VM tests for now. Each of the fixes above (north#706, north#912, firn#50) should land with an
-evaluation-time assertion in firn's or south's flake checks, the pattern south's gex45-farm-slice check sets.
+Verdict: reject VM tests for now. Each of the fixes above (north#706, north#912, firn#50) gets an evaluation-time
+assertion in south's flake checks, where the hosts are declared, the pattern south's gex45-farm-slice check sets
+(south#85).
 
 ## Claim 4: agents may use sudo because generations roll back
 
@@ -192,6 +193,7 @@ ghuntley/loom. Nothing was copied from it. The bun pin in flake.nix repeats firn
 - north#973: GitHub refuses a non-fast-forward update or deletion of main in every repository.
 - north#974: every path that runs dependency code runs it in depbox's namespace.
 - north#975: the worker sandbox covers removals a worker command hands to another process.
+- south#85: south's flake checks assert the host facts behind north#706, north#912 and firn#50.
 - firn d97235a26c: the containers module drops a group membership no workflow used.
 - flake.nix: the dev shell's bun is the release the hosts run.
 
