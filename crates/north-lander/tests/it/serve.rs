@@ -4,6 +4,7 @@ use std::process::{Child, Command, Output, Stdio};
 use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
+const TOKEN: &str = "#!/bin/sh\necho app-token\n";
 const GREEN: &str = "#!/bin/sh\n[ -z \"$HOLD\" ] || { : > \"$HOLD.started\"; while [ ! -e \"$HOLD.release\" ]; do sleep 0.05; done; }\necho 'safe-push: verdict green'\n";
 
 #[test]
@@ -37,7 +38,8 @@ impl World {
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("checker"), GREEN).unwrap();
         std::fs::write(bin.join("north"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$0.calls\"\n").unwrap();
-        for program in ["checker", "north"] {
+        std::fs::write(bin.join("token"), TOKEN).unwrap();
+        for program in ["checker", "north", "token"] {
             Command::new("chmod").arg("+x").arg(bin.join(program)).status().unwrap();
         }
         Self { root }
@@ -58,6 +60,7 @@ impl World {
             git(&checkout, &["config", key, value]);
         }
         std::fs::write(checkout.join("README"), "start\n").unwrap();
+        std::fs::write(checkout.join(".safe-push"), "[landing]\n\tpush-app = lander\n").unwrap();
         git(&checkout, &["add", "-A"]);
         git(&checkout, &["commit", "-q", "-m", "start"]);
         git(&checkout, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
@@ -66,7 +69,7 @@ impl World {
     }
 
     pub(super) fn lander(&self, repository: &Repository, hold: Option<&Path>) -> Child {
-        let mut command = self.land(&["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--checker", self.path().join("bin/checker").to_str().unwrap()]);
+        let mut command = self.land(&["serve", "--once", "--repo", repository.checkout.to_str().unwrap(), "--checker", self.path().join("bin/checker").to_str().unwrap(), "--app-token", self.path().join("bin/token").to_str().unwrap()]);
         if let Some(hold) = hold {
             command.env("HOLD", hold);
         }

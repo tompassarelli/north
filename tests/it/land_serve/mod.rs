@@ -104,6 +104,7 @@ fn build_template(root: &Path) -> String {
     git(&repo, &["config", "commit.gpgsign", "false"]);
     git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
     fs::write(repo.join("app.txt"), "alpha\nbeta\ngamma\n").unwrap();
+    fs::write(repo.join(".safe-push"), "[landing]\n\tpush-app = lander\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "base"]);
     git(&repo, &["push", "-q", "origin", "main"]);
@@ -254,7 +255,7 @@ HOME=$FAKE_REMOTE_HOMES/$destination exec sh -c "$command"
 impl Fixture {
     fn landing_config(&mut self, config: &str) {
         executable(&self.bin.join("ssh"), FAKE_SSH);
-        self.commit(&self.repo, ".safe-push", &format!("[landing]\n{config}"), "configure landing");
+        self.commit(&self.repo, ".safe-push", &format!("[landing]\n\tpush-app = lander\n{config}"), "configure landing");
         git(&self.repo, &["push", "-q", "origin", "main"]);
         self.base = self.main();
     }

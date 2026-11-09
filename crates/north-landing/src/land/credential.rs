@@ -8,30 +8,24 @@ const KEY: &str = "landing.push-app";
 const HELPER: &str = "!f() { test \"$1\" = get && printf 'username=x-access-token\\npassword=%s\\n' \"$NORTH_LAND_PUSH_TOKEN\"; }; f";
 const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Credential {
-    Inherited,
-    App(String),
-}
-
-pub fn choose(configured: &[&str]) -> Result<Credential, String> {
+pub fn choose(configured: &[&str]) -> Result<String, String> {
     match configured {
-        [] => Ok(Credential::Inherited),
-        [name] if !name.is_empty() && name.chars().all(|character| character.is_ascii_alphanumeric() || character == '-') => Ok(Credential::App((*name).to_owned())),
+        [] => Err(format!("{KEY} is not set in .safe-push; the lander pushes only with an App's token, never an inherited login")),
+        [name] if !name.is_empty() && name.chars().all(|character| character.is_ascii_alphanumeric() || character == '-') => Ok((*name).to_owned()),
         [name] => Err(format!("{KEY} names {name:?}, which is not an App name")),
         _ => Err(format!("{KEY} is set more than once")),
     }
 }
 
-fn configured(worktree: &Path, base: &str) -> Result<Credential, String> {
+fn configured(worktree: &Path, base: &str) -> Result<String, String> {
     let blob = format!("{base}:.safe-push");
     if !candidate::output(worktree, &["cat-file", "-e", &blob])?.status.success() {
-        return Ok(Credential::Inherited);
+        return choose(&[]);
     }
     let read = candidate::output(worktree, &["config", "--blob", &blob, "--get-all", KEY])?;
     match read.status.code() {
         Some(0) => choose(&String::from_utf8_lossy(&read.stdout).lines().map(str::trim).collect::<Vec<_>>()),
-        Some(1) => Ok(Credential::Inherited),
+        Some(1) => choose(&[]),
         _ => Err(format!("cannot read {KEY} from {blob}: {}", String::from_utf8_lossy(&read.stderr).trim())),
     }
 }
@@ -60,20 +54,16 @@ pub fn mint(program: &[String], app: &str) -> Result<String, String> {
     Ok(token)
 }
 
-pub fn for_push(worktree: &Path, base: &str, program: &[String]) -> Result<Option<String>, String> {
-    match configured(worktree, base)? {
-        Credential::Inherited => Ok(None),
-        Credential::App(app) => mint(program, &app).map(Some),
-    }
+pub fn for_push(worktree: &Path, base: &str, program: &[String]) -> Result<String, String> {
+    mint(program, &configured(worktree, base)?)
 }
 
-pub fn apply(push: &mut Command, token: Option<&str>) {
-    let Some(token) = token else { return };
-    push.args(["-c", "credential.helper=", "-c", "credential.https://github.com.helper=", "-c", &format!("credential.https://github.com.helper={HELPER}")]);
+pub fn apply(push: &mut Command, token: &str) {
+    push.args(["-c", "http.sslVerify=true", "-c", "http.proxy=", "-c", "credential.helper=", "-c", "credential.https://github.com.helper=", "-c", &format!("credential.https://github.com.helper={HELPER}")]);
     for name in SCRUBBED {
         push.env_remove(name);
     }
-    push.env(TOKEN_ENV, token).env("GIT_TERMINAL_PROMPT", "0");
+    push.env(TOKEN_ENV, token).env("GIT_TERMINAL_PROMPT", "0").env("GIT_CONFIG_NOSYSTEM", "1");
 }
 
 #[cfg(test)]
@@ -87,7 +77,7 @@ mod tests {
         let global = scratch.join("gitconfig");
         std::fs::write(&global, "[credential \"https://github.com\"]\n\thelper = !f() { printf 'username=decoy\\npassword=decoy\\n'; }; f\n").unwrap();
         let mut fill = Command::new("git");
-        apply(&mut fill, Some("app-secret"));
+        apply(&mut fill, "app-secret");
         let mut child = fill.args(["credential", "fill"]).env("GIT_CONFIG_GLOBAL", &global).env("GIT_CONFIG_NOSYSTEM", "1").env_remove("GIT_CONFIG_COUNT").env_remove("GIT_CONFIG_PARAMETERS").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
         std::io::Write::write_all(child.stdin.as_mut().unwrap(), b"protocol=https\nhost=github.com\npath=tompassarelli/north\n\n").unwrap();
         let output = child.wait_with_output().unwrap();

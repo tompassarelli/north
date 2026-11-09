@@ -106,10 +106,12 @@ impl World {
         run(root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
         run(root, &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
         fs::write(main.join("README"), "base\n").unwrap();
+        fs::write(main.join(".safe-push"), "[landing]\n\tpush-app = lander\n").unwrap();
         run(&main, &["add", "-A"]);
         run(&main, &["commit", "-q", "-m", "base"]);
         run(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
         fs::write(root.join("checker.sh"), CHECKER).unwrap();
+        fs::write(root.join("token.sh"), "echo app-token\n").unwrap();
         Self::open(root)
     }
 
@@ -119,7 +121,9 @@ impl World {
     }
 
     fn lander(&self) -> Lander {
-        Lander::new(&self.main, self.checker.clone()).unwrap()
+        let mut lander = Lander::new(&self.main, self.checker.clone()).unwrap();
+        lander.app_token = vec!["sh".to_owned(), self.root.join("token.sh").display().to_string()];
+        lander
     }
 
     fn lane_in(&self, checkout: &Path, root: &Path, branch: &str, file: &str) -> Ticket {

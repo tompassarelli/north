@@ -16,7 +16,7 @@ use super::telemetry::Stages;
 use super::watch;
 use super::withdraw::find;
 
-pub const USAGE: &str = "usage: north land break-glass TICKET --reason TEXT --approval GATE [--repo DIR]";
+pub const USAGE: &str = "usage: north land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]";
 pub const CLASS: &str = "lander-break-glass";
 const WORKTREE: &str = "lander-break-glass";
 
@@ -25,16 +25,18 @@ struct Options {
     reason: String,
     approval: i64,
     repo: PathBuf,
+    app_token: Option<String>,
 }
 
 fn parse(arguments: &[String]) -> Option<Options> {
-    let mut options = Options { ticket: String::new(), reason: String::new(), approval: 0, repo: PathBuf::from(".") };
+    let mut options = Options { ticket: String::new(), reason: String::new(), approval: 0, repo: PathBuf::from("."), app_token: None };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {
             "--reason" => options.reason.clone_from(rest.next()?),
             "--approval" => options.approval = rest.next()?.trim_start_matches('#').parse().ok()?,
             "--repo" => options.repo = PathBuf::from(rest.next()?),
+            "--app-token" => options.app_token = Some(rest.next()?.clone()),
             word if word.starts_with('-') || !options.ticket.is_empty() => return None,
             word => options.ticket = word.to_owned(),
         }
@@ -95,7 +97,7 @@ fn land(lander: &Lander, path: &Path, ticket: &Ticket, reason: &str) -> Result<S
     let token = lander.push_token(&base)?;
     let mut stages = Stages::start();
     stages.pushing();
-    match lander.push(head, &base, token.as_deref())? {
+    match lander.push(head, &base, &token)? {
         Pushed::Landed => {}
         Pushed::Moved => return Err(format!("main moved from {base} before the push; nothing pushed, run it again")),
         Pushed::Refused(Refusal::Terminal(line) | Refusal::Retry(line)) => return Err(format!("origin refused the push of {head}: {line}")),
@@ -116,7 +118,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
-    let lander = match Lander::new(&options.repo, vec!["safe-push".to_owned()]).and_then(|lander| Ok(Lander { worktree: candidate::lander_worktree(&options.repo, WORKTREE)?, ..lander })) {
+    let lander = match Lander::new(&options.repo, vec!["safe-push".to_owned()]).and_then(|lander| Ok(Lander { worktree: candidate::lander_worktree(&options.repo, WORKTREE)?, app_token: options.app_token.clone().map_or(lander.app_token.clone(), |program| vec![program]), ..lander })) {
         Ok(lander) => lander,
         Err(error) => {
             eprintln!("north land break-glass: {error}");

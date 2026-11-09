@@ -54,6 +54,7 @@ impl Rig {
         }
         crate::safe_push::link(&tools);
         shim::write_script(&tools.join("betterleaks"), "exit 0\n");
+        shim::write_script(&tools.join("app-token"), "echo app-token\n");
         shim::write_script(&tools.join("gh"), "case \"$1\" in repo) echo PUBLIC;; issue) echo '[]';; *) exit 1;; esac\n");
         git(&root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
         fs::create_dir_all(&main).unwrap();
@@ -63,7 +64,7 @@ impl Rig {
         }
         git(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
         fs::write(main.join("README.md"), "sample\n").unwrap();
-        fs::write(main.join(".safe-push"), format!("[landing]\n\tqueue = lander\n\tlander-host = {}\n\tremote-hosts =\n[land]\n\tcheck = ** :: printf checked >> \"$GOLDEN_CHECKS\"\n", host_label())).unwrap();
+        fs::write(main.join(".safe-push"), format!("[landing]\n\tpush-app = lander\n\tqueue = lander\n\tlander-host = {}\n\tremote-hosts =\n[land]\n\tcheck = ** :: printf checked >> \"$GOLDEN_CHECKS\"\n", host_label())).unwrap();
         git(&main, &["add", "."]);
         git(&main, &["commit", "-qm", "Start the sample repository"]);
         git(&main, &["push", "-q", "origin", "main"]);
@@ -176,7 +177,7 @@ fn a_brief_becomes_a_worker_commit_that_the_lander_lands_on_main_and_the_records
     assert_eq!((tickets[0].1.branch.as_str(), tickets[0].1.head.as_str(), tickets[0].1.session.as_deref()), ("worker", lane_head.as_str(), Some("worker")));
     assert!(!rig.root.join("checks").exists(), "no land check ran before the lander took the ticket");
 
-    let served = rig.command(env!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).output().unwrap();
+    let served = rig.command(env!("CARGO_BIN_EXE_north"), &rig.main).env("NORTH_CODE_ROOT", &rig.root).args(["land", "serve", "--once", "--repo"]).arg(&rig.main).arg("--checker").arg(rig.safe_push()).arg("--app-token").arg(rig.root.join("bin/app-token")).output().unwrap();
     let said = text(&served);
     assert!(served.status.success(), "{said}");
     let landed = git(&rig.origin, &["rev-parse", "refs/heads/main"]);

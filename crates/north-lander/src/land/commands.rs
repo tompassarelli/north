@@ -14,5 +14,5 @@ Command { name: "shadow", usage: "north land shadow tick [--repo DIR]", run: sha
 Command { name: "urgent", usage: "north land urgent TICKET --reason TEXT [--repo DIR]", run: urgent::run },
 Command { name: "clear-withdrawal", usage: "north land clear-withdrawal TICKET --reason TEXT [--repo DIR] [--noticed-by WHO]", run: scans::withdrawal::run },
 Command { name: "withdraw", usage: "north land withdraw TICKET --reason TEXT [--repo DIR] [--noticed-by WHO] [--class CLASS]", run: withdraw::run },
-Command { name: "break-glass", usage: "north land break-glass TICKET --reason TEXT --approval GATE [--repo DIR]", run: break_glass::run },
+Command { name: "break-glass", usage: "north land break-glass TICKET --reason TEXT --approval GATE [--repo DIR] [--app-token PROGRAM]", run: break_glass::run },
 ]

@@ -29,7 +29,7 @@ fn break_glass_lands_a_ticket_straight_onto_main_after_the_secret_scan_and_recor
     repository.lane(BRANCH);
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     let break_glass = || {
-        let mut command = world.land(&["break-glass", BRANCH, "--reason", "the lander cannot land its own fix", "--approval", "41", "--repo", repository.checkout.to_str().unwrap()]);
+        let mut command = world.land(&["break-glass", BRANCH, "--reason", "the lander cannot land its own fix", "--approval", "41", "--repo", repository.checkout.to_str().unwrap(), "--app-token", world.path().join("bin/token").to_str().unwrap()]);
         command.env("PATH", &path).output().unwrap()
     };
 

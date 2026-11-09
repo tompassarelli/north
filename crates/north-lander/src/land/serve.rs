@@ -102,17 +102,17 @@ fn micros() -> u128 {
 }
 
 pub trait Serve {
-    fn push_token(&self, base: &str) -> Result<Option<String>, String>;
-    fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String>;
+    fn push_token(&self, base: &str) -> Result<String, String>;
+    fn push(&self, candidate: &str, base: &str, token: &str) -> Result<Pushed, String>;
     fn round(&self, watch: &mut Watch) -> Result<Round, String>;
 }
 
 impl Serve for Lander {
-    fn push_token(&self, base: &str) -> Result<Option<String>, String> {
+    fn push_token(&self, base: &str) -> Result<String, String> {
         credential::for_push(&self.worktree, base, &self.app_token)
     }
 
-    fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<Pushed, String> {
+    fn push(&self, candidate: &str, base: &str, token: &str) -> Result<Pushed, String> {
         let mut push = std::process::Command::new("git");
         push.arg("-C").arg(&self.worktree);
         credential::apply(&mut push, token);

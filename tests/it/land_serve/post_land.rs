@@ -224,7 +224,7 @@ fi
 #[test]
 fn an_after_landing_run_whose_check_line_a_later_landing_changed_is_cancelled_with_no_verdict_and_its_landings_are_checked_on_the_newest_head() {
     let mut fixture = Fixture::new();
-    fixture.commit(&fixture.repo, ".safe-push", "[land]\n\tafter = old-check\n", "check after landing with the old line");
+    fixture.commit(&fixture.repo, ".safe-push", "[landing]\n\tpush-app = lander\n[land]\n\tafter = old-check\n", "check after landing with the old line");
     git(&fixture.repo, &["push", "-q", "origin", "main"]);
     fixture.base = fixture.main();
     executable(&fixture.trace.join("north-hook"), HOLD_FIRST_AFTER_RUN);
@@ -234,7 +234,7 @@ fn an_after_landing_run_whose_check_line_a_later_landing_changed_is_cancelled_wi
     let first = landed(&fixture, &first);
     until("the first after-landing run", || fs::read_to_string(fixture.trace.join("held")).is_ok_and(|pid| pid.ends_with('\n')));
     let held: i32 = fs::read_to_string(fixture.trace.join("held")).unwrap().trim().parse().unwrap();
-    let rewrite = fixture.lane("rewrite", ".safe-push", "[land]\n\tafter = new-check\n");
+    let rewrite = fixture.lane("rewrite", ".safe-push", "[landing]\n\tpush-app = lander\n[land]\n\tafter = new-check\n");
     let rewrite = fixture.enqueue(&rewrite, None);
     let rewrite = landed(&fixture, &rewrite);
     let ledger = fixture.state.join("safe-push/post-land.tsv");

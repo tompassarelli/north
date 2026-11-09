@@ -33,7 +33,7 @@ fn serve_token_scoped() {
     for name in ["GH_TOKEN=", "GITHUB_TOKEN=", "SOPS_AGE_KEY_FILE="] {
         assert!(!env.lines().any(|line| line.starts_with(name)), "the after-landing check saw {name}");
     }
-    assert!(fixture.read("pushes").contains("token=push-token"), "the push step keeps its token");
+    assert!(fixture.read("pushes").contains("token=none app=app-token"), "the push step pushes with the lander App token and no inherited login");
 }
 
 
