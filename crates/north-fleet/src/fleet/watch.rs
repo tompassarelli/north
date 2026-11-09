@@ -267,6 +267,9 @@ impl TurnWatch {
         let waits = Waits::in_root(&self.root);
         for record in host_sessions(&self.root, &self.host_dir) {
             for run in &self.detached {
+                if run.is_transport_only() {
+                    continue;
+                }
                 if let Err(error) = waits.register(&record.name, run.run(), &record.cwd, Some(&run.command)) {
                     eprintln!("north session-host: {} holds a detached run without its wait on {}: {}", record.name, run.run(), error.user_message());
                 }

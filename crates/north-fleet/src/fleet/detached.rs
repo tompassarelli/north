@@ -53,6 +53,14 @@ impl Detached {
     pub fn run(&self) -> Run {
         Run::Process { pid: self.pid, started: self.started }
     }
+
+    pub fn is_transport_only(&self) -> bool {
+        if self.command.starts_with("ssh: ") && self.command.contains("[mux]") {
+            return true;
+        }
+        let mut words = self.command.split_whitespace();
+        words.next().and_then(|program| Path::new(program).file_name()).is_some_and(|name| name == "ssh") && words.any(|option| option == "-N" || option.starts_with("-O"))
+    }
 }
 
 /// The detached runs of one session host.
