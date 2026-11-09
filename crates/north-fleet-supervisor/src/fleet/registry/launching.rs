@@ -136,6 +136,7 @@ impl Fleet {
             self.set_account(name, &onto.recorded_label())?;
             self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
         };
+        let _ = self.waits().clear_usage(name);
         if cut_short {
             self.carry_on(name, &format!("this session was moved onto account {} in the middle of a turn", onto.label))?;
         }

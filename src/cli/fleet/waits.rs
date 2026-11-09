@@ -12,7 +12,7 @@ use crate::fleet::detached;
 use crate::fleet::handover::{AccountReadings, Observed, hand_over};
 use crate::fleet::limit::{UsageWait, park_limited};
 use crate::fleet::model::{Delivery, Phase};
-use crate::fleet::registry::{Fleet, Waiting};
+use crate::fleet::registry::{Fleet, Waiting, worktree_of};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};
 use crate::fleet::sender::Sender;
 use crate::fleet::store::LedgerHost;
@@ -29,7 +29,7 @@ use crate::pacing::placement::{config, gate};
 use crate::platform::process::{run_command_within, run_within};
 
 use super::placement::Overrides;
-use super::limit::{UsageTable, holds_unlanded_lane, holds_unqueued_lane};
+use super::limit::{UsageTable, holds_unlanded_lane, holds_unqueued_lane, lane_of};
 use super::row;
 use super::ledger::Ledger;
 use super::revive;
@@ -121,7 +121,7 @@ impl WaitProbes for Probes {
                 own: None,
                 run: Box::new(|fleet| {
                     let lanes = reaper::Evidence::lanes(&reaper::Here);
-                    let handed = hand_over(&fleet, &UsageTable, &lanes, &|record| holds_unlanded_lane(&record.name, &record.cwd, &lanes), &|request| fleet.take_over(request).inspect(|record| super::desktop::show_taken(&fleet, record)), &tell_tom, now_ms());
+                    let handed = hand_over(&fleet, &UsageTable, &lanes, &|record| holds_unlanded_lane(&record.name, &lane_of(&record.cwd, |worktrees| worktree_of(record, worktrees)), &lanes), &|request| fleet.take_over(request).inspect(|record| super::desktop::show_taken(&fleet, record)), &tell_tom, now_ms());
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },

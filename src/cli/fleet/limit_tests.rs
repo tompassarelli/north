@@ -33,3 +33,27 @@ fn a_worker_in_a_primary_checkout_holding_a_foreign_unpushed_commit_is_not_hande
     assert!(tickets.contains_key("chr-north-1107-B"), "{tickets:?}");
     assert!(holds_unlanded_lane("chr-north-1107-B", &main, &tickets));
 }
+
+/// On 2026-11-09 root-from-github-91 ran in the primary checkout south/main and worked in a worktree it made under
+/// south/worktrees with its commit ready and no land ticket: neither test saw its work, so the tick would have moved it
+/// nowhere (north#1007). The worktree its output names is its lane; a primary checkout whose output names none stays itself.
+#[test]
+fn a_worker_in_a_primary_checkout_is_handed_over_for_the_worktree_it_made_beside_it_north_1007() {
+    let root = tempfile::tempdir().unwrap();
+    let (origin, main) = (root.path().join("origin.git"), root.path().join("main"));
+    let lane = root.path().join("worktrees/ready");
+    git(root.path(), &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    git(root.path(), &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "base"]);
+    git(&main, &["push", "-q", "origin", "HEAD:main"]);
+    git(&main, &["worktree", "add", "-q", "-b", "ready", lane.to_str().unwrap()]);
+    std::fs::write(lane.join("fix.rs"), "fix").unwrap();
+    git(&lane, &["add", "fix.rs"]);
+    git(&lane, &["commit", "-q", "-m", "ready"]);
+    let none = BTreeMap::new();
+    let made = lane_of(&main, |worktrees| Some(worktrees.join("ready")));
+    assert_eq!(made, lane);
+    assert!(holds_unlanded_lane("root-from-github-91", &made, &none));
+    assert_eq!(lane_of(&main, |_| None), main);
+    assert_eq!(lane_of(&lane, |_| panic!("a linked worktree is read as it is")), lane);
+}

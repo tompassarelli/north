@@ -1,7 +1,8 @@
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::Fleet;
+use crate::fleet::model::SessionRecord;
 use crate::fleet::overlap::worktree_in_use;
 use crate::fleet::transcript::{WINDOW_SIZE, read_window, stream_path};
 
@@ -21,13 +22,15 @@ impl Fleet {
         sessions
             .iter()
             .filter(|record| record.name != except && record.machine.is_none() && !record.verification && self.running(record))
-            .filter_map(|record| {
-                let mut file = File::open(stream_path(&record.host_dir)).ok()?;
-                let end = file.metadata().ok()?.len();
-                let tail = String::from_utf8_lossy(&read_window(&mut file, end.saturating_sub(WINDOW_SIZE), WINDOW_SIZE).ok()?).into_owned();
-                let slug = worktree_in_use(&tail, worktrees)?;
-                Some(RunningLane { session: record.name.clone(), task: record.task_ref.clone(), since_ms: record.created_ms, path: PathBuf::from(worktrees).join(slug) })
-            })
+            .filter_map(|record| Some(RunningLane { session: record.name.clone(), task: record.task_ref.clone(), since_ms: record.created_ms, path: worktree_of(record, Path::new(worktrees))? }))
             .collect()
     }
+}
+
+/// The worktree under `worktrees` that the tail of the session's output names most, the lane it is working in.
+pub fn worktree_of(record: &SessionRecord, worktrees: &Path) -> Option<PathBuf> {
+    let mut file = File::open(stream_path(&record.host_dir)).ok()?;
+    let end = file.metadata().ok()?.len();
+    let tail = String::from_utf8_lossy(&read_window(&mut file, end.saturating_sub(WINDOW_SIZE), WINDOW_SIZE).ok()?).into_owned();
+    Some(worktrees.join(worktree_in_use(&tail, &worktrees.to_string_lossy())?))
 }

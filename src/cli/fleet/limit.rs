@@ -1,7 +1,7 @@
 //! What `north fleet waits` reads about a usage limit: the account's reset from the usage table, and
 //! which parked session holds a lane that needs landing first.
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{Connection, params};
@@ -108,10 +108,19 @@ fn window_of(name: &str) -> Option<Window> {
 }
 
 /// Whether a session holds work origin/main lacks: a land ticket of its own the lander has neither landed nor let go,
-/// or the linked worktree it runs in not yet landed. A primary checkout is never a session's lane, since its HEAD may
-/// carry another session's commits (north#801).
+/// or the linked worktree it works in (`lane_of`) not yet landed. A primary checkout is never a session's lane, since its
+/// HEAD may carry another session's commits (north#801).
 pub(super) fn holds_unlanded_lane(session: &str, cwd: &Path, tickets: &BTreeMap<String, Vec<Lane>>) -> bool {
     tickets.get(session).is_some_and(|lanes| lanes.iter().any(|lane| !matches!(lane.phase, Phase::Landed | Phase::Replaced | Phase::Withdrawn))) || own_lane_unlanded(cwd)
+}
+
+/// The directory a session's own lane is read from: its cwd, or, when that is a primary checkout, the worktree beside it
+/// that the session's recent output names most, the one it made there (north#1007).
+pub(super) fn lane_of(cwd: &Path, worktree_named: impl FnOnce(&Path) -> Option<PathBuf>) -> PathBuf {
+    if !cwd.join(".git").is_dir() {
+        return cwd.to_owned();
+    }
+    cwd.parent().and_then(|container| worktree_named(&container.join("worktrees"))).unwrap_or_else(|| cwd.to_owned())
 }
 
 fn own_lane_unlanded(cwd: &Path) -> bool {
