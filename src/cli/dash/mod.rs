@@ -17,7 +17,7 @@ mod habits;
 mod render;
 mod spend;
 
-const USAGE: &str = "usage: north dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --frontier | --rework [--since 7d] | audit [--tell]";
+const USAGE: &str = "usage: north dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --frontier | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]";
 const DEFAULT_WINDOW: &str = "24h";
 
 /// What the screen reads, each section on its own so one unread source leaves the others standing.
@@ -37,7 +37,7 @@ pub struct Screen {
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["audit", ..] | ["--weekly"] | ["--record"] | ["--frontier"] | ["--rework", ..] => return scoreboard::run(arguments),
+        ["audit", ..] | ["losses", ..] | ["--weekly"] | ["--record"] | ["--frontier"] | ["--rework", ..] => return scoreboard::run(arguments),
         ["--bars", rest @ ..] => return scoreboard::run(&rest.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()),
         ["--closed", "--since", window] | ["--since", window, "--closed"] => return closed(window),
         _ => {}

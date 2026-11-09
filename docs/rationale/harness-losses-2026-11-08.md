@@ -2,7 +2,7 @@
 
 The readiness bar "first tries lost to the harness" (ceiling 0.1%, `ready-harness-loss` in goals.toml) read 6% over 24 h on 2026-11-08 at 03:08 UTC, with n=323. That is 20 of 327 north first tries in the ledger snapshot this list was read from. This note lists each of the 20, the class the bar charged it to, what actually ended it and the evidence, then ranks the classes by what ended them (north#903). The bar's class comes from `docs/rationale/attribution.md`. The real cause comes from the session's archive (`~/.local/state/north/fleet/.archive/NAME-*/retired.json`), its boundary rows (`boundary_causes`), its `runs.box` and its report.
 
-`north dash --bars --explain` prints the bar's count per window. No verb lists the rows: each one below was read by hand from the session's archive, boundary rows, `runs.box` and report named above. Every time below is UTC.
+`north dash --bars --explain` prints the bar's count per window, and `north dash losses --since 24h --until 2026-11-08T03:15Z` lists the rows that bar counted: each first try's end, session, item, class and the boundary row that decided it, or with no row, whether the class came from the run's report. It reads the ledger alone; what ended each session beyond that row was read by hand from the session's archive, boundary rows, `runs.box` and report named above. Every time below is UTC.
 
 ## The 20 losses
 
@@ -45,9 +45,10 @@ Two losses after the snapshot belong to the same classes. n892-hostfault (11-08 
 
 ## What removes each class
 
-- Class 1, waits: dispatch holds a box whose wait counts from an unticked box above it, or counts something with no date, and names what it waits on (north#903, worker n903-waits).
+- Class 1, waits: dispatch holds a box whose wait counts from an unticked box above it, or counts something with no date, and names what it waits on (north#903, worker n903-waits; landed as 05b4a73da2, with 5ef1f3f187 allowing the three report lines it reads). `cargo test -p north-dispatch a_box_whose_wait_counts_from_an_unticked_box_above_or_from_an_undated_count_is_not_staffed_while_a_plain_box_beside_it_is` replays north-865-d2326, north-872-d0006, north-877-d0111 and north-637-d1828.
 - Class 1, duplicates: a launch, or a turn that hands a running session a new box, takes the box claim before it starts, and a refused claim refuses it (north#888). The issue-level and cross-issue claims landed as 210c4f1383 and cc9f745bff86.
-- Class 2: the reaper keeps any session whose CLI holds a background task without its notice, an armed Monitor or an unfired wakeup, and re-reads the host before it archives (north#903, worker n903-reaper).
-- Class 3, landing hosts: a build host that reaches none of its declared hosts runs the enqueue kill scan itself instead of exiting 75 (1338880a64, north#892 class 11).
+- Class 2: the reaper retires a `Not done` or `Split` only while its CLI runs no background work, reads a placed session's work on the machine it runs on, and re-reads the host before it archives (north#903, worker n903-reaper, landed as 502d8277df). `cargo test -p north-fleet-supervisor a_session_retires_when_finished_though_its_cli_still_runs_a_background_loop_when_its_host_ended_it_at_idle_exit_or_when_quiet_past_the_stale_window_unless_a_wait_gate_lane_job_or_unfinished_task_would_wake_it` keeps the north#770 report whose CLI still runs its build, and `cargo test -p north-fleet-supervisor a_stop_ordered_on_a_session_whose_own_builds_wait_in_admission_is_held_and_runs_once_they_have` replays gex45-n757-leases.
+- Class 3, placement: a worker records the host it needs with `north fleet need`, dispatch places the box there and relays the next try from the stopped one (north#791, landed as 8d7f40519c). `cargo test -p north-dispatch north_725_d0411_is_held_off_gex45_by_the_host_needs_both_earlier_launches_recorded` replays north-725-d0411.
+- Class 3, landing hosts: a build host that reaches none of its declared hosts runs the enqueue kill scan itself instead of exiting 75 (1338880a64, north#892 class 11). `cargo test -p north-land-scans a_mutant_kill_inside_an_offload_slot_runs_on_the_slot_host_and_tries_only_hosts_it_reaches` replays the cpx62 enqueue, and `cargo test -p north-runtime a_build_host_without_an_input_a_check_declares_is_left_out_of_that_check` the graph-guards placement on cpx62b.
 - Class 4: no worker runs on claude-api.
 - Class 5: since 14a61c6877, the push ledger and the landing record name each lane's own commit, not the probe's top (north#842).

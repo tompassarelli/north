@@ -18,6 +18,7 @@ mod chain;
 mod frontier;
 mod landing;
 mod lanes;
+mod losses;
 mod product;
 pub(super) mod ready;
 mod tom;
@@ -25,7 +26,7 @@ mod weekly;
 mod work;
 pub(super) mod workers;
 
-const USAGE: &str = "usage: north dash (--bars [--all] [--explain] | --weekly | --frontier | --record | --rework [--since 7d] | audit [--tell])";
+const USAGE: &str = "usage: north dash (--bars [--all] [--explain] | --weekly | --frontier | --record | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north])";
 const WEEK_S: i64 = 7 * 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,6 +241,7 @@ fn ready_table(flags: &[String]) -> u8 {
 pub fn run(arguments: &[String]) -> u8 {
     let recording = match arguments {
         [word, rest @ ..] if word == "audit" => return audit::run(rest),
+        [word, rest @ ..] if word == "losses" => return losses::run(rest),
         [flag] if flag == "--weekly" => false,
         [flag] if flag == "--frontier" => return frontier::run(),
         [flag] if flag == "--record" => true,

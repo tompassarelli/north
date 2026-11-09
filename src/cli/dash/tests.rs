@@ -72,12 +72,15 @@ fn feature_run(agent: &str, tier: &str, model: &str, effort: &str, started: &str
 fn attempt(agent: &str, succeeded: bool) -> super::super::scoreboard::workers::Attempt {
     super::super::scoreboard::workers::Attempt {
         agent: agent.to_owned(),
+        session: String::new(),
+        item: String::new(),
         category: "feature".to_owned(),
         started: 0,
         ended: 0,
         succeeded,
         repos: std::collections::BTreeSet::new(),
         cause: crate::threads::attribution::Cause::Worker,
+        basis: crate::threads::attribution::Basis::Done,
         deferred: false,
     }
 }

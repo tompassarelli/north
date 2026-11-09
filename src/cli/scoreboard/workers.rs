@@ -14,7 +14,7 @@ use crate::platform::run_roles::worker_where;
 use crate::platform::{land_queue, records_mirror};
 use crate::capacity::host::{capacity_database_readonly, queued_behind_capacity};
 use crate::land_ticket::{Lane, lanes_by_session};
-use crate::threads::attribution::{Cause, Harness, attribute, fleet_column, outcome_column, recorded_column, report_column};
+use crate::threads::attribution::{Basis, Cause, Harness, fleet_column, judge, outcome_column, recorded_column, report_column};
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred, lander-queued and job-waking runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
@@ -23,12 +23,15 @@ const RELAUNCH_WAIT_S: i64 = 24 * 3_600;
 
 pub struct Attempt {
     pub agent: String,
+    pub session: String,
+    pub item: String,
     pub category: String,
     pub started: i64,
     pub ended: i64,
     pub succeeded: bool,
     pub repos: BTreeSet<String>,
     pub cause: Cause,
+    pub basis: Basis,
     /// A failed box deferred to a dated check that has not missed: left out of first-try success, counted as a waits loss.
     pub deferred: bool,
 }
@@ -78,7 +81,9 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
                 return None;
             }
             let deferred = outcome != "done" && recorded.as_deref() == Some(Cause::Harness(Harness::Waits).label()) && !checked_miss();
-            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), agent, category, started, ended, repos: repos(&item), cause: attribute(&outcome, &report, compactions, recorded.as_deref()), deferred })
+            let verdict = judge(&outcome, &report, compactions, recorded.as_deref().and_then(Cause::parse));
+            let repos = repos(&item);
+            Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), agent, session, item, category, started, ended, repos, cause: verdict.cause, basis: verdict.basis, deferred })
         })
         .collect())
 }
