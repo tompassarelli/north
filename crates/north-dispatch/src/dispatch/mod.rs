@@ -336,10 +336,7 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
             return 2;
         }
     };
-    report::print(&survey);
-    if dry_run {
-        report::cells(&survey);
-    }
+    report::print(&survey, dry_run);
     let outcome = decide(&survey, &format!("north fleet dispatch on {}", survey.here));
     for (place, item) in outcome.ready.iter().enumerate() {
         let standing = survey.backlog.as_ref().map_or_else(|| "unread graph".to_owned(), |backlog| backlog.standing(&item.to_string()));

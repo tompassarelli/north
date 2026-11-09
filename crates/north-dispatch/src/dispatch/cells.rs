@@ -1,6 +1,5 @@
 use north_base::platform::harness;
 
-use super::tier::{Effort, Tier};
 use crate::ledger::closed::ClosedReport;
 use crate::router::settle::{self, Arm, Outcome};
 
@@ -17,31 +16,6 @@ pub struct Cell {
 impl Cell {
     pub fn name(self) -> String {
         format!("{}-{}", self.model, self.effort)
-    }
-
-    pub fn tier(self) -> Tier {
-        match self.model {
-            "haiku" => Tier::Haiku,
-            "sonnet" => Tier::Sonnet,
-            _ => Tier::Opus,
-        }
-    }
-
-    pub fn effort(self) -> Effort {
-        Effort::parse(self.effort).unwrap_or(Effort::High)
-    }
-
-    pub fn seed(tier: Tier, effort: Option<Effort>) -> Self {
-        let effort = effort.unwrap_or(match tier {
-            Tier::Haiku | Tier::Sonnet => Effort::High,
-            Tier::Opus => Effort::Medium,
-        });
-        let model = match tier {
-            Tier::Haiku => "haiku",
-            Tier::Sonnet => "sonnet",
-            Tier::Opus => "opus",
-        };
-        Self { model, effort: effort.name() }
     }
 }
 

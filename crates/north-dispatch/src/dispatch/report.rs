@@ -3,7 +3,7 @@ use super::plan;
 use super::slots::Pools;
 use super::survey::Survey;
 
-pub(super) fn print(survey: &Survey) {
+pub(super) fn print(survey: &Survey, dry_run: bool) {
     for host in &survey.hosts {
         println!("{}", host.line());
     }
@@ -29,9 +29,12 @@ pub(super) fn print(survey: &Survey) {
     for note in &survey.notes {
         println!("note: {note}");
     }
+    if dry_run {
+        cells(survey);
+    }
 }
 
-pub(super) fn cells(survey: &Survey) {
+fn cells(survey: &Survey) {
     for category in crate::router::brief::CATEGORIES {
         let seed = super::tier::seed_cell(category);
         let outcomes = survey.ledger.get(category).map(|evidence| &evidence.cell_boxes).cloned().unwrap_or_default();

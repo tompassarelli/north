@@ -381,6 +381,33 @@ pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, 
     })
 }
 
+impl Cell {
+    pub fn tier(self) -> Tier {
+        match self.model {
+            "haiku" => Tier::Haiku,
+            "sonnet" => Tier::Sonnet,
+            _ => Tier::Opus,
+        }
+    }
+
+    pub fn effort(self) -> Effort {
+        Effort::parse(self.effort).unwrap_or(Effort::High)
+    }
+
+    pub fn seed(tier: Tier, effort: Option<Effort>) -> Self {
+        let effort = effort.unwrap_or(match tier {
+            Tier::Haiku | Tier::Sonnet => Effort::High,
+            Tier::Opus => Effort::Medium,
+        });
+        let model = match tier {
+            Tier::Haiku => "haiku",
+            Tier::Sonnet => "sonnet",
+            Tier::Opus => "opus",
+        };
+        Self { model, effort: effort.name() }
+    }
+}
+
 pub fn seed_cell(category: &str) -> Cell {
     let facet = |key: &str| facets::default(key).to_owned();
     let route = tiered("north#939", category, &facet, &History::default());
