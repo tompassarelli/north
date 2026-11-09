@@ -1,6 +1,6 @@
 use super::failure::{Failure, failed};
 use super::host_facts;
-use super::layout::{self, Layout, PROGRAMS, TREE};
+use super::layout::{self, BUILT_FROM, Layout, PROGRAMS, TREE};
 use super::remote::{OWN_RSH, limit, output, run, run_reporting, ssh};
 use super::store::references;
 use super::update::{built_main, checkout, lock_waiting, named_lock_waiting};
@@ -88,10 +88,10 @@ fn stage(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>
         }
         Prepared::Staging(basis) => basis,
     };
-    println!("north runtime deploy: {host}: copying {} and its {TREE} to runtimes/{}{}", PROGRAMS.join(" and "), layout::short(target), basis.as_deref().map_or_else(String::new, |basis| format!(", only what differs from runtimes/{}", layout::short(basis))));
+    println!("north runtime deploy: {host}: copying {}, its {BUILT_FROM} record and its {TREE} to runtimes/{}{}", PROGRAMS.join(" and "), layout::short(target), basis.as_deref().map_or_else(String::new, |basis| format!(", only what differs from runtimes/{}", layout::short(basis))));
     let destination = format!("{host}:.local/state/north/runtimes/{target}.staging/");
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "-z", "--timeout=120", "-e", OWN_RSH]).args(basis.map(|basis| format!("--copy-dest=../{basis}"))).args(PROGRAMS.map(|program| runtime.join(program))).arg(runtime.join(TREE)).arg(destination);
+    copy.args(["-a", "-z", "--timeout=120", "-e", OWN_RSH]).args(basis.map(|basis| format!("--copy-dest=../{basis}"))).args(PROGRAMS.map(|program| runtime.join(program))).arg(runtime.join(BUILT_FROM)).arg(runtime.join(TREE)).arg(destination);
     run(host, "rsync", &mut copy, COPY)?;
     run(host, "install", ssh(host).args(["sh", "-c", install_script(target).as_str()]), PROBE)
 }
@@ -123,19 +123,19 @@ impl Prepared {
 const WHOLE: &str = "whole";
 const BASIS: &str = "basis ";
 
-/// The one connection before a copy: says `whole` when `runtimes/TARGET` already holds every program and its tree, else realises the store paths the runtime references, makes the staging directory and names the newest whole runtime there, whose unchanged files rsync copies on the host and whose changed ones it sends only the differences of.
+/// The one connection before a copy: says `whole` when `runtimes/TARGET` already holds every program, its built-from record and its tree, else realises the store paths the runtime references, makes the staging directory and names the newest whole runtime there, whose unchanged files rsync copies on the host and whose changed ones it sends only the differences of.
 fn prepare_script(target: &str, references: &BTreeSet<String>) -> String {
     let programs = PROGRAMS.iter().map(|program| format!("[ -x \"$1/{program}\" ]")).collect::<Vec<_>>().join(" && ");
     let realise = references.iter().map(|reference| land_offload::ship::quote(reference)).collect::<Vec<_>>().join(" ");
     format!(
-        "set -e; r=.local/state/north/runtimes; whole() {{ [ -d \"$1/{TREE}\" ] && {programs}; }}; if whole \"$r/{target}\"; then echo {WHOLE}; exit 0; fi; {}mkdir -p \"$r/{target}.staging\"; for d in $(ls -t \"$r\"); do case $d in {target} | *[!0-9a-f]*) continue ;; esac; if whole \"$r/$d\"; then echo \"{BASIS}$d\"; break; fi; done",
+        "set -e; r=.local/state/north/runtimes; whole() {{ [ -d \"$1/{TREE}\" ] && [ -f \"$1/{BUILT_FROM}\" ] && {programs}; }}; if whole \"$r/{target}\"; then echo {WHOLE}; exit 0; fi; {}mkdir -p \"$r/{target}.staging\"; for d in $(ls -t \"$r\"); do case $d in {target} | *[!0-9a-f]*) continue ;; esac; if whole \"$r/$d\"; then echo \"{BASIS}$d\"; break; fi; done",
         if realise.is_empty() { String::new() } else { format!("nix-store --realise --quiet {realise} >/dev/null; ") }
     )
 }
 
-/// Moves the staged runtime into place only whole, so `runtimes/SHA` never holds a north without its tree: the offloaded land checks resolve their harness tables from it.
+/// Moves the staged runtime into place only whole, so `runtimes/SHA` never holds a north without its tree and built-from record: the offloaded land checks resolve their harness tables from it.
 pub(super) fn install_script(target: &str) -> String {
-    format!("set -e; t=.local/state/north/runtimes/{target}; exec 9>>\"$t.lock\"; flock -w {INSTALL_LOCK_WAIT} 9; if [ -d \"$t/{TREE}\" ] && [ -x \"$t/north\" ]; then rm -rf \"$t.staging\"; exit 0; fi; rm -rf \"$t.old\"; if [ -e \"$t\" ]; then mv \"$t\" \"$t.old\"; fi; mv \"$t.staging\" \"$t\"; rm -rf \"$t.old\"")
+    format!("set -e; t=.local/state/north/runtimes/{target}; exec 9>>\"$t.lock\"; flock -w {INSTALL_LOCK_WAIT} 9; if [ -d \"$t/{TREE}\" ] && [ -f \"$t/{BUILT_FROM}\" ] && [ -x \"$t/north\" ]; then rm -rf \"$t.staging\"; exit 0; fi; rm -rf \"$t.old\"; if [ -e \"$t\" ]; then mv \"$t\" \"$t.old\"; fi; mv \"$t.staging\" \"$t\"; rm -rf \"$t.old\"")
 }
 
 fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {

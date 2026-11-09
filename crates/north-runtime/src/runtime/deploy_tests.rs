@@ -1,4 +1,4 @@
-use super::{TREE, install_script};
+use super::{BUILT_FROM, TREE, install_script};
 use crate::foundation::shim::write_executable;
 use std::fs;
 use std::path::Path;
@@ -14,6 +14,7 @@ fn staged(home: &Path, with_tree: bool) {
     let directory = runtimes(home).join(format!("{TARGET}.staging"));
     fs::create_dir_all(&directory).unwrap();
     write_executable(&directory.join("north"), "staged\n");
+    fs::write(directory.join(BUILT_FROM), "stamped\n").unwrap();
     if with_tree {
         fs::create_dir_all(directory.join(TREE)).unwrap();
     }
@@ -74,6 +75,7 @@ fn whole(home: &Path, sha: &str) {
     for program in super::PROGRAMS {
         write_executable(&directory.join(program), "built\n");
     }
+    fs::write(directory.join(BUILT_FROM), "stamped\n").unwrap();
 }
 
 fn prepared(home: &Path) -> super::Prepared {
@@ -94,6 +96,16 @@ fn a_runtime_already_whole_on_the_host_is_not_copied_and_a_missing_one_is_copied
     assert!(runtimes(home).join(format!("{TARGET}.staging")).is_dir());
     whole(home, TARGET);
     assert_eq!(prepared(home), super::Prepared::Whole);
+}
+
+// KEEP(bug): on 2026-11-09 deploy counted nexus's runtime 48d49ab4 whole without its built-from record and never shipped one, so nexus's promotion refused it and the host stayed on 1a2df788 (north#1010)
+#[test]
+fn a_runtime_on_the_host_without_its_built_from_record_is_not_whole() {
+    let home = tempfile::tempdir().unwrap();
+    let home = home.path();
+    whole(home, TARGET);
+    fs::remove_file(runtimes(home).join(TARGET).join(BUILT_FROM)).unwrap();
+    assert_eq!(prepared(home), super::Prepared::Staging(None));
 }
 
 // KEEP(bug): on 2026-11-07 a copy of a runtime this host had already replaced waited its turn behind one global lock and was shipped anyway, holding every host's newer copy behind the slowest host (north#731)
