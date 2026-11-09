@@ -144,6 +144,8 @@ fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_
     let command = [present.to_str().unwrap().to_owned(), "land".to_owned()];
     let report = ran_command(&hosts, &lane, stub, &command);
     assert!(line(&report, "north")[0].ends_with(&format!("-- {} land", present.display())), "a runtime path that exists on the host stays as given: {report:?}");
+    let report = ran_command(&hosts, &lane, stub, &["north".to_owned(), "depbox".to_owned()]);
+    assert!(line(&report, "north")[0].ends_with(&format!("-- {} depbox", hosts.remote.join("north-stub").display())), "the bare north the depbox wrapper names is the host's own: {report:?}");
 }
 
 fn laptop_room(committed: f64) -> Room {

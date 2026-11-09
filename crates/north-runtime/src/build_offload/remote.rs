@@ -39,7 +39,7 @@ shipped=$(awk -v a="$began" -v b="$(date +%s.%N)" 'BEGIN { printf "%.2f", b - a 
 locks() { git -C "$slot" ls-files -co --exclude-standard -- Cargo.lock '*/Cargo.lock' | while IFS= read -r lock; do printf '%s %s\n' "$(cksum <"$slot/$lock")" "$lock"; done; }
 before=$(locks)
 cd "$slot/$sub"
-if [ "${1##*/}" = north ] && [ "${1#/}" != "$1" ] && [ ! -x "$1" ]; then shift; set -- "$north" "$@"; fi
+if [ "$1" = north ] || { [ "${1##*/}" = north ] && [ "${1#/}" != "$1" ] && [ ! -x "$1" ]; }; then shift; set -- "$north" "$@"; fi
 echo @SYNCED@
 @GO@exec 8<&0
 @MARK@=1 @SHIP@=$shipped @TARGET@=$slot_target @HEAD@=$slot_head "$north" capacity host run --class heavy --owner "$owner" --timeout-seconds "$limit" -- @WRAP@"$@" 9>&- 8<&- &

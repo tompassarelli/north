@@ -40,6 +40,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("defaults-measure", Diagnosis),
     ("denylist", Diagnosis),
     ("dep-gate", Diagnosis),
+    ("depbox", Status),
     ("desktop capture", Diagnosis),
     ("desktop private", Diagnosis),
     ("desktop warcraft", Bookkeeping),

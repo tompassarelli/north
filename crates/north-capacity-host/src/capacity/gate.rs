@@ -113,7 +113,7 @@ pub fn inside_lease(cgroup: &str) -> bool {
     cgroup.lines().any(|line| LEASE_SCOPES.iter().any(|scope| line.contains(scope)))
 }
 
-fn owner() -> String {
+pub fn owner() -> String {
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.is_empty());
     let directory = || std::env::current_dir().ok().and_then(|cwd| cwd.file_name().map(|name| name.to_string_lossy().into_owned()));
     format!("gate:{}", session.or_else(directory).unwrap_or_else(|| "unknown".to_owned()))
@@ -203,7 +203,7 @@ fn leaves(words: &[String], depth: usize, visit: &mut dyn FnMut(Option<&[String]
                 leaves(&words[marker + 1..], depth + 1, visit);
             }
         }
-        "north" if words.get(1..4).is_some_and(|head| head == ["capacity", "dev-shell", "run"]) => {
+        "north" if words.get(1..4).is_some_and(|head| head == ["capacity", "dev-shell", "run"]) || words.get(1).is_some_and(|verb| verb == "depbox") => {
             if let Some(marker) = words.iter().position(|word| word == "--") {
                 leaves(&words[marker + 1..], depth + 1, visit);
             }

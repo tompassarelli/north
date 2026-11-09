@@ -21,6 +21,7 @@ rusqlite.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
 

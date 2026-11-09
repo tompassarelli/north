@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use north_base::platform::north_binary;
 use sha2::{Digest, Sha256};
 
 use super::select::Config;
@@ -39,7 +40,7 @@ fn fingerprint(directory: &Path) -> String {
     })
 }
 
-fn sync_project(top: &Path, lock: &str, first_install: bool) -> Result<(), String> {
+fn sync_project(top: &Path, lock: &str, first_install: bool, north: &Path) -> Result<(), String> {
     let relative = Path::new(lock).parent().unwrap_or(Path::new(""));
     let directory: PathBuf = top.join(relative);
     let modules = directory.join("node_modules");
@@ -62,18 +63,23 @@ fn sync_project(top: &Path, lock: &str, first_install: bool) -> Result<(), Strin
         ));
     }
     println!("safe-push: {lock} changed — bun install --frozen-lockfile in {}", directory.display());
-    let status = Command::new("bun").args(["install", "--frozen-lockfile"]).current_dir(&directory).status();
+    let status = Command::new(north).args(["depbox", "fetch", "--", "bun", "install", "--frozen-lockfile"]).current_dir(&directory).status();
     if !status.is_ok_and(|status| status.success()) {
         return Err(format!("safe-push: bun install --frozen-lockfile failed in {}", directory.display()));
     }
     fs::write(&stamp, format!("{want}\n")).map_err(|error| format!("safe-push: {}: {error}", stamp.display()))
 }
 
+/// Installs each changed bun lock's packages inside depbox's fetch sandbox, which the land checks' `north` enters, so an install script reaches no credential.
 pub fn sync(directory: &Path) -> Result<(), String> {
+    sync_with(directory, Path::new(&north_binary::land_north()))
+}
+
+pub fn sync_with(directory: &Path, north: &Path) -> Result<(), String> {
     let top = PathBuf::from(git(directory, &["rev-parse", "--show-toplevel"]).ok_or("safe-push: not inside a git repository")?);
     let first_install = installs_first(&top);
     let locks = git(&top, &["ls-files", "--", "bun.lock", "*/bun.lock"]).unwrap_or_default();
-    locks.lines().try_for_each(|lock| sync_project(&top, lock, first_install))
+    locks.lines().try_for_each(|lock| sync_project(&top, lock, first_install, north))
 }
 
 pub fn run(directory: &Path) -> u8 {
@@ -98,13 +104,13 @@ fn lock_fingerprint(lock: &Path) -> Option<String> {
 
 pub fn fetch_crates(directory: &Path) -> Result<(), String> {
     let home = std::env::var_os("HOME").and_then(|home| fs::canonicalize(home).ok()).ok_or("safe-push: HOME is not set; cannot find the fetched-crates record")?;
-    fetch_crates_recorded(directory, &home.join(FETCHED))
+    fetch_crates_recorded(directory, &home.join(FETCHED), Path::new(&north_binary::land_north()))
 }
 
-pub fn fetch_crates_recorded(directory: &Path, fetched: &Path) -> Result<(), String> {
+pub fn fetch_crates_recorded(directory: &Path, fetched: &Path, north: &Path) -> Result<(), String> {
     let top = PathBuf::from(git(directory, &["rev-parse", "--show-toplevel"]).ok_or("safe-push: not inside a git repository")?);
-    let depbox = top.join("bin/depbox");
-    let Some(lock) = lock_fingerprint(&top.join("Cargo.lock")).filter(|_| depbox.is_file()) else {
+    let uses_depbox = top.join("bin/depbox").is_file();
+    let Some(lock) = lock_fingerprint(&top.join("Cargo.lock")).filter(|_| uses_depbox) else {
         return Ok(());
     };
     let record = fetched.join(&lock);
@@ -112,14 +118,18 @@ pub fn fetch_crates_recorded(directory: &Path, fetched: &Path) -> Result<(), Str
         return Ok(());
     }
     println!("safe-push: Cargo.lock {lock} was never fetched on this host — cargo fetch --locked in {}", top.display());
-    let output = Command::new(&depbox)
-        .args(["fetch", "--", "cargo", "fetch", "--locked"])
+    let output = Command::new(north)
+        .args(["depbox", "fetch", "--", "cargo", "fetch", "--locked"])
         .current_dir(&top)
         .output()
-        .map_err(|error| format!("safe-push: {}: {error}", depbox.display()))?;
+        .map_err(|error| format!("safe-push: {} depbox: {error}", north.display()))?;
     eprint!("{}", String::from_utf8_lossy(&output.stderr));
     if !output.status.success() {
         return Err(format!("safe-push: cargo fetch --locked failed for Cargo.lock {lock}; NOT pushed."));
     }
     fs::create_dir_all(fetched).and_then(|()| fs::write(&record, "")).map_err(|error| format!("safe-push: {}: {error}", record.display()))
 }
+
+#[cfg(test)]
+#[path = "deps_tests.rs"]
+mod tests;

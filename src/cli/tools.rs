@@ -84,6 +84,7 @@ pub(super) enum Tool {
     Direct(&'static str),
     Pace,
     Capacity,
+    Depbox,
     SessionUnit,
     Dispatch,
     Fleet(&'static str),
@@ -99,6 +100,7 @@ const FLEET: &[(&str, Run)] = &[("report", crate::ops::report::run), ("usage", s
 const OPERATIONS: &[(&str, Tool)] = &[
     ("test", Tool::Test),
     ("capacity", Tool::Capacity),
+    ("depbox", Tool::Depbox),
     ("session-unit", Tool::SessionUnit),
 ];
 
@@ -148,8 +150,9 @@ impl Tool {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(crate::ops::run_bounded::run(rest)),
                 Some((verb, rest)) if verb == "nexus" => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(rest).await)) }),
                 Some((verb, rest)) if verb == "dev-shell" && rest.first().is_some_and(|run| run == "run") => ExitCode::from(crate::capacity::dev_shell::command(rest)),
-                _ => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, hand_over: crate::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, own_build_refusal: crate::build_offload::take::own_build_refusal, reclaim_disk, tend_disk: crate::offload_cache::tend, keep_disk: crate::offload_cache::keep, tend_slots: crate::land_offload::warm::tend }))
+                _ => ExitCode::from(capacity::command::run(arguments, capacity_host())),
             },
+            Self::Depbox => ExitCode::from(capacity::depbox::run(arguments, &capacity_host())),
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),
         }
@@ -251,4 +254,8 @@ fn desktop(arguments: &[String]) -> u8 {
             2
         }
     }
+}
+
+fn capacity_host() -> capacity::effects::Host {
+    capacity::effects::Host { serving: crate::pacing::placement::serving_host, warcraft_clients: crate::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, hand_over: crate::build_offload::hand_over, lease_builds: crate::pacing::placement::local_lease_builds, own_build_refusal: crate::build_offload::take::own_build_refusal, reclaim_disk, tend_disk: crate::offload_cache::tend, keep_disk: crate::offload_cache::keep, tend_slots: crate::land_offload::warm::tend }
 }

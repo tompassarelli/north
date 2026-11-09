@@ -125,7 +125,7 @@ pub(super) async fn try_offload(waiting: Waiting<'_>, deferred: bool, host: &Hos
     let (waiting_root, waiting_ticket) = (root.clone(), ticket.clone());
     let handed = taker.is_some();
     let landing = request.landing || env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty());
-    let (class, owner, command) = (request.name.clone(), create.owner.clone(), build_offload::for_build_host(command));
+    let (class, owner, command) = (request.name.clone(), create.owner.clone(), build_offload::for_build_host(command, landing));
     let timeout_seconds = create.timeout_seconds.unwrap_or(OFFLOAD_DEFAULT_TIMEOUT_SECONDS);
     let cpus = request.resources().cpus;
     let need = env("AGENT_CAPACITY_NEED").filter(|need| !need.is_empty());

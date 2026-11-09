@@ -43,6 +43,10 @@ case "$1" in
         ;;
     esac
     ;;
+  depbox)
+    shift 3
+    exec "$@"
+    ;;
   capacity)
     if [ "$2" = offload ]; then
       case "$3" in

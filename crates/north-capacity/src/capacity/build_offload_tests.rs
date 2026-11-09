@@ -62,17 +62,27 @@ fn capacity_only_a_fleet_session_without_a_local_need_counts_as_an_agent_build()
     assert!(!is_agent_build(env(&[("NORTH_FLEET_SESSION", "n"), (REMOTE_MARK, "1")])));
 }
 
-// KEEP(contract): the gate's absolute path to the laptop's real cargo reaches the build host as the bare program name, and a depbox wrapper is dropped there; north#634 north#671
+// KEEP(contract): the gate's absolute path to the laptop's real cargo reaches the build host as the bare program name, and a depbox wrapper the laptop gave is replaced by the build host's own; north#634 north#671
 #[test]
 fn capacity_a_laptop_toolchain_path_is_sent_to_the_build_host_as_the_program_name() {
     let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
-    assert_eq!(for_build_host(&words("/nix/store/abc-rust/bin/cargo test -p x")), words("cargo test -p x"));
-    assert_eq!(for_build_host(&words("/nix/store/abc/bin/cargo-nextest nextest run")), words("cargo-nextest nextest run"));
-    assert_eq!(for_build_host(&words("/home/tom/bin/tool run")), words("/home/tom/bin/tool run"));
-    assert_eq!(for_build_host(&words("bash -c cargo")), words("bash -c cargo"));
-    assert_eq!(for_build_host(&words("/home/tom/.local/bin/depbox run -- nix develop -c cargo test")), words("nix develop -c cargo test"), "a depbox wrapper nests a sandbox in the slot's dev shell");
-    assert_eq!(for_build_host(&words("depbox run -- /nix/store/x/bin/cargo build")), words("cargo build"));
-    assert!(for_build_host(&[]).is_empty());
+    let landing = |text: &str| for_build_host(&words(text), true);
+    assert_eq!(landing("/nix/store/abc-rust/bin/cargo test -p x"), words("cargo test -p x"));
+    assert_eq!(landing("/nix/store/abc/bin/cargo-nextest nextest run"), words("cargo-nextest nextest run"));
+    assert_eq!(landing("/home/tom/bin/tool run"), words("/home/tom/bin/tool run"));
+    assert_eq!(landing("bash -c cargo"), words("bash -c cargo"));
+    assert_eq!(landing("/home/tom/.local/bin/depbox run -- nix develop -c cargo test"), words("nix develop -c cargo test"));
+    assert_eq!(landing("/home/tom/.local/state/north/current/north depbox run -- /nix/store/x/bin/cargo build"), words("cargo build"));
+    assert!(for_build_host(&[], false).is_empty());
+}
+
+// KEEP(bug): a fleet session's compile offloaded to a build host ran its build scripts and tests there outside depbox, with that host's home, ssh keys and network in reach (south#93)
+#[test]
+fn offloaded_build_runs_in_depbox() {
+    let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
+    assert_eq!(for_build_host(&words("/nix/store/abc-rust/bin/cargo test -p x"), false), words("north depbox run -- cargo test -p x"));
+    assert_eq!(for_build_host(&words("/home/tom/.local/bin/depbox run -- nix develop -c cargo test"), false), words("north depbox run -- nix develop -c cargo test"), "the laptop's depbox becomes the build host's, never two nested");
+    assert_eq!(for_build_host(&words("north land checks --leased"), true), words("north land checks --leased"), "a landing's checks enter depbox through land-shell, so its runner stays unwrapped");
 }
 
 // KEEP(contract): a command whose path or redirect the agent can change is refused rather than compiled on the laptop; north#634
