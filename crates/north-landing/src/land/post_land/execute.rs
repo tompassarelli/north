@@ -60,10 +60,10 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
     }
     argv.push(program.into());
     argv.extend(prefix.iter().map(OsString::from));
-    argv.extend(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"].map(OsString::from));
-    argv.push(run.outcome.clone().into_os_string());
+    argv.extend(["--base", &landed.base, "--head", &landed.head, "--tree", tree].map(OsString::from));
     argv.extend(crate::land::blame::ranges(&landed.base, &landed.lanes, &landed.tips).into_iter().flat_map(|lane| ["--lane".into(), lane.into()]));
     argv.extend(landed.ran.iter().flat_map(|pass| ["--ran".into(), pass.into()]));
+    argv.extend(["--outcome".into(), run.outcome.clone().into_os_string()]);
     if run.adoptable {
         argv = runner::wrapped(run, argv);
     }
