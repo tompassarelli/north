@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use super::effects::Host;
 use super::build_offload;
 use super::build_host_command;
+use super::depbox;
 use crate::nix_command::{self, Inner};
 use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
@@ -42,6 +43,9 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
         }
         [program, rest @ ..] if !program.starts_with('-') => {
             let name = shell::basename(program).to_owned();
+            if let Some(mode) = sandboxed(&name, rest) {
+                return enter_depbox(mode, program, rest);
+            }
             let process = process();
             let executed = executed(&process, std::env::var(EXECUTED).ok().as_deref());
             let Some(real) = real_program(program, &name, rest, &executed) else {
@@ -293,4 +297,53 @@ fn bun(args: &[String]) -> Option<Class> {
 
 fn script_file(path: &str) -> bool {
     !path.contains(['*', '?', '[']) && [".ts", ".js", ".tsx", ".jsx"].iter().any(|suffix| path.ends_with(suffix))
+}
+
+/// The depbox mode a toolchain program runs in when a shim starts it outside depbox: `fetch` for the verbs that download, `run` for every other one that may run a dependency's code, and None for a call that runs none (a version, help, metadata or formatting query), inside depbox already, or a bun or node script that landed code ships.
+pub fn sandboxed(name: &str, args: &[String]) -> Option<depbox::Mode> {
+    if std::env::var_os(SANDBOX).is_some_and(|sandbox| !sandbox.is_empty()) {
+        return None;
+    }
+    sandbox_mode(name, args, &|script| landed(Path::new(script)))
+}
+
+pub(super) fn sandbox_mode(name: &str, args: &[String], landed: &dyn Fn(&str) -> bool) -> Option<depbox::Mode> {
+    let plain: Vec<&str> = args.iter().map(String::as_str).filter(|word| !word.starts_with(['-', '+'])).collect();
+    let query = plain.is_empty() && args.iter().any(|word| matches!(word.as_str(), "--version" | "-V" | "-v" | "--help" | "-h" | "--list"));
+    if query {
+        return None;
+    }
+    let fetches = match name {
+        "cargo" => match cargo_subcommand(args) {
+            Some("version" | "help" | "metadata" | "locate-project" | "pkgid" | "tree" | "fmt" | "clean" | "verify-project" | "read-manifest") => return None,
+            subcommand => matches!(subcommand, Some("fetch" | "update" | "add" | "generate-lockfile")),
+        },
+        "rustc" | "cargo-nextest" => false,
+        "bun" | "node" => {
+            let script = plain.strip_prefix(&["run"]).unwrap_or(&plain).first().copied();
+            if script.is_some_and(landed) {
+                return None;
+            }
+            name == "bun" && matches!(plain.first(), Some(&("install" | "i" | "add" | "a" | "update" | "remove" | "rm" | "x" | "pm")))
+        }
+        "bunx" | "npx" => true,
+        "npm" | "pnpm" | "yarn" => matches!(plain.first(), None | Some(&("install" | "i" | "ci" | "add" | "update" | "up" | "upgrade" | "uninstall" | "remove" | "rm" | "dlx" | "exec" | "x"))),
+        _ => return None,
+    };
+    Some(if fetches { depbox::Mode::Fetch } else { depbox::Mode::Run })
+}
+
+/// Whether `script` is code that landed: inside the Nix store or a promoted north runtime, which no lane writes.
+fn landed(script: &Path) -> bool {
+    let Ok(real) = std::fs::canonicalize(script) else { return false };
+    let runtimes = std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/state/north/runtimes")).and_then(|runtimes| std::fs::canonicalize(runtimes).ok());
+    real.starts_with("/nix/store") || runtimes.is_some_and(|runtimes| real.starts_with(runtimes))
+}
+
+/// Runs the shim's `program` again inside depbox, where the gate finds the real program and leases it as before.
+fn enter_depbox(mode: depbox::Mode, program: &str, rest: &[String]) -> u8 {
+    let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
+    let error = std::process::Command::new(&north).args(["depbox", mode.name(), "--", program]).args(rest).exec();
+    eprintln!("north capacity gate: {}: {error}", north.display());
+    126
 }

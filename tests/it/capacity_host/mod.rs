@@ -144,8 +144,18 @@ pub struct Host {
 
 impl Host {
     pub fn new(prefix: &str, shims: &[(&str, &str)]) -> Self {
+        Self::within(tempfile::Builder::new().prefix(prefix).tempdir().unwrap(), shims)
+    }
+
+    /// A host whose scratch directory is a git checkout outside /tmp, so a gate that enters depbox finds the checkout and the fixture programs inside the sandbox.
+    pub fn checkout(prefix: &str, shims: &[(&str, &str)]) -> Self {
+        let host = Self::within(tempfile::Builder::new().prefix(prefix).tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap(), shims);
+        assert!(Command::new("git").args(["init", "-q"]).current_dir(host.path("")).status().unwrap().success());
+        host
+    }
+
+    fn within(scratch: tempfile::TempDir, shims: &[(&str, &str)]) -> Self {
         let _writing = exclusive();
-        let scratch = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let bin = scratch.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
         for (name, body) in shims {

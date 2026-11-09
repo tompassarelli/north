@@ -1,3 +1,4 @@
+mod agent_build_sandbox;
 mod agents_plan;
 mod agents_sync_profiles;
 mod automation_chrome_service;

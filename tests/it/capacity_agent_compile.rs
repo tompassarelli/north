@@ -10,7 +10,7 @@ const FULL: &str = "some avg10=95.00 avg60=95.00 avg300=95.00 total=1\n";
 const IDLE: &str = "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n";
 
 fn host() -> Host {
-    let host = Host::new("agent-compile-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL), ("ssh", DARK_SSH)]);
+    let host = Host::checkout("agent-compile-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL), ("ssh", DARK_SSH)]);
     fs::write(host.path("orchestration.toml"), ORCHESTRATION).unwrap();
     fs::create_dir_all(host.path("real")).unwrap();
     fs::write(host.path("self-cgroup"), "0::/user.slice/user-1000.slice/session-1.scope\n").unwrap();
@@ -38,7 +38,7 @@ fn compiled(host: &Host) -> String {
     fs::read_to_string(host.path("compiled-here")).unwrap_or_default()
 }
 
-// KEEP(contract): a fleet session's compile on a host that does not lease builds is refused with the build hosts' reason only when no build host and not this host either has room beyond its reserves, never compiled here then, whether typed bare, inside depbox (which cleared the session, north#671) or as a shimless rustc or cargo-nextest the hook routes (north#671); with room here it waits in this host's own admission and compiles here (refusing it while the laptop idled left builds nowhere to run, 2026-11-06), and a shell outside any session runs the same cargo locally; north#634
+// KEEP(contract): a fleet session's compile on a host that does not lease builds is refused with the build hosts' reason only when no build host and not this host either has room beyond its reserves, never compiled here then, whether typed bare (which the gate sends into depbox first, south#93), inside depbox (which cleared the session, north#671) or as a shimless rustc or cargo-nextest the hook routes (north#671); with room here it waits in this host's own admission and compiles here (refusing it while the laptop idled left builds nowhere to run, 2026-11-06), and a shell outside any session runs the same cargo locally; north#634
 #[test]
 fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_and_not_this_host_has_room() {
     let host = host();
@@ -70,7 +70,7 @@ fn a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here() {
     let mut needy = host.command(env!("CARGO_BIN_EXE_north"));
     needy.env("RESIDENT_CAP_HOST", "laptop");
     needy.env("AGENT_CAPACITY_SELF_CGROUP", host.path("self-cgroup"));
-    needy.args(["capacity", "gate", "cargo", "build"]).env("PATH", format!("{}:{}", host.path("real").display(), host.path("bin").display())).env("NORTH_FLEET_SESSION", "n634-x").env("AGENT_CAPACITY_NEED", "gpu");
+    needy.args(["capacity", "gate", "cargo", "build"]).env("PATH", format!("{}:{}:{}", host.path("real").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default())).env("NORTH_FLEET_SESSION", "n634-x").env("AGENT_CAPACITY_NEED", "gpu");
     assert_eq!(needy.output_exclusive().unwrap().status.code(), Some(0));
     assert_eq!(gate(&host, Some("n634-x"), &["metadata"]).status.code(), Some(0));
     assert_eq!(gate(&host, Some("n634-x"), &["fmt"]).status.code(), Some(0));
