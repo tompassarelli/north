@@ -6,8 +6,10 @@
 use super::issues::{Issue, IssueRef};
 use super::plan::{Candidate, Launch, Ready};
 use super::record::Record;
+use super::fleets::{self, PROBE, Session};
 use super::slots::Pools;
 use regex::Regex;
+use serde_json::Value;
 use std::collections::BTreeSet;
 use toml_edit::{DocumentMut, Item};
 
@@ -70,7 +72,58 @@ pub fn is(launch: &Launch) -> bool {
     launch.account == ACCOUNT
 }
 
+/// The rung a launch line names: `deepseek`, or its Claude tier.
+pub fn rung(launch: &Launch) -> &'static str {
+    if is(launch) { "deepseek" } else { launch.route.tier.name() }
+}
+
+/// The model words `north fleet launch` takes for `launch`: none for DeepSeek, whose launcher fixes the model.
+pub fn invocation(launch: &Launch, cfg: &DocumentMut) -> Result<Vec<String>, String> {
+    if is(launch) { Ok(Vec::new()) } else { launch.route.invocation(cfg) }
+}
+
+/// The Claude tier a launch record keeps, which the climb reads as a rung tried; a DeepSeek launch tried none.
+pub fn tier(launch: &Launch) -> Option<String> {
+    (!is(launch)).then(|| launch.route.tier.name().to_owned())
+}
+
+/// The routing cell a launch record keeps; a DeepSeek launch ran on none of Claude's.
+pub fn cell(launch: &Launch, cfg: &DocumentMut) -> Option<String> {
+    let (model, effort) = launch.route.model_effort(cfg).ok().filter(|_| !is(launch))?;
+    super::cells::named(&model, &effort)
+}
+
 impl Seen {
+    /// What dispatch reads about DeepSeek: the opencode sessions holding a slot across every listing, the boxes the dispatch
+    /// record shows it tried, and the idle sessions on its hosts whose last report starts `Done:`.
+    #[allow(clippy::too_many_arguments, reason = "each input is a reading the dispatch survey already holds")]
+    pub fn read(here: &str, laptop: Option<&str>, fleet_lists: &[(String, Value)], laptop_reports: &Value, sessions: &[(Session, String)], records: &[Record], issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Self {
+        let settings = Settings::read();
+        let holding = sessions.iter().filter(|(session, _)| session.account.as_deref() == Some(PROVIDER)).map(|(session, _)| session.name.as_str()).collect::<BTreeSet<_>>().len();
+        let mut reports: Vec<(String, Value)> = laptop.filter(|host| settings.hosts.iter().any(|name| name == host)).map(|host| (host.to_owned(), laptop_reports.clone())).into_iter().collect();
+        if settings.hosts.iter().any(|name| name == here) {
+            match fleets::remote_json_within(None, &["fleet", "reports", "--json"], PROBE) {
+                Ok(listing) => reports.push((here.to_owned(), listing)),
+                Err(why) => notes.push(format!("{here} fleet reports unread, so no DeepSeek review is queued here this run: {why}")),
+            }
+        }
+        let queued = review::queued(&super::record::directory(), at);
+        let done = review::done(fleet_lists, &reports, records, issues, &queued);
+        Self { holding: i64::try_from(holding).unwrap_or(i64::MAX), tried: tried(records), done, settings }
+    }
+
+    /// Places `ready` on DeepSeek when it takes the box, counting it in `placed`, else on Claude through `claude`.
+    #[allow(clippy::too_many_arguments, reason = "the dispatch loop's own state for one box")]
+    pub fn staff(&self, issue: &Issue, box_text: Option<&str>, ready: &Ready, candidates: &[Candidate], pools: &mut Pools, placed: &mut i64, claude: impl FnOnce(&mut Pools) -> Result<Launch, String>) -> Result<Launch, String> {
+        match self.takes(issue, box_text, *placed).and_then(|()| self.place(ready, candidates, pools)) {
+            Ok(launch) => {
+                *placed += 1;
+                Ok(launch)
+            }
+            Err(_) => claude(pools),
+        }
+    }
+
     /// Why `issue`'s box stays on Claude, or `Ok` when DeepSeek may take it.
     pub fn takes(&self, issue: &Issue, box_text: Option<&str>, placed: i64) -> Result<(), String> {
         if self.holding + placed >= self.settings.slots {
@@ -91,7 +144,8 @@ impl Seen {
         let serves = |host: &str| candidates.iter().any(|candidate| candidate.host == host && candidate.refusal.is_none());
         let host = self.settings.hosts.iter().find(|host| serves(host) && pools.host(host) > 0).ok_or_else(|| format!("no DeepSeek host ({}) serves this box with a free slot", self.settings.hosts.join(", ")))?;
         pools.take_slot(host);
+        let route = super::tier::Route { effort: None, effort_arm: false, signal: None, ..ready.route.clone() };
         let local = Some(format!("north fleet dispatch: DeepSeek takes this box on {host}, the host that holds the opencode key (north#1020)"));
-        Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: ready.brief.clone(), route: ready.route.clone(), cloud: false, local })
+        Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: ready.brief.clone(), route, cloud: false, local })
     }
 }

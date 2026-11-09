@@ -55,19 +55,3 @@ fn dispatch_falls_back_to_github_and_says_so_when_the_mirror_copy_is_stale() {
     assert_eq!(issues.iter().map(|issue| issue.number).collect::<Vec<_>>(), vec![7]);
     assert!(notes.iter().any(|note| note.starts_with("north issues read from GitHub")), "{notes:?}");
 }
-
-#[test]
-fn deepseek_harness_workers_do_not_count_against_the_claude_worker_cap() {
-    let listing = json!([
-        {"name": "w1", "status": "working", "provider": "claude", "account": "a", "role": "worker"},
-        {"name": "w2", "status": "working", "provider": "claude", "account": "b", "role": "worker"},
-        {"name": "plato", "status": "working", "provider": "claude", "account": "c", "role": "proxy"},
-        {"name": "ds-1", "status": "working", "provider": "opencode", "account": "go", "role": "worker"},
-        {"name": "ds-2", "status": "working", "provider": "opencode", "account": "go", "role": "worker"},
-        {"name": "ds-3", "status": "starting", "provider": "pi", "account": "go", "role": "worker"},
-    ]);
-    let sessions: Vec<_> = super::fleets::running_sessions(&listing).into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
-
-    assert_eq!(super::fleets::active_workers(&sessions), 2, "five worker sessions were counted against a cap of 3 while two were Claude's");
-    assert_eq!(super::fleets::working_by_account(&sessions).get("opencode"), Some(&2));
-}

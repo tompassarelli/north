@@ -26,7 +26,7 @@ pub(super) fn written(survey: &Survey, issue: &Issue, launched_by: &str, box_tex
 
 /// Tag a local launch that carries no stamp with the context arm drawn for its box.
 pub(super) fn arm(survey: &Survey, launch: &mut Launch) {
-    if launch.cloud || launch.route.stamp().is_some() {
+    if launch.cloud || launch.route.stamp().is_some() || super::deepseek::is(launch) {
         return;
     }
     let evidence = survey.ledger.get(&launch.route.category).cloned().unwrap_or_default();

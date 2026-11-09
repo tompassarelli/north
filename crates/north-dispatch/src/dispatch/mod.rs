@@ -208,13 +208,10 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             };
             let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
             let ready = Ready { item: reference.clone(), brief, code_only, route };
-            let deepseek = survey.deepseek.takes(issue, box_text, deepseek_placed).and_then(|()| survey.deepseek.place(&ready, &candidates(survey, &ready.brief), &mut pools));
-            deepseek_placed += i64::from(deepseek.is_ok());
-            match deepseek.or_else(|_| plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools)) {
+            let candidates = candidates(survey, &ready.brief);
+            match survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, &mut deepseek_placed, |pools| plan::place(&ready, &capacity, &candidates, pools)) {
                 Ok(mut launch) => {
-                    if !deepseek::is(&launch) {
-                        screen::arm(survey, &mut launch);
-                    }
+                    screen::arm(survey, &mut launch);
                     claims.take(&paths, &format!("{named}of {reference}, launched in this run"));
                     outcome.launches.push(launch);
                 }
@@ -266,8 +263,7 @@ fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool, standing: f
 /// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
 fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> (String, Option<String>) {
     let verb = if launch.cloud { "cloud-launch" } else { "launch" };
-    let rung = if deepseek::is(launch) { "deepseek" } else { launch.route.tier.name() };
-    let line = format!("{verb} {} on {} {} as {rung}", launch.item, launch.host, launch.account);
+    let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));
     if let Some(reason) = standing().filter(|_| !dry_run) {
         return (format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item), None);
     }
