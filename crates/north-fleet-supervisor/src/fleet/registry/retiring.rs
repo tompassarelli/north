@@ -81,6 +81,7 @@ impl Fleet {
     }
 
     pub(super) fn heir(&self, name: &str) -> NorthResult<Option<String>> {
+        let _start = self.start_lock(name)?;
         if self.session_dir(name)?.exists() || self.known_elsewhere(name)? {
             return Ok(None);
         }

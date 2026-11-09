@@ -62,12 +62,13 @@ impl Fleet {
         record.adopted_ms = Some(record.created_ms);
         let row = SessionRow { status: Status::Idle.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         self.registrar.register(&row, Claim::TakeOver, &Slots::default())?;
-        let predecessor = self.retire_for(name, Claim::TakeOver)?;
-        record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
-        fs::create_dir_all(&session_dir)?;
-        write_record(&session_dir, &record)?;
-        bar_hosts(&session_dir)?;
-        Ok(record)
+        self.succeed(name, Claim::TakeOver, |predecessor| {
+            record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
+            fs::create_dir_all(&session_dir)?;
+            write_record(&session_dir, &record)?;
+            bar_hosts(&session_dir)?;
+            Ok(record)
+        })
     }
 
     pub fn follow_conversation(&self, name: &str, conversation: &str) -> NorthResult<()> {

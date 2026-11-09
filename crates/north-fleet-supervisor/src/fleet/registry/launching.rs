@@ -67,19 +67,20 @@ impl Fleet {
         record.account = account.recorded_label();
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         self.registrar.register(&row, claim, &request.slots)?;
-        let predecessor = self.retire_for(&request.name, claim)?;
-        record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
-        self.claim_before_start(request, &tasks, verification)?;
-        fs::create_dir_all(session_dir)?;
-        let Err(error) = self.bring_up(request, &mut record, &account, runtime.as_ref(), predecessor.as_ref(), conversation.as_deref()) else {
-            if let Err(error) = self.inherit_workers(request, &record) {
-                eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
-            }
-            return Ok(record);
-        };
-        Err(match self.discard_failed_launch(session_dir) {
-            Ok(()) => error,
-            Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
+        self.succeed(&request.name, claim, |predecessor| {
+            record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
+            self.claim_before_start(request, &tasks, verification)?;
+            fs::create_dir_all(session_dir)?;
+            let Err(error) = self.bring_up(request, &mut record, &account, runtime.as_ref(), predecessor.as_ref(), conversation.as_deref()) else {
+                if let Err(error) = self.inherit_workers(request, &record) {
+                    eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
+                }
+                return Ok(record);
+            };
+            Err(match self.discard_failed_launch(session_dir) {
+                Ok(()) => error,
+                Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
+            })
         })
     }
 
