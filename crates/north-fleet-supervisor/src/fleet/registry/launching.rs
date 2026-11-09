@@ -123,21 +123,16 @@ impl Fleet {
     /// Revive with a fresh placement override note and effort, which the restarted record keeps. With `account` naming another account, a running host ends first and its conversation is carried there and resumes on it; a restart that fails leaves the session stopped on its old account.
     pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>, account: Option<&str>) -> NorthResult<SessionRecord> {
         let record = self.record(name)?;
-        let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| ended_on_limit(&transcript));
         let onto = account.map(|to| self.account(&LaunchRequest { account: to.to_owned(), ..record.relaunch_request() })).transpose()?.filter(|onto| onto.recorded_label() != record.account);
         let Some(onto) = onto else {
-            let revived = {
-                let _start = self.start_lock(name)?;
-                self.revive_held(name, system_prompt, placement, effort)?
-            };
-            let _ = self.waits().clear_usage(name);
-            if on_limit {
-                self.carry_on(name, "this session was revived after its usage limit ended its turn")?;
-            }
+            let _start = self.start_lock(name)?;
+            let revived = self.revive_held(name, system_prompt, placement, effort)?;
+            let _ = self.waits().clear_usage_off(name, &revived.account);
             return Ok(revived);
         };
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation, so it has none to carry onto {}", onto.label)))?;
         self.refuse_beside_interactive(&record)?;
+        let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| ended_on_limit(&transcript));
         let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;
         let revived = {
             let _start = self.start_lock(name)?;
@@ -145,11 +140,11 @@ impl Fleet {
             self.set_account(name, &onto.recorded_label())?;
             self.revive_held(name, system_prompt, placement, effort).or_else(|error| self.set_account(name, &record.account).and(Err(error)))?
         };
-        let _ = self.waits().clear_usage(name);
+        let _ = self.waits().clear_usage_off(name, &revived.account);
         if cut_short {
             self.carry_on(name, &format!("this session was moved onto account {} in the middle of a turn", onto.label))?;
         } else if on_limit {
-            self.carry_on(name, &format!("this session was moved onto account {} after its usage limit ended its turn", onto.label))?;
+            self.carry_on(name, &format!("this session was moved onto account {} after its old account's usage limit ended its turn", onto.label))?;
         }
         Ok(revived)
     }

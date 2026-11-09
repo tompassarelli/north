@@ -190,6 +190,16 @@ impl Waits {
         self.store(session, &kept)
     }
 
+    /// Drops the session's usage waits for any account but `account`: it is no longer there, so that account's reset has nothing to wake.
+    pub fn clear_usage_off(&self, session: &str, account: &str) -> NorthResult<()> {
+        let all = self.of(session);
+        let kept: Vec<Registered> = all.iter().filter(|wait| !matches!(&wait.run, Run::Usage { account: waited, .. } if waited != account)).cloned().collect();
+        if kept.len() == all.len() {
+            return Ok(());
+        }
+        self.store(session, &kept)
+    }
+
     fn release(&self, session: &str, run: &Run) -> NorthResult<()> {
         let kept: Vec<Registered> = self.of(session).into_iter().filter(|wait| wait.run != *run).collect();
         self.store(session, &kept)
@@ -237,3 +247,7 @@ pub fn resume_message(account: &str) -> String {
          If it is, report `Done:` with the landed sha."
     )
 }
+
+#[cfg(test)]
+#[path = "waits_tests.rs"]
+mod tests;
