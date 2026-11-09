@@ -254,7 +254,7 @@ fn the_brokers_gh_config_edits_keep_the_login_and_release_only_its_own_line_whil
     std::fs::write(sessions.join("config.yml"), "git_protocol: https\nhttp_unix_socket: /elsewhere\n").unwrap();
     let directory = place.gh_config(&sessions).unwrap();
     assert_eq!(std::fs::read_to_string(directory.join("config.yml")).unwrap(), format!("git_protocol: https\nhttp_unix_socket: {}\n", place.socket().display()));
-    assert_eq!(std::fs::read_link(directory.join("hosts.yml")).unwrap(), sessions.join("hosts.yml"));
+    assert!(directory.join("hosts.yml").symlink_metadata().is_err(), "a session's gh config must not reach the operator's login");
     assert_eq!(place.gh_config(&sessions).unwrap(), directory);
 }
 

@@ -18,6 +18,12 @@ The project's whole git common directory has to stay removable. The grant is the
 
 `north lane unlock`, `north lane stray` and `north lane remove` run outside the domain, since each verb enforces its own removal rule: a git lock no process holds that is older than 60 s, an untracked file a tool call in the session's own transcript named before the file was born (north#937), or a lane directory under `worktrees/` that is clean and holds no unlanded work (north#954). A worker's `git worktree remove` of a lane there made git unregister the worktree and then fail to delete its directory, which left 4 trees, 8.0 GB, on 2026-11-08; the guard now refuses that command and names the verb.
 
+## Hidden files (north#969)
+
+Beside the three removal rights the ruleset handles `READ_FILE`, so it can hide named files from a worker command (crates/north-runtime/src/worker_sandbox/readable.rs). Landlock only grants access, so the domain grants `READ_FILE` beneath every entry of `/` except the entries that hold a hidden file, walks into those, and leaves the file itself out. Entries are matched by device and inode, because a rule holds an inode and one directory can sit at two paths (two mounts of one btrfs subvolume). A symlink to a hidden file reads nothing, and a hard link out of its directory fails with `EXDEV`, because Landlock refuses a link that would gain read access. The list is taken when each command starts.
+
+`north gh-session` runs `gh` with a private config directory that links no `hosts.yml`, since `gh` exits when a config file it finds cannot be read.
+
 A kernel without Landlock ABI 2 or later runs the command unconfined and says so on stderr. `no_new_privs`, which Landlock requires, also stops setuid programs inside a worker command.
 
 ## Rollout

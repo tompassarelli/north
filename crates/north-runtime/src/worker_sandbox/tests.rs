@@ -3,7 +3,7 @@ use std::process::Command;
 
 use landlock::RulesetStatus;
 
-use super::{Context, confine, removable};
+use super::{Context, confine, readable, removable};
 
 const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
 
@@ -31,7 +31,8 @@ fn a_confined_command_child() {
         return;
     };
     let command = command.to_string_lossy().into_owned();
-    assert!(matches!(confine(&removable(&Context::from_env(&command))), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    let context = Context::from_env(&command);
+    assert!(matches!(confine(&removable(&context), &readable(&context)), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
 }
@@ -98,6 +99,30 @@ fn a_command_run_from_main_may_build_in_the_done_when_lane_north_task_check_uses
         .env("HOME", &home)
         .env(COMMAND, &command)
         .current_dir(&main)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn a_worker_command_cannot_read_or_link_away_the_operators_gh_login_north_969() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("north-969-gh-login").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    let gh = home.join(".config/gh");
+    std::fs::create_dir_all(&gh).unwrap();
+    std::fs::write(gh.join("hosts.yml"), "github.com:\n    oauth_token: personal\n").unwrap();
+    std::fs::write(gh.join("config.yml"), "git_protocol: https\n").unwrap();
+    std::os::unix::fs::symlink(gh.join("hosts.yml"), home.join("hosts-link.yml")).unwrap();
+    let command = "! cat ~/.config/gh/hosts.yml && ! cat ~/hosts-link.yml && ! ln ~/.config/gh/hosts.yml /tmp/north-969-leak-$$ && cat ~/.config/gh/config.yml";
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", &home)
+        .env(COMMAND, command)
+        .current_dir(&home)
         .output()
         .unwrap();
     assert!(output.status.success(), "{command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));

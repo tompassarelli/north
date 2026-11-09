@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use super::except::{Entries, beneath_except};
+
 /// Where a worker command runs, read from its environment.
 pub struct Context {
     pub home: PathBuf,
@@ -7,6 +9,7 @@ pub struct Context {
     pub uid: u32,
     pub tmpdir: Option<PathBuf>,
     pub cache: Option<PathBuf>,
+    pub config: Option<PathBuf>,
     pub cargo_home: Option<PathBuf>,
     pub cargo_target: Option<PathBuf>,
     pub named_lanes: Vec<PathBuf>,
@@ -24,6 +27,7 @@ impl Context {
             uid: rustix::process::getuid().as_raw(),
             tmpdir: set("TMPDIR"),
             cache: set("XDG_CACHE_HOME"),
+            config: set("XDG_CONFIG_HOME"),
             cargo_home: set("CARGO_HOME"),
             cargo_target: set("CARGO_TARGET_DIR"),
             named_lanes: named.lanes,
@@ -43,7 +47,7 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots.extend(context.cargo_target.clone().map(|target| if target.is_absolute() { target } else { context.cwd.join(target) }));
     roots.extend([".rustup", ".bun", ".npm"].map(|name| home.join(name)));
     let state = home.join(".local/state");
-    roots.extend(beneath_except(&state, &[state.join("north/profiles"), state.join("north/claude-tokens")]));
+    roots.extend(beneath_except(&state, &[state.join("north/profiles"), state.join("north/claude-tokens")], Entries::Directories));
     let lanes: Vec<PathBuf> = lane(home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()).collect();
     let projects = project(home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(lanes.iter().filter_map(|lane| lane.parent().and_then(Path::parent)).map(Path::to_path_buf));
     for project in projects {
@@ -128,28 +132,4 @@ fn common_git_dir(checkout: &Path) -> Option<PathBuf> {
         Err(_) => git_dir,
     };
     common.canonicalize().ok()
-}
-
-/// The directories under `root` other than the `protected` paths, by real path since a Landlock rule holds an inode: a symlink is followed only toward a protected path inside it (`~/.local/state/north` links to `~/code/north-data`, which holds the profiles) and never granted itself, and a plain file is never a rule because removal is a right of its directory.
-fn beneath_except(root: &Path, protected: &[PathBuf]) -> Vec<PathBuf> {
-    let protected: Vec<PathBuf> = protected.iter().filter_map(|path| path.canonicalize().ok()).collect();
-    root.canonicalize().map_or_else(|_| Vec::new(), |root| directories_except(&root, &protected))
-}
-
-fn directories_except(root: &Path, protected: &[PathBuf]) -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    for path in std::fs::read_dir(root).into_iter().flatten().flatten().map(|entry| entry.path()) {
-        let Ok(real) = path.canonicalize() else {
-            continue;
-        };
-        if !real.is_dir() || protected.contains(&real) {
-            continue;
-        }
-        if protected.iter().any(|kept| kept.starts_with(&real)) {
-            roots.extend(directories_except(&real, protected));
-        } else if !path.is_symlink() {
-            roots.push(real);
-        }
-    }
-    roots
 }

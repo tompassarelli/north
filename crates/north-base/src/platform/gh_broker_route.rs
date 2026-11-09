@@ -53,12 +53,9 @@ impl Place {
         fs::DirBuilder::new().recursive(true).mode(0o700).create(&directory)?;
         let original = fs::read_to_string(source.join("config.yml")).unwrap_or_default();
         replace(&directory.join("config.yml"), &with_socket(&original, Some(&self.socket())))?;
-        let hosts = directory.join("hosts.yml");
-        let target = source.join("hosts.yml");
-        if fs::read_link(&hosts).ok().as_deref() != Some(target.as_path()) {
-            let staged = directory.join(format!("hosts.yml.{}", std::process::id()));
-            std::os::unix::fs::symlink(&target, &staged)?;
-            fs::rename(&staged, &hosts)?;
+        match fs::remove_file(directory.join("hosts.yml")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            removed => removed?,
         }
         Ok(directory)
     }
