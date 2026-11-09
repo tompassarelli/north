@@ -38,6 +38,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Effort arms (north#112): an Opus box on no tier arm, in a category whose `north ledger worker --recommend` cell holds 15 Opus runs, runs on `Arm: effort-medium` or `Arm: effort-high` in turn, launched with that `--effort`, and the dispatch record keeps the arm so the next box takes the other; while a box carries an effort arm it carries no context arm, since the ledger records only the first `Arm:` line. [more](features/02-staffing-and-routing/0020-effort-arms-north-112.md)
 - Review items by kind (north#255): `north work review PLAN [--author TIER]` splits a design review into line items. [more](features/02-staffing-and-routing/0020-review-items-by-kind-north-255.md)
 - Tier success as a prediction (north#255): `north ledger worker --recommend` lists no Codex tier outside codex-only mode. [more](features/02-staffing-and-routing/0021-tier-success-brier-north-255.md)
+- Tier per category (north#966): `dispatch::tier::route_for` starts Haiku on mechanical work (its retry is Sonnet high), Sonnet high on art and every other category, and Opus on netcode-determinism, performance, review and planning, at medium effort within one module or high across modules. [more](features/02-staffing-and-routing/0022-tier-per-category-north-966.md)
 
 ## Fleet sessions
 
