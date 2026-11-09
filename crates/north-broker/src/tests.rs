@@ -132,7 +132,7 @@ fn a_scoped_token_is_minted_with_its_scope_and_inspected_back_through_the_socket
     let client = Client::at(&socket);
 
     let permissions = BTreeMap::from([("contents".to_owned(), "read".to_owned())]);
-    let grant = client.github_token("agent", &["north".to_owned()], &permissions).unwrap();
+    let grant = client.github_token("agent", &["north".to_owned()], &permissions, 0).unwrap();
     assert_eq!(grant.repositories, Some(vec!["north".to_owned()]));
     assert_eq!(grant.permissions, BTreeMap::from([("contents".to_owned(), "read".to_owned()), ("metadata".to_owned(), "read".to_owned())]));
     let sent: Value = serde_json::from_str(&seen.lock().unwrap()[0].2).unwrap();
@@ -155,6 +155,15 @@ fn a_caller_outside_the_ceiling_or_the_policy_gets_no_token_and_costs_no_mint() 
     assert_eq!(ask(4242, json!({ "app": "agent", "repositories": ["north"] })).0, 403);
     assert!(seen.lock().unwrap().is_empty(), "a refused request still minted a token");
     assert_eq!(ask(1001, json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" } })).0, 200);
+    let minted = || seen.lock().unwrap().len();
+    let ask_at = |now: i64, valid_for: i64| {
+        let body = json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" }, "valid_for": valid_for });
+        let request = Request { method: "POST".to_owned(), target: "/github/token".to_owned(), headers: Vec::new(), body: body.to_string().into_bytes() };
+        broker.handle(Peer { uid: 1001, pid: 1 }, &request, now).status
+    };
+    assert_eq!((ask_at(NOW + 2000, 0), minted()), (200, 1), "a held token with 1600 s left serves a caller that asks nothing more");
+    assert_eq!((ask_at(NOW + 2000, 1800), minted()), (200, 2), "a caller that stores the token for 1800 s gets a fresh one, not the held token about to expire");
+    assert_eq!(ask_at(NOW + 2000, 3301), 400);
 }
 
 // KEEP(bug): the proxy handed a caller's path to curl as a URL glob, so {..} walked out of the allowlist (south#94 review, finding 1)

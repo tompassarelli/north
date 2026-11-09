@@ -22,7 +22,7 @@ pub fn agent_token(now: i64, repository: Option<&str>, launched: Option<String>)
         return Ok((token, Some(format!("using the Socrates Agent App token the laptop pushed to {}", pushed.display()))));
     }
     let repositories: Vec<String> = repository.map(str::to_owned).into_iter().collect();
-    match Client::discover().github_token(AGENT_APP, &repositories, &BTreeMap::new()) {
+    match Client::discover().github_token(AGENT_APP, &repositories, &BTreeMap::new(), 0) {
         Ok(Grant { token, .. }) => Ok((token, None)),
         Err(why) => {
             let token = launched.filter(|token| token.starts_with("ghs_")).ok_or_else(|| why.clone())?;

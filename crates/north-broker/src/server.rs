@@ -16,6 +16,7 @@ use crate::policy::{Caller, Permissions, Policy, Rules};
 use crate::proxy::{Provider, providers, split};
 
 const REUSE_MARGIN: i64 = 300;
+const LONGEST_VALIDITY: i64 = 3300;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 const MAX_CONNECTIONS: usize = 64;
 const MAX_PER_UID: usize = 16;
@@ -141,13 +142,17 @@ impl Broker {
         let app_name = body["app"].as_str().unwrap_or_default();
         let repositories: Vec<String> = body["repositories"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
         let permissions: Permissions = body["permissions"].as_object().into_iter().flatten().filter_map(|(name, level)| Some((name.clone(), level.as_str()?.to_owned()))).collect();
-        let what = format!("github token app={app_name:?} repositories={repositories:?} permissions={permissions:?}");
+        let valid_for = body["valid_for"].as_i64().unwrap_or(0);
+        let what = format!("github token app={app_name:?} repositories={repositories:?} permissions={permissions:?} valid_for={valid_for}");
         let granted = (|| {
             let Some(application) = app(app_name) else { return Err((400, format!("unknown app {app_name:?}"))) };
+            if !(0..=LONGEST_VALIDITY).contains(&valid_for) {
+                return Err((400, format!("valid_for {valid_for} is outside 0 to {LONGEST_VALIDITY} seconds")));
+            }
             let ceiling = caller.github.get(app_name).ok_or_else(|| (403, format!("uid {} may not receive {app_name} tokens", peer.uid)))?;
             let scope = ceiling.scope(app_name, &repositories, &permissions).map_err(|why| (403, why))?;
             let key = format!("{}|{app_name}|{}|{:?}", peer.uid, scope.repositories.join(","), scope.permissions);
-            if let Some(minted) = self.reuse(&key, now) {
+            if let Some(minted) = self.reuse(&key, now, valid_for) {
                 return Ok(minted);
             }
             let minted = self.minter.mint(application, &scope, now).map_err(|why| (502, why))?;
@@ -160,10 +165,10 @@ impl Broker {
         }
     }
 
-    fn reuse(&self, key: &str, now: i64) -> Option<Minted> {
+    fn reuse(&self, key: &str, now: i64, valid_for: i64) -> Option<Minted> {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let minted = &state.held.get(&digest(state.reused.get(key)?))?.minted;
-        (Timestamp::parse_rfc3339(&minted.expires_at)?.unix_seconds() - now > REUSE_MARGIN).then(|| minted.clone())
+        (Timestamp::parse_rfc3339(&minted.expires_at)?.unix_seconds() - now > REUSE_MARGIN.max(valid_for)).then(|| minted.clone())
     }
 
     fn remember(&self, key: &str, uid: u32, app_name: &str, minted: &Minted, now: i64) {
