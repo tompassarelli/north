@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -438,18 +438,7 @@ fn refresh_index() {
     let Ok(mut child) = Command::new("north").args(["convo", "index"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else {
         return;
     };
-    let deadline = Instant::now() + Duration::from_secs(600);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) | Err(_) => return,
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return;
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(200)),
-        }
-    }
+    let _ = north_base::platform::process::child_within(&mut child, Duration::from_secs(600));
 }
 
 struct Message {

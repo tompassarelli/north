@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const DENIAL: &str = "No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.";
 const CONTEXT: &str = "desktop action guard: wrapped the desktop command to read the focused window when it runs and refocus that window on exit.";
@@ -221,22 +221,9 @@ fn quiet_close(args: &[String], assignments: &BTreeMap<String, String>) -> bool 
     let Ok(mut child) = command.spawn() else {
         return false;
     };
-    let start = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(Some(_)) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-            _ if start.elapsed() >= Duration::from_secs(5) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-            _ => std::thread::sleep(Duration::from_millis(1)),
-        }
+    match north_base::platform::process::child_within(&mut child, Duration::from_secs(5)) {
+        Ok(Some(status)) if status.success() => {}
+        _ => return false,
     }
     use std::io::{Read, Seek};
     let mut bytes = Vec::new();

@@ -5,7 +5,7 @@ use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::remote::{SYNCED, Trust, script, words};
 use crate::capacity::admission::offload_room;
@@ -165,15 +165,7 @@ fn describe(offer: &Offer) -> String {
 /// Ends the connection after its last frame: closing ssh's stdin lets it deliver the frames it still holds before it exits, and it is killed only if it outlasts `CLOSE_LIMIT`. Killing it at once lost the exit frame, so the queued run on gex45 read a cut stream (exit 255) after a run that passed.
 pub(super) fn hang_up(mut ssh: Child, sender: Arc<Sender>) {
     drop(sender);
-    let deadline = Instant::now() + CLOSE_LIMIT;
-    while Instant::now() < deadline {
-        if !matches!(ssh.try_wait(), Ok(None)) {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    let _ = ssh.kill();
-    let _ = ssh.wait();
+    let _ = north_base::platform::process::child_within(&mut ssh, CLOSE_LIMIT);
 }
 
 /// Rebuilds the lane on `host` (this host, or the build host `ssh` names) and runs the offer under that host's own heavy admission, relaying its output as frames; Some((exit code, whether the lane synced)) once the script ends, None when it could not start.

@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -62,18 +62,10 @@ pub(super) fn run_chrome(program: &str, timeout: Duration) -> Chrome {
         }
         text
     });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Chrome::TimedOut;
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(20)),
-            Err(_) => return Chrome::Failed,
-        }
+    let status = match north_base::platform::process::child_within(&mut child, timeout) {
+        Ok(Some(status)) => status,
+        Ok(None) => return Chrome::TimedOut,
+        Err(_) => return Chrome::Failed,
     };
     let text = reader.join().unwrap_or_default();
     if status.success() { Chrome::Reply(String::from_utf8_lossy(&text).into_owned()) } else { Chrome::Failed }

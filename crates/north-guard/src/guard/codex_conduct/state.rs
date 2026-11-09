@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::Ctx;
 
@@ -159,17 +159,9 @@ pub(super) fn run_within(program: &str, arguments: &[&str], seconds: u64) -> Opt
         let _ = stdout.read_to_end(&mut bytes);
         bytes
     });
-    let deadline = Instant::now() + Duration::from_secs(seconds);
-    let status = loop {
-        if let Some(status) = child.try_wait().ok()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(5));
+    let status = match north_base::platform::process::child_within(&mut child, Duration::from_secs(seconds)) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => return None,
     };
     Some(Output { success: status.success(), stdout: reader.join().ok()? })
 }

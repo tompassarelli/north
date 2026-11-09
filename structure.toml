@@ -542,7 +542,7 @@ may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle
 name = "guard"
 paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs", "crates/north-guard/src/nix_explain.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground", "lifecycle", "platform.git", "platform.records", "platform.harness"]
+may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground", "lifecycle", "platform.git", "platform.process", "platform.records", "platform.harness"]
 
 [[module]]
 name = "threads"
@@ -644,7 +644,7 @@ may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
 name = "grounding"
 paths = ["crates/north-core/src/grounding/**"]
 responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "lifecycle", "graph_loops", "graph"]
+may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "lifecycle", "graph_loops", "graph", "platform.process"]
 
 [[module]]
 name = "capacity"
