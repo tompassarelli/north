@@ -614,11 +614,11 @@ review = "2026-11-07"
 owner = "tompassarelli/north#638"
 
 [[check]]
-id = "n637-day-without-timeouts-rearmed"
+id = "n637-day-without-timeouts-after-delivery-lock"
 box = "shows no start timeout for a day after it lands"
-command = "journalctl --user -u fleet-tick.service --since '2026-11-07 10:00' --until '2026-11-08 10:00' | rg -c 'start operation timed out' || echo 0"
+command = "journalctl --user -u fleet-tick.service --since '2026-11-09 17:30' --until '2026-11-10 17:30' | rg -c 'start operation timed out' || echo 0"
 expect = "0"
-review = "2026-11-09"
+review = "2026-11-11"
 owner = "tompassarelli/north#637"
 
 [[experiment]]
