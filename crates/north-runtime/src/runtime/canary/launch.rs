@@ -14,19 +14,24 @@ const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
 pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
     let north = std::env::current_exe()?;
     let scratch = tempfile::tempdir()?;
+    let state = scratch.path().join("state");
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&state)?;
+    std::fs::create_dir_all(&cwd)?;
     let name = format!("canary-{provider}-{}", std::process::id());
-    let answered = match launch(&north, provider, &name, scratch.path()) {
-        Ok(true) => answer(&north, &name),
+    let answered = match launch(&north, &state, provider, &name, &cwd) {
+        Ok(true) => answer(&north, &state, &name),
         Ok(false) => Ok(()),
         Err(failure) => Err(failure),
     };
-    let _ = fleet(&north, &["forget", &name, "--force", "runtime canary probe finished"]);
+    let _ = fleet(&north, &state, &["forget", &name, "--force", "runtime canary probe finished"]);
     answered
 }
 
-fn fleet(north: &Path, words: &[&str]) -> Result<String, String> {
+fn fleet(north: &Path, state: &Path, words: &[&str]) -> Result<String, String> {
     let mut command = Command::new(north);
     command.arg("fleet").args(words);
+    command.env("XDG_STATE_HOME", state).env("NORTH_TEST_ROOT", state).env("THREADS_DB", state.join("threads.db"));
     for (key, _) in std::env::vars().filter(|(key, _)| key.starts_with("NORTH_FLEET_")) {
         command.env_remove(key);
     }
@@ -37,7 +42,7 @@ fn fleet(north: &Path, words: &[&str]) -> Result<String, String> {
     }
 }
 
-fn launch(north: &Path, provider: &str, name: &str, cwd: &Path) -> Result<bool, Failure> {
+fn launch(north: &Path, state: &Path, provider: &str, name: &str, cwd: &Path) -> Result<bool, Failure> {
     let cwd = cwd.to_string_lossy();
     let mut words = vec!["launch", "--provider", provider, "--name", name, "--parent", "none", "--test", "--no-wait", "--cwd", &cwd];
     let account;
@@ -55,7 +60,7 @@ fn launch(north: &Path, provider: &str, name: &str, cwd: &Path) -> Result<bool, 
         }
     }
     words.push(PROMPT);
-    fleet(north, &words).map(|_| true).map_err(|why| failed(1, why))
+    fleet(north, state, &words).map(|_| true).map_err(|why| failed(1, why))
 }
 
 fn placed_claude_account(north: &Path) -> Result<Option<String>, Failure> {
@@ -74,11 +79,11 @@ fn placed_account(listing: &str) -> Option<String> {
     words.next().and_then(|word| word.strip_prefix("claude:")).filter(|_| !host.ends_with(':')).map(str::to_owned)
 }
 
-fn answer(north: &Path, name: &str) -> Result<(), Failure> {
+fn answer(north: &Path, state: &Path, name: &str) -> Result<(), Failure> {
     let started = Instant::now();
     let mut last = "no transcript yet".to_owned();
     while started.elapsed() < ANSWER_WITHIN {
-        match fleet(north, &["show", name, "--json"]) {
+        match fleet(north, state, &["show", name, "--json"]) {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(session) => match answered(&session) {
                     Some(reply) if !reply.trim().is_empty() => return Ok(()),

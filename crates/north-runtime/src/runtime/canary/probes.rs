@@ -20,7 +20,7 @@ fn probe(name: impl Into<String>, script: String, limit: Duration) -> Probe {
 pub(super) fn core_loop(host: &str, sha: &str) -> Vec<Probe> {
     let north = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}/north\"");
     let mut probes = Vec::new();
-    match host == HUB {
+    match is_hub(host) {
         true => probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT)),
         false => probes.push(probe(
             format!("a sandboxed worker shell runs ssh {HUB} true"),
@@ -31,6 +31,11 @@ pub(super) fn core_loop(host: &str, sha: &str) -> Vec<Probe> {
     probes.push(probe("each repository's lander mints its push token", lander_tokens(&north), MINT_LIMIT));
     probes.extend(PROVIDERS.iter().map(|provider| probe(format!("a --test {provider} worker answers its first turn"), format!("{north} runtime probe launch {provider}"), LAUNCH_LIMIT)));
     probes
+}
+
+fn is_hub(destination: &str) -> bool {
+    let host = destination.rsplit_once('@').map_or(destination, |(_, host)| host);
+    host.split('.').next() == Some(HUB)
 }
 
 fn lander_tokens(north: &str) -> String {

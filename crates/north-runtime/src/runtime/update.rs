@@ -96,10 +96,10 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {
-    let _lock = lock_waiting(layout, remote::limit(ROLLBACK_LOCK_WAIT), "north runtime rollback")?;
+    let _lock = lock_waiting(layout, remote::limit(ROLLBACK_LOCK_WAIT), "north runtime rollback").map_err(|held| failed(DEFERRED, format!("{}; the promotion holding it decides what stays current", held.message)))?;
     let current = fs::read_link(layout.current()).ok();
     if current.as_deref() != Some(layout::link(failed_sha).as_path()) {
-        return Err(failed(1, format!("current is not {}; nothing to roll back", layout::short(failed_sha))));
+        return Err(failed(DEFERRED, format!("current is not {}; nothing to roll back", layout::short(failed_sha))));
     }
     if !lifecycle::confirm_current(layout, failed_sha)? {
         return Err(failed(1, format!("{} never finished its promotion; nothing to roll back", layout::short(failed_sha))));
@@ -111,8 +111,8 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     live::note_swap(layout, &layout::link(&previous));
     lifecycle::move_to::<Promoting>(layout, failed_sha, Promotion::RolledBack, "rolled back on this host after promotion")?;
     lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
-    println!("north runtime rolled back to {}", layout::short(&previous));
-    Ok(layout::short(&previous).to_owned())
+    println!("north runtime rolled back to {previous}");
+    Ok(previous)
 }
 
 pub(super) fn lock_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {

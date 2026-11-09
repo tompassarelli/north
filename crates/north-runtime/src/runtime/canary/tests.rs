@@ -25,8 +25,8 @@ impl Machine for Fleet<'_> {
         }
     }
 
-    fn roll_back(&self, sha: &str) -> Result<String, String> {
-        update::roll_back(self.layout, sha).map_err(|failure| failure.message)
+    fn roll_back(&self, sha: &str) -> Rollback {
+        Live { layout: self.layout, host: &super::super::probe::Shell::Here("here".to_owned()) }.roll_back(sha)
     }
 
     fn alarm(&self, text: &str) {
@@ -93,3 +93,34 @@ fn a_probe_that_could_not_run_leaves_the_promotion_in_place_and_unjudged() {
     assert_eq!(host.current(), layout::link(PROMOTED));
     assert!(fleet.alarms.lock().unwrap().is_empty());
 }
+
+#[test]
+fn the_hub_reached_as_user_at_host_probes_its_fetch_and_never_ssh_to_itself() {
+    let host = Host::promoted();
+    let fleet = host.fleet(None);
+    assert_eq!(check(&host.layout, "tom@gex45", PROMOTED, &fleet), Verdict::Passed);
+    let probed = fleet.probed.lock().unwrap();
+    assert!(probed.iter().all(|name| !name.contains("ssh gex45")), "{probed:?}");
+    assert!(probed.iter().any(|name| name.contains("gex45 fetches")), "{probed:?}");
+}
+
+#[test]
+fn a_runtime_that_lacks_the_probe_subcommand_is_unrun_not_rolled_back() {
+    let host = Host::promoted();
+    let fleet = host.fleet(Some(("opencode", classify(Some(64), "usage: north runtime ...\n".to_owned()))));
+    assert!(matches!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Unrun(why) if why.contains("exit 64")));
+    assert_eq!(host.current(), layout::link(PROMOTED));
+    assert!(fleet.alarms.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_rollback_target_is_trusted_and_never_judged_again() {
+    let host = Host::promoted();
+    let failing = host.fleet(Some(("opencode", exited(1, "a test launch needs NORTH_TEST_ROOT\n"))));
+    assert_eq!(check(&host.layout, "nexus", PROMOTED, &failing), Verdict::RolledBack);
+    let fleet = host.fleet(Some(("opencode", exited(1, "still failing\n"))));
+    assert_eq!(check(&host.layout, "nexus", PREVIOUS, &fleet), Verdict::Skipped);
+    assert!(fleet.probed.lock().unwrap().is_empty());
+    assert_eq!(host.current(), layout::link(PREVIOUS));
+}
+

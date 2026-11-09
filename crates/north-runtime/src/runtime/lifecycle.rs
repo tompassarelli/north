@@ -85,10 +85,11 @@ pub(super) enum Canary {
     RolledBack,
     Stuck,
     Unjudged,
+    Trusted,
 }
 
 impl State for Canary {
-    const ALL: &'static [Self] = &[Self::Judging, Self::Passed, Self::RolledBack, Self::Stuck, Self::Unjudged];
+    const ALL: &'static [Self] = &[Self::Judging, Self::Passed, Self::RolledBack, Self::Stuck, Self::Unjudged, Self::Trusted];
 
     fn name(self) -> &'static str {
         match self {
@@ -97,13 +98,14 @@ impl State for Canary {
             Self::RolledBack => "rolled-back",
             Self::Stuck => "stuck",
             Self::Unjudged => "unjudged",
+            Self::Trusted => "trusted",
         }
     }
 }
 
 impl Canary {
     pub(super) fn judged(self) -> bool {
-        matches!(self, Self::Passed | Self::Stuck)
+        matches!(self, Self::Passed | Self::Stuck | Self::Trusted)
     }
 }
 
@@ -115,7 +117,7 @@ impl Lifecycle for Canarying {
 
     fn legal(from: Option<Canary>, to: Canary) -> bool {
         use Canary::*;
-        matches!((from, to), (None, _) | (Some(Judging), Passed | RolledBack | Stuck | Unjudged) | (Some(RolledBack | Unjudged), Judging))
+        matches!((from, to), (None, _) | (Some(Judging), Passed | RolledBack | Stuck | Unjudged) | (Some(RolledBack | Unjudged), Judging | Trusted))
     }
 
     fn dwell(state: Canary) -> Option<Duration> {
