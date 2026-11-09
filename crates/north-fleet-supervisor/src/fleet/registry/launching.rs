@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::Host;
+use crate::fleet::limit::ended_on_limit;
 use crate::fleet::records::write_record;
 use crate::fleet::remote;
 use crate::fleet::model::{Account, Effort, LaunchRequest, Role, SessionRecord, Status};
@@ -131,6 +132,7 @@ impl Fleet {
         };
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation, so it has none to carry onto {}", onto.label)))?;
         self.refuse_beside_interactive(&record)?;
+        let on_limit = self.recent(self.runtime(&record)?.as_ref(), &record).is_ok_and(|transcript| ended_on_limit(&transcript));
         let cut_short = self.halt_cut_short(name, self.ordered_by(self.caller().as_deref(), Halt::MovedAccount))?;
         let revived = {
             let _start = self.start_lock(name)?;
@@ -141,6 +143,8 @@ impl Fleet {
         let _ = self.waits().clear_usage_off(name, &revived.account);
         if cut_short {
             self.carry_on(name, &format!("this session was moved onto account {} in the middle of a turn", onto.label))?;
+        } else if on_limit {
+            self.carry_on(name, &format!("this session was moved onto account {} after its old account's usage limit ended its turn", onto.label))?;
         }
         Ok(revived)
     }

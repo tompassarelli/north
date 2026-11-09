@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 use north_base::platform::attribution::{self, Cause, Harness};
 use regex::Regex;
 
-use super::model::{EntryKind, Phase, SessionRecord, Status, UsageLimit};
+use super::model::{EntryKind, Phase, SessionRecord, Status, Transcript, UsageLimit};
 use super::registry::Fleet;
 use super::transcript::stream_path;
 use super::waits::{Registered, Run, Waits};
@@ -74,8 +74,7 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
         }
         let Ok(follower) = fleet.follow_recent(&record.name) else { continue };
         let transcript = follower.transcript();
-        let ended = transcript.status != Status::Working && transcript.entries.last().is_some_and(|entry| entry.kind == EntryKind::TurnEnd);
-        let Some(limit) = transcript.limit.as_ref().filter(|_| ended) else { continue };
+        let Some(limit) = transcript.limit.as_ref().filter(|_| ended_on_limit(transcript)) else { continue };
         let until_ms = lifts_at_ms(limit, now_ms, || resets.reset_ms(&record.account, now_ms));
         match park(&waits, &record, until_ms) {
             Ok(done) => parked.push(done),
@@ -83,6 +82,11 @@ pub fn park_limited(fleet: &Fleet, resets: &dyn AccountResets, now_ms: u64) -> V
         }
     }
     parked
+}
+
+/// Whether the turn the transcript ends on stopped at the account's usage limit.
+pub fn ended_on_limit(transcript: &Transcript) -> bool {
+    transcript.limit.is_some() && transcript.status != Status::Working && transcript.entries.last().is_some_and(|entry| entry.kind == EntryKind::TurnEnd)
 }
 
 /// Registers the `usage:ACCOUNT@TIME` wait that revives the session once its account's window lifts.
