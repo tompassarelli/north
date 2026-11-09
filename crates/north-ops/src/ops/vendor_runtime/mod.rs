@@ -53,6 +53,11 @@ fn run_ok(command: &mut Command) -> Result<std::process::Output, String> {
 
 impl Network for Curl {
     fn text(&self, url: &str, fresh: bool) -> Result<String, String> {
+        if let Some(path) = url.strip_prefix("https://api.github.com/")
+            && let Ok(output) = run_ok(Command::new("gh").args(["api", path]))
+        {
+            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        }
         let mut curl = Command::new("curl");
         curl.arg("-fsSL");
         if fresh {

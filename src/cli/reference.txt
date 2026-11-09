@@ -260,7 +260,7 @@ Commands:
   runtime agents [VERSION]                      Update the North, Claude, Agy, Pi and OpenCode runtimes
   runtime claude [VERSION]                      Install a checksum-verified Claude runtime, probe it and select it
   runtime agy [VERSION]                         Install a checksum-verified Agy runtime and select it
-  runtime pi [VERSION]                       Install a checksum-verified Pi runtime from the newest stable badlogic/pi-mono release and select it
+  runtime pi [VERSION]                       Install a checksum-verified Pi runtime from the newest stable earendil-works/pi release and select it
   runtime opencode [VERSION]                 Install a checksum-verified OpenCode runtime from the newest stable anomalyco/opencode release and select it
   capacity nexus [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
   desktop warcraft close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes

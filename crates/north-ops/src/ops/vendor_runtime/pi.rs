@@ -4,7 +4,7 @@ use std::process::Command;
 use super::github::{self, Release};
 use super::{Failure, Fetched, Network, Vendor, staged_output};
 
-const RELEASE: Release = Release { repo: "badlogic/pi-mono", asset: "pi-linux-x64.tar.gz", strip: 1 };
+const RELEASE: Release = Release { repo: "earendil-works/pi", asset: "pi-linux-x64.tar.gz", strip: 1 };
 
 pub struct Pi;
 

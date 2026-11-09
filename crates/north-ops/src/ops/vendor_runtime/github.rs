@@ -27,10 +27,10 @@ impl Release {
     pub fn fetch(&self, vendor: &dyn Vendor, network: &dyn Network, stage: &Path, version: &str) -> Result<Fetched, Failure> {
         let api = format!("https://api.github.com/repos/{}/releases/tags/v{version}", self.repo);
         let release: Value = network.text(&api, false).ok().and_then(|text| serde_json::from_str(&text).ok()).ok_or_else(|| fail(vendor, "release unavailable", 1))?;
-        let prefix = format!("https://github.com/{}/releases/download/v{version}/", self.repo);
+        let suffix = format!("/releases/download/v{version}/{}", self.asset);
         let asset = release["assets"].as_array().into_iter().flatten().find(|asset| asset["name"] == self.asset);
         let (Some(url), Some(expected)) = (
-            asset.and_then(|asset| asset["browser_download_url"].as_str()).filter(|url| *url == format!("{prefix}{}", self.asset)),
+            asset.and_then(|asset| asset["browser_download_url"].as_str()).filter(|url| url.starts_with("https://github.com/") && url.ends_with(&suffix)),
             asset.and_then(|asset| asset["digest"].as_str()).and_then(|digest| digest.strip_prefix("sha256:")).filter(|sum| Regex::new("^[a-f0-9]{64}$").is_ok_and(|valid| valid.is_match(sum))),
         ) else {
             return Err(fail(vendor, "release does not carry a checksummed asset for the requested version", 1));

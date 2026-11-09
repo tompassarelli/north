@@ -268,8 +268,8 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   review brief's method and the change-together section of program-craftsmanship.
   Outcome: ideas adopted in north's own words and code; no text copied, and the co-change script ported to Rust.
 
-- <a id="pi-opencode-releases"></a>**Pi (badlogic/pi-mono) and OpenCode (anomalyco/opencode) release builds**,
-  https://github.com/badlogic/pi-mono/releases and https://github.com/anomalyco/opencode/releases, both MIT (LICENSE
+- <a id="pi-opencode-releases"></a>**Pi (earendil-works/pi, formerly badlogic/pi-mono) and OpenCode (anomalyco/opencode) release builds**,
+  https://github.com/earendil-works/pi/releases and https://github.com/anomalyco/opencode/releases, both MIT (LICENSE
   in each repository; GitHub reports `MIT` for both); accessed 2026-11-09, Pi 1.5.0 (`pi-linux-x64.tar.gz`) and OpenCode
   2.2.6 (`opencode-linux-x64.tar.gz`).
   Informed: [vendor_runtime](../crates/north-ops/src/ops/vendor_runtime/mod.rs), which downloads each program's newest
