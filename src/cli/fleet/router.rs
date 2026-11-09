@@ -25,6 +25,7 @@ use super::ask;
 use super::admission;
 use super::desktop;
 use super::digest;
+use super::drain;
 use super::gated;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
@@ -119,6 +120,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["spend", rest @ ..] => spend::run(&fleet, rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["need", rest @ ..] => need::run(rest),
+        ["drain", rest @ ..] => drain::run(rest),
         ["hold", task] => hold(&fleet, task),
         ["accounts", flags @ ..] => accounts::run(&fleet, flags),
         ["launch", rest @ ..] => launch(&fleet, rest),

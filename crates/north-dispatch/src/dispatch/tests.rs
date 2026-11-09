@@ -67,8 +67,8 @@ pub(super) fn sized(name: &str, hosts: &[&str], plan: PlanSize, room: Room) -> A
 /// room is at its provider's limit.
 pub(super) fn view(accounts: &[Account]) -> View {
     let window = |left: f64, reset_h: f64| Some(Window { used_pct: 100.0 - left, resets_at: Some(reset_h * 3600.0) });
-    let spent = |account: &Account| spend::Account { name: account.name.clone(), plan_week: account.plan.week, five_hour: window(account.room.five_hour, 5.0), week: window(account.room.week, account.room.week_reset_h), counted: true, turn: None };
-    View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, trips: Vec::new(), keyed: Vec::new() }
+    let spent = |account: &Account| spend::Account { name: account.name.clone(), plan_week: account.plan.week, five_hour: window(account.room.five_hour, 5.0), week: window(account.room.week, account.room.week_reset_h), counted: true };
+    View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false }
 }
 
 /// The shipped rules with a cap no test fleet reaches, so these tests pin slots and order alone.
@@ -274,27 +274,6 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_wind
     assert!(held.len() == 1 && held[0].contains("box `the ready list") && held[0].contains("both name crates/north-dispatch/src/dispatch"), "{held:?}");
     let tried = surveyed(&[first]);
     assert_eq!(boxes(&tried).len(), 2, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
-}
-
-/// The 2026-11-07 3:15 PM reading: claude:a at 99% of its week took two launches and both died on the weekly limit (north#259).
-#[test]
-fn two_boxes_at_a_week_reading_of_99_percent_place_on_the_account_that_covers_a_turn_and_hold_when_none_does_here() {
-    let hosts = vec![host("gex45", 24, Ok(22))];
-    let spent = Room { five_hour: 90.0, week: 1.0, week_reset_h: 100.0 };
-    let both = vec![sized("claude:a", &["gex45"], MAX_5X, spent), sized("claude:b", &["gex45"], MAX_5X, Room { five_hour: 90.0, week: 60.0, week_reset_h: 100.0 })];
-    let boxes = || vec![issue("north", 790, "- [ ] a", &[]), issue("north", 634, "- [ ] b", &[])];
-    let covered = |accounts: Vec<Account>| {
-        let mut surveyed = survey(boxes(), Cloud::Closed("no credit".into()), hosts.clone(), accounts);
-        surveyed.spend.accounts.iter_mut().for_each(|account| account.turn = Some(spend::Turn::measured(8.0, 66, 0.2, 0.5)));
-        decide(&surveyed, "test")
-    };
-    let placed = covered(both.clone());
-    assert_eq!(placed.launches.iter().map(|launch| launch.account.as_str()).collect::<Vec<_>>(), ["claude:b", "claude:b"], "{:?}", placed.skipped);
-    let elsewhere = sized("claude:c", &["nexus"], MAX_5X, Room { five_hour: 90.0, week: 60.0, week_reset_h: 100.0 });
-    let held = covered(vec![both[0].clone(), elsewhere]);
-    assert!(held.launches.is_empty());
-    let why = format!("{:?}", held.skipped);
-    assert!(why.contains("claude:a has 1.0% of its week window left and one worker turn takes 4.0% at p90"), "{why}");
 }
 
 // KEEP(bug): every laptop launch from nexus failed for six hours on 2026-11-07 because the dispatch unit's PATH has no `threads` shim (north#828)

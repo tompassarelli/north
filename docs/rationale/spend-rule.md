@@ -10,13 +10,13 @@ fate.
 
 One module, `north_pace::spend`, holds the rule. Dispatch, `north fleet launch`, the spawn hook and
 follows-release call it, and nothing else may refuse a worker on usage grounds. A refusal names the rule that
-fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit`, `worker turn` or `no usage reading`.
+fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no usage reading`.
 
 1. **Pooled reserve.** One reserve covers all accounts together. The pool is the sum, over the accounts
    spend counts, of each account's unspent share of its week (all of it once the week has reset), scaled by
    its plan's size from the model catalog's weekly multipliers. The reserve is
-   `spend_reserve` percent of the largest counted account's week, in the same units, so it means "one
-   account's tenth" whatever the plans are. A worker starts only if the pool, less `spend_worker_charge` for
+   `spend_reserve` (5, restated 2026-11-09 under north#1000) percent of the combined week of all counted
+   accounts, in the same units, so it means "a twentieth of everything" whatever the plans are. A worker starts only if the pool, less `spend_worker_charge` for
    it and for each worker this run has already placed, stays above the reserve. Workers may drain any single
    account to the provider's limit. An account that refills first returns its week to the pool. The proxy,
    scheduled routines (a `[routine:...]` brief) and Tom's own sessions are not held by the reserve and go to
@@ -45,17 +45,18 @@ fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit`, `worker
 The provider's own limit is not a north rule. An account at the end of either window cannot run anything, so
 placement skips it and the refusal names `provider limit`.
 
-**Turn cover.** A worker that starts on an account whose window ends mid-turn dies there (2026-11-07 3:15 PM:
-two launches on an account at 99% of its week, both lost to the weekly limit; north#259). A worker therefore
-also needs the account's five-hour and week windows to cover one more worker turn at its p90: the p90
-API-equivalent dollars of a worker run in the ledger over the last 7 days (at least 20 priced runs), times the
-account's measured points per dollar for that window (`calibration` rate rows). An account whose used percent
-plus that turn reaches 100 takes no worker; the refusal names the account, the window, the percent left and
-the turn and its basis, as `worker turn`, and placement takes the next account in rank order or holds the box
-until a window resets. Without a ledger p90 or a measured rate the week is charged `spend_worker_charge`
-points and the five-hour window nothing. The proxy, routines and Tom's sessions, and Agent-tool subagents,
-start no worker turn and meet only the provider limit. Besides the reserve, the two window checks are the
-only usage stops.
+**No per-account cover (2026-11-09, north#1000).** An earlier rule (north#259) refused a worker on an account whose
+windows could not cover one worker run at its p90. It is deleted: a worker that reaches a provider limit
+mid-run continues on another account in its own conversation (north#998), so admission no longer predicts
+whether a session fits in one account. Besides the reserve, the provider limit is the only account-level usage
+stop. The proxy, routines and Tom's sessions, and Agent-tool subagents, meet only the provider limit.
+
+**Drain.** `north fleet drain on [--until TIME]` turns the reserve off until `north fleet drain off` or the time
+passes; every account may then be spent to its provider limit. The cap and the tripwire stay. The switch lives in
+`spend/drain.json` in the agents state directory of the host that admits the launch, and `north fleet usage`
+prints the mode on its first line. The proxy flips it only on Tom's own word to drain; without that word the
+default reserve applies. A refusal reads "a new worker session would leave N points of week across all
+accounts, not above the M-point reserve".
 The money refusal and its ceiling stay; they are cost policy, not pacing.
 
 Nothing else refuses: no burn projection, no week spread over the hours to reset, no pace line, no hold,
@@ -93,7 +94,7 @@ five-hour reading from the last 30 minutes, beside the spend breaker, so each ho
 judged on that host. The fleet burst reads the table's five-hour readings, which every host shares. The
 session burst reads the spend so far of each session that host runs, which the tick records per session in
 `agents/spend/spenders.json`, priced in the account's five-hour points by the calibrated points per dollar
-(a session burst is not judged on an account with no calibrated rate). A rate row is an input the tripwire and turn cover check before they refuse on it: a row whose source lacks the current `rate method N` stamp (written before the method that measures it changed, or by a host still on the old binary) or one older than `spend_rate_max_h` hours prices nothing, so the session burst refuses nothing on that account and turn cover falls back to its assumed charge, and the proxy is told once per stale row, kept in `agents/spend/stale-inputs.json` until a fresh row replaces it. On 2026-11-08 at 1:55 AM +07 the 1:15 AM pooled rate (3.53 points per dollar, measured before the 1:34 AM rate fix) froze every launch for over 20 minutes; the first row under the fixed method read 0.47 (north#838). Current trips go to
+(a session burst is not judged on an account with no calibrated rate). A rate row is an input the tripwire checks before it refuses on it: a row whose source lacks the current `rate method N` stamp (written before the method that measures it changed, or by a host still on the old binary) or one older than `spend_rate_max_h` hours prices nothing, so the session burst refuses nothing on that account, and the proxy is told once per stale row, kept in `agents/spend/stale-inputs.json` until a fresh row replaces it. On 2026-11-08 at 1:55 AM +07 the 1:15 AM pooled rate (3.53 points per dollar, measured before the 1:34 AM rate fix) froze every launch for over 20 minutes; the first row under the fixed method read 0.47 (north#838). Current trips go to
 `agents/spend/trips.json` there, where dispatch, fleet launch and the spawn hook on that host read them, and
 each new one is appended to `agents/spend/trips.jsonl`. Only the host that holds the proxy tells it, so a
 fleet burst every host sees reaches the proxy once. `north spend [--json]` prints the view.

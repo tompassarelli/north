@@ -140,7 +140,7 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], o
 }
 
 /// The placement `chosen` when the spend rule admits its account; otherwise the first other account the rule admits that placement also
-/// accepts, so a launch that named none starts where a worker turn fits. With none left the refusal names each account's reason.
+/// accepts, so a launch that named none starts where a worker session fits. With none left the refusal names each account's reason.
 fn with_room(
     chosen: &str,
     accounts: &[&str],

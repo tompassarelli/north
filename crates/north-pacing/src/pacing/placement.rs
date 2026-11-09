@@ -14,7 +14,7 @@ mod reach;
 mod repository;
 pub mod room;
 use hosts::{credit, laptop, resident, saturation};
-pub use inputs::{cloud_credit, config, laptop_state, now, pace_directory, pace_state, resident_clis, worker_turns};
+pub use inputs::{cloud_credit, config, laptop_state, now, pace_directory, pace_state, resident_clis};
 
 pub(super) fn field<'a>(text: &'a str, key: &str) -> &'a str {
     text.lines()

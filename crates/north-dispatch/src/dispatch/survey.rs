@@ -183,7 +183,7 @@ pub(super) fn grants(cfg: &DocumentMut, roster: &Roster, here: &str, sources: Ve
 /// The spend rule's view at `at`: every account's readings, counted while some host is signed in to
 /// it, and the worker sessions active in `sessions`.
 fn spend_view(cfg: &DocumentMut, roster: &Roster, here: &str, rules: &Rules, sessions: &[(Session, String)], at: f64) -> View {
-    spend::view_from_config(cfg, &placement::pace_directory(), rules, fleets::active_workers(sessions), at, placement::worker_turns(at), |name| !signed_in(cfg, roster, name, here).is_empty())
+    spend::view_from_config(cfg, &placement::pace_directory(), rules, fleets::active_workers(sessions), at, |name| !signed_in(cfg, roster, name, here).is_empty())
 }
 
 /// The spend view as a dispatch survey reads it, for `north fleet launch`: every reached host's

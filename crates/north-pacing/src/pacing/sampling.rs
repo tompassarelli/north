@@ -1,6 +1,6 @@
 use super::{process, readout, storage};
 use crate::foundation::clock::rfc3339_seconds;
-use crate::spend::{self, Placed, Rules, Starter, Turn};
+use crate::spend::{self, Placed, Rules, Starter};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use storage::{load, number, rows, save};
@@ -11,18 +11,6 @@ pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
         .parse()
         .map_err(|e: toml_edit::TomlError| e.to_string())
 }
-/// The worker turn the ledger prices on each Claude account at `at`: the p90 API-equivalent dollars of a worker run over the last
-/// `TURN_DAYS` days at the account's measured points per dollar. An account the ledger cannot price has none.
-pub(super) fn worker_turns(at: f64) -> impl Fn(&str) -> Option<Turn> {
-    const TURN_DAYS: i64 = 7;
-    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let db = rusqlite::Connection::open_with_flags(crate::ledger::threads_database(), flags).ok();
-    let since = crate::foundation::clock::Timestamp::from_unix_seconds(at as i64 - TURN_DAYS * 86_400).iso();
-    let cost = db.as_ref().and_then(|db| crate::threads::calibration::TurnCost::read(db, &since).ok().flatten());
-    let now = crate::foundation::clock::Timestamp::from_unix_seconds(at as i64);
-    move |account| cost?.on(db.as_ref()?, account.strip_prefix("claude:")?, now).ok().flatten()
-}
-
 pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
 
 /// The sessions taking a turn on each account and the worker sessions taking a turn across every registry, as the spend cap counts
@@ -227,7 +215,7 @@ pub(super) fn recent_history(state: &Value, fresh: &[Value], window: f64) -> Vec
 
 pub(super) fn standings(directory: &std::path::Path, cfg: &toml_edit::DocumentMut, workers: &Workers, at: f64) -> Vec<Value> {
     let rules = Rules::configured();
-    let view = spend::view_from_config(cfg, directory, &rules, workers.active, at, worker_turns(at), |_| true);
+    let view = spend::view_from_config(cfg, directory, &rules, workers.active, at, |_| true);
     view.accounts
         .iter()
         .map(|account| {

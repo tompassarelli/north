@@ -5,6 +5,7 @@
 mod read;
 #[cfg(test)]
 mod tests;
+pub mod drain;
 pub mod tripwire;
 
 use std::fmt;
@@ -15,7 +16,7 @@ pub use tripwire::Trip;
 /// The rule's knobs, from harness/defaults.toml.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rules {
-    /// Percent of the largest counted account's week that must stay unspent across all accounts together.
+    /// Percent of the combined week of all counted accounts that must stay unspent across them together, unless the drain switch is on.
     pub reserve: f64,
     /// Points of a Max 5x week one new worker is expected to take from the pool.
     pub charge: f64,
@@ -55,26 +56,6 @@ impl Window {
     }
 }
 
-/// What one worker turn takes from an account's windows at p90, in percent of each window, and where the figure came from.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Turn {
-    pub five_hour: f64,
-    pub week: f64,
-    pub basis: String,
-}
-
-impl Turn {
-    /// The turn priced from the ledger: the p90 API-equivalent dollars of `runs` worker runs at the account's measured points per dollar.
-    pub fn measured(p90_usd: f64, runs: usize, five_hour_points_per_usd: f64, week_points_per_usd: f64) -> Self {
-        Self { five_hour: p90_usd * five_hour_points_per_usd, week: p90_usd * week_points_per_usd, basis: format!("p90 ${p90_usd:.2} of {runs} worker runs") }
-    }
-
-    /// The turn assumed when the ledger gives none: `Rules::charge` Max 5x week points of the account's week.
-    fn assumed(rules: &Rules, plan_week: f64) -> Self {
-        Self { five_hour: 0.0, week: rules.charge / plan_week.max(f64::MIN_POSITIVE), basis: format!("assumed {:.1} week points, no measured p90", rules.charge) }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Account {
     /// `provider:label`.
@@ -85,7 +66,6 @@ pub struct Account {
     pub week: Option<Window>,
     /// Whether its week counts toward the pool: a host is signed in to it and its reading is fresh.
     pub counted: bool,
-    pub turn: Option<Turn>,
 }
 
 impl Account {
@@ -100,16 +80,6 @@ impl Account {
         };
         [("five-hour", five_hour), ("week", week)].into_iter().find(|(_, window)| window.used(at) >= 100.0).map(|(kind, _)| Refusal { rule: Rule::ProviderLimit, line: format!("{} is at its provider's {kind} limit", self.name) })
     }
-
-    /// Why one more worker turn at p90 cannot finish inside the account's five-hour and week windows.
-    fn cover(&self, rules: &Rules, at: f64) -> Option<Refusal> {
-        let (Some(five_hour), Some(week)) = (self.five_hour, self.week) else { return None };
-        let turn = self.turn.clone().unwrap_or_else(|| Turn::assumed(rules, self.plan_week));
-        [("five-hour", five_hour, turn.five_hour), ("week", week, turn.week)].into_iter().find(|(_, window, need)| window.used(at) + need >= 100.0).map(|(kind, window, need)| Refusal {
-            rule: Rule::Turn,
-            line: format!("{} has {:.1}% of its {kind} window left and one worker turn takes {need:.1}% at p90 ({})", self.name, (100.0 - window.used(at)).max(0.0), turn.basis),
-        })
-    }
 }
 
 /// What spend knows at one moment: every account's readings, the worker sessions working across the
@@ -122,6 +92,8 @@ pub struct View {
     pub trips: Vec<Trip>,
     /// Accounts that bill per token on an API key, and through the prefix their pinned `label:org` forms: no plan windows to read, so no window limit applies.
     pub keyed: Vec<String>,
+    /// Tom's drain switch is on: the reserve is skipped and every account may be spent to its provider limit.
+    pub drain: bool,
 }
 
 /// What one run has already started, so it cannot place past the cap or the reserve.
@@ -146,7 +118,6 @@ pub enum Rule {
     Cap,
     Tripwire,
     ProviderLimit,
-    Turn,
     Unread,
 }
 
@@ -157,7 +128,6 @@ impl fmt::Display for Rule {
             Self::Cap => "spend cap",
             Self::Tripwire => "spend tripwire",
             Self::ProviderLimit => "provider limit",
-            Self::Turn => "worker turn",
             Self::Unread => "no usage reading",
         })
     }
@@ -181,9 +151,9 @@ impl View {
         self.accounts.iter().filter(|account| account.counted).map(|account| account.week_left(self.at)).sum()
     }
 
-    /// The reserve in Max 5x week points: its percent of the largest counted account's week.
+    /// The reserve in Max 5x week points: its percent of the combined week of the counted accounts.
     pub fn reserve(&self, rules: &Rules) -> f64 {
-        rules.reserve * self.accounts.iter().filter(|account| account.counted).map(|account| account.plan_week).fold(0.0, f64::max)
+        rules.reserve * self.accounts.iter().filter(|account| account.counted).map(|account| account.plan_week).sum::<f64>()
     }
 
     pub fn account(&self, name: &str) -> Option<&Account> {
@@ -204,11 +174,6 @@ impl View {
         }
         let chosen = self.account(account).ok_or_else(|| Refusal { rule: Rule::Unread, line: format!("{account} has no usage reading") })?;
         if let Some(refusal) = chosen.limit(self.at) {
-            return Err(refusal);
-        }
-        if starter == Starter::Worker
-            && let Some(refusal) = chosen.cover(rules, self.at)
-        {
             return Err(refusal);
         }
         match self.trips.iter().find(|trip| trip.account == account).filter(|_| starter != Starter::Reserved) {
@@ -235,9 +200,12 @@ impl View {
     /// The pooled reserve alone: whether the pool, less one more charge for each placed worker and this
     /// one, stays above it.
     fn reserved(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
+        if self.drain {
+            return Ok(());
+        }
         let (after, reserve) = (self.pool() - rules.charge * (placed.workers + 1) as f64, self.reserve(rules));
         if after <= reserve {
-            return Err(Refusal { rule: Rule::Reserve, line: format!("{:.1} points of week would be left across all accounts after this worker, not above the {reserve:.0}-point reserve", after.max(0.0)) });
+            return Err(Refusal { rule: Rule::Reserve, line: format!("a new worker session would leave {:.1} points of week across all accounts, not above the {reserve:.0}-point reserve; `north fleet drain on` spends it", after.max(0.0)) });
         }
         Ok(())
     }
@@ -246,6 +214,7 @@ impl View {
     pub fn line(&self, rules: &Rules) -> String {
         let trips: Vec<&str> = self.trips.iter().map(|trip| trip.line.as_str()).collect();
         let tripped = if trips.is_empty() { String::new() } else { format!("; tripped: {}", trips.join("; ")) };
-        format!("spend: {:.0} week points left across accounts, reserve {:.0}; {}/{} worker sessions working{tripped}", self.pool(), self.reserve(rules), self.working, rules.cap)
+        let reserve = if self.drain { "drain on, no reserve".to_owned() } else { format!("reserve {:.0}", self.reserve(rules)) };
+        format!("spend: {:.0} week points left across accounts, {reserve}; {}/{} worker sessions working{tripped}", self.pool(), self.working, rules.cap)
     }
 }

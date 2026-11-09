@@ -6,17 +6,15 @@ use std::path::Path;
 use serde_json::Value;
 use toml_edit::{DocumentMut, Item};
 
-use super::{Account, Rules, Trip, Turn, View, Window};
+use super::{Account, Rules, Trip, View, Window};
 use crate::foundation::clock::rfc3339_seconds;
 
 /// The current trips, relative to the agents state directory.
 pub const TRIPS: &str = "spend/trips.json";
 
-/// What the caller knows of an account beyond its sampled windows: its week in Max 5x weeks and the
-/// worker turn the ledger prices for it.
+/// What the caller knows of an account beyond its sampled windows: its week in Max 5x weeks.
 pub struct Size {
     pub plan_week: f64,
-    pub turn: Option<Turn>,
 }
 
 /// The view at `at` with `working` worker sessions across the fleet, read from the agents state
@@ -25,12 +23,12 @@ pub fn view(agents: &Path, rules: &Rules, working: usize, at: f64, size: impl Fn
     let gate = read(&agents.join("usage-gate.json"));
     let sampled = gate["claude"]["windows"].as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:"));
     let accounts = sampled.map(|(name, windows)| account(rules, name, size(name), windows, at, signed_in(name))).collect();
-    View { at, accounts, working, trips: trips(&read(&agents.join(TRIPS)), rules, at), keyed }
+    View { at, accounts, working, trips: trips(&read(&agents.join(TRIPS)), rules, at), keyed, drain: super::drain::on(agents, at) }
 }
 
-pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working: usize, at: f64, turn: impl Fn(&str) -> Option<Turn>, signed_in: impl Fn(&str) -> bool) -> View {
+pub fn view_from_config(cfg: &DocumentMut, agents: &Path, rules: &Rules, working: usize, at: f64, signed_in: impl Fn(&str) -> bool) -> View {
     let catalog = crate::platform::harness::document(crate::platform::harness::MODEL_CATALOG);
-    view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name), turn: turn(name) }, signed_in, keyed(cfg))
+    view(agents, rules, working, at, |name| Size { plan_week: plan_week(cfg, catalog, name) }, signed_in, keyed(cfg))
 }
 
 /// Trips the last tick confirmed within the window of the burst each measured; a tick that stopped
@@ -49,7 +47,7 @@ fn account(rules: &Rules, name: &str, size: Size, windows: &Value, at: f64, sign
     let window = |wanted: &str| found(wanted).and_then(|window| Some(Window { used_pct: window["used_pct"].as_f64()?, resets_at: window["resets_at"].as_str().and_then(rfc3339_seconds) }));
     let read_at = found("week").and_then(|week| week["as_of"].as_str()).and_then(rfc3339_seconds);
     let fresh = read_at.is_some_and(|read_at| at - read_at <= rules.reading_max_h * 3600.0);
-    Account { name: name.to_owned(), plan_week: size.plan_week, turn: size.turn, five_hour: window("5h"), week: window("week"), counted: signed_in && fresh }
+    Account { name: name.to_owned(), plan_week: size.plan_week, five_hour: window("5h"), week: window("week"), counted: signed_in && fresh }
 }
 
 /// The `provider:label` names of the accounts the policy bills by API key (`[accounts.claude.api_keys]`).

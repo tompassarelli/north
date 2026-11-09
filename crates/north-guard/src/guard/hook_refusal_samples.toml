@@ -1581,7 +1581,7 @@ command = "cd ~/.local/state/north; ls land-queue-hold | head; rg -l a824563fe l
 label = "false"
 
 [[sample.row]]
-command = "cd ~/.local/state; rg -l --max-depth 4 'worker turn takes|spend tripwire' agents north 2>/dev/null | head; "
+command = "cd ~/.local/state; rg -l --max-depth 4 'spend tripwire' agents north 2>/dev/null | head; "
 label = "true"
 
 [[sample.row]]

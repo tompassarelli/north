@@ -99,17 +99,17 @@ fn placed_on(account: &str) -> Placed {
     Placed { account: Some(account.to_owned()), ..Placed::default() }
 }
 
-// KEEP(bug): at 6:03 AM on 2026-11-08 the code-health tick's launch placed claude:c, which had 1.0% of its week left against a 4.3% worker turn, and exited 1 while claude:b had room; north#861, north#706
+// KEEP(bug): at 6:03 AM on 2026-11-08 the code-health tick's launch placed claude:c, which was at its week limit, and exited 1 while claude:b had room; north#861, north#706
 #[test]
 fn a_launch_naming_no_account_moves_to_one_the_spend_rule_admits_and_defers_with_exit_75_when_none_is() {
     let admits = |account: &str| match account {
         "b" => Ok(()),
-        other => Err(format!("claude:{other} has 1.0% of its week window left and one worker turn takes 4.3% at p90")),
+        other => Err(format!("claude:{other} is at its provider's week limit")),
     };
     let moved = with_room("c", &["a", "b", "c"], admits, |account| Ok(Ok(placed_on(account))), Ok(placed_on("c"))).unwrap();
     assert_eq!(moved.unwrap().account.as_deref(), Some("b"));
 
     let refusal = with_room("c", &["a", "c"], admits, |account| Ok(Ok(placed_on(account))), Ok(placed_on("c"))).unwrap().unwrap_err();
-    assert!(matches!(&refusal, Refusal::Spend(why) if why.starts_with("claude:c has 1.0% of its week window left and one worker turn takes 4.3% at p90; claude:a")), "{refusal:?}");
+    assert!(matches!(&refusal, Refusal::Spend(why) if why.starts_with("claude:c is at its provider's week limit; claude:a")), "{refusal:?}");
     assert_eq!(NorthError::from(refusal).exit_code(), 75);
 }

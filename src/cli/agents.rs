@@ -46,6 +46,9 @@ pub(super) fn usage(arguments: &[String]) -> u8 {
         return pace(&["gate".to_owned(), provider]);
     }
     if crate::usage::handles(arguments) {
+        if arguments.is_empty() {
+            println!("{}", crate::spend::drain::mode_line(&crate::pacing::placement::pace_directory(), crate::pacing::placement::now(), crate::spend::Rules::configured().reserve));
+        }
         return with_usage_host(|host| crate::usage::run(arguments, host));
     }
     eprintln!("{}", agents::USAGE);

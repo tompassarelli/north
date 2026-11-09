@@ -246,10 +246,10 @@ fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n <
 consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 
 [spend_reserve]
-value = 3
+value = 5
 allowed = { min = 0, max = 100 }
-unit = "percent of the largest counted account's week that must stay unspent across all accounts together; a new worker starts only while the pooled week left after it stays above this"
-source = "tom: the pooled reserve is 10; dipped to 3 on 2026-11-08 until a counted account's weekly reset on 2026-11-10, following the 2026-11-07 dip (north#702)"
+unit = "percent of the combined week of all counted accounts (the sum of their plan_week) that must stay unspent across them together; a new worker starts only while the pooled week left after it stays above this, and the drain switch turns it off"
+source = "tom, 2026-11-09 (paraphrased): the fleet keeps one small reserve of about 5% in total across every account for ad hoc needs and nothing else holds workers back on usage grounds (north#1000)"
 fallback = "none: the reserve is a stated amount, not a measurement"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 

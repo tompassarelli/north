@@ -11,6 +11,7 @@ mod digest;
 mod gated;
 mod held;
 mod launch;
+mod drain;
 mod need;
 mod interactive;
 mod ledger;
