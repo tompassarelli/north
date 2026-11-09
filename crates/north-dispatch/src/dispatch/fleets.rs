@@ -31,7 +31,7 @@ pub struct Session {
     pub working: bool,
     /// The account it spends, `provider:label` for Claude and the provider otherwise.
     pub account: Option<String>,
-    /// Whether it counts against the spend cap: every role but the proxy.
+    /// Whether it counts against the spend cap, which limits Claude workers on subscription weeks: every Claude role but the proxy, and no DeepSeek harness worker, which has its own cap.
     pub worker: bool,
 }
 
@@ -96,7 +96,7 @@ pub fn running_sessions(listing: &Value) -> Vec<Session> {
             };
             let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
-            Session { claim_box: session["box"].as_str().map(str::to_owned), machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" }
+            Session { claim_box: session["box"].as_str().map(str::to_owned), machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()), account: account(session), worker: session["role"] != "proxy" && session["provider"] == "claude" }
         })
         .collect()
 }
