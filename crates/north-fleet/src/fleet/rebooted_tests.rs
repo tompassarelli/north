@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::*;
 use crate::error::NorthError;
@@ -37,12 +37,37 @@ fn names(names: &[&str]) -> Vec<String> {
 
 #[test]
 fn a_session_whose_account_is_out_waits_untold_without_failing_the_run() {
-    let resumer = Recorded { out: Some("sc-fl-surf"), ..Recorded::default() };
+    let resumer = Arc::new(Recorded { out: Some("sc-fl-surf"), ..Recorded::default() });
 
-    let resumed = resume(&resumer, &names(&["sc-fl-surf", "wisp-api-g1"]), "whiterabbit", BOOTED_MS, Duration::from_secs(60));
+    let resumed = resume(resumer.clone(), &names(&["sc-fl-surf", "wisp-api-g1"]), "whiterabbit", BOOTED_MS, Duration::from_secs(60));
 
     assert_eq!(resumed.lines(), ["resumed wisp-api-g1", "waiting sc-fl-surf: claude:c unavailable: exhausted: provider week 100%"]);
     assert!(resumed.failed.is_empty());
     assert_eq!(resumer.sent.lock().unwrap().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["wisp-api-g1"]);
+}
+
+struct Slow(Mutex<std::sync::mpsc::Receiver<()>>);
+
+impl Resumer for Slow {
+    fn revive(&self, _name: &str) -> NorthResult<Revived> {
+        let _ = self.0.lock().unwrap().recv_timeout(Duration::from_secs(5));
+        Ok(Revived::Started)
+    }
+
+    fn send(&self, _name: &str, _text: &str) -> NorthResult<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_revive_still_running_at_the_budget_is_deferred_by_name_and_the_run_returns_promptly() {
+    let (release, held) = std::sync::mpsc::channel();
+    let resumer = Arc::new(Slow(Mutex::new(held)));
+
+    let resumed = resume(resumer, &names(&["sc-fl-surf", "wisp-api-g1"]), "whiterabbit", BOOTED_MS, Duration::from_millis(100));
+
+    assert_eq!(resumed.deferred, ["sc-fl-surf", "wisp-api-g1"]);
+    assert!(resumed.resumed.is_empty());
+    drop(release);
 }
 

@@ -1,13 +1,15 @@
 //! Sessions a host reboot stranded: the machine went down under a session that was neither stopped
 //! nor finished, so its host process is gone and nothing runs it again. `north fleet rebooted
 //! --revive` runs each one again with the turn that tells it why, from every fleet tick on the host.
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::NorthResult;
+use crate::fleet::stage::{Late, detach};
 use crate::foundation::clock::Timestamp;
 
 /// How a rebooted host's sessions are run again and told so.
-pub trait Resumer {
+pub trait Resumer: Send + Sync {
     fn revive(&self, name: &str) -> NorthResult<Revived>;
     fn send(&self, name: &str, text: &str) -> NorthResult<()>;
 }
@@ -45,28 +47,39 @@ impl Resumed {
     }
 }
 
-/// Revives and messages each of `names`, in order, starting no new one once `budget` is spent: a
-/// timer unit that outlives its timeout is killed between a revive and its message.
-pub fn resume(resumer: &dyn Resumer, names: &[String], host: &str, booted_ms: u64, budget: Duration) -> Resumed {
+/// Revives and messages each of `names`, in order, starting no new one once `budget` is spent and
+/// waiting on each only until that point: a timer unit that outlives its timeout is killed between
+/// a revive and its message.
+pub fn resume(resumer: Arc<dyn Resumer>, names: &[String], host: &str, booted_ms: u64, budget: Duration) -> Resumed {
     let text = message(host, booted_ms);
     let started = Instant::now();
     let mut outcome = Resumed::default();
     for name in names {
-        if started.elapsed() >= budget {
+        let left = budget.saturating_sub(started.elapsed());
+        if left.is_zero() {
             outcome.deferred.push(name.clone());
             continue;
         }
-        let revived = resumer.revive(name).and_then(|revived| match revived {
-            Revived::Started => resumer.send(name, &text).map(|()| Revived::Started),
-            waiting => Ok(waiting),
-        });
+        let resumer = resumer.clone();
+        let (named, told) = (name.clone(), text.clone());
+        let revived = detach("rebooted", move || revive_and_tell(resumer.as_ref(), &named, &told)).by(Instant::now() + left);
         match revived {
-            Ok(Revived::Started) => outcome.resumed.push(name.clone()),
-            Ok(Revived::Waiting(why)) => outcome.waiting.push((name.clone(), why)),
-            Err(error) => outcome.failed.push((name.clone(), error.user_message())),
+            Ok(Ok(Revived::Started)) => outcome.resumed.push(name.clone()),
+            Ok(Ok(Revived::Waiting(why))) => outcome.waiting.push((name.clone(), why)),
+            Ok(Err(error)) => outcome.failed.push((name.clone(), error.user_message())),
+            Err(Late::Running) => outcome.deferred.push(name.clone()),
+            Err(Late::Panicked) => outcome.failed.push((name.clone(), "it panicked".to_owned())),
+            Err(Late::Unstarted(error)) => outcome.failed.push((name.clone(), format!("its thread did not start: {error}"))),
         }
     }
     outcome
+}
+
+fn revive_and_tell(resumer: &dyn Resumer, name: &str, text: &str) -> NorthResult<Revived> {
+    resumer.revive(name).and_then(|revived| match revived {
+        Revived::Started => resumer.send(name, text).map(|()| Revived::Started),
+        waiting => Ok(waiting),
+    })
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! `north fleet rebooted [--revive]`: the sessions this machine's last reboot stranded, and with
 //! `--revive` each run again with the turn that says why.
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
@@ -31,7 +32,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 pub(super) fn revive_within(fleet: &Fleet, budget: Duration) -> NorthResult<()> {
     let booted_ms = booted()?;
     let names = fleet.rebooted(booted_ms)?;
-    let resumed = resume(&Revival(fleet), &names, &host::name(), booted_ms, budget);
+    let resumed = resume(Arc::new(Revival(fleet.clone())), &names, &host::name(), booted_ms, budget);
     resumed.lines().iter().for_each(|line| println!("{line}"));
     match resumed.failed.len() {
         0 => Ok(()),
@@ -46,15 +47,15 @@ fn booted() -> NorthResult<u64> {
     host::booted_ms().ok_or_else(|| NorthError::State("cannot read this machine's boot time from /proc/stat".into()))
 }
 
-struct Revival<'a>(&'a Fleet);
+struct Revival(Fleet);
 
-impl Resumer for Revival<'_> {
+impl Resumer for Revival {
     fn revive(&self, name: &str) -> NorthResult<Revived> {
         let mut overrides = Overrides::default();
         if self.0.session(name)?.machine.is_none() {
             overrides.local = Some(format!("north fleet rebooted revives {name} where its conversation lives"));
         }
-        match revive::restart_placed(self.0, name, None, None, overrides)? {
+        match revive::restart_placed(&self.0, name, None, None, overrides)? {
             Ok(_) => Ok(Revived::Started),
             Err(Refusal::Spend(why)) => Ok(Revived::Waiting(why)),
             Err(refusal) => Err(refusal.into()),
