@@ -36,6 +36,7 @@ pub(super) trait Machine: Sync {
     fn roll_back(&self, sha: &str) -> Rollback;
     fn alarm(&self, text: &str);
     fn installed_providers(&self) -> Vec<String>;
+    fn launches_sessions(&self, host: &str) -> bool;
     fn lander_repositories(&self) -> Option<probes::Landers>;
 }
 
@@ -50,7 +51,7 @@ pub(super) enum Verdict {
 
 fn run_probes(host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Vec<probes::Probe>, Vec<Ran>) {
     let landers = machine.lander_repositories();
-    let plan = probes::core_loop(host, sha, &machine.installed_providers(), landers.as_ref());
+    let plan = probes::core_loop(host, sha, &machine.installed_providers(), machine.launches_sessions(host), landers.as_ref());
     if !plan.not_applicable.is_empty() {
         println!("north runtime canary: {host}: {short}: not applicable here: {}", plan.not_applicable.join(", "));
     }
@@ -212,6 +213,11 @@ impl Machine for Live<'_> {
             Ok(listing) => probes::PROVIDERS.iter().filter(|provider| listing.lines().any(|line| line.trim() == **provider)).map(|provider| (*provider).to_owned()).collect(),
             Err(_) => probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(),
         }
+    }
+
+    fn launches_sessions(&self, host: &str) -> bool {
+        let name = host.rsplit_once('@').map_or(host, |(_, name)| name);
+        crate::platform::orchestration::read().ok().and_then(|cfg| cfg.get("hosts")?.get(name)?.get("launches")?.as_bool()).unwrap_or(true)
     }
 
     fn lander_repositories(&self) -> Option<probes::Landers> {

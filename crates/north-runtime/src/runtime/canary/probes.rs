@@ -55,16 +55,17 @@ fn probe(name: impl Into<String>, script: String, limit: Duration) -> Probe {
     Probe { name: name.into(), script, limit }
 }
 
-pub(super) fn core_loop(host: &str, sha: &str, installed: &[String], landers: Option<&Landers>) -> CoreLoop {
+pub(super) fn core_loop(host: &str, sha: &str, installed: &[String], launches: bool, landers: Option<&Landers>) -> CoreLoop {
     let north = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}/north\"");
     let mut probes = Vec::new();
-    match is_hub(host) {
-        true => probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT)),
-        false => probes.push(probe(
+    match (is_hub(host), launches) {
+        (true, _) => probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT)),
+        (false, true) => probes.push(probe(
             format!("a sandboxed worker shell runs ssh {HUB} true"),
             format!("NORTH_FLEET_ROLE=worker NORTH_WORKER_SANDBOX=1 {north} --worker-sandbox 'ssh -o BatchMode=yes -o ConnectTimeout=15 {HUB} true'"),
             SHELL_LIMIT,
         )),
+        (false, false) => {}
     }
     let mut not_applicable = Vec::new();
     match landers {

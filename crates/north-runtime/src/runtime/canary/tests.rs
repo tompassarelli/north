@@ -13,6 +13,7 @@ struct Fleet<'a> {
     layout: &'a Layout,
     failing: Option<(&'static str, Ran)>,
     installed: Vec<String>,
+    launches: bool,
     landers: Option<probes::Landers>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
@@ -39,6 +40,10 @@ impl Machine for Fleet<'_> {
 
     fn installed_providers(&self) -> Vec<String> {
         self.installed.clone()
+    }
+
+    fn launches_sessions(&self, _host: &str) -> bool {
+        self.launches
     }
 
     fn lander_repositories(&self) -> Option<probes::Landers> {
@@ -68,7 +73,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, installed: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, installed: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), launches: true, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
     }
 
     fn fleet_without(&self, provider: &str) -> Fleet<'_> {
@@ -191,7 +196,7 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
 
 #[test]
 fn a_host_without_a_provider_is_not_probed_for_it() {
-    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], None);
+    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, None);
     assert_eq!(plan.not_applicable, ["opencode"]);
     assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode")));
@@ -226,7 +231,7 @@ fn a_host_without_a_running_lander_skips_the_token_probe() {
     assert!(landers.served.is_empty(), "{landers:?}");
     assert_eq!(landers.unserved, [repo.join(".safe-push").to_string_lossy().into_owned()]);
 
-    let plan = probes::core_loop("nexus", PROMOTED, &[], Some(&landers));
+    let plan = probes::core_loop("nexus", PROMOTED, &[], true, Some(&landers));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("lander mints")), "{:?}", plan.probes.iter().map(|probe| &probe.name).collect::<Vec<_>>());
     assert!(plan.not_applicable.iter().any(|reason| reason.contains("no running lander serves")), "{:?}", plan.not_applicable);
 
@@ -248,3 +253,14 @@ fn the_rollback_target_is_trusted_and_never_judged_again() {
     assert_eq!(host.current(), layout::link(PREVIOUS));
 }
 
+
+#[test]
+fn a_host_that_launches_no_sessions_is_not_probed_for_a_worker_shell_reaching_the_hub() {
+    let host = Host::promoted();
+    let mut fleet = host.fleet(None);
+    fleet.launches = false;
+    assert_eq!(check(&host.layout, "tom@cpx62", PROMOTED, &fleet), Verdict::Passed);
+    let probed = fleet.probed.lock().unwrap();
+    assert!(probed.iter().all(|name| !name.contains("ssh gex45")), "{probed:?}");
+    assert!(probed.iter().any(|name| name.contains("claude")), "{probed:?}");
+}
