@@ -14,10 +14,10 @@ const USAGE: &str = "usage: north lane remove LANE...
 
 Removes each LANE, a directory directly under a project's worktrees/ (named by its absolute path),
 only when nothing in it is at risk. A registered worktree must be clean, hold no ignored file
-beyond build output and caches, have every commit on main or patch-equivalent to a commit there,
+beyond build output and caches, have every commit on main or a change main already holds,
 and be neither locked, nor waiting in the land queue, nor the cwd of a live process: it is removed
 with its branch, as `north lane reap` does but with no minimum age. A lane it keeps whose tip is
-on main, or patch-equivalent to a commit there, loses its git-ignored target/ at once unless a
+on main, or whose change main already holds, loses its git-ignored target/ at once unless a
 process holds it open, so a landed lane leaves no build output behind. A directory git no longer
 registers (left behind when `git worktree remove` could not delete it) must have no .git or a .git file
 whose git directory is gone, no live process and no waiting ticket, and every file it holds that

@@ -26,11 +26,12 @@ non-disposable ignored files), is at least two hours old, has no live process
 working inside it, is not locked or a rescue branch, AND either:
   merged  — its HEAD is an ancestor of main; or
   equiv   — every commit it is ahead by is patch-equivalent to something
-            already on main (the rebase-landed lane).
+            already on main, or the lane's change adds nothing main does not
+            hold (the rebase- and squash-landed lane).
 
 Every reap is held back by ignored files that are not disposable caches
 (.direnv/, result symlinks) — docs/private/ notes live there. A lane it keeps
-whose tip is on main, or patch-equivalent to a commit there, loses its
+whose tip is on main, or whose change main already holds, loses its
 git-ignored target/ at once unless a process holds it open, so a landed lane
 leaves no build output behind.
 Both reap modes are held back by: a rescue-* branch, a locked worktree, a
@@ -243,7 +244,7 @@ impl Sweep {
         } else if branch != DETACHED {
             let range = format!("{}..{branch_ref}", lane.main_ref);
             facts.evil_merge = git_out(lane.main_dir, &["rev-list", "--merges", &range]).is_none_or(|merges| !merges.is_empty());
-            facts.equivalent = all_commits_equivalent(lane.main_dir, &lane.main_ref, &format!("refs/heads/{branch}"));
+            facts.equivalent = equivalent_to_main(lane.main_dir, &lane.main_ref, &format!("refs/heads/{branch}"));
         }
         facts
     }
@@ -319,7 +320,7 @@ impl Sweep {
             return true;
         }
         let branch_ref = git_out(&lane.tree, &["symbolic-ref", "--quiet", "HEAD"]).unwrap_or_default();
-        !branch_ref.is_empty() && all_commits_equivalent(lane.main_dir, &lane.main_ref, &branch_ref)
+        !branch_ref.is_empty() && equivalent_to_main(lane.main_dir, &lane.main_ref, &branch_ref)
     }
 
     fn remove(&self, lane: &Lane, branch: &str, delete_flag: &str) -> Result<(), String> {
@@ -363,6 +364,14 @@ fn lane_age(tree: &Path, now: SystemTime) -> i64 {
     born.map_or(MINIMUM_AGE_SECONDS, |born| seconds(now) - seconds(born))
 }
 
-fn all_commits_equivalent(main_dir: &Path, main_ref: &str, branch_ref: &str) -> bool {
-    git_out(main_dir, &["cherry", main_ref, branch_ref]).is_some_and(|cherry| !cherry.lines().any(|line| line.starts_with('+')))
+fn equivalent_to_main(main_dir: &Path, main_ref: &str, branch_ref: &str) -> bool {
+    let every_commit = git_out(main_dir, &["cherry", main_ref, branch_ref]).is_some_and(|cherry| !cherry.lines().any(|line| line.starts_with('+')));
+    every_commit || adds_nothing(main_dir, main_ref, branch_ref)
+}
+
+fn adds_nothing(main_dir: &Path, main_ref: &str, branch_ref: &str) -> bool {
+    let Some(main_tree) = git_out(main_dir, &["rev-parse", &format!("{main_ref}^{{tree}}")]) else {
+        return false;
+    };
+    git_out(main_dir, &["merge-tree", "--write-tree", main_ref, branch_ref]).is_some_and(|merged| merged.lines().next() == Some(main_tree.as_str()))
 }

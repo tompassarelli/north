@@ -9,12 +9,12 @@ use super::test_git::{git_in, init_repo};
 
 const AGED: Duration = Duration::from_secs(3 * 3600);
 
-struct Container {
+pub(super) struct Container {
     root: tempfile::TempDir,
 }
 
 impl Container {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         let container = Self { root };
         init_repo(&container.main(), None);
@@ -24,19 +24,19 @@ impl Container {
         container
     }
 
-    fn path(&self) -> PathBuf {
+    pub(super) fn path(&self) -> PathBuf {
         self.root.path().canonicalize().unwrap()
     }
 
-    fn main(&self) -> PathBuf {
+    pub(super) fn main(&self) -> PathBuf {
         self.root.path().canonicalize().unwrap().join("main")
     }
 
-    fn lane(&self, name: &str) -> PathBuf {
+    pub(super) fn lane(&self, name: &str) -> PathBuf {
         self.path().join("worktrees").join(name)
     }
 
-    fn add(&self, name: &str, aged: bool) -> PathBuf {
+    pub(super) fn add(&self, name: &str, aged: bool) -> PathBuf {
         let lane = self.lane(name);
         git_in(&self.main(), &["worktree", "add", "-q", "-b", name, lane.to_str().unwrap(), "main"]);
         if aged {
@@ -45,10 +45,15 @@ impl Container {
         lane
     }
 
-    fn commit_in(&self, lane: &Path, file: &str) {
+    pub(super) fn commit_in(&self, lane: &Path, file: &str) {
         fs::write(lane.join(file), format!("{file} payload\n")).unwrap();
         git_in(lane, &["add", file]);
         git_in(lane, &["commit", "-qm", &format!("{file} work")]);
+    }
+
+    pub(super) fn squash_land(&self, branch: &str, message: &str) {
+        git_in(&self.main(), &["merge", "-q", "--squash", branch]);
+        git_in(&self.main(), &["commit", "-qm", message]);
     }
 
     fn land_equivalent(&self, branch: &str) {
