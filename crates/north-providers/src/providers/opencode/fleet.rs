@@ -8,7 +8,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::attachments;
 use crate::fleet::install;
 use crate::fleet::prompt::{PromptInputs, render, seed_orders};
-use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
+use crate::fleet::model::{Account, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, ROLE_ENV, Runtime, SESSION_ENV, new_uuid};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
@@ -60,6 +60,9 @@ impl Deepseek {
         }
         let until = route::date(settings["go"]["zero_retention_until"].as_str().unwrap_or_default()).map_err(NorthError::State)?;
         route::admits(route, (self.today)(), until).map_err(NorthError::Refused)?;
+        if let Some(effort) = request.effort.filter(|_| !self.harness.effort_arms().is_empty()).filter(|effort| !self.harness.effort_arms().contains(effort)) {
+            return Err(NorthError::Refused(format!("{} runs only at {} effort, not {}", self.harness.provider(), self.harness.effort_arms().iter().map(|effort| effort.label()).collect::<Vec<_>>().join(" or "), effort.label())));
+        }
         if route == Route::Free {
             let private: Vec<String> = settings["private"]["repos"].as_array().into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
             screen::refuse_for_free(brief, &private).map_err(NorthError::Refused)?;
@@ -79,6 +82,14 @@ impl Runtime for Deepseek {
 
     fn overlay(&self, name: &str) -> Option<String> {
         Some(Arm::of(name).label().to_owned())
+    }
+
+    fn takes_effort(&self) -> bool {
+        !self.harness.effort_arms().is_empty()
+    }
+
+    fn effort_arms(&self) -> &'static [Effort] {
+        self.harness.effort_arms()
     }
 
     fn roster(&self, state_root: &Path, _home: &Path, _policy: &Path) -> Roster {
@@ -113,6 +124,9 @@ impl Runtime for Deepseek {
         }
         if let Some(key) = account.token_file.as_ref() {
             argv.extend(["--key-file".into(), key.display().to_string()]);
+        }
+        if let Some(effort) = request.effort {
+            argv.extend(["--effort".into(), effort.label().to_owned()]);
         }
         let mut env: Vec<(String, std::ffi::OsString)> = vec![(SESSION_ENV.into(), request.name.clone().into()), (ROLE_ENV.into(), request.role().label().into()), (ACTOR_ENV.into(), request.name.clone().into())];
         env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
@@ -172,7 +186,7 @@ impl Runtime for Deepseek {
         let Some(phase) = Phase::of(frame) else { return vec![TurnSignal::Started { conversation }] };
         match phase {
             Phase::Start => {
-                let opened = (frame["first"] == true).then(|| TurnSignal::Opened { conversation: conversation.clone(), model: frame["model"].as_str().map(str::to_owned), effort: None });
+                let opened = (frame["first"] == true).then(|| TurnSignal::Opened { conversation: conversation.clone(), model: frame["model"].as_str().map(str::to_owned), effort: frame["effort"].as_str().map(str::to_owned) });
                 opened.into_iter().chain([TurnSignal::Started { conversation: conversation.clone() }, TurnSignal::Prompt { conversation, text: frame["text"].as_str().unwrap_or_default().to_owned() }]).collect()
             }
             Phase::End => vec![TurnSignal::Ended { conversation, exit: exit(frame["exit"].as_str()), totals: TurnTotals { tokens: Some(tokens(&frame["tokens"])), turns: None, wall_ms: frame["wall_ms"].as_u64() } }],
@@ -198,7 +212,7 @@ impl Runtime for Deepseek {
 }
 
 fn scratch(harness: &dyn Harness, name: &str) -> PathBuf {
-    PathBuf::from(format!("/tmp/north-{}-{name}", harness.provider()))
+    std::env::temp_dir().join(format!("north-{}-{name}", harness.provider()))
 }
 
 fn exit(label: Option<&str>) -> TurnExit {

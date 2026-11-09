@@ -74,7 +74,7 @@ fn run_briefs(runtime: &Deepseek, route: Route, home: &Path, briefs: &[&str]) ->
     std::fs::write(&key, "key-material\n").unwrap();
     let program: PathBuf = home.join("pi");
     north_base::foundation::shim::write_script(&program, FAKE);
-    let host = turns::Host { harness: &PI, route, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program, cwd: home.into() };
+    let host = turns::Host { harness: &PI, route, effort: None, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program, cwd: home.into() };
     let mut transcript = Transcript { name: "worker".into(), ..Transcript::new() };
     let input: Vec<String> = briefs.iter().enumerate().flat_map(|(at, brief)| runtime.message(&transcript, &format!("u{at}"), brief).unwrap()).collect();
     let mut output = Vec::new();

@@ -27,7 +27,7 @@ impl Harness for Pi {
         uuid.to_owned()
     }
 
-    fn words(&self, session: &str, route: Route, text: &str) -> Vec<String> {
+    fn words(&self, session: &str, route: Route, _effort: Option<&str>, text: &str) -> Vec<String> {
         let model = route.model().split_once('/').map_or(route.model(), |(_, model)| model);
         ["--mode", "json", "--offline", "--no-approve", "--no-mcp", "--provider", route.provider(), "--model", model, "--session-id", session, "--", text].map(str::to_owned).into()
     }

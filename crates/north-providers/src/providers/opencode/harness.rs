@@ -2,7 +2,7 @@ use std::process::Command;
 
 use serde_json::Value;
 
-use crate::fleet::model::EntryKind;
+use crate::fleet::model::{Effort, EntryKind};
 use crate::fleet::runtime::summarize;
 use crate::platform::harness;
 
@@ -39,8 +39,13 @@ pub trait Harness: Send + Sync {
     /// The conversation id of a fresh session, made from a UUID.
     fn conversation(&self, uuid: &str) -> String;
 
-    /// The words after the program that run one turn of `text` in the session on `route`.
-    fn words(&self, session: &str, route: Route, text: &str) -> Vec<String>;
+    /// The words after the program that run one turn of `text` in the session on `route` at `effort`.
+    fn words(&self, session: &str, route: Route, effort: Option<&str>, text: &str) -> Vec<String>;
+
+    /// The reasoning efforts this program runs at, which a launch draws from; empty for a program that takes none.
+    fn effort_arms(&self) -> &'static [Effort] {
+        &[]
+    }
 
     /// The variables its child needs on `route`, given the paid key when the route is Go.
     fn environment(&self, host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)>;
@@ -91,8 +96,13 @@ impl Harness for OpenCode {
         format!("ses_{}", uuid.replace('-', "").chars().take(26).collect::<String>())
     }
 
-    fn words(&self, session: &str, route: Route, text: &str) -> Vec<String> {
-        ["run", "--standalone", "--format", "json", "--auto", "-m", route.model(), "-s", session, text].map(str::to_owned).into()
+    fn words(&self, session: &str, route: Route, effort: Option<&str>, text: &str) -> Vec<String> {
+        let model = effort.map_or_else(|| route.model().to_owned(), |effort| format!("{}#{effort}", route.model()));
+        vec!["run".into(), "--standalone".into(), "--format".into(), "json".into(), "--auto".into(), "-m".into(), model, "-s".into(), session.into(), text.into()]
+    }
+
+    fn effort_arms(&self) -> &'static [Effort] {
+        &[Effort::High, Effort::Max]
     }
 
     fn environment(&self, _host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)> {

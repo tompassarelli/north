@@ -32,10 +32,11 @@ impl Phase {
     }
 }
 
-/// What one opencode host needs: the route its launcher chose, the scratch directory that holds its private data, the file that holds the paid key, and the words that start a confined child of the harness.
+/// What one opencode host needs: the route its launcher chose, the effort it runs at, the scratch directory that holds its private data, the file that holds the paid key, and the words that start a confined child of the harness.
 pub struct Host {
     pub harness: &'static dyn Harness,
     pub route: Route,
+    pub effort: Option<String>,
     pub session: String,
     pub scratch: PathBuf,
     pub key_file: Option<PathBuf>,
@@ -111,7 +112,7 @@ impl<W: Write> Serving<'_, W> {
         let Some((uuid, text)) = self.queue.pop_front() else { return Ok(!self.closed) };
         self.attempts += 1;
         let route = self.route;
-        frame(self.output, &json!({"type": PHASE_FRAME, "phase": "start", "uuid": uuid, "sessionID": self.host.session, "text": text, "route": route.label(), "model": route.model(), "first": self.attempts == 1}))?;
+        frame(self.output, &json!({"type": PHASE_FRAME, "phase": "start", "uuid": uuid, "sessionID": self.host.session, "text": text, "route": route.label(), "model": route.model(), "effort": self.host.effort.as_deref(), "first": self.attempts == 1}))?;
         let sent = match self.host.instructions.as_ref().filter(|_| self.attempts == 1) {
             Some(file) => format!("{}\n\n{text}", std::fs::read_to_string(file)?.trim_end()),
             None => text,
@@ -163,6 +164,7 @@ impl Turn {
         let [input, output, cache_read, cache_write] = self.tally.tokens;
         json!({
             "type": PHASE_FRAME, "phase": "end", "uuid": self.uuid, "sessionID": host.session, "exit": exit, "route": self.route.label(), "model": self.route.model(),
+            "effort": host.effort.as_deref(),
             "wall_ms": u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX), "error": self.tally.error,
             "tokens": {"input": input, "output": output, "cache_read": cache_read, "cache_write": cache_write},
         })
@@ -199,7 +201,7 @@ fn begin(host: &Host, events: &Sender<Event>, uuid: String, text: String, route:
 fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
     let mut words: Vec<String> = host.launcher.clone();
     words.push(host.program.display().to_string());
-    words.extend(host.harness.words(&host.session, route, text));
+    words.extend(host.harness.words(&host.session, route, host.effort.as_deref(), text));
     let mut command = Command::new(&words[0]);
     command.args(&words[1..]).current_dir(&host.cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::inherit()).env_clear();
     for name in ["PATH", "HOME", "LANG", "TERM", "USER", "TMPDIR", "SHELL", "CARGO_HOME", "RUSTUP_HOME", "NORTH_FLEET_SESSION", "NORTH_FLEET_ROLE", "THREADS_ACTOR", "AGENT_CAPACITY_NEED"] {
@@ -227,7 +229,7 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
 }
 
 fn usage(harness: &dyn Harness) -> String {
-    format!("usage: north {} --route go|free --session ID --scratch DIR --program PROGRAM [--key-file FILE] [--instructions FILE]", harness.host_verb())
+    format!("usage: north {} --route go|free --session ID --scratch DIR --program PROGRAM [--key-file FILE] [--instructions FILE] [--effort high|max]", harness.host_verb())
 }
 
 /// The event line with the host's session id added when the agent names none, so every frame of a harness that keeps its session id to itself still reaches the fleet under the conversation.
@@ -244,7 +246,7 @@ fn with_session(line: &str, session: &str) -> String {
 impl Host {
     pub fn parse(harness: &'static dyn Harness, arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(usage(harness));
-        let (mut route, mut session, mut scratch, mut program, mut key_file, mut instructions) = (None, None, None, None, None, None);
+        let (mut route, mut session, mut scratch, mut program, mut key_file, mut instructions, mut effort) = (None, None, None, None, None, None, None);
         let mut words = arguments.iter();
         while let Some(flag) = words.next() {
             let value = words.next().ok_or_else(usage)?;
@@ -255,12 +257,13 @@ impl Host {
                 "--program" => program = Some(PathBuf::from(value)),
                 "--key-file" => key_file = Some(PathBuf::from(value)),
                 "--instructions" => instructions = Some(PathBuf::from(value)),
+                "--effort" => effort = Some(value.clone()),
                 _ => return Err(usage()),
             }
         }
         let cwd = std::env::current_dir()?;
         let launcher = [north_base::platform::north_binary::north_binary().display().to_string(), "--worker-sandbox".into(), "--lane".into(), "--".into()].into();
-        Ok(Self { harness, route: route.ok_or_else(usage)?, session: session.ok_or_else(usage)?, scratch: scratch.ok_or_else(usage)?, program: program.ok_or_else(usage)?, key_file, instructions, launcher, cwd })
+        Ok(Self { harness, route: route.ok_or_else(usage)?, effort, session: session.ok_or_else(usage)?, scratch: scratch.ok_or_else(usage)?, program: program.ok_or_else(usage)?, key_file, instructions, launcher, cwd })
     }
 }
 

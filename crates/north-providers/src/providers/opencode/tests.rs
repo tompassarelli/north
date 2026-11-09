@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use time::Date;
 
-use crate::fleet::model::{Account, EntryKind, LaunchRequest, Status, Transcript};
+use crate::fleet::model::{Account, Effort, EntryKind, LaunchRequest, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::runtime::{Opening, Runtime};
 use crate::fleet::turns::{TurnExit, TurnSignal};
@@ -77,10 +77,10 @@ fn argument(argv: &[String], flag: &str) -> Option<String> {
     argv.iter().position(|word| word == flag).and_then(|at| argv.get(at + 1)).cloned()
 }
 
-fn run_briefs(runtime: &Deepseek, route: Route, home: &Path, briefs: &[&str]) -> (Transcript, Vec<TurnSignal>, Vec<Value>) {
+fn run_briefs(runtime: &Deepseek, route: Route, effort: Option<&str>, home: &Path, briefs: &[&str]) -> (Transcript, Vec<TurnSignal>, Vec<Value>) {
     let key = home.join("go.key");
     std::fs::write(&key, "key-material\n").unwrap();
-    let host = turns::Host { harness: &OPENCODE, route, session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program: fake(home), cwd: home.into() };
+    let host = turns::Host { harness: &OPENCODE, route, effort: effort.map(str::to_owned), session: "ses_x".into(), scratch: home.join("scratch"), key_file: Some(key), instructions: None, launcher: Vec::new(), program: fake(home), cwd: home.into() };
     let mut transcript = Transcript { name: "worker".into(), ..Transcript::new() };
     let input: Vec<String> = briefs.iter().enumerate().flat_map(|(at, brief)| runtime.message(&transcript, &format!("u{at}"), brief).unwrap()).collect();
     let input = input.join("\n");
@@ -103,8 +103,15 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     let spec = runtime.host(&account(home.path()), &request(home.path()), Opening::Fresh(Some("ses_x")), "").unwrap();
     assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("go"));
     assert!(spec.argv.iter().all(|word| !word.contains("key-material")), "{:?}", spec.argv);
+    let drawn = crate::fleet::registry::efforts::taken(&runtime, None, None, "worker").unwrap().unwrap();
+    assert!(matches!(drawn, Effort::High | Effort::Max), "{drawn:?}");
+    let armed = runtime.host(&account(home.path()), &LaunchRequest { effort: Some(drawn), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "").unwrap();
+    assert_eq!(argument(&armed.argv, "--effort").as_deref(), Some(drawn.label()));
+    let refused = runtime.host(&account(home.path()), &LaunchRequest { effort: Some(Effort::Medium), ..request(home.path()) }, Opening::Fresh(Some("ses_x")), "");
+    let why = refused.err().map(|error| error.user_message()).unwrap_or_default();
+    assert!(why.contains("runs only at high or max effort"), "{why}");
 
-    let (transcript, signals, _) = run_briefs(&runtime, Route::Go, home.path(), &["Item: north#1\nBox: add a.txt"]);
+    let (transcript, signals, _) = run_briefs(&runtime, Route::Go, None, home.path(), &["Item: north#1\nBox: add a.txt"]);
 
     let launched = std::fs::read_to_string(home.path().join("args.txt")).unwrap();
     assert!(launched.contains("run --standalone ") && launched.contains("-m opencode-go/deepseek-v4.1-flash"), "opencode must run on a private server, not the background service that sits outside the sandbox: {launched}");
@@ -118,6 +125,11 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     let tokens = totals.tokens.unwrap();
     assert_eq!((tokens.input, tokens.output, tokens.cache_read, tokens.cache_write), (150, 22, 40, 2));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Opened { model: Some(model), .. } if model == route::GO_MODEL)));
+    let armed_home = tempfile::tempdir().unwrap();
+    let (_, armed_signals, _) = run_briefs(&runtime, Route::Go, Some(drawn.label()), armed_home.path(), &["Item: north#1\nBox: add a.txt"]);
+    let armed_launch = std::fs::read_to_string(armed_home.path().join("args.txt")).unwrap();
+    assert!(armed_launch.contains(&format!("-m {}#{}", route::GO_MODEL, drawn.label())), "{armed_launch}");
+    assert!(armed_signals.iter().any(|signal| matches!(signal, TurnSignal::Opened { effort: Some(effort), .. } if effort == drawn.label())), "{armed_signals:?}");
     let prompt = signals.iter().position(|signal| matches!(signal, TurnSignal::Prompt { .. })).unwrap();
     let ended = signals.iter().position(|signal| matches!(signal, TurnSignal::Ended { .. })).unwrap();
     assert!(signals[prompt + 1..ended].iter().any(|signal| matches!(signal, TurnSignal::Started { .. })), "a launch waits for a signal after the prompt, and a turn over 120 s ended its own session when only the turn's end gave one: {signals:?}");
@@ -133,7 +145,7 @@ fn a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash() {
     let home = tempfile::tempdir().unwrap();
     let runtime = seeing(Visibility::Public, day("2026-11-10"));
 
-    let (transcript, signals, frames) = run_briefs(&runtime, Route::Free, home.path(), &["Box: add a.txt", "Box: add b.txt"]);
+    let (transcript, signals, frames) = run_briefs(&runtime, Route::Free, None, home.path(), &["Box: add a.txt", "Box: add b.txt"]);
 
     let falls = frames.iter().filter(|frame| frame["phase"] == "fallback" && frame["from"] == "free" && frame["to"] == "go").count();
     assert_eq!(falls, 1, "a lane that found the free model limited stays on Go instead of trying free again each turn");
@@ -239,6 +251,12 @@ fn a_deepseek_brief_carries_the_overlay_on_its_arm_and_not_on_the_control() {
         }
     }
     assert_eq!(seen, [true, true], "one arm drew every session");
+    let drawing = Deepseek::reading(&OPENCODE, Arc::new(|_| Visibility::Private), Arc::new(|| day("2026-11-10")));
+    let crossed: std::collections::BTreeSet<(bool, &str)> = (0..16)
+        .map(|index| format!("worker-{index}"))
+        .map(|name| (Arm::of(&name) == Arm::Overlay, crate::fleet::registry::efforts::taken(&drawing, None, None, &name).unwrap().unwrap().label()))
+        .collect();
+    assert_eq!(crossed.len(), 4, "the effort a name draws follows its overlay arm, so the two arms cannot be told apart: {crossed:?}");
 }
 
 #[test]

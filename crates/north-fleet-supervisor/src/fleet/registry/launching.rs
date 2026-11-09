@@ -56,7 +56,7 @@ impl Fleet {
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
             return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
         }
-        let effort = efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort)?;
+        let effort = efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort, &request.name)?;
         let conversation = match &request.resume {
             Some(kept) => Some(kept.clone()),
             None => runtime.assign_conversation()?,

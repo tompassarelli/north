@@ -7,7 +7,7 @@ use crate::error::{NorthError, NorthResult};
 
 pub use north_fleet_store::runtime::{PROXY, binary, now_ms};
 use super::gates::Question;
-use super::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
+use super::model::{Account, Effort, LaunchRequest, ProviderName, Quota, Transcript};
 use super::roster::Roster;
 use super::turns::TurnSignal;
 
@@ -77,6 +77,9 @@ pub trait Runtime: Send + Sync {
     }
     fn takes_effort(&self) -> bool {
         false
+    }
+    fn effort_arms(&self) -> &'static [Effort] {
+        &[]
     }
     fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster;
     fn account_on(&self, _home: &Path, _policy: &Path, _label: &str, machine: &str) -> NorthResult<Account> {
