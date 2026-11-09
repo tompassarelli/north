@@ -340,8 +340,8 @@ footguns plan and the nix-development skill's regrounding.
   Outcome: adopted (north#973, south#95).
 - <a id="cargo-deny"></a>**cargo-deny**, https://github.com/EmbarkStudios/cargo-deny (MIT OR Apache-2.0). Outcome:
   adopted as the landing audit gate (south#96).
-- <a id="cargo-vet"></a>**cargo-vet**, https://mozilla.github.io/cargo-vet/. Outcome: measured before adoption
-  (south#96).
+- <a id="cargo-vet"></a>**cargo-vet**, https://mozilla.github.io/cargo-vet/. Outcome: measured and not adopted: published
+  audits cover 68 of north's 265 locked crates (south#96, docs/rationale/agent-user.md).
 - <a id="systemd-exec"></a>**systemd.exec, DynamicUser and credentials**,
   https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html. Outcome: credentials adopted for the
   broker; a dynamic user per session rejected.

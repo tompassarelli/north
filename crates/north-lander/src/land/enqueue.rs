@@ -222,7 +222,7 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let lander_host = setting::landing(&root, &remote_ref, "landing.lander-host");
     let queue = queue::directory(environment.state_home, &origin);
     super::scans::withdrawal::refuse_requeue(&queue, &root, &branch, &head, environment.session)?;
-    if let Err((gates, detail)) = refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment))? {
+    if let Err((gates, detail)) = refuse_lane_gates(&root, &base, &head, environment.state_home, lander_ledger_at(&lander_host, &queue, environment), &crate::dep_gate::PublicRegistries)? {
         judged(environment, &root, &branch, &head, &gates, Err(detail))?;
     }
     judged(environment, &root, &branch, &head, "revert guard", refuse_stale_revert(&root, &base, &head))?;

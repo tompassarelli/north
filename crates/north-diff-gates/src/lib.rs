@@ -1,5 +1,6 @@
 pub use north_base::{foundation, platform, shell};
 
+pub mod advisory_gate;
 pub mod build_cache_gate;
 pub mod dep_gate;
 pub mod landing_refusals;

@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use crate::land::candidate::{git, output};
 use crate::land::lane_gates::{self, Lane};
 use crate::land::scans::git::merge_base;
+use crate::dep_gate::Registry;
 use crate::landing::{merge_set, stale_revert};
 use north_land_scans::slug::slug_of;
 
@@ -35,11 +36,12 @@ pub(in crate::land) fn refuse_static_gates(root: &Path, destination: &str, head:
 }
 
 /// The names of the lane gates that would refuse the lane and their output, judged against the lander's post-land ledger when it lives on another host.
-pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path, lander_ledger: Option<String>) -> Result<Result<(), (String, String)>, String> {
+pub(super) fn refuse_lane_gates(root: &Path, base: &str, head: &str, state_home: &Path, lander_ledger: Option<String>, registry: &dyn Registry) -> Result<Result<(), (String, String)>, String> {
     let fork = merge_base(root, base, head);
     let borrowed = lander_ledger.map(|rows| ledger_home(&rows)).transpose().map_err(|error| format!("cannot keep the lander's post-land ledger: {error}"))?;
     let code_health = crate::land::after::gates::code_health_program();
-    let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()), code_health: &code_health };
+    let advisory_db = crate::advisory_gate::database(state_home);
+    let lane = Lane { worktree: root, base: &fork, head, state_home: borrowed.as_ref().map_or(state_home, |home| home.path()), code_health: &code_health, registry, advisory_db: &advisory_db };
     let Some((failed, text)) = lane_gates::failed(&lane) else { return Ok(Ok(())) };
     let gates = failed.join(", ");
     let detail = format!("{gates} refused it here, as the lander would after its queue wait:\n{}", String::from_utf8_lossy(&text).trim_end());

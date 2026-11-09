@@ -112,3 +112,27 @@ fn publish_times_keep_fractional_seconds_and_timezone_offsets() {
     assert!(Timestamp::parse_publish_time("2026-10-01T12:34:56").is_none());
     assert!(Timestamp::parse_publish_time("2026-13-01T12:34:56+00:00").is_none());
 }
+
+struct Published(i64);
+
+impl Registry for Published {
+    fn read(&self, _host: &str, _path: &str) -> Result<String, &'static str> {
+        let at = time::OffsetDateTime::now_utc() - time::Duration::days(self.0);
+        let at = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00:00", at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute(), at.second());
+        Ok(serde_json::json!({"name": "recorded-crate", "vers": "1.1.0", "pubtime": at}).to_string())
+    }
+}
+
+#[test]
+fn cargo_update_restores_the_lock_when_it_resolves_a_version_under_seven_days() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("Cargo.lock");
+    std::fs::write(&lock, CARGO_AFTER).unwrap();
+    let young = hold_floor(&lock, CARGO_BEFORE, &Published(1)).unwrap();
+    assert!(young.iter().any(|line| line.contains("recorded-crate@1.1.0: published less than 7 days ago")), "{young:?}");
+    assert_eq!(std::fs::read_to_string(&lock).unwrap(), CARGO_BEFORE);
+    std::fs::write(&lock, CARGO_AFTER).unwrap();
+    let young = hold_floor(&lock, CARGO_BEFORE, &Published(8)).unwrap();
+    assert_eq!(young, Vec::<String>::new());
+    assert_eq!(std::fs::read_to_string(&lock).unwrap(), CARGO_AFTER);
+}

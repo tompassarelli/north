@@ -235,7 +235,8 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     }
     let head = git(worktree, &["rev-parse", "HEAD"])?;
     let code_health = super::after::gates::code_health_program();
-    let lane = Lane { worktree, base: &picked_onto, head: &head, state_home: &state_home, code_health: &code_health };
+    let advisory_db = crate::advisory_gate::database(&state_home);
+    let lane = Lane { worktree, base: &picked_onto, head: &head, state_home: &state_home, code_health: &code_health, registry: &crate::dep_gate::PublicRegistries, advisory_db: &advisory_db };
     let Some(refused) = lane_gates::judge(&lane, logs, name)? else { return Ok(Pick::Included) };
     case.lane_gate = Some(refused.verdict.clone());
     if !enforcing {

@@ -15,11 +15,9 @@ percent-encoding.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
-
-[dev-dependencies]
-tempfile.workspace = true
 
 [lints]
 workspace = true

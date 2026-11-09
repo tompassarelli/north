@@ -76,6 +76,8 @@ These run for every provider, because every landing goes through `safe-push`.
 | Generated records are not mass-rewritten without their declared inputs changing | `generated_rewrite_scan` |
 | Main's CI budget is respected | `north after-landing` ci-budget gate (`north land scan ci-budget`) |
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
-| A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory (the root `nixpkgs` locked to a `NixOS/nixpkgs` `nixos-*` channel is exempt, so nightly security inputs land) | `north dep-gate` |
+| A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory (the root `nixpkgs` locked to a `NixOS/nixpkgs` `nixos-*` channel is exempt, so nightly security inputs land) | `north dep-gate`, and the lander's `dependency age` lane gate |
+| A lane adds no locked crate version with an open advisory, a banned crate or an unknown source unless a `Dependency-Advisory:` trailer accepts the advisory | the lander's `dependency advisory` lane gate (cargo-deny) |
+| `cargo update` and every other fetch-mode cargo command in depbox leaves no lock entry under 7 days old | `north depbox` |
 | No new structural debt in a repo with structure.toml | `north after-landing` code-health gate (`code-health gate`) |
 | The repository's pre-push checks pass on the rebased lane | pre-push hook and landing train |

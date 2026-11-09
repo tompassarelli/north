@@ -16,7 +16,7 @@ fn commit(root: &Path, path: &str, text: &str) -> String {
 }
 
 fn gates(root: &Path, base: &str, head: &str, state_home: &Path, code_health: &Path) -> Vec<&'static str> {
-    failed(&Lane { worktree: root, base, head, state_home, code_health }).map(|(gates, _)| gates).unwrap_or_default()
+    failed(&Lane { worktree: root, base, head, state_home, code_health, registry: &crate::dep_gate::PublicRegistries, advisory_db: &state_home.join("advisory-db") }).map(|(gates, _)| gates).unwrap_or_default()
 }
 
 #[test]

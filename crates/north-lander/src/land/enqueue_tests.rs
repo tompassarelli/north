@@ -259,3 +259,58 @@ fn a_ref_lock_a_killed_fetch_left_in_the_shared_git_dir_no_longer_stops_the_enqu
     assert!(!lock.exists());
     assert_eq!(run(&lane.repo, &["rev-parse", "refs/remotes/origin/main"]), moved);
 }
+
+struct Published {
+    versions: &'static [&'static str],
+    days_ago: i64,
+}
+
+impl crate::dep_gate::Registry for Published {
+    fn read(&self, _host: &str, path: &str) -> Result<String, &'static str> {
+        let name = path.rsplit('/').next().unwrap_or_default();
+        let at = super::rfc3339(time::OffsetDateTime::now_utc() - time::Duration::days(self.days_ago));
+        Ok(self.versions.iter().map(|version| json!({"name": name, "vers": version, "pubtime": at}).to_string()).collect::<Vec<_>>().join("\n"))
+    }
+}
+
+const FIXTURE_LOCK: &str = "version = 4\n\n[[package]]\nname = \"fixture\"\nversion = \"0.1.0\"\n";
+
+fn lane_locking(crate_name: &str, version: &str, advisories: &[(&str, &str)]) -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let (repo, database) = (dir.path().join("repo"), dir.path().join("state/north/advisory-db/advisory-db-3157b0e258782691"));
+    for (id, patched) in advisories {
+        fs::create_dir_all(database.join("crates").join(crate_name)).unwrap();
+        fs::write(database.join(format!("crates/{crate_name}/{id}.md")), format!("```toml\n[advisory]\nid = \"{id}\"\npackage = \"{crate_name}\"\ndate = \"2026-11-01\"\nurl = \"https://example.invalid/{id}\"\n\n[versions]\npatched = [\"{patched}\"]\n```\n\n# Fixture advisory\n\nA fixture advisory.\n")).unwrap();
+    }
+    fs::create_dir_all(&database).unwrap();
+    fs::write(database.join("README.md"), "fixture advisory database\n").unwrap();
+    run(&database, &["init", "-q"]);
+    commit(&database, "advisory database");
+    fs::write(dir.path().join("state/north/advisory-db/fetched"), "").unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    run(&repo, &["init", "-q", "-b", "main"]);
+    fs::write(repo.join("Cargo.lock"), FIXTURE_LOCK).unwrap();
+    let main = commit(&repo, "main");
+    run(&repo, &["checkout", "-q", "-b", "lane"]);
+    fs::write(repo.join("Cargo.lock"), format!("{FIXTURE_LOCK}dependencies = [\"{crate_name}\"]\n\n[[package]]\nname = \"{crate_name}\"\nversion = \"{version}\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n")).unwrap();
+    commit(&repo, "lane locks a crate");
+    (dir, main)
+}
+
+#[test]
+fn a_lane_locking_a_crate_published_this_week_is_refused_at_enqueue() {
+    let (dir, main) = lane_locking("aes", "0.8.5", &[]);
+    let refused = super::refuse::refuse_lane_gates(&dir.path().join("repo"), &main, "HEAD", &dir.path().join("state"), None, &Published { versions: &["0.8.5"], days_ago: 1 }).unwrap();
+    let (gates, detail) = refused.unwrap_err();
+    assert!(gates.contains("dependency age"), "{gates}: {detail}");
+    assert!(detail.contains("Cargo.lock: aes@0.8.5: published less than 7 days ago"), "{detail}");
+}
+
+#[test]
+fn a_lane_locking_a_version_with_an_open_advisory_is_refused() {
+    let (dir, main) = lane_locking("itoa", "1.0.18", &[("RUSTSEC-2026-9999", ">= 1.0.19")]);
+    let refused = super::refuse::refuse_lane_gates(&dir.path().join("repo"), &main, "HEAD", &dir.path().join("state"), None, &Published { versions: &["1.0.18"], days_ago: 30 }).unwrap();
+    let (gates, detail) = refused.unwrap_err();
+    assert!(gates.contains("dependency advisory") && !gates.contains("dependency age"), "{gates}: {detail}");
+    assert!(detail.contains("Cargo.lock: itoa@1.0.18: RUSTSEC-2026-9999"), "{detail}");
+}

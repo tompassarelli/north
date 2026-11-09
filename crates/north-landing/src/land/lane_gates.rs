@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use super::after::gates::{self, Landed};
 use super::scans::{incident_guard, policy, test_admission, test_integrity, tool_removal};
 use super::slots::select::Config;
+use crate::advisory_gate;
+use crate::dep_gate::{self, Registry};
 
 pub struct Lane<'a> {
     pub worktree: &'a Path,
@@ -12,6 +14,8 @@ pub struct Lane<'a> {
     pub head: &'a str,
     pub state_home: &'a Path,
     pub code_health: &'a Path,
+    pub registry: &'a dyn Registry,
+    pub advisory_db: &'a Path,
 }
 
 pub struct Refused {
@@ -29,6 +33,8 @@ const GATES: &[(&str, Gate)] = &[
     ("tool removal", removal),
     ("policy sweep", sweep),
     ("after-only reason", after_only),
+    ("dependency age", dependency_age),
+    ("dependency advisory", dependency_advisory),
 ];
 
 impl Lane<'_> {
@@ -65,6 +71,14 @@ fn after_only(lane: &Lane, out: &mut Vec<u8>) -> bool {
         let _ = writeln!(out, "after-only reason: .safe-push runs `{command}` only after landing; list it as a land.check so it runs before, or record why it cannot with `land.after-only = REASON :: {command}`");
     }
     !unreasoned.is_empty()
+}
+
+fn dependency_age(lane: &Lane, out: &mut Vec<u8>) -> bool {
+    dep_gate::refuse_young(lane.worktree, lane.base, lane.head, lane.registry, out)
+}
+
+fn dependency_advisory(lane: &Lane, out: &mut Vec<u8>) -> bool {
+    advisory_gate::refuse(lane.worktree, lane.base, lane.head, lane.advisory_db, out)
 }
 
 pub fn failed(lane: &Lane) -> Option<(Vec<&'static str>, Vec<u8>)> {

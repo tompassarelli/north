@@ -39,7 +39,7 @@ pub const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integ
        north land scan doc-links BASE..HEAD
        north land scan gate-shadow BASE..HEAD
        north land scan detector-proof BASE..HEAD
-       north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps";
+       north land scan ci-budget|code-health|instruction-limits BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD\n       north land scan shell-hook BASE..HEAD\n       north land scan strategy-replay BASE..HEAD\n       north land scan language --base BASE --head HEAD [--origin URL]\n       north land scan dropped-commits --lane TIP --head HEAD --onto BRANCH [--destination REVISION]\n       north land scan stale-revert [--repo DIR] --destination BRANCH --base OID [--lane TIP] HEAD\n       north land scan nix-entry [REVISION]\n       north land scan safe-push-verbs [REVISION]\n       north land scan run-time-data BASE..HEAD\n       north land scan deps\n       north land scan dep-floor LOCK < LOCK-BEFORE";
 
 pub struct Range<'a> {
     pub base: &'a str,
@@ -119,6 +119,7 @@ fn ranged_checks(directory: &Path, name: &str, range: &str) -> Option<u8> {
 pub fn run(arguments: &[String]) -> u8 {
     let directory = PathBuf::from(".");
     match arguments {
+        [name, lock] if name == "dep-floor" => crate::dep_gate::floor_run(Path::new(lock)),
         [name, rest @ ..] if name == "language" => language::run(rest),
         [name, rest @ ..] if name == "dropped-commits" => dropped_commits::run(&directory, rest),
         [name, rest @ ..] if name == "stale-revert" => stale_revert::run(rest),

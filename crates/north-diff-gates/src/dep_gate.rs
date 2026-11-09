@@ -370,7 +370,7 @@ fn requirement_list(
     Ok(())
 }
 
-fn parse_toml(text: &str) -> Parsed<Value> {
+pub(crate) fn parse_toml(text: &str) -> Parsed<Value> {
     crate::platform::toml_json::parse(text).map_err(|_| "TOMLDecodeError")
 }
 
@@ -619,7 +619,7 @@ fn jsonc(text: &str) -> Parsed<Value> {
     Ok(data)
 }
 
-fn locked_versions(path: &str, text: &str) -> Parsed<BTreeSet<(String, String)>> {
+pub(crate) fn locked_versions(path: &str, text: &str) -> Parsed<BTreeSet<(String, String)>> {
     let mut result = BTreeSet::new();
     if Path::new(path)
         .file_name()
@@ -841,6 +841,18 @@ fn quote(text: &str) -> String {
     percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string()
 }
 
+pub trait Registry: Sync {
+    fn read(&self, host: &str, path: &str) -> Result<String, &'static str>;
+}
+
+pub struct PublicRegistries;
+
+impl Registry for PublicRegistries {
+    fn read(&self, host: &str, path: &str) -> Result<String, &'static str> {
+        read_registry(host, path)
+    }
+}
+
 fn read_registry(host: &str, path: &str) -> Parsed<String> {
     let output = Command::new("curl")
         .args([
@@ -870,6 +882,7 @@ fn read_registry(host: &str, path: &str) -> Parsed<String> {
 fn publish_times(
     candidates: &[LockCandidate],
     urgent: &Urgent,
+    registry: &dyn Registry,
 ) -> Result<BTreeMap<Identity, f64>, String> {
     let mut groups: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     for c in candidates {
@@ -890,12 +903,12 @@ fn publish_times(
                 scope.spawn(move || {
                     let fetch = || -> Parsed<BTreeMap<Identity,f64>> {
                         let data = if ecosystem == "npm" {
-                            let data = parse_json(&read_registry("registry.npmjs.org",&format!("/{}",quote(name)))?)?;
+                            let data = parse_json(&registry.read("registry.npmjs.org",&format!("/{}",quote(name)))?)?;
                             required(&data,"time")?.clone()
                         } else {
                             let lower = name.to_lowercase();
                             let prefix = match lower.len() { 0..=2 => lower.len().to_string(), 3 => format!("3/{}",&lower[..1]), _ => format!("{}/{}",&lower[..2],&lower[2..4]) };
-                            let body = read_registry("index.crates.io",&format!("/{prefix}/{}",quote(&lower)))?;
+                            let body = registry.read("index.crates.io",&format!("/{prefix}/{}",quote(&lower)))?;
                             let mut rows = Map::new();
                             for line in body.lines() { let row = parse_json(line)?; rows.insert(string(required(&row,"vers")?)?.to_owned(),row); }
                             Value::Object(rows)
@@ -907,7 +920,7 @@ fn publish_times(
                                 let mut last = api_read.lock().expect("registry rate lock");
                                 if let Some(last) = *last { std::thread::sleep(Duration::from_secs(1).saturating_sub(last.elapsed())); }
                                 *last = Some(std::time::Instant::now());
-                                let response = parse_json(&read_registry("crates.io",&format!("/api/v1/crates/{}/{}",quote(name),quote(version)))?)?;
+                                let response = parse_json(&registry.read("crates.io",&format!("/api/v1/crates/{}/{}",quote(name),quote(version)))?)?;
                                 required(required(&response,"version")?,"created_at")?.clone()
                             };
                             let timestamp = string(&timestamp)?.replace('Z',"+00:00");
@@ -926,7 +939,7 @@ fn publish_times(
     })
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let stdout = platform_git::stdout(root, args, |output| {
         format!(
             "git {} failed (exit {}); check repository and revisions",
@@ -937,15 +950,15 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(stdout).map_err(|e| e.to_string())
 }
 
-struct Snapshot {
+pub(crate) struct Snapshot {
     manifests: BTreeMap<String, String>,
-    locks: BTreeMap<String, String>,
+    pub(crate) locks: BTreeMap<String, String>,
 }
 
 const MANIFEST_NAMES: [&str; 3] = ["package.json", "Cargo.toml", "pyproject.toml"];
 const LOCK_NAMES: [&str; 3] = ["bun.lock", "Cargo.lock", "flake.lock"];
 
-fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, String> {
+pub(crate) fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, String> {
     let listing = git(root, &["ls-tree", "-r", "-z", revision])?;
     let mut wanted: Vec<(&str, &str, bool)> = Vec::new();
     for entry in listing.split('\0') {
@@ -1056,24 +1069,70 @@ pub fn check_reasons(root: &Path, base: &str, head: &str) -> bool {
     }
 }
 
+fn young(locks: (&BTreeMap<String, String>, &BTreeMap<String, String>), urgent: &Urgent, registry: &dyn Registry) -> Result<Vec<String>, (u8, String)> {
+    let candidates = lock_candidates(locks.0, locks.1).map_err(|e| (1, e))?;
+    let times = publish_times(&candidates, urgent, registry).map_err(|e| (2, e))?;
+    Ok(age_violations(&candidates, &times, Timestamp::now().unix_seconds_f64(), urgent))
+}
+
 fn evaluate(root: &Path, args: &[String]) -> Result<(u8, String), (u8, String)> {
-    let check = || -> Result<(u8, String), (u8, String)> {
-        let reviewed = review_reasons(root, args)?;
-        if !reviewed.failures.is_empty() {
-            return Ok((1, format!("{}\n{TRAILER_FORMAT}\n", reviewed.failures.join("\n"))));
+    let reviewed = review_reasons(root, args)?;
+    if !reviewed.failures.is_empty() {
+        return Ok((1, format!("{}\n{TRAILER_FORMAT}\n", reviewed.failures.join("\n"))));
+    }
+    let failures = young((&reviewed.base.locks, &reviewed.head.locks), &urgent_dependencies(&reviewed.messages), &PublicRegistries)?;
+    if !failures.is_empty() {
+        return Ok((1, format!("{}\n{URGENT_FORMAT}\n", failures.join("\n"))));
+    }
+    Ok((0, String::new()))
+}
+
+/// The lander's half of the 7-day floor: whether a lock entry the lane adds was published under 7 days ago with no `Dependency-Urgent:` trailer, read from `registry` on the judging host.
+pub fn refuse_young(root: &Path, base: &str, head: &str, registry: &dyn Registry, out: &mut impl std::io::Write) -> bool {
+    let verdict = review_reasons(root, &[base.to_owned(), head.to_owned()]).and_then(|reviewed| young((&reviewed.base.locks, &reviewed.head.locks), &urgent_dependencies(&reviewed.messages), registry));
+    match verdict {
+        Ok(failures) if failures.is_empty() => false,
+        Ok(failures) => {
+            let _ = writeln!(out, "{}\n{URGENT_FORMAT}", failures.join("\n"));
+            true
         }
-        let (base_snapshot, head_snapshot, messages) = (reviewed.base, reviewed.head, reviewed.messages);
-        let candidates = lock_candidates(&base_snapshot.locks, &head_snapshot.locks).map_err(|e| (1, e))?;
-        let urgent = urgent_dependencies(&messages);
-        let times = publish_times(&candidates, &urgent).map_err(|e| (2, e))?;
-        let now = Timestamp::now().unix_seconds_f64();
-        let failures = age_violations(&candidates, &times, now, &urgent);
-        if !failures.is_empty() {
-            return Ok((1, format!("{}\n{URGENT_FORMAT}\n", failures.join("\n"))));
+        Err((_, error)) => {
+            let _ = writeln!(out, "dep-gate: {error}");
+            true
         }
-        Ok((0, String::new()))
-    };
-    check()
+    }
+}
+
+/// Puts `lock` back to `before` when it now holds an entry published under 7 days ago that `before` lacked, or when the registry cannot say; returns the entries that restored it.
+pub fn hold_floor(lock: &Path, before: &str, registry: &dyn Registry) -> Result<Vec<String>, String> {
+    let after = std::fs::read_to_string(lock).unwrap_or_default();
+    let name = lock.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let locks = (BTreeMap::from([(name.clone(), before.to_owned())]), BTreeMap::from([(name, after)]));
+    let young = young((&locks.0, &locks.1), &Urgent::new(), registry).unwrap_or_else(|(_, error)| vec![format!("dep-gate: {error}")]);
+    if !young.is_empty() {
+        std::fs::write(lock, before).map_err(|error| format!("{}: {error}", lock.display()))?;
+    }
+    Ok(young)
+}
+
+/// `north land scan dep-floor LOCK`, with the lock as it was before a cargo command on stdin: `north depbox fetch` runs it whenever cargo rewrote Cargo.lock, so `cargo update` resolves under the 7-day floor.
+pub fn floor_run(lock: &Path) -> u8 {
+    let mut before = String::new();
+    if let Err(error) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut before) {
+        eprintln!("dep-floor: stdin: {error}");
+        return 1;
+    }
+    match hold_floor(lock, &before, &PublicRegistries) {
+        Ok(young) if young.is_empty() => 0,
+        Ok(young) => {
+            eprintln!("{}\ndep-floor: restored {} as it was before the command, since it resolved the entries above under the 7-day floor; pin each to an older version (cargo update -p NAME --precise VERSION)", young.join("\n"), lock.display());
+            1
+        }
+        Err(error) => {
+            eprintln!("dep-floor: {error}");
+            1
+        }
+    }
 }
 
 pub fn run(args: &[String]) -> u8 {

@@ -188,9 +188,16 @@ impl Sandbox {
             eprintln!("depbox: ignoring CARGO_TARGET_DIR {}; building in {}", chosen.to_string_lossy(), target.display());
         }
         let records = self.mode == Mode::Fetch && Path::new(&command[0]).file_name() == Some(OsStr::new("cargo"));
+        let lock_path = self.top.join("Cargo.lock");
         let mut bubblewrap = self.command(&bwrap, command);
         let Some(lock) = lock.filter(|_| records) else { return exec(&mut bubblewrap, "bwrap") };
+        let before = std::fs::read_to_string(&lock_path).ok();
         let code = failed(bubblewrap.status()).unwrap_or(0);
+        if let Some(before) = before.filter(|before| std::fs::read_to_string(&lock_path).ok().as_ref() != Some(before))
+            && !hold_floor(&lock_path, &before)
+        {
+            return 1;
+        }
         if code == 0 && let Err(error) = std::fs::create_dir_all(&fetched).and_then(|()| std::fs::write(fetched.join(&lock), "")) {
             eprintln!("depbox: {}: {error}", fetched.join(lock).display());
             return 1;
@@ -248,6 +255,19 @@ fn project(common: &Path) -> OsString {
 }
 
 /// Whether this process sees itself under its own pid in /proc; a process in a pid namespace whose /proc belongs to another needs a namespace of its own before bubblewrap can mount one.
+/// Whether a Cargo.lock a fetch-mode cargo command rewrote keeps every entry it resolved at least 7 days old; `north land scan dep-floor` restores `before` and names the young entries when not.
+fn hold_floor(lock: &Path, before: &str) -> bool {
+    use std::io::Write as _;
+    let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
+    let child = Command::new(north).args(["land", "scan", "dep-floor"]).arg(lock).stdin(std::process::Stdio::piped()).spawn();
+    let Ok(mut child) = child else {
+        eprintln!("depbox: cannot start north land scan dep-floor; {} keeps what the command resolved", lock.display());
+        return false;
+    };
+    let _ = child.stdin.take().map(|mut stdin| stdin.write_all(before.as_bytes()));
+    child.wait().is_ok_and(|status| status.success())
+}
+
 fn owns_pid_namespace() -> bool {
     std::fs::read_to_string("/proc/self/stat").ok().and_then(|stat| stat.split_whitespace().next()?.parse::<u32>().ok()) == Some(std::process::id())
 }
