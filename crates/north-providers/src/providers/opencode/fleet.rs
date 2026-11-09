@@ -155,8 +155,8 @@ impl Runtime for Opencode {
     }
 
     fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
-        let Some(phase) = Phase::of(frame) else { return Vec::new() };
         let Some(conversation) = frame["sessionID"].as_str().filter(|session| !session.is_empty()).map(str::to_owned) else { return Vec::new() };
+        let Some(phase) = Phase::of(frame) else { return vec![TurnSignal::Started { conversation }] };
         match phase {
             Phase::Start => {
                 let opened = (frame["first"] == true).then(|| TurnSignal::Opened { conversation: conversation.clone(), model: frame["model"].as_str().map(str::to_owned), effort: None });

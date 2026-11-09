@@ -118,6 +118,9 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     let tokens = totals.tokens.unwrap();
     assert_eq!((tokens.input, tokens.output, tokens.cache_read, tokens.cache_write), (150, 22, 40, 2));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Opened { model: Some(model), .. } if model == route::GO_MODEL)));
+    let prompt = signals.iter().position(|signal| matches!(signal, TurnSignal::Prompt { .. })).unwrap();
+    let ended = signals.iter().position(|signal| matches!(signal, TurnSignal::Ended { .. })).unwrap();
+    assert!(signals[prompt + 1..ended].iter().any(|signal| matches!(signal, TurnSignal::Started { .. })), "a launch waits for a signal after the prompt, and a turn over 120 s ended its own session when only the turn's end gave one: {signals:?}");
     a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash();
     a_private_a_public_and_an_unreadable_repo_pick_go_free_and_go();
     a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_not_for_go();
