@@ -15,14 +15,47 @@ pub(in crate::runtime) struct Probe {
 
 pub(super) struct CoreLoop {
     pub(super) probes: Vec<Probe>,
-    pub(super) not_applicable: Vec<&'static str>,
+    pub(super) not_applicable: Vec<String>,
 }
+
+#[derive(Clone, Debug, Default)]
+pub(in crate::runtime) struct Landers {
+    pub(super) served: Vec<String>,
+    pub(super) unserved: Vec<String>,
+}
+
+const LANDER_SCAN: &str = "\
+pids=$(pgrep -u \"$(id -u)\" -f 'land serve') || pids=\n\
+served=()\n\
+all=\n\
+program=\n\
+for pid in $pids; do\n\
+mapfile -d '' -t args < \"/proc/$pid/cmdline\" 2>/dev/null || continue\n\
+for ((at = 1; at < ${#args[@]}; at++)); do\n\
+[ \"${args[at]}\" = land ] && [ \"${args[at + 1]}\" = serve ] || continue\n\
+at=$((at + 2))\n\
+found=\n\
+while [ $at -lt ${#args[@]} ]; do\n\
+case \"${args[at]}\" in\n\
+--all) all=1; found=1 ;;\n\
+--repo) at=$((at + 1)); repo=\"${args[at]}\"; if [ \"${repo#/}\" = \"$repo\" ]; then repo=\"$(readlink \"/proc/$pid/cwd\" 2>/dev/null)/$repo\"; fi; served+=(\"$repo\"); found=1 ;;\n\
+--app-token) at=$((at + 1)); [ -z \"$program\" ] && program=\"${args[at]}\" ;;\n\
+--checker) at=$((at + 1)) ;;\n\
+esac\n\
+at=$((at + 1))\n\
+done\n\
+if [ -z \"$found\" ]; then\n\
+cwd=$(readlink \"/proc/$pid/cwd\" 2>/dev/null) && served+=(\"$cwd\")\n\
+fi\n\
+break\n\
+done\n\
+done\n";
 
 fn probe(name: impl Into<String>, script: String, limit: Duration) -> Probe {
     Probe { name: name.into(), script, limit }
 }
 
-pub(super) fn core_loop(host: &str, sha: &str, installed: &[String]) -> CoreLoop {
+pub(super) fn core_loop(host: &str, sha: &str, installed: &[String], landers: Option<&Landers>) -> CoreLoop {
     let north = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}/north\"");
     let mut probes = Vec::new();
     match is_hub(host) {
@@ -33,11 +66,21 @@ pub(super) fn core_loop(host: &str, sha: &str, installed: &[String]) -> CoreLoop
             SHELL_LIMIT,
         )),
     }
-    probes.push(probe("each repository's lander mints its push token", lander_tokens(&north), MINT_LIMIT));
-    if is_hub(host) {
-        return CoreLoop { probes, not_applicable: Vec::new() };
+    let mut not_applicable = Vec::new();
+    match landers {
+        Some(landers) => {
+            not_applicable.extend(landers.unserved.iter().map(|file| format!("no running lander serves {file}")));
+            match landers.served.is_empty() {
+                true => not_applicable.push("each repository's lander mints its push token".to_owned()),
+                false => probes.push(probe("each repository's lander mints its push token", lander_tokens(&north), MINT_LIMIT)),
+            }
+        }
+        None => probes.push(probe("each repository's lander mints its push token", lander_tokens(&north), MINT_LIMIT)),
     }
-    let not_applicable = PROVIDERS.iter().copied().filter(|provider| !installed.iter().any(|present| present.as_str() == *provider)).collect();
+    if is_hub(host) {
+        return CoreLoop { probes, not_applicable };
+    }
+    not_applicable.extend(PROVIDERS.iter().copied().filter(|provider| !installed.iter().any(|present| present.as_str() == *provider)).map(str::to_owned));
     for provider in PROVIDERS.iter().filter(|provider| installed.iter().any(|present| present.as_str() == **provider)) {
         probes.push(probe(format!("a --test {provider} worker answers its first turn"), format!("{north} runtime probe launch {provider}"), LAUNCH_LIMIT));
     }
@@ -56,22 +99,70 @@ fn is_hub(destination: &str) -> bool {
     host.split('.').next() == Some(HUB)
 }
 
-pub(super) fn lander_tokens(north: &str) -> String {
-    format!(
-        "pids=$(pgrep -u \"$(id -u)\" -f 'land serve') || exit 0\n\
-         program=\n\
-         for pid in $pids; do\n\
-         program=$(tr '\\0' '\\n' < \"/proc/$pid/cmdline\" 2>/dev/null | awk 'wanted {{ print; exit }} $0 == \"--app-token\" {{ wanted = 1 }}')\n\
-         [ -n \"$program\" ] && break\n\
+pub(super) fn repositories_script() -> String {
+    let mut script = LANDER_SCAN.to_owned();
+    script.push_str(
+        "for file in \"$HOME\"/code/*/main/.safe-push; do\n\
+         [ -f \"$file\" ] || continue\n\
+         dir=$(cd \"$(dirname \"$file\")\" && pwd -P) || continue\n\
+         here=\n\
+         if [ -n \"$all\" ]; then\n\
+         here=1\n\
+         else\n\
+         for repo in \"${served[@]}\"; do\n\
+         [ \"$(cd \"$repo\" 2>/dev/null && pwd -P)\" = \"$dir\" ] && here=1 && break\n\
          done\n\
+         fi\n\
+         if [ -n \"$here\" ]; then printf 'served\\t%s\\n' \"$file\"; else printf 'unserved\\t%s\\n' \"$file\"; fi\n\
+         done\n\
+         exit 0\n",
+    );
+    script
+}
+
+pub(super) fn parse_repositories(listing: &str) -> Landers {
+    let mut landers = Landers::default();
+    for line in listing.lines() {
+        let Some((kind, file)) = line.split_once('\t') else { continue };
+        match kind {
+            "served" => landers.served.push(file.to_owned()),
+            "unserved" => landers.unserved.push(file.to_owned()),
+            _ => {}
+        }
+    }
+    landers
+}
+
+pub(super) fn lander_tokens(north: &str) -> String {
+    let mut script = LANDER_SCAN.to_owned();
+    script.push_str(&format!(
+        "if [ -z \"$all\" ] && [ ${{#served[@]}} -eq 0 ]; then\n\
+         printf 'no `land serve` process runs on this host\\n' >&2\n\
+         exit {}\n\
+         fi\n\
+         judged=0\n\
          for file in \"$HOME\"/code/*/main/.safe-push; do\n\
          [ -f \"$file\" ] || continue\n\
+         dir=$(cd \"$(dirname \"$file\")\" && pwd -P) || continue\n\
+         if [ -z \"$all\" ]; then\n\
+         here=\n\
+         for repo in \"${{served[@]}}\"; do\n\
+         [ \"$(cd \"$repo\" 2>/dev/null && pwd -P)\" = \"$dir\" ] && here=1 && break\n\
+         done\n\
+         [ -n \"$here\" ] || continue\n\
+         fi\n\
+         judged=$((judged + 1))\n\
          app=$(git config -f \"$file\" --get landing.push-app || echo agent)\n\
          if [ -n \"$program\" ] && [ -O \"$program\" ] && \"$program\" --app \"$app\" >/dev/null 2>&1; then continue; fi\n\
          {north} broker github-token --app \"$app\" >/dev/null 2>&1 && continue\n\
          printf 'this host cannot mint the %s push token for %s by the lander program or the broker\\n' \"$app\" \"$file\" >&2\n\
          exit {}\n\
-         done",
-        super::HOST_FAULT
-    )
+         done\n\
+         [ \"$judged\" -eq 0 ] && {{ printf 'no running lander serves any repository here\\n' >&2; exit {}; }}\n\
+         exit 0",
+        super::NO_VERDICT,
+        super::HOST_FAULT,
+        super::NO_VERDICT
+    ));
+    script
 }

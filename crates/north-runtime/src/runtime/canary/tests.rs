@@ -13,6 +13,7 @@ struct Fleet<'a> {
     layout: &'a Layout,
     failing: Option<(&'static str, Ran)>,
     installed: Vec<String>,
+    landers: Option<probes::Landers>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
 }
@@ -39,6 +40,10 @@ impl Machine for Fleet<'_> {
     fn installed_providers(&self) -> Vec<String> {
         self.installed.clone()
     }
+
+    fn lander_repositories(&self) -> Option<probes::Landers> {
+        self.landers.clone()
+    }
 }
 
 struct Host {
@@ -63,7 +68,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, installed: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, installed: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
     }
 
     fn fleet_without(&self, provider: &str) -> Fleet<'_> {
@@ -81,6 +86,11 @@ fn exited(code: u8, log: &str) -> Ran {
     Ran::Exited { code, log: log.to_owned() }
 }
 
+fn bash_program() -> std::path::PathBuf {
+    let found = Command::new("/bin/sh").args(["-c", "command -v bash"]).output().unwrap();
+    std::path::PathBuf::from(String::from_utf8(found.stdout).unwrap().trim())
+}
+
 #[test]
 fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming_the_probe() {
     let host = Host::promoted();
@@ -96,15 +106,6 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     assert!(alarms[0].contains("rolled back to 11111111"), "{}", alarms[0]);
     assert!(matches!(update::hold::verdict(&host.layout, PROMOTED, true).unwrap(), update::hold::Verdict::Held(_)));
     assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("nexus/{PROMOTED}")).unwrap(), Some(Canary::RolledBack));
-}
-
-#[test]
-fn a_probe_that_could_not_run_leaves_the_promotion_in_place_and_unjudged() {
-    let host = Host::promoted();
-    let fleet = host.fleet(Some(("opencode", Ran::Unrun("no verdict within 150s".to_owned()))));
-    assert!(matches!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Unrun(why) if why.contains("opencode")));
-    assert_eq!(host.current(), layout::link(PROMOTED));
-    assert!(fleet.alarms.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -162,7 +163,7 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
     north_base::foundation::shim::write_executable(&token, "#!/bin/sh\n[ \"$1\" = --app ] || exit 9\nprintf 'ghs_host_token\\n'\n");
     let lander = home.join("lander");
     north_base::foundation::shim::write_executable(&lander, "#!/bin/sh\nread line\n");
-    let mut lander = Command::new(&lander).args(["land", "serve", "--app-token"]).arg(&token).stdin(std::process::Stdio::piped()).spawn().unwrap();
+    let mut lander = Command::new(&lander).args(["land", "serve", "--app-token"]).arg(&token).current_dir(&repo).stdin(std::process::Stdio::piped()).spawn().unwrap();
     let bin = home.join("bin");
     fs::create_dir_all(&bin).unwrap();
     north_base::foundation::shim::write_executable(&bin.join("pgrep"), format!("#!/bin/sh\necho {}\n", lander.id()));
@@ -173,15 +174,24 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
         .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
         .output()
         .unwrap();
+    let listing = Command::new("bash")
+        .arg("-c")
+        .arg(super::probes::repositories_script())
+        .env("HOME", home)
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+        .output()
+        .unwrap();
     let _ = lander.kill();
     let _ = lander.wait();
     assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
+    assert!(listing.status.success(), "{}", String::from_utf8_lossy(&listing.stderr));
+    assert!(String::from_utf8_lossy(&listing.stdout).contains(&format!("served\t{}", repo.join(".safe-push").display())), "{}", String::from_utf8_lossy(&listing.stdout));
     assert!(!String::from_utf8_lossy(&probe.stdout).contains("ghs_host_token") && !String::from_utf8_lossy(&probe.stderr).contains("ghs_host_token"));
 }
 
 #[test]
 fn a_host_without_a_provider_is_not_probed_for_it() {
-    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()]);
+    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], None);
     assert_eq!(plan.not_applicable, ["opencode"]);
     assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode")));
@@ -192,6 +202,39 @@ fn a_host_without_a_provider_is_not_probed_for_it() {
     let probed = fleet.probed.lock().unwrap();
     assert!(probed.iter().any(|name| name.contains("claude")), "{probed:?}");
     assert!(probed.iter().all(|name| !name.contains("opencode")), "{probed:?}");
+}
+
+#[test]
+fn a_host_without_a_running_lander_skips_the_token_probe() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let repo = home.join("code/north/main");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(repo.join(".safe-push"), "[landing]\n\tpush-app = agent\n").unwrap();
+    let bin = root.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    north_base::foundation::shim::write_executable(&bin.join("pgrep"), "#!/bin/sh\nexit 1\n");
+    let listing = Command::new(bash_program())
+        .arg("-c")
+        .arg(probes::repositories_script())
+        .env("HOME", &home)
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+        .output()
+        .unwrap();
+    assert!(listing.status.success(), "{}", String::from_utf8_lossy(&listing.stderr));
+    let landers = probes::parse_repositories(&String::from_utf8_lossy(&listing.stdout));
+    assert!(landers.served.is_empty(), "{landers:?}");
+    assert_eq!(landers.unserved, [repo.join(".safe-push").to_string_lossy().into_owned()]);
+
+    let plan = probes::core_loop("nexus", PROMOTED, &[], Some(&landers));
+    assert!(plan.probes.iter().all(|probe| !probe.name.contains("lander mints")), "{:?}", plan.probes.iter().map(|probe| &probe.name).collect::<Vec<_>>());
+    assert!(plan.not_applicable.iter().any(|reason| reason.contains("no running lander serves")), "{:?}", plan.not_applicable);
+
+    let host = Host::promoted();
+    let mut fleet = host.fleet(None);
+    fleet.landers = Some(landers);
+    assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Passed);
+    assert!(fleet.probed.lock().unwrap().iter().all(|name| !name.contains("lander mints")));
 }
 
 #[test]

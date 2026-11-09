@@ -36,6 +36,7 @@ pub(super) trait Machine: Sync {
     fn roll_back(&self, sha: &str) -> Rollback;
     fn alarm(&self, text: &str);
     fn installed_providers(&self) -> Vec<String>;
+    fn lander_repositories(&self) -> Option<probes::Landers>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -62,9 +63,10 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         println!("north runtime canary: {host}: {short} not judged here: {}", failure.message);
         return Verdict::Skipped;
     }
-    let probes = probes::core_loop(host, sha, &machine.installed_providers());
+    let landers = machine.lander_repositories();
+    let probes = probes::core_loop(host, sha, &machine.installed_providers(), landers.as_ref());
     if !probes.not_applicable.is_empty() {
-        println!("north runtime canary: {host}: {short}: not applicable here because the host cannot launch them: {}", probes.not_applicable.join(", "));
+        println!("north runtime canary: {host}: {short}: not applicable here: {}", probes.not_applicable.join(", "));
     }
     let probes = probes.probes;
     let ran: Vec<Ran> = std::thread::scope(|scope| {
@@ -205,6 +207,10 @@ impl Machine for Live<'_> {
             Ok(listing) => probes::PROVIDERS.iter().filter(|provider| listing.lines().any(|line| line.trim() == **provider)).map(|provider| (*provider).to_owned()).collect(),
             Err(_) => probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(),
         }
+    }
+
+    fn lander_repositories(&self) -> Option<probes::Landers> {
+        self.host.run(&probes::repositories_script()).ok().map(|listing| probes::parse_repositories(&listing))
     }
 }
 
