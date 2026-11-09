@@ -71,13 +71,13 @@ fn check_lane(project: &Path) -> Option<PathBuf> {
 }
 
 /// The project container `cwd` lies in: `~/code/PROJECT`.
-fn project(home: &Path, cwd: &Path) -> Option<PathBuf> {
+pub(super) fn project(home: &Path, cwd: &Path) -> Option<PathBuf> {
     let project = cwd.strip_prefix(home.join("code")).ok()?.components().next()?;
     Some(home.join("code").join(project))
 }
 
 /// The lane `cwd` lies in: `~/code/PROJECT/worktrees/SLUG`.
-fn lane(home: &Path, cwd: &Path) -> Option<PathBuf> {
+pub(super) fn lane(home: &Path, cwd: &Path) -> Option<PathBuf> {
     let project = project(home, cwd)?;
     let slug = cwd.strip_prefix(project.join("worktrees")).ok()?.components().next()?;
     Some(project.join("worktrees").join(slug))

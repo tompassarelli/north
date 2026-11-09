@@ -2,6 +2,7 @@
 mod broker;
 mod except;
 mod executable;
+mod lane_only;
 mod readable;
 mod removable;
 mod sockets;
@@ -23,11 +24,12 @@ pub const FLAG: &str = "--worker-sandbox";
 const OUTSIDE: &str = "--outside";
 const BROKER: &str = "--broker";
 const BUILT: &str = "--built";
+const LANE: &str = "--lane";
 const PROGRAM: &str = "--program";
 const SOCKETS_HIDDEN: &str = north_base::platform::session_scope::SOCKETS_HIDDEN;
 const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
 const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
-const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
+const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
 
 fn removal() -> BitFlags<AccessFs> {
     AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer
@@ -52,6 +54,7 @@ pub fn run(arguments: &[String]) -> std::process::ExitCode {
         [broker] if broker == BROKER => broker::serve(),
         [outside, separator, north, words @ ..] if outside == OUTSIDE && separator == "--" && !north.is_empty() => self::outside(north, words),
         [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true),
+        [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program),
         [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false),
         [command] => shell(command),
         _ => {
@@ -106,6 +109,16 @@ fn program(program: &[String], lift: bool) -> std::process::ExitCode {
     let roots = confined.then(|| removable(&context));
     let executable = (!lift).then(|| executable(&context));
     report(confine(roots.as_deref(), &readable(&context), executable.as_deref()));
+    let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    eprintln!("north worker-sandbox: {}: {error}", program[0]);
+    std::process::ExitCode::from(126)
+}
+
+/// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable.
+fn in_lane(program: &[String]) -> std::process::ExitCode {
+    let context = Context::from_env(&program.join(" "));
+    let hidden = hide_sockets(&context);
+    report(confine(Some(&removable(&context)), &lane_only::readable_in_lane(&context), Some(&executable(&context))));
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)

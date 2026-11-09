@@ -85,6 +85,7 @@ pub const RULES: &[Rule] = &[
     rule("public-text", NeedsInput, &["public deny-list rule"], "github: public issue text names no private project facts."),
     rule("frozen-topics", TrueBlock, &["is frozen"], ""),
     rule("reviewer-cli", TrueBlock, &["standing order is Claude only"], ""),
+    rule("opencode-cli", TrueBlock, &["opencode runs only through"], ""),
     rule("native-evidence", NeedsInput, &["Native evidence runs go through", "The quiet native lease is for timing"], "warcraft-modding: native evidence runs go through bun wisp accept."),
     rule("native-launch", NeedsInput, &["A Wine/Proton/Warcraft client started here"], "warcraft-modding: start clients through the capacity wrapper."),
     rule("generated-policy", TrueBlock, &["Never hand-edit generated agent policy", "Never hand-edit a .nix generated"], "agent-policy: edit policy sources, never generated output."),

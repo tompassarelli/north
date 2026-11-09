@@ -4,3 +4,4 @@ pub mod codex;
 #[doc(hidden)]
 pub mod fixtures;
 pub mod ledger_rows;
+pub mod opencode;

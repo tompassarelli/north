@@ -63,6 +63,22 @@ impl Home {
     }
 
     fn run_in(&self, directory: &Path, command: &str, sandboxed: bool) -> Output {
+        let mut outer = self.outer(directory);
+        if sandboxed {
+            outer.arg("--").arg(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]);
+        } else {
+            outer.args(["--", "bash", "-c", command]);
+        }
+        outer.output().unwrap()
+    }
+
+    fn run_in_lane_only(&self, program: &[&str]) -> Output {
+        let mut outer = self.outer(&self.lane());
+        outer.arg("--").arg(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", "--lane", "--"]).args(program);
+        outer.output().unwrap()
+    }
+
+    fn outer(&self, directory: &Path) -> Command {
         let home = self.path();
         let mut outer = Command::new("bwrap");
         outer.args(["--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/dev/shm", "--tmpfs"]);
@@ -70,12 +86,7 @@ impl Home {
         outer.arg("--bind").arg(home).arg(home).arg("--chdir").arg(directory);
         outer.args(["--clearenv", "--setenv", "PATH"]).arg(std::env::var_os("PATH").unwrap()).arg("--setenv").arg("HOME").arg(home).args(["--setenv", "SHELL", "bash", "--setenv", "NORTH_FLEET_ROLE", "worker"]);
         outer.arg("--setenv").arg(CHILD).arg(home);
-        if sandboxed {
-            outer.arg("--").arg(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]);
-        } else {
-            outer.args(["--", "bash", "-c", command]);
-        }
-        outer.output().unwrap()
+        outer
     }
 }
 
@@ -127,4 +138,23 @@ fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_n
     let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", &runtime).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").env("XDG_RUNTIME_DIR", &runtime).current_dir(&runtime).output().unwrap();
     assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stderr).matches("north worker-sandbox:").count(), 0, "{}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state() {
+    let home = Home::new();
+    file(&home.path().join("code/q/main/README.md"));
+    file(&home.path().join(".config/sops/age/keys.txt"));
+    file(&home.path().join(".local/state/north/handoffs/brief.md"));
+    file(&home.path().join("code/p/worktrees/lane/mine.txt"));
+    let read = |relative: &str| home.run_in_lane_only(&["cat", home.path().join(relative).to_str().unwrap()]);
+
+    for kept in ["code/p/worktrees/lane/mine.txt", "code/p/main/src.rs"] {
+        let output = read(kept);
+        assert!(output.status.success(), "{kept}: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    for hidden in ["code/q/main/README.md", ".config/sops/age/keys.txt", ".local/state/north/handoffs/brief.md", "code/p/worktrees/other/work.rs"] {
+        let output = read(hidden);
+        assert!(!output.status.success() && String::from_utf8_lossy(&output.stderr).contains("Permission denied"), "{hidden} was read: {}", String::from_utf8_lossy(&output.stdout));
+    }
 }

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{LaunchRequest, Machine, Role};
+use crate::fleet::model::{LaunchRequest, Machine, Role, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::store::Slots;
 use crate::fleet::roster::Roster;
@@ -109,6 +109,10 @@ impl From<Refusal> for NorthError {
 /// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; `report`
 /// prints its verdict lines.
 pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
+    if request.provider.label() == "opencode" && !request.verification {
+        let running: Vec<String> = fleet.sessions()?.into_iter().filter(|record| fleet.status(record) != Status::Exited).map(|record| record.provider.label().to_owned()).collect();
+        return Ok(opencode_room(&running, crate::providers::opencode::slots()).map(|()| Placed::default()));
+    }
     if request.provider.label() != "claude" || request.verification {
         return Ok(Ok(Placed::default()));
     }
@@ -137,6 +141,15 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], o
         admits(&chosen).map_err(Refusal::Spend).and(placed)
     };
     Ok(settled.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref()), &rules), ..placed } } else { placed }))
+}
+
+/// Whether one more opencode worker fits under its own cap, which counts opencode sessions alone: Claude workers, however many, neither take its slots nor fill them.
+pub(super) fn opencode_room(running_providers: &[String], cap: usize) -> Result<(), Refusal> {
+    let running = running_providers.iter().filter(|provider| provider.as_str() == "opencode").count();
+    if running >= cap {
+        return Err(Refusal::Spend(format!("{running} opencode workers are running, the cap is {cap}")));
+    }
+    Ok(())
 }
 
 /// The placement `chosen` when the spend rule admits its account; otherwise the first other account the rule admits that placement also

@@ -128,6 +128,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("merge-driver", Landing),
     ("nexus-ram", Status),
     ("nix", Diagnosis),
+    ("opencode-host", Diagnosis),
     ("ops climb", Diagnosis),
     ("ops credentials", Diagnosis),
     ("ops github", Diagnosis),

@@ -4,7 +4,7 @@ use super::Context;
 use super::except::{Entries, beneath_except};
 
 /// The operator's own logins, which no worker command reads: an agent calls GitHub as an App installation (north#969).
-pub fn personal_logins(context: &Context) -> Vec<PathBuf> {
+pub(super) fn personal_logins(context: &Context) -> Vec<PathBuf> {
     vec![context.config.clone().unwrap_or_else(|| context.home.join(".config")).join("gh/hosts.yml")]
 }
 

@@ -9,9 +9,10 @@ use super::fleet;
 pub enum Session {
     Host,
     Link,
+    Opencode,
 }
 
-pub const NAMES: &[(&str, Session)] = &[("session-host", Session::Host), ("session-link", Session::Link)];
+pub const NAMES: &[(&str, Session)] = &[("session-host", Session::Host), ("session-link", Session::Link), ("opencode-host", Session::Opencode)];
 
 impl Session {
     pub fn named(command: &str) -> Option<Self> {
@@ -22,6 +23,7 @@ impl Session {
         match self {
             Self::Host => session_host::run(arguments, fleet::host_watch).await,
             Self::Link => link::run(arguments).await,
+            Self::Opencode => crate::providers::opencode::turns::run(arguments),
         }
     }
 }
