@@ -116,7 +116,7 @@ impl Lander {
         let outbox = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/land-queue/{key}/{}\"", queue::OUTBOX);
         let mirror = format!("q={home}; mkdir -p \"$q\" && cat >\"$q/{0}.part\" && mv -f \"$q/{0}.part\" \"$q/{0}\" || exit 1; ", queue::LANDER_LEDGER);
         let ticks = wait.as_millis() / WAIT_TICK.as_millis();
-        let listing = ssh_with_input(host, &format!("{mirror}d={outbox}; n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; [ -d \"$d\" ] || exit 0; for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
+        let listing = ssh_with_input(host, &format!("d={outbox}; n={ticks}; while [ \"$n\" -gt 0 ]; do for f in \"$d\"/*.json; do [ -f \"$f\" ] && break 2; done; n=$((n-1)); sleep {tick}; done; set -- \"$d\"/*.json; [ -e \"$1\" ] || exit 0; {mirror} for f in \"$d\"/*.json; do [ -f \"$f\" ] || continue; printf '%s\\n' \"${{f##*/}}\"; cat \"$f\"; printf '\\000'; done", tick = WAIT_TICK.as_secs_f32()), ledger_tail().as_bytes())?;
         let mut records = Records::open(&self.queue).map_err(|error| format!("cannot read the records of {}: {error}", self.queue.display()))?;
         let mut taken = Vec::new();
         let mut failures = Vec::new();
