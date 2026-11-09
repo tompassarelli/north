@@ -290,7 +290,7 @@ may_use = ["north-base", "north-dispatch", "north-graph", "north-replay", "north
 [[crate_dag.crate]]
 name = "north-runtime"
 paths = ["crates/north-runtime/src/**"]
-may_use = ["north-capacity-host", "north-dispatch", "north-providers"]
+may_use = ["north-capacity-host", "north-dispatch", "north-lanes", "north-providers"]
 
 [[crate_dag.crate]]
 name = "north-convo"
@@ -300,7 +300,7 @@ may_use = ["north-base", "north-fleet", "north-threads"]
 [[crate_dag.crate]]
 name = "north-ops"
 paths = ["crates/*/src/ops.rs", "crates/*/src/ops/**", "crates/*/src/health.rs", "crates/*/src/health/**"]
-may_use = ["north-dispatch", "north-threads", "north-github-mirror"]
+may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes"]
 
 [[crate_dag.crate]]
 name = "north-pace"
@@ -542,7 +542,7 @@ may_use = ["fleet", "domain", "foundation", "crate-roots", "threads", "lifecycle
 name = "guard"
 paths = ["crates/north-guard/src/guard/**", "crates/north-guard/src/hook.rs", "crates/north-guard/src/nix_explain.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground", "lifecycle", "platform.git", "platform.process", "platform.records", "platform.harness"]
+may_use = ["strategy_types", "ledger", "fleet", "autoland_status", "usage", "capacity", "shell", "domain", "foundation", "crate-roots", "code_health", "lanes", "threads", "graph_ground", "lifecycle", "platform.git", "platform.records", "platform.harness", "platform.process"]
 
 [[module]]
 name = "threads"
@@ -734,7 +734,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops"]
+may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes"]
 
 [[module]]
 name = "usage"

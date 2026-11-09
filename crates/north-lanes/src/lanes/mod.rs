@@ -31,7 +31,7 @@ pub use reap::run as wt_reap;
 pub use remove::run as remove;
 pub use rescue::run as wt_rescue;
 pub use stray::run as stray;
-pub use target_seed::run as target_seed;
+pub use target_seed::{DeadSeed, reclaim_dead_seeds, run as target_seed};
 pub use unlock::run as unlock;
 
 #[cfg(test)]

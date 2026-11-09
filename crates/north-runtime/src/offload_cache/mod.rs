@@ -327,6 +327,9 @@ pub fn keep() {
         return;
     }
     let Some(home) = home() else { return };
+    for seed in north_lanes::lanes::reclaim_dead_seeds(&home.join("code"), Path::new("/proc"), SystemTime::now(), false) {
+        eprintln!("north capacity: removed dead lane target seed {} ({} MiB)", seed.path.display(), seed.bytes >> 20);
+    }
     let marker = crate::capacity::agent_load::capacity_root().join(EPISODE_FILE);
     let open = marker.exists();
     let Some(before) = disk_of(&home) else { return };

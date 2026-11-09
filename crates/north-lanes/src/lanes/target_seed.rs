@@ -1,13 +1,46 @@
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, SystemTime};
 
+use north_base::platform::shared_target;
 use toml_edit::DocumentMut;
 
 const USAGE: &str = "usage: north lane seed [DIR]";
 const HASH_LEN: usize = 16;
 const BUILD_LOCKS: [&str; 2] = [".cargo-lock", ".cargo-build-lock"];
+const STAGING_PREFIX: &str = "target.seeding-";
+const DEAD_SEED_AGE: Duration = Duration::from_secs(3600);
+
+pub struct DeadSeed {
+    pub path: PathBuf,
+    pub bytes: u64,
+}
+
+struct Staging {
+    path: PathBuf,
+    kept: bool,
+}
+
+impl Staging {
+    fn new(path: PathBuf) -> Self {
+        Self { path, kept: false }
+    }
+
+    fn keep(mut self) {
+        self.kept = true;
+    }
+}
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        if !self.kept {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
 
 pub fn run(arguments: &[String]) -> u8 {
     let here = match arguments {
@@ -61,17 +94,62 @@ pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {
     else {
         return Ok(None);
     };
-    let staging = workspace.join(format!("target.seeding-{}", std::process::id()));
-    let seeded = copy(&from, &staging).and_then(|()| forget_own_packages(&staging, &lock));
-    if let Err(error) = seeded {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-    if fs::rename(&staging, &target).is_err() {
-        fs::remove_dir_all(&staging)?;
+    let staging = Staging::new(workspace.join(format!("{STAGING_PREFIX}{}", std::process::id())));
+    let seeded = copy(&from, &staging.path).and_then(|()| {
+        File::open(&staging.path)?.set_modified(SystemTime::now())?;
+        forget_own_packages(&staging.path, &lock)
+    });
+    seeded?;
+    if fs::rename(&staging.path, &target).is_err() {
         return Ok(None);
     }
+    staging.keep();
     Ok(Some(from))
+}
+
+pub fn reclaim_dead_seeds(code: &Path, proc_root: &Path, now: SystemTime, dry_run: bool) -> Vec<DeadSeed> {
+    let mut seeds: Vec<DeadSeed> = checkouts(code)
+        .into_iter()
+        .flat_map(|checkout| seed_dirs(&checkout, now))
+        .filter(|(pid, _, age)| !proc_root.join(pid.to_string()).exists() && *age >= DEAD_SEED_AGE)
+        .map(|(_, path, _)| path)
+        .map(|path| DeadSeed { bytes: shared_target::allocated_tree(&path, &mut HashSet::new()).map_or(0, |(bytes, _)| bytes), path })
+        .filter(|seed| dry_run || fs::remove_dir_all(&seed.path).is_ok())
+        .collect();
+    seeds.sort_by(|left, right| left.path.cmp(&right.path));
+    seeds
+}
+
+fn seed_dirs(checkout: &Path, now: SystemTime) -> Vec<(u32, PathBuf, Duration)> {
+    let Ok(entries) = fs::read_dir(checkout) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let pid = name.to_str()?.strip_prefix(STAGING_PREFIX)?.parse().ok()?;
+            let age = entry.metadata().and_then(|metadata| metadata.modified()).ok().map_or(Duration::ZERO, |modified| now.duration_since(modified).unwrap_or_default());
+            Some((pid, entry.path(), age))
+        })
+        .collect()
+}
+
+fn checkouts(code: &Path) -> Vec<PathBuf> {
+    let Ok(containers) = fs::read_dir(code) else { return Vec::new() };
+    containers
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .flat_map(|container| {
+            let main = container.path().join("main");
+            let lanes = fs::read_dir(container.path().join("worktrees"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                .map(|entry| entry.path());
+            std::iter::once(main).chain(lanes)
+        })
+        .collect()
 }
 
 fn copy(from: &Path, to: &Path) -> io::Result<()> {

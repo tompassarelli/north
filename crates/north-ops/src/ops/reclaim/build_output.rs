@@ -14,6 +14,9 @@ const PRIVATE_TARGET_PREFIX: &str = "cargo-target-";
 pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result<Vec<Removal>> {
     let limit = policy.idle.min(BUILD_OUTPUT_IDLE);
     let mut removals = Vec::new();
+    for seed in north_lanes::lanes::reclaim_dead_seeds(&inputs.code, &inputs.proc_root, inputs.now, policy.dry_run) {
+        removals.push(Removal { path: seed.path, reason: "cargo target seed left by a process that died, over an hour old; the next seed copies again".to_owned(), bytes: seed.bytes });
+    }
     for container in containers(&inputs.code) {
         let with_main = container.file_name().is_some_and(|name| name == MAIN_BUILT_CONTAINER);
         for checkout in checkouts(&container, with_main) {
