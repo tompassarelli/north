@@ -1,6 +1,7 @@
 use super::*;
 use super::probes::Probe;
 use super::lifecycle::{Promoting, Promotion};
+use std::process::Command;
 use std::sync::Mutex;
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -21,6 +22,7 @@ impl Machine for Fleet<'_> {
         match &self.failing {
             Some((name, Ran::Exited { code, log })) if probe.name.contains(name) => Ran::Exited { code: *code, log: log.clone() },
             Some((name, Ran::Unrun(why))) if probe.name.contains(name) => Ran::Unrun(why.clone()),
+            Some((name, Ran::HostFault(why))) if probe.name.contains(name) => Ran::HostFault(why.clone()),
             _ => Ran::Exited { code: 0, log: String::new() },
         }
     }
@@ -124,6 +126,45 @@ fn the_launch_probes_scratch_root_carries_the_ledger_north_fleet_opens() {
     let ledger = rusqlite::Connection::open_with_flags(state.join("threads.db"), rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
     let events: i64 = ledger.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'events'", [], |row| row.get(0)).unwrap();
     assert_eq!(events, 1);
+}
+
+#[test]
+fn a_host_that_cannot_mint_its_push_token_is_reported_once_without_rolling_the_runtime_back() {
+    let host = Host::promoted();
+    let fleet = host.fleet(Some(("lander mints its push token", Ran::HostFault("this host cannot mint the agent push token for /home/tom/code/north/main/.safe-push by the lander program or the broker".to_owned()))));
+    assert!(matches!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::Unrun(why) if why.contains("host fault")));
+    assert_eq!(host.current(), layout::link(PROMOTED));
+    assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("nexus/{PROMOTED}")).unwrap(), Some(Canary::Unjudged));
+    let alarms = fleet.alarms.lock().unwrap();
+    assert_eq!(alarms.len(), 1);
+    assert!(alarms[0].contains("nexus") && alarms[0].contains("host fault") && alarms[0].contains("stays live"), "{}", alarms[0]);
+}
+
+#[test]
+fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path();
+    let repo = home.join("code/north/main");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(repo.join(".safe-push"), "[landing]\n\tpush-app = agent\n").unwrap();
+    let token = home.join("host-token");
+    north_base::foundation::shim::write_executable(&token, "#!/bin/sh\n[ \"$1\" = --app ] || exit 9\nprintf 'ghs_host_token\\n'\n");
+    let lander = home.join("lander");
+    north_base::foundation::shim::write_executable(&lander, "#!/bin/sh\nread line\n");
+    let mut lander = Command::new(&lander).args(["land", "serve", "--app-token"]).arg(&token).stdin(std::process::Stdio::piped()).spawn().unwrap();
+    let bin = home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    north_base::foundation::shim::write_executable(&bin.join("pgrep"), format!("#!/bin/sh\necho {}\n", lander.id()));
+    let probe = Command::new("bash")
+        .arg("-c")
+        .arg(super::probes::lander_tokens("north"))
+        .env("HOME", home)
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+        .output()
+        .unwrap();
+    let _ = lander.kill();
+    let _ = lander.wait();
+    assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
 }
 
 #[test]

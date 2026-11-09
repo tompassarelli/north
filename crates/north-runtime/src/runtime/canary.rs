@@ -14,6 +14,7 @@ pub(super) use launch::probe as launch_probe;
 const TAIL_LINES: usize = 12;
 const TAIL_BYTES: usize = 1200;
 const USAGE: u8 = 64;
+const HOST_FAULT: u8 = 65;
 const NOT_EXECUTABLE: u8 = 126;
 const NOT_FOUND: u8 = 127;
 const REMOTE_ROLLBACK_LIMIT: Duration = Duration::from_secs(180);
@@ -21,6 +22,7 @@ const REMOTE_ROLLBACK_LIMIT: Duration = Duration::from_secs(180);
 pub(super) enum Ran {
     Exited { code: u8, log: String },
     Unrun(String),
+    HostFault(String),
 }
 
 pub(super) enum Rollback {
@@ -64,15 +66,11 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         let handles: Vec<_> = probes.iter().map(|probe| scope.spawn(|| machine.probe(probe))).collect();
         handles.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Ran::Unrun("the probe panicked".to_owned()))).collect()
     });
-    let failures: Vec<String> = probes.iter().zip(&ran).filter_map(|(probe, ran)| match ran {
-        Ran::Exited { code: 0, .. } | Ran::Unrun(_) => None,
-        Ran::Exited { code, log } => Some(format!("probe `{}` exited {code}; log tail: {}", probe.name, tail(log))),
-    }).collect();
+    let Tallies { failures, faults, unrun } = tallies(&probes, &ran);
     if failures.is_empty() {
-        let unrun: Vec<String> = probes.iter().zip(&ran).filter_map(|(probe, ran)| match ran {
-            Ran::Unrun(why) => Some(format!("probe `{}` not run: {why}", probe.name)),
-            Ran::Exited { .. } => None,
-        }).collect();
+        if !faults.is_empty() {
+            return host_fault(host, short, machine, &faults, finish);
+        }
         if unrun.is_empty() {
             finish(Canary::Passed, &format!("all {} core-loop probes exited 0", probes.len()));
             println!("north runtime canary: {host}: {short} passed {} core-loop probes", probes.len());
@@ -105,6 +103,33 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
     }
 }
 
+struct Tallies {
+    failures: Vec<String>,
+    faults: Vec<String>,
+    unrun: Vec<String>,
+}
+
+fn tallies(probes: &[Probe], ran: &[Ran]) -> Tallies {
+    let mut tallies = Tallies { failures: Vec::new(), faults: Vec::new(), unrun: Vec::new() };
+    for (probe, ran) in probes.iter().zip(ran) {
+        match ran {
+            Ran::Exited { code: 0, .. } => {}
+            Ran::Exited { code, log } => tallies.failures.push(format!("probe `{}` exited {code}; log tail: {}", probe.name, tail(log))),
+            Ran::Unrun(why) => tallies.unrun.push(format!("probe `{}` not run: {why}", probe.name)),
+            Ran::HostFault(why) => tallies.faults.push(format!("probe `{}` found a host fault: {why}", probe.name)),
+        }
+    }
+    tallies
+}
+
+fn host_fault(host: &str, short: &str, machine: &impl Machine, faults: &[String], finish: impl Fn(Canary, &str)) -> Verdict {
+    let why = faults.join("; ");
+    machine.alarm(&format!("north runtime canary: {host}: {why}; the host is at fault and {short} stays live"));
+    println!("north runtime canary: {host}: {short} not judged: {why}");
+    finish(Canary::Unjudged, &why);
+    Verdict::Unrun(why)
+}
+
 fn trust(layout: &Layout, host: &str, previous: &str, failed: &str) {
     let instance = format!("{host}/{previous}");
     if !layout::is_sha(previous) || lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
@@ -125,6 +150,7 @@ pub(super) fn tail(log: &str) -> String {
 
 pub(super) fn classify(code: Option<i32>, log: String) -> Ran {
     match code.and_then(|code| u8::try_from(code).ok()) {
+        Some(HOST_FAULT) => Ran::HostFault(tail(&log)),
         Some(code @ (USAGE | NOT_EXECUTABLE | NOT_FOUND | NO_VERDICT)) => Ran::Unrun(format!("the judged runtime could not run the probe (exit {code}): {}", tail(&log))),
         Some(code) => Ran::Exited { code, log },
         None => Ran::Unrun(format!("the probe was killed by a signal: {}", tail(&log))),
