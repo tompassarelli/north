@@ -47,6 +47,7 @@ pub struct Previous {
 pub struct Successor {
     pub status: String,
     pub conclusion: Option<String>,
+    pub failing: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,14 +100,17 @@ fn failed(conclusion: &Option<String>) -> bool {
     conclusion.as_deref() == Some("failure")
 }
 
+fn failing_step(jobs: &[Job]) -> Option<(&Job, &Step)> {
+    let mut ordered: Vec<&Job> = jobs.iter().collect();
+    ordered.sort_by_key(|job| job.id);
+    ordered.into_iter().find(|job| failed(&job.conclusion) && job.steps.iter().any(|step| failed(&step.conclusion))).and_then(|job| job.steps.iter().find(|step| failed(&step.conclusion)).map(|step| (job, step)))
+}
+
 pub fn decide(s: &Situation) -> Decision {
     if matches!(s.conclusion.as_deref(), None | Some("cancelled")) {
         return Decision::new(Kind::None, "The run was cancelled or never concluded; nothing to revert");
     }
-    let mut original: Vec<&Job> = s.original.iter().collect();
-    original.sort_by_key(|j| j.id);
-    let job = original.into_iter().find(|j| failed(&j.conclusion) && j.steps.iter().any(|t| failed(&t.conclusion)));
-    let Some((job, step)) = job.and_then(|job| job.steps.iter().find(|t| failed(&t.conclusion)).map(|step| (job, step))) else {
+    let Some((job, step)) = failing_step(&s.original) else {
         return Decision::new(if failed(&s.conclusion) { Kind::Report } else { Kind::None }, "No failing test step was recorded");
     };
     let name = format!("{}: {}", job.name, step.name);
@@ -116,15 +120,19 @@ pub fn decide(s: &Situation) -> Decision {
     }
     if s.tip != s.head {
         let tip = &s.tip;
-        return report(&match &s.successor {
-            Some(next) if next.status != "completed" => {
-                format!("Main moved to {tip}, whose run is still {}: a fix-forward may land, so revert nothing", next.status)
-            }
-            Some(next) if next.conclusion.as_deref() == Some("success") => {
-                format!("Main moved to {tip}, whose run passed: a fix-forward landed, so revert nothing")
-            }
-            _ => format!("Main moved past the failing commit to {tip}; a later landing may already fix it, so never revert on this stale run"),
-        });
+        let still_red = s.successor.as_ref().is_some_and(|next| next.status == "completed" && next.conclusion.as_deref() == Some("failure") && next.failing.as_deref() == Some(name.as_str()));
+        if !still_red {
+            return report(&match &s.successor {
+                Some(next) if next.status != "completed" => {
+                    format!("Main moved to {tip}, whose run is still {}: a fix-forward may land, so revert nothing", next.status)
+                }
+                Some(next) if next.conclusion.as_deref() == Some("success") => {
+                    format!("Main moved to {tip}, whose run passed: a fix-forward landed, so revert nothing")
+                }
+                Some(_) => format!("Main moved to {tip}, whose run failed another step: the red at {} is stale, so revert nothing", s.head),
+                None => format!("Main moved past the failing commit to {tip}; a later landing may already fix it, so never revert on this stale run"),
+            });
+        }
     }
     if s.attempt == 1 {
         return Decision {
@@ -371,9 +379,16 @@ pub fn sheriff(id: u64) -> Result<(), String> {
     let tip = git(&["rev-parse", "origin/main"])?;
     let on_main = is_ancestor(&ci.head_sha, &tip);
     let successor: Runs = repo.api(&format!("actions/workflows/{}/runs?branch=main&event=push&head_sha={tip}&per_page=1", ci.workflow_id))?;
-    let successor = successor.workflow_runs.first().map(|run| Successor {
-        status: run["status"].as_str().unwrap_or_default().to_owned(),
-        conclusion: run["conclusion"].as_str().map(str::to_owned),
+    let successor = successor.workflow_runs.first().map(|run| {
+        let status = run["status"].as_str().unwrap_or_default().to_owned();
+        let conclusion = run["conclusion"].as_str().map(str::to_owned);
+        let failing = if conclusion.as_deref() == Some("failure") {
+            let attempt = run["run_attempt"].as_u64().unwrap_or(1);
+            run["id"].as_u64().and_then(|id| repo.jobs(id, attempt).ok()).and_then(|jobs| failing_step(&jobs).map(|(job, step)| format!("{}: {}", job.name, step.name)))
+        } else {
+            None
+        };
+        Successor { status, conclusion, failing }
     });
     let history: Runs = repo.api(&format!("actions/workflows/{}/runs?branch=main&event=push&status=completed&per_page=100", ci.workflow_id))?;
     let history: Vec<CiRun> = history.workflow_runs.into_iter().filter_map(|run| serde_json::from_value(run).ok()).collect();
