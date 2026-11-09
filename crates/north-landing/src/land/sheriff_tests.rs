@@ -60,6 +60,14 @@ fn never_reverts_a_revert_or_a_lane_twice_and_a_run_without_cases_reverts_nothin
     let red = |_: &Lane| Some(x());
     assert_eq!(find_here(&request(), "head", &lanes, &BTreeSet::new(), red, green), Finding::Revert { lane: "older".into(), cases: x().into_iter().collect() });
     assert_eq!(find_here(&request(), "head", &lanes, &BTreeSet::from(["older".to_owned()]), red, green), Finding::Environment { cases: x().into_iter().collect() });
+    let mut told = Vec::new();
+    let report = main_breakage(&request(), "head", &x().into_iter().collect::<Vec<_>>(), |session, text| {
+        told.push((session.to_owned(), text.to_owned()));
+        true
+    });
+    assert!(report.contains("main breakage: suite::x") && report.contains("nothing is reverted"), "{report}");
+    assert_eq!(told.len(), 1, "the proxy is told once: {told:?}");
+    assert!(told[0].0 == "proxy" && told[0].1.contains("main is broken, not a lane: suite::x"), "{told:?}");
     infrastructure_reaches_no_verdict();
 }
 

@@ -377,9 +377,9 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, tip: &str, lane: 
 
 /// A failure that fails at the tip and on main without each landed lane, on every host: main itself is broken, so no lane is
 /// reverted and the proxy is told which checks to fix.
-fn main_breakage(request: &Request, tip: &str, cases: &[Failure]) -> String {
+fn main_breakage(request: &Request, tip: &str, cases: &[Failure], mut notify: impl FnMut(&str, &str) -> bool) -> String {
     let text = format!("north land: sheriff: main is broken, not a lane: {} fail on a fresh run at main {} and on main without each landed lane since {}; nothing is reverted; log: {}", names(cases), short(tip), short(&request.parent), request.log);
-    if !super::after::send("proxy", &text) {
+    if !notify("proxy", &text) {
         println!("{text}");
     }
     format!("main breakage: {} fail on fresh runs at the tip {} and on main without each landed lane; the proxy is told; nothing is reverted", names(cases), short(tip))
@@ -417,7 +417,7 @@ fn answer(lander: &Lander, worktree: &Path, name: &str, tip: &str) -> Result<Str
     match find(&request, &main, &lanes, &reverted(lander), |lane, on| probes.at(lane, on), |lane, on| probes.without(lane, on)) {
         Finding::NoVerdict(reason) => Ok(format!("no verdict: {reason}; nothing is reverted")),
         Finding::Fixed { cases } => Ok(format!("fixed: {} pass at the tip {}; nothing is reverted", names(&cases), short(&main))),
-        Finding::Environment { cases } => Ok(main_breakage(&request, &main, &cases)),
+        Finding::Environment { cases } => Ok(main_breakage(&request, &main, &cases, super::after::send)),
         Finding::HostFault { host, cases, elsewhere } => Ok(host_fault(&request, &main, &host, &cases, elsewhere.as_deref())),
         Finding::Revert { lane, cases } => revert(lander, worktree, &request, &main, &lane, &cases),
         Finding::Flaky { lane, cases } => {
