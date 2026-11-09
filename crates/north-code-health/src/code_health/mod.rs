@@ -16,6 +16,8 @@ mod fix;
 pub use fix::Rewrite;
 mod functions;
 mod gate;
+#[cfg(test)]
+mod gate_tests;
 mod graph;
 mod habits;
 #[cfg(test)]

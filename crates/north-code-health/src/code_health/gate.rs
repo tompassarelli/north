@@ -1,18 +1,18 @@
 use super::config::{Config, Kind, Thresholds, at_rev};
 use super::functions::{Function, SourceText, measure};
-use super::graph::{component_of, layer_violation, sccs};
+use super::graph::{component_of, fan, layer_violation, module_graph, sccs};
 use super::history::{allows, churn_at};
 use super::report::{hand_of, hotspots_of, import_graph, inventory};
 use super::resolver::Resolver;
 use super::snapshot::{Snapshot, git, line_count};
 use super::state::State;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 pub(super) const FIX_CYCLE: &str = "move the import behind an interface the other file already owns, or merge the two files";
 pub(super) const FIX_LAYER: &str = "move the import behind the allowed module's interface, or change may_use/paths in structure.toml in this change";
-const FIX_FILE: &str = "split the file, or raise thresholds.file_lines in structure.toml in this change";
+const FIX_FILE: &str = "split it along a responsibility boundary when that lowers the complexity it holds, or raise thresholds.file_lines in structure.toml in this change";
 const FIX_FUNCTION: &str = "split the function, or raise thresholds.function_lines/function_complexity in structure.toml in this change";
 const FIX_HOTSPOT: &str = "split complexity out of this hotspot, or add 'Code-health-allow: hotspot <path> — <reason>'";
 const FIX_GENERATED: &str = "restore the producer, or remove the [[generated]] claim in structure.toml";
@@ -46,12 +46,55 @@ pub(super) fn cycle_text(to: &str) -> String {
     format!("new import -> {to} closes an import cycle — {FIX_CYCLE}")
 }
 
-pub(super) fn file_size(path: &str, head: usize, base: Option<usize>, limit: f64) -> Option<Violation> {
+pub(super) fn file_size(path: &str, head: usize, base: Option<usize>, limit: f64) -> Option<String> {
     if head as f64 <= limit || base.is_some_and(|base| base as f64 > limit) {
         return None;
     }
     let was = base.map_or_else(|| "new".to_owned(), |base| format!("was {base}"));
-    Some(Violation::new("file-size", path, format!("{head} lines > {limit} ({was}) — {FIX_FILE}")))
+    Some(format!("file-size {path}: {head} lines > {limit} ({was}) — {FIX_FILE}"))
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(super) struct ModuleMetric {
+    pub(super) module: String,
+    pub(super) cognitive: usize,
+    pub(super) was: usize,
+    pub(super) status: String,
+    #[serde(rename = "fanIn")]
+    pub(super) fan_in: usize,
+    #[serde(rename = "fanOut")]
+    pub(super) fan_out: usize,
+}
+
+impl ModuleMetric {
+    pub(super) fn shown(&self) -> String {
+        format!("module {}: cognitive complexity {} ({} from {}) — fan-in {}, fan-out {}", self.module, self.cognitive, self.status, self.was, self.fan_in, self.fan_out)
+    }
+}
+
+fn module_metrics(config: &Config, changed: &[Change], measured: &BTreeMap<String, Vec<Function>>) -> Vec<ModuleMetric> {
+    let mut totals: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for c in changed {
+        let Some(module) = config.module_of(&c.path) else { continue };
+        let head: usize = measured.get(&format!("h/{}", c.path)).into_iter().flatten().map(|f| f.complexity).sum();
+        let base: usize = measured.get(&format!("b/{}", c.path)).into_iter().flatten().map(|f| f.complexity).sum();
+        let total = totals.entry(module.name.clone()).or_default();
+        total.0 += head;
+        total.1 += base;
+    }
+    totals
+        .into_iter()
+        .map(|(module, (cognitive, was))| {
+            let status = if cognitive < was {
+                "reduced"
+            } else if cognitive == was {
+                "moved"
+            } else {
+                "raised"
+            };
+            ModuleMetric { module, cognitive, was, status: status.to_owned(), fan_in: 0, fan_out: 0 }
+        })
+        .collect()
 }
 
 pub(super) fn function_debt(path: &str, head: &[Function], base: &[Function], t: &Thresholds) -> Vec<Violation> {
@@ -100,6 +143,8 @@ fn changes(repo: &Path, base: &str, head: &str) -> Result<Vec<Change>, String> {
 
 pub(super) struct GateResult {
     pub(super) violations: Vec<Violation>,
+    pub(super) warnings: Vec<String>,
+    pub(super) metrics: Vec<ModuleMetric>,
     pub(super) warning: Option<String>,
 }
 
@@ -111,27 +156,29 @@ pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_
     let (mut hs, mut bs) = (Snapshot::new(repo, head)?, Snapshot::new(repo, base)?);
     let config = at_rev(&hs, override_path)?;
     if !config.present {
-        return Ok(GateResult { violations: Vec::new(), warning: Some("code-health: no structure.toml at HEAD; gate skipped".to_owned()) });
+        return Ok(GateResult { violations: Vec::new(), warnings: Vec::new(), metrics: Vec::new(), warning: Some("code-health: no structure.toml at HEAD; gate skipped".to_owned()) });
     }
     let base_config = at_rev(&bs, override_path)?;
     let head_kinds: HashMap<String, Kind> = inventory(&hs, &config).into_iter().collect();
     let changed: Vec<Change> = changes(repo, base, head)?.into_iter().filter(|c| head_kinds.get(&c.path) == Some(&Kind::Hand)).collect();
     let mut v = generated_debt(&config, &base_config, &hs, &bs);
     if changed.is_empty() {
-        return Ok(GateResult { violations: v, warning: None });
+        return Ok(GateResult { violations: v, warnings: Vec::new(), metrics: Vec::new(), warning: None });
     }
     let head_files: Vec<SourceText> = super::report::texts(&mut hs, &changed.iter().map(|c| c.path.clone()).collect::<Vec<_>>())?;
     let based: Vec<&Change> = changed.iter().filter(|c| c.base.as_ref().is_some_and(|b| bs.has(b))).collect();
     let base_paths: Vec<String> = based.iter().filter_map(|c| c.base.clone()).collect();
     let base_files: Vec<SourceText> = super::report::texts(&mut bs, &base_paths)?;
     let base_as_head: Vec<SourceText> = based.iter().zip(&base_files).map(|(c, file)| SourceText { path: c.path.clone(), text: file.text.clone() }).collect();
+    let mut warnings: Vec<String> = Vec::new();
     for (c, file) in changed.iter().zip(&head_files) {
         let before = c.base.as_ref().and_then(|b| bs.text(b)).map(|text| line_count(&text));
-        v.extend(file_size(&c.path, line_count(&file.text), before, config.thresholds_of(&c.path).file_lines));
+        warnings.extend(file_size(&c.path, line_count(&file.text), before, config.thresholds_of(&c.path).file_lines));
     }
     let measured = measure(&[("h", &head_files), ("b", &base_as_head)])?;
     let head_of = |c: &Change| measured.get(&format!("h/{}", c.path));
     let base_of = |c: &Change| measured.get(&format!("b/{}", c.path));
+    let mut metrics = module_metrics(&config, &changed, &measured);
     for c in &changed {
         v.extend(function_debt(&c.path, head_of(c).map_or(&[][..], Vec::as_slice), base_of(c).map_or(&[][..], Vec::as_slice), &config.thresholds_of(&c.path)));
     }
@@ -155,9 +202,18 @@ pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_
             v.push(Violation::new("layer", &c.path, UNMAPPED.to_owned()));
         }
     }
+    let hand = hand_of(&inventory(&hs, &config));
+    let graph = import_graph(&mut hs, &hand, &head_resolver)?;
+    let modules = module_graph(&config, &graph);
+    let fans = fan(&modules);
+    let fan_in: HashMap<&str, usize> = fans.fan_in.iter().map(|(name, count)| (name.as_str(), *count)).collect();
+    let fan_out: HashMap<&str, usize> = fans.fan_out.iter().map(|(name, count)| (name.as_str(), *count)).collect();
+    for metric in &mut metrics {
+        metric.fan_in = fan_in.get(metric.module.as_str()).copied().unwrap_or(0);
+        metric.fan_out = fan_out.get(metric.module.as_str()).copied().unwrap_or(0);
+    }
     if !added.is_empty() {
-        let hand = hand_of(&inventory(&hs, &config));
-        let cycles = sccs(&import_graph(&mut hs, &hand, &head_resolver)?);
+        let cycles = sccs(&graph);
         let component = component_of(&cycles);
         for (path, to) in &added {
             if component.get(path.as_str()).is_some_and(|k| component.get(to.as_str()) == Some(k)) {
@@ -192,8 +248,8 @@ pub(super) fn gate(state: &State, repo: &Path, base: &str, head: &str, override_
     }
     v.extend(super::implicit::debt(&mut hs, override_path, &head_files, &base_as_head)?);
     let allowed = allows(repo, &[&format!("{base}..{head}")])?;
-    v.retain(|x| !(["file-size", "function", "hotspot", super::implicit::RULE].contains(&x.rule.as_str()) && allowed.iter().any(|a| a.rule == x.rule && a.path == x.path)));
-    Ok(GateResult { violations: v, warning: None })
+    v.retain(|x| !(["function", "hotspot", super::implicit::RULE].contains(&x.rule.as_str()) && allowed.iter().any(|a| a.rule == x.rule && a.path == x.path)));
+    Ok(GateResult { violations: v, warnings, metrics, warning: None })
 }
 
 fn generated_debt(config: &Config, base_config: &Config, hs: &Snapshot, bs: &Snapshot) -> Vec<Violation> {

@@ -77,7 +77,7 @@ one name across modules.
 ## Limits
 
 `[thresholds]` sets `file_lines`, `function_lines`, `function_complexity`
-(cyclomatic: 1 plus each branch, loop, case, catch, ternary and run of the same `&&`, `||` or `??` operator) and `hotspot_top`, the files ranked by churn times complexity whose
+(nesting-weighted cognitive complexity: each branch, loop, case, catch, ternary and run of the same `&&`, `||` or `??` operator adds one plus the number of enclosing branches) and `hotspot_top`, the files ranked by churn times complexity whose
 total complexity may not rise. Read the numbers from the repo; do not carry
 another repo's. A `[[module]]` may set an optional inline `thresholds` table
 with the same keys, overriding repo defaults for files in the first matching module
@@ -88,14 +88,17 @@ producer that exists in the tree; `[ignore]` covers vendored and fixture data.
 ## Reading a code-health message
 
 `code-health gate BASE HEAD` runs in safe-push and CI and blocks only new debt;
-existing debt never blocks. `code-health check FILE` runs after each edit and
-returns the same rules for that file as feedback, never blocking. Each line
+existing debt never blocks. It also prints each changed module's total
+cognitive complexity against its base as reduced, moved or raised, with that
+module's fan-in and fan-out, so a split that only moves complexity is visible
+as moved. `code-health check FILE` runs after each edit and
+returns the same rules for that file as feedback, never blocking. Each rule line
 names the rule, the path and line, the measured value against the limit, and
 the fix. The rules:
 
 - cycle: a new import edge that puts two files in one cycle.
 - layer: a new edge to a module outside `may_use`, or a hand file in no module.
-- file-size: a new hand file over `file_lines`, or one that crossed it. Growing a file already over is the hotspot rule's concern.
+- file-size: a warning, never a refusal, for a new hand file over `file_lines` or one that crossed it. Growing a file already over is the hotspot rule's concern.
 - function: a new function over a line or complexity limit, or one that crossed it. Growing one already over is the hotspot rule's concern.
 - hotspot: a top hotspot file whose total complexity rose.
 - generated: a claimed generated file whose producer is missing.
@@ -116,7 +119,7 @@ Exit 2 is a tool error; report it rather than working around it.
 
 ## Code-health-allow
 
-For file-size, function, hotspot and crate-lines (the path is the crate name) only, a commit trailer
+For function, hotspot and crate-lines (the path is the crate name) only, a commit trailer
 `Code-health-allow: <rule> <path> — <reason>` passes the gate when splitting
 now would be worse, for example a table-driven function whose branches are
 data. The reason must say why. The report lists every allow as debt for the

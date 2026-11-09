@@ -125,6 +125,12 @@ fn dispatch(arguments: &[String], io: &mut Io) -> Result<u8, String> {
                 let _ = writeln!(io.err, "{warning}");
             }
             violations(io, &result.violations, a.json)?;
+            for metric in &result.metrics {
+                let _ = writeln!(io.err, "code-health: {}", metric.shown());
+            }
+            for warning in &result.warnings {
+                let _ = writeln!(io.err, "code-health: warning: {warning}");
+            }
             Ok(u8::from(!result.violations.is_empty()))
         }
         "check" => {
@@ -133,10 +139,13 @@ fn dispatch(arguments: &[String], io: &mut Io) -> Result<u8, String> {
                 return Ok(0);
             }
             let found = check(&repo, &io.cwd.join(file), config)?;
-            if !(a.json && found.is_empty()) {
-                violations(io, &found, a.json)?;
+            if !(a.json && found.violations.is_empty() && found.warnings.is_empty()) {
+                violations(io, &found.violations, a.json)?;
             }
-            Ok(u8::from(!found.is_empty()))
+            for warning in &found.warnings {
+                let _ = writeln!(io.err, "code-health: warning: {warning}");
+            }
+            Ok(u8::from(!found.violations.is_empty()))
         }
         "signal" => {
             let map = at_rev(&Snapshot::new(&repo, rev)?, config)?;

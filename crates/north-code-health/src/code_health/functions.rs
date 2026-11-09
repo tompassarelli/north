@@ -63,7 +63,7 @@ fn js_rules(language: &str, extra_scope: &[&str], field_kind: &str) -> String {
     let values = kinds(&["arrow_function", "function_expression", "generator_function"]);
     let runs = logical_runs();
     format!(
-        "id: unit\nlanguage: {language}\nrule:\n  any: [{units}]\n  has: {{ field: name, pattern: $N }}\n---\nid: scope\nlanguage: {language}\nrule:\n  any: [{scopes}]\n  has: {{ field: name, pattern: $N }}\n---\nid: unit\nlanguage: {language}\nrule:\n  all:\n    - any: [{holders}]\n    - has: {{ field: value, any: [{values}] }}\n    - any: [{{ has: {{ field: name, pattern: $N }} }}, {{ has: {{ field: key, pattern: $N }} }}, {{ has: {{ field: property, pattern: $N }} }}]\n---\nid: branch\nlanguage: {language}\nrule:\n  any:\n    - {{ kind: parenthesized_expression, inside: {{ any: [{{ kind: if_statement }}, {{ kind: while_statement }}, {{ kind: do_statement }}], field: condition }} }}\n    - {{ kind: for_statement }}\n    - {{ kind: for_in_statement }}\n    - {{ kind: ternary_expression }}\n    - {{ kind: catch_clause }}\n    - {{ kind: switch_case }}\n{runs}\n"
+        "id: unit\nlanguage: {language}\nrule:\n  any: [{units}]\n  has: {{ field: name, pattern: $N }}\n---\nid: scope\nlanguage: {language}\nrule:\n  any: [{scopes}]\n  has: {{ field: name, pattern: $N }}\n---\nid: unit\nlanguage: {language}\nrule:\n  all:\n    - any: [{holders}]\n    - has: {{ field: value, any: [{values}] }}\n    - any: [{{ has: {{ field: name, pattern: $N }} }}, {{ has: {{ field: key, pattern: $N }} }}, {{ has: {{ field: property, pattern: $N }} }}]\n---\nid: branch\nlanguage: {language}\nrule:\n  any:\n    - {{ kind: if_statement }}\n    - {{ kind: while_statement }}\n    - {{ kind: do_statement }}\n    - {{ kind: for_statement }}\n    - {{ kind: for_in_statement }}\n    - {{ kind: ternary_expression }}\n    - {{ kind: catch_clause }}\n    - {{ kind: switch_case }}\n{runs}\n"
     )
 }
 
@@ -74,7 +74,7 @@ fn rules(language: Language) -> String {
         Language::Tsx => js_rules("Tsx", &["abstract_class_declaration"], "public_field_definition"),
         Language::JavaScript => js_rules("JavaScript", &[], "field_definition"),
         Language::Rust => format!("id: unit\nlanguage: Rust\nrule:\n  kind: function_item\n  has: {{ field: name, pattern: $N }}\n---\nid: scope\nlanguage: Rust\nrule:\n  any:\n    - {{ kind: impl_item, has: {{ field: type, pattern: $N }} }}\n    - {{ kind: trait_item, has: {{ field: name, pattern: $N }} }}\n    - {{ kind: mod_item, has: {{ field: name, pattern: $N }} }}\n---\nid: branch\nlanguage: Rust\nrule:\n  any:\n    - {{ kind: if_expression }}\n    - {{ kind: while_expression }}\n    - {{ kind: for_expression }}\n    - {{ kind: match_arm }}\n{runs}\n"),
-        Language::C => format!("id: unit\nlanguage: C\nrule:\n  kind: function_definition\n  has:\n    field: declarator\n    any:\n      - {{ kind: function_declarator, has: {{ field: declarator, pattern: $N }} }}\n      - {{ kind: pointer_declarator, has: {{ field: declarator, kind: function_declarator, has: {{ field: declarator, pattern: $N }} }} }}\n---\nid: branch\nlanguage: C\nrule:\n  any:\n    - {{ kind: parenthesized_expression, inside: {{ any: [{{ kind: if_statement }}, {{ kind: while_statement }}, {{ kind: do_statement }}], field: condition }} }}\n    - {{ kind: for_statement }}\n    - {{ kind: conditional_expression }}\n    - {{ kind: case_statement, has: {{ field: value, pattern: $V }} }}\n{runs}\n"),
+        Language::C => format!("id: unit\nlanguage: C\nrule:\n  kind: function_definition\n  has:\n    field: declarator\n    any:\n      - {{ kind: function_declarator, has: {{ field: declarator, pattern: $N }} }}\n      - {{ kind: pointer_declarator, has: {{ field: declarator, kind: function_declarator, has: {{ field: declarator, pattern: $N }} }} }}\n---\nid: branch\nlanguage: C\nrule:\n  any:\n    - {{ kind: if_statement }}\n    - {{ kind: while_statement }}\n    - {{ kind: do_statement }}\n    - {{ kind: for_statement }}\n    - {{ kind: conditional_expression }}\n    - {{ kind: case_statement, has: {{ field: value, pattern: $V }} }}\n{runs}\n"),
     }
 }
 
@@ -114,7 +114,7 @@ fn assemble(matches: &[Match]) -> Vec<Function> {
             qualified = format!("{qualified}#{count}");
         }
         if found.rule == "unit" {
-            units.push(Unit { function: Function { name: qualified.clone(), line: found.line, lines: found.end_line - found.line + 1, complexity: 1 }, start: found.start, end: found.end });
+            units.push(Unit { function: Function { name: qualified.clone(), line: found.line, lines: found.end_line - found.line + 1, complexity: 0 }, start: found.start, end: found.end });
         }
         stack.push((found, qualified));
     }
@@ -122,7 +122,7 @@ fn assemble(matches: &[Match]) -> Vec<Function> {
     branches.sort_by_key(|found| found.start);
     let mut by_start: Vec<usize> = (0..units.len()).collect();
     by_start.sort_by_key(|&index| units[index].start);
-    for branch in branches {
+    for branch in &branches {
         let mut best: Option<usize> = None;
         for &index in &by_start {
             let unit = &units[index];
@@ -134,7 +134,8 @@ fn assemble(matches: &[Match]) -> Vec<Function> {
             }
         }
         if let Some(best) = best {
-            units[best].function.complexity += 1;
+            let nesting = branches.iter().filter(|outer| outer.start <= branch.start && outer.end >= branch.end && (outer.start != branch.start || outer.end != branch.end)).count();
+            units[best].function.complexity += 1 + nesting;
         }
     }
     units.into_iter().map(|unit| unit.function).collect()
