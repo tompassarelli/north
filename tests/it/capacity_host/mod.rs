@@ -206,6 +206,7 @@ impl Host {
             ("AGENT_CAPACITY_USAGE_LOG", self.path("usage.jsonl").display().to_string()),
             ("AGENT_CAPACITY_CGROUP_ROOT", self.path("cgroup").display().to_string()),
             ("AGENT_CAPACITY_CPU_PRESSURE", self.path("pressure").display().to_string()),
+            ("AGENT_CAPACITY_HOST_CPU_PRESSURE", self.path("pressure").display().to_string()),
             ("AGENT_CAPACITY_GPU_BUSY", self.path("gpu").display().to_string()),
             ("AGENT_CAPACITY_GPU_CLIENTS", "0".to_owned()),
             ("AGENT_CAPACITY_LOADAVG", self.path("loadavg").display().to_string()),
