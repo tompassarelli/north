@@ -109,3 +109,24 @@ impl Gc {
         }
     }
 }
+
+impl Gc {
+    pub(super) fn print_outcome(&self) {
+        for (issue, places) in &self.kept_open {
+            println!("kept on open {issue}: {}", places.join(", "));
+        }
+        let c = &self.counts;
+        println!(
+            "lane gc{}: retired {} worktrees, {} local branches, {} origin branches; bundled {} lanes to the archive before reaping them; kept {} ({} unlanded); dropped {} build targets ({})",
+            if self.options.dry_run { " (dry run)" } else { "" },
+            c.retired_worktrees,
+            c.deleted_branches,
+            c.deleted_remote,
+            c.archived,
+            c.kept,
+            c.unlanded,
+            c.dropped_targets,
+            super::targets::gib(c.dropped_bytes)
+        );
+    }
+}
