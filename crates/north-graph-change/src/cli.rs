@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -6,6 +7,7 @@ use north_graph::{Graph, default_path};
 use serde_json::{Value, json};
 
 use crate::blame::{self, Failure, Suspect};
+use crate::carry::{self, Pass};
 use crate::cone::{self, Cone};
 use crate::facts::{Facts, TestId};
 use crate::lane::{self, Change, Lane};
@@ -14,7 +16,7 @@ use crate::overlap;
 pub const VERBS: [&str; 3] = ["affected", "overlap", "blame"];
 const UNTRACED: u8 = 3;
 const PATIENCE: Duration = Duration::from_secs(5);
-const USAGE: &str = "usage: north graph ask affected [--db PATH] [--repo DIR] [--json | --nextest] BASE HEAD
+const USAGE: &str = "usage: north graph ask affected [--db PATH] [--repo DIR] [--json | --nextest] [--lane NAME=BASE..HEAD]... [--ran NAME=BASE..HEAD]... BASE HEAD
        north graph ask overlap [--db PATH] [--repo DIR] [--json] NAME=BASE..HEAD...
        north graph ask blame [--db PATH] [--repo DIR] [--json] [--failed \"BINARY TEST\"]... [--compile FILE]... [--log FILE]... NAME=BASE..HEAD...";
 
@@ -27,6 +29,8 @@ struct Options {
     failed: Vec<String>,
     compile: Vec<String>,
     logs: Vec<PathBuf>,
+    lanes: Vec<String>,
+    ran: Vec<String>,
     positional: Vec<String>,
 }
 
@@ -43,6 +47,8 @@ fn options(arguments: &[String]) -> Result<Options, String> {
             "--failed" => parsed.failed.push(value("--failed")?),
             "--compile" => parsed.compile.push(value("--compile")?),
             "--log" => parsed.logs.push(PathBuf::from(value("--log")?)),
+            "--lane" => parsed.lanes.push(value("--lane")?),
+            "--ran" => parsed.ran.push(value("--ran")?),
             flag if flag.starts_with("--") => return Err(format!("unknown flag {flag}")),
             _ => parsed.positional.push(argument.clone()),
         }
@@ -82,7 +88,26 @@ fn cones(root: &Path, facts: &Facts, words: &[String]) -> Result<Vec<(String, Co
     words.iter().map(|word| Lane::parse(word).and_then(|lane| Ok((lane.name, cone_between(root, facts, &lane.base, &lane.head)?)))).collect()
 }
 
-fn ids(tests: &std::collections::BTreeSet<TestId>) -> Vec<String> {
+fn carried(root: &Path, facts: &Facts, base: &str, options: &Options) -> BTreeSet<TestId> {
+    if options.ran.is_empty() {
+        return BTreeSet::new();
+    }
+    let lanes = match cones(root, facts, &options.lanes) {
+        Ok(lanes) => lanes,
+        Err(why) => {
+            eprintln!("north graph ask affected: no alone pass carries a test, as the landed lanes have no cone: {why}");
+            return BTreeSet::new();
+        }
+    };
+    let pass = |word: &String| -> Result<Pass, String> {
+        let lane = Lane::parse(word)?;
+        Ok(Pass { ran: cone_between(root, facts, &lane.base, &lane.head)?, unseen: cone_between(root, facts, &lane.base, base)?, lane: lane.name })
+    };
+    let passes: Vec<Pass> = options.ran.iter().filter_map(|word| pass(word).map_err(|why| eprintln!("north graph ask affected: the alone pass {word} carries no test: {why}")).ok()).collect();
+    carry::carried(&lanes, &passes)
+}
+
+fn ids(tests: &BTreeSet<TestId>) -> Vec<String> {
     tests.iter().map(ToString::to_string).collect()
 }
 
@@ -116,10 +141,13 @@ pub fn run(arguments: &[String]) -> u8 {
 fn affected(context: &Context, options: &Options) -> Result<u8, String> {
     let [base, head] = options.positional.as_slice() else { return Err(format!("affected takes BASE HEAD\n{USAGE}")) };
     let facts = context.facts()?;
-    let cone = cone_between(&context.root, &facts, base, head)?;
+    let mut cone = cone_between(&context.root, &facts, base, head)?;
+    let carried = if cone.untraced.is_none() { carried(&context.root, &facts, base, options) } else { BTreeSet::new() };
+    cone.tests.retain(|test| !carried.contains(test));
+    cone.always.retain(|test| !carried.contains(test));
     if options.json {
         let added: Vec<Value> = cone.added.iter().map(|test| json!({ "package": test.package, "name": test.name })).collect();
-        println!("{}", json!({ "tests": ids(&cone.tests), "always": ids(&cone.always), "added": added, "files": cone.files, "untraced": cone.untraced, "known": facts.all_tests().len() }));
+        println!("{}", json!({ "tests": ids(&cone.tests), "always": ids(&cone.always), "added": added, "files": cone.files, "untraced": cone.untraced, "known": facts.all_tests().len(), "carried": ids(&carried) }));
     } else if options.nextest {
         let arguments = cone.nextest_arguments();
         if cone.untraced.is_none() && !arguments.is_empty() {

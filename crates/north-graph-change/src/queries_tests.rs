@@ -2,6 +2,7 @@ use north_coverage::hunks::{Hunks, parse};
 use north_graph::{Action, Graph, Term, Triple};
 
 use crate::blame::{self, Suspect};
+use crate::carry::{self, Pass};
 use crate::cone::{self, Added, Cone};
 use crate::facts::{Facts, TestId};
 use crate::lane::{Change, Changed, Status};
@@ -124,4 +125,14 @@ fn the_nextest_arguments_select_each_traced_test_by_binary_and_each_added_test_b
     let cone = Cone { tests: [id("north::it", "fleet::a_launch_claims"), id("north-base", "error::tests::drill")].into(), added: vec![Added { package: "north-lanes".to_owned(), name: "retires_a_pin".to_owned() }], ..Cone::default() };
     assert_eq!(cone.nextest_arguments().join(" "), "-p north -p north-base -p north-lanes -E (binary_id(north-base)&test(=error::tests::drill))|(binary_id(north::it)&test(=fleet::a_launch_claims))|(package(north-lanes)&test(/(^|::)retires_a_pin$/))");
     assert!(Cone::default().nextest_arguments().is_empty());
+}
+
+#[test]
+fn an_alone_pass_carries_only_a_test_no_other_landed_lane_and_no_landing_it_did_not_see_can_affect() {
+    let cone = |tests: &[&str]| Cone { tests: tests.iter().map(|name| id("north::it", name)).collect(), ..Cone::default() };
+    let lanes = vec![("lane-a".to_owned(), cone(&["alone", "shared", "unseen"])), ("lane-b".to_owned(), cone(&["shared", "reverted"])), ("revert".to_owned(), cone(&["reverted"]))];
+    let passes = [Pass { lane: "lane-a".to_owned(), ran: cone(&["alone", "shared", "unseen"]), unseen: cone(&["unseen"]) }, Pass { lane: "lane-b".to_owned(), ran: cone(&["shared", "reverted"]), unseen: Cone::default() }];
+    assert_eq!(carry::carried(&lanes, &passes).into_iter().collect::<Vec<_>>(), vec![id("north::it", "alone")]);
+    let untraced = [lanes, vec![("toolchain".to_owned(), Cone { untraced: Some("rust-toolchain.toml".to_owned()), ..Cone::default() })]].concat();
+    assert!(carry::carried(&untraced, &passes).is_empty());
 }

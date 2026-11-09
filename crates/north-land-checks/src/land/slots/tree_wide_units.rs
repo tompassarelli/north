@@ -42,6 +42,10 @@ impl Units {
         self.0.iter().map(|(package, _)| package.clone()).collect()
     }
 
+    pub fn tests(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|(_, test)| test.as_str())
+    }
+
     pub fn names(&self) -> String {
         self.0.iter().map(|(package, test)| format!("{package} {test}")).collect::<Vec<_>>().join(", ")
     }

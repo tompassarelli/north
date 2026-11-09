@@ -45,7 +45,7 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     let directory = tempfile::tempdir().unwrap();
     let answer = r#"{"tests":["north::it fleet::launch::refuses_a_full_window","north-land-checks land::slots::select::tests::queues","north-coverage::pick_tests pick::regions"],"always":["north-base::bin/probe tests::reads_home"],"added":[{"package":"north-land-checks","name":"narrows_to_ids"}],"files":[],"untraced":null}"#;
     let traced = graph_stub(directory.path(), "traced", &format!("printf '%s' '{answer}'"));
-    let selection = selection_asking(&traced, root(), "HEAD", "HEAD").unwrap();
+    let selection = selection_asking(&traced, root(), "HEAD", "HEAD", &Batch::default()).unwrap();
     assert_eq!(
         selection.arguments(),
         "--test it -E (binary_id(north-base::bin/probe)&(test(=tests::reads_home)))|(binary_id(north-land-checks)&(test(=land::slots::select::tests::queues)))|(binary_id(north::it)&(test(=fleet::launch::refuses_a_full_window)))|(package(north-land-checks)&test(/(^|::)narrows_to_ids$/))|(binary_id(north::it)&test(/^(affected_modules|agent_text_reads)::/))|(binary_id(=north-code-health)&test(=code_health::habits_tests::the_north_tree_keeps_its_rust_habits))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree))",
@@ -56,7 +56,7 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     let crate_level = select(&read(STRUCTURE), &read(TABLE), &spawners(root()), &[]).unwrap().with_units(units(&read(tree_wide_units::TABLE), &Plan::parse(&read(STRUCTURE)).unwrap()).unwrap());
     for (name, body) in [("untraced", "echo '{\"tests\":[]}'; exit 3"), ("missing", "exit 2")] {
         let program = graph_stub(directory.path(), name, body);
-        assert_eq!(selection_asking(&program, root(), "HEAD", "HEAD").unwrap(), crate_level, "a graph that answers {name} falls back to the crate-level selection");
+        assert_eq!(selection_asking(&program, root(), "HEAD", "HEAD", &Batch::default()).unwrap(), crate_level, "a graph that answers {name} falls back to the crate-level selection");
     }
 }
 
@@ -74,14 +74,14 @@ fn every_lane_selection_names_the_tree_wide_unit_tests_the_graph_and_the_crate_f
     let untraced = graph_stub(directory.path(), "untraced", "exit 2");
     let table = read(tree_wide_units::TABLE);
     for program in [&traced, &untraced] {
-        let selection = selection_asking(program, root(), "HEAD", "HEAD").unwrap();
+        let selection = selection_asking(program, root(), "HEAD", "HEAD", &Batch::default()).unwrap();
         for test in TREE_WIDE_UNITS {
             assert!(selection.summary().contains(test), "{program:?}: the selection line names {test}: {}", selection.summary());
             assert!(table.contains(test), "{test} is declared in {}", tree_wide_units::TABLE);
         }
         assert!(selection.packages().is_superset(&["north-code-health".to_owned(), "north-runtime".to_owned()].into()), "{program:?}: their packages are built");
     }
-    let graph = selection_asking(&traced, root(), "HEAD", "HEAD").unwrap().arguments();
+    let graph = selection_asking(&traced, root(), "HEAD", "HEAD", &Batch::default()).unwrap().arguments();
     for test in TREE_WIDE_UNITS {
         assert!(graph.contains(&format!("test(={test})")), "the graph filter runs {test}: {graph}");
     }

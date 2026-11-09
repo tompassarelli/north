@@ -13,6 +13,7 @@ pub use hand_off::hand_off;
 use journal::{Entry, Journaled, adopt_journal_files, journal, take_journaled};
 
 use super::after;
+use super::alone_pass::Currency;
 use super::after_landing_lifecycle::{self as lifecycle, AfterLandingRun, Run};
 use super::candidate::{self, git, output};
 use super::checks::Verdict;
@@ -368,7 +369,9 @@ fn landed(lander: &Lander, batch: &Batch) -> post_land::Landed {
     let heads = batch.heads.iter().map(|followed| followed.head.clone()).collect();
     let names = batch.lanes.iter().map(|lane| lane.ticket.branch.clone()).collect();
     let tips = batch.lanes.iter().map(|lane| lane.tip.clone()).collect();
-    post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips)
+    let currency = Currency::at(&lander.repo, &batch.base);
+    let ran = batch.lanes.iter().filter_map(|lane| lane.ticket.passed_alone_on().filter(|on| currency.current(on)).map(|on| format!("{}={on}..{}", lane.ticket.branch, lane.ticket.head))).collect();
+    post_land::Landed::on(lander, &batch.base, &batch.head, heads, names, tips, ran)
 }
 
 fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {

@@ -32,12 +32,14 @@ pub fn suspects(lanes: &[String], exit: Option<i32>, printed: &str) -> Suspects 
     if named.is_empty() || named.len() == lanes.len() { Suspects::Batch } else { Suspects::Named(named) }
 }
 
+pub fn ranges(base: &str, lanes: &[String], tips: &[String]) -> Vec<String> {
+    lanes.iter().zip(tips).enumerate().map(|(at, (lane, tip))| format!("{lane}={}..{tip}", if at == 0 { base } else { &tips[at - 1] })).collect()
+}
+
 pub fn ask(repo: &Path, log: &Path, base: &str, head: &str, lanes: &[String], tips: &[String], room: usize) -> Suspects {
     let mut command = Command::new(follow::program());
     command.args(["graph", "ask", "blame", "--log"]).arg(log).current_dir(repo).stdin(Stdio::null());
-    for (at, (lane, tip)) in lanes.iter().zip(tips).enumerate() {
-        command.arg(format!("{lane}={}..{tip}", if at == 0 { base } else { &tips[at - 1] }));
-    }
+    command.args(ranges(base, lanes, tips));
     let asked = north_base::platform::process::run_command_within(command, None, ASK_LIMIT);
     let suspects = asked.as_ref().map_or(Suspects::Batch, |output| self::suspects(lanes, output.status.code(), &String::from_utf8_lossy(&output.stdout)));
     match &suspects {

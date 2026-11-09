@@ -47,7 +47,7 @@ fn a_post_land_run_is_red_main_only_when_a_check_recorded_a_failing_verdict_what
 
 fn landed(heads: &[&str]) -> Landed {
     let heads: Vec<String> = heads.iter().map(|head| (*head).to_owned()).collect();
-    Landed { repo: PathBuf::new(), repository: "owner/repo".to_owned(), base: "base".to_owned(), head: heads.last().cloned().unwrap_or_default(), heads, lanes: vec!["lane-a".to_owned(), "lane-b".to_owned()], tips: Vec::new() }
+    Landed { repo: PathBuf::new(), repository: "owner/repo".to_owned(), base: "base".to_owned(), head: heads.last().cloned().unwrap_or_default(), heads, lanes: vec!["lane-a".to_owned(), "lane-b".to_owned()], tips: Vec::new(), ran: Vec::new() }
 }
 
 // KEEP(bug): on 2026-11-06 coalescing made one after-landing run cover every journaled landing, so a run stuck on a build host held every later verdict (north#634)

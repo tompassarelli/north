@@ -1366,3 +1366,10 @@ sheriff's revert still follow it. No guard changes to allow it.
 Replay: `cargo nextest run -p north-lander -E 'test(break_glass_lands)'` refuses the command without
 approval and pushes nothing, then lands the ticket once approval is recorded, with the secret scan run and the
 incident recorded.
+
+## After-landing run narrowed by the alone passes (2026-11-09, north#917)
+
+- Land-first left the after-landing run checking the batch range's whole graph selection, though every lane had already run its own selection before queueing (`refuse_queue_checks` runs the lane's tests/it land check on the graph's answer for the lane), and north dash read 103 s for "checks after landing, typical" (n=56, records mirrored to gex45 up to 2026-11-08 01:57 UTC) against its 60 s bar.
+- The lander now passes the after-landing run, for every landed lane, its range on main (`--lane NAME=PREV..TIP`, the ranges blame already used) and, for each lane whose alone pass is current on the batch's base (`landing.alone-pass-landings`), the range that pass checked (`--ran NAME=ALONE_BASE..LANE_HEAD`). `north land checks --after` hands both to `north graph ask affected`, which leaves out a test when exactly one landed lane's cone holds it, that lane's pass range holds it, and the landings between the pass's main and the batch base cannot affect it; a test two lanes share, a test a lane with no pass (a sheriff revert) can affect, and every test of a batch with an untraced lane still run. The land check's selection line names how many tests were carried.
+- Known gap: the pass's cone is recomputed from today's graph, so a test the graph linked to the lane only after its pass ran is carried though it never ran. The miss check below measures this with every other miss.
+- Each after-landing run records its graph selection in its outcome file (`selected BASE HEAD JSON`), and `north land missed --since DATE` lists each failing Cargo run on main since DATE, finds the recorded range holding its commit, and names every failed test the selection left out, exiting 1 on any.

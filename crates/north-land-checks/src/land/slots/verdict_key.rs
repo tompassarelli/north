@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use north_base::verdict_cache::{self, Check, Pass};
 
 use super::affected::{self, CHANGED_ENV, CPUS_ENV, PACKAGES_ENV, Scope};
+use super::graph_selection::Batch;
 use super::it_modules::{self, IT_ENV};
 use crate::landing::land_test_selection::SELECT_PATHS_ENV;
 
@@ -49,9 +50,9 @@ pub fn lane_scope(root: &Path, base: &str, head: &str, commands: &[String], on_e
     })
 }
 
-pub fn lane_it(root: &Path, base: &str, head: &str, commands: &[String], on_error: impl FnOnce(String)) -> Option<it_modules::Selection> {
+pub fn lane_it(root: &Path, base: &str, head: &str, batch: &Batch, commands: &[String], on_error: impl FnOnce(String)) -> Option<it_modules::Selection> {
     reads_it(commands).then(|| {
-        it_modules::selection(root, base, head).unwrap_or_else(|error| {
+        it_modules::selection(root, base, head, batch).unwrap_or_else(|error| {
             on_error(error);
             it_modules::Selection::Every
         })
@@ -59,7 +60,7 @@ pub fn lane_it(root: &Path, base: &str, head: &str, commands: &[String], on_erro
 }
 
 pub fn lane_environment(root: &Path, base: &str, head: &str, commands: &[String]) -> Vec<(String, String)> {
-    let it = lane_it(root, base, head, commands, |_| {});
+    let it = lane_it(root, base, head, &Batch::default(), commands, |_| {});
     let packages = it.as_ref().map(it_modules::Selection::packages).unwrap_or_default();
     let scope = lane_scope(root, base, head, commands, |_| {}).map(|scope| scope.including(&packages));
     let it = it.map(|selection| selection.arguments());

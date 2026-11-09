@@ -285,6 +285,7 @@ Commands:
   job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...  Run a scheduled job and record its result
   land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
   land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
+  land missed --since DATE [--repo DIR]               List each failing Cargo run on main since DATE and the failed tests the change graph's after-landing selection for its landing range left out
   loops check [--role ledger|lander|here]       Check the declared control loops and their scores
   fleet pace place ...                          Place a launch on a machine and account
   fleet pace sample                             Sample account usage

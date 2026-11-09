@@ -1,4 +1,4 @@
-use crate::landing::{fails_first, land_actions, lane_squash, lane_target, land_test_runner, red_check};
+use crate::landing::{fails_first, land_actions, lane_squash, lane_target, land_test_runner, missed, red_check};
 use crate::land_abandon;
 
 pub(super) type Run = fn(&[String]) -> u8;
@@ -25,6 +25,7 @@ const LAND: &[(&str, Run)] = &[
     ("actions", land_actions::run),
     ("clean", lane_target::run),
     ("fails-first", fails_first::run),
+    ("missed", missed::run),
     ("red-check", red_check::run),
     ("release", north_safe_push::entry::release),
     ("tests", land_test_runner::run),

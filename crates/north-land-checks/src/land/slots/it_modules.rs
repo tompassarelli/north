@@ -5,7 +5,7 @@ use north_base::build_inputs::rust_build_input;
 use regex::Regex;
 use toml_edit::{DocumentMut, Item};
 
-use super::graph_selection::{self, Tests};
+use super::graph_selection::{self, Batch, Selected, Tests};
 use super::select::changed;
 use super::shared_build::live_runtime;
 use super::tree_wide_units::{self, Units};
@@ -55,6 +55,13 @@ impl Selection {
             Self::Every => true,
             Self::Modules { modules, .. } => modules.contains(module),
             Self::Tests(tests) => tests.runs_module(module),
+        }
+    }
+
+    pub fn selected(&self) -> Option<Selected> {
+        match self {
+            Self::Tests(tests) => Some(tests.selected()),
+            Self::Every | Self::Modules { .. } => None,
         }
     }
 
@@ -223,13 +230,13 @@ pub fn select(structure: &str, table: &str, spawners: &BTreeSet<String>, files: 
     Ok(Selection::Modules { modules, units: Units::default() })
 }
 
-pub fn selection(root: &Path, base: &str, head: &str) -> Result<Selection, String> {
-    selection_asking(&live_runtime(), root, base, head)
+pub fn selection(root: &Path, base: &str, head: &str, batch: &Batch) -> Result<Selection, String> {
+    selection_asking(&live_runtime(), root, base, head, batch)
 }
 
-pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str) -> Result<Selection, String> {
+pub fn selection_asking(program: &Path, root: &Path, base: &str, head: &str, batch: &Batch) -> Result<Selection, String> {
     let read = |path: &str| std::fs::read_to_string(root.join(path)).map_err(|error| format!("{path}: {error}"));
-    if let Some(tests) = graph_selection::ask(program, root, base, head) {
+    if let Some(tests) = graph_selection::ask(program, root, base, head, batch) {
         let plan = Plan::parse(&read(STRUCTURE)?)?;
         let table = Table::parse(&read(TABLE)?, &plan, &spawners(root))?;
         return Ok(Selection::Tests(tests.with_modules(table.tree_wide).with_units(units(&read(tree_wide_units::TABLE)?, &plan)?)));

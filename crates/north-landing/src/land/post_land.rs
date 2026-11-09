@@ -42,6 +42,7 @@ pub struct Landed {
     pub heads: Vec<String>,
     pub lanes: Vec<String>,
     pub tips: Vec<String>,
+    pub ran: Vec<String>,
 }
 
 pub struct Outcome {
@@ -179,9 +180,9 @@ fn measured_deadline(ledger: &Path, repository: &str) -> Deadline {
 }
 
 impl Landed {
-    pub fn on(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>) -> Self {
+    pub fn on(lander: &Lander, base: &str, head: &str, heads: Vec<String>, lanes: Vec<String>, tips: Vec<String>, ran: Vec<String>) -> Self {
         let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
-        Self { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips }
+        Self { repo: lander.repo.clone(), repository: push_ledger::repository(&origin), base: base.to_owned(), head: head.to_owned(), heads, lanes, tips, ran }
     }
 }
 

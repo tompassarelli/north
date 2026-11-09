@@ -7,7 +7,8 @@ use super::super::affected::Scope;
 use super::super::verdict_key;
 use super::super::select::{Config, changed};
 use super::super::selection_record::Recorded;
-use super::arguments::Arguments;
+use super::arguments::{Arguments, Outcome};
+use super::super::graph_selection::SELECTED;
 use super::{say, warn};
 
 pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> (Option<Scope>, Option<String>) {
@@ -74,9 +75,14 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
         say(&format!("safe-push: the after-landing tests/it run reuses the candidate's selection, {filters}"));
         return Some((filters, BTreeSet::new()));
     }
-    let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
+    let selection = verdict_key::lane_it(root, &arguments.base, &arguments.head, &arguments.batch, commands, |error| warn(&format!("safe-push: {error}; the tests/it run covers every module")))?;
     if !arguments.leased {
         say(&format!("safe-push: the tests/it run is {}", selection.summary()));
+    }
+    if arguments.after
+        && let Some(selected) = selection.selected()
+    {
+        Outcome(arguments.outcome.clone()).record(&[SELECTED, &arguments.base, &arguments.head, &serde_json::to_string(&selected).unwrap_or_default()]);
     }
     Some((selection.arguments(), selection.packages()))
 }

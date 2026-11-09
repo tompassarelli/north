@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use north_base::foundation::offload::{LANDER_SLOT_ENV, LOCAL_ENV, OFF_HOST_ENV};
 
+use crate::land::slots::graph_selection::Batch;
 use crate::land::slots::unit_reuse::RECORD_ENV;
 
 #[derive(Clone, Default)]
@@ -30,6 +31,7 @@ pub(super) struct Arguments {
     pub(super) runner_host: String,
     pub(super) commands: Vec<String>,
     pub(super) span: String,
+    pub(super) batch: Batch,
 }
 
 pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
@@ -42,7 +44,7 @@ pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
             "--after" => parsed.after = true,
             "--leased" => parsed.leased = true,
             "--replay" => parsed.replay = true,
-            "--base" | "--head" | "--tree" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" => {
+            "--base" | "--head" | "--tree" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--destination" | "--event-log" | "--wait-event" | "--published" | "--runner-host" | "--command" | "--records" | "--since" | "--until" | "--lane" | "--ran" => {
                 let value = rest.next()?.clone();
                 match flag.as_str() {
                     "--base" => parsed.base = value,
@@ -60,6 +62,8 @@ pub(super) fn parse(arguments: &[String]) -> Option<Arguments> {
                     "--records" => parsed.records = Some(PathBuf::from(value)),
                     "--since" => parsed.since = value.parse().ok()?,
                     "--until" => parsed.until = value.parse().ok()?,
+                    "--lane" => parsed.batch.lanes.push(value),
+                    "--ran" => parsed.batch.ran.push(value),
                     _ => parsed.commands.push(value),
                 }
             }

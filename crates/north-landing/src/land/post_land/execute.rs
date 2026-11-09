@@ -62,6 +62,8 @@ pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &
     argv.extend(prefix.iter().map(OsString::from));
     argv.extend(["--base", &landed.base, "--head", &landed.head, "--tree", tree, "--outcome"].map(OsString::from));
     argv.push(run.outcome.clone().into_os_string());
+    argv.extend(crate::land::blame::ranges(&landed.base, &landed.lanes, &landed.tips).into_iter().flat_map(|lane| ["--lane".into(), lane.into()]));
+    argv.extend(landed.ran.iter().flat_map(|pass| ["--ran".into(), pass.into()]));
     if run.adoptable {
         argv = runner::wrapped(run, argv);
     }
