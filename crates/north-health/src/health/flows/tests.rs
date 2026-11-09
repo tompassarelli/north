@@ -6,7 +6,7 @@ fn at(text: &str) -> f64 {
 }
 
 fn host(name: &str, now: f64) -> Host {
-    let facts = HostFacts { host: name.into(), runtime: Some("a".repeat(40)), policy_published: Some(now - 3600.0), newest_activity: Some(now - 60.0), ..HostFacts::default() };
+    let facts = HostFacts { host: name.into(), runtime: Some("a".repeat(40)), policy_published: Some(now - 3600.0), newest_finished: Some(now - 60.0), ..HostFacts::default() };
     Host { name: name.into(), facts: Ok(facts), behind_since: Ok(None) }
 }
 
@@ -41,7 +41,7 @@ fn runs_that_stop_reaching_the_ledger_alarm_while_workers_run_and_the_frozen_sna
     let now = at("2026-11-07T01:36:00Z");
     let mut world = healthy(now);
     facts(&mut world, "nexus").newest_run = Some(at("2026-11-07T01:16:00Z"));
-    facts(&mut world, "whiterabbit").newest_activity = Some(at("2026-11-07T01:35:00Z"));
+    facts(&mut world, "whiterabbit").newest_finished = Some(at("2026-11-07T01:35:00Z"));
     assert!(world.judge().iter().all(|flow| flow.verdict.is_ok()), "a 19 min lag is inside the 15 min timer and its slack");
     facts(&mut world, "nexus").newest_run = Some(at("2026-11-07T01:10:00Z"));
     alarms_only(&world, "run-recording", "newest recorded run ended 26 min ago");
@@ -108,4 +108,36 @@ fn a_state_whose_holder_died_alarms_as_a_stuck_state_machine_and_an_unreadable_s
     let mut world = healthy(at("2026-11-07T02:30:00Z"));
     facts(&mut world, "gex45").lifecycles = Lifecycles::Unreadable("database is locked".into());
     alarms_only(&world, "state-machines", "gex45: its lifecycle store is unreadable: database is locked");
+}
+
+fn session(fleet: &std::path::Path, name: &str, host_pid: Option<u32>, wrote: f64) {
+    let generation = fleet.join(name).join("g1");
+    std::fs::create_dir_all(&generation).unwrap();
+    if let Some(pid) = host_pid {
+        std::fs::write(fleet.join(name).join("host.pid"), pid.to_string()).unwrap();
+    }
+    let stream = std::fs::File::create(generation.join("stream.jsonl")).unwrap();
+    stream.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs_f64(wrote)).unwrap();
+}
+
+/// north#963: a worker still running has no run to record, so its stream writes must not read as unrecorded work.
+#[test]
+fn a_running_worker_is_no_finished_work_for_the_recording_check() {
+    let fleet = tempfile::tempdir().unwrap();
+    let mut gone = std::process::Command::new("true").spawn().unwrap();
+    let dead = gone.id();
+    gone.wait().unwrap();
+    session(fleet.path(), "live", Some(std::process::id()), 3000.0);
+    assert_eq!(facts::newest_finished(fleet.path()), None);
+    session(fleet.path(), "done", Some(dead), 1000.0);
+    session(fleet.path(), "retired", None, 2000.0);
+    assert_eq!(facts::newest_finished(fleet.path()), Some(2000.0));
+
+    let now = at("2026-11-08T18:00:00Z");
+    let mut world = healthy(now);
+    facts(&mut world, "nexus").newest_run = Some(now - 40.0 * 60.0);
+    for name in ["gex45", "nexus", "whiterabbit"] {
+        facts(&mut world, name).newest_finished = None;
+    }
+    assert!(world.judge().iter().all(|flow| flow.verdict.is_ok()), "no worker finished, one runs: quiet");
 }

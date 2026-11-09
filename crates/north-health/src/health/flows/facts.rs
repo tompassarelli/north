@@ -27,13 +27,20 @@ fn entries(directory: &Path) -> impl Iterator<Item = std::path::PathBuf> + use<>
     fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| entry.path())
 }
 
-/// The newest write to any fleet session's stream on this host: a worker was running then.
-fn newest_activity(fleet: &Path) -> Option<f64> {
+/// The newest write to the stream of a fleet session whose host has exited: a worker finished then, so its run is due in the ledger. A session whose host still runs has no run to record yet.
+pub(super) fn newest_finished(fleet: &Path) -> Option<f64> {
     entries(fleet)
         .filter(|session| session.file_name().is_some_and(|name| !name.to_string_lossy().starts_with('.')))
+        .filter(|session| !host_running(session))
         .flat_map(|session| entries(&session))
         .filter_map(|generation| modified(&generation.join("stream.jsonl")))
         .reduce(f64::max)
+}
+
+fn host_running(session: &Path) -> bool {
+    let Some(pid) = fs::read_to_string(session.join("host.pid")).ok().and_then(|text| text.trim().parse::<u32>().ok()) else { return false };
+    let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).unwrap_or_default();
+    stat.rsplit_once(')').is_some_and(|(_, rest)| !rest.trim_start().starts_with('Z'))
 }
 
 
@@ -125,7 +132,7 @@ pub fn gather(home: &Path) -> HostFacts {
         dispatch: dispatch(&state),
         newest_run: newest_run(home),
         recording_interval_s: recording_interval(),
-        newest_activity: newest_activity(&state.join("fleet")),
+        newest_finished: newest_finished(&state.join("fleet")),
         lifecycles: lifecycles(home),
     }
 }

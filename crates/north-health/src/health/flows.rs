@@ -60,7 +60,8 @@ pub struct HostFacts {
     pub newest_run: Option<f64>,
     /// How often the backstop timer records runs on the ledger host, `None` when it is not loaded there.
     pub recording_interval_s: Option<f64>,
-    pub newest_activity: Option<f64>,
+    /// When the newest fleet session whose host has exited last wrote, `None` when none has finished on this host.
+    pub newest_finished: Option<f64>,
     pub lifecycles: Lifecycles,
 }
 
@@ -124,14 +125,14 @@ impl World {
 
     fn recording(&self) -> Flow {
         let newest_run = self.reached().filter_map(|(_, facts)| facts.newest_run).reduce(f64::max);
-        let activity = self.reached().filter_map(|(name, facts)| Some((name, facts.newest_activity?))).max_by(|a, b| a.1.total_cmp(&b.1));
+        let activity = self.reached().filter_map(|(name, facts)| Some((name, facts.newest_finished?))).max_by(|a, b| a.1.total_cmp(&b.1));
         let interval = self.reached().filter(|(_, facts)| facts.newest_run.is_some()).find_map(|(_, facts)| facts.recording_interval_s);
         let mut faults = Vec::new();
         match (newest_run, interval, activity) {
             (None, _, _) => faults.push("no host reports the ledger's newest recorded run".to_owned()),
             (Some(_), None, _) => faults.push("the worker-ledger timer, the backstop that records runs no session end recorded, is not loaded on the ledger host".to_owned()),
             (Some(run), Some(interval), Some((name, active))) if active - run > interval + RECORDING_SLACK_S => faults.push(format!(
-                "the ledger's newest recorded run ended {} ago while workers ran {} later (newest on {name}, {} ago)",
+                "the ledger's newest recorded run ended {} ago while workers finished {} later (newest on {name}, {} ago)",
                 minutes(self.age(run)),
                 minutes(active - run),
                 minutes(self.age(active))
