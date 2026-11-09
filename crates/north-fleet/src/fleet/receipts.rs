@@ -138,27 +138,35 @@ fn head(reply: &str) -> Vec<String> {
 pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
     let open: BTreeSet<i64> = gates.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && gate.request.session == report.child).map(|gate| gate.id).collect();
     let facts = Facts::of(report.reply.as_deref().unwrap_or_default().trim(), report.landed.as_deref(), open, report.waiting);
-    let Some((text, delivery)) = report.notice(lines, parent == PROXY) else { return Ok(false) };
+    let Some((notice, delivery)) = report.notice(lines, parent == PROXY) else { return Ok(false) };
     let told = (report.exit == TurnExit::Completed).then_some(facts);
-    if let Some(facts) = &told
-        && (!facts.worth_telling() || facts.repeats(book.last_receipt(&report.child, Facts::PREFIX)?.as_deref()))
-    {
+    let pages = match (&told, parent == PROXY) {
+        (Some(facts), true) => facts.wakes_proxy(),
+        (Some(facts), false) => facts.worth_telling(),
+        (None, true) => false,
+        (None, false) => true,
+    };
+    let repeats = match &told {
+        Some(facts) => facts.repeats(book.last_receipt(&report.child, Facts::PREFIX)?.as_deref()),
+        None => false,
+    };
+    if !pages || repeats {
         if book.claim_receipt(&report.child, &format!("held:{}", report.turn), now_ms)? {
-            courier.hold(parent, text);
+            courier.hold(parent, notice);
         }
         return Ok(false);
     }
     let text = if report.asks_a_decision() {
         match ask_once_gate_named(gates, report.reply.as_deref().unwrap_or_default())? {
-            Some(gate) => format!("{text}\n{}", gate_line(&gate, now_ms)),
+            Some(gate) => format!("{notice}\n{}", gate_line(&gate, now_ms)),
             None if book.claim_receipt(&report.child, DECISION_REPLY_KEY, now_ms)? => {
                 courier.notify(&report.child, DECISION_REPLY.to_owned(), Delivery::Now);
                 return Ok(false);
             }
-            None => format!("{text}\n{DECISION_WARNING}"),
+            None => format!("{notice}\n{DECISION_WARNING}"),
         }
     } else {
-        text
+        notice
     };
     let claimed = book.claim_receipt(&report.child, &report.key(), now_ms)?;
     if claimed {
@@ -240,16 +248,23 @@ mod tests {
     use super::*;
 
     #[derive(Default)]
-    struct Inbox(Mutex<Vec<(String, String, Delivery)>>);
+    struct Inbox {
+        sent: Mutex<Vec<(String, String, Delivery)>>,
+        held: Mutex<Vec<(String, String)>>,
+    }
 
     impl Courier for Inbox {
         fn notify(&self, parent: &str, text: String, delivery: Delivery) {
-            self.0.lock().unwrap().push((parent.to_owned(), text, delivery));
+            self.sent.lock().unwrap().push((parent.to_owned(), text, delivery));
         }
 
         fn ask(&self, _request: GateRequest) {}
 
         fn answer(&self, _host_dir: &Path, _frame: String) {}
+
+        fn hold(&self, parent: &str, text: String) {
+            self.held.lock().unwrap().push((parent.to_owned(), text));
+        }
     }
 
     fn lines(count: usize) -> Vec<Entry> {
@@ -279,7 +294,7 @@ mod tests {
         let crashing = child(false, Some(41), Some(1));
         assert_eq!(death(&crashing, true, hour), Aftermath::Reported);
         assert_eq!(death(&crashing, true, hour), Aftermath::Quiet, "a second watchdog of the same host stays quiet");
-        let posted = inbox.0.into_inner().unwrap();
+        let posted = inbox.sent.into_inner().unwrap();
         assert_eq!(posted, [("boss".to_owned(), "[from kid · host 41 exited mid-task again within the hour of its revive] Last 2 transcript lines:\ntool: step 1 more\ntool: step 2 more".to_owned(), Delivery::Now)]);
         let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
         let gate = |question: &str, default: usize, default_after_ms: u64| GateRequest { verification: false, issue: None, box_text: None, session: "kid".into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default, default_after_ms };
@@ -290,7 +305,7 @@ mod tests {
 
         assert!(!deliver(&report(1, &format!("Blocked: decision\nStop: decision, gate {routine}"))), "a gate with a default is no ask-once matter");
         assert!(deliver(&report(2, &format!("Blocked: decision\nStop: decision, gate {spending}"))));
-        let posted = inbox.0.into_inner().unwrap();
+        let posted = inbox.sent.into_inner().unwrap();
         assert_eq!(posted.len(), 2);
         assert_eq!((posted[0].0.as_str(), posted[0].2), ("kid", Delivery::Now));
         assert!(posted[0].1.contains("Act on your recommendation, record it as a gate with a default, and continue"), "{}", posted[0].1);
@@ -310,21 +325,52 @@ mod tests {
         assert!(deliver(report(42, Some("be5886ab3b"), true, "Not done: half of it landed.")), "a landing always goes up");
         assert!(deliver(report(43, None, false, "Not done: the build host refused the lease.")), "the same stop after a different report is news again");
         let done = "Done: ticked the box with be5886ab3b.\nBox: A health alarm pages once per cause.\nBox: Land-watch holds a landing behind its follower.\nEvidence: cargo nextest passed; clippy clean; origin/main carries be5886ab3b.\nNext: none";
-        assert!(deliver(report(44, Some("be5886ab3b"), true, done)));
+        assert!(!deliver(report(44, Some("be5886ab3b"), true, done)), "a Done waits in the digest, not the proxy");
         let blocked = "Blocked: the broker token expired.\nEvidence: the last call answered 401 at 04:12.\nMore evidence: the token log shows no renewal.\nStop: wait until 2026-11-10T12:00Z";
         assert!(deliver(report(45, None, false, blocked)));
-        let posted = inbox.0.into_inner().unwrap();
-        assert_eq!(posted.len(), 5);
-        let notice = &posted[3].1;
+        let posted = inbox.sent.into_inner().unwrap();
+        assert_eq!(posted.len(), 4);
+        let decision = &posted[3].1;
+        assert!(decision.contains("Blocked: the broker token expired."), "{decision}");
+        assert!(decision.contains("Stop: wait until 2026-11-10T12:00Z"), "the head keeps the one decision: {decision}");
+        assert!(!decision.contains("More evidence:"), "{decision}");
+        assert_eq!(decision.lines().filter(|line| !line.starts_with("[read it all")).count(), 3, "{decision}");
+        let held = inbox.held.into_inner().unwrap();
+        let notice = &held.iter().find(|(_, text)| text.contains("Done: ticked")).unwrap().1;
         assert!(notice.contains("Done: ticked the box with be5886ab3b.") && notice.contains("landed be5886ab3b"), "{notice}");
         assert!(notice.contains("Box: A health alarm pages once per cause.") && notice.contains("Box: Land-watch holds a landing behind its follower."), "{notice}");
         assert!(!notice.contains("Evidence:") && !notice.contains("Next: none"), "the head leaves the evidence in the transcript: {notice}");
         assert!(notice.contains("[read it all with `north fleet show land-lead`]"), "{notice}");
         assert_eq!(notice.lines().filter(|line| !line.starts_with("[read it all")).count(), 3, "at most three head lines: {notice}");
-        let decision = &posted[4].1;
-        assert!(decision.contains("Blocked: the broker token expired."), "{decision}");
-        assert!(decision.contains("Stop: wait until 2026-11-10T12:00Z"), "the head keeps the one decision: {decision}");
-        assert!(!decision.contains("More evidence:"), "{decision}");
-        assert_eq!(decision.lines().filter(|line| !line.starts_with("[read it all")).count(), 3, "{decision}");
+    }
+
+    #[test]
+    fn only_the_page_now_classes_wake_the_proxy() {
+        use crate::fleet::fold::{Admit, admit};
+        use crate::fleet::sender::Sender;
+
+        let home = tempfile::tempdir().unwrap();
+        let service = |unit: &str| Sender::Service(unit.to_owned());
+        let alarm = |sender: &Sender, text: &str| admit(home.path(), sender, "proxy", text, 0);
+        assert_eq!(alarm(&Sender::Tom, "gate 7 is open: recommends 1"), Admit::Send, "Tom's gate passes");
+        assert_eq!(alarm(&service("north-ops-flow"), "north ops watch: north: possible red main: Cargo"), Admit::Send);
+        assert_eq!(alarm(&service("north-runtime"), "north runtime canary: the launch probe failed; nexus rolled back to 11111111"), Admit::Send);
+        assert_eq!(alarm(&service("north-capacity-watchdog"), "watchdog: host disk is past its high watermark, 3.1 GiB free"), Admit::Send);
+        assert_eq!(alarm(&service("north-ops-flow"), "security finding: the credentials scan read a token in a brief"), Admit::Send);
+        assert_eq!(alarm(&service("north-health"), "harness unit fleet-tick.service failed to start 3 times in the last hour: timed out"), Admit::Send);
+        assert_eq!(alarm(&service("north-health"), "harness unit fleet-tick.service recovered: under 3 failed starts in the last hour"), Admit::Send);
+        assert_eq!(alarm(&service("north-health"), "health: ci: recovered"), Admit::Hold, "a recovered check waits for the digest");
+        assert_eq!(alarm(&service("north-lease-reaper"), "lease reaper: evicted slot gex45-3"), Admit::Hold, "an eviction waits for the digest");
+        assert_eq!(alarm(&service("north-capacity-watchdog"), "watchdog: host overload, load 99.1 (4.1/core)"), Admit::Hold, "an overload waits for the digest");
+
+        let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
+        let report = |turn, reply: &str| Report { child: "kid".into(), turn, exit: TurnExit::Completed, landed: None, reply: Some(reply.into()), waiting: false };
+        let deliver = |report: Report| deliver_report(&book, &book, &inbox, "proxy", &report, &[], 1).unwrap();
+        assert!(!deliver(report(1, "Done: all four boxes.")));
+        assert!(!deliver(report(2, "Split: the rest is north#1032.")));
+        assert!(deliver(report(3, "Blocked: the build host refused the lease.")));
+        assert!(deliver(report(4, "Not done: the build host refused the lease.")));
+        let failed = Report { child: "kid".into(), turn: 5, exit: TurnExit::Failed, landed: None, reply: Some("the provider exited".into()), waiting: false };
+        assert!(!deliver(failed), "a failed turn waits for the digest too");
     }
 }

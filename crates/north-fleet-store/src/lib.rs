@@ -8,6 +8,7 @@ pub mod held;
 pub mod ask_once;
 pub mod gate_lifecycle;
 pub mod gates;
+pub mod page;
 pub mod runtime;
 pub mod sender;
 pub mod ssh;

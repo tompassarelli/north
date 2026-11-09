@@ -266,23 +266,25 @@ mod tests {
         assert_eq!(alert(&watch, &format!("north ops watch: still, 12 min: {red}")), Sent::Held);
         assert_eq!(alert(&watch, &format!("north ops watch: cleared after 13 min: {red}")), Sent::Held);
         assert_eq!(alert(&health, "health: ci: recovered"), Sent::Held);
-        assert!(turn(2, "Done: landed be5886ab3b.\nNext: none"));
+        assert!(!turn(2, "Done: landed be5886ab3b.\nNext: none"), "a Done report waits in the digest");
         assert_eq!(alert(&watch, &format!("north ops watch: {red}")), Sent::HandedIn, "a cleared cause opens again");
         let lander = Sender::Service("north-land".into());
         assert_eq!((alert(&lander, "landed a82759cff8 n909-policy"), alert(&lander, "landed a82759cff8 n909-policy")), (Sent::HandedIn, Sent::HandedIn), "a landing notice is no alarm");
 
         let frames = proxy.frames.lock().unwrap();
-        assert_eq!(frames.len(), 5, "{frames:?}");
-        assert!(frames[0].contains("main is red") && frames[1].contains("Done: landed be5886ab3b"), "{frames:?}");
+        assert_eq!(frames.len(), 4, "{frames:?}");
+        assert!(frames.iter().all(|frame| frame.contains("main is red") || frame.contains("landed a82759cff8")), "{frames:?}");
         let held: Vec<String> = fleet.held_since(0).into_iter().map(|held| held.text).collect();
-        assert_eq!(held.len(), 4, "{held:?}");
-        assert!(held[0].contains("Landing in progress") && held[2].contains("cleared after 13 min") && held[3] == "health: ci: recovered", "{held:?}");
+        assert_eq!(held.len(), 5, "{held:?}");
+        assert!(held[0].contains("Landing in progress") && held[2].contains("cleared after 13 min") && held[3] == "health: ci: recovered" && held[4].contains("Done: landed be5886ab3b"), "{held:?}");
 
         use crate::fleet::fold::{Admit, WINDOW_MS, admit};
         let watchdog = Sender::Service("north-capacity-watchdog".into());
-        let overload = |text: &str, at: u64| admit(home.path(), &watchdog, PROXY, text, at);
-        assert_eq!(overload("watchdog: host overload, load 107.96 (4.5/core), cpu pressure 72.02% over 60 s. Top process trees: n882-lead2", 0), Admit::Send);
-        assert_eq!(overload("watchdog: host overload, load 98.10 (4.1/core), cpu pressure 64.5% over 60 s. Top process trees: n909-relay", 60_000), Admit::Hold, "north#909: one overload re-sent with moved numbers");
-        assert_eq!(overload("watchdog: host overload, load 99.1 (4.1/core), cpu pressure 61% over 60 s.", 60_000 + WINDOW_MS), Admit::Send, "a new window sends again");
+        let alarm = |text: &str, at: u64| admit(home.path(), &watchdog, PROXY, text, at);
+        assert_eq!(alarm("watchdog: host disk past its high watermark: 3.1 GiB free on /nix/store", 0), Admit::Send);
+        assert_eq!(alarm("watchdog: host disk past its high watermark: 2.9 GiB free on /nix/store", 60_000), Admit::Hold, "north#909: one disk alarm re-sent with moved numbers");
+        assert_eq!(alarm("watchdog: host disk past its high watermark: 2.1 GiB free on /nix/store", 60_000 + WINDOW_MS), Admit::Send, "a new window sends again");
+        assert_eq!(alarm("watchdog: host overload, load 107.96 (4.5/core), cpu pressure 72.02% over 60 s.", 0), Admit::Hold, "an overload is not page-now and waits for the digest");
+        assert_eq!(admit(home.path(), &health, PROXY, "harness unit fleet-tick.service recovered: under 3 failed starts in the last hour", 0), Admit::Send, "one cleared line for a health unit");
     }
 }

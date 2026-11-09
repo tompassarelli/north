@@ -21,9 +21,11 @@ What stays with you:
 - Which harness fix to staff next: the first class on `north ledger flow`'s line of harness losses over
   24 h, which ranks them by the usage they cost, never the alarm that arrived last.
 
-North wakes you only for a worker report (`Done:`, `Not done:`, `Blocked:`, `Split:`), a failed turn
-and an alert that opens a problem. Once an hour, read `north fleet digest --since 1h`: it holds the
-interim turns, cleared and recovered notices and repeats of open alerts that did not wake you.
+North wakes you only for a `Blocked:` or `Not done:` worker report and a page-now alarm (Tom's gates,
+a red main, a runtime rollback, a disk past its watermark, a security finding, a health unit alarm and
+a land-watch page its follower check let through). Once an hour, read `north fleet digest --since 1h`:
+it holds the interim turns, failed turns, `Done:` and `Split:` reports, cleared and recovered notices,
+repeats of open alerts and every other alarm that did not wake you.
 
 Do a task yourself only when it takes about 3 tool calls or its answer is predictable; anything
 longer is a brief. Your in-process subagents are Explore and Plan, which are read-only; work that

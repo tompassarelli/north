@@ -1,9 +1,10 @@
 //! Folds a service's alarms of one cause into one message per window: the first alarm of a cause
 //! reaches its recipient, while a repeat of that cause within the window and a notice that the alarm
-//! cleared or recovered are held for the digest (`held.rs`), the clearing opening the cause again. A
-//! cause is the alarm's first sentence with its numbers blanked, after the ops watch's `still, N min:`
-//! prefix, so a re-sent alarm whose load, age or count moved is the same cause. Only the alarm
-//! services fold; every other message passes.
+//! cleared or recovered are held for the digest (`held.rs`), except a health unit's one recovered line,
+//! the clearing opening the cause again. A cause is the alarm's first sentence with its numbers blanked,
+//! after the ops watch's `still, N min:` prefix, so a re-sent alarm whose load, age or count moved is
+//! the same cause. Only the alarm services fold, and only the page-now classes in `page.rs` reach the
+//! proxy; every other message passes.
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -12,7 +13,7 @@ use crate::sender::Sender;
 
 pub const FILE: &str = "alarm-folds.json";
 pub const WINDOW_MS: u64 = 30 * 60 * 1000;
-const ALARMS: [&str; 5] = ["north-health", "north-land-watch", "north-ops-flow", "north-capacity-watchdog", "north-lease-reaper"];
+const ALARMS: [&str; 6] = ["north-health", "north-land-watch", "north-ops-flow", "north-capacity-watchdog", "north-lease-reaper", "north-runtime"];
 const LANDER: &str = "north-land";
 const LANDER_WATCHDOG: &str = "north land watchdog:";
 const OPS_WATCH: &str = "north ops watch: ";
@@ -41,12 +42,18 @@ pub fn admit(root: &Path, sender: &Sender, to: &str, text: &str, now_ms: u64) ->
     let path = root.join(FILE);
     let mut sent: BTreeMap<String, u64> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     sent.retain(|_, at| now_ms.saturating_sub(*at) < WINDOW_MS);
+    let pages = to != crate::runtime::PROXY || crate::page::wakes(sender, text);
     let admitted = match cause(text) {
         Cause::Cleared(cause) => {
             let opened = format!("{to}\t{unit}\t{cause}");
             sent.retain(|key, _| !key.starts_with(&opened));
-            Admit::Hold
+            if pages && unit == "north-health" && cause.starts_with("harness unit ") {
+                Admit::Send
+            } else {
+                Admit::Hold
+            }
         }
+        Cause::Raised(_) if !pages => Admit::Hold,
         Cause::Raised(cause) => match sent.insert(format!("{to}\t{unit}\t{cause}"), now_ms) {
             None => Admit::Send,
             Some(_) => Admit::Hold,
