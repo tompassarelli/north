@@ -129,10 +129,12 @@ impl Issue {
     fn product_holds(&self) -> impl Iterator<Item = (&str, Option<Hold<'_>>)> {
         let mut above: Option<&str> = None;
         self.product_lines().map(move |line| {
-            let hold = relative_wait(line).and_then(|wait| match above {
-                Some(before) => Some(Hold::Behind(before)),
-                None => (wait.counts || MISSED.is_match(line)).then_some(Hold::Undated),
-            });
+            let hold = relative_wait(line)
+                .and_then(|wait| match above {
+                    Some(before) => Some(Hold::Behind(before)),
+                    None => (wait.counts || MISSED.is_match(line)).then_some(Hold::Undated),
+                })
+                .or_else(|| live_reading(line).map(Hold::Live));
             above = Some(line);
             (line, hold)
         })
@@ -259,6 +261,7 @@ impl Issue {
 enum Hold<'a> {
     Behind(&'a str),
     Undated,
+    Live(&'static str),
 }
 
 impl fmt::Display for Hold<'_> {
@@ -269,8 +272,25 @@ impl fmt::Display for Hold<'_> {
                 write!(f, "the unticked box above it is done: `{named}`")
             }
             Self::Undated => write!(f, "it is stamped `(not before YYYY-MM-DDTHH:MMZ)`: it counts something with no date"),
+            Self::Live(source) => write!(f, "it reads {source}, which a worker cannot take"),
         }
     }
+}
+
+fn live_reading(line: &str) -> Option<&'static str> {
+    let oracle = line.find("Done when").map_or(line, |at| &line[at..]);
+    let oracle = oracle.to_lowercase();
+    let names = |words: &[&str]| words.iter().any(|word| oracle.contains(word));
+    if names(&["journalctl", "lander's journal", "lander journal", "landers journal"]) {
+        return Some("a live journal");
+    }
+    if names(&["on the lander host"]) {
+        return Some("a host's live ledger");
+    }
+    if names(&["north ledger scoreboard", "north land reuse report"]) {
+        return Some("a live ledger report");
+    }
+    None
 }
 
 struct Relative {

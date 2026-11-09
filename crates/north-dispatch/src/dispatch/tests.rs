@@ -278,6 +278,27 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_wind
 }
 
 #[test]
+fn a_live_reading_box_is_not_staffed_and_a_box_gets_one_launch() {
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let scoreboard = "`north ledger scoreboard` shows landing queue p90 over 1 h at or below 10 min in two separate hours";
+    let reuse = "Verdict reuse shadow: `north land reuse report --since 7d` on the lander host prints at least 100 landings and 0 disagreements.";
+    let journal = "The laptop's hourly lane-gc runs under 2 CPU minutes once the fix is live. Done when: `journalctl --user -u lane-gc.service --since -3h -o cat | rg Consumed | tail -2` exits 0";
+    let plain = "the cache keeps the newest row";
+    let boxes = vec![
+        issue("north", 902, &format!("- [ ] {scoreboard}\n- [ ] {reuse}\n- [ ] {plain}"), &[]),
+        issue("north", 1028, &format!("- [ ] {journal}"), &[]),
+    ];
+    let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let launched: Vec<String> = outcome.launches.iter().map(|launch| launch.item.to_string()).collect();
+    assert_eq!(launched, ["north#902"], "the live-only issue launches nothing, not even a bare brief");
+    let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
+    assert_eq!(boxes, [plain], "a live reading is not staffed and the plain box launches once");
+    let skipped: Vec<&str> = outcome.skipped.iter().map(|(_, why)| why.as_str()).collect();
+    assert!(skipped.iter().any(|why| why.contains("only open box waits until it reads a live journal")), "{skipped:?}");
+}
+
+#[test]
 fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_program_on_path() {
     let (hosts, accounts) = fleet();
     let survey = survey(Vec::new(), Cloud::Unreachable(String::new()), hosts, accounts);
