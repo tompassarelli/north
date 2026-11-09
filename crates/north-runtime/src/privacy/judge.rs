@@ -16,7 +16,7 @@ pub struct Tier {
 
 const SCREEN: Tier = Tier { model: "claude-haiku-5-5", effort: "low" };
 const CONFIRM: Tier = Tier { model: "claude-sonnet-5-5", effort: "low" };
-const AGY_MODEL: &str = "claude-sonnet-5-5-low";
+const AGY_MODEL: &str = "gemini-3.8-flash-high";
 const PROMPT_VERSION: &str = "1";
 const CLEAN: &str = "NONE\n";
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(90);
@@ -144,11 +144,16 @@ pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Re
 }
 
 fn ask_agy(prompt: &str) -> Result<String, String> {
-    let words = [format!("--model={AGY_MODEL}"), format!("-p={prompt}")];
-    let args: Vec<&str> = words.iter().map(String::as_str).collect();
-    let output = crate::platform::process::run_with_input_within("agy", &args, None, ATTEMPT_LIMIT).ok_or("agy did not finish")?;
+    let prompt_arg = format!("-p={prompt}");
+    let args = ["--model", AGY_MODEL, prompt_arg.as_str()];
+    let output = crate::platform::process::run_with_input_within(&crate::fleet::install::runtime("agy").to_string_lossy(), &args, None, ATTEMPT_LIMIT).ok_or("agy did not finish")?;
     let answer = String::from_utf8_lossy(&output.stdout).into_owned();
-    if output.status.success() && !answer.trim().is_empty() { Ok(answer) } else { Err(format!("agy exited {:?}", output.status.code())) }
+    if output.status.success() && !answer.trim().is_empty() {
+        Ok(answer)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("agy exited {:?}: {} {}", output.status.code(), answer.trim(), stderr.trim()))
+    }
 }
 
 fn key(kinds: &Kinds, tier: &Tier, run: usize, chunk: &str) -> String {
