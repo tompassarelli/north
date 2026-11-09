@@ -2,7 +2,8 @@
 //! the session host's own scope that are neither the host nor its descendants. The CLI's own
 //! background tasks descend from the host and are tracked from its stream instead. A process handed
 //! the host's pid (safe-push's lane reaper) watches the session rather than works for it, and is no run;
-//! nor is a private-text judge a hook left running past its wait, which the session never started.
+//! nor is a private-text judge a hook left running past its wait, which the session never started, nor
+//! does an ssh control connection or git's own detached auto maintenance end a wait the session holds.
 //! A revived session's earlier hosts leave their scopes behind (`host.priors`, one `UNIT PID` per
 //! line) holding only the runs that host's tree did not own; the new host reads those scopes too.
 use std::collections::HashMap;
@@ -54,12 +55,24 @@ impl Detached {
         Run::Process { pid: self.pid, started: self.started }
     }
 
-    pub fn is_transport_only(&self) -> bool {
+    /// Whether its end can tell the session that a build, test or watch it waits on is over. A
+    /// transport-only connection and git's own auto maintenance run past the session's work.
+    pub fn is_a_waited_run(&self) -> bool {
+        !self.is_transport_only() && !self.is_git_auto_maintenance()
+    }
+
+    fn is_transport_only(&self) -> bool {
         if self.command.starts_with("ssh: ") && self.command.contains("[mux]") {
             return true;
         }
         let mut words = self.command.split_whitespace();
         words.next().and_then(|program| Path::new(program).file_name()).is_some_and(|name| name == "ssh") && words.any(|option| option == "-N" || option.starts_with("-O"))
+    }
+
+    fn is_git_auto_maintenance(&self) -> bool {
+        let mut words = self.command.split_whitespace();
+        let program = words.next().and_then(|program| Path::new(program).file_name());
+        program.is_some_and(|name| name == "git") && words.next() == Some("maintenance") && words.next() == Some("run") && words.any(|option| option == "--auto")
     }
 }
 

@@ -267,7 +267,7 @@ impl TurnWatch {
         let waits = Waits::in_root(&self.root);
         for record in host_sessions(&self.root, &self.host_dir) {
             for run in &self.detached {
-                if run.is_transport_only() {
+                if !run.is_a_waited_run() {
                     continue;
                 }
                 if let Err(error) = waits.register(&record.name, run.run(), &record.cwd, Some(&run.command)) {

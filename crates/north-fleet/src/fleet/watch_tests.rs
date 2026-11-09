@@ -284,3 +284,18 @@ fn a_closed_transport_task_wakes_no_session() {
     assert_eq!(told.len(), 1);
     assert!(told[0].1.contains("cargo test") && !told[0].1.contains("ssh"), "{told:?}");
 }
+
+#[test]
+fn git_auto_maintenance_is_not_a_waited_run() {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("worker");
+    std::fs::create_dir_all(&host).unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": "s", "host_dir": host, "parent": "lead"})).unwrap();
+    write_record(&host, &record).unwrap();
+    let maintenance = Detached { pid: 41, started: 1, command: "/usr/bin/git maintenance run --auto --no-quiet --detach".into() };
+    let build = Detached { pid: 42, started: 1, command: "cargo test -p north-fleet".into() };
+    let mut watch = TurnWatch::new(Arc::new(crate::fleet::fakes::Stream), Arc::new(Books0), Arc::new(Told::default()), Arc::new(crate::fleet::claims::Held::default()), root.path().to_path_buf(), host).reading_scope(Arc::new(Transport(vec![maintenance, build.clone()])));
+    let _ = watch.rest(Duration::from_secs(1), None);
+    let settled = Waits::in_root(root.path()).settle(&Closed, &|name| name == "worker", &|_, _| Ok(()));
+    assert_eq!(settled.iter().map(|settled| settled.run.clone()).collect::<Vec<_>>(), [build.run()]);
+}
