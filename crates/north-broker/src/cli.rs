@@ -13,6 +13,7 @@ use crate::credentials::Source;
 use crate::policy::Policy;
 use crate::server::Broker;
 
+const PRINTED_VALIDITY: u64 = 2700;
 const USAGE: &str = "usage: north broker serve [--user | --socket PATH --policy FILE] | north broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]... [--valid-for SECONDS] | north broker inspect [--json]
 
 The credential broker (south#94): the one process that holds the GitHub App keys and the cloud API tokens.
@@ -22,8 +23,9 @@ serve         run it. As a system service (the default) it listens on /run/north
               at ${XDG_RUNTIME_DIR}/north-broker/broker.sock and exits after 30 idle minutes, which is what the clients start
               when no system broker answers
 github-token  print an installation token for the app, limited to the repositories and permissions named (metadata read is
-              always added); without --repo or --permission the caller's whole ceiling is granted; --valid-for SECONDS (up to 3300)
-              returns only a token with at least that long to live, minting a new one when the held one has less
+              always added); without --repo or --permission the caller's whole ceiling is granted; --valid-for SECONDS (up to 3300, default 2700)
+              returns only a token with at least that long to live, minting a new one when the held one has less, so a token
+              printed for another process to keep outlives a 30-minute refresh
 inspect       read a token on stdin and print the repositories and permissions the broker granted it
 Every request is logged to stderr with the caller's uid, pid and systemd unit and what was granted; the user broker's stderr is broker.log beside its socket. Clients take the socket
 from NORTH_BROKER_SOCKET, else /run/north-broker/broker.sock, else their own ${XDG_RUNTIME_DIR}/north-broker/broker.sock.
@@ -61,7 +63,7 @@ fn finish(result: Result<(), String>) -> u8 {
 }
 
 fn github_token(arguments: &[&str]) -> Result<(), String> {
-    let (mut app, mut repositories, mut permissions, mut valid_for) = (None, Vec::new(), BTreeMap::new(), 0);
+    let (mut app, mut repositories, mut permissions, mut valid_for) = (None, Vec::new(), BTreeMap::new(), PRINTED_VALIDITY);
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match (*word, words.next()) {
