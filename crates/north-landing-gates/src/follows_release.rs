@@ -6,7 +6,9 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use north_base::platform::process::child_within;
 
 use crate::foundation::clock::Timestamp;
 
@@ -158,24 +160,7 @@ fn start(b: &Value, account: Option<&str>) -> Result<bool, String> {
     else {
         return Ok(false);
     };
-    let deadline = Instant::now() + Duration::from_secs(120);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status.success()),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Ok(false);
-            }
-            _ => (),
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(false);
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    Ok(child_within(&mut child, Duration::from_secs(120)).ok().flatten().is_some_and(|status| status.success()))
 }
 fn alert(b: &Value, why: &str, now: f64) -> Result<(), String> {
     if !now.is_finite() {

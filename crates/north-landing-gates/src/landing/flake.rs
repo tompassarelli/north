@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use north_base::platform::process::child_within;
 use north_mutants::env::{Stop, git, git_text};
 
 const DEFAULT_RUNS: usize = 8;
@@ -172,18 +173,7 @@ fn execute(cwd: &Path, batch: &Batch) -> Finished {
     let outcome = (|| -> io::Result<Finished> {
         let mut log = tempfile::tempfile()?;
         let mut child = spawn(cwd, batch, &log)?;
-        let started = Instant::now();
-        let code = loop {
-            if let Some(status) = child.try_wait()? {
-                break status.code();
-            }
-            if started.elapsed() > DEADLINE {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-            thread::sleep(Duration::from_millis(10));
-        };
+        let code = child_within(&mut child, DEADLINE)?.and_then(|status| status.code());
         let mut bytes = Vec::new();
         log.rewind()?;
         log.read_to_end(&mut bytes)?;

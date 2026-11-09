@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use north_base::foundation::clock::Timestamp;
+use north_base::platform::process::child_within;
 use north_base::verdict_cache::fingerprint::{self, Artifacts, Tree, Weak};
 use north_base::verdict_cache::path_set::{self, Entry};
 use north_base::verdict_cache::{Pass, Store, set_id};
@@ -67,18 +68,7 @@ fn metadata(root: &Path) -> Option<String> {
         let mut text = String::new();
         std::io::Read::read_to_string(&mut stdout, &mut text).ok().map(|_| text)
     });
-    let deadline = std::time::Instant::now() + METADATA_LIMIT;
-    let status = loop {
-        if let Some(status) = child.try_wait().ok()? {
-            break status;
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    };
+    let status = child_within(&mut child, METADATA_LIMIT).ok().flatten()?;
     status.success().then(|| reader.join().ok().flatten()).flatten()
 }
 

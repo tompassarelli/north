@@ -1,6 +1,8 @@
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use north_base::platform::process::child_within;
 
 const PROXY_VARIABLES: [&str; 8] = ["http_proxy", "https_proxy", "all_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"];
 
@@ -21,18 +23,7 @@ pub fn run(arguments: &[&str], config: &str, limit: Duration) -> Option<Vec<u8>>
         let mut output = Vec::new();
         stdout.read_to_end(&mut output).ok().map(|_| output)
     });
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() < limit => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
-    };
+    let status = child_within(&mut child, limit).ok().flatten();
     let _ = writer.join();
     let output = reader.join().ok().flatten();
     status.filter(std::process::ExitStatus::success).and(output)

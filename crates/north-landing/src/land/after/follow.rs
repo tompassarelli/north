@@ -2,7 +2,9 @@ use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use north_base::platform::process::child_within;
 
 use crate::land::telemetry::epoch;
 use crate::platform::land_notice;
@@ -96,16 +98,5 @@ pub fn send(session: &str, message: &str) -> bool {
     let Ok(mut child) = Command::new(program()).args(["fleet", "send", "--from", land_notice::SENDER, session, message]).stdin(Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn() else {
         return false;
     };
-    let deadline = Instant::now() + SEND_WAIT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
-    }
+    child_within(&mut child, SEND_WAIT).ok().flatten().is_some_and(|status| status.success())
 }

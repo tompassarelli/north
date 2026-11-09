@@ -33,10 +33,20 @@ pub fn status_within(command: &mut Command, limit: Duration) -> std::io::Result<
 
 /// Waits up to `limit` for an already spawned child; `None` means it was still running and has been killed and reaped.
 pub fn child_within(child: &mut Child, limit: Duration) -> std::io::Result<Option<ExitStatus>> {
+    child_within_with(child, limit, Child::try_wait)
+}
+
+fn child_within_with(child: &mut Child, limit: Duration, poll: fn(&mut Child) -> std::io::Result<Option<ExitStatus>>) -> std::io::Result<Option<ExitStatus>> {
     let started = Instant::now();
     loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(Some(status));
+        match poll(child) {
+            Ok(Some(status)) => return Ok(Some(status)),
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
         }
         if started.elapsed() >= limit {
             let _ = child.kill();
@@ -237,5 +247,22 @@ mod leave_tests {
         assert!(!done.exists());
         std::fs::write(&gate, "").unwrap();
         assert!((0..1000).any(|_| done.exists() || { std::thread::sleep(Duration::from_millis(20)); false }));
+    }
+}
+
+#[cfg(test)]
+mod within_tests {
+    use super::*;
+
+    fn fails(_: &mut Child) -> std::io::Result<Option<ExitStatus>> {
+        Err(std::io::Error::from_raw_os_error(10))
+    }
+
+    #[test]
+    fn a_poll_error_kills_and_reaps_the_child() {
+        let mut child = Command::new("sh").args(["-c", "sleep 30"]).spawn().unwrap();
+        let pid = child.id();
+        assert!(child_within_with(&mut child, Duration::from_secs(30), fails).is_err());
+        assert!(!Command::new("kill").args(["-0", &pid.to_string()]).status().unwrap().success());
     }
 }

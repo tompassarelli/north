@@ -104,17 +104,8 @@ fn socket(program: &[OsString], env: &BTreeMap<String, String>, host: &str) -> R
 fn round_trip(words: &[OsString], limit: Duration) -> Option<Duration> {
     let started = Instant::now();
     let mut child = Command::new(&words[0]).args(&words[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()?;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success().then(|| started.elapsed()),
-            Ok(None) if started.elapsed() < limit => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
+    let status = super::process::child_within(&mut child, limit).ok().flatten()?;
+    status.success().then(|| started.elapsed())
 }
 
 struct Unit;
