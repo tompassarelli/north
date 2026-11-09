@@ -38,6 +38,32 @@ impl Drop for Lane<'_> {
     }
 }
 
+/// Depbox builds into the lane's own `target`, so the lane borrows the kept incremental target for the build and hands it back after, instead of cargo building into a path nothing reads.
+struct KeptTarget<'a> {
+    kept: &'a Path,
+    lent: &'a Path,
+}
+
+impl<'a> KeptTarget<'a> {
+    fn borrow(kept: &'a Path, lent: &'a Path) -> Self {
+        if kept.is_dir() && !lent.exists() {
+            let _ = fs::rename(kept, lent);
+        }
+        Self { kept, lent }
+    }
+}
+
+impl Drop for KeptTarget<'_> {
+    fn drop(&mut self) {
+        if self.lent.is_dir() {
+            if let Some(parent) = self.kept.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::rename(self.lent, self.kept);
+        }
+    }
+}
+
 enum Placement {
     Elsewhere(Box<gate::Machine>),
     Here { refused: Option<String> },
@@ -96,7 +122,9 @@ fn desktop_in_use() -> bool {
 
 fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, confined: Option<&Confinement>) -> Result<(), Failure> {
     let lane = Lane::add(checkout, target)?;
-    let built = layout::home().join(".cache/cargo-target/north");
+    let kept = layout::home().join(".cache/cargo-target/north");
+    let built = lane.path.join("target");
+    let _kept = KeptTarget::borrow(&kept, &built);
     let mut build = Command::new(north_base::platform::north_binary::north_binary());
     build
         .args(["capacity", "host", "run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
@@ -122,7 +150,7 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
         cargo_build::recompile_from_scratch(&built, &archives)?;
         (status, ran) = attempt()?;
     }
-    if !status.success() {
+    if !status.success() || !ran {
         return Err(cargo_build::build_failure(target, status, ran, &log));
     }
     log.discard();
