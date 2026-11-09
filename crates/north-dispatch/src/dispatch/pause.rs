@@ -6,13 +6,17 @@ use std::process::Command;
 
 use north_base::dispatch_pause::{RECORD, TIMER};
 
+fn home() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+}
+
 fn record() -> PathBuf {
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state/north").join(RECORD)
+    home().join(".local/state/north").join(RECORD)
 }
 
 /// Why dispatch is paused on this host, while the proxy's pause stands.
 pub fn standing() -> Option<String> {
-    fs::read_to_string(record()).ok().map(|reason| reason.trim().to_owned())
+    north_base::dispatch_pause::standing(&home())
 }
 
 fn timer(action: &str) -> u8 {

@@ -41,6 +41,7 @@ mod issues;
 mod manual;
 mod nearest;
 mod pause;
+mod queued;
 pub mod measure;
 mod pack;
 mod plan;
@@ -85,7 +86,7 @@ mod spread_tests;
 #[cfg(test)]
 mod revive_tests;
 
-const USAGE: &str = "usage: north fleet dispatch [--dry-run] | pause --reason TEXT | resume | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north fleet dispatch [--dry-run] | pause --reason TEXT | resume | paused | queued --by HOST --item REPO#N [--box TEXT] -- WORDS | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -257,7 +258,7 @@ fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Opti
     if let Some(reason) = standing().filter(|_| !dry_run) {
         return (format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item), None);
     }
-    if let Some(why) = survey::github::recheck(&launch.item) {
+    if let Some(why) = survey::github::recheck(&launch.item, facets::declared_in(&launch.brief, "Box")) {
         return (format!("skip {}: {why}", launch.item), None);
     }
     if dry_run {
@@ -294,6 +295,8 @@ fn mode(arguments: &[String]) -> Result<bool, u8> {
         [verb, rest @ ..] if verb == "route-replay" => Err(nearest::replay(rest)),
         [verb, rest @ ..] if verb == "pause" => Err(pause::pause(rest)),
         [verb] if verb == "resume" => Err(pause::resume()),
+        [verb] if verb == "paused" => Err(queued::paused()),
+        [verb, rest @ ..] if verb == "queued" => Err(queued::serve(rest)),
         [verb, item] if verb == "needs" => Err(host_needs::serve(item)),
         [verb, session, need, item @ ..] if verb == "need" && item.len() < 2 => Err(host_needs::serve_need(session, need, item.first().map(String::as_str))),
         _ => {

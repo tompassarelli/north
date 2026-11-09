@@ -7,7 +7,7 @@ deploy restarted the dispatch timer the proxy had stopped. Each writer reported 
 
 `north health` now judges each critical flow by its recorded outcome (`crates/north-health/src/health/flows.rs`):
 
-- `run-recording`: the ledger host's newest recorded run against the newest fleet stream write on any host, and each
+- `run-recording`: the ledger host's newest recorded run against the newest stream write of a session whose host has exited on any host (a worker still running has no run to record yet, north#963), and each
   host's oldest unsent spooled ledger write. A session host records its conversation's run as it exits; the
   worker-ledger timer is the backstop, so the allowed lag is that timer's interval, read from systemd on the ledger
   host, plus five minutes (a flap at 12 to 16 minutes on 2026-11-08 came from a fixed 10-minute limit against a
@@ -16,7 +16,11 @@ deploy restarted the dispatch timer the proxy had stopped. Each writer reported 
 - `policy`: each host's held-generation record (`agents-sync-unpublished`) with the gate's refusal line.
 - `hooks`: every config directory a launch on each host runs in registers hooks in its settings.json.
 - `dispatch`: the dispatch timer's state against the pause the proxy records with `north fleet dispatch pause --reason`;
-  a paused dispatch also launches nothing, whatever the timer does.
+  a paused dispatch also launches nothing, whatever the timer does: the code-health review tick, the timers that launch
+  a fleet session and the dispatch launches waiting in a laptop queue (`north fleet dispatch queued`, which also drops
+  a launch whose issue closed or whose box was ticked while it waited) each check the pause when they start. The
+  south dispatch timer carries `ConditionPathExists=!~/.local/state/north/dispatch-paused`, so a deploy starting it
+  under a pause leaves it inactive (north#960).
 - `landing`: how long the oldest origin/main commit missing from each host's runtime has been on main.
 - `host-probes`: each host answered `north health facts` over ssh.
 

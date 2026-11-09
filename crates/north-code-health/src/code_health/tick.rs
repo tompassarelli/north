@@ -20,6 +20,7 @@ pub(super) struct TickEnv {
     pub dry_run: bool,
     pub now: OffsetDateTime,
     pub paused: Vec<String>,
+    pub dispatch_pause: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -152,6 +153,9 @@ fn checkout_of(code_root: &Path, repo: &str) -> PathBuf {
 const SATURATED: i32 = 75;
 
 pub(super) fn tick_repo(repo: &str, env: &TickEnv, print: &mut dyn FnMut(String)) -> Outcome {
+    if let Some(reason) = env.dispatch_pause.as_ref().filter(|_| !env.dry_run) {
+        return Outcome { verdict: Verdict::Paused, detail: format!("dispatch is paused on this host: {reason}") };
+    }
     if env.paused.iter().any(|paused| paused == repo) {
         return Outcome { verdict: Verdict::Paused, detail: "its project has paused = true in orchestration.toml".to_owned() };
     }
@@ -272,6 +276,7 @@ fn default_env(dry_run: bool) -> Result<TickEnv, String> {
         dry_run,
         now: OffsetDateTime::now_utc(),
         paused,
+        dispatch_pause: north_base::dispatch_pause::standing(&home),
     })
 }
 

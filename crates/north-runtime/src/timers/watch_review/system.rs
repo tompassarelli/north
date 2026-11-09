@@ -18,7 +18,7 @@ impl System {
         Self {
             toml: env_or("WATCH_TOML", || home.join("code/south/main/agents/watch.toml")),
             cache: env_or("WATCH_CACHE", || env_or("XDG_CACHE_HOME", || home.join(".cache")).join("watch-review")),
-            fleet: Fleet { south: env_or("WATCH_SOUTH", || home.join("code/south/main")) },
+            fleet: Fleet { south: env_or("WATCH_SOUTH", || home.join("code/south/main")), home },
         }
     }
 }

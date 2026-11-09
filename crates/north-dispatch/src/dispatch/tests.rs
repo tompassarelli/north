@@ -309,6 +309,7 @@ fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_p
 
     assert_eq!(program, "/runtime/bin/north");
     assert_eq!(words[..7], ["threads", "queue", "add", "laptop", "north#742", "--", "north"]);
+    assert_eq!(words[7..15], ["fleet", "dispatch", "queued", "--by", "nexus", "--item", "north#742", "--"]);
 }
 
 /// north#888: on 2026-11-08 01:16 UTC dispatch staffed north-879-d0116 while n882-tax held north#879 through a claim whose box slug matched no box of the issue.

@@ -30,6 +30,7 @@ fn scratch(signal: &str) -> (tempfile::TempDir, TickEnv) {
         dry_run: true,
         now: OffsetDateTime::now_utc(),
         paused: Vec::new(),
+        dispatch_pause: None,
     };
     (dir, env)
 }
@@ -75,4 +76,15 @@ fn a_launch_refused_for_room_with_exit_75_defers_to_the_next_tick_and_frees_the_
     let env = TickEnv { dry_run: false, ..env };
     assert_eq!(tick(&env, &mut Vec::new()), Verdict::Deferred);
     assert!(!lock(&env).exists());
+}
+
+/// north#960: the review signal started a worker while the proxy had dispatch paused.
+#[test]
+fn a_standing_dispatch_pause_holds_every_review_launch_before_the_signal_runs() {
+    let (dir, env) = scratch("echo \"FIRE days 7\"");
+    let env = TickEnv { dry_run: false, dispatch_pause: Some("account b is for lander".into()), ..env };
+    assert_eq!(tick(&env, &mut Vec::new()), Verdict::Paused);
+    assert!(!lock(&env).exists());
+    assert!(fs::read_to_string(dir.path().join("calls")).unwrap_or_default().is_empty());
+    assert!(fs::read_to_string(dir.path().join("north-calls")).unwrap_or_default().is_empty());
 }

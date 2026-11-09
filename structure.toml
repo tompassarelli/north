@@ -729,7 +729,7 @@ may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness
 name = "code_health"
 paths = ["crates/north-code-health/src/**"]
 responsibility = "The code-health report, gate, edit check and review signal over structure.toml, their import resolution and function metrics; the Rust habit checks; the hourly review tick."
-may_use = ["foundation", "crate-roots", "implicit_state", "lifecycle", "platform.git", "platform.harness", "graph_loops"]
+may_use = ["foundation", "crate-roots", "implicit_state", "lifecycle", "platform.git", "platform.records", "platform.harness", "graph_loops"]
 
 [[module]]
 name = "split"

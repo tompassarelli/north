@@ -48,7 +48,11 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
     }
     words.push(launch.brief.clone());
     if survey.laptop.as_deref() == Some(launch.host.as_str()) {
-        let mut queued = ["threads", "queue", "add", "laptop", &launch.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
+        let mut queued = ["threads", "queue", "add", "laptop", &launch.item.to_string(), "--", "north", "fleet", "dispatch", "queued", "--by", &survey.here, "--item", &launch.item.to_string()].map(str::to_owned).to_vec();
+        if let Some(text) = super::facets::declared_in(&launch.brief, "Box") {
+            queued.extend(["--box".to_owned(), text.to_owned()]);
+        }
+        queued.push("--".to_owned());
         queued.extend(words);
         return Ok((north.into(), queued));
     }

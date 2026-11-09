@@ -12,15 +12,17 @@ use crate::platform::process;
 
 const SESSION_LIMIT: Duration = Duration::from_secs(5400);
 
-struct Paths {
-    handoffs: std::path::PathBuf,
-    operator: std::path::PathBuf,
+pub(super) struct Paths {
+    pub handoffs: std::path::PathBuf,
+    pub operator: std::path::PathBuf,
+    pub home: std::path::PathBuf,
 }
 
 pub fn run(arguments: &[String]) -> u8 {
     let paths = Paths {
         handoffs: env_or("AGENTS_HANDOFFS", || home().join(".local/state/agents/handoffs")),
         operator: env_or("AGENTS_OPERATOR_DIR", || home().join("code/south/main/agents")),
+        home: home(),
     };
     match arguments.first().map(String::as_str) {
         Some("-h" | "--help") => print_usage(&paths),
@@ -29,7 +31,10 @@ pub fn run(arguments: &[String]) -> u8 {
             Err(error) => return fail(&error),
         },
         _ => return prune(&paths).map_or_else(|error| fail(&error), |report| {
-            println!("{}", report.display());
+            match report {
+                Some(report) => println!("{}", report.display()),
+                None => println!("skill-prune: dispatch is paused on this host, so no prune session started"),
+            }
             0
         }),
     }
@@ -164,7 +169,10 @@ fn session(handoffs: &Path) -> String {
     }
 }
 
-fn prune(paths: &Paths) -> Result<std::path::PathBuf, String> {
+pub(super) fn prune(paths: &Paths) -> Result<Option<std::path::PathBuf>, String> {
+    if north_base::dispatch_pause::standing(&paths.home).is_some() {
+        return Ok(None);
+    }
     let report = paths.handoffs.join("skill-prune.md");
     fs::create_dir_all(&paths.handoffs).map_err(|error| error.to_string())?;
     let before = measure(&paths.operator)?;
@@ -175,5 +183,5 @@ fn prune(paths: &Paths) -> Result<std::path::PathBuf, String> {
         "# Skill prune {stamp}\n\n## Bodies before\n\n```\n{before}\n```\n\n## Bodies after\n\n```\n{after}\n```\n\n## Session\n\n{out}\n"
     );
     fs::write(&report, body).map_err(|error| format!("{}: {error}", report.display()))?;
-    Ok(report)
+    Ok(Some(report))
 }

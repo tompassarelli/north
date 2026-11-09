@@ -70,17 +70,21 @@ fn mirrored_open(reference: &IssueRef, mirror: &Mirror, at: f64) -> Option<bool>
 
 /// Why a box the mirror listed may not launch by GitHub's own copy of its issue (`gh issue view --json state,body`): the
 /// issue closed or its last box was ticked after the mirror copied it.
-pub fn gone(node: &Value) -> Option<String> {
+pub fn gone(node: &Value, box_text: Option<&str>) -> Option<String> {
     if node["state"] != "OPEN" {
         return Some(format!("{} on GitHub, though the mirror listed it open", node["state"].as_str().unwrap_or("unread").to_lowercase()));
     }
-    (issues::unticked_boxes(node["body"].as_str().unwrap_or_default()) == 0).then(|| "no unticked box on GitHub, though the mirror listed one".to_owned())
+    let body = node["body"].as_str().unwrap_or_default();
+    if let Some(text) = box_text.filter(|text| issues::box_ticked(body, text)) {
+        return Some(format!("its box {text:?} is ticked on GitHub"));
+    }
+    (issues::unticked_boxes(body) == 0).then(|| "no unticked box on GitHub, though the mirror listed one".to_owned())
 }
 
 /// `gone` on the issue as GitHub holds it now; an unreadable issue is no reason to hold the launch.
-pub fn recheck(reference: &IssueRef) -> Option<String> {
+pub fn recheck(reference: &IssueRef, box_text: Option<&str>) -> Option<String> {
     let (number, repo) = (reference.number.to_string(), format!("{OWNER}/{}", reference.repo));
-    gone(&crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state,body"]).ok()?)
+    gone(&crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state,body"]).ok()?, box_text)
 }
 
 pub fn open_issues(repos: &[String], at: f64, notes: &mut Vec<String>) -> OpenIssues {

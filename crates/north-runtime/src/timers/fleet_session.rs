@@ -49,6 +49,7 @@ pub(super) fn git(directory: &Path, args: &[&str]) -> Result<String, String> {
 
 pub(super) struct Fleet {
     pub south: PathBuf,
+    pub home: PathBuf,
 }
 
 impl Fleet {
@@ -78,6 +79,9 @@ impl Fleet {
     }
 
     pub fn launch(&self, launch: &Launch) -> Result<(), LaunchError> {
+        if let Some(reason) = north_base::dispatch_pause::standing(&self.home) {
+            return Err(LaunchError::Held(format!("held: dispatch is paused on this host: {reason}")));
+        }
         let mut command = Command::new(north_program());
         command.args(["fleet", "launch", "--provider", "claude", "--account", launch.account, "--parent", "none", "--name", launch.name]);
         if let Some(model) = launch.model {

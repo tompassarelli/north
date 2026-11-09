@@ -285,6 +285,13 @@ fn window_seconds(line: &str) -> Option<f64> {
         .fold(None, |longest, seconds| Some(longest.map_or(seconds, |before: f64| before.max(seconds))))
 }
 
+/// Whether `body` holds the box `text` names, as the `Box:` line of a brief does, and every line holding it is ticked.
+pub fn box_ticked(body: &str, text: &str) -> bool {
+    let wanted = text.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim();
+    let mut lines = body.lines().filter(|line| !wanted.is_empty() && ANY_BOX.is_match(line) && line.contains(wanted)).peekable();
+    lines.peek().is_some() && lines.all(|line| !UNTICKED.is_match(line))
+}
+
 /// The unticked Done-when boxes in `body`, the clean-up group included.
 pub fn unticked_boxes(body: &str) -> usize {
     UNTICKED.find_iter(body).count()

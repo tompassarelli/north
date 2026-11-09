@@ -90,7 +90,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     assert_eq!(issues::readiness(&measured, &world(d0216)), Err("every open box waits, the first until 2026-11-08T00:00Z".into()), "north-706-d0216 was staffed while every box's measurement was not yet due");
     let reported = Issue { stop: super::stops::stop(&session("Not done: every open box is a measurement whose window has not elapsed.\nStop: wait until 2026-11-08T00:00Z"), &ran), ..issue("north", 706, "- [ ] over 24 h no run is attributed host-caused", &[]) };
     assert_eq!(issues::readiness(&reported, &world(d0216)), Err("its last worker stopped to wait until 2026-11-08T00:00Z".into()));
-    let gone = |state: &str, body: &str| super::survey::github::gone(&serde_json::json!({"state": state, "body": body}));
+    let gone = |state: &str, body: &str| super::survey::github::gone(&serde_json::json!({"state": state, "body": body}), None);
     assert_eq!(gone("CLOSED", "- [x] a").as_deref(), Some("closed on GitHub, though the mirror listed it open"), "north-736-d0226 launched on an issue closed minutes before, from a stale mirror");
     assert_eq!(gone("OPEN", "- [x] a\n- [x] b").as_deref(), Some("no unticked box on GitHub, though the mirror listed one"));
     assert_eq!(gone("OPEN", "- [x] a\n- [ ] b"), None);
