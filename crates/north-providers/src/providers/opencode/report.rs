@@ -5,7 +5,7 @@ use north_base::land_ticket::{self, Phase};
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{Ledger, Run, Task};
 
-const USAGE: &str = "usage: north ledger opencode [--since YYYY-MM-DD]";
+const USAGE: &str = "usage: north ledger opencode [--since 7d|YYYY-MM-DD]";
 
 const DEEPSEEK: [&str; 2] = ["opencode", "pi"];
 
@@ -26,7 +26,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
-            "--since" => match words.next().and_then(|date| Timestamp::parse_loose(date)).map(Timestamp::unix_millis) {
+            "--since" => match words.next().and_then(|date| Timestamp::parse_loose(&crate::threads::calibration::since_start(date, Timestamp::now()))).map(Timestamp::unix_millis) {
                 Some(at) => since = Some(at),
                 None => {
                     eprintln!("{USAGE}");

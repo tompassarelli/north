@@ -15,7 +15,7 @@ use crate::router::brief::CATEGORIES;
 use crate::threads::runs::brief::Fields;
 use crate::threads::verb::{Args, Context, Failure, Family, Outcome, immediate, open, report};
 
-pub const VERBS: [&str; 5] = ["recommend", "eta-calibration", "calibrate", "summary", "record-priors"];
+pub const VERBS: [&str; 6] = ["recommend", "eta-calibration", "calibrate", "summary", "record-priors", "opencode"];
 
 /// The calibration verbs as a family the threads client runs.
 pub const FAMILY: Family = (&VERBS, run);
@@ -24,6 +24,7 @@ pub const FAMILY: Family = (&VERBS, run);
 pub fn run(argv: &[String], context: &Context, _stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let result = match argv[0].as_str() {
         "summary" => return super::summary::run(&argv[1..], context, out, err),
+        "opencode" => return super::opencode::run(&argv[1..], context, out, err),
         "eta-calibration" => super::eta_calibration::run(&argv[1..], context),
         "recommend" => recommend_verb(&argv[1..], context),
         "calibrate" => super::calibrate::run(&argv[1..], context),
@@ -43,7 +44,7 @@ pub(super) fn stat_usd(usd: Option<f64>) -> String {
 }
 
 /// `Nd` or `Nh` before `end` as a stamp, any other text as is.
-pub(super) fn since_start(text: &str, end: Timestamp) -> String {
+pub fn since_start(text: &str, end: Timestamp) -> String {
     let (digits, unit) = text.split_at(text.len().saturating_sub(1));
     match (digits.parse::<i64>(), unit) {
         (Ok(count), "d") if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) => Timestamp::from_unix_seconds(end.unix_seconds() - count * 86_400).iso(),

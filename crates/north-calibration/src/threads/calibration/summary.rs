@@ -428,7 +428,7 @@ fn cause_cell(runs: &[&Run], rework: &Rework) -> String {
     format!("{}/{}/{} of {}", count(Cause::Reverted), count(Cause::FixedForward), count(Cause::Culprit), judged.len())
 }
 
-fn has_table(db: &Connection, name: &str) -> rusqlite::Result<bool> {
+pub(super) fn has_table(db: &Connection, name: &str) -> rusqlite::Result<bool> {
     db.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |_| Ok(())).map(|()| true).or_else(|error| if error == rusqlite::Error::QueryReturnedNoRows { Ok(false) } else { Err(error) })
 }
 

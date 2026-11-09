@@ -17,8 +17,8 @@ mod spool;
 pub use process::shell_quote;
 use process::{Input, agent_event_checks, code_of, detach, execute, execute_capturing_stderr, has_usage, python_json};
 
-const READS: [&str; 10] = [
-    "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate",
+const READS: [&str; 11] = [
+    "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate", "opencode",
 ];
 /// Each family of ledger verbs and the function that runs it; `claim` and `list` run through claims.
 const PORTED: [verb::Family; 8] = [

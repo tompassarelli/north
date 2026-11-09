@@ -15,6 +15,15 @@ pub(super) fn code_health(arguments: &[String]) -> u8 {
     }
 }
 
+fn opencode(arguments: &[String]) -> u8 {
+    let value = ledger_verb("opencode", arguments);
+    if value != 0 {
+        return value;
+    }
+    println!();
+    crate::providers::opencode::report::run(arguments)
+}
+
 pub(super) fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
     let words: Vec<String> = std::iter::once(verb.to_owned()).chain(arguments.iter().cloned()).collect();
     crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread), crate::cli::THREADS_FAMILIES)
@@ -82,7 +91,7 @@ pub(super) fn lane(arguments: &[String]) -> u8 {
 const LEDGER: &[(&str, Run)] = &[
     ("flow", crate::flow::run),
     ("incident", |arguments| ledger_verb("incident", arguments)),
-    ("opencode", crate::providers::opencode::report::run),
+    ("opencode", opencode),
     ("tempo", crate::tempo::run),
     ("worker", super::super::worker_ledger::run),
 ];
