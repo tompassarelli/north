@@ -56,10 +56,12 @@ fn a_command_reading_a_listed_tree_file_passes() {
 #[test]
 fn a_command_reading_an_unlisted_tree_file_is_refused() {
     let scene = Scene::new();
-    let output = scene.cat(true, &scene.tree().join("unlisted.txt"));
+    let unlisted = scene.tree().join("unlisted.txt");
+    let output = scene.cat(true, &unlisted);
     assert!(!output.status.success());
+    assert!(output.stdout.is_empty(), "the fence let the command read {}: {}", unlisted.display(), String::from_utf8_lossy(&output.stdout));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains(&format!("sandbox refused read of {}", scene.tree().join("unlisted.txt").display())), "{stderr}");
+    assert!(stderr.contains(&format!("{}: Permission denied", unlisted.display())), "the read was not refused by the kernel fence: {stderr}");
 }
 
 #[test]

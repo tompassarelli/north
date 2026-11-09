@@ -153,21 +153,32 @@ fn a_command_that_swallows_an_enforce_refusal_still_fails() {
 fn a_child_stopped_by_sigstop_stays_stopped_until_sigcont() {
     let scene = Scene::new();
     let script = r#"
-beat="$TMPDIR/beat"
-exec 3>> "$beat"
-(while :; do echo >&3; done) &
+tap="$TMPDIR/tap"
+mkfifo "$tap"
+sh -c 'printf "at-stop\n" > "$TMPDIR/tap"; kill -STOP $$; printf "resumed\n" > "$TMPDIR/resumed"' &
 child=$!
-sleep 0.2
-kill -STOP $child
-sleep 0.1
-before=$(wc -l < "$beat")
-sleep 0.3
-during=$(wc -l < "$beat")
-kill -CONT $child
-sleep 0.3
-after=$(wc -l < "$beat")
-kill $child
-[ "$before" = "$during" ] && [ "$after" -gt "$during" ] && echo stayed-stopped
+read -r marker < "$tap"
+[ "$marker" = at-stop ] || { printf 'the first step was %s\n' "$marker"; exit 1; }
+i=0
+while [ "$i" -lt 200000 ]; do
+    if state=$(ps -o stat= -p "$child"); then
+        case $state in [tT]*) break;; esac
+    else
+        state=gone
+        break
+    fi
+    i=$((i + 1))
+done
+case $state in [tT]*) ;; *) printf 'the child was %s, not stopped\n' "$state"; exit 1;; esac
+kill -CONT "$child"
+i=0
+while [ ! -s "$TMPDIR/resumed" ]; do
+    [ "$i" -lt 200000 ] || { printf 'the child did not resume\n'; exit 1; }
+    i=$((i + 1))
+done
+read -r resumed < "$TMPDIR/resumed"
+[ "$resumed" = resumed ] || { printf 'the second step was %s\n' "$resumed"; exit 1; }
+printf 'stayed-stopped\n'
 "#;
     let file = scene.root.path().join("recorded");
     let output = scene.sandbox().arg("--record").arg(&file).args(["--", "sh", "-c", script]).output().unwrap();
