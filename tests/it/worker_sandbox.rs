@@ -170,14 +170,17 @@ fn a_command_confined_to_its_lane_runs_the_toolchain_shims_and_the_north_runtime
     let shim = script(".local/share/north/bin/cargo", "shim");
     let on_path = script(".local/bin/north", "on-path");
     let runtime = script("code/north-data/runtimes/abc/north", "runtime");
+    let opencode = script(".local/lib/opencode/current/bin/opencode", "opencode");
+    let pi = script(".local/lib/pi/current/bin/pi", "pi");
     file(&home.path().join("code/north-data/accounts/key"));
     file(&home.path().join(".local/share/other/token"));
+    file(&home.path().join(".local/lib/claude/versions/1/token"));
 
-    for (program, says) in [(&shim, "shim"), (&on_path, "on-path"), (&runtime, "runtime")] {
+    for (program, says) in [(&shim, "shim"), (&on_path, "on-path"), (&runtime, "runtime"), (&opencode, "opencode"), (&pi, "pi")] {
         let output = home.run_in_lane_only(&[program.to_str().unwrap()]);
         assert!(output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == says, "{}: {}", program.display(), String::from_utf8_lossy(&output.stderr));
     }
-    for hidden in ["code/north-data/accounts/key", ".local/share/other/token"] {
+    for hidden in ["code/north-data/accounts/key", ".local/share/other/token", ".local/lib/claude/versions/1/token"] {
         let output = home.run_in_lane_only(&["cat", home.path().join(hidden).to_str().unwrap()]);
         assert!(!output.status.success() && String::from_utf8_lossy(&output.stderr).contains("Permission denied"), "{hidden} was read: {}", String::from_utf8_lossy(&output.stdout));
     }

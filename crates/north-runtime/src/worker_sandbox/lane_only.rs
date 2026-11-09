@@ -5,7 +5,7 @@ use super::except::{Entries, beneath_except};
 use super::readable::personal_logins;
 use super::removable::{lane, project};
 
-/// Home entries an agent confined to its lane still reads: the toolchains, git's own configuration and `.local`, of which only `bin` and `share/north` stay readable, the places the toolchain shims and the north runtime live: `cargo` and `north` on `PATH` resolve through them, and a lane's tests and builds run only through those shims, which enter depbox (south#93).
+/// Home entries an agent confined to its lane still reads: the toolchains, git's own configuration and `.local`, of which only `bin`, `share/north` and the `lib/opencode` and `lib/pi` programs the DeepSeek harnesses run stay readable, the places the toolchain shims, the north runtime and those programs live: `cargo` and `north` on `PATH` resolve through them, and a lane's tests and builds run only through those shims, which enter depbox (south#93).
 const TOOLCHAINS: [&str; 6] = [".cargo", ".rustup", ".bun", ".npm", ".gitconfig", ".local"];
 /// What stays readable of `~/code/north-data`, the runtime the `north` on `PATH` execs; its logins, accounts, keys and sessions stay hidden.
 const RUNTIMES: &str = "runtimes";
@@ -24,7 +24,8 @@ fn hidden(context: &Context) -> Vec<PathBuf> {
     hidden.extend(others(home, &kept));
     hidden.extend(others(&home.join(".config"), &[home.join(".config/git")]));
     let local = home.join(".local");
-    hidden.extend(others(&local, &[local.join("bin"), local.join("share")]));
+    hidden.extend(others(&local, &[local.join("bin"), local.join("share"), local.join("lib")]));
+    hidden.extend(others(&local.join("lib"), &[local.join("lib/opencode"), local.join("lib/pi")]));
     hidden.extend(others(&local.join("share"), &[local.join("share/north")]));
     let data = code.join("north-data");
     hidden.extend(others(&data, &[data.join(RUNTIMES)]));
