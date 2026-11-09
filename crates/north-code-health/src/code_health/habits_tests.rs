@@ -93,3 +93,28 @@ fn a_wall_clock_age_in_test_code_is_rewritten_to_a_fixed_moment_and_a_poll_loop_
     assert_eq!(std::fs::read_to_string(root.join("tests/polling.rs")).unwrap(), polling);
     assert_eq!(super::habits::findings(root, Some("tests/polling.rs")).unwrap().len(), 3);
 }
+
+#[test]
+fn an_allowlist_count_raised_above_the_base_revision_is_refused_and_a_lowered_one_is_not() {
+    use super::habits::grown;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "Test"]);
+    git(&["config", "user.email", "test@example.invalid"]);
+    git(&["config", "commit.gpgsign", "false"]);
+    std::fs::write(root.join("structure.toml"), "[rust_habits]\nchecks = [\"ambient-test-input\"]\n[[rust_habits.ambient_inputs]]\ninput = \"clock\"\nallowlist = \"clocks.tsv\"\nfixture = \"inject the clock\"\n").unwrap();
+    std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t1\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "base"]);
+
+    std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t2\ntests/new.rs\t1\n").unwrap();
+    let raised = grown(root, "HEAD").unwrap();
+    assert_eq!(raised.len(), 2, "{raised:?}");
+    assert!(raised.iter().any(|line| line.contains("tests/kept.rs") && line.contains("up from 1")), "{raised:?}");
+    assert!(raised.iter().any(|line| line.contains("tests/new.rs") && line.contains("up from 0")), "{raised:?}");
+
+    std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t0\n").unwrap();
+    assert!(grown(root, "HEAD").unwrap().is_empty());
+}

@@ -261,6 +261,36 @@ pub fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<String>, String
     Ok(lines)
 }
 
+fn at_rev(root: &Path, rev: &str, path: &str) -> Result<String, String> {
+    let verify = Command::new("git").arg("-C").arg(root).args(["rev-parse", "--verify", "--quiet", rev]).output().map_err(|error| format!("git rev-parse: {error}"))?;
+    if !verify.status.success() {
+        return Err(format!("git rev-parse: {rev} is not a commit"));
+    }
+    let output = Command::new("git").arg("-C").arg(root).args(["show", &format!("{rev}:{path}")]).output().map_err(|error| format!("git show: {error}"))?;
+    Ok(if output.status.success() { String::from_utf8_lossy(&output.stdout).into_owned() } else { String::new() })
+}
+
+pub fn grown(root: &Path, rev: &str) -> Result<Vec<String>, String> {
+    let Ok(config) = std::fs::read_to_string(root.join("structure.toml")) else {
+        return Ok(Vec::new());
+    };
+    let Some(mut habits) = Habits::parse(&config)? else {
+        return Ok(Vec::new());
+    };
+    habits.read_ambient(|allowlist| std::fs::read_to_string(root.join(allowlist)).map_err(|error| format!("{allowlist}: {error}")))?;
+    let mut out = Vec::new();
+    for ambient in &habits.ambient {
+        let before = ambient::counts(&ambient.allowlist, &at_rev(root, rev, &ambient.allowlist)?)?;
+        for (path, count) in &ambient.allowed {
+            let was = before.get(path).copied().unwrap_or(0);
+            if *count > was {
+                out.push(format!("{} lists {count} ambient test reads in {path}, up from {was} at {rev} — the list only shrinks", ambient.allowlist));
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub(super) fn fix_file(root: &Path, edited: &str) -> Result<Vec<Rewrite>, String> {
     let findings = found(root, Some(edited))?;
     if findings.iter().all(|finding| finding.fix.is_none()) {

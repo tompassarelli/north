@@ -56,13 +56,19 @@ pub(super) struct Ambient {
     pub(super) allowed: BTreeMap<String, usize>,
 }
 
+pub(super) fn counts(allowlist: &str, text: &str) -> Result<BTreeMap<String, usize>, String> {
+    let mut allowed = BTreeMap::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let entry = line.split_once('\t').and_then(|(path, count)| Some((path.to_owned(), count.trim().parse().ok()?)));
+        let (path, count) = entry.ok_or_else(|| format!("{allowlist}: expected <path><TAB><count>, got {line:?}"))?;
+        allowed.insert(path, count);
+    }
+    Ok(allowed)
+}
+
 impl Ambient {
     pub(super) fn read_allowed(&mut self, text: &str) -> Result<(), String> {
-        for line in text.lines().filter(|line| !line.trim().is_empty()) {
-            let entry = line.split_once('\t').and_then(|(path, count)| Some((path.to_owned(), count.trim().parse().ok()?)));
-            let (path, count) = entry.ok_or_else(|| format!("{}: expected <path><TAB><count>, got {line:?}", self.allowlist))?;
-            self.allowed.insert(path, count);
-        }
+        self.allowed = counts(&self.allowlist, text)?;
         Ok(())
     }
 

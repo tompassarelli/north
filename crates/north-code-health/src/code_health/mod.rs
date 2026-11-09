@@ -39,7 +39,7 @@ mod tick;
 #[cfg(test)]
 mod tick_tests;
 
-const HABITS_USAGE: &str = "usage: north code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]]";
+const HABITS_USAGE: &str = "usage: north code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]] [--grown-since REV]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
@@ -71,7 +71,7 @@ pub fn crate_headroom(root: &std::path::Path, edited: &str) -> Option<String> {
 
 fn habits_command(arguments: &[String]) -> u8 {
     let mut root = std::path::PathBuf::from(".");
-    let (mut base, mut head, mut shadow) = (None, "HEAD".to_owned(), false);
+    let (mut base, mut head, mut shadow, mut grown_since) = (None, "HEAD".to_owned(), false, None);
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         let mut value = || rest.next().cloned();
@@ -80,13 +80,20 @@ fn habits_command(arguments: &[String]) -> u8 {
             "--base" => base = value(),
             "--head" => head = value().unwrap_or_default(),
             "--shadow" => shadow = true,
+            "--grown-since" => grown_since = value(),
             _ => return fail(HABITS_USAGE),
         }
     }
-    let found = match &base {
+    let mut found = match &base {
         Some(base) => comments::added(&root, base, &head),
         None => habits::findings(&root, None),
     };
+    if let Some(rev) = &grown_since {
+        found = found.and_then(|mut lines| {
+            lines.extend(habits::grown(&root, rev)?);
+            Ok(lines)
+        });
+    }
     match found {
         Ok(lines) if lines.is_empty() => 0,
         Ok(lines) => {
