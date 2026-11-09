@@ -431,6 +431,15 @@ fn run_or_session(root: &Path, argv: &[String], host: &Host) -> u8 {
     run::run_scoped(root, &request, &owner, timeout_seconds, command, host)
 }
 
+/// Asks the outside broker to run this admission: a worker whose sandbox hides the user manager's sockets cannot put the command in a scope itself, and the broker starts the command in a new worker domain.
+fn through_broker(argv: &[String]) -> u8 {
+    use std::os::unix::process::CommandExt;
+    let north = run::north_command();
+    let error = std::process::Command::new(&north).args(["--worker-sandbox", "--outside", "--"]).arg(&north).args(["capacity", "host"]).args(argv).exec();
+    eprintln!("machine-capacity: {north} --worker-sandbox --outside: {error}");
+    126
+}
+
 pub fn run(argv: &[String], host: &Host) -> u8 {
     let operation = argv.first().map_or("", String::as_str);
     match operation {
@@ -439,6 +448,9 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
         "offload-cost" => return offload_cost::print(argv),
         "admit-job" => return admit_job(argv),
         _ => {}
+    }
+    if operation == "run" && std::env::var_os(north_base::platform::session_scope::SOCKETS_HIDDEN).is_some() {
+        return through_broker(argv);
     }
     let root = runtime_root();
     let user_runtime = format!("/run/user/{}/", machine::uid());

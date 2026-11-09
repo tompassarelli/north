@@ -1,0 +1,235 @@
+use std::io::{IoSlice, IoSliceMut, Read, Write};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+use north_base::platform::git_credential;
+use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, recvmsg, sendmsg};
+use serde::{Deserialize, Serialize};
+
+use super::{FLAG, MARK, SOCKETS_HIDDEN};
+
+const DIRECTORY: &str = "north-outside";
+const SOCKET: &str = "broker.sock";
+const UNIT: &str = "north-worker-outside";
+const LENGTH_BYTES: usize = 8;
+const REQUEST_LIMIT: usize = 4 << 20;
+const STDIO: usize = 3;
+const INJECTED_NAMES: [&str; 19] = [
+    "GCONV_PATH", "LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES", "BASH_ENV", "ENV", "NODE_OPTIONS", "SSH_ASKPASS", "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_PAGER", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR",
+];
+const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY", "GIT_CONFIG"];
+
+#[derive(Serialize, Deserialize)]
+struct Request {
+    arguments: Vec<String>,
+    directory: PathBuf,
+    environment: Vec<(String, String)>,
+}
+
+/// The broker's socket, in the runtime directory that the worker domain lets a command connect through (sockets.rs).
+fn socket() -> PathBuf {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").filter(|value| !value.is_empty()).map_or_else(|| PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw())), PathBuf::from);
+    runtime.join(DIRECTORY).join(SOCKET)
+}
+
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets.
+/// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
+fn payload(words: &[&str]) -> Option<usize> {
+    words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
+}
+
+/// `arguments` with the gate's command wrapped to start in a new worker domain: the gate runs outside the client's domain, and the command must not.
+pub(super) fn confined(north: &Path, arguments: Vec<String>) -> Vec<String> {
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let ["capacity", "host", "run", rest @ ..] = words.as_slice() else { return arguments };
+    let Some(start) = payload(rest) else { return arguments };
+    let wrapper = [north.to_string_lossy().into_owned(), FLAG.to_owned(), "--program".to_owned(), "--".to_owned()];
+    arguments[..3 + start].iter().cloned().chain(wrapper).chain(arguments[3 + start..].iter().cloned()).collect()
+}
+
+pub(super) fn permitted(arguments: &[String]) -> bool {
+    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["depbox", "fetch" | "run", "--", program, ..] | [FLAG, "--built", "--", program, ..] => !program.is_empty(),
+        ["lane", "unlock" | "stray" | "remove" | "gc", ..] => true,
+        ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
+        _ => false,
+    }
+}
+
+fn unsafe_name(name: &str) -> bool {
+    name == MARK || name == SOCKETS_HIDDEN || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+}
+
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own.
+pub(super) fn environment(sent: Vec<(String, String)>) -> Vec<(String, String)> {
+    let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
+    sent.into_iter().filter(|(name, _)| !unsafe_name(name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).collect()
+}
+
+/// Runs `north ARGUMENTS` outside this process's Landlock domain through the broker, with this process's standard streams, working directory and environment; its exit code.
+pub fn request(arguments: &[String]) -> Result<u8, String> {
+    if !permitted(arguments) {
+        return Err(format!("north worker-sandbox: {} is not a request the outside broker runs", arguments.join(" ")));
+    }
+    let path = socket();
+    let stream = UnixStream::connect(&path).map_err(|error| format!("north worker-sandbox: the outside broker at {} does not answer ({error}); it starts with the next agent command", path.display()))?;
+    let body = serde_json::to_vec(&Request { arguments: arguments.to_vec(), directory: std::env::current_dir().map_err(|error| error.to_string())?, environment: std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect() }).map_err(|error| error.to_string())?;
+    let (stdin, stdout, stderr) = (std::io::stdin(), std::io::stdout(), std::io::stderr());
+    let streams: [BorrowedFd; STDIO] = [stdin.as_fd(), stdout.as_fd(), stderr.as_fd()];
+    let mut space = [0u8; 64];
+    let mut control = SendAncillaryBuffer::new(&mut space);
+    control.push(SendAncillaryMessage::ScmRights(&streams));
+    let length = (body.len() as u64).to_le_bytes();
+    sendmsg(&stream, &[IoSlice::new(&length)], &mut control, SendFlags::empty()).map_err(|error| error.to_string())?;
+    (&stream).write_all(&body).map_err(|error| error.to_string())?;
+    let mut code = [0u8; 1];
+    (&stream).read_exact(&mut code).map_err(|error| format!("north worker-sandbox: the outside broker closed the request without an answer ({error})"))?;
+    Ok(code[0])
+}
+
+/// Starts the broker as a transient user service when nothing answers its socket. Called before a command's domain is applied: afterwards the command cannot start a service, only ask this one.
+pub fn ensure() {
+    let path = socket();
+    if UnixStream::connect(&path).is_ok() {
+        return;
+    }
+    let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure", "--unit", UNIT, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    if started.is_ok_and(|status| status.success()) {
+        for _ in 0..40 {
+            if UnixStream::connect(&path).is_ok() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+/// Serves requests until its socket is replaced or removed, or the promoted north is another one and no request is running.
+pub fn serve() -> std::process::ExitCode {
+    let path = socket();
+    let Some(directory) = path.parent() else { return std::process::ExitCode::from(2) };
+    let north = match std::env::current_exe() {
+        Ok(north) => north,
+        Err(error) => {
+            eprintln!("north worker-sandbox broker: {error}");
+            return std::process::ExitCode::from(1);
+        }
+    };
+    let listener = std::fs::create_dir_all(directory).and_then(|()| std::fs::remove_file(&path).or_else(|error| if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) })).and_then(|()| UnixListener::bind(&path)).and_then(|listener| listener.set_nonblocking(true).map(|()| listener));
+    let listener = match listener {
+        Ok(listener) => listener,
+        Err(error) => {
+            eprintln!("north worker-sandbox broker: cannot listen on {}: {error}", path.display());
+            return std::process::ExitCode::from(1);
+        }
+    };
+    let own = inode(&path);
+    let running = std::sync::Arc::new(AtomicUsize::new(0));
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let (north, running) = (north.clone(), running.clone());
+                running.fetch_add(1, Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    if let Err(error) = handle(&north, stream) {
+                        eprintln!("north worker-sandbox broker: {error}");
+                    }
+                    running.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if inode(&path) != own || (running.load(Ordering::SeqCst) == 0 && north_base::platform::north_binary::superseded()) {
+                    return std::process::ExitCode::SUCCESS;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => eprintln!("north worker-sandbox broker: accept: {error}"),
+        }
+    }
+}
+
+fn inode(path: &Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|metadata| metadata.ino())
+}
+
+fn receive(stream: &UnixStream) -> Result<Option<(Request, Vec<OwnedFd>)>, String> {
+    let mut length = [0u8; LENGTH_BYTES];
+    let mut space = [0u8; 64];
+    let mut control = RecvAncillaryBuffer::new(&mut space);
+    let received = recvmsg(stream, &mut [IoSliceMut::new(&mut length)], &mut control, RecvFlags::empty()).map_err(|error| error.to_string())?;
+    if received.bytes == 0 {
+        return Ok(None);
+    }
+    let streams: Vec<OwnedFd> = control.drain().filter_map(|message| if let RecvAncillaryMessage::ScmRights(fds) = message { Some(fds.collect::<Vec<_>>()) } else { None }).flatten().collect();
+    let length = usize::try_from(u64::from_le_bytes(length)).map_err(|error| error.to_string())?;
+    if length > REQUEST_LIMIT {
+        return Err(format!("a request of {length} bytes is past the {REQUEST_LIMIT} byte limit"));
+    }
+    let mut body = vec![0u8; length];
+    (&*stream).read_exact(&mut body).map_err(|error| error.to_string())?;
+    Ok(Some((serde_json::from_slice(&body).map_err(|error| error.to_string())?, streams)))
+}
+
+fn handle(north: &Path, stream: UnixStream) -> Result<(), String> {
+    let peer = rustix::net::sockopt::get_socket_peercred(&stream).map_err(|error| error.to_string())?;
+    if peer.uid.as_raw() != rustix::process::getuid().as_raw() {
+        return Err(format!("refused a request from uid {}", peer.uid.as_raw()));
+    }
+    let Some((request, streams)) = receive(&stream)? else { return Ok(()) };
+    let code = match run(north, request, streams, &stream) {
+        Ok(code) => code,
+        Err(message) => {
+            eprintln!("north worker-sandbox broker: {message}");
+            126
+        }
+    };
+    (&stream).write_all(&[code]).map_err(|error| error.to_string())
+}
+
+fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStream) -> Result<u8, String> {
+    if !permitted(&request.arguments) {
+        return Err(format!("{} is not a request the broker runs", request.arguments.join(" ")));
+    }
+    let [stdin, stdout, stderr]: [OwnedFd; STDIO] = streams.try_into().map_err(|_| "a request carries three standard streams".to_owned())?;
+    if !request.directory.is_absolute() {
+        return Err(format!("working directory {} is not absolute", request.directory.display()));
+    }
+    let mut child = Command::new(north)
+        .args(confined(north, request.arguments.clone()))
+        .current_dir(&request.directory)
+        .env_clear()
+        .envs(environment(request.environment))
+        .stdin(Stdio::from(stdin))
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .process_group(0)
+        .spawn()
+        .map_err(|error| format!("{}: {error}", north.display()))?;
+    let group = rustix::process::Pid::from_raw(child.id() as i32);
+    loop {
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            return Ok(status.code().map_or_else(|| 128 + status.signal().unwrap_or(0) as u8, |code| code as u8));
+        }
+        if hung_up(stream) {
+            if let Some(group) = group {
+                let _ = rustix::process::kill_process_group(group, rustix::process::Signal::Kill);
+            }
+            let _ = child.wait();
+            return Err("the client hung up; its process group was killed".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Whether the client end of `stream` is gone: it sends nothing after its request, so an end of stream is a closed one.
+fn hung_up(stream: &UnixStream) -> bool {
+    rustix::net::recv(stream, &mut [0u8; 1], RecvFlags::PEEK | RecvFlags::DONTWAIT).is_ok_and(|read| read == 0)
+}

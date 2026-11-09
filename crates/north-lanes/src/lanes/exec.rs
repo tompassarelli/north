@@ -16,8 +16,8 @@ Outside a worker sandbox, inside depbox, and with no checkout to vouch for it, i
 const LOCKS: [&str; 6] = ["Cargo.lock", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
 const DEPBOX: &str = "DEPBOX";
 
-/// `north lane exec`; `confined` says whether this command runs in a worker sandbox, and `leave` runs a program without the worker sandbox's rule against executing build output, returning only when it could not start.
-pub fn run(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<std::process::ExitCode>) -> u8 {
+/// `north lane exec`; `confined` says whether this command runs in a worker sandbox, and `leave` runs a program without the worker sandbox's rule against executing build output, returning its exit code, or `None` when it did not run it.
+pub fn run(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<u8>) -> u8 {
     let (lane, program) = match arguments {
         [flag, ..] if flag == "-h" || flag == "--help" => {
             println!("{USAGE}");
@@ -44,8 +44,8 @@ pub fn run(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<
                 return 1;
             }
         }
-        if leave(program).is_some() {
-            return 126;
+        if let Some(code) = leave(program) {
+            return code;
         }
     }
     let error = Command::new(&program[0]).args(&program[1..]).exec();

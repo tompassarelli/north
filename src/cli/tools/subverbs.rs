@@ -63,7 +63,7 @@ const LANE: &[(&str, Run)] = &[
 fn outside_the_sandbox(verb: &str, run: Run, arguments: &[String]) -> u8 {
     let words: Vec<String> = ["lane", verb].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect();
     match crate::worker_sandbox::reenter_outside(&words) {
-        Some(_) => 126,
+        Some(code) => code,
         None => run(arguments),
     }
 }

@@ -162,3 +162,23 @@ fn a_lane_test_binary_run_by_path_outside_depbox_is_refused() {
         .unwrap();
     assert!(output.status.success(), "{command}: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
+
+#[test]
+fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_carries_no_injected_code() {
+    let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
+    for refused in ["sh -c id", "depbox run", "depbox exec -- cargo", "lane exec x", "--worker-sandbox -- sh", "capacity host run --class moderate", "capacity host run --class moderate --", "capacity host status"] {
+        assert!(!super::broker::permitted(&words(refused)), "{refused}");
+    }
+    for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "--worker-sandbox --built -- ./t", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check"] {
+        assert!(super::broker::permitted(&words(allowed)), "{allowed}");
+    }
+    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x")];
+    let environment = super::broker::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect());
+    let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
+    assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x")));
+    assert_ne!(get("GIT_CONFIG_COUNT"), Some("9"));
+    assert_eq!((get("GIT_AUTHOR_NAME"), get("NORTH_SOCKETS_HIDDEN")), (Some("a"), None));
+    let north = Path::new("/n/north");
+    let wrapped = super::broker::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"));
+    assert_eq!(wrapped.join(" "), "capacity host run --class heavy --owner o -- /n/north --worker-sandbox --program -- cargo test -p x");
+}

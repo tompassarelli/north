@@ -4,6 +4,9 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// Set on a command whose sandbox has hidden the sockets that reach the user manager, so a verb that needs a transient scope asks the outside broker for it.
+pub const SOCKETS_HIDDEN: &str = "NORTH_SOCKETS_HIDDEN";
+
 pub fn bind(command: &mut Command) {
     if let Ok(unit) = std::env::var("NORTH_FLEET_SCOPE") {
         command.args([format!("--property=BindsTo={unit}"), format!("--property=After={unit}")]);

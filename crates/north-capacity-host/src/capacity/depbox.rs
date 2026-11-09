@@ -107,6 +107,10 @@ impl Sandbox {
             box_.add(&["--tmpfs"]);
             box_.arguments.push(named_home.into());
         }
+        for alias in aliases(&home) {
+            box_.add(&["--tmpfs"]);
+            box_.arguments.push(alias.into());
+        }
         let builds: &[&str] = if mode == Mode::Run { &BUILD_CACHES } else { &[] };
         for directory in CACHES.iter().chain(builds).map(|directory| home.join(directory)) {
             std::fs::create_dir_all(&directory).map_err(|error| (1, format!("{}: {error}", directory.display())))?;
@@ -227,6 +231,14 @@ impl Sandbox {
     fn set(&mut self, name: &str, value: OsString) {
         self.arguments.extend([OsString::from("--setenv"), OsString::from(name), value]);
     }
+}
+
+/// The other paths where `home` shows up: one directory can sit at two paths (two mounts of one btrfs subvolume put `/home/USER` also at `/nix/USER`), and the read-only bind of `/` would carry the second one into the sandbox with the logins under it.
+fn aliases(home: &Path) -> Vec<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let identity = |path: &Path| std::fs::metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()));
+    let Some(own) = identity(home) else { return Vec::new() };
+    ["/nix", "/home", "/mnt", "/srv", "/var", "/media"].iter().flat_map(|root| std::fs::read_dir(root).into_iter().flatten().flatten().map(|entry| entry.path())).filter(|path| path != home && !path.is_symlink() && identity(path) == Some(own)).collect()
 }
 
 /// The project a git common directory belongs to: `code/<project>/<checkout>/.git` names `<project>`, a bare common directory its own name.
