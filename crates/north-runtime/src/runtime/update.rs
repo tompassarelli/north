@@ -220,6 +220,7 @@ fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
 }
 
 fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {
+    layout::built_from_own_commit(runtime).map_err(|why| failed(1, why))?;
     if !runtime.join(TREE).is_dir() {
         let _writing = writing(layout, target)?;
         if !runtime.join(TREE).is_dir() {

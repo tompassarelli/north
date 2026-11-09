@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub use crate::platform::store_refs::RUNTIME_PROGRAMS as PROGRAMS;
 pub const BUILT_HERE: &str = "built-here";
+pub const BUILT_FROM: &str = "built-from";
 pub use crate::platform::harness::{TREE, is_sha};
 use crate::platform::harness::DEFAULTS;
 use rustix::fs::{FlockOperation, flock};
@@ -114,6 +115,29 @@ pub fn doomed<'a>(newest_first: &'a [String], keep: &[&str]) -> Vec<&'a str> {
         .filter(|name| is_sha(name) && !keep.contains(name))
         .skip(KEPT_OLDER)
         .collect()
+}
+
+/// Records the commit a runtime's binary was built for beside the binary's hash, written only by a build whose cargo ran or a reuse that proved no Rust input changed.
+pub(super) fn stamp(runtime: &Path, commit: &str) -> std::io::Result<()> {
+    fs::write(runtime.join(BUILT_FROM), format!("{commit} {}\n", binary_hash(&runtime.join("north"))?))
+}
+
+pub(super) fn built_from_own_commit(runtime: &Path) -> Result<(), String> {
+    let commit = runtime.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let stamp = fs::read_to_string(runtime.join(BUILT_FROM)).map_err(|error| format!("{} has no {BUILT_FROM} record ({error})", runtime.display()))?;
+    let hash = binary_hash(&runtime.join("north")).map_err(|error| format!("{}: {error}", runtime.join("north").display()))?;
+    match stamp.split_whitespace().collect::<Vec<_>>()[..] {
+        [stamped, recorded] if stamped == commit && recorded == hash => Ok(()),
+        _ => Err(format!("the north binary in {} was not built from its own commit {commit}", runtime.display())),
+    }
+}
+
+fn binary_hash(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 pub(super) fn install(from: &Path, to: &Path) -> std::io::Result<()> {

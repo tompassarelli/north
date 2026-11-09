@@ -163,6 +163,7 @@ fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, co
         layout::install(&release.join(program), &runtime.join(program))?;
     }
     fs::write(runtime.join(BUILT_HERE), layout::short(target))?;
+    layout::stamp(runtime, target)?;
     Ok(())
 }
 

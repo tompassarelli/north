@@ -50,9 +50,20 @@ fn a_failed_sync_keeps_the_new_runtime_and_alerts_once_per_cause_without_the_sec
 fn a_promotion_that_cannot_root_a_store_path_leaves_the_current_runtime_selected() {
     let host = skewed();
     script(&host.runtime(&host.target).join("north"), "# /nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84\n");
+    host.stamp(&host.target);
     script(&host.path("bin/nix-store"), "exit 3\n");
     let output = host.update(0, 0);
     assert_eq!(output.status.code(), Some(1), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
 }
 
+
+#[test]
+fn a_runtime_whose_binary_was_stamped_for_another_commit_is_refused_and_the_current_runtime_stays() {
+    let host = skewed();
+    host.stamp(PREVIOUS);
+    fs::copy(host.runtime(PREVIOUS).join("built-from"), host.runtime(&host.target).join("built-from")).unwrap();
+    let output = host.update(0, 0);
+    assert_ne!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+}

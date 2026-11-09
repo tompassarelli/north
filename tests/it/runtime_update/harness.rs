@@ -82,6 +82,13 @@ impl Host {
         for program in ["north", "verify-north"] {
             script(&self.runtime(sha).join(program), "exit 0\n");
         }
+        self.stamp(sha);
+    }
+
+    pub fn stamp(&self, sha: &str) {
+        let binary = self.runtime(sha).join("north");
+        let hash = String::from_utf8(Command::new("sha256sum").arg(&binary).output().unwrap().stdout).unwrap();
+        fs::write(self.runtime(sha).join("built-from"), format!("{sha} {}\n", hash.split_whitespace().next().unwrap())).unwrap();
     }
 
     pub fn select(&self, sha: &str) {

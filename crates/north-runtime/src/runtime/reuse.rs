@@ -47,6 +47,9 @@ pub(super) fn reuse(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
     if source.join(layout::BUILT_HERE).is_file() && fs::write(runtime.join(layout::BUILT_HERE), layout::short(target)).is_err() {
         return false;
     }
+    if layout::stamp(runtime, target).is_err() {
+        return false;
+    }
     println!("north runtime: {} changes no Rust build input since {}; reusing its binaries without a build", layout::short(target), layout::short(&live));
     true
 }

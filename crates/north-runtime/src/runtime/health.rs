@@ -8,6 +8,7 @@ pub(super) fn health(layout: &Layout) -> Result<(), Failure> {
     if executable.parent() != Some(current.as_path()) {
         return Err(failed(1, format!("{} is not the current runtime {}", executable.display(), current.display())));
     }
+    layout::built_from_own_commit(&current).map_err(|why| failed(1, why))?;
     if !layout::has_programs(&current) || !current.join(TREE).is_dir() {
         return Err(failed(1, format!("{} lacks its programs or tree", current.display())));
     }
