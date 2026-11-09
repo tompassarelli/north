@@ -64,10 +64,10 @@ host = "ledger"
 [[loop]]
 name = "effort"
 decision = "the reasoning effort a launch runs at"
-sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-dispatch/src/dispatch/manual.rs", "src/cli/fleet/tier.rs"]
-updated_by = "orchestration.toml by hand"
+sites = ["crates/north-dispatch/src/dispatch/tier.rs", "crates/north-dispatch/src/dispatch/cells.rs", "crates/north-dispatch/src/dispatch/manual.rs", "src/cli/fleet/tier.rs"]
+updated_by = "north fleet dispatch draws the category's model and effort cell in the shares its closed boxes settle"
 cadence_hours = 24
-owner = "north#112 Effort is an arm"
+owner = "north#939 The cell draw learns model and effort together"
 
 [[loop]]
 name = "context-window"

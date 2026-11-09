@@ -1,6 +1,6 @@
 //! The shares an experiment's arms hold of a category's next boxes, read off the ledger's closed-box
 //! report: what `north ops climb run --dry-run` prints and what every dispatched or hand launch draws from.
-use super::tier::{CONTEXT_WINDOWS, Effort, PINNED, PLANNED};
+use super::tier::CONTEXT_WINDOWS;
 use crate::ledger::closed::ClosedReport;
 use crate::router::settle::{self, Outcome};
 use std::collections::BTreeMap;
@@ -35,13 +35,10 @@ impl Shares {
     }
 }
 
-/// The arms dispatch draws between in `category`'s `family` experiment, in the order the climber lists
-/// them; empty for an experiment dispatch does not draw.
-pub fn experiment_arms(category: &str, family: &str) -> Vec<String> {
+/// The arms dispatch draws between in a `family` experiment, in the order the climber lists them;
+/// empty for an experiment dispatch does not draw.
+pub fn experiment_arms(family: &str) -> Vec<String> {
     let mut arms: Vec<String> = match family {
-        "effort" if PINNED.contains(&category) => Vec::new(),
-        "effort" if PLANNED.contains(&category) => [Effort::High, Effort::Xhigh].map(|effort| effort.arm().to_owned()).to_vec(),
-        "effort" => Effort::ARMS.map(|effort| effort.arm().to_owned()).to_vec(),
         "context" => CONTEXT_WINDOWS.map(crate::fleet::compaction::arm).to_vec(),
         "pack" => vec![PACK.to_owned(), NO_PACK.to_owned()],
         _ => Vec::new(),

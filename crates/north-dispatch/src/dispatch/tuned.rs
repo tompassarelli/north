@@ -1,7 +1,6 @@
-use super::tier::{Effort, Route};
+use super::tier::Route;
 use crate::foundation::clock::Timestamp;
 use north_graph_loops::{Cells, Learned};
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -38,19 +37,11 @@ impl Tuned {
         north_graph_loops::read(&north_graph_loops::graph_path(), WRITER).map_or_else(|_| Self::default(), |learned| Self::from_learned(learned, SystemTime::now()))
     }
 
-    pub fn efforts(&self) -> BTreeMap<String, Effort> {
-        self.cells.iter().filter_map(|(cell, value)| Some((cell.strip_prefix("effort ")?.to_owned(), Effort::parse(value.as_str()?)?))).collect()
-    }
-
     /// The `<name> <family> <category>` cell for the route's tier family and category.
     pub fn figure(&self, name: &str, route: &Route) -> Option<Figure> {
         let value = self.cells.get(&format!("{name} {} {}", route.tier.family(), route.category))?.as_f64()?;
         Some(Figure { value, date: self.date.clone() })
     }
-}
-
-pub fn current_efforts() -> BTreeMap<String, Effort> {
-    Tuned::current().efforts()
 }
 
 pub fn directory() -> Result<PathBuf, String> {

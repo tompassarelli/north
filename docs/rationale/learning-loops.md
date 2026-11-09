@@ -57,6 +57,12 @@ A loop that learns tells its learned values to north's graph (`~/.local/state/no
 - **remote-branches** and **credentials** stay on their record files: each records that a sweep or an expiry check ran, not a value learned from an outcome, so the graph would hold only a tick. They move if they start learning (a sweep age or a renewal lead time set from outcomes).
 - **effort**, **pressure-band**, **placement**, **worker-concurrency** and **skill-routing** are set by hand (orchestration.toml, defaults.toml, `resident_cap`, skill frontmatter) and learn from no outcome; **context-window**, **landing-batch** and **policy-climber** are open loops whose owners have not closed them. Each moves to the graph in the lane that gives it a signal, telling its first learned value as above.
 
+### The effort cell retired, 2026-11-10
+
+north#939's cell draw learns a category's model and effort together from its closed boxes, and north#1035 retired
+north tune's `effort CATEGORY` cell, its `cell/effort` predicate and `harness/graph-rules/effort.json`. The graph's
+cell vocabulary is `eta_minutes` and `budget_usd`; effort is no longer a hand-set value or a graph cell.
+
 ## The tune tick fails on a stale loop
 
 `north tune` runs the check after its own work and appends the registry's lines to its output. Its exit code is 1 when any closed loop it holds is stale or never updated, or when the registry cannot be parsed, which fires the nexus unit's failure alert. The same code that fails `north tune` fails `north loops check`.

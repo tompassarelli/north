@@ -205,3 +205,7 @@ Evidence: north#242 comment of 2026-11-01 01:55 UTC (planner-band reading); nort
 questions.
 
 The tier arms are deleted: since 2026-11-07 each category starts on one fixed tier (docs/rationale/spend-rule.md, Tier defaults; north#702).
+
+The effort cell is deleted too: since north#1035 (2026-11-10) north tune tells no `effort CATEGORY` cell, its
+`harness/graph-rules/effort.json` read is gone, and the north#939 cell draw picks model and effort together from a
+category's closed boxes.

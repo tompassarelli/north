@@ -1,6 +1,6 @@
-//! The cells a tick decides from the ledger: each category's Opus effort once its effort arms decided, and the ETA and budget of each tier family and category with a closed box, each with its evidence.
+//! The cells a tick decides from the ledger: the ETA and budget of each tier family and category with a closed box, each with its evidence.
 use crate::ledger::ClosedReport;
-use crate::dispatch::{ARM_WINDOW, BUDGET_TIMES, Effort, Evidence, LEDGER_WINDOW, Tier, eta_minutes};
+use crate::dispatch::{BUDGET_TIMES, LEDGER_WINDOW, Tier, eta_minutes};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,8 +27,8 @@ const FAMILIES: [Tier; 3] = [Tier::Haiku, Tier::Sonnet, Tier::Opus];
 
 /// Decides the cells; `times` holds each category's budget multiplier and its basis where the
 /// stored Budgets' p90 set one, every other category taking `BUDGET_TIMES`.
-pub fn decide(week: &ClosedReport, evidence: &BTreeMap<String, Evidence>, times: &BTreeMap<String, (f64, String)>) -> Vec<Decided> {
-    let mut decided: Vec<Decided> = evidence.iter().filter_map(|(category, evidence)| effort(category, evidence)).collect();
+pub fn decide(week: &ClosedReport, times: &BTreeMap<String, (f64, String)>) -> Vec<Decided> {
+    let mut decided: Vec<Decided> = Vec::new();
     let families: BTreeSet<(Tier, &str)> = week
         .cells
         .iter()
@@ -77,21 +77,6 @@ pub fn limit_steps(prior: &Cells, decided: &mut [Decided]) {
         cell.basis.why = format!("{}; held to {held} by the {MAX_STEP}x step limit on the prior {was}", cell.basis.why);
         cell.value = json!(held);
     }
-}
-
-fn effort(category: &str, evidence: &Evidence) -> Option<Decided> {
-    let effort = evidence.settled_effort()?;
-    let kept = |effort: Effort| evidence.efforts.closed(effort);
-    Some(Decided {
-        cell: format!("effort {category}"),
-        value: json!(effort.name()),
-        basis: Basis {
-            rows: evidence.effort_runs(),
-            n: Effort::ARMS.into_iter().map(kept).sum(),
-            interval: None,
-            why: format!("lower mean cost per kept Opus box over {ARM_WINDOW}: {}", evidence.effort_figures()),
-        },
-    })
 }
 
 fn round_cents(usd: f64) -> f64 {
@@ -160,15 +145,4 @@ impl Change {
             "revisit": "the next north tune tick",
         })
     }
-}
-
-/// Keeps each prior effort cell the tick could not decide because the arms' evidence
-/// went unread, so a failed read neither drops nor re-adds an effort.
-pub fn carry_efforts(prior: &Cells, decided: &mut Vec<Decided>) {
-    let held: BTreeSet<String> = decided.iter().map(|decided| decided.cell.clone()).collect();
-    decided.extend(prior.iter().filter(|(cell, _)| cell.starts_with("effort ") && !held.contains(*cell)).map(|(cell, value)| Decided {
-        cell: cell.clone(),
-        value: value.clone(),
-        basis: Basis { rows: 0, n: 0, interval: None, why: "kept: the arms' evidence was unread this tick".into() },
-    }));
 }

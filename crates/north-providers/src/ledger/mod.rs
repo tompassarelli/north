@@ -25,7 +25,7 @@ mod verdict;
 pub use closed::{ClosedBox, ClosedReport, Figures};
 #[doc(hidden)]
 pub use closed::{SpendRun, summarize};
-pub use closed_source::{EstimatedRun, PriorReport, RunTime, WindowRun, arm_runs, arm_runs_in, closed_report, closed_report_and_previous, estimated_runs, eta_calibration, inside, prior_reports, run_times, run_times_in, runs_inside, threads_database, tier_briers, window_start, window_start_ms};
+pub use closed_source::{EstimatedRun, PriorReport, RunTime, WindowRun, closed_report, closed_report_and_previous, estimated_runs, eta_calibration, inside, prior_reports, run_times, run_times_in, runs_inside, threads_database, tier_briers, window_start, window_start_ms};
 pub use report::print_runs;
 pub use verdict::{check, landed};
 

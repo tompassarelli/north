@@ -1,6 +1,6 @@
 //! `north tune`: the daily learning tick. It reads the ledger's closed boxes of the last week and
-//! the week before, prints the dashboard line, writes the effort cells whose arms decided and the
-//! ETA and budget cells to the graph as one transaction of writer `tune`, appends each changed cell's evidence to the provenance
+//! the week before, prints the dashboard line, writes the ETA and budget cells to the graph as one
+//! transaction of writer `tune`, appends each changed cell's evidence to the provenance
 //! file, keeps one rolling north issue for the cells whose cost per closed box rose more than 25%
 //! week on week, opened on the second risen tick in a row and closed on the first calm one, and prints the open north issue
 //! count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
@@ -13,11 +13,11 @@
 //! a category holds enough runs carrying one, and moves an ETA or budget cell at most 2x from its prior value per tick. It prints the share of the last day's finished runs
 //! that recorded each essential field and fails when one is under 98%. It prints each skill's
 //! closed-box rate and cost against matched boxes that did not load it, and flags the installed
-//! skills no run loaded and those whose boxes did worse. A failed read of the arms' evidence keeps the prior effort cells and fails the tick.
+//! skills no run loaded and those whose boxes did worse.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun, rises};
 use crate::dispatch::tuned::{WRITER, directory};
-use crate::dispatch::{Evidence, LEDGER_WINDOW, arm_evidence, evidenced};
+use crate::dispatch::LEDGER_WINDOW;
 use crate::threads::calibration::predictions::Brier;
 use crate::platform::github;
 use crate::platform::rolling_issue::{self, Breaches, alarm};
@@ -26,7 +26,6 @@ use north_graph_loops::Learned;
 use costs::Cost;
 use dividends::{Dividend, Reading};
 use serde_json::Value;
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -52,13 +51,11 @@ pub trait Tracker {
     fn rolling(&mut self) -> &mut dyn rolling_issue::Tracker;
 }
 
-/// The ledger as one tick reads it, with the skills agents can load; `notes` are the reads that
-/// failed and `runs` the last day's finished runs.
+/// The ledger as one tick reads it, with the skills agents can load and `runs` the last day's
+/// finished runs.
 pub struct Ledger {
     pub week: ClosedReport,
     pub before: ClosedReport,
-    pub evidence: BTreeMap<String, Evidence>,
-    pub notes: Vec<String>,
     pub estimates: Result<Vec<EstimatedRun>, String>,
     pub briers: Result<Vec<Brier>, String>,
     pub runs: Result<Vec<Value>, String>,
@@ -88,12 +85,8 @@ pub struct Tick {
 
 pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
     let mut lines = vec![ledger.week.dashboard(LEDGER_WINDOW)];
-    lines.extend(ledger.notes.iter().map(|note| format!("unread: {note}; prior effort cells are kept")));
     let scores = ledger.estimates.as_deref().map(budgets::scores).unwrap_or_default();
-    let mut decided = cells::decide(&ledger.week, &ledger.evidence, &budgets::multipliers(&scores));
-    if !ledger.notes.is_empty() {
-        cells::carry_efforts(&prior.cells, &mut decided);
-    }
+    let mut decided = cells::decide(&ledger.week, &budgets::multipliers(&scores));
     cells::limit_steps(&prior.cells, &mut decided);
     let changes = cells::changes(&prior.cells, &decided);
     lines.extend(changes.iter().map(Change::line));
@@ -136,7 +129,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || ledger.briers.is_err() || risen.is_err() || drifted.is_err() || open.is_err() || told_failed || uncovered;
+    let failed = ledger.estimates.is_err() || ledger.briers.is_err() || risen.is_err() || drifted.is_err() || open.is_err() || told_failed || uncovered;
     Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, breaches, failed }
 }
 
@@ -194,8 +187,6 @@ pub fn failing(tick: Tick, loops: &Result<crate::loops::Checked, String>) -> Tic
 
 fn tune(dry_run: bool) -> Result<Tick, String> {
     let (week, before) = ledger::closed_report_and_previous(LEDGER_WINDOW).map_err(|error| error.user_message())?;
-    let mut notes = Vec::new();
-    let evidence = arm_evidence(&evidenced(), &mut notes);
     let estimates = ledger::estimated_runs(LEDGER_WINDOW).map_err(|error| error.user_message());
     let root = crate::foundation::activation::activation_paths(&|name: &str| std::env::var(name).ok().filter(|value| !value.is_empty())).0.with_file_name("skills/shared");
     let skills = skills::installed(&root).unwrap_or_else(|error| {
@@ -203,7 +194,7 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
         Vec::new()
     });
     let briers = ledger::tier_briers(LEDGER_WINDOW).map_err(|error| error.user_message());
-    let ledger = Ledger { week, before, evidence, notes, estimates, briers, runs: coverage::read(), skills };
+    let ledger = Ledger { week, before, estimates, briers, runs: coverage::read(), skills };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
     let learned = files.learned()?;

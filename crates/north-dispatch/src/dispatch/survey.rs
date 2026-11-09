@@ -325,36 +325,14 @@ pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<Str
     report.map_err(|why| notes.push(format!("{DEGRADED}: north dash --closed --since {} unread, so the arms draw at equal shares: {}", tier::ARM_WINDOW, why.user_message()))).ok()
 }
 
-pub(super) fn read_arm_runs(category: &str, runs: NorthResult<BTreeMap<String, usize>>, notes: &mut Vec<String>) -> BTreeMap<String, usize> {
-    runs.map_err(|why| notes.push(format!("{DEGRADED}: arm runs of {category} unread, so its arms draw at equal shares: {}", why.user_message()))).unwrap_or_default()
-}
-
 pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let closed = closed(notes);
-    evidence_from(categories, closed.as_ref(), notes)
+    evidence_from(categories, closed.as_ref())
 }
 
-fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
-    let mut found = BTreeMap::new();
-    let north = crate::fleet::runtime::binary("north");
-    let efforts = super::tuned::current_efforts();
-    for category in categories {
-        let facets = format!("Category: {category}");
-        match run_within(&north.to_string_lossy(), &["ledger", "worker", "--recommend", &facets], PROBE) {
-            Some(output) if output.status.success() => {
-                let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
-                let read = read.counted(&read_arm_runs(category, crate::ledger::arm_runs(category), notes));
-                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned_effort(&efforts, category));
-            }
-            _ => {
-                notes.push(format!("{DEGRADED}: north ledger worker --recommend {facets:?} unread, so {category} keeps drawing its effort arms unless north tune settled one"));
-                if efforts.contains_key(*category) {
-                    found.insert((*category).to_owned(), Evidence::default().tuned_effort(&efforts, category));
-                }
-            }
-        }
-    }
-    found
+fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>) -> BTreeMap<String, Evidence> {
+    let Some(report) = closed else { return BTreeMap::new() };
+    categories.iter().map(|category| ((*category).to_owned(), Evidence::default().priced(report, category))).collect()
 }
 
 fn read<'scope, T: Send + 'scope>(scope: &'scope std::thread::Scope<'scope, '_>, reader: impl FnOnce(&mut Vec<String>) -> T + Send + 'scope) -> std::thread::ScopedJoinHandle<'scope, (T, Vec<String>)> {
@@ -385,7 +363,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         let claim_lists = read(scope, |notes| claim_listings(cfg_ref, here_ref, at, notes));
         let evidence = read(scope, |notes| {
             let report = closed(notes);
-            let ledger = evidence_from(&tier::evidenced(), report.as_ref(), notes);
+            let ledger = evidence_from(&tier::evidenced(), report.as_ref());
             (report, ledger)
         });
         let remote_arms = read(scope, |notes| remote_arm_boxes(cfg_ref, here_ref, notes));

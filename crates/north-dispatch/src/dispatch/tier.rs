@@ -2,13 +2,12 @@
 //! with its retry on Sonnet, Opus for the categories in `OPUS`, and Sonnet at high effort for art and
 //! every other category. An unknown-cause bug that names a failing test or repro command starts on
 //! Sonnet and escalates once to Opus medium; one naming neither starts on Opus medium. A plan runs at
-//! Opus high when its scope spans modules, else at medium. Another Opus box in a category with 15 Opus
-//! runs takes the medium or high effort arm until the tune tick or the ledger settles the cheaper one.
-//! A reviewer run takes the high or xhigh effort arm until the ledger settles the cheaper of the two.
-//! No route starts at max effort. A local box on none of
-//! those arms takes one auto-compact window of `CONTEXT_WINDOWS`. Every arm is a seeded draw from the
-//! shares `Shares` reads off the ledger, the same shares `north ops climb run --dry-run` prints: equal
-//! while the arms hold no boxes, then Thompson sampling on cost per kept box with a floor per arm.
+//! Opus high when its scope spans modules, else at medium. Every launch's model and effort then come
+//! from one of its category's three live cells (`super::cells`), drawn from the shares below; no route
+//! starts at max effort. A local box on no cell arm takes one auto-compact window of
+//! `CONTEXT_WINDOWS`. Every arm is a seeded draw from the shares `Shares` reads off the ledger, the
+//! same shares `north ops climb run --dry-run` prints: equal while the arms hold no boxes, then
+//! Thompson sampling on cost per kept box with a floor per arm.
 use super::cells::{self, Cell};
 use super::facets;
 use super::issues::Issue;
@@ -17,21 +16,15 @@ use super::shares::{Shares, arm_outcomes, experiment_arms};
 use super::spin::Signal;
 use crate::ledger::closed::{ArmBox, ClosedReport};
 pub use crate::router::brief::{ART, known_category as known};
-use crate::router::settle::{self, Outcome};
-use crate::router::policy::ARM_RUNS;
+use crate::router::settle::Outcome;
 pub use crate::router::tier::Tier;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::DocumentMut;
 
-/// Window of the ledger's arm boxes whose cost per kept box decides an effort arm.
+/// Window of the closed-box report dispatch's arm and cell draws read.
 pub const ARM_WINDOW: &str = "30d";
 /// Categories that start on Opus: architecture-class work, and unknown-cause debugging that names no repro.
 pub const OPUS: [&str; 5] = ["debugging-unknown-cause", "netcode-determinism", "performance", "planning", "review"];
-/// Categories of reviewer runs, whose effort arms are high and xhigh.
-pub const PLANNED: [&str; 1] = ["review"];
-/// Categories whose effort the staffing rules fix rather than an arm draw: planning by its scope, and
-/// unknown-cause debugging, which starts on Sonnet when it names a repro and else on Opus medium.
-pub const PINNED: [&str; 2] = ["planning", UNKNOWN_CAUSE];
 pub const UNKNOWN_CAUSE: &str = "debugging-unknown-cause";
 /// The `Scope:` words of a plan that spans modules, which plans at Opus high; narrower plans run at medium.
 pub const SPANNING: [&str; 2] = ["cross-module", "cross-repo"];
@@ -53,10 +46,9 @@ pub enum Effort {
 }
 
 impl Effort {
-    pub const ARMS: [Self; 2] = [Self::Medium, Self::High];
     pub const ALL: [Self; 4] = [Self::Medium, Self::High, Self::Xhigh, Self::Max];
 
-    /// The `--effort` word Claude Code takes, which is also the tune cell's value.
+    /// The `--effort` word Claude Code takes.
     pub fn name(self) -> &'static str {
         match self {
             Self::Medium => "medium",
@@ -79,138 +71,29 @@ impl Effort {
     pub fn parse(text: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|effort| effort.name() == text || effort.arm() == text)
     }
-
-    fn parse_arm(text: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|effort| effort.arm() == text)
-    }
 }
 
-/// One arm comparison's evidence in a category: the runs stamped with each arm and, once the
-/// closed-box report is read, the boxes each arm's first runs started.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Trial<K: Ord> {
-    pub runs: BTreeMap<K, usize>,
-    pub boxes: Option<BTreeMap<K, Vec<Outcome>>>,
-}
-
-impl<K: Ord> Default for Trial<K> {
-    fn default() -> Self {
-        Self { runs: BTreeMap::new(), boxes: None }
-    }
-}
-
-impl<K: Ord + Copy> Trial<K> {
-    fn counted(arms: &[K], stamp: impl Fn(K) -> &'static str, stamped: &BTreeMap<String, usize>) -> BTreeMap<K, usize> {
-        arms.iter().map(|arm| (*arm, stamped.get(stamp(*arm)).copied().unwrap_or(0))).collect()
-    }
-
-    /// Each arm's boxes, closed or not, from one category's `arm_outcomes`.
-    fn priced(self, outcomes: &BTreeMap<String, Vec<Outcome>>, arm_of: impl Fn(&str) -> Option<K>) -> Self {
-        let boxes = outcomes.iter().filter_map(|(arm, boxes)| Some((arm_of(arm)?, boxes.clone()))).collect();
-        Self { boxes: Some(boxes), ..self }
-    }
-
-    fn runs(&self, arm: K) -> usize {
-        self.runs.get(&arm).copied().unwrap_or(0)
-    }
-
-    fn arm_boxes(&self, arm: K) -> &[Outcome] {
-        self.boxes.as_ref().and_then(|boxes| boxes.get(&arm)).map_or(&[], Vec::as_slice)
-    }
-
-    pub fn closed(&self, arm: K) -> usize {
-        settle::closed(self.arm_boxes(arm))
-    }
-
-    fn cost(&self, arm: K) -> Option<f64> {
-        settle::usd_per_kept(self.arm_boxes(arm))
-    }
-
-    /// The arm `settle::settled` gives the comparison, `first` on a tie.
-    fn settled(&self, first: K, second: K) -> Option<K> {
-        let arm = |arm: K| settle::Arm { runs: self.runs(arm), boxes: self.arm_boxes(arm) };
-        settle::settled(arm(first), arm(second)).map(|side| if side == settle::Side::First { first } else { second })
-    }
-
-    fn figures(&self, arm: K, name: &str) -> String {
-        let cost = match self.cost(arm) {
-            None => "no closed box".to_owned(),
-            Some(usd) if usd.is_infinite() => "every closed box reworked".to_owned(),
-            Some(usd) => format!("${usd:.2} per kept box"),
-        };
-        format!("{name} {} of {ARM_RUNS} arm runs, {} of {ARM_RUNS} closed arm boxes, {cost}", self.runs(arm), self.closed(arm))
-    }
-}
-
-/// What the ledger holds for one category: each tier's success rate and runs there from
-/// `--recommend`, and the effort arms' stamped runs and boxes from `north dash --closed`.
+/// What the ledger's closed-box report holds for one category: the boxes each arm stamp started and
+/// the boxes each model-effort cell started.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Evidence {
-    pub tiers: BTreeMap<String, (f64, usize)>,
-    pub efforts: Trial<Effort>,
-    pub tuned_effort: Option<Effort>,
     /// Every arm's boxes in the category, keyed by its `Arm:` stamp, which the arm draws read.
     pub outcomes: BTreeMap<String, Vec<Outcome>>,
     pub cell_boxes: BTreeMap<String, Vec<Outcome>>,
 }
 
 impl Evidence {
-    /// Reads `north ledger worker --recommend 'Category: NAME'`; a coarser cell than the category counts
-    /// as no evidence.
-    pub fn parse(printed: &str, category: &str) -> Self {
-        let Some((_, cell)) = printed.lines().find_map(|line| line.split_once("  cell [")) else { return Self::default() };
-        if !cell.to_lowercase().starts_with(&format!("category: {category}]")) {
-            return Self::default();
-        }
-        let tiers = printed
-            .lines()
-            .filter(|line| line.starts_with("  "))
-            .filter_map(|line| {
-                let (label, rest) = line.trim().split_once('%')?;
-                let (label, rate) = label.rsplit_once(' ')?;
-                Some((label.to_owned(), (rate.parse().ok()?, rest.trim().strip_prefix("of ")?.split_whitespace().next()?.parse().ok()?)))
-            })
-            .collect();
-        Self { tiers, ..Self::default() }
-    }
-
-    /// Adds every arm's boxes in this category, those whose first run carried the arm's `Arm:` line in
+    /// Adds every arm's and every cell's boxes in this category, whose first run carried that stamp in
     /// the ledger's closed-box report.
     pub fn priced(self, report: &ClosedReport, category: &str) -> Self {
         let outcomes = arm_outcomes(report, category);
-        let efforts = self.efforts.clone().priced(&outcomes, Effort::parse_arm);
         let cell_boxes = cells::outcomes(report, category);
-        Self { efforts, outcomes, cell_boxes, ..self }
+        Self { outcomes, cell_boxes }
     }
 
     /// The shares of the category's next boxes among the arms of its `family` experiment.
     pub fn shares(&self, category: &str, family: &'static str) -> Shares {
-        Shares::of(category, family, &experiment_arms(category, family), &self.outcomes)
-    }
-
-    pub fn tuned_effort(self, efforts: &BTreeMap<String, Effort>, category: &str) -> Self {
-        Self { tuned_effort: efforts.get(category).copied().filter(|effort| *effort != Effort::Max), ..self }
-    }
-
-    /// Adds the runs the ledger holds stamped with each effort's arm in this category.
-    pub fn counted(self, stamped: &BTreeMap<String, usize>) -> Self {
-        let efforts = Trial { runs: Trial::counted(&Effort::ALL, Effort::arm, stamped), ..self.efforts.clone() };
-        Self { efforts, ..self }
-    }
-
-    /// The effort the category's Opus boxes settle on: medium on a tie.
-    pub fn settled_effort(&self) -> Option<Effort> {
-        self.efforts.settled(Effort::Medium, Effort::High)
-    }
-
-    /// Both effort arms' stamped runs behind the decision.
-    pub fn effort_runs(&self) -> usize {
-        Effort::ARMS.into_iter().map(|effort| self.efforts.runs(effort)).sum()
-    }
-
-    /// Both effort arms' figures, as a launch reason or a tune cell's claim shows them.
-    pub fn effort_figures(&self) -> String {
-        Effort::ARMS.map(|effort| self.efforts.figures(effort, effort.arm())).join("; ")
+        Shares::of(category, family, &experiment_arms(family), &self.outcomes)
     }
 }
 

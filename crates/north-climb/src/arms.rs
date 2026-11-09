@@ -56,7 +56,7 @@ pub fn live(report: &ClosedReport) -> Vec<Arm> {
     let mut live = Vec::new();
     for ((category, family), named) in experiments {
         let outcomes = shares::arm_outcomes(report, category);
-        let drawn = shares::experiment_arms(category, family);
+        let drawn = shares::experiment_arms(family);
         let arms = if drawn.is_empty() { named.keys().map(|arm| (*arm).to_owned()).collect() } else { drawn };
         let experiment = Shares::of(category, family, &arms, &outcomes);
         for (name, share) in experiment.arms {
