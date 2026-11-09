@@ -9,8 +9,8 @@ worker sandbox, which refuses to execute anything beneath a lane's target/ or no
 PROGRAM without that rule only when every lock file of CHECKOUT (default: the checkout of the current
 directory) equals origin/main's, so no dependency code the landing has not admitted runs with the
 agent's rights; a Cargo.lock counts as equal when it differs only in the workspace's own packages,
-which carry no source, so adding a crate admits no outside code; a lane with a changed lock runs its build
-output with `north depbox run -- PROGRAM`.
+which carry no source, so adding a crate admits no outside code; a lane with a changed lock runs PROGRAM
+through `north depbox run -- PROGRAM` instead, where the dependency code is confined.
 Outside a worker sandbox, inside depbox, and with no checkout to vouch for it, it runs PROGRAM in place.";
 
 const LOCKS: [&str; 6] = ["Cargo.lock", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
@@ -18,6 +18,11 @@ const DEPBOX: &str = "DEPBOX";
 
 /// `north lane exec`; `confined` says whether this command runs in a worker sandbox, and `leave` runs a program without the worker sandbox's rule against executing build output, returning its exit code, or `None` when it did not run it.
 pub fn run(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<u8>) -> u8 {
+    let confined = confined && std::env::var_os(DEPBOX).is_none_or(|depbox| depbox.is_empty());
+    run_with(arguments, confined, leave, replace_with)
+}
+
+fn run_with(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<u8>, replace: fn(&mut Command, &str) -> u8) -> u8 {
     let (lane, program) = match arguments {
         [flag, ..] if flag == "-h" || flag == "--help" => {
             println!("{USAGE}");
@@ -31,35 +36,61 @@ pub fn run(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<
         eprintln!("{USAGE}");
         return 2;
     }
-    let confined = confined && std::env::var_os(DEPBOX).is_none_or(|depbox| depbox.is_empty());
+    let lane = match named_lane(lane, program) {
+        Ok(lane) => lane,
+        Err(code) => return code,
+    };
+    if confined && let Some(lane) = lane.or_else(|| toplevel(Path::new(".")))
+        && let Some(code) = vouch(&lane, program, leave, replace)
+    {
+        return code;
+    }
+    replace(Command::new(&program[0]).args(&program[1..]), &program[0])
+}
+
+fn named_lane(lane: Option<PathBuf>, program: &[String]) -> Result<Option<PathBuf>, u8> {
     let program_checkout = std::fs::canonicalize(&program[0]).ok().filter(|_| program[0].contains('/')).and_then(|path| path.parent().and_then(toplevel));
-    let lane = match (lane, program_checkout) {
+    match (lane, program_checkout) {
         (Some(lane), Some(owner)) if std::fs::canonicalize(&lane).ok().as_ref() != Some(&owner) => {
             eprintln!("lane exec: {} is built in {}, not in {}; name that checkout with --lane or run it with `north depbox run -- {}`", program[0], owner.display(), lane.display(), program.join(" "));
-            return 1;
+            Err(1)
         }
-        (Some(lane), _) => Some(lane),
-        (None, Some(owner)) => Some(owner),
-        (None, None) => None,
-    };
-    if confined && let Some(lane) = lane.or_else(|| toplevel(Path::new("."))) {
-        match changed_locks(&lane) {
-            Ok(changed) if changed.is_empty() => {}
-            Ok(changed) => {
-                eprintln!("lane exec: {} changes {} against origin/main, so its build output may carry dependency code no landing admitted; run it inside depbox instead: north depbox run -- {}", lane.display(), changed.join(", "), program.join(" "));
-                return 1;
-            }
-            Err(error) => {
-                eprintln!("lane exec: {}: {error}; run the build output inside depbox instead: north depbox run -- {}", lane.display(), program.join(" "));
-                return 1;
-            }
-        }
-        if let Some(code) = leave(program) {
-            return code;
+        (Some(lane), _) => Ok(Some(lane)),
+        (None, Some(owner)) => Ok(Some(owner)),
+        (None, None) => Ok(None),
+    }
+}
+
+/// The exit code of running `program` in a way that is safe for `lane`'s locks, or `None` when it may run in place.
+fn vouch(lane: &Path, program: &[String], leave: fn(&[String]) -> Option<u8>, replace: fn(&mut Command, &str) -> u8) -> Option<u8> {
+    match route(lane) {
+        Ok(Route::Leave) => leave(program),
+        Ok(Route::Depbox) => Some(replace(&mut depbox_command(program), "north depbox run")),
+        Err(error) => {
+            eprintln!("lane exec: {}: {error}; run the build output inside depbox instead: north depbox run -- {}", lane.display(), program.join(" "));
+            Some(1)
         }
     }
-    let error = Command::new(&program[0]).args(&program[1..]).exec();
-    eprintln!("lane exec: {}: {error}", program[0]);
+}
+
+enum Route {
+    Leave,
+    Depbox,
+}
+
+fn route(lane: &Path) -> Result<Route, String> {
+    Ok(if changed_locks(lane)?.is_empty() { Route::Leave } else { Route::Depbox })
+}
+
+fn depbox_command(program: &[String]) -> Command {
+    let mut command = Command::new(north_base::platform::north_binary::north_binary());
+    command.args(["depbox", "run", "--"]).args(program);
+    command
+}
+
+fn replace_with(command: &mut Command, name: &str) -> u8 {
+    let error = command.exec();
+    eprintln!("lane exec: {name}: {error}");
     if error.kind() == std::io::ErrorKind::NotFound { 127 } else { 126 }
 }
 
