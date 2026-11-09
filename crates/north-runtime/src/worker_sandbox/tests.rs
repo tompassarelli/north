@@ -173,7 +173,7 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
         assert!(super::broker::permitted(&words(allowed)), "{allowed}");
     }
     let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x")];
-    let environment = super::broker::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect());
+    let environment = super::broker::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), Some(OPEN_SCOPE));
     let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
     assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x")));
     assert_ne!(get("GIT_CONFIG_COUNT"), Some("9"));
@@ -181,4 +181,19 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     let north = Path::new("/n/north");
     let wrapped = super::broker::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"));
     assert_eq!(wrapped.join(" "), "capacity host run --class heavy --owner o -- /n/north --worker-sandbox --program -- cargo test -p x");
+}
+
+const OPEN_SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
+const LANE_SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-lane-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
+
+// KEEP(bug): the outside broker took a caller's lane-only confinement from its own environment, so a caller that left the marker out got the wide read set (south#104)
+#[test]
+fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
+    let sent = || vec![("PATH".to_owned(), "/usr/bin".to_owned()), ("HOME".to_owned(), "/home/a".to_owned())];
+    let marker = |environment: &[(String, String)]| environment.iter().find(|(name, _)| name == super::LANE_ONLY).map(|(_, value)| value.clone());
+    assert_eq!(marker(&super::broker::environment(sent(), Some(LANE_SCOPE))), Some("1".to_owned()), "a lane-only scope's caller without its marker got wide reads");
+    assert_eq!(marker(&super::broker::environment(sent(), None)), Some("1".to_owned()), "a caller whose scope cannot be read got wide reads");
+    assert_eq!(marker(&super::broker::environment(sent(), Some(OPEN_SCOPE))), None);
+    let forged = sent().into_iter().chain([(super::LANE_ONLY.to_owned(), "1".to_owned())]).collect();
+    assert_eq!(marker(&super::broker::environment(forged, Some(OPEN_SCOPE))), Some("1".to_owned()), "a caller may narrow itself");
 }

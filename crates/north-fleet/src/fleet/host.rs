@@ -64,7 +64,7 @@ impl Host {
         let socket = self.socket();
         let _ = fs::remove_file(&socket);
         fs::write(self.dir.join(SERVED_BY), served_by)?;
-        let unit = format!("north-session-{}.scope", new_uuid()?);
+        let unit = session_scope::session_unit(provider.label(), &new_uuid()?);
         fs::write(self.dir.join("host.scope"), &unit)?;
         let mut command = Command::new(binary("setsid"));
         command

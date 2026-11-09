@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use north_base::foundation::clock::Timestamp;
+use north_base::platform::session_scope;
 use north_base::platform::broker_wire::{Request, Response, read_request, write_response};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -22,9 +23,11 @@ const MAX_CONNECTIONS: usize = 64;
 const MAX_PER_UID: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// `lane_only`: the caller runs in the scope of a lane-only session (DeepSeek's harnesses), read from its cgroup, which the session cannot change; such a session's code is not trusted with a GitHub token or a cloud call (south#104).
 pub struct Peer {
     pub uid: u32,
     pub pid: i32,
+    pub lane_only: bool,
 }
 
 #[derive(Default)]
@@ -127,6 +130,10 @@ impl Broker {
             log(peer, "-", &format!("{:?}", route(&request.target)), "refused: no policy for this uid");
             return Response::refusal(403, &format!("uid {} has no broker policy", peer.uid));
         };
+        if peer.lane_only {
+            log(peer, "-", &format!("{:?}", route(&request.target)), "refused: a lane-only session");
+            return Response::refusal(403, "the broker answers no lane-only session");
+        }
         let body: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
         let (answer, what) = match (request.method.as_str(), request.target.as_str()) {
             ("POST", "/github/token") => self.github_token(peer, caller, &body, now),
@@ -243,7 +250,8 @@ fn error_of(response: &Response) -> String {
 
 fn peer(stream: &UnixStream) -> Option<Peer> {
     let credentials = rustix::net::sockopt::get_socket_peercred(stream).ok()?;
-    Some(Peer { uid: credentials.uid.as_raw(), pid: credentials.pid.as_raw_nonzero().get() })
+    let pid = credentials.pid.as_raw_nonzero().get();
+    Some(Peer { uid: credentials.uid.as_raw(), pid, lane_only: session_scope::lane_only_process(pid).unwrap_or(true) })
 }
 
 fn unit_of(pid: i32) -> String {

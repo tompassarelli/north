@@ -8,11 +8,11 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use north_base::platform::git_credential;
+use north_base::platform::{git_credential, session_scope};
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, recvmsg, sendmsg};
 use serde::{Deserialize, Serialize};
 
-use super::{FLAG, MAKER, MARK, SOCKETS_HIDDEN};
+use super::{FLAG, LANE_ONLY, MAKER, MARK, SOCKETS_HIDDEN};
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
@@ -69,10 +69,11 @@ fn unsafe_name(name: &str) -> bool {
     name == MARK || name == SOCKETS_HIDDEN || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own.
-pub(super) fn environment(sent: Vec<(String, String)>) -> Vec<(String, String)> {
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own. Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
+pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>) -> Vec<(String, String)> {
+    let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
-    sent.into_iter().filter(|(name, _)| !unsafe_name(name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).collect()
+    sent.into_iter().filter(|(name, _)| !unsafe_name(name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).collect()
 }
 
 /// Runs `north ARGUMENTS` outside this process's Landlock domain through the broker, with this process's standard streams, working directory and environment; its exit code.
@@ -191,7 +192,7 @@ fn handle(north: &Path, stream: UnixStream) -> Result<(), String> {
     if request.arguments == [NAMESPACE] {
         return answer_namespaces(north, &stream, &request);
     }
-    let code = match run(north, request, streams, &stream) {
+    let code = match run(north, request, streams, &stream, peer.pid.as_raw_nonzero().get()) {
         Ok(code) => code,
         Err(message) => {
             eprintln!("north worker-sandbox broker: {message}");
@@ -201,7 +202,7 @@ fn handle(north: &Path, stream: UnixStream) -> Result<(), String> {
     (&stream).write_all(&[code]).map_err(|error| error.to_string())
 }
 
-fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStream) -> Result<u8, String> {
+fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStream, caller: i32) -> Result<u8, String> {
     if !permitted(&request.arguments) {
         return Err(format!("{} is not a request the broker runs", request.arguments.join(" ")));
     }
@@ -213,7 +214,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .args(confined(north, request.arguments.clone()))
         .current_dir(&request.directory)
         .env_clear()
-        .envs(environment(request.environment))
+        .envs(environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref()))
         .stdin(Stdio::from(stdin))
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))

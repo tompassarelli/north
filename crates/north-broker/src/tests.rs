@@ -98,7 +98,7 @@ fn broker(github: &str, digitalocean: &str, uid: u32) -> (tempfile::TempDir, Bro
 
 fn call(broker: &Broker, uid: u32, method: &str, target: &str, headers: &[(&str, &str)], body: &Value) -> (u16, Value) {
     let request = Request { method: method.to_owned(), target: target.to_owned(), headers: headers.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), body: body.to_string().into_bytes() };
-    let answer = broker.handle(Peer { uid, pid: 1 }, &request, NOW);
+    let answer = broker.handle(Peer { uid, pid: 1, lane_only: false }, &request, NOW);
     (answer.status, serde_json::from_slice(&answer.body).unwrap_or(Value::Null))
 }
 
@@ -159,7 +159,7 @@ fn a_caller_outside_the_ceiling_or_the_policy_gets_no_token_and_costs_no_mint() 
     let ask_at = |now: i64, valid_for: i64| {
         let body = json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" }, "valid_for": valid_for });
         let request = Request { method: "POST".to_owned(), target: "/github/token".to_owned(), headers: Vec::new(), body: body.to_string().into_bytes() };
-        broker.handle(Peer { uid: 1001, pid: 1 }, &request, now).status
+        broker.handle(Peer { uid: 1001, pid: 1, lane_only: false }, &request, now).status
     };
     assert_eq!((ask_at(NOW + 2000, 0), minted()), (200, 1), "a held token with 1600 s left serves a caller that asks nothing more");
     assert_eq!((ask_at(NOW + 2000, 1800), minted()), (200, 2), "a caller that stores the token for 1800 s gets a fresh one, not the held token about to expire");
@@ -186,8 +186,21 @@ fn a_body_starting_with_at_reaches_the_provider_as_text_and_no_loaded_secret_com
     let marker = keep.path().join("github-app.yaml");
     let body = format!("@{}", marker.display());
     let request = Request { method: "POST".to_owned(), target: "/digitalocean/v2/body".to_owned(), headers: vec![("Authorization".to_owned(), "Bearer placeholder".to_owned())], body: body.clone().into_bytes() };
-    let answer = broker.handle(Peer { uid: 1001, pid: 1 }, &request, NOW);
+    let answer = broker.handle(Peer { uid: 1001, pid: 1, lane_only: false }, &request, NOW);
     assert_eq!(answer.status, 200);
     assert_eq!(seen.lock().unwrap()[0].2, body, "the provider got something other than the text the caller sent");
     assert!(!String::from_utf8_lossy(&answer.body).contains("BEGIN"), "a credential file came back");
+}
+
+// KEEP(bug): a lane-only session reached the credential broker directly and was given a GitHub token (south#104)
+#[test]
+fn a_lane_only_session_gets_no_github_token_and_no_cloud_call() {
+    let (upstream, _seen) = fake_upstream(|_, request| (200, json!({ "echo": request })));
+    let (_keep, broker) = broker("http://127.0.0.1:9", &upstream, 1001);
+    let ask = |target: &str, headers: &[(&str, &str)]| {
+        let request = Request { method: "POST".to_owned(), target: target.to_owned(), headers: headers.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), body: json!({ "app": "agent" }).to_string().into_bytes() };
+        broker.handle(Peer { uid: 1001, pid: 1, lane_only: true }, &request, NOW).status
+    };
+    assert_eq!(ask("/github/token", &[]), 403);
+    assert_eq!(ask("/digitalocean/v2/customers/my/balance", &[("Authorization", "Bearer placeholder")]), 403);
 }
