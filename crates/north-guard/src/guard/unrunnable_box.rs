@@ -1,6 +1,6 @@
-//! The unrunnable-box gate in shadow (north#872): an issue created or edited with a new unticked box that names no
-//! backticked `Done when:` command can only be ticked by its own worker, so each such box is logged to
-//! `$XDG_STATE_HOME/north/gates/unrunnable-box.jsonl`. It refuses nothing until harness/gates.toml enforces it.
+//! The unrunnable-box gate (north#872): an issue created or edited with a new unticked box that names no backticked `Done when:` command
+//! can only be ticked by its own worker. While harness/gates.toml has it in shadow, each such box is logged to
+//! `$XDG_STATE_HOME/north/gates/unrunnable-box.jsonl`; once it enforces, the filing is refused.
 use super::gh_write::{self, GhWrite};
 use super::issue_labels::gh;
 use crate::hook::{HookInput, Verdict};
@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const GATE: &str = "unrunnable-box";
 const OWNER: &str = "tompassarelli/";
+const IDENTITY_CHARS: usize = 60;
 
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[ \t>]*[-*][ \t]+\[ \][ \t]+(.*)$").unwrap());
 static RUNNABLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)Done when:[^`]*`[^`]+`").unwrap());
@@ -58,16 +59,34 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(state) = var("XDG_STATE_HOME").or_else(|| var("HOME").map(|home| home.join(".local/state"))) else {
         return Verdict::Allow;
     };
-    shadow(input, &mut Live { cwd: input.cwd().map(str::to_owned), state });
+    let enforcing = north_base::platform::harness::document("harness/gates.toml")["gate"][GATE]["mode"].as_str() == Some("enforce");
+    let refused = judge(input, &mut Live { cwd: input.cwd().map(str::to_owned), state }, !enforcing);
+    if enforcing && !refused.is_empty() {
+        return Verdict::Deny(refusal(&refused));
+    }
     Verdict::Allow
 }
 
-pub(super) fn shadow(input: &HookInput, world: &mut impl World) {
+fn refusal(boxes: &[String]) -> String {
+    let listed: String = boxes.iter().map(|text| format!("\n  - [ ] {}", excerpt(text))).collect();
+    format!(
+        "unrunnable-box: a new unticked box must name a command that `north task check --done-when` can run, so a checker and not its own worker ticks it (north#872). These boxes name none:{listed}\nEnd each box with \"Done when:\" and the command in backticks, whose exit 0 shows the box done, for example: - [ ] Fix the parser. Done when: `cargo test -p north-base parser` passes on origin/main. A box that waits on Tom says \"Needs: Tom\"; a dated reading says \"not before YYYY-MM-DD\"."
+    )
+}
+
+fn excerpt(text: &str) -> String {
+    let head: String = text.chars().take(100).collect();
+    if head.len() < text.len() { format!("{head}...") } else { head }
+}
+
+/// The new unrunnable boxes of every issue the command files or edits, logged to the gate's jsonl when `log` is set.
+pub(super) fn judge(input: &HookInput, world: &mut impl World, log: bool) -> Vec<String> {
+    let mut refused = Vec::new();
     if !input.is_shell() || !input.raw.windows(2).any(|bytes| bytes == b"gh") {
-        return;
+        return refused;
     }
     let Some(text) = input.command() else {
-        return;
+        return refused;
     };
     let session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
     for write in gh_write::writes(&text.lossy(), input.cwd()) {
@@ -84,16 +103,25 @@ pub(super) fn shadow(input: &HookInput, world: &mut impl World) {
         };
         let held: BTreeSet<String> = match &edited {
             Some(number) => match world.current(&repo, number) {
-                Some(current) => current.lines().map(|line| line.trim().to_owned()).collect(),
+                Some(current) => current.lines().filter_map(|line| UNTICKED.captures(line)).map(|found| identity(&found[1])).collect(),
                 None => continue,
             },
             None => BTreeSet::new(),
         };
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-        for (_, text) in boxes.into_iter().filter(|(line, _)| !held.contains(line.trim())) {
-            world.record(serde_json::json!({"gate": GATE, "at": at, "would_refuse": true, "verb": if edited.is_some() { "edit" } else { "create" }, "repo": repo, "issue": edited, "session": session, "box": text}));
+        for (_, text) in boxes.into_iter().filter(|(_, text)| !held.contains(&identity(text))) {
+            if log {
+                world.record(serde_json::json!({"gate": GATE, "at": at, "would_refuse": true, "verb": if edited.is_some() { "edit" } else { "create" }, "repo": repo, "issue": edited, "session": session, "box": text}));
+            }
+            refused.push(text);
         }
     }
+    refused
+}
+
+/// What names a box across edits of its issue: its opening words, since an edit that adds a `Measured` line or an evidence note to a held box rewrites the rest.
+fn identity(text: &str) -> String {
+    text.trim().chars().take(IDENTITY_CHARS).collect()
 }
 
 fn body(write: &GhWrite) -> String {

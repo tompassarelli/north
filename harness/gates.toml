@@ -24,9 +24,15 @@ mode = "shadow"
 [gate.peer-invocation]
 mode = "shadow"
 
-# A filed or edited issue's new unticked box that names no backticked `Done when:` command and says neither `Needs:` nor `not before` (north#872), since only its own worker can tick it. Would-be refusals: $XDG_STATE_HOME/north/gates/unrunnable-box.jsonl on the filing host.
+# A filed or edited issue's new unticked box that names no backticked `Done when:` command and says neither `Needs:` nor `not before` is refused with a message naming the box and showing how to write one (north#872), since only its own worker can tick it. The shadow review read the log on gex45 (the only filing host reachable from the reviewing session; whiterabbit and nexus logs were not readable): 2 would-be refusals over the 24 h window, 1 true (a probe box naming no command) and 1 false (an edit of north#706 that appended a measurement to a box it already held, so the box was not new), fixed by matching held boxes on their opening words instead of the whole line.
 [gate.unrunnable-box]
-mode = "shadow"
+mode = "enforce"
+
+[gate.unrunnable-box.review]
+reviewed = "2026-11-09"
+by = "n872-enforce"
+hours = 24
+decisions = 2
 
 # Each Bash command, hook and MCP server of a fleet worker runs under `north --worker-sandbox` (CLAUDE_CODE_SHELL_PREFIX), a Landlock domain that confines file removal to the worker's own trees (north#706, docs/rationale/worker-sandbox.md). Landlock has no permissive mode, so its shadow review counted canary worker launches made with NORTH_WORKER_SANDBOX=1: 65 Bash commands of the second round (n706-canary2-claims 52, including its safe-push, and n706-canary2-ingest 13), none refused, after the first round's two refusal classes were fixed.
 [gate.worker-sandbox]
