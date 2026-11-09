@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use north_base::platform::land_queue;
 
 use super::live_process;
+use super::nested_shell;
 use super::reap::Sweep;
 use super::repo::{find_container, git_out, is_lander_tree};
 
@@ -19,7 +20,7 @@ with its branch, as `north lane reap` does but with no minimum age. A directory 
 registers (left behind when `git worktree remove` could not delete it) must have no .git or a .git file
 whose git directory is gone, no live process and no waiting ticket, and every file it holds that
 git does not ignore must already be stored in the repository's object database. Anything else is
-kept and the reason named. It is the removal a sandboxed worker may make of its own finished lane.";
+kept and the reason named. A lane nested inside a main checkout (main/PROJECT/worktrees/NAME, left when a relative lane path met git -C) is removed only when it is an empty shell holding just its .git file. It is the removal a sandboxed worker may make of its own finished lane.";
 
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
@@ -45,7 +46,7 @@ pub fn run(arguments: &[String]) -> u8 {
     code
 }
 
-fn remove(lane: &Path, queues: &Path) -> Result<String, String> {
+pub(super) fn remove(lane: &Path, queues: &Path) -> Result<String, String> {
     if !lane.is_absolute() {
         return Err("name it by its absolute path".to_owned());
     }
@@ -54,6 +55,9 @@ fn remove(lane: &Path, queues: &Path) -> Result<String, String> {
         return Err("not a directory".to_owned());
     }
     let container = lane.parent().filter(|parent| parent.file_name().is_some_and(|name| name == "worktrees")).and_then(Path::parent).ok_or("not a directory directly under a project's worktrees/")?;
+    if let Some(nested) = nested_shell::real_main(container) {
+        return nested_shell::remove(nested, lane);
+    }
     let main = container.join("main");
     if !main.join(".git").exists() || find_container(lane) != Some(container.to_path_buf()) || is_lander_tree(lane) {
         return Err("not a lane of a project container (no main/.git beside worktrees/)".to_owned());

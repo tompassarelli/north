@@ -5,6 +5,7 @@ mod hardcoded_paths;
 mod lane_issue;
 mod layout_check;
 mod live_process;
+mod nested_shell;
 mod new;
 mod pin_retire;
 mod reap;
@@ -35,6 +36,8 @@ pub use unlock::run as unlock;
 
 #[cfg(test)]
 mod new_tests;
+#[cfg(test)]
+mod remove_tests;
 #[cfg(test)]
 mod pin_retire_tests;
 #[cfg(test)]

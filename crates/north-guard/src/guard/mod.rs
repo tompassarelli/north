@@ -7,6 +7,8 @@ pub mod paths;
 pub mod desktop_action;
 pub mod tripwire;
 pub mod git_stash;
+pub mod worktree_add;
+mod worktree_add_tests;
 pub mod worktree_remove;
 mod worktree_remove_tests;
 pub mod masked_pipeline;

@@ -42,12 +42,12 @@ pub(super) fn decide(input: &HookInput, queues: &Path, host: &str) -> Verdict {
     Verdict::Allow
 }
 
-fn directory_options(call: &str) -> Vec<&str> {
+pub(super) fn directory_options(call: &str) -> Vec<&str> {
     let words: Vec<&str> = words(call).collect();
     words.windows(2).filter(|pair| pair[0] == "-C").map(|pair| pair[1]).collect()
 }
 
-fn home(word: &str) -> PathBuf {
+pub(super) fn home(word: &str) -> PathBuf {
     match word.strip_prefix("~/").or_else(|| word.strip_prefix("$HOME/")) {
         Some(rest) => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(rest),
         None => PathBuf::from(word),

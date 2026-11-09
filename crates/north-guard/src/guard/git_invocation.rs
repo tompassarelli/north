@@ -15,7 +15,7 @@ pub fn invocation(subcommand: &str, directory_options: bool) -> Regex {
         String::new()
     };
     Regex::new(&format!(
-        r"(?:^|[\n;&|({{`]){space}*(?:sudo{space}+|doas{space}+)?git{directory}{space}+{subcommand}"
+        r"(?:^|[\n;&|({{`]){space}*(?:(?:do|then|else){space}+)?(?:sudo{space}+|doas{space}+)?git{directory}{space}+{subcommand}"
     ))
     .unwrap()
 }

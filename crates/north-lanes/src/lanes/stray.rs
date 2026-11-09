@@ -8,10 +8,12 @@ const USAGE: &str = "usage: north lane stray PATH...
 
 Removes each PATH, a file git reports untracked (not ignored), only when this session's own
 transcript holds a tool call naming PATH from before the file was born: a stray the session left
-itself, such as a failed edit's temporary copy in a primary checkout. Anything else is kept and
+itself, such as a failed edit's temporary copy in a primary checkout, and also removes without the transcript test a git `.merge_file_XXXXXX` temporary left at the top of a main checkout over an hour ago. Anything else is kept and
 the reason named.";
 
 const RECORDED_SLACK: Duration = Duration::from_secs(5);
+const LEFTOVER_AGE: Duration = Duration::from_secs(3600);
+const LEFTOVER_PREFIX: &str = ".merge_file_";
 
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.is_empty() || arguments.iter().any(|argument| argument.starts_with('-')) {
@@ -52,11 +54,20 @@ pub fn remove(path: &Path, transcript: &str) -> Result<(), String> {
         return Err("git does not report it as an untracked file".to_owned());
     }
     let born = meta.created().or_else(|_| meta.modified()).map_err(|error| error.to_string())?;
+    if merge_leftover(path, meta.modified().unwrap_or(born)) {
+        return std::fs::remove_file(path).map_err(|error| error.to_string());
+    }
     let named = first_named(transcript, &path.to_string_lossy()).ok_or("no tool call of this session names it")?;
     if born + RECORDED_SLACK < named {
         return Err("it existed before this session's first tool call naming it".to_owned());
     }
     std::fs::remove_file(path).map_err(|error| error.to_string())
+}
+
+fn merge_leftover(path: &Path, last_written: SystemTime) -> bool {
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let main = path.parent().filter(|parent| parent.file_name().is_some_and(|name| name == "main") && parent.join(".git").is_dir());
+    main.is_some() && name.strip_prefix(LEFTOVER_PREFIX).is_some_and(|rest| rest.len() == 6 && rest.chars().all(|letter| letter.is_ascii_alphanumeric())) && SystemTime::now().duration_since(last_written).is_ok_and(|age| age >= LEFTOVER_AGE)
 }
 
 fn first_named(transcript: &str, path: &str) -> Option<SystemTime> {
