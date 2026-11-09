@@ -188,7 +188,7 @@ impl Runtime for Stream {
                 transcript.active_turn = None;
                 push(transcript, EntryKind::TurnEnd, frame["subtype"].as_str().unwrap_or("result").to_owned());
             }
-            Some("rate_limit_event") if frame["rate_limit_info"]["status"] == "rejected" => transcript.limit = Some(UsageLimit { resets_at_s: frame["rate_limit_info"]["resetsAt"].as_u64(), message: None }),
+            Some("rate_limit_event") => transcript.limit = Some(UsageLimit { resets_at_s: frame["rate_limit_info"]["resetsAt"].as_u64(), message: None }),
             _ if transcript.status == Status::Starting => transcript.status = Status::Idle,
             _ => {}
         }
