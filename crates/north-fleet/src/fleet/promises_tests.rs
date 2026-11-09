@@ -24,7 +24,7 @@ fn a_report_quoting_a_path_before_its_promise_runs_only_the_promised_command_nev
     let bin = bin_with(&["git"]);
     let claims = promised(SCANREUSE, &resolver(bin.path(), bin.path().as_os_str()));
     assert_eq!(commands(&claims), [Some("git -C ~/code/north/main fetch -q origin && git -C ~/code/north/main merge-base --is-ancestor 83f275f3981d08d5e4fd3b0f7e559a279753c27d origin/main")]);
-    assert_eq!(claims[0].when, When::Wall { hour: 9, minute: 36 });
+    assert_eq!(claims[0].when, When::Wall { hour: 9, minute: 36, date: None });
     let prose = promised("It lands by 9:40 AM: `It should be on origin/main` soon.\n```\nby 9:41 AM `git status`\n```\nStop: by 9:42 AM `git status`\n", &resolver(bin.path(), bin.path().as_os_str()));
     assert_eq!(commands(&prose), [None], "a span whose first word is no program holds no promise, and fenced and Stop: lines are skipped");
 }

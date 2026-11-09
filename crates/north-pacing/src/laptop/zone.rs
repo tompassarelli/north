@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 use serde_json::Value;
-use time::{Date, Duration, OffsetDateTime};
+use time::{Date, Duration, Month, OffsetDateTime};
 
 use super::die::Die;
 
@@ -56,6 +56,13 @@ impl Zone {
     pub fn nearest(&self, around: i64, hour: i64, minute: i64) -> Option<i64> {
         let day = self.day(around);
         [-1, 0, 1].into_iter().filter_map(|shift| Some(self.wall(day.checked_add(Duration::days(shift))?, hour, minute))).min_by_key(|at| (at - around).abs())
+    }
+
+    pub fn dated(&self, around: i64, month: u8, day: u8, hour: i64, minute: i64) -> Option<i64> {
+        let month = Month::try_from(month).ok()?;
+        let year = self.day(around).year();
+        let on = |year| Date::from_calendar_date(year, month, day).ok().map(|date| self.wall(date, hour, minute));
+        on(year).filter(|at| *at >= around - 180 * DAY).or_else(|| on(year + 1))
     }
 
     pub fn hhmm(&self, unix: i64) -> String {

@@ -49,7 +49,7 @@ fn a_promise_naming_a_lane_sha_that_landed_rebased_is_judged_against_the_landed_
 fn a_promised_command_that_fails_on_its_own_usage_reaches_no_verdict_and_tells_the_proxy_nothing() {
     let line = "- **The 6-hour box:** it can't read 0 until about 10:19 AM, because the last errors were at 4:19 AM. As you directed, I removed that wait-only read and rewrote the box as a check that runs now. `north task check --done-when` ran it and ticked the box: `pass (exit 0)`.";
     let usage = "echo 'error: north task check --done-when [--dry-run] [--main DIR] [--box TEXT] (--body-file FILE | REPO#N | --repo OWNER/REPO)' >&2; exit 2";
-    let promise = Promise { session: "bd-845-nullacct".into(), turn: 8, line: line.into(), command: usage.into(), when: When::Wall { hour: 10, minute: 19 }, said_ms: 1_794_086_580_737, cwd: "/nonexistent".into() };
+    let promise = Promise { session: "bd-845-nullacct".into(), turn: 8, line: line.into(), command: usage.into(), when: When::Wall { hour: 10, minute: 19, date: None }, said_ms: 1_794_086_580_737, cwd: "/nonexistent".into() };
     let told = RefCell::new(0);
     let verdict = check(&promise, &|_| {
         *told.borrow_mut() += 1;
@@ -57,4 +57,17 @@ fn a_promised_command_that_fails_on_its_own_usage_reaches_no_verdict_and_tells_t
     });
     assert_eq!(*told.borrow(), 0, "{verdict}");
     assert!(verdict.starts_with("promise not judged: bd-845-nullacct"), "{verdict}");
+}
+
+#[test]
+fn a_promise_naming_a_date_is_due_on_that_date_not_on_the_nearest_day_with_that_time() {
+    let line = "Check after Tue Nov 10, 3:00 PM (when account d's week resets): `north fleet accounts --plan`";
+    let claim = promised(line, &|_| true).remove(0);
+    assert_eq!(claim.when, When::Wall { hour: 15, minute: 0, date: Some((11, 10)) });
+    let promise = Promise { session: "staffing-rules".into(), turn: 3, line: line.into(), command: "true".into(), when: claim.when, said_ms: unix_ms("2026-11-09T03:00:00Z"), cwd: "/".into() };
+    let tom = Zone::named(Some("Etc/GMT-7"));
+    assert_eq!(due_ms(&promise, &tom), Some(unix_ms("2026-11-10T08:00:00Z")));
+    let legacy: Promise = serde_json::from_str(&serde_json::to_string(&promise).unwrap().replace(r#","date":[11,10]"#, "")).unwrap();
+    assert_eq!(legacy.when, When::Wall { hour: 15, minute: 0, date: None });
+    assert_eq!(legacy.dated().when, promise.when);
 }

@@ -16,14 +16,22 @@ const FENCES: [&str; 2] = ["```", "~~~"];
 static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{7,40}\b").expect("sha pattern"));
 const BOX_MARKER: &str = "Done when:";
 const STOP: &str = "Stop:";
+const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 static UTC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2})?Z\b").expect("utc time pattern"));
-static WALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(1[0-2]|0?[1-9]):([0-5]\d)\s?([AaPp])\.?[Mm]\b").expect("wall time pattern"));
+static WALL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:\b(?i:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(?:at\s+)?)?\b(1[0-2]|0?[1-9]):([0-5]\d)\s?([AaPp])\.?[Mm]\b").expect("wall time pattern")
+});
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum When {
     Utc { at_ms: u64 },
-    Wall { hour: u8, minute: u8 },
+    Wall {
+        hour: u8,
+        minute: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        date: Option<(u8, u8)>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -39,7 +47,19 @@ pub struct Promise {
 
 impl Promise {
     pub fn key(&self) -> String {
-        format!("{}:{}:{}", self.session, self.turn, self.command)
+        match self.when {
+            When::Wall { date: Some((month, day)), .. } => format!("{}:{}:{}@{month}-{day}", self.session, self.turn, self.command),
+            _ => format!("{}:{}:{}", self.session, self.turn, self.command),
+        }
+    }
+
+    pub fn dated(mut self) -> Self {
+        if matches!(self.when, When::Wall { date: None, .. })
+            && let Some(when @ When::Wall { .. }) = when(&self.line)
+        {
+            self.when = when;
+        }
+        self
     }
 }
 
@@ -124,9 +144,10 @@ fn when(line: &str) -> Option<When> {
         return u64::try_from(at.unix_millis()).ok().map(|at_ms| When::Utc { at_ms });
     }
     let found = WALL.captures(line)?;
-    let hour: u8 = found[1].parse().ok()?;
-    let afternoon = found[3].eq_ignore_ascii_case("p");
-    Some(When::Wall { hour: hour % 12 + if afternoon { 12 } else { 0 }, minute: found[2].parse().ok()? })
+    let date = found.get(1).and_then(|month| Some((MONTHS.iter().position(|name| month.as_str().eq_ignore_ascii_case(name))? as u8 + 1, found[2].parse().ok()?)));
+    let hour: u8 = found[3].parse().ok()?;
+    let afternoon = found[5].eq_ignore_ascii_case("p");
+    Some(When::Wall { hour: hour % 12 + if afternoon { 12 } else { 0 }, minute: found[4].parse().ok()?, date })
 }
 
 pub struct Book {
@@ -144,7 +165,7 @@ impl Book {
 
     pub fn open(&self) -> Vec<Promise> {
         let checked: BTreeSet<String> = lines(&self.root.join(CHECKED)).collect();
-        lines(&self.root.join(FILE)).filter_map(|line| serde_json::from_str::<Promise>(&line).ok()).filter(|promise| !checked.contains(&promise.key())).collect()
+        lines(&self.root.join(FILE)).filter_map(|line| serde_json::from_str::<Promise>(&line).ok()).map(Promise::dated).filter(|promise| !checked.contains(&promise.key())).collect()
     }
 
     pub fn checked(&self, keys: &[String]) -> NorthResult<()> {

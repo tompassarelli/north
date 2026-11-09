@@ -33,7 +33,14 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
 pub(super) fn due_ms(promise: &Promise, zone: &Zone) -> Option<u64> {
     let due = match promise.when {
         When::Utc { at_ms } => at_ms,
-        When::Wall { hour, minute } => u64::try_from(zone.nearest(i64::try_from(promise.said_ms / 1000).ok()?, hour.into(), minute.into())?).ok()? * 1000,
+        When::Wall { hour, minute, date } => {
+            let said = i64::try_from(promise.said_ms / 1000).ok()?;
+            let at = match date {
+                Some((month, day)) => zone.dated(said, month, day, hour.into(), minute.into())?,
+                None => zone.nearest(said, hour.into(), minute.into())?,
+            };
+            u64::try_from(at).ok()? * 1000
+        }
     };
     (due > promise.said_ms).then_some(due)
 }
