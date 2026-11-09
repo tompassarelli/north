@@ -7,6 +7,7 @@ use toml_edit::DocumentMut;
 
 const USAGE: &str = "usage: north lane seed [DIR]";
 const HASH_LEN: usize = 16;
+const BUILD_LOCKS: [&str; 2] = [".cargo-lock", ".cargo-build-lock"];
 
 pub fn run(arguments: &[String]) -> u8 {
     let here = match arguments {
@@ -78,8 +79,8 @@ fn copy(from: &Path, to: &Path) -> io::Result<()> {
     if copied.success() { Ok(()) } else { Err(io::Error::other(format!("could not copy {}", from.display()))) }
 }
 
-fn hold(target: &Path) -> Option<Vec<File>> {
-    let locks = unit_dirs(target).into_iter().filter_map(|dir| File::open(dir.join(".cargo-lock")).ok());
+pub(super) fn hold(target: &Path) -> Option<Vec<File>> {
+    let locks = unit_dirs(target).into_iter().flat_map(|dir| BUILD_LOCKS.map(|name| dir.join(name))).filter_map(|lock| File::open(lock).ok());
     locks.map(|lock| match lock.try_lock_shared() {
         Ok(()) => Some(lock),
         Err(_) => None,
@@ -137,7 +138,7 @@ fn fingerprint_dirs(target: &Path) -> Vec<PathBuf> {
 fn unit_dirs(target: &Path) -> Vec<PathBuf> {
     let children = |dir: &Path| fs::read_dir(dir).into_iter().flatten().flatten().map(|entry| entry.path()).collect::<Vec<_>>();
     let nested = children(target).into_iter().flat_map(|child| children(&child));
-    children(target).into_iter().chain(nested).filter(|dir| dir.join(".fingerprint").is_dir() || dir.join(".cargo-lock").is_file()).collect()
+    children(target).into_iter().chain(nested).filter(|dir| dir.join(".fingerprint").is_dir() || BUILD_LOCKS.iter().any(|lock| dir.join(lock).is_file())).collect()
 }
 
 #[cfg(test)]

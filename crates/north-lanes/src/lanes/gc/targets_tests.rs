@@ -23,6 +23,12 @@ fn a_kept_lane_loses_its_ignored_build_target_unless_a_process_holds_it_open() {
     assert_eq!(drop_build_target(&lane, &open, &no_processes, false), BuildTarget::InUse);
     assert!(lane.join("target/debug/out").exists());
 
+    let building = fs::File::create(lane.join("target/debug/.cargo-build-lock")).unwrap();
+    building.lock().unwrap();
+    assert_eq!(drop_build_target(&lane, &[], &no_processes, false), BuildTarget::InUse, "a cargo run inside depbox shows /proc only its sandbox paths, so its build lock alone keeps the target (north#1011)");
+    assert!(lane.join("target/debug/out").exists());
+    drop(building);
+
     assert!(matches!(drop_build_target(&lane, &[], &no_processes, true), BuildTarget::Dropped(bytes) if bytes >= 64 * 1024));
     assert!(lane.join("target").exists(), "a dry run removes nothing");
 

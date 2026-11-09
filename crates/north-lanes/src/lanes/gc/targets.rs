@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use super::Gc;
 use super::exec::{git, real};
 use super::super::live_process::{any_inside, open_paths};
+use super::super::target_seed::hold;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum BuildTarget {
@@ -40,6 +41,7 @@ pub(super) fn drop_build_target(lane: &Path, live: &[PathBuf], proc_root: &Path,
     if any_inside(live, &target) || any_inside(&open_paths(proc_root), &target) {
         return BuildTarget::InUse;
     }
+    let Some(_unbuilt) = hold(&target) else { return BuildTarget::InUse };
     match walk(&target, !dry_run) {
         Ok(bytes) => BuildTarget::Dropped(bytes),
         Err(error) => BuildTarget::Failed(error.to_string()),
