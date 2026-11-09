@@ -212,3 +212,19 @@ fn a_turn_a_landing_notice_opened_that_ticks_the_box_replaces_the_not_done_befor
 
     assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "done");
 }
+
+#[test]
+fn a_habit_rewrite_and_warning_are_recorded_per_rule_at_the_edit() {
+    let call = json!({"type": "assistant", "timestamp": "2026-11-09T10:00:00Z", "message": {"content": [{"type": "tool_use", "id": "e1", "name": "Edit", "input": {"file_path": "tests/x.rs"}}]}});
+    let context = "\
+code-health: this edit adds structural debt; fix it now\n\
+habits: ambient-test-input rewrote tests/x.rs:3 for you. Before: `let old = SystemTime::now() - d;` After: `let old = UNIX_EPOCH - d;` Write this form next time.\n\
+habits: fix these before your next commit; they have no mechanical fix, and safe-push refuses a lane that still has one:\n\
+ambient-test-input tests/x.rs:7 thread::sleep in test code reads the wall clock or orders events by sleeping\n\
+shared-mutability tests/x.rs:9 RefCell in non-test code";
+    let attachment = json!({"type": "attachment", "timestamp": "2026-11-09T10:00:01Z", "attachment": {"type": "hook_additional_context", "hookEvent": "PostToolUse", "toolUseID": "e1", "hookName": "north-hook:Edit", "content": [context]}});
+
+    let rows = super::hook_events::events("s", &[call, attachment]);
+    let shown: Vec<(&str, &str)> = rows.iter().map(|row| (row["verdict"].as_str().unwrap(), row["rule"].as_str().unwrap())).collect();
+    assert_eq!(shown, [("rewrite", "ambient-test-input"), ("advisory", "ambient-test-input"), ("advisory", "shared-mutability"), ("advisory", "code-health")]);
+}

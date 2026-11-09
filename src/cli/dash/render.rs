@@ -1,4 +1,4 @@
-//! The dash as text: three sections, each headed by what it shows right now, in aligned columns with failing bars
+//! The dash as text: four sections, each headed by what it shows right now, in aligned columns with failing bars
 //! first, at most `LINES` lines of at most `COLUMNS` characters, so it fits one terminal screen. On a terminal the
 //! pass, fail and warning marks are coloured.
 use super::Screen;
@@ -12,6 +12,7 @@ use crate::usage::outlook::{self, Runway};
 const LINES: usize = 50;
 const COLUMNS: usize = 120;
 const SPEND_ROWS: usize = 5;
+const HABIT_ROWS: usize = 5;
 const NAMED_FAILURES: usize = 1;
 /// The lines the workers table needs to show a few rows, below which the passing targets fold into one line.
 const WORKERS_MIN: usize = 9;
@@ -375,6 +376,37 @@ fn workers(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: u
     section
 }
 
+fn habits(screen: &Screen, window: &str) -> Section {
+    let title = format!("Habits: what the edit hook rewrote or warned about in .rs files in the last {window}, by rule");
+    let rows = match &screen.habits {
+        Ok(rows) => rows,
+        Err(why) => {
+            let mut section = Section::headed(&title, "the habit events could not be read".to_owned());
+            section.unread(format!("unread: {why}"));
+            return section;
+        }
+    };
+    let (rewrites, warnings) = rows.iter().fold((0, 0), |(rewrites, warnings), row| (rewrites + row.rewrites, warnings + row.warnings));
+    let count = |number: usize, word: &str| format!("{number} {word}{}", if number == 1 { "" } else { "s" });
+    let summary = if rows.is_empty() {
+        format!("no habit rewrite or warning in the last {window}")
+    } else {
+        format!("{} and {} on {} {}", count(rewrites, "rewrite"), count(warnings, "warning"), rows.len(), if rows.len() == 1 { "rule" } else { "rules" })
+    };
+    let mut section = Section::headed(&title, summary);
+    if rows.is_empty() {
+        return section;
+    }
+    let shown = rows.len().min(HABIT_ROWS);
+    let mut table = vec![header(&["rule", "rewrites", "warnings"])];
+    table.extend(rows[..shown].iter().map(|row| vec![row.rule.clone(), row.rewrites.to_string(), row.warnings.to_string()]));
+    grid(&table, &[Align::Left, Align::Right, Align::Right]).into_iter().for_each(|line| section.push(line));
+    if rows.len() > shown {
+        section.push(format!("{} more rules", rows.len() - shown));
+    }
+    section
+}
+
 fn paint(line: &str, marks: &[&Mark]) -> String {
     let characters: Vec<char> = line.chars().collect();
     let mut out = String::new();
@@ -403,12 +435,15 @@ pub fn screen(screen: &Screen, color: bool) -> String {
     all.push(format!("north dash: the last {window}, read at {}", Timestamp::from_unix_seconds(screen.now).local_twelve_hour()));
     all.push(String::new());
     let billed = billing(screen, &window);
-    let others = all.lines.len() + billed.lines.len() + 2;
+    let habit_section = habits(screen, &window);
+    let others = all.lines.len() + billed.lines.len() + habit_section.lines.len() + 3;
     let unfolded = bars(screen, &window, false);
     let metrics = if LINES.saturating_sub(others + unfolded.lines.len()) < WORKERS_MIN { bars(screen, &window, true) } else { unfolded };
     all.append(metrics);
     all.push(String::new());
     all.append(billed);
+    all.push(String::new());
+    all.append(habit_section);
     all.push(String::new());
     let room = LINES.saturating_sub(all.lines.len());
     all.append(workers(screen, &mixes, &window, room));

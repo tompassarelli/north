@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 
-use crate::threads::runs::hook_rules::{Class, OTHER, RULES, find};
+use crate::threads::runs::hook_rules::{Class, HABIT_RULES, OTHER, RULES, find};
 
 pub const PRUNE_DAYS: i64 = 30;
 pub const SAMPLES: &str = include_str!("hook_refusal_samples.toml");
@@ -118,7 +118,7 @@ pub fn render(stats: &Stats, window: &str, samples: &[Sample]) -> String {
     let mut ordered: Vec<(&String, &RuleStats)> = stats.rules.iter().collect();
     ordered.sort_by_key(|(_, stats)| std::cmp::Reverse(stats.fires));
     for (rule, row) in ordered {
-        let class = find(rule).map_or(if rule == OTHER { "unclassified" } else { "unknown" }, |rule| rule.class.label());
+        let class = find(rule).map_or_else(|| if HABIT_RULES.contains(&rule.as_str()) { "habit" } else if rule == OTHER { "unclassified" } else { "unknown" }, |rule| rule.class.label());
         let lost = row.median_lost.map_or_else(|| "-".to_owned(), |lost| format!("{lost:.1}"));
         let share = false_share(rule, row, samples);
         let _ = writeln!(out, "{rule:<26} {:>6} {:>8} {:>8} {:>8} {:>8} {:>7} {lost:>9} {share:>14}  {class}", row.fires, row.sessions, row.refusals, row.rewrites, row.advisories, row.repeats);

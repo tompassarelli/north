@@ -13,6 +13,7 @@ use crate::usage::outlook::{AccountOutlook, Runway};
 
 mod billing;
 mod dispatch;
+mod habits;
 mod render;
 mod spend;
 
@@ -27,6 +28,7 @@ pub struct Screen {
     pub accounts: Result<Vec<AccountOutlook>, String>,
     pub runs: Result<(Vec<WindowRun>, ClosedReport), String>,
     pub attempts: Result<Vec<workers::Attempt>, String>,
+    pub habits: Result<Vec<habits::Row>, String>,
     /// The runs of the last 7 days, from which each subscription's week is sized in dollars.
     pub week_runs: Result<Vec<WindowRun>, String>,
     pub billing: Result<billing::Billing, String>,
@@ -95,16 +97,17 @@ fn read(window: &str) -> Result<Screen, String> {
     let now = Timestamp::now().unix_seconds();
     let since = ledger::window_start_ms(window).map_err(|error| error.user_message())? / 1_000;
     let span = now - since;
-    let (bars, accounts, runs, attempts, week_runs) = std::thread::scope(|scope| {
+    let (bars, accounts, runs, attempts, habits, week_runs) = std::thread::scope(|scope| {
         let bars = scope.spawn(|| ready::lines(now, span));
         let accounts = scope.spawn(accounts);
         let runs = scope.spawn(|| ledger::inside(window).map_err(|error| error.user_message()));
         let attempts = scope.spawn(|| first_tries(since, now));
+        let habits = scope.spawn(|| habits::rows(&ledger::threads_database(), &Timestamp::from_unix_seconds(since).iso()));
         let week_runs = scope.spawn(|| ledger::runs_inside("7d").map_err(|error| error.user_message()));
         let joined = |name: &str| format!("{name} reader panicked");
-        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))))
+        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))))
     });
-    Ok(Screen { window: window.to_owned(), now, bars, accounts, runs, attempts, week_runs, billing: billing::read() })
+    Ok(Screen { window: window.to_owned(), now, bars, accounts, runs, attempts, habits, week_runs, billing: billing::read() })
 }
 
 /// Colour only for a person at a terminal: never into a pipe or file, under NO_COLOR, or on a dumb terminal.
@@ -151,6 +154,11 @@ fn figures(screen: &Screen) -> Value {
     });
     let mixes = dispatch::Mixes::of(screen);
     let spent = spend::Spend::of(screen).map(|spent| json!({"classes": spent.classes.iter().map(|class| json!({"mix": class.mix, "runs": class.runs, "usd": class.usd, "week_pct": class.week_pct, "all_pct": class.all_pct})).collect::<Vec<_>>(), "api_credit": {"runs": spent.api.runs, "usd": spent.api.usd}}));
+    let habits = screen.habits.as_ref().map(|rows| {
+        let rewrites: usize = rows.iter().map(|row| row.rewrites).sum();
+        let warnings: usize = rows.iter().map(|row| row.warnings).sum();
+        json!({"rewrites": rewrites, "warnings": warnings, "rules": rows.iter().map(|row| json!({"rule": row.rule, "rewrites": row.rewrites, "warnings": row.warnings})).collect::<Vec<_>>()})
+    });
     json!({
         "since": screen.window,
         "at": Timestamp::from_unix_seconds(screen.now).iso(),
@@ -161,6 +169,7 @@ fn figures(screen: &Screen) -> Value {
         "spend_by_model": section(mixes.as_ref().map(|mixes| json!(mixes.models))),
         "infra": section(screen.billing.as_ref().map(|billing| json!({"machines": billing.machines, "monthly_usd": billing.total_usd(), "capped": billing.capped()}))),
         "dispatch": section(mixes.as_ref().map(|mixes| json!(mixes.rows))),
+        "habits": section(habits),
     })
 }
 

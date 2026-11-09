@@ -2,10 +2,12 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use crate::threads::runs::hook_rules::classify;
+use crate::threads::runs::hook_rules::{HABIT_RULES, OTHER, classify};
 
 const SLEEP_BLOCK: &str = "<tool_use_error>Blocked:";
 const HOOK_ERROR: &str = " hook error: ";
+const HABIT: &str = "habits: ";
+const HABIT_WARNING: &str = "fix these before your next commit";
 
 pub fn mentions_hook(line: &str) -> bool {
     line.contains("hook error: ") || line.contains(SLEEP_BLOCK) || line.contains("\"hook_success\"") || line.contains("\"hook_additional_context\"") || line.contains("\"type\":\"assistant\"")
@@ -34,7 +36,47 @@ pub fn events(session: &str, lines: &[Value]) -> Vec<Value> {
         }
     }
     let Scan { rows, rewrites, .. } = scan;
-    rows.into_iter().filter(|row| row["verdict"] != "advisory" || row["tool_use"].as_str().and_then(|id| rewrites.get(id)).is_none_or(|rule| row["rule"] != *rule)).collect()
+    rows.into_iter()
+        .filter(|row| {
+            row["verdict"] != "advisory"
+                || row["rule"].as_str().is_some_and(|rule| HABIT_RULES.contains(&rule))
+                || row["tool_use"].as_str().and_then(|id| rewrites.get(id)).is_none_or(|rule| row["rule"] != *rule)
+        })
+        .collect()
+}
+
+fn habit(rule: &str) -> Option<&'static str> {
+    HABIT_RULES.iter().copied().find(|known| *known == rule)
+}
+
+fn habit_rows(text: &str) -> Vec<(&'static str, &'static str)> {
+    let mut rows = Vec::new();
+    let mut warning = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix(HABIT) {
+            warning = rest.starts_with(HABIT_WARNING);
+            if warning {
+                continue;
+            }
+            let (word, tail) = rest.split_once(' ').unwrap_or((rest, ""));
+            if tail.starts_with("rewrote ")
+                && let Some(rule) = habit(word)
+            {
+                rows.push(("rewrite", rule));
+            }
+            continue;
+        }
+        if !warning {
+            continue;
+        }
+        let (word, _) = line.split_once(' ').unwrap_or((line, ""));
+        match habit(word) {
+            Some(rule) => rows.push(("advisory", rule)),
+            None => warning = false,
+        }
+    }
+    rows
 }
 
 fn refusal_text(part: &Value) -> Option<String> {
@@ -110,7 +152,18 @@ impl Scan<'_> {
                     _ => Vec::new(),
                 };
                 for text in texts {
-                    self.push(id, tool, event, "advisory", classify(text), &line["timestamp"]);
+                    let habits = habit_rows(text);
+                    if habits.is_empty() {
+                        self.push(id, tool, event, "advisory", classify(text), &line["timestamp"]);
+                        continue;
+                    }
+                    for (verdict, rule) in habits {
+                        self.push(id, tool, event, verdict, rule, &line["timestamp"]);
+                    }
+                    let rule = classify(text);
+                    if rule != OTHER {
+                        self.push(id, tool, event, "advisory", rule, &line["timestamp"]);
+                    }
                 }
             }
             _ => {}

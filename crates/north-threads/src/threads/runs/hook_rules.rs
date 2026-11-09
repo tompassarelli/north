@@ -99,6 +99,8 @@ pub const RULES: &[Rule] = &[
     rule("worker-handoff", Advice, &["Land anything that passes now", "handoff point"], ""),
 ];
 
+pub const HABIT_RULES: [&str; 3] = ["ambient-test-input", "shared-mutability", "single-impl-trait"];
+
 pub const OTHER: &str = "other";
 
 pub fn classify(text: &str) -> &'static str {
