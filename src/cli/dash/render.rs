@@ -435,18 +435,17 @@ pub fn screen(screen: &Screen, color: bool) -> String {
     all.push(format!("north dash: the last {window}, read at {}", Timestamp::from_unix_seconds(screen.now).local_twelve_hour()));
     all.push(String::new());
     let billed = billing(screen, &window);
-    let habit_section = habits(screen, &window);
-    let others = all.lines.len() + billed.lines.len() + habit_section.lines.len() + 3;
+    let others = all.lines.len() + billed.lines.len() + 2;
     let unfolded = bars(screen, &window, false);
     let metrics = if LINES.saturating_sub(others + unfolded.lines.len()) < WORKERS_MIN { bars(screen, &window, true) } else { unfolded };
     all.append(metrics);
     all.push(String::new());
     all.append(billed);
     all.push(String::new());
-    all.append(habit_section);
-    all.push(String::new());
     let room = LINES.saturating_sub(all.lines.len());
     all.append(workers(screen, &mixes, &window, room));
+    all.push(String::new());
+    all.append(habits(screen, &window));
     all.lines
         .iter()
         .enumerate()

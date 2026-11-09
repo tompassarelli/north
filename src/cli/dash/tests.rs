@@ -123,3 +123,25 @@ fn the_habit_section_counts_each_rules_rewrites_and_warnings_inside_the_window()
     assert!(text.contains("ambient-test-input"), "{text}");
     assert!(text.lines().count() <= 50, "{text}");
 }
+
+#[test]
+fn the_three_sections_keep_a_worker_row_when_every_bar_fails_and_the_habit_table_is_full() {
+    use super::ready;
+    let bar = || ready::Line { repo: "north", bar: "bar", plain: "bar", target: ">= 99%".to_owned(), verdict: ready::Verdict::Missed, hour: None, hour_n: None, window: None, window_n: None, five_text: "99% (n=1)".to_owned(), fifteen_text: "99% (n=1)".to_owned(), hour_text: "99% (n=1)".to_owned(), window_text: "99% (n=1)".to_owned() };
+    let accounts: Vec<_> = ["a", "b", "c", "d", "e", "f", "g", "h"].iter().map(|name| account(name)).collect();
+    let runs: Vec<_> = (0..20).map(|index| run(&format!("claude-{}", (b'a' + (index % 8) as u8) as char), ("opus", "high"), "2026-11-09T00:00:00Z", 1.0)).collect();
+    let habits = vec![
+        super::habits::Row { rule: "ambient-test-input".to_owned(), rewrites: 2, warnings: 1 },
+        super::habits::Row { rule: "shared-mutability".to_owned(), rewrites: 1, warnings: 0 },
+        super::habits::Row { rule: "single-impl-trait".to_owned(), rewrites: 0, warnings: 3 },
+    ];
+    let screen = Screen { window: "24h".to_owned(), now: 1_793_990_000, bars: Ok((0..15).map(|_| bar()).collect()), accounts: Ok(accounts), runs: Ok((runs, crate::ledger::ClosedReport::default())), attempts: Ok(Vec::new()), habits: Ok(habits), week_runs: Ok(Vec::new()), billing: billing::parse(MANIFEST) };
+    let text = render::screen(&screen, false);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines.len() <= 50, "{text}");
+    assert!(lines.iter().all(|line| line.chars().count() <= 120), "{text}");
+    for title in ["Key metrics", "Billing:", "Workers:"] {
+        assert!(lines.iter().any(|line| line.starts_with(title)), "{title} missing:\n{text}");
+    }
+    assert!(lines.iter().any(|line| line.starts_with("all categories")), "the worker table has no row:\n{text}");
+}
