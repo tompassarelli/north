@@ -51,7 +51,7 @@ impl Policy {
         let github = BTreeMap::from([("agent".to_owned(), Ceiling::default()), ("lander".to_owned(), lander)]);
         let proxy = BTreeMap::from([
             ("digitalocean".to_owned(), vec!["GET /v2/customers/my/balance".to_owned()]),
-            ("hcloud".to_owned(), ["GET /v1/server_types", "GET /v1/server_types?*", "GET /v1/servers", "GET /v1/servers?*", "POST /v1/servers"].map(str::to_owned).to_vec()),
+            ("hcloud".to_owned(), ["GET /v1/server_types", "GET /v1/server_types?*", "GET /v1/servers", "GET /v1/servers?*"].map(str::to_owned).to_vec()),
         ]);
         Self { callers: vec![Caller { uid, github, proxy }] }
     }
