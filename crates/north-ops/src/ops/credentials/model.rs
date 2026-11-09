@@ -37,6 +37,32 @@ impl Renewal {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Reach {
+    Operator,
+    Broker(Vec<String>),
+    AgentRecipient,
+}
+
+impl Reach {
+    pub fn parse(spec: &str) -> Option<Self> {
+        match spec.trim().split_once(':') {
+            None if spec.trim() == "operator" => Some(Self::Operator),
+            None if spec.trim() == "agent-recipient" => Some(Self::AgentRecipient),
+            Some(("broker", allowlist)) if !allowlist.trim().is_empty() => Some(Self::Broker(allowlist.split(',').map(|rule| rule.trim().to_owned()).collect())),
+            _ => None,
+        }
+    }
+
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Operator => "operator".into(),
+            Self::AgentRecipient => "agent-recipient".into(),
+            Self::Broker(allowlist) => format!("broker:{}", allowlist.join(",")),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Credential {
     pub name: String,
     pub source: String,
@@ -46,6 +72,7 @@ pub struct Credential {
     pub expires: Option<u64>,
     pub renewal: Renewal,
     pub note: Option<String>,
+    pub reach: Reach,
 }
 
 pub fn fingerprint(bytes: &[u8]) -> String {

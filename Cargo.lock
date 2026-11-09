@@ -948,6 +948,7 @@ dependencies = [
  "crossterm 0.28.1",
  "fancy-regex",
  "north-base",
+ "north-broker",
  "north-calibration",
  "north-capacity-host",
  "north-check-environment",
@@ -1019,6 +1020,21 @@ dependencies = [
  "tempfile",
  "time",
  "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-broker"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "north-base",
+ "percent-encoding",
+ "ring",
+ "rustix 0.38.44",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "toml_edit",
 ]
 

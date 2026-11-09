@@ -1,0 +1,187 @@
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use toml_edit::{DocumentMut, Item, Table};
+
+pub type Permissions = BTreeMap<String, String>;
+
+const LEVELS: [&str; 3] = ["read", "write", "admin"];
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Ceiling {
+    pub repositories: Option<Vec<String>>,
+    pub permissions: Option<Permissions>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Caller {
+    pub uid: u32,
+    pub github: BTreeMap<String, Ceiling>,
+    pub proxy: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Policy {
+    callers: Vec<Caller>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Scope {
+    pub repositories: Vec<String>,
+    pub permissions: Permissions,
+}
+
+impl Policy {
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|error| format!("cannot read the policy {}: {error}", path.display()))?;
+        Self::parse(&text).map_err(|why| format!("policy {}: {why}", path.display()))
+    }
+
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let document: DocumentMut = text.parse().map_err(|error| format!("not TOML: {error}"))?;
+        let mut callers = Vec::new();
+        for table in document.get("caller").and_then(Item::as_array_of_tables).into_iter().flatten() {
+            callers.push(caller(table)?);
+        }
+        Ok(Self { callers })
+    }
+
+    pub fn for_user(uid: u32) -> Self {
+        let github = ["agent", "lander"].into_iter().map(|app| (app.to_owned(), Ceiling::default())).collect();
+        let proxy = BTreeMap::from([("digitalocean".to_owned(), vec!["GET /v2/customers/my/balance".to_owned()])]);
+        Self { callers: vec![Caller { uid, github, proxy }] }
+    }
+
+    pub fn caller(&self, uid: u32) -> Option<&Caller> {
+        self.callers.iter().find(|caller| caller.uid == uid)
+    }
+}
+
+fn caller(table: &Table) -> Result<Caller, String> {
+    let uid = table.get("uid").and_then(Item::as_integer).and_then(|uid| u32::try_from(uid).ok()).ok_or("a [[caller]] has no uid")?;
+    let mut github = BTreeMap::new();
+    for (app, ceiling) in table.get("github").and_then(Item::as_table).into_iter().flat_map(Table::iter) {
+        github.insert(app.to_owned(), ceiling_of(ceiling.as_table().ok_or_else(|| format!("caller {uid}: github.{app} is not a table"))?, uid, app)?);
+    }
+    let mut proxy = BTreeMap::new();
+    for (provider, rules) in table.get("proxy").and_then(Item::as_table).into_iter().flat_map(Table::iter) {
+        proxy.insert(provider.to_owned(), strings(rules).ok_or_else(|| format!("caller {uid}: proxy.{provider} is not a list of \"METHOD /path\" rules"))?);
+    }
+    Ok(Caller { uid, github, proxy })
+}
+
+fn ceiling_of(table: &Table, uid: u32, app: &str) -> Result<Ceiling, String> {
+    let repositories = table.get("repositories").map(|list| strings(list).ok_or_else(|| format!("caller {uid}: github.{app}.repositories is not a list of names"))).transpose()?;
+    let permissions = match table.get("permissions").map(|levels| levels.as_table_like().ok_or_else(|| format!("caller {uid}: github.{app}.permissions is not a table"))) {
+        None => None,
+        Some(levels) => {
+            let mut granted = Permissions::new();
+            for (name, level) in levels?.iter() {
+                let level = level.as_str().filter(|level| LEVELS.contains(level)).ok_or_else(|| format!("caller {uid}: github.{app}.permissions.{name} is not read, write or admin"))?;
+                granted.insert(name.to_owned(), level.to_owned());
+            }
+            Some(granted)
+        }
+    };
+    Ok(Ceiling { repositories, permissions })
+}
+
+fn strings(item: &Item) -> Option<Vec<String>> {
+    item.as_array()?.iter().map(|value| value.as_str().map(str::to_owned)).collect()
+}
+
+fn rank(level: &str) -> usize {
+    LEVELS.iter().position(|known| *known == level).unwrap_or(usize::MAX)
+}
+
+fn name_ok(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 100 && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+impl Ceiling {
+    pub fn scope(&self, app: &str, repositories: &[String], permissions: &Permissions) -> Result<Scope, String> {
+        if let Some(name) = repositories.iter().find(|name| !name_ok(name)) {
+            return Err(format!("{name:?} is not a repository name"));
+        }
+        if let Some(allowed) = &self.repositories {
+            if repositories.is_empty() {
+                return Err(format!("a {app} token must name its repositories; this caller may receive only {}", allowed.join(", ")));
+            }
+            if let Some(outside) = repositories.iter().find(|name| !allowed.contains(name)) {
+                return Err(format!("repository {outside} is outside this caller's {app} ceiling ({})", allowed.join(", ")));
+            }
+        }
+        Ok(Scope { repositories: repositories.to_vec(), permissions: self.permissions_for(app, permissions)? })
+    }
+
+    fn permissions_for(&self, app: &str, requested: &Permissions) -> Result<Permissions, String> {
+        let mut granted = Permissions::new();
+        for (name, level) in requested {
+            if !name_ok(name) || !LEVELS.contains(&level.as_str()) {
+                return Err(format!("{name}:{level} is not a permission"));
+            }
+            match &self.permissions {
+                Some(ceiling) => match ceiling.get(name) {
+                    None => return Err(format!("permission {name} is outside this caller's {app} ceiling")),
+                    Some(most) if rank(level) > rank(most) => return Err(format!("permission {name}:{level} exceeds this caller's {app} ceiling ({name}:{most})")),
+                    Some(_) => {}
+                },
+                None if name == "workflows" => return Err("permission workflows is never granted per call".to_owned()),
+                None => {}
+            }
+            granted.insert(name.clone(), level.clone());
+        }
+        if granted.is_empty() {
+            match &self.permissions {
+                Some(ceiling) => granted.clone_from(ceiling),
+                None => return Ok(granted),
+            }
+        }
+        if granted.get("metadata").is_some_and(|level| level != "read") {
+            return Err("permission metadata is read only".to_owned());
+        }
+        granted.insert("metadata".to_owned(), "read".to_owned());
+        Ok(granted)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rules(Vec<(String, Vec<String>)>);
+
+impl Rules {
+    pub fn new(rules: &[String]) -> Result<Self, String> {
+        let parsed = rules.iter().map(|rule| match rule.split_once(' ') {
+            Some((method, path)) if path.starts_with('/') && !method.is_empty() => Ok((method.to_ascii_uppercase(), path.split('/').skip(1).map(str::to_owned).collect())),
+            _ => Err(format!("rule {rule:?} is not \"METHOD /path\"")),
+        });
+        parsed.collect::<Result<_, _>>().map(Self)
+    }
+
+    pub fn allows(&self, method: &str, path: &str) -> bool {
+        let Some(segments) = clean(path) else { return false };
+        self.0.iter().any(|(rule_method, pattern)| rule_method == method && matches(pattern, &segments))
+    }
+}
+
+fn clean(path: &str) -> Option<Vec<&str>> {
+    let rest = path.strip_prefix('/')?;
+    let lowered = path.to_ascii_lowercase();
+    if !path.is_ascii() || path.contains(['\\', '\0']) || ["%2e", "%2f", "%5c", "%00"].iter().any(|bad| lowered.contains(bad)) {
+        return None;
+    }
+    let segments: Vec<&str> = rest.split('/').collect();
+    let trailing = segments.last().is_some_and(|last| last.is_empty());
+    let bare = if trailing { &segments[..segments.len() - 1] } else { &segments[..] };
+    (!bare.iter().any(|segment| segment.is_empty() || *segment == "." || *segment == "..")).then(|| bare.to_vec())
+}
+
+fn matches(pattern: &[String], segments: &[&str]) -> bool {
+    match pattern.split_last() {
+        Some((last, head)) if last == "**" => segments.len() > head.len() && head.iter().zip(segments).all(|(want, got)| want == "*" || want == got),
+        _ => pattern.len() == segments.len() && pattern.iter().zip(segments).all(|(want, got)| want == "*" || want == got),
+    }
+}
+
+#[cfg(test)]
+#[path = "policy_tests.rs"]
+mod tests;

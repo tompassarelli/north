@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use toml_edit::{DocumentMut, Item};
 
-use super::model::{Credential, Kind, Renewal, fingerprint, modified};
+use super::model::{Credential, Kind, Reach, Renewal, fingerprint, modified};
 use super::{DAY, World};
 
 const TOKEN_LIFETIME_DAYS: u64 = 365;
@@ -51,6 +51,7 @@ fn token(world: &World, profile: &Profile, file: &Path) -> Credential {
         expires,
         renewal: Renewal::Tom(format!("run claude setup-token for account {account} (one browser consent a year), then store it in south secrets/claude-tokens.yaml and ship it by sops, never by copying a credentials file")),
         note,
+        reach: Reach::Operator,
     }
 }
 
@@ -70,6 +71,7 @@ fn missing_login(profile: &Profile, file: &Path) -> Credential {
         expires: None,
         renewal: Renewal::Tom(format!("run CLAUDE_CONFIG_DIR={} claude auth login signed in as account {account}", profile.path.display())),
         note: Some("no claude.ai sign-in in this profile".to_owned()),
+        reach: Reach::Operator,
     }
 }
 
@@ -85,6 +87,7 @@ fn login(profile: &Profile, file: &Path, retired: bool) -> Credential {
         expires: oauth.get("refreshTokenExpiresAt").and_then(serde_json::Value::as_u64).map(|millis| millis / 1000),
         renewal: if retired { Renewal::Never } else { Renewal::Tom(format!("sign in again in a browser, or give account {account} a setup token on this host so the login is retired; never copy a login from another host (one refresh token, one host)")) },
         note: retired.then(|| format!("retired: launches run on claude:{account}:token and never fall back to this login; the file is left in place unused")),
+        reach: Reach::Operator,
     }
 }
 

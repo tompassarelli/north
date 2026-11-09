@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use super::github_app::{self, Host};
+use super::github_app;
 
 const FRESH_SECONDS: i64 = 60;
 const RESERVE: u64 = 1000;
@@ -47,7 +47,7 @@ pub fn read(directory: &Path, real_gh: &str, now: i64) -> Option<(u64, i64)> {
     if let Some(reading) = fresh(&cache, now) {
         return Some(reading);
     }
-    let (token, _) = github_app::agent_token(&Host::from_env(), now, std::env::var("GH_TOKEN").ok()).ok()?;
+    let (token, _) = github_app::agent_token(now, None, std::env::var("GH_TOKEN").ok()).ok()?;
     let output = Command::new(real_gh).args(["api", "rate_limit"]).env("GH_TOKEN", token).env("GH_PROMPT_DISABLED", "1").output().ok()?;
     let answer: serde_json::Value = serde_json::from_slice(&output.status.success().then_some(output.stdout)?).ok()?;
     let core = &answer["resources"]["core"];

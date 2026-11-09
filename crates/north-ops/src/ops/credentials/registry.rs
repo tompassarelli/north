@@ -58,7 +58,7 @@ pub fn lines(credentials: &[Credential], now: u64) -> Vec<String> {
             let print = credential.fingerprint.as_deref().unwrap_or("-");
             let flag = failure(credential, now).map_or_else(String::new, |why| format!("  FAIL {why}"));
             let note = credential.note.as_deref().map_or_else(String::new, |note| format!("  [{note}]"));
-            format!("{}  {}  {}  expires {}  renews: {}  use: {}{}{}", credential.name, credential.kind.label(), print, expiry(credential, now), credential.renewal.describe(), credential.usage, note, flag)
+            format!("{}  {}  {}  expires {}  renews: {}  reach: {}  use: {}{}{}", credential.name, credential.kind.label(), print, expiry(credential, now), credential.renewal.describe(), credential.reach.describe(), credential.usage, note, flag)
         })
         .collect()
 }
@@ -75,6 +75,7 @@ pub fn json(credentials: &[Credential], now: u64) -> Value {
                 "fingerprint": credential.fingerprint,
                 "expires": credential.expires,
                 "renewal": credential.renewal.describe(),
+                "reach": credential.reach.describe(),
                 "failing": failure(credential, now),
             })
         })

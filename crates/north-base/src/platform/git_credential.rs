@@ -1,12 +1,13 @@
 use std::io::{BufRead, Write};
 
-use super::github_app::{self, Host};
+use super::github_app;
 use crate::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north git-credential get|store|erase
 
 The git credential helper agent sessions push to GitHub through: for https://github.com it answers
-get with an installation token of the Socrates Agent App (north ops github token), so GitHub's tag
+get with an installation token of the Socrates Agent App from the credential broker (north broker
+github-token), limited to the repository the push names, so GitHub's tag
 rulesets, which only the admin role and that App's v* release path bypass, bind agent pushes.
 A host the laptop pushes that token to (gex45 and ccx33 hold no App key) answers with the pushed
 token while it is fresh; a host that cannot mint answers with the same App's token the session
@@ -32,8 +33,8 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("{USAGE}");
         return 0;
     }
-    let token = |_: &str| {
-        let (token, note) = github_app::agent_token(&Host::from_env(), Timestamp::now().unix_seconds(), std::env::var("GH_TOKEN").ok())?;
+    let token = |path: &str| {
+        let (token, note) = github_app::agent_token(Timestamp::now().unix_seconds(), repository(path), std::env::var("GH_TOKEN").ok())?;
         if let Some(note) = note {
             eprintln!("north git-credential: {note}");
         }
@@ -50,6 +51,12 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+fn repository(path: &str) -> Option<&str> {
+    let (owner, name) = path.trim_matches('/').split_once('/')?;
+    let name = name.strip_suffix(".git").unwrap_or(name);
+    (!owner.is_empty() && !name.is_empty() && !name.contains('/')).then_some(name)
 }
 
 fn answer(arguments: &[String], input: impl BufRead, token: impl FnOnce(&str) -> Result<String, String>) -> Result<Option<String>, String> {

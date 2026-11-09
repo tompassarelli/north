@@ -6,7 +6,7 @@ use std::process::Command;
 
 use super::gh_origin::{self, Kind};
 use super::gh_pool::{self, Pool};
-use super::github_app::{self, Host};
+use super::github_app;
 use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::NO_VERDICT;
 
@@ -59,7 +59,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let before = used(&fresh_spend(&ledger, now));
     let pool = shared_pool(real, rest, &ledger, now);
     let mint = || {
-        let (token, note) = github_app::agent_token(&Host::from_env(), Timestamp::now().unix_seconds(), std::env::var("GH_TOKEN").ok())?;
+        let (token, note) = github_app::agent_token(Timestamp::now().unix_seconds(), None, std::env::var("GH_TOKEN").ok())?;
         if let Some(note) = note {
             eprintln!("north gh-session: {note}");
         }

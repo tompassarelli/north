@@ -8,7 +8,6 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["tempo"], "ledger tempo", &[]),
     (&["worker-ledger"], "ledger worker", &[]),
     (&["credentials"], "ops credentials", &[]),
-    (&["gh-app-token"], "ops github token", &[]),
     (&["github"], "ops github", &[]),
     (&["digest"], "fleet digest", &[]),
     (&["orders"], "fleet orders", &[]),

@@ -27,6 +27,8 @@ pub mod github;
 pub mod gh_broker_route;
 pub mod github_quota;
 pub mod gh_shim;
+pub mod broker_client;
+pub mod broker_wire;
 pub mod github_app;
 pub mod pushed_token;
 pub mod gh_origin;

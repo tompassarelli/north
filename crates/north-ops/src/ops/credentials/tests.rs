@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::path::Path;
 
-use super::model::{Credential, Kind, Renewal};
+use super::model::{Credential, Kind, Reach, Renewal};
 use super::renew::{Effects, tick};
 use super::{DAY, World, cookies, declared, registry};
 
@@ -15,14 +15,14 @@ fn write(path: &Path, text: &str) {
 
 fn world(directory: &Path) -> World {
     let south = directory.join("south");
-    write(&south.join("secrets/github-app.yaml"), "app_id: ENC[x]\nprivate_key: ENC[y]\nsops:\n    age:\n        - enc: z\n");
+    write(&south.join("secrets/app-key.yaml"), "app_id: ENC[x]\nprivate_key: ENC[y]\nsops:\n    age:\n        - enc: z\n");
     write(&south.join("secrets/nexus/github.yaml"), "nexus-work: ENC[x]\nsops:\n    mac: m\n");
     write(&south.join("secrets/new-thing.yaml"), "token: ENC[x]\nsops:\n    mac: m\n");
     write(
         &south.join("agents/credentials.toml"),
         r#"
 [[credential]]
-source = "secrets/github-app.yaml"
+source = "secrets/app-key.yaml"
 use = "App key"
 kind = "machine"
 renewal = "never"
@@ -72,7 +72,7 @@ fn registry_lists_every_source_by_kind_and_never_prints_a_secret() {
     let directory = tempfile::tempdir().unwrap();
     let world = world(directory.path());
     let credentials = registry::gather(&world).unwrap();
-    assert_eq!(named(&credentials, "sops:github-app").kind, Kind::Machine);
+    assert_eq!(named(&credentials, "sops:app-key").kind, Kind::Machine);
     assert_eq!(named(&credentials, "sops:nexus/github").kind, Kind::HumanSession);
     assert_eq!(named(&credentials, "sops:new-thing").kind, Kind::Undeclared);
     let token = named(&credentials, "claude:a:token");
@@ -154,7 +154,7 @@ impl Effects for Recording {
 }
 
 fn credential(name: &str, kind: Kind, days: u64, renewal: Renewal) -> Credential {
-    Credential { name: name.into(), source: name.into(), usage: "test".into(), kind, fingerprint: None, expires: Some(NOW + days * DAY), renewal, note: None }
+    Credential { name: name.into(), source: name.into(), usage: "test".into(), kind, fingerprint: None, expires: Some(NOW + days * DAY), renewal, note: None, reach: Reach::Operator }
 }
 
 fn fleet() -> Vec<Credential> {

@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::quota;
 use crate::platform::gh_broker_route::Place;
 use crate::platform::gh_session::{self, Spend};
-use crate::platform::github_app::{self, AGENT_APP, Host, Request};
+use crate::platform::github_app;
 
 const USAGE: &str = "usage: north ops github budget
 
@@ -35,7 +35,7 @@ pub fn github(arguments: &[String]) -> u8 {
 
 fn budget() -> u8 {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    let installation = Request::installation(AGENT_APP).ok_or_else(|| format!("unknown app {AGENT_APP}")).and_then(|request| github_app::mint(&request, &Host::from_env(), i64::try_from(now).unwrap_or(i64::MAX)));
+    let installation = github_app::agent_installation(i64::try_from(now).unwrap_or(i64::MAX));
     for (token, limits) in [("personal", quota::read(None)), ("socrates-agent app", installation.and_then(|token| quota::read(Some(&token))))] {
         match limits {
             Ok(limits) => limits.iter().for_each(|limit| println!("{token}\t{}", quota::line(limit))),

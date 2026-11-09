@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-token="$(north ops github token)"
+token="$(north broker github-token --app agent)"
 GH_TOKEN="$token" exec gh "$@"

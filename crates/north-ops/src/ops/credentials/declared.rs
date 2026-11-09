@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 use toml_edit::{DocumentMut, Item, Table};
 
-use super::model::{Credential, Kind, Renewal, fingerprint};
+use super::model::{Credential, Kind, Reach, Renewal, fingerprint};
 
 pub const FILE: &str = "agents/credentials.toml";
 const CHROME_EPOCH_OFFSET_S: u64 = 11_644_473_600;
@@ -15,6 +15,7 @@ pub struct Declaration {
     pub kind: Kind,
     pub renewal: Renewal,
     pub expires: Option<u64>,
+    pub reach: Reach,
 }
 
 #[derive(Debug)]
@@ -63,7 +64,11 @@ pub fn parse(source: &str) -> Result<Declarations, String> {
             other => return Err(format!("{FILE}: kind {other:?} is not machine or human-session")),
         };
         let expires = table.get("expires").and_then(Item::as_str).map(date).transpose()?;
-        found.files.push(Declaration { source: text(table, "source")?, usage: text(table, "use")?, kind, renewal: renewal(&text(table, "renewal")?)?, expires });
+        let reach = match table.get("reach").and_then(Item::as_str) {
+            None => Reach::Operator,
+            Some(spec) => Reach::parse(spec).ok_or_else(|| format!("{FILE}: reach {spec:?} is not operator, agent-recipient or broker:ALLOWLIST"))?,
+        };
+        found.files.push(Declaration { source: text(table, "source")?, usage: text(table, "use")?, kind, renewal: renewal(&text(table, "renewal")?)?, expires, reach });
     }
     for table in document.get("browser_session").and_then(Item::as_array_of_tables).into_iter().flatten() {
         found.browsers.push(Browser { host: text(table, "host")?, alternative: table.get("alternative").and_then(Item::as_str).map(str::to_owned), usage: text(table, "use")?, renewal: renewal(&text(table, "renewal")?)? });
@@ -106,8 +111,8 @@ pub fn files(south: &Path, declarations: &Declarations) -> Result<Vec<Credential
             let name = format!("sops:{}", relative.trim_start_matches("secrets/").trim_end_matches(".yaml"));
             let covering = declarations.files.iter().find(|declaration| declaration.source == relative || (declaration.source.ends_with('/') && relative.starts_with(&declaration.source)));
             Ok(match covering {
-                Some(declaration) => Credential { name, source: relative, usage: format!("{} (keys: {names})", declaration.usage), kind: declaration.kind, fingerprint: Some(fingerprint(&bytes)), expires: declaration.expires, renewal: declaration.renewal.clone(), note: None },
-                None => Credential { name, source: relative, usage: format!("keys: {names}"), kind: Kind::Undeclared, fingerprint: Some(fingerprint(&bytes)), expires: None, renewal: Renewal::Never, note: None },
+                Some(declaration) => Credential { name, source: relative, usage: format!("{} (keys: {names})", declaration.usage), kind: declaration.kind, fingerprint: Some(fingerprint(&bytes)), expires: declaration.expires, renewal: declaration.renewal.clone(), note: None, reach: declaration.reach.clone() },
+                None => Credential { name, source: relative, usage: format!("keys: {names}"), kind: Kind::Undeclared, fingerprint: Some(fingerprint(&bytes)), expires: None, renewal: Renewal::Never, note: None, reach: Reach::Operator },
             })
         })
         .collect()
@@ -140,7 +145,7 @@ pub fn browser_sessions(profile: &Path, declarations: &Declarations, now: u64) -
             };
             let alternative = browser.alternative.as_deref().map_or_else(|| "no machine alternative: only the 30-day notice asks for it".to_owned(), |alternative| format!("machine alternative: {alternative}"));
             let note = Some(state.map_or(alternative.clone(), |state| format!("{state}; {alternative}")));
-            Credential { name: format!("browser:{}", browser.host), source: "automation-chrome profile".into(), usage: browser.usage.clone(), kind: Kind::HumanSession, fingerprint: None, expires, renewal: browser.renewal.clone(), note }
+            Credential { name: format!("browser:{}", browser.host), source: "automation-chrome profile".into(), usage: browser.usage.clone(), kind: Kind::HumanSession, fingerprint: None, expires, renewal: browser.renewal.clone(), note, reach: Reach::Operator }
         })
         .collect()
 }

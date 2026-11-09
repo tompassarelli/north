@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::broker::{Broker, Source};
 use super::calls::token_kind;
 use super::http::{Request, Response};
-use crate::platform::github_app::{self, AGENT_APP, Host};
+use crate::platform::github_app;
 
 type Mint = Box<dyn Fn() -> Option<String> + Send + Sync>;
 
@@ -17,8 +17,7 @@ impl AppReads {
     pub fn from_host() -> Self {
         Self::with(Box::new(|| {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX));
-            let request = github_app::Request::installation(AGENT_APP)?;
-            github_app::mint(&request, &Host::from_env(), now).ok()
+            github_app::agent_installation(now).ok()
         }))
     }
 

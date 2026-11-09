@@ -103,6 +103,11 @@ paths = ["crates/north-git-locks/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-broker"
+paths = ["crates/north-broker/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
 name = "north-claude-stream"
 paths = ["crates/north-claude-stream/src/**"]
 may_use = []
