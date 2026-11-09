@@ -10,10 +10,11 @@ use sha2::{Digest, Sha256};
 use super::carry::{self, Boundary};
 use super::effects::Host;
 use super::depbox_mode::Mode;
-use super::gate::{self, ADMITTED};
+use super::gate::{self, LEASED};
 
 const USAGE: &str = "usage: north depbox fetch|run -- <command> [args...]\n  fetch  network shared, for installs and fetches\n  run    no network, for builds and tests";
 pub const MARK: &str = "DEPBOX";
+const ADMITTED: &str = "DEPBOX_ADMITTED";
 const WORKER_SANDBOXED: &str = "NORTH_WORKER_SANDBOXED";
 const FETCHED: &str = ".local/state/depbox/cargo-fetched";
 const UNSHARE: &str = "/run/current-system/sw/bin/unshare";
@@ -206,7 +207,7 @@ impl Sandbox {
         self.add(&["--die-with-parent", "--new-session", "--clearenv"]);
         self.set(MARK, OsString::from(format!("{}:{}", self.mode.name(), top.display())));
         if std::env::var_os(ADMITTED).is_some() || gate::in_lease() {
-            self.set(ADMITTED, OsString::from("1"));
+            self.set(LEASED, OsString::from("1"));
         }
         let boundary = if self.mode == Mode::Run { Boundary::Sandbox } else { Boundary::Fetch };
         for name in carry::names(boundary) {

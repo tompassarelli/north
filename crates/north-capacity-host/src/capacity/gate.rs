@@ -19,7 +19,7 @@ const RUST_PROGRAMS: [&str; 3] = ["cargo", "rustc", "cargo-nextest"];
 const SANDBOX: &str = "DEPBOX";
 const SHIM_MARKER: &str = "# north capacity gate shim: the real program is the next one on PATH that is not a shim";
 const SHIMS_OUTPUT: &str = "-capacity-gate-shims/bin/";
-pub const ADMITTED: &str = "DEPBOX_ADMITTED";
+pub const LEASED: &str = "DEPBOX_LEASED";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Class {
@@ -114,7 +114,7 @@ pub(super) fn agent_compile_in(words: &[String], agent: bool) -> bool {
 /// Whether this process runs inside a capacity lease: in a lease scope, or in a depbox sandbox whose depbox was admitted, which a worker sandbox starts outside the lease scope once it leaves the Landlock domain.
 pub(super) fn in_lease() -> bool {
     let admitted = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());
-    (admitted(SANDBOX) && admitted(ADMITTED)) || inside_lease(&std::fs::read_to_string(std::env::var_os("AGENT_CAPACITY_SELF_CGROUP").unwrap_or_else(|| "/proc/self/cgroup".into())).unwrap_or_default())
+    (admitted(SANDBOX) && admitted(LEASED)) || inside_lease(&std::fs::read_to_string(std::env::var_os("AGENT_CAPACITY_SELF_CGROUP").unwrap_or_else(|| "/proc/self/cgroup".into())).unwrap_or_default())
 }
 
 pub fn inside_lease(cgroup: &str) -> bool {
