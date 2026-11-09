@@ -229,6 +229,9 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     }
     super::entry_links::link(runtime)?;
     store::root(runtime)?;
+    if let Err(failure) = store::shims(runtime) {
+        eprintln!("north runtime update: the operator terminal keeps its previous shims: {}", failure.message);
+    }
     super::deploy::stage_for_lander(layout, target, runtime);
     let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
     grounding::import(layout);
