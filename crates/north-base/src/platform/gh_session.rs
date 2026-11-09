@@ -21,7 +21,7 @@ A session may spend while the shared token's remaining hourly quota (gh api rate
 stays above a reserve of 1000 units. Under the reserve the sessions that spent most this hour (at or above the
 average of the live sessions) are refused first, with exit 75 and a message naming the token's remaining quota and the spend.
 Spend is counted per rolling hour in ${XDG_RUNTIME_DIR}/north-gh-budget/SESSION. A session the fleet did not launch counts as
-`unlaunched` inside north --worker-sandbox; outside both REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its fair share (400 units an hour) tells that session once.
+`unlaunched` inside north --worker-sandbox, except the proxy's own window (its conversation is the one the fleet row named proxy holds), which counts as `proxy` like a launched proxy; outside both REAL_GH runs unchanged. A call that takes a session to 50% or 80% of its fair share (400 units an hour) tells that session once.
 A hook (a gh call under north hook) may spend 10% of the fair share, so one hook cannot starve its session; north ops github budget
 breaks each session's spend down by hook, tick or command, the north verb behind it and the endpoint,
 and a refused call tells the proxy at most once an hour per session (north ops github budget lists every session's spend and the top callers).";
@@ -49,7 +49,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 1;
     };
-    let session = std::env::var(SESSION_ENV).ok().filter(|session| !session.is_empty()).or_else(|| std::env::var_os(SANDBOX_MARK).map(|_| UNLAUNCHED.to_owned()));
+    let session = std::env::var(SESSION_ENV).ok().filter(|session| !session.is_empty()).or_else(|| std::env::var_os(SANDBOX_MARK).map(|_| unlaunched_name()));
     let Some(session) = session else {
         return exec(Command::new(real).args(rest));
     };
@@ -91,6 +91,17 @@ pub fn run(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+fn unlaunched_name() -> String {
+    let conversation = std::env::var("CLAUDE_CODE_SESSION_ID").unwrap_or_default();
+    let fleet = std::env::var_os("NORTH_FLEET_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/north/fleet")));
+    let record = fleet.and_then(|fleet| fs::read_to_string(fleet.join(PROXY).join("session.json")).ok()).unwrap_or_default();
+    if holds_conversation(&record, &conversation) { PROXY } else { UNLAUNCHED }.to_owned()
+}
+
+fn holds_conversation(record: &str, conversation: &str) -> bool {
+    !conversation.is_empty() && serde_json::from_str::<serde_json::Value>(record).is_ok_and(|record| record["conversation"].as_str() == Some(conversation))
 }
 
 fn shared_pool(real: &str, arguments: &[String], ledger: &Path, now: i64) -> Pool {

@@ -105,3 +105,10 @@ fn command_origin() -> gh_origin::Origin {
 fn open() -> Pool {
     Pool { remaining: Some(8513), resets_at: 1000 + WINDOW_SECONDS, others: vec![30, 12] }
 }
+
+#[test]
+fn the_proxys_unlaunched_window_spends_the_proxy_ledger_and_no_other_session_does() {
+    let record = r#"{"name":"proxy","conversation":"abc-123"}"#;
+    assert!(holds_conversation(record, "abc-123"), "the proxy's own window is the conversation its fleet row holds");
+    assert!(!holds_conversation(record, "other") && !holds_conversation(record, "") && !holds_conversation("", ""), "any other unlaunched session stays unlaunched");
+}
