@@ -13,6 +13,8 @@ use rustix::fs::FlockOperation;
 const LANDER_SHADOW_MINUTES: &str = "3";
 const SWAP_POLL: Duration = Duration::from_millis(100);
 const LANDER_LOCK: &str = "lander-promote.lock";
+const LANDER_REPLAY_LIMIT: Duration = Duration::from_secs(30 * 60);
+const SCOPED: &str = "NORTH_RUNTIME_PROMOTE_SCOPED";
 const SYSTEMD_RUN: &str = "systemd-run";
 const SCOPE: [&str; 4] = ["--user", "--scope", "--quiet", "--collect"];
 
@@ -22,6 +24,7 @@ pub(super) fn follow(layout: &Layout, repo: &Path) -> Result<(), Failure> {
     }
     let log = OpenOptions::new().create(true).append(true).open(layout.state.join("runtime-follow.log"))?;
     own_scope(std::env::current_exe()?)
+        .env(SCOPED, "1")
         .args(["runtime", "promote"])
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
@@ -40,6 +43,18 @@ pub(super) fn own_scope(north: PathBuf) -> Command {
     let mut command = Command::new(SYSTEMD_RUN);
     command.args(SCOPE).arg("--").arg(north);
     command
+}
+
+/// A promotion started in a worker's scope froze with it while holding runtime-update.lock, so it runs in a scope of its own.
+pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
+    if std::env::var_os(SCOPED).is_some() {
+        return promote(layout);
+    }
+    let status = own_scope(std::env::current_exe()?).env(SCOPED, "1").args(["runtime", "promote"]).status()?;
+    match status.success() {
+        true => Ok(()),
+        false => Err(failed(status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1), "the promotion, run in a scope of its own, failed; its message is above")),
+    }
 }
 
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
@@ -91,12 +106,11 @@ fn follow_lander(layout: &Layout) -> Result<(), Failure> {
 }
 
 fn lander_verdict(binary: &Path, checkout: &Path) -> Result<(), Failure> {
-    let ran = Command::new(binary)
-        .args(["land", "promote", "--shadow-minutes", LANDER_SHADOW_MINUTES, "--repo"])
-        .arg(checkout)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| failed(1, format!("lander link held: {}: {error}", binary.display())))?;
+    let mut command = Command::new(binary);
+    command.args(["land", "promote", "--shadow-minutes", LANDER_SHADOW_MINUTES, "--repo"]).arg(checkout);
+    let ran = process::try_run_group_traced_within(command, LANDER_REPLAY_LIMIT)
+        .map_err(|error| failed(1, format!("lander link held: {}: {error}", binary.display())))?
+        .map_err(|stalled| failed(1, format!("lander link held: north land promote ran past {} min and was killed{stalled}", LANDER_REPLAY_LIMIT.as_secs() / 60)))?;
     let stdout = String::from_utf8_lossy(&ran.stdout);
     print!("{stdout}");
     if ran.status.success() {
