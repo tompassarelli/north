@@ -32,7 +32,6 @@ fn a_landed_ticket_refuses_a_later_check_and_keeps_its_record() {
     assert!(faults.iter().any(|fault| fault.instance == instance && matches!(&fault.kind, FaultKind::Illegal { to, .. } if to == "checking")), "{faults:?}");
 }
 
-// KEEP(bug): a lander killed mid-check left its tickets in the queue directory with nothing saying they were held, so the lost check never showed in health (north#757 entry 2)
 #[test]
 fn a_ticket_whose_lander_died_mid_check_is_orphaned_in_health_and_queued_again_by_the_next_lander() {
     let queue_dir = tempfile::tempdir().unwrap();
@@ -55,7 +54,6 @@ fn a_ticket_whose_lander_died_mid_check_is_orphaned_in_health_and_queued_again_b
     assert_eq!(queue::collect(queue_dir.path()).unwrap().len(), 1, "the next lander checks the ticket again");
 }
 
-// KEEP(bug): queue::requeue had no caller for a quarantined ticket, so the lander watchdog's quarantine had no exit (north#757 entry 2)
 #[test]
 fn a_quarantined_ticket_is_queued_again_by_name_and_a_queued_one_is_not() {
     let queue_dir = tempfile::tempdir().unwrap();

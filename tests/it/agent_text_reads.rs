@@ -80,7 +80,6 @@ fn workspace() -> BTreeMap<String, String> {
     found.into_iter().filter(|path| path.contains("/src/") || path.starts_with("src/")).map(|path| (path.clone(), fs::read_to_string(root().join(&path)).unwrap_or_default())).collect()
 }
 
-// KEEP(bug): on 2026-11-07 first tries were scored on what workers wrote in Stop: lines and report prose instead of what the harness recorded, so a worker's wording decided harness verdicts (north#791)
 #[test]
 fn scorer_attribution_and_routing_read_no_agent_text_beyond_the_listed_inputs() {
     let refused = refusals(&workspace(), &allowed());

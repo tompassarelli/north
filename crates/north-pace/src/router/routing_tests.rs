@@ -49,7 +49,6 @@ fn ctx(value: Value) -> Ctx {
     serde_json::from_value(value).unwrap()
 }
 
-// KEEP(mutant): only test of the router's plans and provider-limit routing
 #[test]
 fn recorded_scenarios_reach_their_expected_plans() {
     for (name, text) in SCENARIOS {

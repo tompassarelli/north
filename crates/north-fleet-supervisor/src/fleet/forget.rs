@@ -107,7 +107,6 @@ mod tests {
         assert!(fleet.session("lander-w33-failfast").is_ok(), "a refused forget keeps the session");
     }
 
-    // KEEP(bug): on 2026-11-08 construct-lead retired with six north#892 lanes unlanded and nobody owned them until Tom asked; north#941
     #[test]
     fn a_retiring_session_hands_its_queued_lane_to_its_parent_and_is_refused_when_it_has_no_one_to_hand_it_to() {
         let home = tempfile::tempdir().unwrap();

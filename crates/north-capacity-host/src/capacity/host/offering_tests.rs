@@ -29,7 +29,6 @@ fn laptop(own_build_refusal: fn() -> Option<String>) -> Host {
     }
 }
 
-// KEEP(bug): a fleet session's cargo on the laptop that no full build host took ran nowhere (exit 75) while the laptop sat at load 3 of 24 on 2026-11-06; it now waits in the laptop's own admission whenever the laptop has room beyond its reserves; north#634
 #[test]
 fn a_session_compile_no_build_host_took_waits_here_when_this_host_has_room_and_is_refused_only_when_it_has_none() {
     let create = Create { kind: "run", owner: "worker".to_owned(), timeout_seconds: Some(60) };
@@ -42,7 +41,6 @@ fn a_session_compile_no_build_host_took_waits_here_when_this_host_has_room_and_i
     assert!(session_build_refusal(&laptop(|| Some("full".to_owned())), &cargo, None, &create).is_none(), "a build host took it or was never asked");
 }
 
-// KEEP(bug): a fleet compile the laptop took for want of a build host queued in its admission for up to the gate's hour when admission deferred it, so a check with a 300 s deadline hung past it (lander, 2026-11-06 5:55 PM); a deferral here now refuses it at once; north#634
 #[test]
 fn a_session_compile_this_host_took_is_refused_at_once_when_its_admission_defers_it_never_queued() {
     let create = Create { kind: "run", owner: "worker".to_owned(), timeout_seconds: Some(3600) };
@@ -58,7 +56,6 @@ fn a_session_compile_this_host_took_is_refused_at_once_when_its_admission_defers
     assert!(deferred_session_build(&laptop(|| None), &cargo, None, &create, &deferred).is_none(), "not taken for want of a build host: it queues as before");
 }
 
-// KEEP(bug): with two rented build hosts gone on 2026-11-07, every fleet session's build on the laptop went to the GPU host first (load 52 on 20 cores) while the away laptop, which leases its own builds, sat at load 3.5 of 24; a host that leases its own builds now decides on its sessions' builds before offering them; north#740
 #[test]
 fn a_session_build_is_offered_away_before_deciding_only_on_a_host_that_does_not_lease_its_own_builds() {
     let playing = laptop(|| None);
@@ -95,7 +92,6 @@ async fn offer(host: &Host, queued_seconds: u64) -> Option<u8> {
     super::offering::try_offload(waiting, true, host, &mut super::terminations::Terminations::none(), None).await
 }
 
-// KEEP(bug): on 2026-11-06 a queued gate with --timeout-seconds 3600 sat at DEFER_CPU_PRESSURE for 6,498 s because its admit loop was stuck awaiting an offload offer that never answered; an offer that has not started now gives up when the gate's timeout ends, while one a host has taken runs on; north#634
 #[tokio::test(start_paused = true)]
 async fn an_offload_offer_that_never_starts_ends_with_the_gates_timeout_and_one_already_running_does_not() {
     let hung = Host { build_offload: stalled, ..laptop(|| None) };
@@ -127,7 +123,6 @@ fn announcing_after_the_gate_gave_up(_: &Candidate, _: &Job, announce: &dyn Fn(&
     Err(None)
 }
 
-// KEEP(bug): an offer whose timer fired just before announce left the job to the local path while the host still started it, so one build ran twice (found 2026-11-07 with 389e99e7de); the gate and announce now settle through one state and the host never starts an abandoned offer; north#634
 #[tokio::test(start_paused = true)]
 async fn an_offer_whose_timeout_fires_at_announce_runs_the_job_once_here_and_never_on_the_host() {
     let racing = Host { build_offload: announcing_after_the_gate_gave_up, ..laptop(|| None) };
@@ -137,7 +132,6 @@ async fn an_offer_whose_timeout_fires_at_announce_runs_the_job_once_here_and_nev
     assert_eq!(HOST_RUNS.load(std::sync::atomic::Ordering::SeqCst), 0, "the host must not also start the abandoned offer");
 }
 
-// KEEP(bug): at 10:12 AM on 2026-11-08 offload declined a session's `cargo build -p north --bin north` as an artifact build and capacity host run built it on the laptop under the playtest hold, load 80; the hold now binds the stay-on-this-host fallback, so the build is refused and never started here; north#892
 #[test]
 fn a_build_offload_declines_as_an_artifact_is_refused_under_a_hold_and_runs_here_only_without_one() {
     let create = Create { kind: "run", owner: "n892-testclock".to_owned(), timeout_seconds: Some(3600) };

@@ -9,7 +9,6 @@ fn verdict(cwd: &std::path::Path, command: &str) -> Verdict {
     decide(&HookInput::parse(payload.to_string().as_bytes()).unwrap(), cwd)
 }
 
-// KEEP(bug): 4 of 7 sampled nix-activity.deny refusals were false: the dev-shell flake was looked up from the hook's directory, not from the directory a leading `cd` moved to; north#706
 #[test]
 fn an_ad_hoc_nixpkgs_shell_is_refused_only_where_the_command_runs_beside_a_dev_shell_flake() {
     let project = tempfile::tempdir().unwrap();

@@ -369,7 +369,6 @@ impl Rig {
     }
 }
 
-// KEEP(bug): on 2026-11-08 north lane gc --remote called all 13 origin branches LIVE for "a fresh commit", so scratch/n882-climb, n882-retain and n882-textrel stayed on origin though main held their changes and ten unlanded lanes (six north#892 scratch lanes, q902-bets, n903-waits-wip, n706-pin-retire) waited for Tom to ask; north#941
 #[test]
 fn the_origin_sweep_abandons_branches_whose_changes_are_on_main_and_files_a_box_for_each_unlanded_one() {
     let scratch = tempfile::tempdir().unwrap();

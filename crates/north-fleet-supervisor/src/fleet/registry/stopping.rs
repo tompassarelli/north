@@ -185,7 +185,6 @@ mod tests {
         path
     }
 
-    // KEEP(bug): the gex45-n757-leases turn end of 2026-11-07 04:14 UTC was stopped 27 s after it ended on `Stop: capacity` with its clippy and test builds queued in admission; regression of north#772
     #[test]
     fn a_stop_ordered_on_a_session_whose_own_builds_wait_in_admission_is_held_and_runs_once_they_have() {
         let home = tempfile::tempdir().unwrap();
@@ -212,7 +211,6 @@ mod tests {
         assert!(fleet.record("n757-leases").unwrap().ended(), "the stop never ran once the builds had");
     }
 
-    // KEEP(bug): north-870-d0106 and north-870-d0111 were forgotten on 2026-11-08 and kept the north#870 boxes they had claimed themselves until the proxy released them by hand; north#888
     #[test]
     fn a_forgotten_session_holds_no_claim_in_the_ledger_including_boxes_it_claimed_itself() {
         use crate::fleet::claims::Rows;

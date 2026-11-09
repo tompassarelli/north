@@ -114,7 +114,6 @@ fn append(dir: &Path, frames: &[serde_json::Value]) {
     }
 }
 
-// KEEP(bug): at 4:35 PM on 2026-11-09 broker-94's host ended in the middle of a command when its account reached its week, the turn never ended, and no usage wait was registered, so the tick had nothing to hand over (north#1013)
 #[test]
 fn a_host_that_ends_on_the_week_limit_in_the_middle_of_a_command_leaves_its_session_parked_with_a_usage_wait_north_1013() {
     let home = tempfile::tempdir().unwrap();
@@ -134,7 +133,6 @@ fn a_host_that_ends_on_the_week_limit_in_the_middle_of_a_command_leaves_its_sess
     assert_eq!(read_record(&dir).unwrap().phase(), Some(Phase::Parked));
 }
 
-// KEEP(bug): `north fleet revive broker-94 --account e` refused with "a session cannot move from retired to stopped" after a take-over retired broker-94 with its work unfinished (north#1013)
 #[test]
 fn a_retired_session_with_no_done_report_reopens_as_a_new_launch_of_its_own_conversation_north_1013() {
     let home = tempfile::tempdir().unwrap();

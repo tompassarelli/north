@@ -340,7 +340,6 @@ fn a_replay_divergence_that_flips_on_its_rerun_is_a_flaky_check_and_reverts_noth
     assert!(chain.told().contains("file the flaky test on its owner") && chain.told().contains("lander link not held"), "{}", chain.told());
 }
 
-// KEEP(bug): on 2026-11-06 at 7:50 PM a coverage hang in the candidate's first replay, which every rerun replayed as recorded, was judged flaky but held the lander link, so the lander stayed on 84372bec2 (north#688)
 #[test]
 fn a_candidate_whose_replay_flips_on_its_rerun_moves_the_lander_link_to_it() {
     let chain = Chain::new();
@@ -458,7 +457,6 @@ fn a_replay_that_reaches_no_verdict_holds_nothing_queues_no_revert_and_the_next_
     assert!(!unreached.exists(), "a promotion that settled left its no-verdict record");
 }
 
-// KEEP(bug): on 2026-11-07 at 8:37 PM north-798 replayed failed on the candidate, the held runtime b96d3b9e replayed it landed and then failed on the bisect rerun, which held the lander link on it for 39 minutes while later landings sat undeployed (north#634)
 #[test]
 fn a_candidate_replaying_a_round_as_the_held_runtime_does_again_moves_the_lander_link_to_it() {
     let chain = Chain::new();
@@ -475,7 +473,6 @@ fn a_candidate_replaying_a_round_as_the_held_runtime_does_again_moves_the_lander
     assert!(chain.told().contains(&format!("the lander link follows {}", &candidate[..9])) && chain.told().contains("file the flaky test on its owner"), "{}", chain.told());
 }
 
-// KEEP(bug): on 2026-11-08 all 19 promotions from 12:07 AM held the lander link because one or more of eight replays came back transient under slot contention while 4 to 7 rounds matched and none diverged, so no lander fix landed after 7:52 AM went live until a hand swap at 9:06 AM (north#842)
 #[test]
 fn a_transient_replay_beside_matched_rounds_moves_the_lander_link_and_a_divergence_still_holds_it() {
     let transient = "echo 'replay: verdict transient land check cargo nextest run waited past its slot deadline'";
@@ -506,7 +503,6 @@ fn a_transient_replay_beside_matched_rounds_moves_the_lander_link_and_a_divergen
     assert_eq!(chain.lander(), format!("runtimes/{}", chain.held), "a divergence beside a transient round moved the link: {stdout}");
 }
 
-// KEEP(bug): on 2026-11-08 the proxy's promotion to 77bae4cb4f held the lander link because its replay of round n882-loop-score exited 1 on an index.lock another replay held in the shared lander-replay worktree, and promote judged that error a divergence (north#842)
 #[test]
 fn a_replay_that_hits_a_held_index_lock_beside_matched_rounds_does_not_hold_the_link() {
     let chain = Chain::new();

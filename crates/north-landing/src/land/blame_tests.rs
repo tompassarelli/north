@@ -33,7 +33,6 @@ fn a_base_already_red_blames_no_lane() {
     assert_eq!(rounds.last(), Some(&vec![0]), "bisection ending on the first lane probes the base");
 }
 
-// KEEP(bug): on 2026-11-08 every red after-landing run bisected its whole batch although the change graph's blame held the verified culprit in 50 of 50 red probes, naming it alone in 30% (north#902)
 #[test]
 fn a_red_four_lane_batch_whose_graph_blame_names_one_lane_reverts_it_with_no_bisect_round() {
     let named = suspects(&batch(), Some(0), "lane-c\n");
@@ -43,7 +42,6 @@ fn a_red_four_lane_batch_whose_graph_blame_names_one_lane_reverts_it_with_no_bis
     assert!(rounds.is_empty(), "no prefix is checked: {rounds:?}");
 }
 
-// KEEP(bug): the same replay: blame named 3.4 candidates of 14.3 lanes on average, and the search still bisected all 14.3 (north#902)
 #[test]
 fn a_red_four_lane_batch_whose_graph_blame_names_two_lanes_bisects_only_those_two() {
     let named = suspects(&batch(), Some(0), "lane-c\nlane-a\n");

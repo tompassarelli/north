@@ -19,7 +19,6 @@ fn link(target: &Path, link: &Path) {
     std::os::unix::fs::symlink(target, link).unwrap();
 }
 
-// KEEP(bug): an agent's `cargo build` ran its lane's build scripts outside depbox, since depbox was only a convention (south#93)
 #[test]
 fn a_build_script_run_through_the_agent_path_reads_no_credential_and_reaches_no_network() {
     let scratch = tempfile::tempdir().unwrap();

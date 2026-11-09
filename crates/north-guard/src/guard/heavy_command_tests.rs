@@ -9,7 +9,6 @@ fn verdict(command: &str) -> Verdict {
     judge(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
 }
 
-// KEEP(bug): an offloaded `sed -i f && git add f && cargo clippy` edited and staged f on gex45 while the local worktree stayed unchanged; north#674
 #[test]
 fn a_build_beside_a_file_or_index_write_is_refused_and_a_read_only_one_still_offloads() {
     for command in [
@@ -40,7 +39,6 @@ fn verdict_in(cwd: &std::path::Path, command: &str) -> Verdict {
     judge(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
 }
 
-// KEEP(bug): 5 of 19 sampled heavy-command refusals were false: `bun test service.test.mjs` read as a full suite because .mjs was no script, and a bare positional filter was no target; north#706
 #[test]
 fn bun_test_with_any_positional_or_module_script_is_not_the_full_suite() {
     for command in [
@@ -56,7 +54,6 @@ fn bun_test_with_any_positional_or_module_script_is_not_the_full_suite() {
     }
 }
 
-// KEEP(bug): 2 of 3 sampled heavy-command.farm refusals were false: GAME_MODULES=$(...) set inside a `( ... ) &` group did not narrow a lua-tests run; north#706
 #[test]
 fn a_narrowing_variable_set_inside_a_background_group_permits_a_farm_only_run() {
     let dir = tempfile::tempdir().unwrap();

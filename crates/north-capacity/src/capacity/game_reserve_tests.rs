@@ -75,7 +75,6 @@ fn launch(root: &Path, age: f64) -> (String, String) {
     (calls, pins)
 }
 
-// KEEP(bug): Warcraft III is not moved or pinned until it has run a minute; regression of the black-screen launches (commit 318a62d33)
 #[test]
 fn a_warcraft_iii_younger_than_a_minute_is_neither_moved_nor_pinned() {
     for age in [0.0, 1.0, 3.0, 59.9] {
@@ -87,7 +86,6 @@ fn a_warcraft_iii_younger_than_a_minute_is_neither_moved_nor_pinned() {
     }
 }
 
-// KEEP(bug): Tom's game is Warcraft III or a Wisp native window outside the agent slices; regression of 8b58dbb52
 #[test]
 fn toms_game_is_warcraft_iii_or_a_wisp_native_window_outside_the_agent_slices() {
     let app = format!("{USER}/app.slice/makgora-tom-1.service");

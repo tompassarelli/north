@@ -32,8 +32,6 @@ fn queued_job(root: &Path, wall: bool, ticketed: bool) -> (tempfile::TempDir, st
     (driven, job)
 }
 
-// KEEP(bug): on 2026-11-06 gex45 slot jobs with 900 to 1,800 s deadlines held code-north-main slots for 6,300 to 7,000 s, because the deadline stopped its clock while a capacity gate beneath it sat in the queue (north#634)
-// KEEP(bug): on 2026-11-06 at 11:20 PM the coverage land check of a replay on e8a0925af was refused as hung at its 309 s deadline after waiting 300 s for a gex45 slot, because the clock saw this host's capacity queue but not a build host's slot queue (north#634)
 #[test]
 fn a_slot_job_queued_past_its_wall_deadline_is_killed_with_no_verdict_where_a_queue_excused_clock_waits() {
     let root = tempfile::tempdir().unwrap();

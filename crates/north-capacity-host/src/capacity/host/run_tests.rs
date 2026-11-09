@@ -11,7 +11,6 @@ fn server_socket(root: &std::path::Path, class: &str) -> Option<std::ffi::OsStri
     command.as_std().get_envs().find(|(name, _)| *name == "SCCACHE_SERVER_UDS").and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
 }
 
-// KEEP(bug): each batch lease gets its own sccache server inside its scope; regression of 96854b985 (shared server ran in another session scope)
 #[test]
 fn each_batch_lease_compiles_through_its_own_cache_server_inside_its_scope() {
     let root = tempfile::tempdir().expect("scratch");
@@ -23,7 +22,6 @@ fn each_batch_lease_compiles_through_its_own_cache_server_inside_its_scope() {
     assert_eq!(server_socket(root.path(), "native"), None);
 }
 
-// KEEP(bug): the sccache socket path fits the 107-byte unix socket limit under a private desktop; regression of 09691aecf (SUN_LEN refusal)
 #[test]
 fn the_cache_server_socket_fits_a_unix_socket_path_under_the_private_desktops_runtime_directory() {
     const SUN_PATH_BYTES: usize = 107;
@@ -33,7 +31,6 @@ fn the_cache_server_socket_fits_a_unix_socket_path_under_the_private_desktops_ru
     assert!(socket.as_os_str().len() <= SUN_PATH_BYTES, "{} is {} bytes", socket.display(), socket.as_os_str().len());
 }
 
-// KEEP(bug): firn-delivery-liveness lists no systemd on its PATH, so the lease its nix build waits for could never set its slice limits and the unit failed three times on 2026-11-06; north#671
 #[test]
 fn a_unit_whose_path_lacks_systemctl_gets_the_system_profiles() {
     let system = tempfile::tempdir().unwrap();
@@ -55,7 +52,6 @@ fn scope_properties(class: &str, landing: bool) -> Vec<String> {
     command.as_std().get_args().map(|argument| argument.to_string_lossy().into_owned()).filter(|argument| argument.starts_with("--property=CPU")).collect()
 }
 
-// KEEP(bug): a heavy lease scope ran 10 cores at CPUQuota=infinity on a 20-core host at load 45; every lease scope is held to its charge and a land check outweighs the worker scopes; north#784
 #[test]
 fn every_lease_scope_carries_a_cpu_quota_equal_to_its_charge_and_a_land_check_outweighs_workers() {
     for class in ["heavy", "moderate", "exclusive", "tom"] {
@@ -90,7 +86,6 @@ fn launched(root: &std::path::Path, launcher: &str) -> (crate::capacity::subject
     (exit, super::run::command_exit(&request, "land-check", &command, &admitted, exit).map(|line| line.value()))
 }
 
-// KEEP(bug): south 6dd9582d2d was reverted as 47778f0 on 2026-11-08 because systemd-run's own "Failed to start transient scope unit: Remote peer disconnected" exit 1 was reported as bin/catalog-owner-check's exit; north#892
 #[test]
 fn a_lease_whose_scope_never_started_its_subject_exits_no_verdict_not_the_launchers_failure() {
     let root = tempfile::tempdir().unwrap();

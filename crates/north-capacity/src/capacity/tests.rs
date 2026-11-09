@@ -32,7 +32,6 @@ fn gex45_on_2026_10_28(class: Class, disk_free_gib: f64, queued_ahead_classes: &
     }
 }
 
-// KEEP(bug): moderate work passes heavy builds the disk floor holds; regression of the gex45 2026-10-28 stall (north#259, commit 07fb5bc0d)
 #[test]
 fn heavy_builds_held_by_the_disk_floor_do_not_queue_moderate_work_behind_them() {
     let low = 12.39;
@@ -42,7 +41,6 @@ fn heavy_builds_held_by_the_disk_floor_do_not_queue_moderate_work_behind_them() 
     assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, 20.0, &[Class::Heavy, Class::Heavy])), Reason::DeferQueued);
 }
 
-// KEEP(bug): an idle host reads the 1-minute load once CPU pressure is calm; regression of whiterabbit 2026-10-31 (north#380)
 #[test]
 fn once_cpu_pressure_is_calm_the_run_queue_is_the_one_minute_load_so_an_idle_host_admits_heavy_work() {
     let whiterabbit = Facts { class: Class::Heavy, profile: Profile::Unattended, cores: 16, leased_batch_cpus: 2.0, requested_cpus: 4.0, requested_memory_mib: 8192.0, cpu_some_avg10_basis_points: 3, ..facts(Class::Heavy) };
@@ -63,7 +61,6 @@ fn whiterabbit_on_2026_10_31(requested_cpus: f64, leased_batch_cpus: f64, ahead:
     }
 }
 
-// KEEP(mutant): a 24-core attended host at load 13 and 7 percent pressure admits heavy and defers it over the threshold; mutant n380-psi-ignored (f70188fed, north#380)
 #[test]
 fn a_24_core_attended_host_at_load_13_and_psi_7_percent_admits_heavy_and_defers_it_over_the_threshold() {
     let measured = |class, load, psi| Facts { run_queue_load: Some(load), cpu_pressure_measured: true, cpu_some_avg10_basis_points: psi, requested_cpus: 6.0, ..facts(class) };
@@ -78,7 +75,6 @@ fn a_24_core_attended_host_at_load_13_and_psi_7_percent_admits_heavy_and_defers_
     assert!(!super::run_queue::overloaded(&measured(Class::Exclusive, 13.0, 3999)));
 }
 
-// KEEP(bug): a fitting request passes a heavy ticket the free share cannot fit until it waited the bound; regression of north#385 (strict FIFO held every smaller request)
 #[test]
 fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_has_waited_past_the_bound() {
     let head = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(6.0), queued_seconds };
@@ -95,7 +91,6 @@ fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_h
     assert_eq!(decide(&moderate(&[head(bound)])), Reason::DeferQueued);
 }
 
-// KEEP(bug): a land check on a twenty-core host runs at critical ahead of a queued heavy build; regression of north#360 (land checks held at 2 CPUs)
 #[test]
 fn a_land_check_on_a_twenty_core_host_starts_ahead_of_a_queued_heavy_build_beside_running_ones() {
     let gex45 = |class| Facts {
@@ -113,7 +108,6 @@ fn a_land_check_on_a_twenty_core_host_starts_ahead_of_a_queued_heavy_build_besid
     assert_eq!(decide(&Facts { requested_cpus: 6.0, ..gex45(Class::Heavy) }), Reason::DeferQueued, "the worker build behind it keeps its place");
 }
 
-// KEEP(bug): ccx33 sat at load 17.8 on 8 cores with three leases admitted past its cores, since leases were counted but not enforced; north#784
 #[test]
 fn a_third_lease_on_an_eight_core_host_queues_when_two_already_charge_the_cores_it_would_pass() {
     let ccx33 = |class, landing: bool, count: usize| {

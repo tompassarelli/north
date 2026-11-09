@@ -67,7 +67,6 @@ fn a_review_lock_named_by_an_exited_session_past_the_launch_grace_is_taken_over_
     assert_ne!(tick(&env, &mut Vec::new()), Verdict::Held);
 }
 
-// KEEP(bug): launches refused for room (the spawn guard's CPU refusal, a held placement) failed code-health-review.service instead of deferring; north#721
 #[test]
 fn a_launch_refused_for_room_with_exit_75_defers_to_the_next_tick_and_frees_the_lock() {
     let (dir, env) = scratch("echo \"FIRE days 7\"");

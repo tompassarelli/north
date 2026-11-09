@@ -32,7 +32,6 @@ fn an_illegal_move_of_a_red_main_episode_or_an_after_landing_run_leaves_its_reco
     assert_eq!(store.current::<AfterLandingRun>("abc").unwrap().unwrap().state, Run::Retired);
 }
 
-// KEEP(bug): a lander killed mid-run kept its after-landing state in memory and unjudged files, so the lost run and its verdictless count vanished unseen (north#757 entry 3)
 #[test]
 fn a_lander_killed_mid_run_leaves_an_orphaned_run_that_health_reports_and_the_next_lander_reruns_keeping_its_misses() {
     let directory = tempfile::tempdir().unwrap();

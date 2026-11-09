@@ -216,7 +216,6 @@ fn a_private_or_unreadable_lane_is_admitted_on_paid_go_flash() {
     assert_eq!(argument(&live(Visibility::Public).unwrap().argv, "--route").as_deref(), Some("free"));
 }
 
-// KEEP(bug): ds-952 made its lane inside the main checkout and ds-991 registered its worktree by hand, because the lane-only sandbox cannot run `north lane new` (north#1020)
 #[test]
 fn a_deepseek_worker_launched_from_a_primary_checkout_starts_in_a_lane_the_launcher_made() {
     let project = tempfile::tempdir().unwrap();

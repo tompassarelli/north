@@ -135,7 +135,6 @@ struct Cores {
     over_reserved: usize,
 }
 
-// KEEP(bug): recorded replay: estimates cover p90
 #[test]
 fn the_recorded_week_of_runs_is_covered_by_its_estimates_without_over_reserving() {
     let runs: Vec<CapacityRun> = recorded(USAGE).into_iter().filter(|run| !matches!(run.shape.as_deref(), Some("nix develop" | "nix shell"))).collect();

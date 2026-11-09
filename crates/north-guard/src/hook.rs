@@ -55,7 +55,7 @@ impl HookInput {
         self.tool_input["run_in_background"].as_bool() == Some(true) || self.is_monitor()
     }
 
-    // Claude Code hands a Monitor call to a hook matched on Bash as tool Bash without timeout_ms, so the matcher must name Monitor.
+    // Claude Code's hook event format hands a Monitor call to a hook matched on Bash as tool Bash without timeout_ms, so the matcher must name Monitor.
     fn is_monitor(&self) -> bool {
         self.tool_name() == "Monitor"
     }

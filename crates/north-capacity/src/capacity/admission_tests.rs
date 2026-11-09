@@ -42,7 +42,6 @@ mod properties {
     }
 
     proptest! {
-        // KEEP(mutant): a moderate or native request under every limit is never deferred for room, on any profile and core count; owns the room arithmetic of decide
         #[test]
         fn prop_a_moderate_or_native_request_under_every_limit_is_never_deferred_for_room(
             profile in profile(),

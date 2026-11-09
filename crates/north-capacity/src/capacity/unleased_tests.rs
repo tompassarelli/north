@@ -8,7 +8,6 @@ fn parse(text: &str) -> Value {
     serde_json::from_str(text).unwrap()
 }
 
-// KEEP(bug): a leased build in agent-batch.slice is counted once, not again as unleased load; regression of the 2026-11-05 laptop double count (north#259, commit bb886f8eb)
 #[test]
 fn a_leased_build_in_the_batch_slice_is_not_also_counted_as_unleased_load() {
     let sample = r#"{"at":"2026-11-05T05:40:00.000Z","intervalSeconds":30,"cgroups":[{"cgroup":"agent.slice","cores":6.0},{"cgroup":"agent.slice/agent-batch.slice","cores":4.56},{"cgroup":"agent.slice/agent-batch.slice/agent-capacity-db2232aaf51142e3be81d9fb85e9922f.scope","cores":2.31},{"cgroup":"agent.slice/agent-batch.slice/agent-capacity-8e3dba8298e34fb0afb7c89c553bd39c.scope","cores":2.25},{"cgroup":"agent.slice/builder.scope","cores":1.2}],"top":[]}"#;

@@ -2,7 +2,6 @@ use super::Currency;
 use crate::land::candidate::git;
 use crate::land::queue::Ticket;
 
-// KEEP(bug): north#892 review on 2026-11-08: an alone pass that named only the lane head never expired, so a pass checked on an hour-old main still vouched for the lane, and a land-first lander would land it untested on the main it reaches
 #[test]
 fn an_alone_pass_vouches_for_its_lane_until_main_gains_more_landings_than_the_setting_allows_or_stops_descending_from_the_main_it_was_checked_on() {
     let repo = tempfile::tempdir().unwrap();

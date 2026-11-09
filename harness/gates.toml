@@ -16,9 +16,15 @@ mode = "shadow"
 [gate.detector-proof]
 mode = "shadow"
 
-# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). It exits 0 and prints "would refuse:" lines in the land check output while in shadow.
+# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). The 2026-11-09 review read all 77 reports of the 41 h since it landed and a sample of 20 held none false: 74 were `// KEEP(bug|mutant|contract)` notes that repeat the test's title and 3 named an external program's behaviour without the rule's words. Enforcing stops the `KEEP` notes, 218 of main's 262 comment lines, and this lane deleted the 243 such lines from the tree so the rule holds of main's own tests (north#865).
 [gate.code-comment]
-mode = "shadow"
+mode = "enforce"
+
+[gate.code-comment.review]
+reviewed = "2026-11-09"
+by = "ds-865"
+hours = 41
+decisions = 77
 
 # A north lane whose own build drops a flag or subcommand that a nixos-config unit or script on its origin/main still runs (north#706): `north land scan tool-removal` asks the lane's build for `north PATH --help`. Would-be refusals: $XDG_STATE_HOME/north/gates/peer-invocation.jsonl on the checking host.
 [gate.peer-invocation]

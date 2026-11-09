@@ -1,4 +1,3 @@
-// KEEP(bug): host cores come from the online CPU list, not the caller's cgroup quota; regression of 417cb70da (CPUQuota=0%)
 #[test]
 fn host_cores_counts_the_online_cpu_list_and_ignores_the_callers_cgroup_quota() {
     use super::machine::online_cpus;
@@ -11,7 +10,6 @@ fn host_cores_counts_the_online_cpu_list_and_ignores_the_callers_cgroup_quota() 
     }
 }
 
-// KEEP(bug): agent sessions and their desktop helpers in the agent slice never count as unleased agent pressure; regression of e5aea7dd0 (north#473)
 #[test]
 fn agent_sessions_and_their_desktop_helpers_in_agent_slice_never_count_as_unleased_agent_pressure() {
     use super::machine::unleased_agent_work;

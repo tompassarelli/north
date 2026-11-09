@@ -167,7 +167,6 @@ fn infrastructure_reaches_no_verdict() {
 
 const NIX_CHECK: &str = "nix flake check --offline --no-update-lock-file --no-build";
 
-// KEEP(bug): firn 9b38429b23 was reverted as 37aa6bfa on 2026-11-08 because its nix check failed only on cpx62b, a fresh host missing a drv, while main without it passed on another host; north#892
 #[test]
 fn a_check_that_fails_only_on_one_host_is_that_hosts_fault_and_reverts_nothing() {
     let request = parse("9b38429b23", &request_message("9b38429b23", "parent", &BTreeSet::from([Failure::Step(NIX_CHECK.into())]), Path::new("/logs/post-land-9b38429b23b7.log")));

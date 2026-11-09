@@ -38,7 +38,6 @@ fn compiled(host: &Host) -> String {
     fs::read_to_string(host.path("compiled-here")).unwrap_or_default()
 }
 
-// KEEP(contract): a fleet session's compile on a host that does not lease builds is refused with the build hosts' reason only when no build host and not this host either has room beyond its reserves, never compiled here then, whether typed bare (which the gate sends into depbox first, south#93), inside depbox (which cleared the session, north#671) or as a shimless rustc or cargo-nextest the hook routes (north#671); with room here it waits in this host's own admission and compiles here (refusing it while the laptop idled left builds nowhere to run, 2026-11-06), and a shell outside any session runs the same cargo locally; north#634
 #[test]
 fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_and_not_this_host_has_room() {
     let host = host();
@@ -63,7 +62,6 @@ fn a_fleet_sessions_compile_from_any_entry_is_refused_only_when_no_build_host_an
     assert_eq!(admitted, 1, "the fleet build admitted here is one admission row, kept for the ledger; a shell outside any session leases nothing (north#798)");
 }
 
-// KEEP(contract): a fleet session's cargo that compiles nothing (metadata, fmt) and one with a local need keep running here; north#634
 #[test]
 fn a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here() {
     let host = host();
@@ -77,7 +75,6 @@ fn a_fleet_sessions_cargo_that_compiles_nothing_or_needs_this_host_runs_here() {
     assert_eq!(compiled(&host), "build\nmetadata\nfmt\n");
 }
 
-// KEEP(contract): a fleet session outside any dev shell on a full laptop with no cargo on PATH is refused for want of a build host, not sent into the dev shell to compile here; north#634
 #[test]
 fn a_fleet_sessions_cargo_with_no_real_cargo_on_path_is_refused_not_run_in_the_dev_shell() {
     let host = host();

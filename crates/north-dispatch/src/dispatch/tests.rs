@@ -276,7 +276,6 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_wind
     assert_eq!(boxes(&tried).len(), 2, "a box tried twice waits for the proxy alone, and its issue's other boxes still launch: {:?}", tried.skipped);
 }
 
-// KEEP(bug): every laptop launch from nexus failed for six hours on 2026-11-07 because the dispatch unit's PATH has no `threads` shim (north#828)
 #[test]
 fn a_box_placed_on_the_laptop_is_queued_through_the_north_binary_not_a_threads_program_on_path() {
     let (hosts, accounts) = fleet();

@@ -151,7 +151,6 @@ mod tests {
     const OLD: &str = "0c54814b5c34a736fc44672f7e752782a7dbcd03";
     const NEW: &str = "1613a7786406485376d98593c765ee31cebbf632";
 
-    // KEEP(bug): on 2026-11-07 a landing reached nexus, ccx33 and cpx62 up to 150 s after this host swapped to it, because shipping began only after this host's health check, agents sync and old-runtime collection (north#731)
     #[test]
     fn shipping_starts_when_this_host_swaps_not_when_its_update_returns() {
         let state = tempfile::tempdir().unwrap();

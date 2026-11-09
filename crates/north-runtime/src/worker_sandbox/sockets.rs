@@ -63,7 +63,7 @@ pub fn hide(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
 }
 
-// ssh refuses an Included file that this namespace shows as owned by nobody, which is every file of the store, so ssh's system configuration is laid over with a copy that has no Include.
+// ssh's config format refuses an Included file that this namespace shows as owned by nobody, which is every file of the store, so ssh's system configuration is laid over with a copy that has no Include.
 fn own_includes_only(runtime: &Path) -> Result<(), String> {
     let Ok(real) = std::fs::canonicalize("/etc/ssh/ssh_config") else { return Ok(()) };
     let Ok(text) = std::fs::read_to_string(&real) else { return Ok(()) };

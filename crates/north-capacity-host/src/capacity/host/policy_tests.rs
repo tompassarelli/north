@@ -23,7 +23,6 @@ mod properties {
     }
 
     proptest! {
-        // KEEP(mutant): a clamp never grants past the request or the maximum and reports exactly the fields it cut
         #[test]
         fn prop_clamp_to_grantable_never_grants_past_the_request_or_maximum_and_reports_exactly_the_fields_it_cut(request in resources(), maximum in resources()) {
             let (granted, clamped) = clamp_to_grantable(request, maximum);
@@ -37,7 +36,6 @@ mod properties {
             prop_assert_eq!(clamped.as_ref().and_then(|value| value.as_object()).map_or(0, serde_json::Map::len), usize::from(granted.cpus != request.cpus) + usize::from(granted.memory_mib != request.memory_mib));
         }
 
-        // KEEP(mutant): the charged size is declared until three runs then nearest-rank p90 within bounds, and never exceeds the scope quota
         #[test]
         fn prop_a_class_is_charged_its_declared_size_until_three_runs_then_their_nearest_rank_p90_within_its_bounds(kind in kind(), cores in 1u32..=32, runs in measured_runs()) {
             let cores = f64::from(cores);
@@ -68,7 +66,6 @@ mod properties {
     }
 }
 
-// KEEP(bug): a tom request with few runs of its shape is sized from its whole class, not the flat 16 GiB; regression of 248250f80
 #[test]
 fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() {
     let run = |peak: f64| serde_json::json!({ "class": "tom", "p90Cores": 4.0, "peakMemoryMiB": peak, "wallSeconds": 60 });
@@ -86,7 +83,6 @@ fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() 
     assert!(unmeasured.memory_mib > 0.0 && unmeasured.cpus >= 1.0, "runs that measured nothing charge the declared class, not a negative p90 that admission refuses as INVALID");
 }
 
-// KEEP(bug): a tiny host still grants one core so the aggregate slice never gets a zero quota; regression of 417cb70da
 #[test]
 fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_quota() {
     use crate::capacity::cpus::aggregate_cpus;
@@ -96,7 +92,6 @@ fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_qu
     assert_eq!(aggregate_cpus("unattended", 1.0, None), 1.0);
 }
 
-// KEEP(bug): a heavy shape whose twenty measured runs all peaked under its class is charged its highest peak; regression of 1322d2924
 #[test]
 fn a_heavy_shape_whose_twenty_measured_runs_all_peaked_under_its_class_is_charged_its_highest_peak() {
     use super::policy::heavy_peak_charge;

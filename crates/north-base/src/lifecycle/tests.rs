@@ -116,7 +116,6 @@ fn a_live_holder_keeps_its_state_and_one_on_another_host_keeps_it_only_until_its
     assert_eq!(other.transition::<Puller>("gex45", Pull::Pulling, "take over", at(81)).unwrap().unwrap().owner, Some(owner("laptop", 11)));
 }
 
-// KEEP(bug): on 2026-11-08 a post-land test that redirected only XDG_STATE_HOME made the lander write 16 red-main moves for a repository named origin into the laptop's real ledger.db, because the host store path read HOME alone (north#844)
 #[test]
 fn the_host_store_lives_under_the_state_root_a_caller_redirects_and_under_home_only_without_one() {
     let path = |state: Option<&str>, home: Option<&str>| super::store::host_path_in(state.map(Into::into), home.map(Into::into)).ok();
@@ -158,7 +157,6 @@ fn crash_at(point: &str, root: &std::path::Path) -> ! {
     unreachable!("a process killed with SIGKILL runs no further")
 }
 
-// KEEP(bug): four fixes in 72 h for a side effect lost, duplicated or orphaned across a restart (163a23c725 an offload offer started twice, 97e4aa6827 two launches of one session, 22571229b6 an after-landing run lost to a lander restart, 363349d345 watchdogs lost with their launcher), because a move and the effect it starts were separate writes (north#862)
 #[test]
 fn a_process_killed_between_a_move_and_its_effects_leaves_each_replay_safe_effect_delivered_once_and_each_process_bound_one_retired() {
     if let Some(crash) = std::env::var_os(CRASH) {
@@ -197,7 +195,6 @@ fn a_process_killed_between_a_move_and_its_effects_leaves_each_replay_safe_effec
     assert_eq!(restarted.stage("refused/replay-safe").unwrap(), None);
 }
 
-// KEEP(bug): an effect whose every delivery failed, or whose lessee never settled it, sat in the outbox where no one looked, as the four side effects of north#862 sat unseen until a person found them
 #[test]
 fn an_effect_that_failed_every_delivery_and_one_leased_past_its_hold_are_health_faults_of_the_instance_that_started_them() {
     let directory = tempfile::tempdir().unwrap();

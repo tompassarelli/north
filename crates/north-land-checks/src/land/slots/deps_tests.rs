@@ -3,7 +3,6 @@ use std::process::Command;
 
 use north_base::foundation::shim::write_executable;
 
-// KEEP(bug): a landing's `bun install --frozen-lockfile` ran its packages' install scripts outside depbox, with the lander's home, logins and network in reach (south#93)
 #[test]
 fn dependency_install_runs_in_depbox() {
     let scratch = tempfile::tempdir().unwrap();

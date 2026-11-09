@@ -70,7 +70,6 @@ fn ledger(path: &Path, rows: &Value) {
     }
 }
 
-// KEEP(bug): a corrupt snapshot is refreshed once, then reported without a second pull; regression of the snapshot-recovery fix (ed9bb0cfd)
 #[test]
 fn a_corrupt_snapshot_is_refreshed_once_and_persistent_corruption_is_reported_after_that_one_retry() {
     let home = tempfile::tempdir().unwrap();
@@ -120,7 +119,6 @@ fn same(left: &Value, right: &Value, path: &str) {
     }
 }
 
-// KEEP(bug): only test of the spawn gate's ctx builder over a recorded ledger
 #[test]
 fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_recorded_ledger_with_runs() {
     let state: Value = serde_json::from_str(include_str!("fixtures/gate_state.json")).unwrap();
@@ -150,7 +148,6 @@ fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_
     assert_eq!(expected["claude"]["success"], serde_json::json!({"claude:haiku|tooling": 60}));
 }
 
-// KEEP(bug): an expired window that a newer reading of the account postdates reads 0% used, so a setup-token account is not held stale at the spawn gate forever; regression of north#401
 #[test]
 fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_reads_zero_used_as_of_that_reading() {
     let window = |reading_ts: &str| {

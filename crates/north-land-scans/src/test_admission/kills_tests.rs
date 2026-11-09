@@ -6,7 +6,6 @@ use super::{fallbacks, judged_alone};
 
 const HOSTS: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n\n[hosts.cpx62]\nssh = \"tom@cpx62\"\n\n[hosts.whiterabbit]\nreaches = [\"gex45\", \"cpx62\"]\n";
 
-// KEEP(bug): on 2026-11-08 between 5:30 and 6:00 AM, 17 land checks batched onto cpx62 ran their mutant kill against .safe-push's landing.remote-hosts gex45, which cpx62 cannot reach ("ssh: Could not resolve hostname gex45"), so each reached no verdict 0.3 s in and at 9:25 AM, when choose offered only that unreachable gex45, safe-push on cpx62 could not queue a lane that adds a test (north#706, north#892, north#912)
 #[test]
 fn a_mutant_kill_inside_an_offload_slot_runs_on_the_slot_host_and_tries_only_hosts_it_reaches() {
     let cfg: DocumentMut = HOSTS.parse().unwrap();
@@ -39,7 +38,6 @@ fn lane(repo: &Path, path: &str, text: &str) -> String {
     git_in(repo, &["rev-parse", "HEAD"])
 }
 
-// KEEP(bug): on 2026-11-08 in the hour to 8:52 AM every probe ran the mutant kill on its merged tree, 52 runs and 1573 s, though each lane's kill is judged against its own fork point when it queues (north#842)
 #[test]
 fn a_probe_judges_the_mutant_kill_on_its_merged_tree_only_when_two_of_its_lanes_touch_the_same_file() {
     let root = tempfile::tempdir().unwrap();

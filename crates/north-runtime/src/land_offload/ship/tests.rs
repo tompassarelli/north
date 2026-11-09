@@ -592,7 +592,6 @@ fn a_slot_job_that_offloads_back_to_its_own_host_runs_the_nested_job_without_wai
     assert_eq!(fs::read_dir(home.path().join(".cache/land-offload/queue")).unwrap().count(), 0, "the nested jobs left no ticket in the queue");
 }
 
-// KEEP(bug): until 2026-11-07 every offloaded land check from the laptop opened a second ssh connection, about 1.8 s over its 230 ms link to gex45, only to ask whether the lander runtime was there; the job now asks in its own connection and stages only on this exit (north#697)
 #[test]
 fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_with_it_runs() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
@@ -625,7 +624,6 @@ fn a_job_for_a_host_without_the_lander_runtime_says_so_before_taking_a_slot_and_
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
 }
 
-// KEEP(bug): on 2026-11-08 lane checks ranked level with the lander's probe jobs took free code-north-main slots on gex45, and probe jobs queued behind them
 #[test]
 fn a_lane_check_waits_while_the_hosts_admission_refuses_and_a_lander_job_queued_after_it_takes_a_free_slot_first() {
     let (home, head, bundle) = host_with_a_shipped_bundle();
@@ -774,7 +772,6 @@ fn a_slot_target_past_its_cap_is_trimmed_and_kept_warm_instead_of_removed() {
     assert_eq!(fs::read_to_string(&trims).unwrap(), format!("{} 2\n", slot.display()));
 }
 
-// KEEP(bug): north#951, a land check batch whose command and carried values passed 64 KB failed on its way to the build host with Argument list too long; they now ride the head of the host's stdin and the host runs the command from a file
 #[test]
 fn a_200_kb_land_check_command_reaches_the_host_intact() {
     let (home, head, bundle_path) = host_with_a_shipped_bundle();
@@ -799,7 +796,6 @@ fn a_200_kb_land_check_command_reaches_the_host_intact() {
     assert_eq!(fs::read_to_string(&seen).unwrap(), "xy");
 }
 
-// KEEP(bug): on 2026-11-09 pushes queued dozens of land checks at once on idle gex45 and whiterabbit, and the host started each only once the one before it had ended or settled for 30 s, so every slot but one sat idle and checks timed out (north#996)
 #[test]
 fn many_checks_queued_at_once_on_an_idle_host_all_start() {
     let (home, head, _) = host_with_a_shipped_bundle();

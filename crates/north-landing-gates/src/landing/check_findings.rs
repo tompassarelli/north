@@ -59,7 +59,6 @@ mod tests {
 
     const BASE: &str = "warning: unused variable: `x`\n --> crates/a/src/lib.rs:10:5\nerror: this could be simplified\n   --> crates/a/src/lib.rs:20:9\nerror: could not compile `a` (lib) due to 1 previous error\n---- tests::old_red stdout ----\n";
 
-    // KEEP(bug): on 2026-11-06 an inferred land check that main also failed let every lane through, so a lane could add new clippy errors to a repository whose main already had some (north#634)
     #[test]
     fn an_inferred_check_lets_a_lane_through_only_when_it_adds_no_finding_the_base_lacks() {
         let base = findings(BASE);

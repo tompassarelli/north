@@ -54,7 +54,6 @@ mod tests {
         None
     }
 
-    // KEEP(bug): back-to-back quiet runs each shorter than the patience never refuse a queued job; regression of 6765ea6e3
     #[test]
     fn back_to_back_quiet_runs_each_shorter_than_the_patience_keep_the_job_queued_until_it_is_admitted() {
         assert_eq!(refused_at(&[("wisp-api-netcheck", 700), ("wisp-accept-pair-16", 700), ("perf-pacing-145", 700)]), None);

@@ -36,7 +36,6 @@ fn queued(root: &std::path::Path) -> Vec<String> {
     read_queue(root).iter().filter_map(|ticket| ticket.get("name").and_then(serde_json::Value::as_str).map(str::to_owned)).collect()
 }
 
-// KEEP(contract): the hand-over releases only the oldest queued agent heavy run that opened a door, to one caller, and a run closes its door when it leaves the queue; north#634
 #[tokio::test]
 async fn capacity_the_hand_over_verb_releases_the_oldest_queued_agent_heavy_run() {
     let scratch = tempfile::tempdir().unwrap();
@@ -59,7 +58,6 @@ async fn capacity_the_hand_over_verb_releases_the_oldest_queued_agent_heavy_run(
     assert_eq!(release(root).map(|(name, _)| name), Some(newer.clone()), "the next run in line is released next");
 }
 
-// KEEP(contract): two peers racing for one run never both take it (the second takes the next run instead of waiting on a claimed one), a run admitted here first withdraws its offer, and a run whose taker failed it is offered again after the wait; north#676
 #[tokio::test]
 async fn capacity_a_run_is_claimed_once_by_racing_peers_withdrawn_on_local_admission_and_offered_again_after_a_failed_claim() {
     let scratch = tempfile::tempdir().unwrap();
@@ -150,7 +148,6 @@ async fn hand(root: &std::path::Path, ticket: &str, peer: UnixStream) -> Option<
     try_offload(waiting, true, &host(), &mut Terminations::none(), Some(peer)).await
 }
 
-// KEEP(contract): a waiting run handed to a taker prints the taker's streamed output and exits with the code of its exit frame; one whose taker dies mid-stream keeps its place in the queue and is offered again; north#676
 #[tokio::test]
 async fn capacity_a_waiting_run_prints_the_takers_stream_and_exits_with_its_code_and_a_taker_that_dies_gives_it_back() {
     let scratch = tempfile::tempdir().unwrap();

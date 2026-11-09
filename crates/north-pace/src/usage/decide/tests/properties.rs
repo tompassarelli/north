@@ -71,7 +71,6 @@ fn never_better(before: &Fixture, after: &Fixture) -> Result<(), TestCaseError> 
 }
 
 proptest! {
-    // KEEP(mutant): raising a window's used percent never opens an account (kills an exhaustion check that reads usage the wrong way)
     #[test]
     fn prop_monotonic_raising_used_of_a_window_never_moves_an_account_to_a_better_state(
         fixture in fixture(),

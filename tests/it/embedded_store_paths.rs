@@ -14,7 +14,6 @@ fn sources(dir: &Path, found: &mut Vec<PathBuf>) {
     }
 }
 
-// KEEP(bug): hook_refusal_samples.toml, embedded with include_str!, quoted live store paths, so Nix took them as references of the north binary and nexus could not promote the runtime on 2026-11-08; north#721
 #[test]
 fn no_file_a_shipped_binary_embeds_holds_a_nix_store_hash() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));

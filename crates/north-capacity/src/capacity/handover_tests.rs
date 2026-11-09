@@ -17,7 +17,6 @@ fn offer() -> Offer {
     }
 }
 
-// KEEP(contract): a peer rebuilds and runs only an offer whose every field is one a lane's host sends, and never a shell string; north#634
 #[test]
 fn capacity_a_peer_runs_only_a_toolchain_command_in_a_lane_path_it_would_make_itself() {
     assert_eq!(offer().refusal(), None);
@@ -42,7 +41,6 @@ fn capacity_a_peer_runs_only_a_toolchain_command_in_a_lane_path_it_would_make_it
     assert_eq!(refused(&|o| o.returned.clear()), None);
 }
 
-// KEEP(contract): every frame between a queued run and its taker round-trips, a cut stream reads as an error so a run whose taker died is given back rather than ended, and a frame past MAX_FRAME_BYTES is refused so a compromised source cannot make the taker allocate without bound; north#634
 #[test]
 fn capacity_frames_round_trip_and_a_cut_stream_is_an_error_not_an_end() {
     let frames = [Frame::Started("ccx33".to_owned()), Frame::Out(b"ok\n".to_vec()), Frame::Err(b"warn\n".to_vec()), Frame::NotSynced("busy".to_owned()), Frame::Exit(101)];

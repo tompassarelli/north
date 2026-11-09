@@ -91,7 +91,6 @@ mod tests {
     use crate::fleet::claims::Rows;
     use crate::fleet::store::SessionRow;
 
-    // KEEP(bug): north-870-d0106 and north-870-d0111 were forgotten on 2026-11-08 and kept the north#870 boxes they had claimed themselves until the proxy released them by hand; north#888
     #[test]
     fn a_forget_of_a_session_whose_host_left_placement_releases_the_claims_it_holds() {
         let home = tempfile::tempdir().unwrap();

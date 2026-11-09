@@ -38,7 +38,6 @@ fn subjects(north: &Repository) -> Vec<String> {
     git(&north.origin, &["log", "--format=%s", "main"]).lines().map(str::to_owned).collect()
 }
 
-// KEEP(bug): on 2026-11-08 the lander checked cumulative prefixes of the queue before every push, the queue p90 reached 38 min and main stood still for 40 min (north#902)
 #[test]
 fn three_queued_lanes_land_in_one_push_with_no_check_of_their_merged_tree_before_it() {
     let world = World::new();
@@ -58,7 +57,6 @@ fn three_queued_lanes_land_in_one_push_with_no_check_of_their_merged_tree_before
     }
 }
 
-// KEEP(bug): with no merged-tree check before the push a lane that breaks the batch is found only by the after-landing run, which must still bisect the batch and revert exactly that lane (north#621, north#902)
 #[test]
 fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts_exactly_the_culprit() {
     let world = World::new();
@@ -88,7 +86,6 @@ fn wait_for(what: &str, ready: impl FnMut() -> bool) {
     assert!(north_base::platform::wait::until(std::time::Duration::from_secs(60), ready), "timed out waiting for {what}");
 }
 
-// KEEP(bug): on 2026-11-08 a lander round held main for 40 min while it checked merged trees; a push must wait for no earlier batch's checks, only for the lease on main (north#902)
 #[test]
 fn a_batch_queued_while_the_previous_batch_is_checked_after_landing_is_pushed_before_that_check_ends() {
     let world = World::new();
@@ -114,7 +111,6 @@ fn vouch(north: &Repository, branch: &str, base: &str) {
     queue::write(&path, &queue::Ticket { alone_green: Some(ticket.head.clone()), alone_base: Some(base.to_owned()), ..ticket }).unwrap();
 }
 
-// KEEP(bug): land-first lands every queued lane on the alone pass safe-push wrote at enqueue, and a pass that never expired let a lane checked on an hour-old main land untested on the main it reaches (north#936)
 #[test]
 fn a_lane_queued_six_landings_ago_is_checked_alone_again_before_it_joins_a_batch_while_a_fresh_lane_lands_directly() {
     let world = World::new();

@@ -128,7 +128,6 @@ fn capacity_an_offloaded_post_land_worktree_outside_the_project_container_rebuil
     assert_eq!(line(&report, "file"), ["a.txt landed"]);
 }
 
-// KEEP(bug): on 2026-11-06 the lander's land-check command named the laptop's runtime by absolute path, which ccx33 does not have, so the offloaded run exited 127 (north#662)
 #[test]
 fn capacity_an_offloaded_command_naming_a_runtime_the_host_lacks_runs_the_hosts_own_north() {
     let hosts = hosts();
@@ -153,7 +152,6 @@ fn laptop_room(committed: f64) -> Room {
     Room { measure: Measure { cores: 20.0, memory_total_mib: 64_000.0, memory_available_mib: 50_000.0, load: 1.0 }, admission, disk_free_gib: 200.0, slots: None }
 }
 
-// KEEP(contract): a queued run handed over a connection the peer opened rebuilds the lane on the peer, runs there and returns its output and exit code to the queue's host, which announces the peer; north#634
 #[test]
 fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_exit_come_back() {
     let hosts = hosts();
@@ -195,7 +193,6 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
     assert_eq!(std::fs::read_to_string(lane_dir.join("Cargo.lock")).unwrap(), "taken", "a lock a handed-over run changed comes back to the lane (north#671)");
 }
 
-// KEEP(contract): a queued run leaves its host only to a taker its own job admission admits, whose admission is not still settling a heavy build it started, and rebuilds the lane; otherwise it stays queued; north#634 north#945
 #[test]
 fn capacity_a_run_stays_queued_when_the_taker_has_no_room_cannot_rebuild_the_lane_or_leaves_early() {
     assert_eq!(refusal(Some(&laptop_room(2.0))), None, "a host under its job target with memory for one build takes a run, however many cores its leases declare");
@@ -236,7 +233,6 @@ fn host_room(limit: f64, committed: f64) -> Room {
     room
 }
 
-// KEEP(contract): a pulled run goes to the target with the most free cores among those its own job admission admits, never to one over its pressure target, and to none while this host holds its game reserve; north#677 north#945
 #[test]
 fn capacity_a_pulled_run_goes_to_the_target_with_the_most_free_cores_and_to_none_while_the_game_reserve_holds() {
     fn targets<'a>(laptop: &'a Room, ccx33: &'a Room, starting: usize) -> Vec<Target<'a>> {
@@ -254,7 +250,6 @@ fn capacity_a_pulled_run_goes_to_the_target_with_the_most_free_cores_and_to_none
     assert_eq!(pick(&targets(&laptop, &ccx33, 0), true), Err(vec!["this host holds its game reserve".to_owned()]));
 }
 
-// KEEP(bug): the taker's polls and the lane it runs on a build host use a master connection of the taker's own, reused across polls: the shared host master also carries bulk transfers and a tar stream through it held a pullable gex45 run 69 s (north#682), and a fresh connection per poll paid a 5.7 s handshake that held a pull past 10 s (north#677)
 #[test]
 fn capacity_the_taker_never_rides_the_shared_ssh_master() {
     let offer = Offer {
@@ -278,7 +273,6 @@ fn capacity_the_taker_never_rides_the_shared_ssh_master() {
     }
 }
 
-// KEEP(bug): the taker killed its ssh right after writing the exit frame, so a passing pulled run reached its worker on gex45 as exit 255 (2026-11-06 5:29 PM); the last frame must reach the far end before the connection ends; north#677
 #[test]
 fn capacity_the_takers_last_frame_reaches_the_far_end_before_it_hangs_up() {
     let scratch = tempfile::tempdir().unwrap();
@@ -291,7 +285,6 @@ fn capacity_the_takers_last_frame_reaches_the_far_end_before_it_hangs_up() {
     assert_eq!(crate::capacity::handover::Frame::read(&mut wire.as_slice()).ok().flatten(), Some(crate::capacity::handover::Frame::Exit(0)), "{wire:?}");
 }
 
-// KEEP(bug): on 2026-11-06 the taker ran a command pulled from gex45 as tom with this host's ssh keys, sops keys, gh token and network in reach (north#634)
 #[test]
 fn capacity_a_pulled_run_executes_in_a_sandbox_without_credentials_or_network_and_writes_only_its_lane() {
     let scratch = tempfile::tempdir().unwrap();
@@ -319,7 +312,6 @@ fn capacity_a_pulled_run_executes_in_a_sandbox_without_credentials_or_network_an
     assert!(super::remote::script(super::remote::Trust::Pulled).contains(r#""$north" capacity sandbox --lane "$slot" -- "$@""#), "the taker's lane script runs the job through the sandbox");
 }
 
-// KEEP(bug): on 2026-11-07 every git-spawning test of a cargo test gex45 offloaded to cpx62 and ccx33 failed with os error 2, since those hosts keep git only in the home profile the sandbox hides (north#764)
 #[test]
 fn capacity_a_pulled_run_finds_the_programs_its_host_keeps_in_a_home_profile() {
     let scratch = tempfile::tempdir().unwrap();
@@ -338,7 +330,6 @@ fn capacity_a_pulled_run_finds_the_programs_its_host_keeps_in_a_home_profile() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("git version"), "a pulled run finds no git its host keeps in a home profile: {}", String::from_utf8_lossy(&output.stderr));
 }
 
-// KEEP(bug): a host started an offloaded command as soon as the lane synced, so an offer the gate had already given up on still ran there beside the local run (found 2026-11-07 with 389e99e7de); the host now waits for the go the announce gives and never starts an abandoned offer; north#634
 #[test]
 fn capacity_a_host_never_starts_an_offload_whose_announce_lost_to_the_gates_timeout() {
     let hosts = hosts();
@@ -355,7 +346,6 @@ fn capacity_a_host_never_starts_an_offload_whose_announce_lost_to_the_gates_time
     assert!(!marker.exists(), "the host started the command of an abandoned offer");
 }
 
-// KEEP(contract): a pushed build goes to the host its own job admission admits, so it waits only while the host is over its whole-host pressure target or short of the memory one job peaks at there; the committed cores stay a ceiling, never the gate (north#945, replacing north#634's cores-free proxy)
 #[test]
 fn capacity_a_pushed_build_waits_only_while_the_hosts_own_job_admission_refuses() {
     let room = laptop_room(12.0);

@@ -14,7 +14,6 @@ fn pids(list: &[&str]) -> Vec<String> {
     list.iter().map(|pid| (*pid).to_owned()).collect()
 }
 
-// KEEP(contract): parses nvidia-smi pmon output, busiest engine per leased pid
 #[test]
 fn pmon_counts_each_leased_process_at_its_busiest_engine_and_ignores_memory_bandwidth() {
     let busy = pmon_busy_fractions(PMON, &pids(&["4242", "5151", "6060"]));

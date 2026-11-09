@@ -391,7 +391,6 @@ fn a_withdrawn_ticket_refused_by_an_infrastructure_failure_is_never_rerun() {
     assert!(!queue_dir.join(&name).exists(), "the withdrawn revert stays out of the queue");
 }
 
-// KEEP(bug): the doctor read a lander paused 15 min on a red base in a new check environment as a paused queue with no remedy (north#782)
 #[test]
 fn a_queue_paused_on_a_broken_check_environment_past_its_bound_is_known_and_its_remedy_judges_candidates_on_this_host() {
     let paused = |broken_for: u64, environment| QueueFacts { paused: Some("main's check environment is broken".to_owned()), broken_for: Some(broken_for), environment: Some(environment), ..busy_queue(30) };
@@ -404,7 +403,6 @@ fn a_queue_paused_on_a_broken_check_environment_past_its_bound_is_known_and_its_
     assert!(matches!(local.state, State::Known { name: "check environment broken", ref remedies } if matches!(remedies.as_slice(), [Remedy::Wait(_)])), "{local:?}");
 }
 
-// KEEP(bug): on 2026-11-08 the lander ran 3efa5a3d from 8:00 AM to 9:06 AM while every promotion held on a transient replay, and the doctor's link-held bound read over with no remedy, so the proxy heard nothing for an hour (north#842)
 #[test]
 fn a_lander_link_four_landings_behind_current_pages_the_proxy_with_the_hold_reason_every_thirty_minutes() {
     let link = |landings: usize, refused: Option<&str>| LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/b".to_owned(), lag: Some(60), refused: refused.map(str::to_owned), behind: Some(Behind { landings: Some(landings), secs: 300, reason: "round north-873-pack: transient land check".to_owned() }), ..LinkFacts::default() };

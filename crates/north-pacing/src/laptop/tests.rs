@@ -40,7 +40,6 @@ fn windowed_root(args: &[&str]) -> (tempfile::TempDir, String) {
     (root, stub)
 }
 
-// KEEP(bug): at 3:14 AM on 2026-11-08 laptop-auto drained the laptop 300 s into Tom typing, against his direction that agents may use it while he types; north#834
 #[test]
 fn an_open_laptop_is_never_drained_by_a_seat_in_use() {
     let (root, stub) = windowed_root(&["open", "until", "06:00", "away"]);

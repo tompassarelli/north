@@ -25,7 +25,6 @@ fn tick_with(root: &Path, idle: Option<bool>, battery: Option<u8>, now: u64) -> 
     fs::read_to_string(root.join("calls.log")).unwrap_or_default().lines().map(str::to_owned).collect()
 }
 
-// KEEP(bug): at the desk with no playtest lease the laptop held agents to 18 threads and sent its sessions' builds to the GPU host first, sitting at load 1.4 of 24 beside the GPU host at 52 on 2026-11-07; only a playtest lease drops it from the build host quota; north#740
 #[test]
 fn agent_slice_quota_stays_at_the_build_host_quota_at_the_desk_and_drops_only_under_a_playtest_lease() {
     let root = tempfile::tempdir().unwrap();
@@ -48,7 +47,6 @@ fn agent_slice_quota_stays_at_the_build_host_quota_at_the_desk_and_drops_only_un
     assert_eq!(quotas(&tick(root.path(), Some(false), 1_090)), [BUILD_HOST_QUOTA]);
 }
 
-// KEEP(bug): on 2026-11-08 agent.slice held 22 of 24 CPUs on battery at load 87 because the quota followed the mode alone, and a heat tier then latched a charging laptop in use at 6 CPUs; north#834
 #[test]
 fn agent_slice_quota_is_22_cores_in_use_or_idle_on_mains_and_drops_only_on_battery() {
     let limits = Limits::bundled();
@@ -61,7 +59,6 @@ fn agent_slice_quota_is_22_cores_in_use_or_idle_on_mains_and_drops_only_on_batte
     assert_eq!(quota(limits.effects(Mode::Play), Some(56)), 600, "a playtest on battery");
 }
 
-// KEEP(bug): on 2026-11-08 the laptop in use on battery held agent.slice at 22 of 24 CPUs at load 87 and drained the battery under an underpowered charger; the tick must set 600 on the battery reading and 2200 again on mains; north#834
 #[test]
 fn the_mode_tick_sets_600_on_a_battery_reading_while_in_use_and_2200_again_on_mains() {
     let root = tempfile::tempdir().unwrap();
@@ -72,7 +69,6 @@ fn the_mode_tick_sets_600_on_a_battery_reading_while_in_use_and_2200_again_on_ma
     assert_eq!(on_mains.last().map(String::as_str), Some(BUILD_HOST_QUOTA), "mains returns the 22 core quota while the seat stays in use");
 }
 
-// KEEP(bug): on 2026-11-08 a CPU sensor reading of 88 to 99 C held agent.slice at 600% for 21175 s on a charging laptop, because Tctl swings 77 to 100 C within seconds under rustc and the heat rule judged one reading; north#834
 #[test]
 fn only_a_sixty_second_average_of_98_c_caps_agent_slice_to_half_the_cores_until_it_falls_below_90_c() {
     let limits = Limits::bundled();
@@ -93,7 +89,6 @@ fn only_a_sixty_second_average_of_98_c_caps_agent_slice_to_half_the_cores_until_
     assert!(!mode_tick::heat_step(&state, None, 180, &limits).1, "no sensor never caps");
 }
 
-// KEEP(bug): on 2026-11-08 the proxy could not lower agent.slice under load because a raw systemctl set-property waited on the capacity admission it was meant to relieve; north#834
 #[test]
 fn a_relief_lowers_the_agent_quota_at_once_never_raises_it_and_lapses() {
     let limits = Limits::bundled();

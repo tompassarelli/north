@@ -2,7 +2,6 @@
 
 use super::gate::{Class, class_of};
 
-// KEEP(bug): a nested nix develop with other arguments is not counted as an exec loop; regression of 72189ee55 (land checks exited 127 behind the gate)
 #[test]
 fn the_gate_skips_only_an_invocation_it_already_executed_in_the_same_process() {
     assert_eq!(super::gate::executed("7@pid:[1]", Some("7@pid:[1]\ta /a/bun\tb /b/bun")), vec!["a /a/bun".to_owned(), "b /b/bun".to_owned()]);
@@ -16,7 +15,6 @@ fn the_gate_skips_only_an_invocation_it_already_executed_in_the_same_process() {
     assert_eq!(super::gate::executed_value("7@pid:[1]", std::slice::from_ref(&outer), nix, &["develop".to_owned()]), format!("7@pid:[1]\t{outer}\t{}", super::gate::invocation(nix, &["develop".to_owned()])));
 }
 
-// KEEP(contract): gate classes match the shared heavy_command.json fixture the north-guard hook also reads
 #[test]
 fn heavy_command_fixture_rows_take_their_gate_class_through_nix_and_shell_wrappers() {
     let rows: Vec<(String, String, String)> = serde_json::from_str(include_str!("../../../north-guard/src/guard/fixtures/heavy_command.json")).unwrap();
@@ -40,7 +38,6 @@ fn heavy_command_fixture_rows_take_their_gate_class_through_nix_and_shell_wrappe
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
-// KEEP(contract): a rustc given a source file and a nextest run are heavy compiles, while rustc's probes (-vV, --print) stay local so cargo's toolchain queries are never offloaded; north#634
 #[test]
 fn the_gate_classes_a_direct_rustc_compile_and_nextest_but_not_a_rustc_probe() {
     let class = |text: &str| class_of(&crate::shell::words(text).unwrap(), 0);
@@ -51,7 +48,6 @@ fn the_gate_classes_a_direct_rustc_compile_and_nextest_but_not_a_rustc_probe() {
     assert_eq!(class("cargo metadata"), None);
 }
 
-// KEEP(contract): a fleet session's cargo that rewrites the lane or only prints help or a version is not an agent compile, so it never ships to a build host, and one depbox, nix or a shell runs is an agent compile as if typed bare; north#634 north#671
 #[test]
 fn a_fleet_sessions_cargo_fix_help_and_version_are_not_offloaded() {
     let words = |text: &str| crate::shell::words(text).unwrap();
@@ -67,7 +63,6 @@ fn a_fleet_sessions_cargo_fix_help_and_version_are_not_offloaded() {
     }
 }
 
-// KEEP(bug): north-730-d0351's cargo build of the frontier runner was offloaded twice from gex45 to the laptop and the binary never came back, so a build whose file the caller runs is not offloaded, while check, clippy, test and run builds stay offloadable; north#773; head-north's cargo test --no-run of north for strategy-replay was offloaded from the laptop to gex45 the same way and its cp of target/debug/north failed on 2026-11-08, north#634
 #[test]
 fn a_build_that_writes_a_file_the_caller_runs_is_an_artifact_build_and_checks_tests_and_runs_are_not() {
     let words = |text: &str| crate::shell::words(text).unwrap();
@@ -79,7 +74,6 @@ fn a_build_that_writes_a_file_the_caller_runs_is_an_artifact_build_and_checks_te
     }
 }
 
-// KEEP(bug): safe-push from a fleet session could not queue any lane since head-north's cargo build ran as depbox run -- north capacity dev-shell run -- env ... cargo, which the gate classed as no compile, so depbox took no lease and the sandboxed cargo was refused as reaching no build host (exit 75); north#784
 #[test]
 fn a_cargo_build_inside_depbox_through_north_dev_shell_run_is_classed_so_depbox_takes_its_lease() {
     let words = |text: &str| crate::shell::words(text).unwrap();

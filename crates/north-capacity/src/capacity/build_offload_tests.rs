@@ -3,7 +3,6 @@
 use super::build_host_command::for_build_host;
 use super::build_offload::*;
 
-// KEEP(contract): a lane with a private game asset (.W3X, .blp) never ships to an offload host, and an oversized diff stays local; mutant bo-private-ships
 #[test]
 fn capacity_a_lane_with_a_private_asset_or_an_oversized_diff_stays_on_this_host() {
     assert_eq!(ships(&["src/lib.rs", "Cargo.toml"], 1000), Ok(()));
@@ -19,7 +18,6 @@ fn candidate<'a>(class: &'a str, agent: bool, deferred: bool) -> Candidate<'a> {
     Candidate { class, landing: false, need: None, deferred, agent, offloaded_already: false, artifact: false }
 }
 
-// KEEP(contract): a fleet session's cargo check and clippy (moderate) are offered to build hosts like its builds, while another shell's admitted moderate build stays local; north#634
 #[test]
 fn capacity_an_agents_moderate_build_is_offered_to_the_build_hosts_and_anyone_elses_is_not() {
     let free = || vec![("ccx33".to_owned(), Room::Free { free_cpus: 8.0 })];
@@ -36,7 +34,6 @@ fn capacity_an_agents_moderate_build_is_offered_to_the_build_hosts_and_anyone_el
     assert_eq!(route(&deferred, || rooms([Room::Unreachable, short(), Room::Free { free_cpus: 6.0 }])), peer("gex45"));
 }
 
-// KEEP(contract): only a shortage of hosts makes a fleet session's build refused on the laptop; a pinned local need or a landing runs here; north#634
 #[test]
 fn capacity_only_missing_build_hosts_decline_a_build_the_laptop_must_not_compile() {
     let short = || vec![("gex45".to_owned(), Room::Short("0.0 cores free of 20, needs 6".to_owned())), ("ccx33".to_owned(), Room::Unreachable)];
@@ -50,7 +47,6 @@ fn capacity_only_missing_build_hosts_decline_a_build_the_laptop_must_not_compile
     assert!(Declined::Unreachable(vec![]).lacks_host() && Declined::Failed(String::new()).lacks_host());
 }
 
-// KEEP(contract): a fleet session's compiles go to build hosts, while Tom's shell, a landing, a local need and a run already on a build host keep today's path; north#634
 #[test]
 fn capacity_only_a_fleet_session_without_a_local_need_counts_as_an_agent_build() {
     let env = |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned());
@@ -63,7 +59,6 @@ fn capacity_only_a_fleet_session_without_a_local_need_counts_as_an_agent_build()
     assert!(!is_agent_build(env(&[("NORTH_FLEET_SESSION", "n"), (REMOTE_MARK, "1")])));
 }
 
-// KEEP(contract): the gate's absolute path to the laptop's real cargo reaches the build host as the bare program name, and a depbox wrapper the laptop gave is replaced by the build host's own; north#634 north#671
 #[test]
 fn capacity_a_laptop_toolchain_path_is_sent_to_the_build_host_as_the_program_name() {
     let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
@@ -77,7 +72,6 @@ fn capacity_a_laptop_toolchain_path_is_sent_to_the_build_host_as_the_program_nam
     assert!(for_build_host(&[], false).is_empty());
 }
 
-// KEEP(bug): a fleet session's compile offloaded to a build host ran its build scripts and tests there outside depbox, with that host's home, ssh keys and network in reach (south#93)
 #[test]
 fn offloaded_build_runs_in_depbox() {
     let words = |text: &str| text.split(' ').map(str::to_owned).collect::<Vec<_>>();
@@ -86,7 +80,6 @@ fn offloaded_build_runs_in_depbox() {
     assert_eq!(for_build_host(&words("north land checks --leased"), true), words("north land checks --leased"), "a landing's checks enter depbox through land-shell, so its runner stays unwrapped");
 }
 
-// KEEP(contract): a command whose path or redirect the agent can change is refused rather than compiled on the laptop; north#634
 #[test]
 fn capacity_a_fixable_command_is_kept_off_the_laptop() {
     assert!(Declined::refused("absolute path", String::new()).lacks_host() && Declined::refused("laptop redirect", String::new()).lacks_host());
@@ -94,7 +87,6 @@ fn capacity_a_fixable_command_is_kept_off_the_laptop() {
 }
 
 
-// KEEP(bug): a build whose output the caller runs was offloaded from gex45 and its binary was deleted with the offload slot (north-730-d0351, 2026-11-07); it stays on the caller's host without lacking a build host, so it queues in local admission instead of being refused; north#773
 #[test]
 fn capacity_a_build_that_writes_the_callers_artifact_is_not_offloaded_and_does_not_count_as_lacking_a_host() {
     let free = || vec![("laptop".to_owned(), Room::Free { free_cpus: 8.0 })];

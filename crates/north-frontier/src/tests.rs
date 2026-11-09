@@ -42,7 +42,6 @@ fn the_task_id_in_a_printed_path_is_not_a_leak() {
     assert_eq!(crate::grade::reached("git show 4082956297aaa", landed), ["the landed sha"]);
 }
 
-// KEEP(bug): both arms of north-636 sat idle for twenty minutes each after the API refused their first turn for credit, and the pass spent its time on runs with no work in them (north#730)
 #[test]
 fn a_credit_refusal_ends_the_arm_and_a_finished_turn_does_not() {
     let refusal = serde_json::json!({"type": "result", "is_error": true, "api_error_status": 400, "result": "Credit balance is too low"});
@@ -51,7 +50,6 @@ fn a_credit_refusal_ends_the_arm_and_a_finished_turn_does_not() {
     assert!(!crate::session::refused_for_credit(&done));
 }
 
-// KEEP(bug): frontier runs drew pool keys on 2026-11-07 and wrote no ledger run, so the pool counted none of that spend against the org whose key served them (north#792)
 #[test]
 fn an_arm_that_ran_on_a_pool_key_is_charged_to_that_orgs_account_in_the_ledger() {
     let results = [
@@ -76,7 +74,6 @@ fn an_arm_that_ran_on_a_pool_key_is_charged_to_that_orgs_account_in_the_ledger()
     assert_eq!(rows, [("api:proton".into(), "claude-haiku-5-5".into(), 1, 2, 0, 0), ("api:proton".into(), "claude-sonnet-5-5".into(), 15, 25, 350, 45)]);
 }
 
-// KEEP(bug): north-633's north arm landed its change and reported `Not done:` with `Stop: host laptop` because the live check needs the laptop, and the runner answered it as a question, charging north an intervention and an idle wait no continuation could shorten (north#855)
 #[test]
 fn a_stop_on_another_machine_is_not_a_question_and_a_decision_still_is() {
     let laptop = "Not done: the trace recorder is landed as 907ad9aa on origin/main, but nothing has produced a real trace yet.\n\nStop: host laptop";
@@ -117,7 +114,6 @@ fn the_live_ab_waits_for_thirty_landed_per_arm_then_reports_time_and_short_and_l
     assert_eq!(crate::ab::splice(&doc, &section), doc);
 }
 
-// KEEP(bug): the long-term usage must follow the box's own lines by blame: a later commit that edits other lines of the same file, or edits the box's lines after its 14 days, is not rework on the box (north#877)
 #[test]
 fn long_term_usage_counts_only_commits_inside_14_days_that_change_the_boxs_lines() {
     let dir = std::env::temp_dir().join(format!("north-frontier-follow-{}", std::process::id()));

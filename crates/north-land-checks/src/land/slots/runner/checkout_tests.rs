@@ -30,7 +30,6 @@ fn registered_worktrees(root: &Path) -> usize {
     git_text(root, &["worktree", "list", "--porcelain"]).lines().filter(|line| line.starts_with("worktree ")).count()
 }
 
-// KEEP(bug): on 2026-11-08 a base rerun force-checked-out base in the lane's own worktree and compiled its rlib into the lane's target, so the head builds beside it reused the base artifact and every head-north check failed against the lane's north-land-probes (north#911)
 #[test]
 fn a_base_rerun_takes_a_worktree_and_a_target_of_its_own_while_the_lane_keeps_its_head() {
     let (dir, root, base) = lane();

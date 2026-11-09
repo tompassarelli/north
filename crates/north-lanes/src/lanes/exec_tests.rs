@@ -28,7 +28,6 @@ fn a_lock_that_adds_only_a_workspace_crate_is_unchanged_and_one_that_adds_outsid
     assert_eq!(changed_locks(lane_with_lock(&bumped).path()).unwrap(), ["Cargo.lock"]);
 }
 
-// KEEP(bug): a path dependency outside the workspace is written to Cargo.lock without a source, like a member, so lane exec admitted it (south#94 review, finding 6)
 #[test]
 fn a_source_less_package_counts_as_unchanged_only_when_the_workspace_holds_its_manifest() {
     let manifest = "[package]\nname = \"north\"\nversion = \"0.1.0\"\n\n[workspace]\nmembers = [\"crates/inside\"]\n";
@@ -43,7 +42,6 @@ fn a_source_less_package_counts_as_unchanged_only_when_the_workspace_holds_its_m
     assert_eq!(changed_locks(with_lock("evil").path()).unwrap(), ["Cargo.lock"]);
 }
 
-// KEEP(bug): lane exec took the checkout to vouch for from --lane or the working directory, not from the program it runs (south#94 review, finding 7)
 #[test]
 fn a_program_built_in_another_checkout_than_the_named_lane_is_refused() {
     let main = lane_with_lock(WORKSPACE);

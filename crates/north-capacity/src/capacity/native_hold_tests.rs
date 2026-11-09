@@ -6,7 +6,6 @@ use super::admission::{Class, Facts, Reason, admit, decide};
 use super::native_hold::{PairRefusal, queue_pair_leases};
 use super::tests::facts;
 
-// KEEP(bug): a pair the Wisp queue holds for a live process is refused to a native lease, naming a different free pair; regression of a0b83f6f8
 #[test]
 fn a_pair_the_wisp_queue_holds_for_a_live_process_is_refused_to_a_native_lease_with_a_different_free_pair() {
     let directory = std::env::temp_dir().join(format!("capture-queue-{}", std::process::id()));

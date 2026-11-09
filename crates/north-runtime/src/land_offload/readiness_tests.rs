@@ -18,7 +18,6 @@ fn run(needs: &Needs, home: &Path, bin: &Path) -> Vec<String> {
     missing(&String::from_utf8_lossy(&output.stdout))
 }
 
-// KEEP(bug): cpx62 entered offload on 2026-11-08 with only ~/code/north/main and ~/code/south/main and no gex45 alias, so south's post-land owner check called main red and kills checks ended "Could not resolve hostname gex45" (north#706)
 #[test]
 fn a_build_host_without_a_checkout_or_ssh_alias_the_land_checks_read_reports_each_missing() {
     let root = tempfile::tempdir().unwrap();
@@ -52,7 +51,6 @@ fn a_build_host_that_dials_no_remote_host_needs_none_of_their_ssh_aliases() {
     assert_eq!(run(&needs.dialed_from("cpx62", |alias| alias == "gex45"), &home, &bin), ["the ssh alias gex45"]);
 }
 
-// KEEP(bug): on 2026-11-08 at 9:2x AM the after-landing run of 78d8e9c920 placed .safe-push's graph guards line on cpx62b, which had no ~/.local/state/north/graph.db, and called main red; at 9:13 AM makgora's map-build line ran on cpx62 without the input store entry it reads (north#892)
 #[test]
 fn a_build_host_without_an_input_a_check_declares_is_left_out_of_that_check() {
     let root = tempfile::tempdir().unwrap();

@@ -23,7 +23,6 @@ fn the_lander_stall_of_2026_11_08_alarms_on_the_first_flow_tick_past_ten_minutes
     assert_eq!(reading.stall_limit_minutes, 10.0);
 }
 
-// KEEP(bug): on 2026-11-08 the flow alarm said "Landing stalled: lander candidate check running 9m > 8m" with an empty queue, because the newest queue log was a landed lane's .lane-gates.log, which never writes a verdict line
 #[test]
 fn a_log_without_a_verdict_is_never_a_running_candidate_check() {
     let queue = tempfile::tempdir().unwrap();

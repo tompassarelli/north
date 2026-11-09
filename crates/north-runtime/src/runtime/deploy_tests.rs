@@ -25,7 +25,6 @@ fn install(home: &Path) {
     assert!(status.success());
 }
 
-// KEEP(bug): on 2026-11-06 an offloaded land check ran a runtime staged on a build host with its programs but no tree and panicked in harness resolution, so the lander marked a clean landing red main (north#634)
 #[test]
 fn a_staged_runtime_replaces_a_treeless_one_whole_and_a_complete_one_stays() {
     let home = tempfile::tempdir().unwrap();
@@ -45,7 +44,6 @@ fn a_staged_runtime_replaces_a_treeless_one_whole_and_a_complete_one_stays() {
     assert!(!runtimes(home).join(format!("{TARGET}.staging")).exists());
 }
 
-// KEEP(bug): on 2026-11-07 a runtime shipped to nexus moved the directory nexus's own follow was part-way through filling, so the follow died on `No such file or directory` and held that sha back for an hour (north#822)
 #[test]
 fn a_shipped_install_waits_for_whoever_is_writing_the_runtime_directory() {
     use rustix::fs::{FlockOperation, flock};
@@ -84,7 +82,6 @@ fn prepared(home: &Path) -> super::Prepared {
     super::Prepared::read(&String::from_utf8_lossy(&output.stdout))
 }
 
-// KEEP(bug): on 2026-11-07 the laptop re-sent all 85 MB of runtime 0c54814b5c to gex45 twice in a minute, 18 and 25 s each over its 230 ms link, after gex45 had built and installed that runtime itself, and every first copy sent the whole runtime though the host kept the previous one (north#697)
 #[test]
 fn a_runtime_already_whole_on_the_host_is_not_copied_and_a_missing_one_is_copied_against_the_newest_whole_one() {
     let home = tempfile::tempdir().unwrap();
@@ -98,7 +95,6 @@ fn a_runtime_already_whole_on_the_host_is_not_copied_and_a_missing_one_is_copied
     assert_eq!(prepared(home), super::Prepared::Whole);
 }
 
-// KEEP(bug): on 2026-11-09 deploy counted nexus's runtime 48d49ab4 whole without its built-from record and never shipped one, so nexus's promotion refused it and the host stayed on 1a2df788 (north#1010)
 #[test]
 fn a_runtime_on_the_host_without_its_built_from_record_is_not_whole() {
     let home = tempfile::tempdir().unwrap();
@@ -108,7 +104,6 @@ fn a_runtime_on_the_host_without_its_built_from_record_is_not_whole() {
     assert_eq!(prepared(home), super::Prepared::Staging(None));
 }
 
-// KEEP(bug): on 2026-11-07 a copy of a runtime this host had already replaced waited its turn behind one global lock and was shipped anyway, holding every host's newer copy behind the slowest host (north#731)
 #[test]
 fn a_runtime_replaced_while_it_waited_its_turn_is_not_shipped() {
     let state = tempfile::tempdir().unwrap();

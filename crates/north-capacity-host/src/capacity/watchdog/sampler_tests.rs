@@ -11,7 +11,6 @@ fn start_of(pid: u32) -> String {
     stat[stat.rfind(')').unwrap() + 2..].split(' ').nth(19).unwrap().to_owned()
 }
 
-// KEEP(mutant): SIGTERM only reaches a process whose start time still matches, never a recycled pid
 #[test]
 fn termination_signals_only_a_process_whose_start_time_still_matches() {
     let mut child = Command::new("sleep").arg("30").spawn().unwrap();

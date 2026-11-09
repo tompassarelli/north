@@ -7,7 +7,6 @@ fn running(pid: u32) -> bool {
     std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z')))
 }
 
-// KEEP(bug): a fixture daemon whose test panicked under Cranelift, which runs no destructor, held the Cargo shard's output open until the job timed out; regression of north#673
 #[test]
 fn a_fixture_daemon_ends_with_its_test_thread_though_no_destructor_runs() {
     let pid = std::thread::spawn(|| {

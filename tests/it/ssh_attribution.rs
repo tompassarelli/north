@@ -9,7 +9,6 @@ const SESSION: &str = "n-626-repro";
 const FAR_SSH: &str = "shift $(($# - 1))\nexec sh -c \"$1\"\n";
 const FAR_SYSTEMD_RUN: &str = "for argument; do case $argument in --unit=*) echo \"${argument#--unit=}\" >\"$SCOPE_RECORD\" ;; esac; done\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n";
 
-// KEEP(bug): on 2026-11-06 a laptop session's ssh work on gex45 showed as "no fleet session (ssh)" and the watchdog capped a bystander; work started through the session's ssh path names the session
 #[test]
 fn a_remote_command_through_the_fleet_ssh_path_runs_in_a_scope_the_far_watchdog_names_for_the_session() {
     let scratch = tempfile::tempdir().unwrap();

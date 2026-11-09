@@ -14,7 +14,6 @@ fn selected(files: &[&str]) -> Selection {
     select(&read(STRUCTURE), &read(TABLE), &spawners(root()), &files).unwrap()
 }
 
-// KEEP(bug): on 2026-11-08 every lander probe whose lanes touched src/ ran the whole tests/it suite (`--test it -E kind(lib)|kind(bin)|binary_id(north::it)`), 6 to 10 min a probe, because a root-package path had no crate_dag owner and fell back to every module (north#842)
 #[test]
 fn a_probe_through_src_and_four_crates_runs_only_the_tests_it_modules_their_crates_select() {
     let probe = ["src/cli/worker_ledger/recalibrate.rs", "crates/north-calibration/src/threads/calibration/box_eta.rs", "crates/north-capacity-host/src/capacity/command.rs", "crates/north-climb/src/arms.rs", "crates/north-context-pack/src/cochange.rs"];
@@ -39,7 +38,6 @@ fn graph_stub(directory: &Path, name: &str, body: &str) -> std::path::PathBuf {
     path
 }
 
-// KEEP(bug): on 2026-11-08 the crate-level tests/it selection saved 0% of the suite, because 38 of 46 modules spawn the north binary and run for any crate change; the change graph narrows a lane to the test ids it reaches, and an untraced lane keeps the crate-level selection (north#902)
 #[test]
 fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_crate_level_selection() {
     let directory = tempfile::tempdir().unwrap();
@@ -66,7 +64,6 @@ const TREE_WIDE_UNITS: [&str; 3] = [
     "runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree",
 ];
 
-// KEEP(bug): on 2026-11-08 n933-denylist, q902-conflicts and n937-locks each landed with main red on the Rust habits test or the runtime::reuse tree scans, because their pre-queue selection followed a change cone or crate fallback that never reached tests judging every file (north#902)
 #[test]
 fn every_lane_selection_names_the_tree_wide_unit_tests_the_graph_and_the_crate_fallback_alike() {
     let directory = tempfile::tempdir().unwrap();
@@ -92,7 +89,6 @@ fn every_lane_selection_names_the_tree_wide_unit_tests_the_graph_and_the_crate_f
     }
 }
 
-// KEEP(bug): a declared tree-wide unit test that was renamed or moved selects nothing, and the lane then skips the scan it was declared for (north#902)
 #[test]
 fn every_declared_tree_wide_unit_test_still_exists_in_its_package() {
     let plan = Plan::parse(&read(STRUCTURE)).unwrap();
@@ -113,7 +109,6 @@ fn every_declared_tree_wide_unit_test_still_exists_in_its_package() {
     }
 }
 
-// KEEP(bug): on 2026-11-09 bb9237cbd0's selection named 29 north-lander::it tests, among them the red land_chaos SIGTERM test, but the land check dropped every integration binary other than north::it, so only GitHub Cargo ran them and main went red (north#980)
 #[test]
 fn a_selected_integration_binary_of_another_crate_is_built_and_run() {
     let directory = tempfile::tempdir().unwrap();

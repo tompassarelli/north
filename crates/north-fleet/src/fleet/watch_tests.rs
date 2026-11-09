@@ -224,7 +224,6 @@ fn a_session_that_ended_its_turn_on_its_own_background_work_is_not_reported_stal
     assert_eq!(told_after("Done: landed abc123.", false, 2, false), 0, "a final report needs no notice");
 }
 
-// KEEP(bug): on 2026-11-07 a turn was charged to the account its session record held when the turn ended, so a session moved between orgs billed the org it moved onto for tokens the org it left served (north#792)
 #[test]
 fn a_turn_is_charged_to_the_account_its_host_started_with_not_the_one_the_record_holds_when_it_ends() {
     let root = tempfile::tempdir().unwrap();

@@ -16,7 +16,6 @@ fn item(category: &str, difficulty: f64, sensitivity: &str) -> WorkBox {
     serde_json::from_value(json!({"id": "b", "project": "p", "category": category, "difficulty": difficulty, "sensitivity": sensitivity})).unwrap()
 }
 
-// KEEP(contract): a private box is never admitted to a gemini tier (private-code handling)
 #[test]
 fn a_private_box_is_never_admitted_to_a_gemini_tier() {
     let ctx = ctx(json!({"now": NOW, "success": {"gemini:pro|feature": 100}}));

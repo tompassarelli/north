@@ -28,7 +28,6 @@ fn read(paths: &[String]) -> Vec<Outcome> {
     outcomes(paths, 0.0)
 }
 
-// KEEP(contract): reads the external codex rollout format, classifying a turn as capacity by error info or message, other error, or ok
 #[test]
 fn a_turn_is_capacity_by_error_info_or_message_error_when_it_failed_otherwise_and_ok_when_it_did_not() {
     let directory = tempfile::tempdir().unwrap();

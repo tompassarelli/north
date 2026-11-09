@@ -25,7 +25,6 @@ fn checks_run_side_by_side_and_each_keeps_its_own_exit_output_and_deadline() {
     assert!(!joins("CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/ --no-build check citations --root $PWD"));
 }
 
-// KEEP(bug): on 2026-11-08 each lander probe sent 5 to 7 offload jobs that each rebuilt north in its own slot, so 8 free slots held 1 probe
 #[test]
 fn a_probe_runs_its_head_north_checks_on_its_one_build_once_it_passed_and_its_other_checks_one_after_another_in_the_same_job() {
     let dir = tempfile::tempdir().unwrap();

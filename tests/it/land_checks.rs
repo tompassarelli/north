@@ -327,7 +327,6 @@ fn a_check_that_also_fails_on_base_on_an_overloaded_host_blames_the_load_not_mai
     assert!(!outcome.contains("check environment is broken") && outcome.contains("while this host ran at load 500.0"), "on 2026-11-08 two timing tests failed on the lane and its base on the laptop at load 39 to 64, the lander read main as broken in placed and judged every candidate in place for 30 minutes, which drove the load to 123: {outcome}");
 }
 
-// KEEP(bug): on 2026-11-08 a lane was refused before queueing for nextest tests that were already red on main, because safe-push's checks before queueing refused any failing run while the lander judges each failing test against the lane's base (north#902)
 #[test]
 fn a_test_that_is_red_on_the_base_never_refuses_the_lane_and_the_refusal_names_only_tests_the_base_passes() {
     let check = r#": cargo nextest run; if [ "$(cat file.txt)" = lane ]; then printf '        FAIL [   0.1s] (1/2) crate::bin red::on_both\n        FAIL [   0.1s] (2/2) crate::bin %s\n' "${LANE_ONLY:-lane::only}"; exit 100; fi; case "${SAFE_PUSH_LAND_IT:-}" in *red::on_both*) printf '        FAIL [   0.1s] (1/1) crate::bin red::on_both\n'; exit 100;; esac"#;
@@ -498,7 +497,6 @@ fn head_north_command(fixture: &Fixture, command: &str) -> Command {
     run
 }
 
-// KEEP(bug): on 2026-11-08 the lander read 52 probes whose tree did not compile as no verdict, because head-north exited 75 for every failed build of north (north#902)
 #[test]
 fn head_north_refuses_a_tree_that_does_not_compile_and_reaches_no_verdict_only_when_the_build_itself_fails() {
     let fixture = Fixture::new(&[("land.check-local", "true")]);
@@ -516,7 +514,6 @@ fn head_north_refuses_a_tree_that_does_not_compile_and_reaches_no_verdict_only_w
     assert_eq!(unfetched.status.code(), Some(75), "a build that failed for want of the host's crates refused the lane: {}", text(&unfetched));
 }
 
-// KEEP(bug): the lander refused lane 3e400d15d on 2026-11-07 because head-north exited 1 opening the lease file of a runtime another process was still building (north#807)
 #[test]
 fn a_land_check_waits_for_a_runtime_another_process_is_still_building_instead_of_failing() {
     let (fixture, lease) = head_north_on_a_runtime_mid_build();
@@ -526,7 +523,6 @@ fn a_land_check_waits_for_a_runtime_another_process_is_still_building_instead_of
     assert!(fixture.trace().contains("live docs --help"), "the check did not run on the runtime once it was whole: {}", fixture.trace());
 }
 
-// KEEP(bug): the same refusal when the runtime never became readable: the check now runs on the tree's own north, or is refused by name under --no-build, never an exit 1 from the lease open (north#807)
 #[test]
 fn a_land_check_runs_on_the_trees_own_north_when_the_live_runtime_stays_unreadable() {
     let (fixture, _lease) = head_north_on_a_runtime_mid_build();

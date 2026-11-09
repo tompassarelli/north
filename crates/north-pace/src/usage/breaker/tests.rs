@@ -35,7 +35,6 @@ fn replay() -> (Judged, Judged, Judged) {
     (early, first, second)
 }
 
-// KEEP(bug): a run past four times its p90 trips on the second tick and not the first; replays the north#385 overrun
 #[test]
 fn a_run_past_four_times_p90_trips_on_the_second_tick_and_not_the_first() {
     let (early, first, second) = replay();
@@ -65,7 +64,6 @@ fn twice(sessions: &[Spending]) -> Judged {
     tick(2_000, sessions, &[], &first.state)
 }
 
-// KEEP(bug): one umbrella box past its own p90 alerts though the issue is within its sum, regression of 823d9a434 (north#592); an early spend under p90 reached the proxy seven times between 4:00 and 4:50 PM on 2026-11-06 (north#637)
 #[test]
 fn one_umbrella_box_past_its_own_p90_alerts_and_an_early_spend_under_p90_is_told_to_its_worker_alone() {
     let warned = twice(&umbrella(40.0));
@@ -99,7 +97,6 @@ fn sandbox(wipe: f64, landed: u32) -> Vec<Spending> {
     vec![north_706("n706-wipe", wipe, (3.62, 11.65), landed), north_706("n706-guards2", 19.07, (9.39, 76.74), 0)]
 }
 
-// KEEP(bug): a session's spend over every box its lead handed it was judged against its brief's one box, so north#706 warned early on 2026-11-08 (north#910)
 #[test]
 fn a_session_handed_more_boxes_is_judged_against_each_and_one_box_past_twice_its_p90_still_warns() {
     let before = twice(&sandbox(28.53, 1));

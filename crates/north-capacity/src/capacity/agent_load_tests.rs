@@ -87,7 +87,6 @@ fn frozen_state(host: &Host) -> (Option<i64>, Vec<String>) {
     (super::lease_lifecycle::frozen_since(&host.capacity, HEAVY), listed)
 }
 
-// KEEP(bug): an agent-owned Battle.net launcher is ignored while gaming still stops agent wine; regression of north#125 (launcher counted as gaming, commit 5e6cf225c)
 #[test]
 fn an_agent_owned_launcher_is_ignored_and_gaming_still_stops_agent_wine() {
     let root = tempfile::tempdir().unwrap();
@@ -102,7 +101,6 @@ fn an_agent_owned_launcher_is_ignored_and_gaming_still_stops_agent_wine() {
     assert!(exited(&mut wine), "an agent wine process survived gaming");
 }
 
-// KEEP(mutant): gaming stops agent clients and leaves Tom's game running; mutant gaming-kill-dropped (a34bb8ef8)
 #[test]
 fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
     let root = tempfile::tempdir().unwrap();
@@ -141,7 +139,6 @@ fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
     tom.wait().unwrap();
 }
 
-// KEEP(mutant): a runner that dies leaves no client running; mutant orphan-reaper-dropped
 #[test]
 fn a_runner_that_dies_leaves_no_client_running() {
     let root = tempfile::tempdir().unwrap();
@@ -166,7 +163,6 @@ fn a_runner_that_dies_leaves_no_client_running() {
     }
 }
 
-// KEEP(bug): a refused thaw keeps the unit frozen and charged until a later thaw succeeds; regression of north#203 (cb80f3fbb)
 #[test]
 fn a_failed_thaw_keeps_the_unit_frozen_and_charged_until_a_later_thaw_succeeds() {
     let root = tempfile::tempdir().unwrap();
@@ -192,7 +188,6 @@ fn a_failed_thaw_keeps_the_unit_frozen_and_charged_until_a_later_thaw_succeeds()
     assert_eq!(frozen_state(&host), (None, Vec::new()), "the retried thaw left the unit listed or frozenAt set");
 }
 
-// KEEP(bug): a refused freeze leaves frozenAt unset and the next tick retries it; regression of north#203 (cb80f3fbb)
 #[test]
 fn a_failed_freeze_leaves_frozen_at_unset_and_the_next_tick_retries_it() {
     let root = tempfile::tempdir().unwrap();
@@ -215,7 +210,6 @@ fn a_failed_freeze_leaves_frozen_at_unset_and_the_next_tick_retries_it() {
     assert_eq!(listed, [heavy_unit]);
 }
 
-// KEEP(bug): a busy admission lock leaves frozenAt for the next tick to bring in line with the freeze; regression of north#203 (cb80f3fbb)
 #[test]
 fn a_busy_admission_lock_leaves_frozen_at_for_the_next_tick_to_bring_in_line_with_the_freeze() {
     let root = tempfile::tempdir().unwrap();

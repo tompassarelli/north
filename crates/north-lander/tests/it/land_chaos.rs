@@ -373,7 +373,6 @@ fn restarted_while_waiting_out_a_rerun(world: &World) {
     assert!(!spans.contains("after-landing run lost to a lander restart"), "a restart while the run of {head} waited out its rerun delay was recorded as losing it: {spans}");
 }
 
-// KEEP(bug): a lander restart while a run waited out its rerun delay recorded it as lost to the restart and reran it, 3 times from 10:13 to 10:54 PM on 2026-11-07 (north#696)
 #[test]
 fn chaos_a_restart_while_a_run_waits_out_its_rerun_delay_loses_nothing() {
     isolated("land_chaos::chaos_a_restart_while_a_run_waits_out_its_rerun_delay_loses_nothing", restarted_while_waiting_out_a_rerun);

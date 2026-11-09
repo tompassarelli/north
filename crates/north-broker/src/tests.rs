@@ -166,7 +166,6 @@ fn a_caller_outside_the_ceiling_or_the_policy_gets_no_token_and_costs_no_mint() 
     assert_eq!(ask_at(NOW + 2000, 3301), 400);
 }
 
-// KEEP(bug): the proxy handed a caller's path to curl as a URL glob, so {..} walked out of the allowlist (south#94 review, finding 1)
 #[test]
 fn a_glob_in_the_path_is_refused_and_a_brace_in_a_query_never_multiplies_a_call() {
     let (upstream, seen) = fake_upstream(|_, _| (200, json!({})));
@@ -178,7 +177,6 @@ fn a_glob_in_the_path_is_refused_and_a_brace_in_a_query_never_multiplies_a_call(
     assert!(seen.lock().unwrap().is_empty(), "a globbed call reached the provider");
 }
 
-// KEEP(bug): a body starting with @ made curl send one of the broker's own credential files to the provider (south#94 review, finding 2)
 #[test]
 fn a_body_starting_with_at_reaches_the_provider_as_text_and_no_loaded_secret_comes_back() {
     let (upstream, seen) = fake_upstream(|_, request| (200, json!({ "echo": request })));
@@ -192,7 +190,6 @@ fn a_body_starting_with_at_reaches_the_provider_as_text_and_no_loaded_secret_com
     assert!(!String::from_utf8_lossy(&answer.body).contains("BEGIN"), "a credential file came back");
 }
 
-// KEEP(bug): a lane-only session reached the credential broker directly and was given a GitHub token (south#104)
 #[test]
 fn a_lane_only_session_gets_no_github_token_and_no_cloud_call() {
     let (upstream, _seen) = fake_upstream(|_, request| (200, json!({ "echo": request })));

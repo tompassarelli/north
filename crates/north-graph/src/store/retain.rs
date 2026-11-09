@@ -162,7 +162,7 @@ fn doom_occurrences(connection: &Connection, retired: &[String], cut: Option<i64
 fn delete_units(connection: &Connection, chunk: &[i64]) -> Result<(u64, u64)> {
     let (Some(first), Some(last)) = (chunk.first(), chunk.last()) else { return Ok((0, 0)) };
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
-    // SQLite gives a new row max(seq) + 1, so deleting the head would hand a later occurrence a seq a reader already saw.
+    // SQLite's engine gives a new row max(seq) + 1, so deleting the head would hand a later occurrence a seq a reader already saw.
     transaction.execute("DELETE FROM temp.doomed WHERE unit = (SELECT unit FROM temp.doomed WHERE seq = (SELECT MAX(seq) FROM occurrences))", [])?;
     let withdrawals = transaction.execute(
         "DELETE FROM withdrawals WHERE retraction IN (SELECT o.coord FROM temp.doomed d JOIN occurrences o ON o.seq = d.seq WHERE d.unit BETWEEN ?1 AND ?2)",

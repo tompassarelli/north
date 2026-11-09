@@ -241,7 +241,6 @@ mod tests {
         assert_eq!(check_slots([&pressed, &host], 4.0), (6, 12), "a host its admission refuses offers no free slot");
     }
 
-    // KEEP(bug): at 10:20 AM on 2026-11-08 the lander read 33 free slots with land checks charged one core, and planned 33 probes of about 6 offload jobs each, while gex45 held its 6 slots with 35 jobs queued for them
     #[test]
     fn a_replay_of_the_1020_am_reading_offers_the_lander_only_the_slots_the_build_hosts_running_and_queued_jobs_leave() {
         let gib = 1024 * 1024;
@@ -269,7 +268,6 @@ mod tests {
         assert!(shortfall(&reading(80 * gib, "3.00", "7.6", "40")).unwrap().contains("CPU pressure 40%"));
     }
 
-    // KEEP(bug): on 2026-11-07 gex45 held 18 queued CPUs behind the land-check claim, which left the lander no room and so renewed the claim every 20 s while the host sat idle
     #[test]
     fn jobs_the_land_check_claim_holds_back_leave_the_host_its_room_for_the_land_check_that_claimed_it() {
         let gib = 1024 * 1024;

@@ -78,7 +78,6 @@ mod tests {
             .collect()
     }
 
-    // KEEP(bug): from 9:32 AM on 2026-11-08 north-runtime-follow failed 14 ticks in a row on "whiterabbit: N transient north processes (bound 100)", readings that rose to 238 and fell back as offloaded land checks came and went; a healthy tick logged no count, so it replays at the most the bound let it read (north#892)
     #[test]
     fn whiterabbit_busy_with_offloaded_land_checks_on_2026_11_08_is_not_a_leak() {
         let (_state, mut growth) = growth();

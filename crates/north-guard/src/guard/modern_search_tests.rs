@@ -2,7 +2,6 @@
 
 use super::modern_search::{Decision, decide};
 
-// KEEP(bug): 8 of 30 sampled modern-search refusals were false: a redirect word or an unexpanded glob made `grep -r` on plain files look like a tree search; north#706
 #[test]
 fn recursive_grep_on_files_with_redirects_or_globs_is_left_alone_and_a_tree_search_still_rewrites() {
     let dir = tempfile::tempdir().unwrap();

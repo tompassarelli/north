@@ -80,7 +80,6 @@ fn judged(clock: &Path, milliseconds: u64) -> bool {
     std::fs::read_dir(clock).into_iter().flatten().flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("seen.") && read(&entry.path()) == milliseconds.to_string())
 }
 
-// KEEP(bug): after north#757 moved a lease's frozen phase into the lifecycle ledger, this test's lease file named no id the ledger knew, so a frozen land check was ended at its 1 s wall deadline and every landing paused on a red main base (north#720)
 #[test]
 fn a_frozen_land_check_times_out_only_after_its_timeout_plus_the_time_it_was_frozen() {
     let scratch = Scratch::new();

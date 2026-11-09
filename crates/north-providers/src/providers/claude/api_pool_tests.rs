@@ -14,8 +14,6 @@ fn grant(usd: f64, expires: &str) -> Grant {
     Grant { usd, expires: expires.to_owned() }
 }
 
-// KEEP(bug): an api org whose first grant is spent still ranked by that grant's date, so a later grant was drawn before an untouched sooner one (north#737)
-// KEEP(bug): an org's sessions failed their turns on the API's low-credit refusal instead of moving to the next org (north#755)
 #[test]
 fn the_pool_opens_the_org_whose_soonest_grant_with_credit_left_expires_first() {
     let proton = [grant(199.99, "2026-11-08"), grant(200.0, "2026-12-08")];
@@ -61,7 +59,6 @@ fn low_credit_turn(uuid: &str) -> [serde_json::Value; 3] {
     ]
 }
 
-// KEEP(bug): a session moved off an org that ran out of credit had its old low-credit turn read again on the next tick, which marked the new org exhausted while it still had credit; and a message delivered after a failed turn hid the failure, so no move happened (north#755)
 #[test]
 fn only_the_newest_low_credit_turn_on_the_current_account_counts() {
     let scratch = tempfile::tempdir().unwrap();
@@ -79,7 +76,6 @@ fn only_the_newest_low_credit_turn_on_the_current_account_counts() {
     assert!(ran_out_from(moved));
 }
 
-// KEEP(bug): on 2026-11-07 the pool marked an org exhausted from its counted spend, a 10% reserve and a billing multiplier while the provider still held credit on it (north#792)
 #[test]
 fn a_tick_keeps_an_org_open_and_its_sessions_on_it_whatever_its_counted_spend_until_the_provider_refuses_a_turn() {
     use crate::fleet::registry::{Fleet, fixtures};
@@ -123,7 +119,6 @@ fn host_process() -> u32 {
     pid
 }
 
-// KEEP(bug): at 12:42 PM on 2026-11-07 n-replay-case, idle with its last turn ended success and a background task open, was moved onto another org and its parent was told its host exited mid-task; the move's halt was recorded as a relaunch under another model or effort (north#781)
 #[test]
 fn a_session_moved_between_accounts_raises_no_mid_task_exit_and_no_carry_on_and_its_halt_says_it_moved() {
     use crate::fleet::registry::{Fleet, fixtures};
@@ -208,7 +203,6 @@ fn refusal(name: &str) -> Vec<serde_json::Value> {
     turn
 }
 
-// KEEP(bug): on 2026-11-07 sessions on a spent api org ended on "Credit balance is too low", their hosts exited, and the tick moved none of the ended ones onto the open org because the move skipped ended sessions (north#792)
 #[test]
 fn a_session_whose_host_exited_on_the_credit_refusal_moves_onto_the_open_org_but_a_finished_one_stays_finished() {
     let finished = vec![json!({"type": "assistant", "session_id": "n-done", "message": {"content": [{"type": "text", "text": "Done: landed"}]}}), json!({"type": "result", "subtype": "success", "session_id": "n-done"})];
@@ -218,7 +212,6 @@ fn a_session_whose_host_exited_on_the_credit_refusal_moves_onto_the_open_org_but
     assert_eq!(names, [("n-ended", "api:gmail", true, None), ("n-live", "api:gmail", true, None)]);
 }
 
-// KEEP(bug): on 2026-11-07 a refusal on a spent org parked sessions on a usage limit lasting until the next grant date while another org was open, since the credit refusal read as a usage limit (north#792)
 #[test]
 fn a_credit_refusal_is_not_a_usage_limit() {
     let scratch = tempfile::tempdir().unwrap();
@@ -227,7 +220,6 @@ fn a_credit_refusal_is_not_a_usage_limit() {
     assert_eq!(since(&Claude, &stream, 0, Some("c")).limit, None);
 }
 
-// KEEP(bug): when no api org was open a refused session only printed "stays parked" and nothing resumed it; it now moves to the subscription account whose window resets first and parks until then (north#792)
 #[test]
 fn with_no_api_org_open_a_refused_session_goes_to_the_subscription_account_that_resets_first_and_parks_there() {
     let moved = pool_tick(&[], Some(("b".to_owned(), Some(1_800_000_000_000))), &[("n730-arms", true, refusal("n730-arms"))]);
@@ -241,7 +233,6 @@ fn with_no_api_org_open_a_refused_session_goes_to_the_subscription_account_that_
     assert_eq!(next_subscription([], &limits, 1_000_000), None);
 }
 
-// KEEP(bug): on 2026-11-07 sessions refused for credit sat exited after their move because a restart that brought no message left them waiting, so the move now restarts the session whose host died on the next account and hands it the carry-on turn through the spool (north#792)
 #[test]
 fn a_refused_session_whose_host_died_restarts_on_the_next_account_and_is_handed_its_turn_again() {
     use crate::fleet::registry::{Fleet, fixtures};

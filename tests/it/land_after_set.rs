@@ -15,7 +15,6 @@ fn command(entry: &str) -> &str {
     entry.split_once(SEPARATOR).map_or(entry, |(_, command)| command)
 }
 
-// KEEP(bug): after the north-land-scans and north-landing-gates splits four land lines still named --code paths that no longer existed, which read as covered by the live runtime, so head-north ran the old checker (north#714)
 #[test]
 fn every_code_path_a_land_line_names_exists_in_the_tree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -31,7 +30,6 @@ fn every_code_path_a_land_line_names_exists_in_the_tree() {
     assert_eq!(missing, Vec::<String>::new(), "a --code path that does not exist reads as covered by the live runtime; name the path the checker's code lives at now");
 }
 
-// KEEP(bug): the skill-size check (98d30d226) and module layers (086197b4b) ran only after the landing, so each lane turned main red though its candidate tree could have refused it (north#782)
 #[test]
 fn every_land_after_check_is_either_run_on_the_candidate_tree_too_or_marked_as_needing_the_landed_live_state() {
     let (checks, bound) = (values("land.check"), values("land.machine-bound"));
@@ -92,7 +90,6 @@ fn nextest_refusals(root: &Path, command: &str) -> Vec<String> {
     refusals
 }
 
-// KEEP(bug): the Rust habit-test line named north-guard after 021ea25a9 moved the tests to north-code-health, so its term selected nothing and passed, silently, until 35ec2ecfc (north#782)
 #[test]
 fn a_nextest_land_line_refuses_to_pass_on_no_tests_and_names_only_tests_that_exist() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));

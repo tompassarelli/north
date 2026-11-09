@@ -4,7 +4,6 @@ use super::admission::{Class, Facts, Reason, decide};
 use super::native_hold::LeaseFact;
 use super::tests::{facts, running};
 
-// KEEP(bug): the next heavy start waits 30 s because a start's pressure arrives after 10 s; regression of north#400 (gex45 committed 30 CPUs on 20 cores)
 #[test]
 fn a_start_whose_pressure_arrives_after_ten_seconds_holds_the_next_start_until_thirty() {
     let final_basis_points = 3000.0;

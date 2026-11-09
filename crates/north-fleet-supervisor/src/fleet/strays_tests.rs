@@ -18,7 +18,6 @@ fn row(name: &str, status: &str, minutes_ago: u64) -> SessionRow {
     SessionRow { name: name.to_owned(), host: "whiterabbit".to_owned(), status: status.to_owned(), created: updated.clone(), updated, ..SessionRow::default() }
 }
 
-// KEEP(bug): on 2026-11-07 units whose session the placing host had forgotten or ended ran 6 to 10 hours on gex45 until stopped by hand
 #[test]
 fn a_detached_unit_whose_session_no_fresh_registry_holds_live_is_a_stray_and_every_other_unit_is_kept() {
     let units = [

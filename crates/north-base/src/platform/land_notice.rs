@@ -59,7 +59,6 @@ pub fn told<'a>(owner: Option<&'a str>, verdict: &str) -> Vec<&'a str> {
 mod tests {
     use super::*;
 
-    // KEEP(bug): a lane with no fleet owner refused for a conflict in its own lines told no one, so it sat refused until someone read the queue (north#360)
     #[test]
     fn a_conflict_reaches_its_owner_then_the_landers_owner_and_a_sessionless_landing_reaches_no_one() {
         assert_eq!(told(Some("n1-worker"), "conflict src/a.rs,src/b.rs"), ["n1-worker", OWNER]);

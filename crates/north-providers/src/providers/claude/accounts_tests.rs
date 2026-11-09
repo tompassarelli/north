@@ -52,7 +52,6 @@ fn a_label_logged_into_another_labels_account_is_omitted_and_its_launch_refused_
 }
 
 
-// KEEP(bug): on 2026-11-07 a launch on the api pool with every org marked exhausted failed "no claude account named api", which read as a config fault and was retried as transient (north#792)
 #[test]
 fn a_launch_on_the_api_pool_with_every_org_spent_is_refused_naming_each_org_and_when_it_reopens() {
     let state = tempfile::tempdir().unwrap();

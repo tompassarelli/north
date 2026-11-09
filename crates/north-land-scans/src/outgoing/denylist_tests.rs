@@ -24,7 +24,6 @@ fn a_push_to_south_itself_is_private_whatever_the_origin_spelling_and_without_as
     assert!(!Denylist { south: dir.path().join("absent"), config: None }.is_south("https://github.com/tompassarelli/south.git"));
 }
 
-// KEEP(bug): the private-text judge's 300 s timeout refused north#868 twice on 2026-11-08, although a judge with no verdict says nothing about the lane; north#842
 #[test]
 fn a_judge_that_times_out_holds_the_push_as_no_verdict_not_a_refusal() {
     let dir = tempfile::tempdir().unwrap();
@@ -37,7 +36,6 @@ fn a_judge_that_times_out_holds_the_push_as_no_verdict_not_a_refusal() {
     assert_eq!(judged(Ok(Vec::new())), Stand::Pass);
 }
 
-// KEEP(bug): a deny-list that could not be fetched refused every landing probe as if a private value matched on 2026-11-08; north#933
 #[test]
 fn an_unreachable_deny_list_holds_the_push_as_no_verdict_and_a_scan_failure_still_refuses() {
     let dir = tempfile::tempdir().unwrap();

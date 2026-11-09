@@ -50,7 +50,6 @@ fn run(north: &Path, base: &str, head: &str, peer: &Path, state: &Path) -> (bool
     (refused, String::from_utf8(out).unwrap())
 }
 
-// KEEP(bug): b6ef5be757 dropped `north land serve --depth` while nixos-config's north-land unit still ran `--depth 4`, and north-land@north crash-looped on its next restart until f8945c9b (north#706)
 #[test]
 fn a_lane_that_drops_a_flag_a_nixos_config_unit_still_runs_is_refused_when_enforcing_and_logged_in_shadow() {
     let root = tempfile::tempdir().unwrap();

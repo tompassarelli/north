@@ -20,7 +20,6 @@ fn depbox(scratch: &std::path::Path, broker: &std::path::Path, target: &std::pat
         .unwrap()
 }
 
-// KEEP(bug): depbox bound / read-only, which left the credential broker's socket connectable from dependency code (south#94 review, finding 3)
 #[test]
 fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
     let scratch = tempfile::tempdir().unwrap();

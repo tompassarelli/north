@@ -118,7 +118,6 @@ fn retiring_a_writer_withdraws_each_of_its_live_assertions_and_keeps_the_rest() 
     assert_eq!(graph.told().unwrap(), [Told { writer: "mirror".into(), triple: fact(1, 1) }]);
 }
 
-// KEEP(bug): on 2026-11-08 n882-textrel (5b1623c4f6) raised the graph schema to 4 and its after-landing run went red: the graph guards check, a read-only open, called the build host's schema-2 graph.db corrupt, though a writable open upgrades that store in place (north#902)
 #[test]
 fn a_read_only_open_upgrades_a_store_an_older_build_wrote_instead_of_calling_it_corrupt() {
     let directory = tempfile::tempdir().unwrap();

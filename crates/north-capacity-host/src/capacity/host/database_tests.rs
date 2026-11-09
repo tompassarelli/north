@@ -2,7 +2,6 @@ use rusqlite::Connection;
 
 use super::{SCHEMA, migrate};
 
-// KEEP(bug): opening a current capacity database takes no write lock; regression of 3586f7b0a (every capacity command waited behind history reads)
 #[test]
 fn opening_a_current_database_takes_no_write_lock_so_a_held_writer_never_times_it_out() {
     let scratch = tempfile::tempdir().expect("scratch");
@@ -17,7 +16,6 @@ fn opening_a_current_database_takes_no_write_lock_so_a_held_writer_never_times_i
     writer.execute_batch("ROLLBACK").expect("release");
 }
 
-// KEEP(contract): persisted capacity.db migrates from the fleet-pull shape and fresh to the model schema without losing rows
 #[test]
 fn a_database_written_by_the_fleet_pull_and_a_fresh_one_both_migrate_to_the_model_schema() {
     use super::table_columns;

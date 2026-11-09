@@ -82,7 +82,6 @@ fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
     }
 }
 
-// KEEP(bug): a launch held because this host was loaded refused as final, so code-health-review.service failed instead of retrying; north#721
 #[test]
 fn a_launch_held_because_this_host_is_loaded_is_refused_as_saturated_so_its_caller_retries() {
     let mut loaded = decision(Target::Account("claude:a".into()));
@@ -99,7 +98,6 @@ fn placed_on(account: &str) -> Placed {
     Placed { account: Some(account.to_owned()), ..Placed::default() }
 }
 
-// KEEP(bug): at 6:03 AM on 2026-11-08 the code-health tick's launch placed claude:c, which was at its week limit, and exited 1 while claude:b had room; north#861, north#706
 #[test]
 fn a_launch_naming_no_account_moves_to_one_the_spend_rule_admits_and_defers_with_exit_75_when_none_is() {
     let admits = |account: &str| match account {

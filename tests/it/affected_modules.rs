@@ -33,7 +33,6 @@ fn sources(module: &str) -> String {
     text
 }
 
-// KEEP(bug): the lander ran a lane that broke a test only north-capacity-host code reaches, because the table's safe_push line did not name the capacity crates the test imports, so the lane's candidate skipped the test and main went red (north#782)
 #[test]
 fn every_crate_a_tests_it_module_imports_is_one_the_table_selects_it_for() {
     let plan = Plan::parse(&read(STRUCTURE)).unwrap();
@@ -50,7 +49,6 @@ fn every_crate_a_tests_it_module_imports_is_one_the_table_selects_it_for() {
     assert_eq!(unselected, Vec::<String>::new(), "list each crate a module imports, or one that uses it, on the module's line of {TABLE}, so a change to that crate runs the module");
 }
 
-// KEEP(bug): 8c5d22002 changed north-capacity and north-capacity-host and the table's safe_push line did not name them, though the test spawns the north binary that links both, so the lane's candidate skipped it (north#782)
 #[test]
 fn a_module_that_spawns_the_north_binary_runs_for_any_crate_change_unless_its_line_says_why_not() {
     let files = ["crates/north-capacity/src/capacity/lease_lifecycle.rs".to_owned(), "crates/north-capacity-host/src/capacity/host/state.rs".to_owned()];
@@ -68,7 +66,6 @@ fn spawners_of_tree() -> BTreeSet<String> {
     spawners(Path::new(env!("CARGO_MANIFEST_DIR")))
 }
 
-// KEEP(bug): f0e87b7c09 changed only north-dispatch, so the land check skipped agent_text_reads, which scans every source file, and the lane landed with main red until CI caught it (north#706)
 #[test]
 fn a_tree_wide_module_runs_for_a_lane_that_changes_any_crate() {
     let files = ["crates/north-dispatch/src/dispatch/stops.rs".to_owned(), "crates/north-dispatch/src/dispatch/tries.rs".to_owned()];

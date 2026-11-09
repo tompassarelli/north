@@ -15,7 +15,6 @@ fn run() -> Run {
     Run { runner: Vec::new(), worktree: PathBuf::new(), log: PathBuf::from("post-land.log"), outcome: PathBuf::from("absent"), ledger: PathBuf::new(), store: PathBuf::new(), offload_owner: String::new(), capacity: String::new(), deadline: Duration::from_secs(60), host: None, cancel: Default::default(), adoptable: false }
 }
 
-// KEEP(bug): on 2026-11-06 a check host that could not find the laptop's runtime path ended an after-landing run with exit 127 and the run was reported as red main, putting innocent lanes up for revert (north#662)
 #[test]
 fn a_post_land_run_is_red_main_only_when_a_check_recorded_a_failing_verdict_whatever_the_log_says() {
     for code in [126, 127] {
@@ -50,7 +49,6 @@ fn landed(heads: &[&str]) -> Landed {
     Landed { repo: PathBuf::new(), repository: "owner/repo".to_owned(), base: "base".to_owned(), head: heads.last().cloned().unwrap_or_default(), heads, lanes: vec!["lane-a".to_owned(), "lane-b".to_owned()], tips: Vec::new(), ran: Vec::new() }
 }
 
-// KEEP(bug): on 2026-11-06 coalescing made one after-landing run cover every journaled landing, so a run stuck on a build host held every later verdict (north#634)
 #[test]
 fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_verdict_and_records_every_covered_head() {
     let scratch = tempfile::tempdir().unwrap();
@@ -77,7 +75,6 @@ fn an_after_landing_run_past_its_deadline_is_killed_with_its_group_reaches_no_ve
     assert_eq!(super::execute::test_run_seconds("     Summary [  12.698s] 789 tests run: 789 passed\n     Summary [   3.1s] 5 tests run: 5 passed\n"), Some(16), "the nextest summaries of a log add up as the run's test time");
 }
 
-// KEEP(bug): on 2026-11-06 the after-landing run deadline was a fixed 1,800 s while 19 runs took p90 172 s, so a stuck run held every later landing's verdict for half an hour (north#634)
 #[test]
 fn an_after_landing_run_deadline_is_three_times_the_p90_of_its_repository_s_recorded_runs_and_doubles_after_an_expiry() {
     let scratch = tempfile::tempdir().unwrap();
@@ -147,7 +144,6 @@ const RED: &str = "safe-push: the Rust checks cover -p north -p north-base\n    
 const NARROW: &str = "safe-push: the Rust checks cover -p north -p north-safe-push\n        PASS [   0.633s] ( 21/140) north::it land_checks::other\n";
 const FULL: &str = "safe-push: the Rust checks cover -p north -p north-base\n        PASS [   0.006s] ( 97/668) north-base error::tests::drill\n";
 
-// KEEP(bug): on 2026-11-06 main stayed red for over an hour with the proxy learning it only from Tom or its own watch (north#634), then a docs-only landing whose after-landing run skipped the failing drill test told the proxy main was green again while the test still failed on main (north#679), and from 56a0c2b2b to 6a95639db on 2026-11-07 every green after-landing run ran only its own landing's tests, so none reran the tests the red record named and main stayed red (north#634)
 #[test]
 fn a_red_main_episode_messages_the_proxy_once_with_the_suspect_and_ends_only_on_a_green_run_that_reran_its_failing_tests_or_on_the_sheriffs_revert() {
     a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_records_a_red_main();

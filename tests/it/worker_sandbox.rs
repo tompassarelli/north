@@ -130,7 +130,6 @@ fn a_delete_whose_target_is_computed_at_run_time_cannot_remove_a_protected_direc
     assert!(!home.lane().join("scratch").exists());
 }
 
-// KEEP(bug): the worker domain did not limit which Unix sockets a command may connect through (south#86)
 #[test]
 fn a_worker_command_meets_a_null_device_at_every_runtime_socket_north_does_not_name_south_86() {
     let scratch = tempfile::Builder::new().prefix("s86").tempdir_in("/tmp").unwrap();

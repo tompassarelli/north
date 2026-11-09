@@ -185,7 +185,6 @@ fn a_queued_lane_is_one_commit_keeping_each_trailer_once_unless_several_commits_
     assert!(refused.contains("a check before queueing exited 1"), "{refused}");
 }
 
-// KEEP(bug): on 2026-11-07 the landing resume pass landed as 7c7aaa37c under the subject of its first commit, "WIP: ... not written yet", though the lane's last commit held the module and tests (north#795)
 #[test]
 fn a_lane_that_began_with_a_wip_commit_lands_under_its_last_commit_and_a_lane_ending_on_one_is_refused() {
     let lane = Lane::new();
@@ -226,7 +225,6 @@ fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queue
     enqueue_as("worker-1").unwrap();
 }
 
-// KEEP(bug): on 2026-11-08 n882-context failed code-health layers and check experiments in every probe it rode, about 10 probes, until the proxy withdrew it, though both judge only the lane's own diff (north#842)
 #[test]
 fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_before_its_ticket_is_written() {
     let dir = tempfile::tempdir().unwrap();

@@ -128,7 +128,6 @@ fn plant(rules: &Path) -> BTreeSet<String> {
     scan_range(root, rules, &base, &head, None).unwrap()
 }
 
-// KEEP(bug): one fetch killed inside south's checkout left refs/remotes/origin/main.lock there and every landing probe was refused until a person cleared it on 2026-11-08; north#933
 #[test]
 fn denylist_a_stale_lock_in_the_south_checkout_neither_blocks_nor_is_touched_by_the_scan() {
     let scratch = fixture();
@@ -188,7 +187,6 @@ fn denylist_a_stale_lock_in_the_mirror_is_recovered_and_the_rules_refresh() {
     assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
 }
 
-// KEEP(bug): on 2026-11-08 n876-t3-fixed-default's frontier.md line passed the private-kinds judge alone at enqueue but was refused in every probe, where prose_range joined it with another lane's lines in the same file into one judged segment (north#842)
 #[test]
 fn two_lanes_adding_lines_to_one_doc_are_judged_as_separate_segments() {
     let scratch = fixture();

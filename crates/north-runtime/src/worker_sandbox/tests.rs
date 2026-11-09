@@ -134,7 +134,6 @@ fn runnable(path: &Path) {
     crate::foundation::shim::write_script(path, "exit 0\n");
 }
 
-// KEEP(bug): a lane's test binary or package script run by its path ran outside depbox, so the code a lane's dependencies bring ran past depbox whenever an agent typed its path (south#93)
 #[test]
 fn a_lane_test_binary_run_by_path_outside_depbox_is_refused() {
     let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
@@ -186,7 +185,6 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
 const OPEN_SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
 const LANE_SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-lane-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
 
-// KEEP(bug): the outside broker took a caller's lane-only confinement from its own environment, so a caller that left the marker out got the wide read set (south#104)
 #[test]
 fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
     let sent = || vec![("PATH".to_owned(), "/usr/bin".to_owned()), ("HOME".to_owned(), "/home/a".to_owned())];
@@ -198,7 +196,6 @@ fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
     assert_eq!(marker(&super::broker::environment(forged, Some(OPEN_SCOPE))), Some("1".to_owned()), "a caller may narrow itself");
 }
 
-// KEEP(bug): the lane-only domain hid ~/.local/state, where the north runtime lives, so north and the cargo shim exited "Permission denied" and DeepSeek workers cold-built the workspace in /tmp outside depbox and its lease (north#1023)
 #[test]
 fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
     let home = tempfile::tempdir().unwrap();

@@ -177,7 +177,6 @@ mod tests {
         assert_eq!(worker.frames.lock().unwrap().len(), 1);
     }
 
-    // KEEP(bug): the lander watchdog paged and told retired lander-lead, a send that failed on any host without its archive; its owner now hears it while live and the proxy, told who it was for, while not (north#902)
     #[test]
     fn a_service_send_to_the_landers_owner_reaches_it_while_live_else_the_proxy_prefixed_with_its_name_and_recorded() {
         let home = tempfile::tempdir().unwrap();
@@ -197,7 +196,6 @@ mod tests {
         assert_eq!(log.lines().count(), 1, "{log}");
     }
 
-    // KEEP(bug): on 2026-11-09 the fleet tick hung at its first hand-in until systemd killed it, run after run: a revive inside a hand-in sent its carry-on through a second hand-in, which waited forever on the delivery lock the first held (north#637)
     #[test]
     fn a_hand_in_nested_in_another_to_the_same_session_is_delivered_instead_of_waiting_on_its_lock() {
         let (done, finished) = std::sync::mpsc::channel();
@@ -214,7 +212,6 @@ mod tests {
         assert!(frames.iter().any(|frame| frame.contains("nested")), "{frames:?}");
     }
 
-    // KEEP(bug): the fleet tick's wait on a session's delivery lock had no bound, so one delivery that never let go held every tick past systemd's 50 s start timeout (north#637)
     #[test]
     fn a_hand_in_gives_up_on_a_delivery_lock_another_holds_and_leaves_the_row_for_the_next_tick() {
         use std::{sync::mpsc::channel, thread::spawn, time::Duration};

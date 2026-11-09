@@ -6,7 +6,6 @@ use super::unleased_native::unleased_native;
 
 const NATIVE: &str = "/user.slice/user-1000.slice/user@1000.service/native.slice";
 
-// KEEP(bug): a Mak'gora native window outside any lease is named in status, so a quiet latency holder sees why its frame rate fell (whiterabbit, 2026-11-05)
 #[test]
 fn a_native_window_outside_every_lease_is_named_with_its_unit_and_fleet_owner_and_a_leased_one_is_not() {
     let leases = [json!({ "id": "21de55e3-8f84-435a-93cc-35526efc7160", "owner": "flash-gap-244", "class": "native" })];

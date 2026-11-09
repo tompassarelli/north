@@ -6,7 +6,6 @@ fn words(arguments: &[&str]) -> Vec<String> {
     launch_words("/bin/north", &job)
 }
 
-// KEEP(bug): a paid evaluation pass started through job-run ran 4 cores outside every lease on a 20-core host at load 45; a heavy job-run goes through capacity admission; north#784
 #[test]
 fn a_job_run_with_a_class_or_a_rust_compile_goes_through_capacity_admission_and_other_commands_do_not() {
     let leased = |class: &str, name: &str, command: &[&str]| {

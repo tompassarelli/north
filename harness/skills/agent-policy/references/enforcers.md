@@ -80,4 +80,5 @@ These run for every provider, because every landing goes through `safe-push`.
 | A lane adds no locked crate version with an open advisory, a banned crate or an unknown source unless a `Dependency-Advisory:` trailer accepts the advisory | the lander's `dependency advisory` lane gate (cargo-deny) |
 | `cargo update` and every other fetch-mode cargo command in depbox leaves no lock entry under 7 days old | `north depbox` |
 | No new structural debt in a repo with structure.toml | `north after-landing` code-health gate (`code-health gate`) |
+| A lane adds no Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint | `north code-health habits --base --head` in `.safe-push` (`[gate.code-comment]`) |
 | The repository's pre-push checks pass on the rebased lane | pre-push hook and landing train |

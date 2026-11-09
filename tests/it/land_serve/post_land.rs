@@ -220,7 +220,6 @@ if [ ! -e "$LAND_TRACE/held" ]; then
 fi
 "#;
 
-// KEEP(bug): on 2026-11-06 a 50-minute rerun of a firn check line that be08ad55 had replaced held firn's after-landing verdict (north#634)
 #[test]
 fn an_after_landing_run_whose_check_line_a_later_landing_changed_is_cancelled_with_no_verdict_and_its_landings_are_checked_on_the_newest_head() {
     let mut fixture = Fixture::new();
@@ -260,7 +259,6 @@ fi
 if [ -e broken.txt ] && [ ! -e last.txt ]; then echo "test after_landing_probe ... FAILED"; printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
 "#;
 
-// KEEP(bug): culprit searches of 87 to 650 s held every later landing's after-landing run and verdict on 2026-11-06 (north#634)
 #[test]
 fn a_red_runs_culprit_search_does_not_hold_the_next_landings_run() {
     let mut fixture = Fixture::new();
