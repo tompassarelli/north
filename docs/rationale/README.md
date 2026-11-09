@@ -4,7 +4,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 
 - [Account usage: one reserve, placement that manages work in flight, and a spend breaker](account-capacity.md): Plan of 2026-11-04 (laptop time), revised the same day to Tom's design of 2026-11-05.
 - [Agent push identity: agents push as the Socrates Agent app, Tom keeps his login](agent-push-identity.md): Tom approved on 2026-11-06 moving agent pushes off his admin login, so that GitHub itself refuses an agent's stray tag instead of safe-push alone (north#619).
-- [Agent user: agents run under a Unix user of their own, with brokered credentials and depbox for every dependency run](agent-user.md): Decided 2026-11-09 under north#977.
+- [Agent user: agents run under a Unix user of their own](agent-user.md): Decided 2026-11-09 under north#977.
 - [Architectural drift: a measured loop, not only a periodic review](architectural-drift.md): Decided 2026-11-06 under north#636, after Tom shared a community skill for untangling a codebase in one pass and a model's rewrite of it, and asked how it should fold into north.
 - [Attribution: which side each worker outcome belongs to](attribution.md): A worker run can fail because of the worker or because of the harness that staffed, placed, landed or gated it.
 - [Backlog ranking: north's open issues ranked by leverage, with the edges between them](backlog-ranking.md): North's open issues on 2026-11-06, ranked by how much other work each one unblocks or speeds up, then by cost, with the waits between them as an edge list.
