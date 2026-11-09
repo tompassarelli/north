@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::effects::Host;
 use super::build_offload;
+use super::build_host_command;
 use crate::nix_command::{self, Inner};
 use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
@@ -195,15 +196,14 @@ fn leaves(words: &[String], depth: usize, visit: &mut dyn FnMut(Option<&[String]
         start += shell::command(&words[start + 1..], PREFIXES) + 1;
     }
     let words = &words[start.min(words.len())..];
+    let inner = build_host_command::without_depbox(words);
+    if inner.len() < words.len() {
+        return leaves(inner, depth + 1, visit);
+    }
     let Some(name) = words.first() else { return };
     match shell::basename(name) {
         "cargo" | "rustc" | "cargo-nextest" | "bun" => visit(Some(words)),
-        "depbox" => {
-            if let Some(marker) = words.iter().position(|word| word == "--") {
-                leaves(&words[marker + 1..], depth + 1, visit);
-            }
-        }
-        "north" if words.get(1..4).is_some_and(|head| head == ["capacity", "dev-shell", "run"]) || words.get(1).is_some_and(|verb| verb == "depbox") => {
+        "north" if words.get(1..4).is_some_and(|head| head == ["capacity", "dev-shell", "run"]) => {
             if let Some(marker) = words.iter().position(|word| word == "--") {
                 leaves(&words[marker + 1..], depth + 1, visit);
             }

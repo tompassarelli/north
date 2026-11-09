@@ -9,6 +9,12 @@ owners = ["crates/north-base/src/lifecycle.rs", "crates/north-base/src/lifecycle
 typed = "north_base::lifecycle (one Lifecycle enum per state, written only through lifecycle::Store)"
 
 [[implicit_state.allow]]
+shape = "presence-flag"
+path = "crates/north-capacity-host/src/capacity/depbox.rs"
+item = "cargo-fetched/*"
+reason = "one empty file per Cargo.lock fingerprint records that its crates were fetched on this host; the landing's crate fetch reads and writes the same files, and a missing one only costs one cargo fetch"
+
+[[implicit_state.allow]]
 shape = "status-string"
 path = "crates/north-providers/src/providers/claude/window_inbox.rs"
 reason = "the status of a Claude Code window is read from the session file Claude Code writes, an external format with no north lifecycle behind it"

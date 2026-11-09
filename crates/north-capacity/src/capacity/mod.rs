@@ -1,4 +1,5 @@
 pub mod admission;
+pub mod build_host_command;
 pub mod build_offload;
 pub mod handover;
 mod aperture;

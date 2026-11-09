@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use super::build_host_command::for_build_host;
 use super::build_offload::*;
 
 // KEEP(contract): a lane with a private game asset (.W3X, .blp) never ships to an offload host, and an oversized diff stays local; mutant bo-private-ships

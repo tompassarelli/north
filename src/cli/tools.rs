@@ -76,6 +76,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("desktop", desktop),
     ("code-health", code_health),
     ("dash", super::dash::run),
+    ("depbox", |arguments| capacity::depbox::run(arguments, &capacity_host())),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -84,7 +85,6 @@ pub(super) enum Tool {
     Direct(&'static str),
     Pace,
     Capacity,
-    Depbox,
     SessionUnit,
     Dispatch,
     Fleet(&'static str),
@@ -100,7 +100,6 @@ const FLEET: &[(&str, Run)] = &[("report", crate::ops::report::run), ("usage", s
 const OPERATIONS: &[(&str, Tool)] = &[
     ("test", Tool::Test),
     ("capacity", Tool::Capacity),
-    ("depbox", Tool::Depbox),
     ("session-unit", Tool::SessionUnit),
 ];
 
@@ -152,7 +151,6 @@ impl Tool {
                 Some((verb, rest)) if verb == "dev-shell" && rest.first().is_some_and(|run| run == "run") => ExitCode::from(crate::capacity::dev_shell::command(rest)),
                 _ => ExitCode::from(capacity::command::run(arguments, capacity_host())),
             },
-            Self::Depbox => ExitCode::from(capacity::depbox::run(arguments, &capacity_host())),
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),
         }

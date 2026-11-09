@@ -483,7 +483,7 @@ Marked risky or outdated, each with its box:
   `env X=1 nix …`, `depbox run -- nix develop`, `land-shell --dev` and `bash -c 'nix develop …'` get wrapped again; no
   `--offline`; `--dev-shell DIR` alone enters nothing (north#546); `project_shell` accepts any flake whose text
   contains "devShell", comments included.
-- land-shell (`bin/land-shell`) and depbox (`bin/depbox`): run land checks offline in a bwrap sandbox, `--dev` inside
+- land-shell (`bin/land-shell`) and depbox (`north depbox`, which `bin/depbox` forwards to): run land checks offline in a bwrap sandbox, `--dev` inside
   `nix develop`; depbox asks the gate for a lease (be775aee0) and roots the dev shell under
   `~/.local/state/depbox/shell-roots` (ecd62e9e2). Gaps: no nesting check; `--clearenv` drops the shell mark, so
   nesting re-enters; `nix develop` without `--offline` inside a no-network sandbox; the root key misses `bin/cargo`,

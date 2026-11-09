@@ -216,7 +216,7 @@ impl Host {
         ] {
             command.env(key, value);
         }
-        for key in ["DBUS_SESSION_BUS_ADDRESS", "SAFE_PUSH_LANDING", "SAFE_PUSH_LAND_BASE", "SAFE_PUSH_LAND_HEAD", "SAFE_PUSH_LAND_REF", "DEPBOX", "NORTH_BUILD_OFFLOADED", "NORTH_FLEET_SESSION", "NORTH_FLEET_SCOPE"] {
+        for key in ["DBUS_SESSION_BUS_ADDRESS", "SAFE_PUSH_LANDING", "SAFE_PUSH_LAND_BASE", "SAFE_PUSH_LAND_HEAD", "SAFE_PUSH_LAND_REF", "DEPBOX", "NORTH_WORKER_SANDBOXED", "NORTH_BUILD_OFFLOADED", "NORTH_FLEET_SESSION", "NORTH_FLEET_SCOPE"] {
             command.env_remove(key);
         }
         command

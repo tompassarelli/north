@@ -167,7 +167,7 @@ Options, each argued against:
 
 What north already runs: the Landlock worker sandbox, which confines removal for every command a worker runs
 ([worker-sandbox.md](worker-sandbox.md)), and depbox, a bubblewrap namespace in which dependency code runs with no
-credentials and no network outside `depbox fetch` (bin/depbox).
+credentials and no network outside `depbox fetch` (`north depbox`).
 
 Threat one, deleting outside the lane: the Landlock domain refuses the removal whatever path the command computes,
 and its enforcement on every host is north#956's first box. north#975 holds the same guarantee for work a command
