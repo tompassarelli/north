@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::lane::{Lane, gather};
-use super::{cores, room_for};
+use super::room_for;
 use super::remote::{Ran, drive, hand_over, invocation};
 use super::take::{Sender, Starting, Target, hang_up, pick, refusal, release_command, run_lane, transport};
 use crate::capacity::build_offload::{Admission, Declined, Job};
@@ -195,22 +195,23 @@ fn capacity_a_queued_run_handed_to_a_taker_runs_on_the_taker_and_its_output_and_
     assert_eq!(std::fs::read_to_string(lane_dir.join("Cargo.lock")).unwrap(), "taken", "a lock a handed-over run changed comes back to the lane (north#671)");
 }
 
-// KEEP(contract): a queued run leaves its host only to a taker that has a free slot beyond the interactive reserve, whose admission is not still settling a heavy build it started, and rebuilds the lane; otherwise it stays queued; north#634
+// KEEP(contract): a queued run leaves its host only to a taker its own job admission admits, whose admission is not still settling a heavy build it started, and rebuilds the lane; otherwise it stays queued; north#634 north#945
 #[test]
 fn capacity_a_run_stays_queued_when_the_taker_has_no_room_cannot_rebuild_the_lane_or_leaves_early() {
-    assert_eq!(refusal(Some(&laptop_room(2.0)), 0), None);
-    let full = refusal(Some(&laptop_room(12.0)), 0).expect("2 of 14 cores free is under the 4 a heavy run needs");
-    assert!(full.contains("cores free of 14"), "{full}");
-    assert_eq!(refusal(Some(&laptop_room(7.0)), 0), None);
-    assert!(refusal(Some(&laptop_room(7.0)), 1).is_some(), "a run taken a moment ago is not yet in the committed cores");
+    assert_eq!(refusal(Some(&laptop_room(2.0))), None, "a host under its job target with memory for one build takes a run, however many cores its leases declare");
+    let pressed = Room { admission: Admission { host_cpu_pressure_percent: 40.0, ..laptop_room(2.0).admission }, ..laptop_room(2.0) };
+    let full = refusal(Some(&pressed)).expect("a host at the job target starts no other job");
+    assert!(full.contains("CPU pressure 40% at the 40% job target"), "{full}");
+    let starved = Room { measure: Measure { memory_available_mib: 9000.0, ..laptop_room(2.0).measure }, ..laptop_room(2.0) };
+    assert!(refusal(Some(&starved)).is_some(), "memory under one job's peak and the host's floor holds it");
     let mut waiting = laptop_room(2.0);
     waiting.admission.land_check_waiting = true;
-    assert!(refusal(Some(&waiting), 0).is_some());
+    assert!(refusal(Some(&waiting)).is_some());
     let status = serde_json::json!({ "profile": "unattended", "aggregateCpuLimit": 14.0, "committedBatchCpus": 2.0, "cpuSomeAvg10": 1.0, "heavySettlingSeconds": 11.0 });
     let settling = Room { admission: Admission::from_status(&status).expect("a status the taker reads"), ..laptop_room(2.0) };
-    let why = refusal(Some(&settling), 0).expect("its admission defers a heavy run until the settle window ends");
+    let why = refusal(Some(&settling)).expect("its admission defers a heavy run until the settle window ends");
     assert!(why.contains("settles for 11 s"), "{why}");
-    assert!(refusal(None, 0).is_some());
+    assert!(refusal(None).is_some());
     let hosts = hosts();
     let lane = gather(&hosts.lane("left"), &hosts.laptop).unwrap().ship(&[]).unwrap();
     let command = ["cargo".to_owned(), "test".to_owned()];
@@ -235,7 +236,7 @@ fn host_room(limit: f64, committed: f64) -> Room {
     room
 }
 
-// KEEP(contract): a pulled run goes to the target with the most free cores, never to one whose interactive reserve leaves it no room, and to none while this host holds its game reserve; north#677
+// KEEP(contract): a pulled run goes to the target with the most free cores among those its own job admission admits, never to one over its pressure target, and to none while this host holds its game reserve; north#677 north#945
 #[test]
 fn capacity_a_pulled_run_goes_to_the_target_with_the_most_free_cores_and_to_none_while_the_game_reserve_holds() {
     fn targets<'a>(laptop: &'a Room, ccx33: &'a Room, starting: usize) -> Vec<Target<'a>> {
@@ -246,9 +247,10 @@ fn capacity_a_pulled_run_goes_to_the_target_with_the_most_free_cores_and_to_none
     assert_eq!(pick(&targets(&busier, &ccx33, 0), false), Ok(("ccx33", Some("tom@ccx33"))), "8 free cores on ccx33 beat 6 on the laptop");
     assert_eq!(pick(&targets(&busier, &ccx33, 1), false), Ok(("whiterabbit", None)), "a run already on its way to ccx33 counts against it");
     let reserve_full = host_room(14.0, 12.0);
-    let only_laptop = [Target { name: "whiterabbit", ssh: None, room: Some(&reserve_full), starting: 0 }];
+    let pressed = Room { admission: Admission { host_cpu_pressure_percent: 40.0, ..reserve_full.admission }, ..reserve_full };
+    let only_laptop = [Target { name: "whiterabbit", ssh: None, room: Some(&pressed), starting: 0 }];
     let refused = pick(&only_laptop, false).unwrap_err();
-    assert!(refused[0].starts_with("whiterabbit: 2.0 cores free of 14"), "the admission limit keeps the interactive reserve, so the laptop with 2 cores under it takes nothing: {refused:?}");
+    assert!(refused[0].starts_with("whiterabbit: CPU pressure 40%"), "a host at its job target takes nothing, whatever its committed cores: {refused:?}");
     assert_eq!(pick(&targets(&laptop, &ccx33, 0), true), Err(vec!["this host holds its game reserve".to_owned()]));
 }
 
@@ -353,13 +355,15 @@ fn capacity_a_host_never_starts_an_offload_whose_announce_lost_to_the_gates_time
     assert!(!marker.exists(), "the host started the command of an abandoned offer");
 }
 
-// KEEP(bug): a pushed build is offered to a host only when it has the cores the build itself asks for free: room read at the 4 cores an offloaded land check needs sent 6-core gates to gex45 at 4 to 5.9 free, where 10 of the 30 that waited over 30 s from 21:00 to 21:56 UTC on 2026-11-07 were deferred for CPU capacity on arrival; north#634
+// KEEP(contract): a pushed build goes to the host its own job admission admits, so it waits only while the host is over its whole-host pressure target or short of the memory one job peaks at there; the committed cores stay a ceiling, never the gate (north#945, replacing north#634's cores-free proxy)
 #[test]
-fn capacity_a_pushed_build_needs_its_own_cores_free_on_the_host() {
-    let job = |cpus: f64| Job { owner: "t", timeout_seconds: 60, command: &[], cpus };
-    let five_free = laptop_room(9.0);
-    assert!(matches!(room_for(&five_free, 0.0, cores(&job(6.0))), crate::capacity::build_offload::Room::Short(_)), "5 free cores do not start a 6-core gate");
-    assert!(matches!(room_for(&five_free, 0.0, cores(&job(2.0))), crate::capacity::build_offload::Room::Free { .. }), "a 2-core build still needs only the 4-core floor");
-    assert!(matches!(room_for(&laptop_room(2.0), 6.0, cores(&job(6.0))), crate::capacity::build_offload::Room::Free { .. }), "12 free less one 6-core claim ahead leaves room for another");
-    assert!(matches!(room_for(&laptop_room(2.0), 7.0, cores(&job(f64::NAN))), crate::capacity::build_offload::Room::Free { .. }), "an unsized build needs the floor");
+fn capacity_a_pushed_build_waits_only_while_the_hosts_own_job_admission_refuses() {
+    let room = laptop_room(12.0);
+    assert!(matches!(room_for(&room), crate::capacity::build_offload::Room::Free { .. }), "2 of 14 cores free at no pressure still starts another build");
+    let nearly = Room { admission: Admission { host_cpu_pressure_percent: 39.0, ..room.admission }, ..room };
+    assert!(matches!(room_for(&nearly), crate::capacity::build_offload::Room::Free { .. }), "under the 40% job target the host admits one, so no build waits beside it");
+    let pressed = Room { admission: Admission { host_cpu_pressure_percent: 40.0, ..room.admission }, ..room };
+    assert!(matches!(room_for(&pressed), crate::capacity::build_offload::Room::Short(why) if why.contains("CPU pressure 40%")), "at the target the host holds new jobs");
+    let starved = Room { measure: Measure { memory_available_mib: 9000.0, ..room.measure }, ..room };
+    assert!(matches!(room_for(&starved), crate::capacity::build_offload::Room::Short(_)), "memory under one job's peak and the host's floor holds it");
 }

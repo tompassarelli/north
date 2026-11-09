@@ -1,5 +1,6 @@
 use crate::capacity::admission::{Class, dispatch_request_mib, memory_short, offload_room};
 use crate::capacity::build_offload::Admission;
+use crate::capacity::job_admission;
 use crate::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
@@ -107,16 +108,16 @@ pub fn shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
     shortfall_needing(room, reserved, offload_room().0)
 }
 
-/// The shortfall for a worker build of `cores`, which also waits while a land check claims the host.
-pub fn build_shortfall(room: &Room, reserved: f64, cores: f64) -> Option<String> {
+/// The shortfall for a worker build, which also waits while a land check claims the host: the host's own job admission answers, by its whole host's CPU pressure and the memory one job peaks at there, so the build waits only while the host is over that target and its committed cores no longer gate it.
+pub fn build_shortfall(room: &Room) -> Option<String> {
     if room.admission.land_check_waiting {
         return Some(crate::capacity::land_claim::REASON.to_owned());
     }
-    shortfall_needing(room, reserved, cores)
+    let load = job_admission::HostLoad { cpu_some_percent: room.admission.host_cpu_pressure_percent, memory_total_mib: room.measure.memory_total_mib, memory_available_mib: room.measure.memory_available_mib };
+    job_admission::refusal(&load, room.admission.job_peak_mib).or_else(|| disk_shortfall(room))
 }
 
 fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {
-    let disk = offload_room().1;
     let memory = dispatch_request_mib(Class::Heavy);
     if let Some(short) = room.admission.shortfall(cores, reserved) {
         return Some(short);
@@ -124,6 +125,11 @@ fn shortfall_needing(room: &Room, reserved: f64, cores: f64) -> Option<String> {
     if memory_short(room.measure.memory_total_mib, room.measure.memory_available_mib, memory) {
         return Some(format!("{:.0} MiB memory available, needs {memory:.0} and its headroom", room.measure.memory_available_mib));
     }
+    disk_shortfall(room)
+}
+
+fn disk_shortfall(room: &Room) -> Option<String> {
+    let disk = offload_room().1;
     (room.disk_free_gib < disk).then(|| format!("{:.1} GiB disk free, needs {disk}", room.disk_free_gib))
 }
 

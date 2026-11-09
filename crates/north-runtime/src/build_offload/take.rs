@@ -38,13 +38,13 @@ const NOTHING_QUEUED: i32 = 3;
 const USAGE: &str = "usage: north capacity offload take [--once]";
 const RELEASE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host hand-over --wait-seconds"#;
 
-/// Why a target takes no pulled run now: fewer free slots than a heavy run needs once its interactive reserve is kept (its admission limit already excludes it) and the runs sent to it that have not yet started are counted, a land check waiting, CPU pressure, memory or disk; None when it can take one.
-pub(super) fn refusal(room: Option<&Room>, starting: usize) -> Option<String> {
+/// Why a target takes no pulled run now: its own job admission, by the whole host's CPU pressure and the memory one job peaks at there, with the runs sent to it that have not yet started counted only in the choice among targets, a land check waiting, memory or disk; None when it can take one.
+pub(super) fn refusal(room: Option<&Room>) -> Option<String> {
     let Some(room) = room else { return Some("its room is unreadable".to_owned()) };
     if room.admission.heavy_settling_seconds > 0.0 {
         return Some(format!("a heavy build started there settles for {:.0} s more before its admission starts another", room.admission.heavy_settling_seconds));
     }
-    room::build_shortfall(room, starting as f64 * offload_room().0, offload_room().0)
+    room::build_shortfall(room)
 }
 
 /// A host a pulled run may go to, as the taker sees it now: this host itself (no ssh) or a build host it reaches.
@@ -61,10 +61,10 @@ pub(super) fn pick<'a>(targets: &[Target<'a>], game_reserved: bool) -> Result<(&
         return Err(vec!["this host holds its game reserve".to_owned()]);
     }
     let free = |target: &Target| target.room.map_or(f64::NEG_INFINITY, |room| room.admission.free_cpus() - target.starting as f64 * offload_room().0);
-    let open = targets.iter().filter(|target| refusal(target.room, target.starting).is_none());
+    let open = targets.iter().filter(|target| refusal(target.room).is_none());
     match open.max_by(|left, right| free(left).total_cmp(&free(right))) {
         Some(target) => Ok((target.name, target.ssh)),
-        None => Err(targets.iter().filter_map(|target| refusal(target.room, target.starting).map(|why| format!("{}: {why}", target.name))).collect()),
+        None => Err(targets.iter().filter_map(|target| refusal(target.room).map(|why| format!("{}: {why}", target.name))).collect()),
     }
 }
 
@@ -423,5 +423,5 @@ pub fn own_build_refusal() -> Option<String> {
     if game_reserved() {
         return Some("this host holds its game reserve".to_owned());
     }
-    refusal(room::read_local().as_ref(), 0)
+    refusal(room::read_local().as_ref())
 }

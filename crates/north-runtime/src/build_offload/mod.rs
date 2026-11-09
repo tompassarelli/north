@@ -1,11 +1,9 @@
 //! Runs a heavy build this host would defer on another host with room: the lane's commit and uncommitted diff go to a per-lane checkout there, the command runs under that host's own admission, and its output and exit code come back.
 use std::time::Duration;
 
-use crate::capacity::admission::offload_room;
 use crate::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
 use crate::land_offload::{build_hosts, room};
 
-mod claims;
 mod lane;
 mod remote;
 mod returned;
@@ -14,19 +12,12 @@ pub mod take;
 #[cfg(test)]
 mod tests;
 
-/// The cores a build host needs free to start the job at once: its own sizing, never under what an offloaded land check needs.
-fn cores(job: &Job) -> f64 {
-    let floor = offload_room().0;
-    if job.cpus.is_finite() { job.cpus.max(floor) } else { floor }
+fn room_for(read: &room::Room) -> Room {
+    room::build_shortfall(read).map_or(Room::Free { free_cpus: read.admission.free_cpus() }, Room::Short)
 }
 
-fn room_for(read: &room::Room, reserved: f64, cores: f64) -> Room {
-    room::build_shortfall(read, reserved, cores).map_or(Room::Free { free_cpus: read.admission.free_cpus() - reserved }, Room::Short)
-}
-
-fn room_of(ssh: &str, claim: Option<&claims::Claim>, cores: f64) -> Room {
-    let Some(read) = room::read_within(ssh, Duration::from_secs(PROBE_LIMIT_SECONDS)) else { return Room::Unreachable };
-    room_for(&read, claim.map_or(0.0, |claim| claim.ahead_cpus(offload_room().0)), cores)
+fn room_of(ssh: &str) -> Room {
+    room::read_within(ssh, Duration::from_secs(PROBE_LIMIT_SECONDS)).map_or(Room::Unreachable, |read| room_for(&read))
 }
 
 /// Ok(exit code) when the build ran on another host, trying each host with room in turn when one cannot take the lane; Err leaves it to the local path, naming why when an offload host was configured.
@@ -41,9 +32,7 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool
     if let Some(refused) = refusal(candidate) {
         return Err(Some(refused));
     }
-    let needs = cores(job);
-    let mut held: Vec<Option<claims::Claim>> = hosts.iter().map(|(name, _)| claims::Claim::take(name, needs)).collect();
-    let mut rooms: Vec<(String, Room)> = hosts.iter().zip(&held).map(|((name, ssh), claim)| (name.clone(), room_of(ssh, claim.as_ref(), needs))).collect();
+    let mut rooms: Vec<(String, Room)> = hosts.iter().map(|(name, ssh)| (name.clone(), room_of(ssh))).collect();
     let mut failed = Vec::new();
     loop {
         let host = match route(candidate, || rooms.clone()) {
@@ -53,8 +42,6 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str) -> bool
             Route::Local => return Err(None),
         };
         let position = hosts.iter().position(|(name, _)| *name == host).ok_or(None)?;
-        let _claim = held[position].take();
-        held.iter_mut().for_each(|other| drop(other.take()));
         match run_on(&host, hosts[position].1.as_str(), job, announce)? {
             remote::Ran::Exit(code) => return Ok(code),
             remote::Ran::Abandoned => return Err(None),
