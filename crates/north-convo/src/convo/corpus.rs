@@ -12,6 +12,10 @@ use super::db::connect;
 use super::env::Env;
 use super::failure::{Failure, Result};
 use super::index;
+use super::speaker::speaker;
+use super::text::clip;
+use crate::fleet::sender::{Sender, urgent_text};
+use crate::fleet::store::texts_sent_by;
 
 pub(super) const CLAUDE_FILE: &str = "claude.jsonl";
 
@@ -37,13 +41,22 @@ fn key(session: Option<&str>, ts: Option<&str>, text: &str) -> String {
     format!("{}\u{1f}{}\u{1f}{text}", session.unwrap_or(""), ts.unwrap_or(""))
 }
 
-fn typed(con: &Connection) -> Result<Vec<Typed>> {
+fn typed(con: &Connection, from_tom: &HashSet<String>) -> Result<Vec<Typed>> {
     let mut statement = con.prepare(
-        "SELECT f.account, f.session_id, m.ts, f.cwd, b.text FROM msg m JOIN files f ON f.id = m.file_id JOIN body b ON b.id = m.body \
-         WHERE f.provider = 'anthropic' AND f.agent IS NULL AND m.role = 'user' AND m.tool IS NULL ORDER BY m.ts, m.id",
+        "SELECT f.account, f.session_id, m.ts, f.cwd, b.text, m.role FROM msg m JOIN files f ON f.id = m.file_id JOIN body b ON b.id = m.body \
+         WHERE f.provider = 'anthropic' AND f.agent IS NULL AND m.role IN ('user', 'sent') AND m.tool IS NULL ORDER BY m.ts, m.id",
     )?;
-    let rows = statement.query_map([], |row| Ok(Typed { account: row.get(0)?, session: row.get(1)?, ts: row.get(2)?, cwd: row.get(3)?, text: row.get(4)? }))?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    let rows = statement.query_map([], |row| {
+        let typed = Typed { account: row.get(0)?, session: row.get(1)?, ts: row.get(2)?, cwd: row.get(3)?, text: row.get(4)? };
+        Ok((typed, row.get::<_, String>(5)? == "user"))
+    })?;
+    let rows: Vec<(Typed, bool)> = rows.collect::<rusqlite::Result<_>>()?;
+    Ok(rows.into_iter().filter(|(row, keyed)| *keyed || from_tom.contains(urgent_text(&row.text).unwrap_or(&row.text))).map(|(row, _)| row).collect())
+}
+
+fn sent_by_tom(env: &Env) -> Result<HashSet<String>> {
+    let texts = texts_sent_by(&env.ledger, &Sender::Tom).map_err(|error| Failure::Other(format!("the fleet store at {} is unreadable: {}", env.ledger.display(), error.user_message())))?;
+    Ok(texts.iter().map(|text| clip(text)).filter(|text| speaker("user", text) == "user").collect())
 }
 
 fn kept(path: &Path) -> Result<HashSet<String>> {
@@ -63,10 +76,11 @@ fn kept(path: &Path) -> Result<HashSet<String>> {
 pub(super) fn corpus(env: &Env, io: &mut Console, args: &Args) -> Result<u8> {
     let busy = || Failure::Unreconciled("another index run holds the lock".to_owned());
     index::refresh(env, args.quiet, false, env.lock_wait, false)?.ok_or_else(busy)?;
+    let from_tom = sent_by_tom(env)?;
     let con = connect(&env.db(), &env.state, true)?;
     let path = env.corpus.join(CLAUDE_FILE);
     let mut seen = kept(&path)?;
-    let fresh: Vec<Typed> = typed(&con)?.into_iter().filter(|row| seen.insert(row.key())).collect();
+    let fresh: Vec<Typed> = typed(&con, &from_tom)?.into_iter().filter(|row| seen.insert(row.key())).collect();
     drop(con);
     if !fresh.is_empty() {
         fs::create_dir_all(&env.corpus)?;

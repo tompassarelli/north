@@ -78,13 +78,6 @@ impl Fleet {
     }
 }
 
-pub(super) fn signed(from: &Sender, text: &str) -> String {
-    match from.prefix() {
-        Some(prefix) => format!("[from {prefix}] {text}"),
-        None => text.to_owned(),
-    }
-}
-
 fn caller_name(named: Option<String>, conversation: Option<String>, sessions: impl FnOnce() -> Vec<SessionRecord>) -> Option<String> {
     session_name(named, conversation.as_deref(), sessions).or(conversation)
 }

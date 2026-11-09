@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Gate;
 use crate::fleet::model::{EntryKind, SessionRecord, Transcript};
-use crate::fleet::registry::urgent_text;
+use crate::fleet::sender::urgent_text;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionFacts {

@@ -28,6 +28,7 @@ use super::records::{find_session, host_sessions, parents_live};
 use super::silent::{self, Quiet, Silence, State};
 use super::run_recording::{NoRecording, RunRecording};
 use super::runtime::{Runtime, new_uuid, now_ms};
+use super::sender::Sender;
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::tickets::{NoTickets, Tickets};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
@@ -283,7 +284,7 @@ impl TurnWatch {
             return;
         }
         self.checkpoints.ask(conversation, context);
-        fresh(self.runtime.as_ref(), &checkpoint::question(context)).into_iter().flatten().for_each(|frame| self.courier.answer(&self.host_dir, frame));
+        own(self.runtime.as_ref(), &checkpoint::question(context)).into_iter().flatten().for_each(|frame| self.courier.answer(&self.host_dir, frame));
     }
 
     /// The checkpoint's next frames once no turn is running: the worker's resume turn after its compaction, else the `/compact` its answer chose.
@@ -292,7 +293,7 @@ impl TurnWatch {
             return None;
         }
         if self.checkpoints.take_resume() {
-            return fresh(self.runtime.as_ref(), checkpoint::RESUME);
+            return own(self.runtime.as_ref(), checkpoint::RESUME);
         }
         self.runtime.compact(Some(&self.checkpoints.take_ready()?)).map(|frame| vec![frame])
     }
@@ -522,8 +523,8 @@ impl FrameWatch for TurnWatch {
     }
 }
 
-fn fresh(runtime: &dyn Runtime, text: &str) -> Option<Vec<String>> {
-    runtime.message(&Transcript::new(), &new_uuid().ok()?, text).ok()
+fn own(runtime: &dyn Runtime, text: &str) -> Option<Vec<String>> {
+    runtime.message(&Transcript::new(), &new_uuid().ok()?, &Sender::session_host().sign(text)).ok()
 }
 
 /// A turn's model and effort as observed, else as its session was launched.

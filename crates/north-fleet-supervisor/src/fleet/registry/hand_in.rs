@@ -11,7 +11,6 @@ use crate::fleet::transcript::stream_path;
 use crate::fleet::unaccepted::Unaccepted;
 
 use super::Fleet;
-use super::senders::signed;
 
 const LOCK: &str = ".delivery.lock";
 
@@ -80,7 +79,7 @@ impl Fleet {
         if let Err(error) = self.note_sender(&row.to, &signer) {
             eprintln!("north fleet: delivering to {}, but its sender was not recorded: {}", row.to, error.user_message());
         }
-        self.prompt(&row.to, &row.prompt_id(), &signed(&signer, &row.text), row.delivery())
+        self.prompt(&row.to, &row.prompt_id(), &signer.sign(&row.text), row.delivery())
     }
 }
 

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub const FILE: &str = "index-v6.db";
+pub const FILE: &str = "index-v7.db";
 
 pub fn under(state: &Path) -> PathBuf {
     state.join(FILE)

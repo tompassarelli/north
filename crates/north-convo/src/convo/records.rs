@@ -94,7 +94,7 @@ fn typed_mid_turn(record: &Json) -> Option<Message> {
     (!text.is_empty()).then(|| Message { role: speaker("user", &text), text, tool: None })
 }
 
-pub(super) fn extract_claude(record: &Json, opening: bool, home: &str) -> (Vec<Message>, Meta) {
+pub(super) fn extract_claude(record: &Json) -> (Vec<Message>, Meta) {
     let mut meta = claude_meta(record);
     let kind = record.text_of("type").unwrap_or("");
     if kind == "ai-title" {
@@ -113,7 +113,7 @@ pub(super) fn extract_claude(record: &Json, opening: bool, home: &str) -> (Vec<M
     let content = message.get("content");
     let single = [Json::Object(vec![("type".to_owned(), Json::Text("text".to_owned())), ("text".to_owned(), content.and_then(Json::text).map_or(Json::Null, |t| Json::Text(t.to_owned())))])];
     let blocks = if content.and_then(Json::text).is_some() { &single[..] } else { content.map_or(&[][..], Json::items) };
-    let brief = kind == "user" && delivered(record, opening, home);
+    let brief = kind == "user" && delivered(record);
     let injected = kind == "user" && (record.get("isMeta").is_some_and(Json::truthy) || record.get("isCompactSummary").is_some_and(Json::truthy));
     let mut out = Vec::new();
     for block in blocks.iter().filter(|block| block.is_object()) {

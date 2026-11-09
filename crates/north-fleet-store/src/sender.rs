@@ -21,6 +21,10 @@ impl Sender {
         Self::Service("north-fleet".into())
     }
 
+    pub fn session_host() -> Self {
+        Self::Service("north-session-host".into())
+    }
+
     pub fn service(unit: &str) -> NorthResult<Self> {
         let unit = unit.strip_prefix(SERVICE).unwrap_or(unit);
         if unit.is_empty() || unit.chars().any(char::is_whitespace) {
@@ -64,6 +68,13 @@ impl Sender {
             Self::Tom => None,
             Self::Session(name) => Some(name.clone()),
             Self::Service(unit) => Some(format!("{SERVICE}{unit}")),
+        }
+    }
+
+    pub fn sign(&self, text: &str) -> String {
+        match self.prefix() {
+            Some(prefix) => format!("[from {prefix}] {text}"),
+            None => text.to_owned(),
         }
     }
 }
@@ -116,6 +127,16 @@ impl<'de> Deserialize<'de> for Sender {
         let text = String::deserialize(deserializer)?;
         text.parse().or_else(|error: NorthError| stored_before_w1(&text).ok_or_else(|| serde::de::Error::custom(error.user_message())))
     }
+}
+
+const URGENT_PREFIX: &str = "[urgent message; your previous step was interrupted — answer this, then resume your task]";
+
+pub fn urgent_prefixed(text: &str) -> String {
+    format!("{URGENT_PREFIX}\n{text}")
+}
+
+pub fn urgent_text(text: &str) -> Option<&str> {
+    text.strip_prefix(URGENT_PREFIX).map(|rest| rest.trim_start_matches('\n'))
 }
 
 #[cfg(test)]

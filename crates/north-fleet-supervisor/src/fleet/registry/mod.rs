@@ -27,6 +27,7 @@ pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
 use super::run_recording::{NoRecording, RunRecording};
 use super::usage_sink::{NoUsage, UsageSink};
+use super::sender::urgent_prefixed;
 use super::store::{OverSsh, Registrar, SPOOL_DIR, Spool};
 use super::waits::Waits;
 use super::transcript::{current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len};
@@ -87,7 +88,6 @@ pub use spend_rows::Spent;
 pub use wait_rows::Waiting;
 
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
-const URGENT_PREFIX: &str = "[urgent message; your previous step was interrupted — answer this, then resume your task]";
 const HOSTS: &str = ".hosts";
 
 #[derive(Clone)]
@@ -457,12 +457,4 @@ fn read_frames(path: &Path) -> NorthResult<Vec<serde_json::Value>> {
         .split(|byte| *byte == b'\n')
         .filter_map(|line| serde_json::from_slice(line).ok())
         .collect())
-}
-
-pub fn urgent_prefixed(text: &str) -> String {
-    format!("{URGENT_PREFIX}\n{text}")
-}
-
-pub fn urgent_text(text: &str) -> Option<&str> {
-    text.strip_prefix(URGENT_PREFIX).map(|rest| rest.trim_start_matches('\n'))
 }

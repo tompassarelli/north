@@ -12,7 +12,6 @@ const INJECTED: [&str; 10] = [
 ];
 const PING: &str = "[north real-time ping";
 const SENT: [&str; 3] = ["[from ", "[gate ", "[urgent message"];
-const SIGNED_SINCE: &str = "2026-11-06";
 
 static TAG: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -37,8 +36,7 @@ pub(super) fn speaker(role: &str, text: &str) -> String {
     .to_owned()
 }
 
-pub(super) fn delivered(record: &Json, opening: bool, home: &str) -> bool {
+pub(super) fn delivered(record: &Json) -> bool {
     let human = record.get("origin").and_then(|origin| origin.text_of("kind")) == Some("human");
-    let unsigned = record.text_of("timestamp").is_none_or(|ts| ts < SIGNED_SINCE) && record.text_of("cwd") != Some(home);
-    !human && record.text_of("promptSource") == Some("sdk") && (opening || unsigned)
+    !human && record.text_of("promptSource") == Some("sdk")
 }

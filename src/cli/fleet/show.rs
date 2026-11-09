@@ -4,7 +4,8 @@ use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Entry, EntryKind, Status, Transcript};
-use crate::fleet::registry::{Fleet, urgent_text};
+use crate::fleet::registry::Fleet;
+use crate::fleet::sender::urgent_text;
 
 use super::list;
 use super::turn_json::turn_json;
