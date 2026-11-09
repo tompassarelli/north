@@ -25,7 +25,7 @@ uid = 1001
 repositories = ["north", "south"]
 permissions = { contents = "write", issues = "write" }
 [caller.proxy]
-digitalocean = ["GET /v2/droplets", "GET /v2/echo"]
+digitalocean = ["GET /v2/droplets", "GET /v2/echo", "POST /v2/droplets/*/actions", "POST /v2/body"]
 "#;
 
 type Seen = Arc<Mutex<Vec<(String, Vec<(String, String)>, String)>>>;
@@ -155,4 +155,30 @@ fn a_caller_outside_the_ceiling_or_the_policy_gets_no_token_and_costs_no_mint() 
     assert_eq!(ask(4242, json!({ "app": "agent", "repositories": ["north"] })).0, 403);
     assert!(seen.lock().unwrap().is_empty(), "a refused request still minted a token");
     assert_eq!(ask(1001, json!({ "app": "agent", "repositories": ["north"], "permissions": { "contents": "read" } })).0, 200);
+}
+
+// KEEP(bug): the proxy handed a caller's path to curl as a URL glob, so {..} walked out of the allowlist (south#94 review, finding 1)
+#[test]
+fn a_glob_in_the_path_is_refused_and_a_brace_in_a_query_never_multiplies_a_call() {
+    let (upstream, seen) = fake_upstream(|_, _| (200, json!({})));
+    let (_keep, broker) = broker("http://127.0.0.1:9", &upstream, 1001);
+    let headers = [("Authorization", "Bearer placeholder")];
+    assert_eq!(call(&broker, 1001, "POST", "/digitalocean/v2/droplets/{..}/actions", &headers, &Value::Null).0, 403);
+    assert_eq!(call(&broker, 1001, "POST", "/digitalocean/v2/droplets/[1-9]/actions", &headers, &Value::Null).0, 403);
+    assert_eq!(call(&broker, 1001, "GET", "/digitalocean/v2/droplets?x={a,b}", &headers, &Value::Null).0, 403);
+    assert!(seen.lock().unwrap().is_empty(), "a globbed call reached the provider");
+}
+
+// KEEP(bug): a body starting with @ made curl send one of the broker's own credential files to the provider (south#94 review, finding 2)
+#[test]
+fn a_body_starting_with_at_reaches_the_provider_as_text_and_no_loaded_secret_comes_back() {
+    let (upstream, seen) = fake_upstream(|_, request| (200, json!({ "echo": request })));
+    let (keep, broker) = broker("http://127.0.0.1:9", &upstream, 1001);
+    let marker = keep.path().join("github-app.yaml");
+    let body = format!("@{}", marker.display());
+    let request = Request { method: "POST".to_owned(), target: "/digitalocean/v2/body".to_owned(), headers: vec![("Authorization".to_owned(), "Bearer placeholder".to_owned())], body: body.clone().into_bytes() };
+    let answer = broker.handle(Peer { uid: 1001, pid: 1 }, &request, NOW);
+    assert_eq!(answer.status, 200);
+    assert_eq!(seen.lock().unwrap()[0].2, body, "the provider got something other than the text the caller sent");
+    assert!(!String::from_utf8_lossy(&answer.body).contains("BEGIN"), "a credential file came back");
 }

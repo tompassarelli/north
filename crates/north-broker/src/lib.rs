@@ -1,5 +1,6 @@
 mod cli;
 mod credentials;
+mod curl;
 mod github;
 mod policy;
 mod proxy;

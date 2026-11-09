@@ -5,6 +5,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use north_base::platform::broker_client;
 use sha2::{Digest, Sha256};
 
 use super::carry::{self, Boundary};
@@ -23,6 +24,16 @@ const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
 const READS: [&str; 14] = [
     ".cargo/bin", ".rustup", ".gitconfig", ".config/git", ".nix-profile", ".local/bin", ".local/share/north", ".local/state/north/runtimes", ".local/state/north/dev-shells", ".local/state/nix/profile", ".local/state/nix/profiles", ".local/lib/firn/cli", "code/nixos-config/pins", "code/north/pins",
 ];
+
+/// The directories holding the credential broker's sockets, the system one and any NORTH_BROKER_SOCKET names, which a read-only bind of / leaves connectable from dependency code.
+fn broker_directories() -> Vec<PathBuf> {
+    let named = std::env::var_os(broker_client::SOCKET_ENV).map(PathBuf::from).and_then(|socket| socket.parent().map(Path::to_path_buf));
+    let system = Path::new(broker_client::SYSTEM_SOCKET).parent().map(Path::to_path_buf);
+    let mut directories: Vec<PathBuf> = named.into_iter().chain(system).filter(|directory| directory.is_dir() && directory.parent().is_some()).collect();
+    directories.sort();
+    directories.dedup();
+    directories
+}
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {
     if let Some(inside) = std::env::var(MARK).ok().filter(|value| !value.is_empty()) {
@@ -141,7 +152,7 @@ impl Sandbox {
 
     /// Whether a program at `path` is still there inside the sandbox, which hides /tmp, the runtime directory, home and the secrets directory apart from what it binds.
     fn visible(&self, path: &Path) -> bool {
-        self.binds.iter().any(|bind| path.starts_with(bind)) || ![Path::new("/tmp"), &self.runtime, &self.home, &self.named_home, Path::new("/run/secrets.d")].iter().any(|hidden| path.starts_with(hidden))
+        self.binds.iter().any(|bind| path.starts_with(bind)) || ![Path::new("/tmp"), &self.runtime, &self.home, &self.named_home, Path::new("/run/secrets.d")].iter().any(|hidden| path.starts_with(hidden)) && !broker_directories().iter().any(|hidden| path.starts_with(hidden))
     }
 
     fn enter(self, command: &[String]) -> u8 {
@@ -204,6 +215,13 @@ impl Sandbox {
         self.bind("--bind", &top, &sandbox);
         let common = self.binds[2].clone();
         self.bind("--ro-bind", &common, &common);
+        for directory in broker_directories() {
+            let inside = directory.strip_prefix(&top).ok().map(|relative| sandbox.join(relative));
+            for hidden in std::iter::once(directory).chain(inside) {
+                self.add(&["--tmpfs"]);
+                self.arguments.push(hidden.into());
+            }
+        }
         self.add(&["--unshare-pid", "--unshare-ipc"]);
         if self.mode == Mode::Run {
             self.add(&["--unshare-net"]);

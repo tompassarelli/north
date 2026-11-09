@@ -46,10 +46,18 @@ fn a_request_without_permissions_gets_the_whole_ceiling_and_workflows_is_never_g
 #[test]
 fn the_allowlist_matches_one_segment_per_star_and_refuses_traversal() {
     let rules = Rules::new(&Policy::parse(POLICY).unwrap().caller(1001).unwrap().proxy["digitalocean"]).unwrap();
-    assert!(rules.allows("GET", "/v2/droplets") && rules.allows("GET", "/v2/droplets/42") && rules.allows("POST", "/v2/droplets/42/actions"));
-    assert!(rules.allows("GET", "/v2/files/a/b"));
-    assert!(!rules.allows("DELETE", "/v2/droplets/42") && !rules.allows("GET", "/v2/account") && !rules.allows("POST", "/v2/droplets"));
-    for sneaky in ["/v2/droplets/../account", "/v2/droplets//42/actions", "/v2/droplets/%2e%2e/account", "/v2/droplets/a%2Fb", "/v2/files", "/v2/droplets\\x"] {
-        assert!(!rules.allows("GET", sneaky), "{sneaky}");
+    assert!(rules.allows("GET", "/v2/droplets", "") && rules.allows("GET", "/v2/droplets/42", "") && rules.allows("POST", "/v2/droplets/42/actions", ""));
+    assert!(rules.allows("GET", "/v2/files/a/b", ""));
+    assert!(!rules.allows("DELETE", "/v2/droplets/42", "") && !rules.allows("GET", "/v2/account", "") && !rules.allows("POST", "/v2/droplets", ""));
+    for sneaky in ["/v2/droplets/../account", "/v2/droplets//42/actions", "/v2/droplets/%2e%2e/account", "/v2/droplets/a%2Fb", "/v2/files", "/v2/droplets\\x", "/v2/droplets/{..}/actions", "/v2/droplets/[1-9]", "/v2/droplets/..;x/actions", "/v2/files/{..}/{..}/v2/account/keys"] {
+        assert!(!rules.allows("GET", sneaky, ""), "{sneaky}");
     }
+}
+
+#[test]
+fn a_query_is_refused_unless_the_rule_names_it_or_takes_any_and_only_plain_characters_pass() {
+    let rules = Rules::new(&["GET /v2/a".to_owned(), "GET /v2/b?page=1".to_owned(), "GET /v2/c?*".to_owned()]).unwrap();
+    assert!(rules.allows("GET", "/v2/a", "") && !rules.allows("GET", "/v2/a", "page=1"));
+    assert!(rules.allows("GET", "/v2/b", "page=1") && !rules.allows("GET", "/v2/b", "page=2") && !rules.allows("GET", "/v2/b", ""));
+    assert!(rules.allows("GET", "/v2/c", "per_page=5&page=2") && !rules.allows("GET", "/v2/c", "x={1,2}") && !rules.allows("GET", "/v2/c", "x=%zz"));
 }

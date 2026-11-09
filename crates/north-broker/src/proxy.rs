@@ -1,10 +1,9 @@
-use std::process::Command;
 use std::time::Duration;
 
 use north_base::platform::broker_wire::{Request, Response, header};
-use north_base::platform::process;
 
 use crate::credentials::{CLOUDFLARE_FILE, DIGITALOCEAN_FILE, HETZNER_FILE, Source};
+use crate::curl;
 use crate::policy::Rules;
 
 const FORWARD_LIMIT: Duration = Duration::from_secs(60);
@@ -45,15 +44,18 @@ pub fn split(target: &str) -> Option<(&str, &str, &str)> {
 impl Provider {
     pub fn forward(&self, source: &Source, rules: &Rules, request: &Request, path: &str, query: &str) -> Response {
         let upstream_path = format!("/{path}");
-        if !rules.allows(&request.method, &upstream_path) {
-            return Response::refusal(403, &format!("{} {upstream_path} is outside the {} allowlist", request.method, self.name));
+        if !rules.allows(&request.method, &upstream_path, query) {
+            return Response::refusal(403, &format!("{} {upstream_path}{} is outside the {} allowlist", request.method, if query.is_empty() { String::new() } else { format!("?{query}") }, self.name));
+        }
+        if let Some((name, _)) = request.headers.iter().find(|(name, value)| has_control(name) || has_control(value)) {
+            return Response::refusal(400, &format!("header {name:?} holds a control character"));
         }
         let secret = match source.fields(self.file).and_then(|fields| fields.get(self.field).cloned().filter(|secret| !secret.is_empty()).ok_or_else(|| format!("{} holds no {}", self.file, self.field))) {
             Ok(secret) => secret,
             Err(why) => return Response::refusal(502, &why),
         };
         match self.send(&secret, request, &upstream_path, query) {
-            Ok(response) => scrub(response, &secret),
+            Ok(response) => scrub(response, &source.secret_values(&secret)),
             Err(why) => Response::refusal(502, &why),
         }
     }
@@ -63,42 +65,26 @@ impl Provider {
         let mut config = String::new();
         for (name, value) in &request.headers {
             if REQUEST_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
-                config.push_str(&format!("header = {}\n", quoted(&format!("{name}: {value}"))?));
+                config.push_str(&format!("header = {}\n", curl::quoted(&format!("{name}: {value}"))?));
             }
         }
         let credential = match self.auth {
             Auth::Bearer => format!("Authorization: Bearer {secret}"),
             Auth::KeyHeader(name) => format!("{name}: {secret}"),
         };
-        config.push_str(&format!("header = {}\n", quoted(&credential)?));
+        config.push_str(&format!("header = {}\n", curl::quoted(&credential)?));
         if !request.body.is_empty() {
             let body = std::str::from_utf8(&request.body).map_err(|_| "the request body is not text".to_owned())?;
-            config.push_str(&format!("data-binary = {}\n", quoted(body)?));
+            config.push_str(&format!("data-raw = {}\n", curl::quoted(body)?));
         }
-        let mut command = Command::new("curl");
-        command.args(["--silent", "--show-error", "--include", "--max-time", "55", "--request", &request.method, "--config", "-", &url]);
-        let output = process::run_command_within(command, Some(config.as_bytes()), FORWARD_LIMIT).filter(|output| output.status.success()).ok_or_else(|| format!("could not reach {}", self.upstream))?;
-        parse_response(&output.stdout)
+        let scheme = if self.upstream.starts_with("https://") { "=https" } else { "=http,https" };
+        let output = curl::run(&["--include", "--max-time", "55", "--proto", scheme, "--request", &request.method, &url], &config, FORWARD_LIMIT).ok_or_else(|| format!("could not reach {}", self.upstream))?;
+        parse_response(&output)
     }
 }
 
-fn quoted(text: &str) -> Result<String, String> {
-    if text.bytes().any(|byte| byte == 0) {
-        return Err("a request header or body holds a NUL".to_owned());
-    }
-    let mut out = String::from("\"");
-    for character in text.chars() {
-        match character {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            other => out.push(other),
-        }
-    }
-    out.push('"');
-    Ok(out)
+fn has_control(text: &str) -> bool {
+    text.bytes().any(|byte| (byte < 0x20 && byte != b'\t') || byte == 0x7f)
 }
 
 fn parse_response(raw: &[u8]) -> Result<Response, String> {
@@ -118,10 +104,17 @@ fn parse_response(raw: &[u8]) -> Result<Response, String> {
     }
 }
 
-fn scrub(mut response: Response, secret: &str) -> Response {
-    let body = String::from_utf8_lossy(&response.body);
-    if body.contains(secret) {
-        response.body = body.replace(secret, "placeholder").into_bytes();
+fn scrub(mut response: Response, secrets: &[String]) -> Response {
+    let mut body = String::from_utf8_lossy(&response.body).into_owned();
+    let mut changed = false;
+    for secret in secrets.iter().filter(|secret| secret.len() >= 8) {
+        if body.contains(secret.as_str()) {
+            body = body.replace(secret.as_str(), "placeholder");
+            changed = true;
+        }
+    }
+    if changed {
+        response.body = body.into_bytes();
     }
     if header(&response.headers, "content-type").is_none() {
         response.headers.push(("Content-Type".to_owned(), "application/octet-stream".to_owned()));

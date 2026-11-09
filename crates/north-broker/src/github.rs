@@ -1,15 +1,14 @@
 use std::collections::BTreeMap;
-use std::process::Command;
 use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use north_base::foundation::clock::Timestamp;
-use north_base::platform::process;
 use ring::rand::SystemRandom;
 use ring::signature::{RSA_PKCS1_SHA256, RsaKeyPair};
 use serde_json::{Value, json};
 
+use crate::curl;
 use crate::credentials::{AGENT_APP_FILE, LANDER_APP_FILE, Source};
 use crate::policy::{Permissions, Scope};
 
@@ -74,19 +73,22 @@ impl Minter {
         if !scope.permissions.is_empty() {
             body.insert("permissions".to_owned(), json!(scope.permissions));
         }
-        let mut command = Command::new("curl");
-        command.args(["--silent", "--show-error", "--max-time", "30", "--request", "POST", "--config", "-", "--write-out", "\n%{http_code}"]);
-        if !body.is_empty() {
-            command.args(["--data-binary", &Value::Object(body).to_string()]);
-        }
-        command.arg(&url);
         let headers = format!("header = \"Authorization: Bearer {jwt}\"\nheader = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\nuser-agent = \"north-broker\"\n");
         let unreachable = || format!("could not reach {}", self.api);
-        let output = process::run_command_within(command, Some(headers.as_bytes()), EXCHANGE_LIMIT).ok_or_else(unreachable)?;
-        let text = String::from_utf8_lossy(&output.stdout);
+        let body_option = (!body.is_empty()).then(|| Value::Object(body).to_string());
+        let mut arguments = vec!["--max-time", "30", "--request", "POST", "--write-out", "\n%{http_code}"];
+        let scheme = if self.api.starts_with("https://") { "=https" } else { "=http,https" };
+        arguments.extend(["--proto", scheme]);
+        let config = match &body_option {
+            Some(text) => format!("{headers}data-raw = {}\n", curl::quoted(text)?),
+            None => headers,
+        };
+        arguments.push(&url);
+        let output = curl::run(&arguments, &config, EXCHANGE_LIMIT).ok_or_else(unreachable)?;
+        let text = String::from_utf8_lossy(&output);
         let (body, status) = text.rsplit_once('\n').ok_or_else(unreachable)?;
         let status: u16 = status.trim().parse().map_err(|_| unreachable())?;
-        if !output.status.success() || status == 0 {
+        if status == 0 {
             return Err(unreachable());
         }
         let data: Value = serde_json::from_str(body).unwrap_or(Value::Null);

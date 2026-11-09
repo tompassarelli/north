@@ -30,6 +30,13 @@ impl Source {
         Self::Sops(secrets)
     }
 
+    pub fn secret_values(&self, known: &str) -> Vec<String> {
+        let files = [AGENT_APP_FILE, LANDER_APP_FILE, DIGITALOCEAN_FILE, HETZNER_FILE, CLOUDFLARE_FILE];
+        let mut values: Vec<String> = files.iter().filter_map(|name| self.fields(name).ok()).flat_map(|fields| fields.into_values()).collect();
+        values.push(known.to_owned());
+        values
+    }
+
     pub fn fields(&self, name: &str) -> Result<BTreeMap<String, String>, String> {
         let text = match self {
             Self::Directory(directory) => std::fs::read_to_string(directory.join(name)).map_err(|error| format!("credential {name} is not loaded: {error}"))?,

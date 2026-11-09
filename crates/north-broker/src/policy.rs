@@ -146,33 +146,60 @@ impl Ceiling {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Rules(Vec<(String, Vec<String>)>);
+pub struct Rules(Vec<Rule>);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Rule {
+    method: String,
+    path: Vec<String>,
+    query: Option<String>,
+}
 
 impl Rules {
     pub fn new(rules: &[String]) -> Result<Self, String> {
         let parsed = rules.iter().map(|rule| match rule.split_once(' ') {
-            Some((method, path)) if path.starts_with('/') && !method.is_empty() => Ok((method.to_ascii_uppercase(), path.split('/').skip(1).map(str::to_owned).collect())),
-            _ => Err(format!("rule {rule:?} is not \"METHOD /path\"")),
+            Some((method, target)) if target.starts_with('/') && !method.is_empty() => {
+                let (path, query) = target.split_once('?').map_or((target, None), |(path, query)| (path, Some(query.to_owned())));
+                Ok(Rule { method: method.to_ascii_uppercase(), path: path.split('/').skip(1).map(str::to_owned).collect(), query })
+            }
+            _ => Err(format!("rule {rule:?} is not \"METHOD /path[?query]\"")),
         });
         parsed.collect::<Result<_, _>>().map(Self)
     }
 
-    pub fn allows(&self, method: &str, path: &str) -> bool {
+    pub fn allows(&self, method: &str, path: &str, query: &str) -> bool {
         let Some(segments) = clean(path) else { return false };
-        self.0.iter().any(|(rule_method, pattern)| rule_method == method && matches(pattern, &segments))
+        if !query_clean(query) {
+            return false;
+        }
+        self.0.iter().any(|rule| rule.method == method && matches(&rule.path, &segments) && rule.query.as_deref().is_none_or(|allowed| allowed == "*" || allowed == query) && (rule.query.is_some() || query.is_empty()))
     }
+}
+
+fn pct_encoded_ok(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().all(|(index, byte)| *byte != b'%' || (bytes.len() > index + 2 && bytes[index + 1].is_ascii_hexdigit() && bytes[index + 2].is_ascii_hexdigit()))
+}
+
+fn pchar(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"-._~%!$&'()*+,;=:@".contains(&byte)
+}
+
+fn query_clean(query: &str) -> bool {
+    query.bytes().all(|byte| pchar(byte) || byte == b'/' || byte == b'?') && pct_encoded_ok(query)
 }
 
 fn clean(path: &str) -> Option<Vec<&str>> {
     let rest = path.strip_prefix('/')?;
     let lowered = path.to_ascii_lowercase();
-    if !path.is_ascii() || path.contains(['\\', '\0']) || ["%2e", "%2f", "%5c", "%00"].iter().any(|bad| lowered.contains(bad)) {
+    if !path.bytes().all(|byte| pchar(byte) || byte == b'/') || !pct_encoded_ok(path) || ["%2e", "%2f", "%5c", "%00"].iter().any(|bad| lowered.contains(bad)) {
         return None;
     }
     let segments: Vec<&str> = rest.split('/').collect();
     let trailing = segments.last().is_some_and(|last| last.is_empty());
     let bare = if trailing { &segments[..segments.len() - 1] } else { &segments[..] };
-    (!bare.iter().any(|segment| segment.is_empty() || *segment == "." || *segment == "..")).then(|| bare.to_vec())
+    let dots = |segment: &str| matches!(segment.split(';').next(), Some("." | ".."));
+    (!bare.iter().any(|segment| segment.is_empty() || dots(segment))).then(|| bare.to_vec())
 }
 
 fn matches(pattern: &[String], segments: &[&str]) -> bool {
