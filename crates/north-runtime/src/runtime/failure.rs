@@ -6,15 +6,16 @@ pub(super) const DEFERRED: u8 = north_base::foundation::exit::NO_VERDICT;
 pub(super) struct Failure {
     pub(super) code: u8,
     pub(super) message: String,
+    pub(super) denied: bool,
 }
 
 pub(super) fn failed(code: u8, message: impl Into<String>) -> Failure {
-    Failure { code, message: message.into() }
+    Failure { code, message: message.into(), denied: false }
 }
 
 impl From<std::io::Error> for Failure {
     fn from(error: std::io::Error) -> Self {
-        failed(1, error.to_string())
+        Failure { denied: error.kind() == std::io::ErrorKind::PermissionDenied, ..failed(1, error.to_string()) }
     }
 }
 

@@ -216,7 +216,7 @@ fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     let runtime = built(layout, checkout, target).map_err(|failure| (Promotion::BuildFailed, failure))?;
     let cause = if building { "built; swapping current to it and checking it" } else { "built elsewhere and shipped; swapping current to it and checking it" };
     lifecycle::move_to::<Promoting>(layout, target, Promotion::Installing, cause).map_err(unfinished)?;
-    install(layout, checkout, target, &runtime, previous).map_err(|failure| (Promotion::InstallFailed, failure))
+    install(layout, checkout, target, &runtime, previous).map_err(|failure| (if failure.denied { Promotion::Unfinished } else { Promotion::InstallFailed }, failure))
 }
 
 fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previous: Option<&Path>) -> Result<String, Failure> {
