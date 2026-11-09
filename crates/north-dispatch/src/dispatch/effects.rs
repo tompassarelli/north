@@ -41,7 +41,9 @@ pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: 
     let mut words: Vec<String> = ["fleet", "launch", "--provider", provider, "--account", label, "--name", name, "--task", &launch.item.to_string(), "--cwd", &cwd]
         .map(str::to_owned)
         .into();
-    words.extend(launch.route.invocation(&survey.cfg)?);
+    if !super::deepseek::is(launch) {
+        words.extend(launch.route.invocation(&survey.cfg)?);
+    }
     let held = (!remote && launch.local.is_none()).then(|| format!("north fleet dispatch placed this box on {}", launch.host));
     if let Some(reason) = launch.local.as_ref().or(held.as_ref()) {
         words.extend(["--local".to_owned(), reason.clone()]);
@@ -73,7 +75,8 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
     } else {
         fleet_launch(launch, &name, survey, &home)
     };
-    let cell = launch.route.model_effort(&survey.cfg).ok().and_then(|(model, effort)| super::cells::named(&model, &effort));
+    let claude = !super::deepseek::is(launch);
+    let cell = launch.route.model_effort(&survey.cfg).ok().and_then(|(model, effort)| super::cells::named(&model, &effort)).filter(|_| claude);
     let entry = Record {
         at,
         item: launch.item.to_string(),
@@ -83,17 +86,17 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         cloud: launch.cloud,
         launched: result.is_ok(),
         detail: result.clone().unwrap_or_else(|why| why),
-        tier: Some(launch.route.tier.name().to_owned()),
+        tier: claude.then(|| launch.route.tier.name().to_owned()),
         category: Some(launch.route.category.clone()),
         box_text: super::facets::declared_in(&launch.brief, "Box").map(str::to_owned),
         hand: false,
-        effort_arm: launch.route.stamp().map(str::to_owned),
+        effort_arm: launch.route.stamp().filter(|_| claude).map(str::to_owned),
         signal: launch.route.signal.map(|signal| signal.key().to_owned()),
-        effort: launch.route.effort.map(|effort| effort.name().to_owned()),
+        effort: launch.route.effort.filter(|_| claude).map(|effort| effort.name().to_owned()),
         cell,
     };
     record::append(&record::directory(), &entry)?;
-    if result.is_ok() {
+    if result.is_ok() && claude {
         predict(launch);
     } else if entry.failed() {
         attribution::record(&entry.name, "dispatch", Cause::Harness(Harness::Placement), &format!("{}: {}", launch.host, entry.detail));

@@ -26,6 +26,7 @@ pub use tier::{ARM_WINDOW, Effort, Evidence, Tier, evidenced};
 
 mod brief;
 pub mod cells;
+pub mod deepseek;
 mod cloud;
 mod effects;
 mod facets;
@@ -92,7 +93,7 @@ mod spread_tests;
 #[cfg(test)]
 mod revive_tests;
 
-const USAGE: &str = "usage: north fleet dispatch [--dry-run] | pause --reason TEXT | resume | paused | queued --by HOST --item REPO#N [--box TEXT] -- WORDS | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
+const USAGE: &str = "usage: north fleet dispatch [--dry-run] | review NAME --item REPO#N --category C [--box TEXT] [--landing] | verdict --session NAME --category C --sha SHA clean|defect CLASS | pause --reason TEXT | resume | paused | queued --by HOST --item REPO#N [--box TEXT] -- WORDS | needs REPO#N | need SESSION NEED [REPO#N] (reason on stdin) | route-replay [--days N] [--db PATH]";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Outcome {
@@ -174,6 +175,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     outcome.revival = revival;
     let world = issues::World { open: &survey.open, holds: &holds, box_holds: &survey.box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let mut claims = hotspots::Claims::default();
+    let mut deepseek_placed = 0;
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Err(why) = screen::admitted(survey, issue, &world) {
             outcome.skipped.push((issue.reference(), why));
@@ -206,9 +208,13 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             };
             let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
             let ready = Ready { item: reference.clone(), brief, code_only, route };
-            match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
+            let deepseek = survey.deepseek.takes(issue, box_text, deepseek_placed).and_then(|()| survey.deepseek.place(&ready, &candidates(survey, &ready.brief), &mut pools));
+            deepseek_placed += i64::from(deepseek.is_ok());
+            match deepseek.or_else(|_| plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools)) {
                 Ok(mut launch) => {
-                    screen::arm(survey, &mut launch);
+                    if !deepseek::is(&launch) {
+                        screen::arm(survey, &mut launch);
+                    }
                     claims.take(&paths, &format!("{named}of {reference}, launched in this run"));
                     outcome.launches.push(launch);
                 }
@@ -260,7 +266,8 @@ fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool, standing: f
 /// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
 fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> (String, Option<String>) {
     let verb = if launch.cloud { "cloud-launch" } else { "launch" };
-    let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
+    let rung = if deepseek::is(launch) { "deepseek" } else { launch.route.tier.name() };
+    let line = format!("{verb} {} on {} {} as {rung}", launch.item, launch.host, launch.account);
     if let Some(reason) = standing().filter(|_| !dry_run) {
         return (format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item), None);
     }
@@ -301,6 +308,8 @@ fn mode(arguments: &[String]) -> Result<bool, u8> {
         [verb, rest @ ..] if verb == "route-replay" => Err(nearest::replay(rest)),
         [verb, rest @ ..] if verb == "pause" => Err(pause::pause(rest)),
         [verb] if verb == "resume" => Err(pause::resume()),
+        [verb, rest @ ..] if verb == "review" => Err(deepseek::review::serve(rest)),
+        [verb, rest @ ..] if verb == "verdict" => Err(deepseek::review::verdict(rest)),
         [verb] if verb == "paused" => Err(queued::paused()),
         [verb, rest @ ..] if verb == "queued" => Err(queued::serve(rest)),
         [verb, item] if verb == "needs" => Err(host_needs::serve(item)),
@@ -346,6 +355,9 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
     let failures = execute(&survey, &outcome, dry_run);
+    for line in deepseek::review::queue(&survey.deepseek.done, &survey.here, survey.laptop.as_deref(), dry_run) {
+        println!("{line}");
+    }
     let frozen = freeze::frozen(&outcome, &failures, &freeze::guards(&survey));
     if let Some(basis) = &frozen {
         effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, placement::now());

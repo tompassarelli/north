@@ -71,6 +71,8 @@ pub struct Survey {
     pub backlog: Option<north_graph_ground::Backlog>,
     /// The dated stops this pass learned for the first time, which `execute` records as waits causes.
     pub fresh_waits: Vec<super::wait_stops::Learned>,
+    /// The DeepSeek cap, the sessions holding it, the boxes DeepSeek tried and the sessions that reported Done.
+    pub deepseek: super::deepseek::Seen,
     pub at: f64,
 }
 
@@ -472,8 +474,9 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
+    let deepseek = deepseek_seen(&here, laptop.as_deref(), &fleet_lists, &laptop_reports, &sessions, &records, &issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, fresh_waits, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, fresh_waits, deepseek, at })
 }
 
 pub(super) mod github;
@@ -487,4 +490,22 @@ mod tests;
 fn remote_arm_boxes(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<ArmBox> {
     let remote = fleets::reached(cfg, here, &["dash", "--closed", "--since", tier::ARM_WINDOW], PROBE, notes);
     remote.into_iter().flat_map(|(_, listing)| serde_json::from_value::<Vec<ArmBox>>(listing["arms"].clone()).unwrap_or_default()).collect()
+}
+
+/// What dispatch reads about DeepSeek: the opencode sessions holding a slot across every listing, the boxes the dispatch
+/// record shows it tried, and the idle sessions on its hosts whose last report starts `Done:`.
+#[allow(clippy::too_many_arguments, reason = "each input is a reading survey() already holds")]
+fn deepseek_seen(here: &str, laptop: Option<&str>, fleet_lists: &[(String, Value)], laptop_reports: &Value, sessions: &[(Session, String)], records: &[record::Record], issues: &[Issue], at: f64, notes: &mut Vec<String>) -> super::deepseek::Seen {
+    let settings = super::deepseek::Settings::read();
+    let holding = sessions.iter().filter(|(session, _)| session.account.as_deref() == Some(super::deepseek::PROVIDER)).map(|(session, _)| session.name.as_str()).collect::<BTreeSet<_>>().len();
+    let mut reports: Vec<(String, Value)> = laptop.filter(|host| settings.hosts.iter().any(|name| name == host)).map(|host| (host.to_owned(), laptop_reports.clone())).into_iter().collect();
+    if settings.hosts.iter().any(|name| name == here) {
+        match fleets::remote_json_within(None, &["fleet", "reports", "--json"], PROBE) {
+            Ok(listing) => reports.push((here.to_owned(), listing)),
+            Err(why) => notes.push(format!("{here} fleet reports unread, so no DeepSeek review is queued here this run: {why}")),
+        }
+    }
+    let queued = super::deepseek::review::queued(&record::directory(), at);
+    let done = super::deepseek::review::done(fleet_lists, &reports, records, issues, &queued);
+    super::deepseek::Seen { holding: i64::try_from(holding).unwrap_or(i64::MAX), tried: super::deepseek::tried(records), done, settings }
 }

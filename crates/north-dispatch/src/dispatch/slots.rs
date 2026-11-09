@@ -168,10 +168,15 @@ impl Pools {
     }
 
     pub fn take(&mut self, host: &str) {
+        self.take_slot(host);
+        self.placed.workers += 1;
+    }
+
+    /// Takes a session slot and a build on `host` for a worker the Claude spend rule does not count.
+    pub fn take_slot(&mut self, host: &str) {
         for free in self.hosts.get_mut(host).into_iter().chain(self.builds.get_mut(host)) {
             *free = (*free - 1).max(0);
         }
-        self.placed.workers += 1;
     }
 
     /// The account's room less what this run has charged it.

@@ -110,6 +110,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         revived: BTreeMap::new(),
         backlog: None,
         fresh_waits: Vec::new(),
+        deepseek: super::deepseek::Seen::default(),
         at: 0.0,
     }
 }
