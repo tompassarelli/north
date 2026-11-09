@@ -9,6 +9,7 @@ use super::tree_wide_units::Units;
 const IT_BINARY: &str = "north::it";
 const IT_PACKAGE: &str = "north";
 const BIN_MARK: &str = "::bin/";
+const IT_SUFFIX: &str = "::it";
 const FILTER_LIMIT: usize = 96 * 1024;
 
 #[derive(Deserialize)]
@@ -80,7 +81,7 @@ impl Tests {
     }
 
     pub fn arguments(&self) -> String {
-        let it = !self.modules.is_empty() || self.by_binary.contains_key(IT_BINARY) || self.added.iter().any(|(package, _)| package == IT_PACKAGE);
+        let it = !self.modules.is_empty() || self.by_binary.keys().any(|binary| binary.ends_with(IT_SUFFIX)) || self.added.iter().any(|(package, _)| package == IT_PACKAGE);
         format!("{}-E {}", if it { "--test it " } else { "" }, self.filter())
     }
 
@@ -114,7 +115,7 @@ impl Selected {
 }
 
 fn built(binary: &str) -> bool {
-    !binary.contains("::") || binary.contains(BIN_MARK) || binary == IT_BINARY
+    !binary.contains("::") || binary.contains(BIN_MARK) || binary.ends_with(IT_SUFFIX)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

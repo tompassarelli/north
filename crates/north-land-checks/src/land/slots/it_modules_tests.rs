@@ -112,3 +112,16 @@ fn every_declared_tree_wide_unit_test_still_exists_in_its_package() {
         assert!(found, "{package} declares no test fn {name}");
     }
 }
+
+// KEEP(bug): on 2026-11-09 bb9237cbd0's selection named 29 north-lander::it tests, among them the red land_chaos SIGTERM test, but the land check dropped every integration binary other than north::it, so only GitHub Cargo ran them and main went red (north#980)
+#[test]
+fn a_selected_integration_binary_of_another_crate_is_built_and_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let traced = graph_stub(directory.path(), "traced", r#"printf '%s' '{"tests":["north-lander::it land_chaos::reverts_the_red_lane"],"files":[]}'"#);
+    let selection = selection_asking(&traced, root(), "HEAD", "HEAD", &Batch::default()).unwrap();
+    let arguments = selection.arguments();
+    assert!(arguments.starts_with("--test it -E "), "the tests/it binaries are built: {arguments}");
+    assert!(arguments.contains("(binary_id(north-lander::it)&(test(=land_chaos::reverts_the_red_lane)))"), "the selected test runs: {arguments}");
+    assert!(selection.packages().contains("north-lander"), "its package is built");
+    assert!(Selection::Every.arguments().ends_with("|kind(test)"), "the whole-workspace run keeps every tests/it binary");
+}

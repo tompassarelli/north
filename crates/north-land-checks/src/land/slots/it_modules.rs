@@ -16,6 +16,7 @@ pub const STRUCTURE: &str = "structure.toml";
 pub const ROOT: &str = "north";
 const UNIT: &str = "kind(lib)|kind(bin)";
 const IT: &str = "binary_id(north::it)";
+const EVERY_IT: &str = "kind(test)";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Selection {
@@ -27,7 +28,7 @@ pub enum Selection {
 impl Selection {
     pub fn arguments(&self) -> String {
         match self {
-            Self::Every => format!("--test it -E {UNIT}|{IT}"),
+            Self::Every => format!("--test it -E {UNIT}|{EVERY_IT}"),
             Self::Modules { modules, .. } if modules.is_empty() => format!("-E {UNIT}"),
             Self::Modules { modules, .. } => format!("--test it -E {UNIT}|({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")),
             Self::Tests(tests) => tests.arguments(),
