@@ -15,7 +15,7 @@ use super::index;
 use super::speaker::speaker;
 use super::text::clip;
 use crate::fleet::sender::{Sender, urgent_text};
-use crate::fleet::store::texts_sent_by;
+use crate::fleet::store::delivered_by;
 
 pub(super) const CLAUDE_FILE: &str = "claude.jsonl";
 
@@ -41,7 +41,7 @@ fn key(session: Option<&str>, ts: Option<&str>, text: &str) -> String {
     format!("{}\u{1f}{}\u{1f}{text}", session.unwrap_or(""), ts.unwrap_or(""))
 }
 
-fn typed(con: &Connection, from_tom: &HashSet<String>) -> Result<Vec<Typed>> {
+fn typed(con: &Connection, from_tom: &HashSet<(String, String)>) -> Result<Vec<Typed>> {
     let mut statement = con.prepare(
         "SELECT f.account, f.session_id, m.ts, f.cwd, b.text, m.role FROM msg m JOIN files f ON f.id = m.file_id JOIN body b ON b.id = m.body \
          WHERE f.provider = 'anthropic' AND f.agent IS NULL AND m.role IN ('user', 'sent') AND m.tool IS NULL ORDER BY m.ts, m.id",
@@ -51,12 +51,12 @@ fn typed(con: &Connection, from_tom: &HashSet<String>) -> Result<Vec<Typed>> {
         Ok((typed, row.get::<_, String>(5)? == "user"))
     })?;
     let rows: Vec<(Typed, bool)> = rows.collect::<rusqlite::Result<_>>()?;
-    Ok(rows.into_iter().filter(|(row, keyed)| *keyed || from_tom.contains(urgent_text(&row.text).unwrap_or(&row.text))).map(|(row, _)| row).collect())
+    Ok(rows.into_iter().filter(|(row, keyed)| *keyed || row.session.as_ref().is_some_and(|session| from_tom.contains(&(session.clone(), urgent_text(&row.text).unwrap_or(&row.text).to_owned())))).map(|(row, _)| row).collect())
 }
 
-fn sent_by_tom(env: &Env) -> Result<HashSet<String>> {
-    let texts = texts_sent_by(&env.ledger, &Sender::Tom).map_err(|error| Failure::Other(format!("the fleet store at {} is unreadable: {}", env.ledger.display(), error.user_message())))?;
-    Ok(texts.iter().map(|text| clip(text)).filter(|text| speaker("user", text) == "user").collect())
+fn sent_by_tom(env: &Env) -> Result<HashSet<(String, String)>> {
+    let deliveries = delivered_by(&env.ledger, &Sender::Tom).map_err(|error| Failure::Other(format!("the fleet store at {} is unreadable: {}", env.ledger.display(), error.user_message())))?;
+    Ok(deliveries.into_iter().map(|(conversation, text)| (conversation, clip(&text))).filter(|(_, text)| speaker("user", text) == "user").collect())
 }
 
 fn kept(path: &Path) -> Result<HashSet<String>> {

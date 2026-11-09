@@ -251,9 +251,10 @@ fn the_tom_corpus_holds_every_typed_message_and_no_agent_text() {
             sdk(&urgent_prefixed("TOMURGENTTOKEN typed in the fleet view"), 4, "2026-11-07"),
             sdk("CHECKPOINTTOKEN Your context is 250k tokens.", 5, "2026-11-07"),
             sdk("[gate 7] GATENOTICETOKEN No answer in time", 6, "2026-11-07"),
+            sdk("PROBETOKEN sent to a test session as Tom", 7, "2026-11-07"),
         ],
     );
-    fleet_store(&lab.env.ledger, &["TOMFLEETTOKEN typed in the fleet view", "TOMURGENTTOKEN typed in the fleet view", "[gate 7] GATENOTICETOKEN No answer in time"]);
+    fleet_store(&lab.env.ledger, fleet, &["TOMFLEETTOKEN typed in the fleet view", "TOMURGENTTOKEN typed in the fleet view", "[gate 7] GATENOTICETOKEN No answer in time"]);
     write(&lab.env.corpus.join("codex.jsonl"), &[json!({"session_id": SID, "timestamp": "2026-08-01T10:00:00Z", "cwd": "/synthetic/demo", "text": "CODEXTYPEDTOKEN kept after its rollout was deleted"}).to_string()]);
     lab.index();
     has(&lab.out(&["corpus"]), "corpus     3 typed messages added");
@@ -261,7 +262,7 @@ fn the_tom_corpus_holds_every_typed_message_and_no_agent_text() {
     for typed in ["please check PELICANGATE status", "TOMFLEETTOKEN", "TOMURGENTTOKEN"] {
         has(&kept, typed);
     }
-    for agent in ["PELICANGATE is open", "PELICANTHINK", "CLAUDETOOLRESULT", "task-notification", "HERONLOOP", "LAUNCHBRIEFTOKEN", "FROMLEADTOKEN", "HOLDSPAWNSTOKEN", "CHECKPOINTTOKEN", "GATENOTICETOKEN", "machine-capacity"] {
+    for agent in ["PELICANGATE is open", "PELICANTHINK", "CLAUDETOOLRESULT", "task-notification", "HERONLOOP", "LAUNCHBRIEFTOKEN", "FROMLEADTOKEN", "HOLDSPAWNSTOKEN", "CHECKPOINTTOKEN", "GATENOTICETOKEN", "PROBETOKEN", "machine-capacity"] {
         hasnt(&kept, agent);
     }
     has(&kept, &format!(r#""session":"{CSID}""#));
@@ -285,10 +286,12 @@ fn indexing_reads_every_north_account_profile_and_what_tom_types_while_a_turn_ru
     assert_ne!(lab.run(&["NOTIFYTOKEN"]).0, 0);
 }
 
-fn fleet_store(path: &Path, from_tom: &[&str]) {
+fn fleet_store(path: &Path, conversation: &str, from_tom: &[&str]) {
     rusqlite::Connection::open(path).unwrap().execute_batch("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;").unwrap();
-    let row = |id: usize, text: &str, sender: Sender| FleetRow { id: format!("m-{id}"), kind: RowKind::Message, to: "fleet".into(), from: "laptop".into(), urgent: false, sent_at: 1_794_000_000_000, text: text.into(), sender, gate: None, answer: None, job: None, origin: None };
-    let mut rows: Vec<FleetRow> = from_tom.iter().enumerate().map(|(id, text)| row(id, text, Sender::Tom)).collect();
-    rows.push(row(from_tom.len(), "CHECKPOINTTOKEN Your context is 250k tokens.", Sender::session_host()));
+    let row = |id: usize, to: &str, text: &str, sender: Sender| FleetRow { id: format!("m-{id}"), kind: RowKind::Message, to: to.into(), from: "laptop".into(), urgent: false, sent_at: 1_794_000_000_000, text: text.into(), sender, gate: None, answer: None, job: None, origin: None };
+    let mut rows: Vec<FleetRow> = from_tom.iter().enumerate().map(|(id, text)| row(id, "fleet", text, Sender::Tom)).collect();
+    rows.push(row(from_tom.len(), "fleet", "CHECKPOINTTOKEN Your context is 250k tokens.", Sender::session_host()));
+    rows.push(row(from_tom.len() + 1, "vn-1", "PROBETOKEN sent to a test session as Tom", Sender::Tom));
     Store::open(path).unwrap().put(&rows).unwrap();
+    rusqlite::Connection::open(path).unwrap().execute("INSERT INTO fleet_sessions(name, host, status, created, updated, conversation) VALUES ('fleet', 'laptop', 'idle', '', '', ?1)", [conversation]).unwrap();
 }

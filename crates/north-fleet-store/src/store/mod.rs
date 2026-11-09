@@ -24,7 +24,7 @@ pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
 pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, Pull, Undecodable, UnknownKind, drop_with, set_aside_with, take_with};
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
 pub use registrar::{Registered, Registrar, Registration};
-pub use sent::texts_sent_by;
+pub use sent::delivered_by;
 pub use sessions::{Claim, SessionRow, Slots};
 pub use spool::{SPOOL_DIR, Spool, Spooled};
 pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
