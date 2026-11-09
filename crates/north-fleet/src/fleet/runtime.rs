@@ -72,6 +72,9 @@ pub enum Opening<'a> {
 pub trait Runtime: Send + Sync {
     fn provider(&self) -> ProviderName;
     fn models(&self) -> &'static [&'static str];
+    fn overlay(&self, _name: &str) -> Option<String> {
+        None
+    }
     fn takes_effort(&self) -> bool {
         false
     }

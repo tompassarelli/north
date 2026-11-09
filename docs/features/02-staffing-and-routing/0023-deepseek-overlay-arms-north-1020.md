@@ -1,0 +1,1 @@
+- DeepSeek overlay arms (north#1020): the opencode and pi launchers append `harness/overlays/deepseek.md` to every DeepSeek brief drawn on the overlay arm, while the control arm runs the same brief without it; the arm is drawn half and half from the session name, recorded on the launch record and each run, and `north ledger opencode` prints the lander's accept rate per arm.

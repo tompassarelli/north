@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS runs(
   provider TEXT NOT NULL,
   model TEXT,
   effort TEXT,
+  overlay TEXT,
   account TEXT,
   prompt_sha TEXT,
   prompt TEXT,
@@ -103,7 +104,7 @@ CREATE TABLE IF NOT EXISTS receipts(
 ) STRICT;
 ";
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(60);
 
@@ -118,7 +119,7 @@ const LINK_RUNS_OF_SESSION: &str = "UPDATE runs SET task_ref = (SELECT t.task_re
 /// How long a statement meeting another writer's lock retries, through SQLite's backoff, before it fails.
 const LOCK_WAIT: Duration = Duration::from_secs(30);
 
-const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account,prompt_sha,system_prompt_sha,deepen,started_ms,ended_ms,wall_ms,turns,\
+const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,overlay,account,prompt_sha,system_prompt_sha,deepen,started_ms,ended_ms,wall_ms,turns,\
      tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit";
 
 pub struct Ledger {
@@ -136,6 +137,7 @@ pub struct Run {
     pub provider: String,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub overlay: Option<String>,
     pub account: Option<String>,
     pub prompt_sha: Option<String>,
     pub system_prompt_sha: Option<String>,
@@ -320,15 +322,16 @@ impl RunSink for Ledger {
         let turn = &run.turn;
         self.write(|conn| {
             conn.execute(
-                "INSERT INTO runs(session, task_ref, provider, model, effort, account, prompt_sha, prompt, system_prompt_sha, deepen,
+                "INSERT INTO runs(session, task_ref, provider, model, effort, overlay, account, prompt_sha, prompt, system_prompt_sha, deepen,
                    started_ms, ended_ms, wall_ms, turns, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, exit)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
                 params![
                     run.session,
                     run.task_ref,
                     run.provider,
                     turn.model,
                     turn.effort,
+                    run.overlay,
                     run.account,
                     turn.prompt.as_deref().map(sha),
                     turn.prompt,
@@ -372,19 +375,20 @@ fn run_from_row(row: &Row<'_>) -> rusqlite::Result<Run> {
         provider: row.get(3)?,
         model: row.get(4)?,
         effort: row.get(5)?,
-        account: row.get(6)?,
-        prompt_sha: row.get(7)?,
-        system_prompt_sha: row.get(8)?,
-        deepen: row.get(9)?,
-        started_ms: row.get(10)?,
-        ended_ms: row.get(11)?,
-        wall_ms: row.get(12)?,
-        turns: row.get(13)?,
-        tokens_in: row.get(14)?,
-        tokens_out: row.get(15)?,
-        tokens_cache_read: row.get(16)?,
-        tokens_cache_write: row.get(17)?,
-        exit: row.get(18)?,
+        overlay: row.get(6)?,
+        account: row.get(7)?,
+        prompt_sha: row.get(8)?,
+        system_prompt_sha: row.get(9)?,
+        deepen: row.get(10)?,
+        started_ms: row.get(11)?,
+        ended_ms: row.get(12)?,
+        wall_ms: row.get(13)?,
+        turns: row.get(14)?,
+        tokens_in: row.get(15)?,
+        tokens_out: row.get(16)?,
+        tokens_cache_read: row.get(17)?,
+        tokens_cache_write: row.get(18)?,
+        exit: row.get(19)?,
     })
 }
 
@@ -420,6 +424,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         add_missing_column(&transaction, "gates", "box_text", "TEXT")?;
         gates::allow_session_answerers(&transaction)?;
         add_missing_column(&transaction, "tasks", "landed_ms", "INTEGER")?;
+        add_missing_column(&transaction, "runs", "overlay", "TEXT")?;
         transaction.execute_batch(LINK_RUNS)?;
         briefs::link_by_brief(&transaction, None)?;
         transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;

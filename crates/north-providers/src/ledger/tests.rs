@@ -36,7 +36,7 @@ fn run(session: &str, model: &str, input: u64, output: u64) -> RunRecord {
         tokens: Tokens { input, output, cache_read: 0, cache_write: 0 },
         exit: TurnExit::Completed,
     };
-    RunRecord { session: session.into(), task_ref: None, provider: "claude".into(), account: None, system_prompt_sha: None, deepen: false, turn }
+    RunRecord { session: session.into(), task_ref: None, provider: "claude".into(), overlay: None, account: None, system_prompt_sha: None, deepen: false, turn }
 }
 
 #[test]

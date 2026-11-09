@@ -296,6 +296,8 @@ pub struct SessionRecord {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<Effort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay: Option<String>,
     pub created_ms: u64,
     pub host_pid: Option<u32>,
     pub conversation: Option<String>,
@@ -374,6 +376,7 @@ impl SessionRecord {
             cwd: request.cwd.clone(),
             model: request.model.clone(),
             effort,
+            overlay: None,
             created_ms,
             host_pid: None,
             conversation,

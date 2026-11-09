@@ -82,6 +82,7 @@ pub(super) fn lane(arguments: &[String]) -> u8 {
 const LEDGER: &[(&str, Run)] = &[
     ("flow", crate::flow::run),
     ("incident", |arguments| ledger_verb("incident", arguments)),
+    ("opencode", crate::providers::opencode::report::run),
     ("tempo", crate::tempo::run),
     ("worker", super::super::worker_ledger::run),
 ];

@@ -258,6 +258,7 @@ pub struct RunRecord {
     pub session: String,
     pub task_ref: Option<String>,
     pub provider: String,
+    pub overlay: Option<String>,
     pub account: Option<String>,
     pub system_prompt_sha: Option<String>,
     pub deepen: bool,

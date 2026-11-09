@@ -11,7 +11,8 @@ use crate::fleet::runtime::{Opening, Runtime};
 use crate::fleet::turns::{TurnExit, TurnSignal};
 
 use super::route::{self, Route, Visibility};
-use super::harness::OPENCODE;
+use super::harness::{Harness, OPENCODE};
+use super::overlay::Arm;
 use super::{Deepseek, config, turns};
 
 const FAKE: &str = r#"#!/bin/sh
@@ -214,6 +215,30 @@ fn a_private_or_unreadable_lane_is_admitted_on_paid_go_flash() {
         assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("go"));
     }
     assert_eq!(argument(&live(Visibility::Public).unwrap().argv, "--route").as_deref(), Some("free"));
+}
+
+#[test]
+fn a_deepseek_brief_carries_the_overlay_on_its_arm_and_not_on_the_control() {
+    let home = tempfile::tempdir().unwrap();
+    let account = account(home.path());
+    let delivery = |harness: &'static dyn Harness, name: &str| {
+        let asked = LaunchRequest { name: name.into(), ..request(home.path()) };
+        let spec = Deepseek::reading(harness, Arc::new(|_| Visibility::Private), Arc::new(|| day("2026-11-10"))).host(&account, &asked, Opening::Fresh(Some("ses_x")), "LIVE-ORDER-OF-THE-OPERATOR").unwrap();
+        std::fs::read_to_string(argument(&spec.argv, "--instructions").unwrap()).unwrap()
+    };
+    let harnesses: [&'static dyn Harness; 2] = [&OPENCODE, &crate::providers::pi::PI];
+    let mut seen = [false; 2];
+    for harness in harnesses {
+        for index in 0..8 {
+            let name = format!("worker-{index}");
+            let arm = Arm::of(&name);
+            let brief = delivery(harness, &name);
+            assert_eq!(brief.contains("# DeepSeek overlay"), arm == Arm::Overlay, "{} {name} carried the wrong brief", harness.provider());
+            assert!(brief.contains("LIVE-ORDER-OF-THE-OPERATOR"), "{} {name} lost the standing orders", harness.provider());
+            seen[if arm == Arm::Overlay { 1 } else { 0 }] = true;
+        }
+    }
+    assert_eq!(seen, [true, true], "one arm drew every session");
 }
 
 #[test]

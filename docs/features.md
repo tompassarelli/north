@@ -39,6 +39,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Review items by kind (north#255): `north work review PLAN [--author TIER]` splits a design review into line items. [more](features/02-staffing-and-routing/0020-review-items-by-kind-north-255.md)
 - Tier success as a prediction (north#255): `north ledger worker --recommend` lists no Codex tier outside codex-only mode. [more](features/02-staffing-and-routing/0021-tier-success-brier-north-255.md)
 - Tier per category (north#966): `dispatch::tier::route_for` starts Haiku on mechanical work (its retry is Sonnet high), Sonnet high on art and every other category, and Opus on netcode-determinism, performance, review and planning, at medium effort within one module or high across modules. [more](features/02-staffing-and-routing/0022-tier-per-category-north-966.md)
+- DeepSeek overlay arms (north#1020): the opencode and pi launchers append `harness/overlays/deepseek.md` to every DeepSeek brief drawn on the overlay arm, while the control arm runs the same brief without it; the arm is drawn half and half from the session name, recorded on the launch record and each run, and `north ledger opencode` prints the lander's accept rate per arm.
 
 ## Fleet sessions
 

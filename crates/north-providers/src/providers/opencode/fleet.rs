@@ -16,6 +16,7 @@ use crate::platform::harness;
 
 use super::route::{self, MODELS, Route, Visibility};
 use super::harness::{Harness, OPENCODE};
+use super::overlay::Arm;
 use super::turns::Phase;
 use super::lane::{self, Making};
 use super::{accounts, live, screen};
@@ -76,6 +77,10 @@ impl Runtime for Deepseek {
         MODELS
     }
 
+    fn overlay(&self, name: &str) -> Option<String> {
+        Some(Arm::of(name).label().to_owned())
+    }
+
     fn roster(&self, state_root: &Path, _home: &Path, _policy: &Path) -> Roster {
         accounts::discover(&self.provider(), state_root)
     }
@@ -96,6 +101,7 @@ impl Runtime for Deepseek {
             Route::Free => render(&PromptInputs { session: &request.name, role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
             Route::Go => instructions.to_owned(),
         };
+        let delivered = Arm::of(&request.name).brief(&delivered);
         let mut argv = vec![north_base::platform::north_binary::north_binary().display().to_string(), self.harness.host_verb().into()];
         argv.extend(["--route".into(), route.label().into(), "--session".into(), conversation.into(), "--scratch".into(), scratch(self.harness, &request.name).display().to_string()]);
         argv.extend(["--program".into(), install::runtime(self.harness.provider()).display().to_string()]);

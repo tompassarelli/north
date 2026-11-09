@@ -64,6 +64,7 @@ impl Fleet {
         self.refuse_on_window(conversation.as_deref())?;
         let tasks = super::claims::claim_keys(&request.tasks(), request.claimed_box().as_deref(), &request.other_claims());
         let mut record = SessionRecord::launched(request, effort, conversation.clone(), verification, now_ms());
+        record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
         self.registrar.register(&row, claim, &request.slots)?;

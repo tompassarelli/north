@@ -120,6 +120,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("laptop-runner", Diagnosis),
     ("ledger flow", Status),
     ("ledger incident", Bookkeeping),
+    ("ledger opencode", Status),
     ("ledger tempo", Status),
     ("ledger worker", Status),
     ("ledger", Status),

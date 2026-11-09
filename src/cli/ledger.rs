@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const USAGE: &str = "Usage: north ledger (flow|incident|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
+const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {

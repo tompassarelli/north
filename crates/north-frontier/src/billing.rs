@@ -43,7 +43,7 @@ pub fn charge(ledger: &Ledger, org: &str, spent: &Spent) -> Result<(), NorthErro
             tokens: *tokens,
             exit: TurnExit::Completed,
         };
-        ledger.record_run(&RunRecord { session: format!("{}:{model}", spent.name), task_ref: None, provider: "claude".into(), account: Some(format!("api:{org}")), system_prompt_sha: None, deepen: false, turn })?;
+        ledger.record_run(&RunRecord { session: format!("{}:{model}", spent.name), task_ref: None, provider: "claude".into(), overlay: None, account: Some(format!("api:{org}")), system_prompt_sha: None, deepen: false, turn })?;
     }
     Ok(())
 }

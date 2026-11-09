@@ -366,6 +366,7 @@ impl TurnWatch {
             session: session.as_ref().map_or_else(|| turn.conversation.clone(), |record| record.name.clone()),
             task_ref: session.as_ref().and_then(|record| record.task_ref.clone()),
             provider: self.runtime.provider().label().to_owned(),
+            overlay: session.as_ref().and_then(|record| record.overlay.clone()),
             account: session.as_ref().map(|record| Host::served_by(&self.host_dir).unwrap_or_else(|| record.account.clone())),
             system_prompt_sha: session.as_ref().and_then(|record| record.system_prompt_sha.clone()),
             deepen: turn.prompt.as_deref().is_some_and(is_deepened),
