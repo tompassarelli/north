@@ -5,6 +5,15 @@ use crate::dispatch::{Ask, Start, start_hand, tier_reason, untasked};
 use super::placement::{self, Overrides};
 
 pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> NorthResult<Option<Start>> {
+    if request.provider.label() != "claude" && !request.verification && request.role() == crate::fleet::model::Role::Worker
+        && let Some(item) = request.task()
+    {
+        match crate::dispatch::boxless_launch_refusal(&item) {
+            Ok(Some(why)) => return Err(NorthError::Refused(why)),
+            Ok(None) => {}
+            Err(why) => eprintln!("north fleet: {item} unread, so its Done-when box is not checked: {why}"),
+        }
+    }
     if request.provider.label() != "claude" || request.verification {
         return Ok(None);
     }

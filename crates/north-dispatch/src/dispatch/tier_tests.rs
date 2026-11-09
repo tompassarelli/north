@@ -136,6 +136,20 @@ fn a_task_launch_without_a_model_draws_its_category_arm() {
 }
 
 #[test]
+fn a_hand_launch_on_an_issue_with_no_open_done_when_box_is_refused() {
+    use super::manual::{Ask, start};
+    use super::tier::History;
+    use std::collections::BTreeMap;
+    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    let brief = "Item: north#928\nCategory: tooling";
+    let launch = |body: &str| start(&Ask { item: "north#928", brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, body, &cfg, &History::default(), &BTreeMap::new(), &|_| super::grounds::Grounds::default());
+    let drift = "`north tune` keeps this issue while any tier and category's median ratio of actual to estimated minutes or cost over the last 7 days sits outside 0.67-1.5x.\n\n## haiku mechanical\n\n- minutes: actual over estimate median 0.40x p90 2.35x inside 78% (n 45)\n";
+    let refused = launch(drift).unwrap_err();
+    assert!(refused.contains("north#928") && refused.contains("no open Done-when box"), "{refused}");
+    assert!(launch("Category: tooling\n- [ ] a box").is_ok(), "the same launch on one open box still starts");
+}
+
+#[test]
 fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_launches_claude_with_its_auto_compact_window() {
     use super::manual::{Ask, start};
     use super::tier::{Evidence, History, context_arm};

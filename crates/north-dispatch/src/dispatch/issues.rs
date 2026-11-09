@@ -302,6 +302,11 @@ pub fn product_boxes(body: &str) -> usize {
     body.lines().filter(|line| UNTICKED.is_match(line) && !cleanup::is_box(line)).count()
 }
 
+/// Why a worker launch on `item` cannot proceed when its body holds no open Done-when box: a worker works a box.
+pub(crate) fn no_box_refusal(item: &str, body: &str) -> Option<String> {
+    (unticked_boxes(body) == 0).then(|| format!("{item} has no open Done-when box, so no worker can take it; add the box the work delivers, or launch a brief that names no issue"))
+}
+
 /// Every issue reference in `text`; a bare `#N` belongs to `repo`.
 pub fn references(text: &str, repo: &str) -> Vec<IssueRef> {
     REFERENCE
