@@ -5,7 +5,7 @@ use north_base::build_inputs::rust_build_input;
 use regex::Regex;
 use toml_edit::{DocumentMut, Item};
 
-use super::graph_selection::{self, Batch, Selected, Tests};
+use super::graph_selection::{self, Batch, Tests};
 use super::select::changed;
 use super::shared_build::live_runtime;
 use super::tree_wide_units::{self, Units};
@@ -55,13 +55,6 @@ impl Selection {
             Self::Every => true,
             Self::Modules { modules, .. } => modules.contains(module),
             Self::Tests(tests) => tests.runs_module(module),
-        }
-    }
-
-    pub fn selected(&self) -> Option<Selected> {
-        match self {
-            Self::Tests(tests) => Some(tests.selected()),
-            Self::Every | Self::Modules { .. } => None,
         }
     }
 

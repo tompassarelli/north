@@ -4,6 +4,7 @@ use std::process::Command;
 
 use crate::landing::{land_test_runner, land_test_selection};
 use super::super::affected::Scope;
+use super::super::it_modules;
 use super::super::verdict_key;
 use super::super::select::{Config, changed};
 use super::super::selection_record::Recorded;
@@ -80,9 +81,9 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
         say(&format!("safe-push: the tests/it run is {}", selection.summary()));
     }
     if arguments.after
-        && let Some(selected) = selection.selected()
+        && let it_modules::Selection::Tests(tests) = &selection
     {
-        Outcome(arguments.outcome.clone()).record(&[SELECTED, &arguments.base, &arguments.head, &serde_json::to_string(&selected).unwrap_or_default()]);
+        Outcome(arguments.outcome.clone()).record(&[SELECTED, &arguments.base, &arguments.head, &serde_json::to_string(&tests.selected()).unwrap_or_default()]);
     }
     Some((selection.arguments(), selection.packages()))
 }
