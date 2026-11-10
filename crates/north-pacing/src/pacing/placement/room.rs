@@ -177,6 +177,11 @@ impl<'a> Basis<'a> {
         plan(self.cfg, self.catalog, account)
     }
 
+    /// Why `account` takes no worker at all: `[accounts.PROVIDER] reserve` names it (a plan account by label, an API organization as `api:ORG`) for the privacy judge, lander and canaries.
+    pub fn operational(&self, account: &str) -> Option<String> {
+        crate::spend::operational_reserve(self.cfg).iter().any(|name| name == account).then(|| "reserve: operational callers only (privacy judge, lander, canaries)".to_owned())
+    }
+
     /// Why `account` takes no launch yet: its `[accounts.PROVIDER] held_until_spent` entry names another account
     /// whose week in `windows` (the usage gate's windows by account) still has room.
     pub fn held(&self, account: &str, windows: &Value) -> Option<String> {

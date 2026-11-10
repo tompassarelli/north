@@ -158,7 +158,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
     let windows = &usage["claude"]["windows"];
     let mut found = Vec::new();
     for (name, sample) in windows.as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("claude:")) {
-        match basis.held(name, windows) {
+        match basis.operational(name).or_else(|| basis.held(name, windows)) {
             Some(why) => notes.push(format!("{name} {why}")),
             None => found.push(account(name, sample, &basis, signed_in(cfg, roster, name, here), at, notes)),
         }
@@ -170,9 +170,11 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
 /// Each API grant in `sources` as an account on the hosts the policy gives its key, ranked by its deadline;
 /// this host counts only when its own roster holds the key, so a dispatcher with no key still places on the hosts that do.
 pub(super) fn grants(cfg: &DocumentMut, roster: &Roster, here: &str, sources: Vec<GrantSource>) -> Vec<Account> {
+    let reserved = spend::operational_reserve(cfg);
     let orgs = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("api_orgs"));
     sources
         .into_iter()
+        .filter(|source| !reserved.contains(&source.account))
         .filter_map(|source| {
             let name = source.account.trim_start_matches("claude:api:");
             let keys = orgs.and_then(|orgs| orgs.get(name)).and_then(|org| org.get("keys")).and_then(Item::as_table_like);

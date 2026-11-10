@@ -11,7 +11,7 @@ pub mod tripwire;
 
 use std::fmt;
 
-pub use read::{TRIPS, keyed, view_from_config};
+pub use read::{TRIPS, keyed, operational_reserve, view_from_config};
 pub use tripwire::Trip;
 
 /// The rule's knobs, from harness/defaults.toml.
@@ -96,6 +96,8 @@ pub struct View {
     pub trips: Vec<Trip>,
     /// Accounts that bill per token on an API key, and through the prefix their pinned `label:org` forms: no plan windows to read, so no window limit applies.
     pub keyed: Vec<String>,
+    /// Accounts the policy declares an operational reserve (`[accounts.claude] reserve`): only the privacy judge, lander and canaries may use them, so no worker or subagent starts on them and their weeks stay out of the pool.
+    pub operational: Vec<String>,
     /// Tom's drain switch is on: the reserve is skipped and every account may be spent to its provider limit.
     pub drain: bool,
 }
@@ -119,6 +121,7 @@ pub enum Starter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
     Reserve,
+    Operational,
     Floor,
     Tripwire,
     ProviderLimit,
@@ -129,6 +132,7 @@ impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Reserve => "spend reserve",
+            Self::Operational => "operational reserve",
             Self::Floor => "spend floor",
             Self::Tripwire => "spend tripwire",
             Self::ProviderLimit => "provider limit",
@@ -150,14 +154,18 @@ impl fmt::Display for Refusal {
 }
 
 impl View {
-    /// Points of a Max 5x week left across the counted accounts.
+    fn pooled(&self) -> impl Iterator<Item = &Account> {
+        self.accounts.iter().filter(|account| account.counted && !self.operational.contains(&account.name))
+    }
+
+    /// Points of a Max 5x week left across the counted accounts, less the operational reserve.
     pub fn pool(&self) -> f64 {
-        self.accounts.iter().filter(|account| account.counted).map(|account| account.week_left(self.at)).sum()
+        self.pooled().map(|account| account.week_left(self.at)).sum()
     }
 
     /// The reserve in Max 5x week points: its percent of the combined week of the counted accounts.
     pub fn reserve(&self, rules: &Rules) -> f64 {
-        rules.reserve * self.accounts.iter().filter(|account| account.counted).map(|account| account.plan_week).sum::<f64>()
+        rules.reserve * self.pooled().map(|account| account.plan_week).sum::<f64>()
     }
 
     pub fn account(&self, name: &str) -> Option<&Account> {
@@ -166,6 +174,9 @@ impl View {
 
     /// Whether `starter` may start one more session on `account`, given what this run has placed.
     pub fn admit(&self, rules: &Rules, account: &str, starter: Starter, placed: Placed) -> Result<(), Refusal> {
+        if starter != Starter::Reserved && self.operational.iter().any(|name| name == account) {
+            return Err(Refusal { rule: Rule::Operational, line: format!("{account} is the operational reserve: only the privacy judge, lander and canaries may use it") });
+        }
         let keyed = self.keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')));
         if starter != Starter::Reserved && !keyed {
             self.reserved(rules, placed)?;

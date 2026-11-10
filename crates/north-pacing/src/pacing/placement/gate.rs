@@ -489,7 +489,7 @@ pub fn verdicts_of_for(gate: &Value, standings: &BTreeMap<String, record::Standi
     let windows = &gate["claude"]["windows"];
     standing_verdicts(gate, standings, family)
         .into_iter()
-        .map(|verdict| match basis.held(&verdict.account, windows).filter(|_| verdict.available) {
+        .map(|verdict| match basis.operational(&verdict.account).or_else(|| basis.held(&verdict.account, windows).filter(|_| verdict.available)) {
             Some(why) => Verdict { owners: verdict.owners, ..unavailable(&verdict.account, why) },
             None => {
                 let rank = match family {
@@ -652,7 +652,10 @@ pub fn probed(cfg: &DocumentMut, fleet_load: &BTreeMap<String, i64>) -> Vec<Mach
 }
 
 /// An API grant as a placement verdict, ranked by its deadline beside the plan accounts.
-pub fn grant_verdict(source: &north_strategy_types::placement::GrantSource) -> Verdict {
+pub fn grant_verdict(source: &north_strategy_types::placement::GrantSource, reserved: Option<String>) -> Verdict {
+    if let Some(why) = reserved {
+        return unavailable(&source.account, why);
+    }
     let rank = Rank::grant(source.deadline_h, source.urgent);
     Verdict { account: source.account.clone(), available: true, exhausted: false, headroom: source.left_usd, rank, line: format!("{} available: {}", source.account, source.line), owners: Vec::new() }
 }

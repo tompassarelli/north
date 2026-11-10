@@ -7,10 +7,7 @@ pub(super) fn run(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
         [] => listing(fleet, false),
         ["--claude-ai"] => listing(fleet, true),
         ["--api"] => api_pool_listing(),
-        ["--plan"] => {
-            eprintln!("north fleet accounts --plan moved to `north accounts`; it prints every plan account and api grant in placement order with its verdict");
-            Ok(())
-        }
+        ["--plan"] => plan(),
         ["--reading", account, usd] => reading(account, usd),
         ["--poll"] => poll(),
         ["--probe"] => probe(fleet),
@@ -130,3 +127,12 @@ fn listing(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
     Ok(())
 }
 
+
+/// Prints every plan account and API grant in placement order with its verdict and rank reason, the operational reserve among them as unavailable to workers.
+fn plan() -> NorthResult<()> {
+    let plan = crate::pacing::placement::case::plan(&super::roster()?).map_err(NorthError::State)?;
+    for (index, (line, reason)) in plan.iter().enumerate() {
+        println!("{}. {line} [{reason}]", index + 1);
+    }
+    Ok(())
+}

@@ -10,7 +10,7 @@ fate.
 
 One module, `north_pace::spend`, holds the rule. Dispatch, `north fleet launch`, the spawn hook and
 follows-release call it, and nothing else may refuse a worker on usage grounds. A refusal names the rule that
-fired: `spend reserve`, `spend floor`, `spend tripwire`, `provider limit` or `no usage reading`.
+fired: `spend reserve`, `operational reserve`, `spend floor`, `spend tripwire`, `provider limit` or `no usage reading`.
 
 1. **Pooled reserve.** One reserve covers all accounts together. The pool is the sum, over the accounts
    spend counts, of each account's unspent share of its week (all of it once the week has reset), scaled by
@@ -21,6 +21,9 @@ fired: `spend reserve`, `spend floor`, `spend tripwire`, `provider limit` or `no
    account to the operational floor (rule 3), and reserved starters to the provider's limit. An account that
    refills first returns its week to the pool. The proxy, scheduled routines (a `[routine:...]` brief) and
    Tom's own sessions are not held by the reserve and go to whichever account still has headroom.
+   An account named in `[accounts.claude] reserve` (a plan account by label, an API organization as `api:ORG`) is the
+   operational reserve (north#1049, north#1076): workers and subagents never start on it, placement and dispatch never
+   offer it, its week stays out of the pool, and `north fleet accounts --plan` lists it as operational-only.
 2. **Tripwire.** No new worker starts on an account while either holds:
    - the account's five-hour window rose more than `spend_trip_fleet_points` within `spend_trip_fleet_min`
      minutes (readings that share one reset);

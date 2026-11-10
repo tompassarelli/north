@@ -74,14 +74,14 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
         rank_by_headroom(&mut verdicts);
     }
     let fable_has_room = has_headroom(&verdicts);
-    verdicts.extend(case.grants.iter().map(gate::grant_verdict));
+    verdicts.extend(case.grants.iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
     let mut decision = gate::decide(&case.brief, &cfg, verdicts, credit.clone(), &machines, here, case.here.gaming);
     decision.family = Some(family);
     if coordinator && family == ModelFamily::Fable && !fable_has_room {
         let mut opus = gate::verdicts_of_for(&gate_value, &case.roster, &basis, Some(ModelFamily::Opus));
         rank_by_headroom(&mut opus);
         if opus.iter().any(has_floor_headroom) {
-            opus.extend(case.grants.iter().map(gate::grant_verdict));
+            opus.extend(case.grants.iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
             decision = gate::decide(&case.brief, &cfg, opus, credit, &machines, here, case.here.gaming);
             decision.family = Some(ModelFamily::Opus);
             decision.machine_lines.push("no account has Fable headroom; the coordinator starts on Opus high".to_owned());
@@ -330,8 +330,10 @@ pub fn accounts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
 /// Every account and api grant as placement judges it, the available ones first in placement order.
 pub fn verdicts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     let at = storage::now();
+    let cfg = crate::platform::orchestration::read()?;
+    let basis = Basis::new(&cfg, at);
     let mut verdicts = accounts(roster)?;
-    verdicts.extend(grant_sources(roster, at).iter().map(gate::grant_verdict));
+    verdicts.extend(grant_sources(roster, at).iter().map(|source| gate::grant_verdict(source, basis.operational(&source.account))));
     verdicts.sort_by(|a, b| b.available.cmp(&a.available).then(b.rank.order(&a.rank)).then(a.account.cmp(&b.account)));
     Ok(verdicts)
 }

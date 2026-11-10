@@ -266,3 +266,15 @@ fn an_account_held_until_another_is_spent_takes_no_launch_while_that_one_has_wee
     assert!(held.starts_with("held") && line.contains("held until claude:a is spent"), "{held}: {line}");
     assert_eq!(placed(100.0).0, "claude:b");
 }
+
+#[test]
+fn the_declared_operational_reserve_is_never_offered_to_a_worker() {
+    let cfg: DocumentMut = "[accounts.claude]\nreserve = [\"b\"]\n".parse().unwrap();
+    let at = crate::foundation::clock::rfc3339_seconds("2026-10-19T00:00:00Z").unwrap();
+    let listed = roster(&[("a", None), ("b", None)]);
+    let quota = gate(&[("claude:a", control((50.0, "2026-10-19T03:00:00Z"), 50.0)), ("claude:b", control((0.0, "2026-10-19T03:00:00Z"), 0.0))]);
+    let decision = gate::decide(CODE_ONLY, &cfg, gate::verdicts(&quota, &listed, &Basis::new(&cfg, at)), (false, String::new()), &[], "here", false);
+    let line = decision.verdict("claude:b").unwrap().line.clone();
+    assert!(line.contains("unavailable") && line.contains("reserve: operational callers only"), "{line}");
+    assert_eq!(target(&decision), "claude:a");
+}

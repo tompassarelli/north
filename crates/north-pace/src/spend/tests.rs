@@ -16,7 +16,7 @@ fn account(name: &str, five_hour: f64, week: f64) -> Account {
 /// to its provider limit while workers keep starting on the others until the pool reaches the reserve.
 #[test]
 fn the_pooled_reserve_stops_workers_only_when_the_pool_reaches_it_while_one_account_is_drained() {
-    let mut view = View { at: NOW, accounts: vec![account("claude:a", 100.0, 100.0), account("claude:b", 0.0, 80.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false };
+    let mut view = View { at: NOW, accounts: vec![account("claude:a", 100.0, 100.0), account("claude:b", 0.0, 80.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), operational: Vec::new(), drain: false };
     assert_eq!(view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::ProviderLimit));
     assert_eq!(view.admit(&rules(), "claude:b", Starter::Worker, Placed::default()), Ok(()));
     view.accounts[1] = account("claude:b", 0.0, 90.0);
@@ -29,7 +29,7 @@ fn the_pooled_reserve_stops_workers_only_when_the_pool_reaches_it_while_one_acco
 /// allowed no workers while ready boxes waited; no count stops workers, only the pool does.
 #[test]
 fn twelve_concurrent_workers_start_on_an_account_with_room_and_only_the_pool_stops_the_next() {
-    let view = View { at: NOW, accounts: vec![account("claude:c", 0.0, 74.0)], working: 3, trips: Vec::new(), keyed: Vec::new(), drain: false };
+    let view = View { at: NOW, accounts: vec![account("claude:c", 0.0, 74.0)], working: 3, trips: Vec::new(), keyed: Vec::new(), operational: Vec::new(), drain: false };
     for workers in 0..20 {
         assert_eq!(view.admit(&rules(), "claude:c", Starter::Worker, Placed { workers }), Ok(()), "worker {}", workers + 4);
     }
@@ -43,7 +43,7 @@ fn the_tripwire_fires_on_a_planted_burst_and_names_the_top_spender() {
     let spenders = [Spender { session: "runaway".into(), account: "claude:c".into(), spent: vec![(NOW - 14.0 * 60.0, 1.0), (NOW, 31.0)] }];
     let trip = tripwire::trip(&rules(), "claude:c", &samples, &spenders, 1.0, NOW).expect("a 35-point rise in 14 minutes trips");
     assert!(trip.line.contains("runaway"), "{}", trip.line);
-    let view = View { at: NOW, accounts: vec![account("claude:c", 55.0, 50.0)], working: 0, trips: vec![trip], keyed: Vec::new(), drain: false };
+    let view = View { at: NOW, accounts: vec![account("claude:c", 55.0, 50.0)], working: 0, trips: vec![trip], keyed: Vec::new(), operational: Vec::new(), drain: false };
     assert_eq!(view.admit(&rules(), "claude:c", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Tripwire));
     let calm = [Sample { at: NOW - 14.0 * 60.0, used_pct: 20.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 45.0, resets_at: Some(NOW + HOUR) }];
     assert_eq!(tripwire::trip(&rules(), "claude:c", &calm, &[], 1.0, NOW), None);
@@ -54,7 +54,7 @@ fn the_tripwire_fires_on_a_planted_burst_and_names_the_top_spender() {
 /// stops there while a reserved starter still uses it.
 #[test]
 fn a_worker_stops_at_the_operational_floor_while_the_judge_lander_and_canaries_may_use_it() {
-    let mut view = View { at: NOW, accounts: vec![account("claude:a", 0.0, 94.9), account("claude:b", 10.0, 50.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false };
+    let mut view = View { at: NOW, accounts: vec![account("claude:a", 0.0, 94.9), account("claude:b", 10.0, 50.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), operational: Vec::new(), drain: false };
     assert_eq!(view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()), Ok(()), "5.1% of the week is still above the 5% floor");
     view.accounts[0] = account("claude:a", 0.0, 95.0);
     let week = view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).unwrap_err();
@@ -72,7 +72,7 @@ fn a_worker_stops_at_the_operational_floor_while_the_judge_lander_and_canaries_m
 #[test]
 fn drain_skips_the_reserve_but_not_the_provider_limit_or_the_floor() {
     let tight = Rules { charge: 6.0, ..rules() };
-    let view = View { at: NOW, accounts: vec![account("claude:a", 10.0, 94.0), account("claude:b", 10.0, 100.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false };
+    let view = View { at: NOW, accounts: vec![account("claude:a", 10.0, 94.0), account("claude:b", 10.0, 100.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), operational: Vec::new(), drain: false };
     assert_eq!(view.admit(&tight, "claude:a", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Reserve));
     let drained = View { drain: true, ..view.clone() };
     assert_eq!(drained.admit(&tight, "claude:a", Starter::Worker, Placed::default()), Ok(()));
@@ -95,4 +95,18 @@ fn a_session_trip_priced_before_a_recalibration_is_lifted_at_the_new_price_and_p
     assert!(aged.current.is_empty(), "on 2026-11-08 n882-text's session trip held every b start from 9:17 to 9:32 AM, the fleet's 15 min, after its own 10 min burst: {:?}", aged.current);
     let lifted = tripwire::judge(&[stale], Vec::new(), later, &rules(), |_| 0.465);
     assert!(lifted.current.is_empty(), "{:?}", lifted.current);
+}
+
+/// north#1049 reserves capacity for the privacy judge, lander and canaries: an account the policy declares
+/// the operational reserve starts no worker or subagent, and its week stays out of the pool.
+#[test]
+fn a_worker_launch_refuses_the_declared_operational_reserve_while_operational_callers_use_it() {
+    let view = View { at: NOW, accounts: vec![account("claude:a", 0.0, 10.0), account("claude:e", 0.0, 0.0)], operational: vec!["claude:e".into()], ..View::default() };
+    for starter in [Starter::Worker, Starter::Subagent] {
+        let refused = view.admit(&rules(), "claude:e", starter, Placed::default()).unwrap_err();
+        assert_eq!(refused.rule, Rule::Operational, "{refused}");
+    }
+    assert_eq!(view.admit(&rules(), "claude:e", Starter::Reserved, Placed::default()), Ok(()));
+    assert_eq!(view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()), Ok(()));
+    assert_eq!(view.pool(), 90.0, "the reserve's week is not the workers' pool");
 }
