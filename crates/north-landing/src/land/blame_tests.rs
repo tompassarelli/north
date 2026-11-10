@@ -70,6 +70,10 @@ fn a_red_four_lane_batch_whose_graph_blame_names_two_lanes_bisects_only_those_tw
     let (found, rounds) = searched(4, 1, &named, 1, false);
     assert_eq!(found, Some(0));
     assert_eq!(rounds, vec![vec![1]]);
+}
+
+#[test]
+fn two_bad_lanes_among_eight_are_isolated_in_at_most_six_bisect_runs() {
     let eight: Vec<String> = (0..8).map(|at| format!("lane-{at}")).collect();
     let (found, runs) = searched_signatures(8, &Suspects::Batch, &[(0, "step citations"), (7, "step layers")], &["step citations", "step layers"]);
     assert_eq!(found, Some(vec![0, 7]));
