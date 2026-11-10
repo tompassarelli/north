@@ -6,6 +6,7 @@ use north_base::foundation::exit::NO_VERDICT;
 use std::time::Duration;
 use probes::Probe;
 
+mod baseline;
 mod launch;
 mod probes;
 
@@ -35,6 +36,8 @@ pub(super) trait Machine: Sync {
     fn probe(&self, probe: &Probe) -> Ran;
     fn roll_back(&self, sha: &str) -> Rollback;
     fn alarm(&self, text: &str);
+    fn page(&self, key: &str, text: &str);
+    fn rollback_target(&self, sha: &str) -> Option<String>;
     fn launchable_providers(&self) -> Vec<String>;
     fn sessions_reach_hub(&self, host: &str) -> bool;
     fn settles_fleet(&self, host: &str) -> bool;
@@ -47,10 +50,11 @@ pub(super) enum Verdict {
     Passed,
     Unrun(String),
     RolledBack,
+    Kept,
     Stuck,
 }
 
-fn run_probes(host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Vec<probes::Probe>, Vec<Ran>) {
+fn run_probes(host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Vec<Probe>, Vec<Ran>) {
     let landers = machine.lander_repositories();
     let plan = probes::core_loop(host, sha, &machine.launchable_providers(), machine.sessions_reach_hub(host), machine.settles_fleet(host), landers.as_ref());
     if !plan.not_applicable.is_empty() {
@@ -83,7 +87,7 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         return Verdict::Skipped;
     }
     let (probes, ran) = run_probes(host, sha, short, machine);
-    let Tallies { failures, faults, unrun } = tallies(&probes, &ran);
+    let Tallies { failures, broken, faults, unrun } = tallies(&probes, &ran);
     if failures.is_empty() {
         if !faults.is_empty() {
             return host_fault(host, short, machine, &faults, finish);
@@ -99,10 +103,16 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         return Verdict::Unrun(why);
     }
     let failure = format!("{} on {host} for runtime {short}", failures.join("; "));
+    if let Some(baseline) = baseline::of(layout, host, sha, &broken, machine).filter(|baseline| !baseline.beats(&broken)) {
+        let kept = layout::short(&baseline.sha);
+        finish(Canary::Kept, &format!("{failure}; {kept}, the runtime it would roll back to, fails there too, so it stays live{}", faults.iter().chain(&unrun).map(|why| format!("; {why}")).collect::<String>()));
+        println!("north runtime canary: {host}: {short} stays live: {kept}, the runtime it would roll back to, fails the same probes no later");
+        machine.page(&baseline::shared_key(host, &broken), &format!("north runtime canary: {failure}; {kept}, the runtime it would roll back to, fails there too, so {host} keeps {short} live"));
+        return Verdict::Kept;
+    }
     match machine.roll_back(sha) {
         Rollback::To(previous) => {
             finish(Canary::RolledBack, &failure);
-            lifecycle::trust(layout, host, &previous, short);
             machine.alarm(&format!("north runtime canary: {failure}; {host} rolled back to {} and quarantines {short} until a newer landing", layout::short(&previous)));
             Verdict::RolledBack
         }
@@ -122,16 +132,20 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
 
 struct Tallies {
     failures: Vec<String>,
+    broken: Vec<baseline::Broken>,
     faults: Vec<String>,
     unrun: Vec<String>,
 }
 
 fn tallies(probes: &[Probe], ran: &[Ran]) -> Tallies {
-    let mut tallies = Tallies { failures: Vec::new(), faults: Vec::new(), unrun: Vec::new() };
+    let mut tallies = Tallies { failures: Vec::new(), broken: Vec::new(), faults: Vec::new(), unrun: Vec::new() };
     for (probe, ran) in probes.iter().zip(ran) {
         match ran {
             Ran::Exited { code: 0, .. } => {}
-            Ran::Exited { code, log } => tallies.failures.push(format!("probe `{}` exited {code}; log tail: {}", probe.name, tail(log))),
+            Ran::Exited { code, log } => {
+                tallies.failures.push(format!("probe `{}` exited {code}; log tail: {}", probe.name, tail(log)));
+                tallies.broken.push(baseline::Broken::of(probe, log));
+            }
             Ran::Unrun(why) => tallies.unrun.push(format!("probe `{}` not run: {why}", probe.name)),
             Ran::HostFault(why) => tallies.faults.push(format!("probe `{}` found a host fault: {why}", probe.name)),
         }
@@ -200,6 +214,17 @@ impl Machine for Live<'_> {
 
     fn alarm(&self, text: &str) {
         update::alert_proxy(text);
+    }
+
+    fn page(&self, key: &str, text: &str) {
+        update::page_proxy(key, text);
+    }
+
+    fn rollback_target(&self, sha: &str) -> Option<String> {
+        match self.host {
+            super::probe::Shell::Here(_) => lifecycle::previous(self.layout, sha, |previous| layout::has_programs(&self.layout.runtime(previous))).ok().flatten(),
+            super::probe::Shell::Ssh(_) => None,
+        }
     }
 
     fn launchable_providers(&self) -> Vec<String> {

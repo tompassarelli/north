@@ -12,18 +12,21 @@ const PROMOTED: &str = "2222222222222222222222222222222222222222";
 struct Fleet<'a> {
     layout: &'a Layout,
     failing: Option<(&'static str, Ran)>,
+    replaced: Option<(&'static str, Ran)>,
     launchable: Vec<String>,
     reaches_hub: bool,
     settles: bool,
     landers: Option<probes::Landers>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
+    pages: Mutex<Vec<(String, String)>>,
 }
 
 impl Machine for Fleet<'_> {
     fn probe(&self, probe: &Probe) -> Ran {
         self.probed.lock().unwrap().push(probe.name.clone());
-        match &self.failing {
+        let failing = if probe.script.contains(PREVIOUS) { &self.replaced } else { &self.failing };
+        match failing {
             Some((name, Ran::Exited { code, log })) if probe.name.contains(name) => Ran::Exited { code: *code, log: log.clone() },
             Some((name, Ran::Unrun(why))) if probe.name.contains(name) => Ran::Unrun(why.clone()),
             Some((name, Ran::HostFault(why))) if probe.name.contains(name) => Ran::HostFault(why.clone()),
@@ -37,6 +40,14 @@ impl Machine for Fleet<'_> {
 
     fn alarm(&self, text: &str) {
         self.alarms.lock().unwrap().push(text.to_owned());
+    }
+
+    fn page(&self, key: &str, text: &str) {
+        self.pages.lock().unwrap().push((key.to_owned(), text.to_owned()));
+    }
+
+    fn rollback_target(&self, sha: &str) -> Option<String> {
+        Live { layout: self.layout, host: &super::super::probe::Shell::Here("here".to_owned()) }.rollback_target(sha)
     }
 
     fn launchable_providers(&self) -> Vec<String> {
@@ -79,7 +90,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, replaced: None, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()), pages: Mutex::new(Vec::new()) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -269,7 +280,7 @@ fn a_host_without_a_running_lander_skips_the_token_probe() {
 }
 
 #[test]
-fn the_rollback_target_is_trusted_and_never_judged_again() {
+fn a_rollback_target_walked_before_the_rollback_is_not_judged_again() {
     let host = Host::promoted();
     let failing = host.fleet(Some(("opencode", exited(1, "a test launch needs NORTH_TEST_ROOT\n"))));
     assert_eq!(check(&host.layout, "nexus", PROMOTED, &failing), Verdict::RolledBack);
@@ -358,4 +369,39 @@ fn a_runtime_that_goes_live_by_promote_settle_or_update_gets_a_canary_verdict() 
     let fleet = failing.fleet(Some(("opencode", exited(1, "a test launch needs NORTH_TEST_ROOT\n"))));
     assert!(update::judge_outgoing(&failing.layout, name, PROMOTED, &fleet), "a failing outgoing runtime rolls back, so the promotion waits for the next pass");
     assert_eq!(failing.current(), layout::link(PREVIOUS));
+}
+
+#[test]
+fn an_incoming_runtime_that_fails_where_the_outgoing_also_fails_stays_live() {
+    const WALK: &str = "verify-north walks the spine";
+    let stops = |step: u32| exited(1, &format!("step {step} FAIL     907 ms  the walk's check\nverify-north FAILED at step {step}  total 24571 ms\n"));
+    let canary = |host: &Host, sha: &str| lifecycle::state_of::<Canarying>(&host.layout, &format!("whiterabbit/{sha}")).unwrap();
+
+    let shared = Host::promoted();
+    lifecycle::move_to::<Canarying>(&shared.layout, &format!("whiterabbit/{PREVIOUS}"), Canary::Trusted, "the rollback target after 768b570e failed; trusted, not re-judged").unwrap();
+    let mut fleet = shared.settling(Some((WALK, stops(4))));
+    fleet.replaced = Some((WALK, stops(4)));
+    assert_eq!(check(&shared.layout, "whiterabbit", PROMOTED, &fleet), Verdict::Kept, "on 2026-11-10 every runtime failing step 4 was rolled back onto 43ec2f7c, which failed step 4 too and had never been walked");
+    assert_eq!(shared.current(), layout::link(PROMOTED));
+    assert_eq!(canary(&shared, PROMOTED), Some(Canary::Kept));
+    assert_eq!(canary(&shared, PREVIOUS), Some(Canary::Kept), "the outgoing runtime's own failure is on record");
+    assert!(fleet.alarms.lock().unwrap().is_empty());
+    let pages = fleet.pages.lock().unwrap();
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].0, "runtime-canary-shared:whiterabbit:verify-north walks the spine on the promoted runtime step 4");
+
+    let passing = Host::promoted();
+    lifecycle::move_to::<Canarying>(&passing.layout, &format!("whiterabbit/{PREVIOUS}"), Canary::Trusted, "the rollback target after 768b570e failed; trusted, not re-judged").unwrap();
+    let fleet = passing.settling(Some((WALK, stops(4))));
+    assert_eq!(check(&passing.layout, "whiterabbit", PROMOTED, &fleet), Verdict::RolledBack, "a runtime that fails a step the outgoing passes rolls back");
+    assert_eq!(passing.current(), layout::link(PREVIOUS));
+    assert_eq!(canary(&passing, PREVIOUS), Some(Canary::Passed));
+
+    let earlier = Host::promoted();
+    lifecycle::move_to::<Canarying>(&earlier.layout, &format!("whiterabbit/{PREVIOUS}"), Canary::Kept, "probe `verify-north walks the spine on the promoted runtime` exited 1; log tail: step 4 FAIL | verify-north FAILED at step 4  total 24571 ms on whiterabbit for runtime 11111111").unwrap();
+    let fleet = earlier.settling(Some((WALK, stops(2))));
+    let planned = probes::core_loop("whiterabbit", PROMOTED, &fleet.launchable, true, true, None).probes.len();
+    assert_eq!(check(&earlier.layout, "whiterabbit", PROMOTED, &fleet), Verdict::RolledBack, "a runtime that stops at an earlier step than the outgoing rolls back");
+    assert_eq!(earlier.current(), layout::link(PREVIOUS));
+    assert_eq!(fleet.probed.lock().unwrap().len(), planned, "an outgoing walk on record is read, not walked again");
 }

@@ -2,7 +2,7 @@
 //! through `north_base::lifecycle`: a runtime's journey to `current` and back, the core-loop probes that judge it on a
 //! host, and the one judgement settle makes of each landing.
 use super::failure::{Failure, failed};
-use super::layout::{self, Layout};
+use super::layout::Layout;
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Record, Refusal, State, Store};
 use std::time::Duration;
@@ -86,10 +86,11 @@ pub enum Canary {
     Stuck,
     Unjudged,
     Trusted,
+    Kept,
 }
 
 impl State for Canary {
-    const ALL: &'static [Self] = &[Self::Judging, Self::Passed, Self::RolledBack, Self::Stuck, Self::Unjudged, Self::Trusted];
+    const ALL: &'static [Self] = &[Self::Judging, Self::Passed, Self::RolledBack, Self::Stuck, Self::Unjudged, Self::Trusted, Self::Kept];
 
     fn name(self) -> &'static str {
         match self {
@@ -99,13 +100,14 @@ impl State for Canary {
             Self::Stuck => "stuck",
             Self::Unjudged => "unjudged",
             Self::Trusted => "trusted",
+            Self::Kept => "kept",
         }
     }
 }
 
 impl Canary {
     pub(super) fn judged(self) -> bool {
-        matches!(self, Self::Passed | Self::Stuck | Self::Trusted)
+        matches!(self, Self::Passed | Self::Stuck | Self::Trusted | Self::Kept)
     }
 }
 
@@ -117,7 +119,7 @@ impl Lifecycle for Canarying {
 
     fn legal(from: Option<Canary>, to: Canary) -> bool {
         use Canary::*;
-        matches!((from, to), (None, _) | (Some(Judging), Passed | RolledBack | Stuck | Unjudged) | (Some(RolledBack | Unjudged), Judging | Trusted))
+        matches!((from, to), (None, _) | (Some(Judging), Passed | RolledBack | Stuck | Unjudged | Kept) | (Some(RolledBack | Unjudged | Trusted), Judging))
     }
 
     fn dwell(state: Canary) -> Option<Duration> {
@@ -199,11 +201,11 @@ pub(super) fn state_of<L: Lifecycle>(layout: &Layout, instance: &str) -> Result<
     Ok(record_of::<L>(layout, instance)?.map(|record| record.state))
 }
 
-/// The runtime a rollback of `failed_sha` returns to: the newest one a promotion replaced that a canary passed, or an earlier rollback trusted, in this ledger.
+/// The runtime a rollback of `failed_sha` returns to: the newest one a promotion replaced whose canary passed, or failed only where the runtime before it failed too, in this ledger; a `trusted` row, written by rollbacks before north#1103 with no walk behind it, is still a target, and the canary walks it before it decides.
 /// A host whose ledger holds no passed canary at all never walked the spine, so it takes the newest replaced runtime.
 pub(super) fn previous(layout: &Layout, failed_sha: &str, usable: impl Fn(&str) -> bool) -> Result<Option<String>, Failure> {
     let store = store(layout)?;
-    let judged: Vec<String> = store.instances::<Canarying>().map_err(unreadable)?.into_iter().filter(|record| matches!(record.state, Canary::Passed | Canary::Trusted)).filter_map(|record| record.instance.rsplit_once('/').map(|(_, sha)| sha.to_owned())).collect();
+    let judged: Vec<String> = store.instances::<Canarying>().map_err(unreadable)?.into_iter().filter(|record| matches!(record.state, Canary::Passed | Canary::Trusted | Canary::Kept)).filter_map(|record| record.instance.rsplit_once('/').map(|(_, sha)| sha.to_owned())).collect();
     let walked = !judged.is_empty();
     let records = store.instances::<Promoting>().map_err(unreadable)?;
     Ok(records.into_iter().rev().find(|record| record.state == Promotion::Superseded && record.instance != failed_sha && usable(&record.instance) && (!walked || judged.contains(&record.instance))).map(|record| record.instance))
@@ -227,17 +229,6 @@ pub(super) fn went_live(layout: &Layout, target: &str, replaced: Option<&str>) -
         move_to::<Promoting>(layout, replaced, Promotion::Superseded, &format!("replaced by {}", super::layout::short(target)))?;
     }
     Ok(())
-}
-
-/// The runtime a host rolled back to after `failed` failed is trusted there and never judged again.
-pub(super) fn trust(layout: &Layout, host: &str, previous: &str, failed: &str) {
-    let instance = format!("{host}/{previous}");
-    if !layout::is_sha(previous) || state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
-        return;
-    }
-    if let Err(failure) = move_to::<Canarying>(layout, &instance, Canary::Trusted, &format!("the rollback target after {failed} failed; trusted, not re-judged")) {
-        eprintln!("north runtime canary: {host}: {}: {}", layout::short(previous), failure.message);
-    }
 }
 
 /// Moves each held record of `L` under `prefix` whose holder is gone to its orphan state: an instance no move touches again kept a dead canary's judging for hours, which the state-machines flow read as a live hold (north#1096).

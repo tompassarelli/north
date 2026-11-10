@@ -7,30 +7,31 @@ do not edit. The landing refuses a page that differs from what the check generat
 stateDiagram-v2
     state "rolled-back" as rolled_back
     [*] --> judging
+    [*] --> kept
     [*] --> passed
     [*] --> rolled_back
     [*] --> stuck
     [*] --> trusted
     [*] --> unjudged
+    judging --> kept
     judging --> passed
     judging --> rolled_back
     judging --> stuck
     judging --> unjudged: holder gone
     rolled_back --> judging
-    rolled_back --> trusted
+    trusted --> judging
     unjudged --> judging
-    unjudged --> trusted
     passed --> [*]
     stuck --> [*]
-    trusted --> [*]
+    kept --> [*]
 ```
 
-- Checked: 18 situations and 444 steps, every ordering of three processes (two on one host, one on
+- Checked: 19 situations and 522 steps, every ordering of three processes (two on one host, one on
   another) that each try every move for every holder and settle the instance, the death of the process holding
   the state, and its dwell running out.
 - Held by a process, and left when that process is gone: judging.
 - Dwell: judging 8 min.
-- Ends, which an instance never leaves: passed, stuck, trusted.
+- Ends, which an instance never leaves: passed, stuck, kept.
 - May be announced again: none.
 - Promises checked: every accepted move is logged and the log alone rebuilds the record; a held state is taken
   from a live holder only by a move the machine lets replace one; an end has no way out, no dwell and no

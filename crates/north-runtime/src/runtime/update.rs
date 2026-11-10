@@ -41,7 +41,7 @@ use build::{build, export_tree};
 use hold::Verdict;
 use shipped::{Shipped, shipped};
 use sync::{relink, republish_if_unpublished, swap, sync};
-pub(super) use sync::alert_proxy;
+pub(super) use sync::{alert_proxy, page_proxy};
 
 enum Pass {
     Settled,
@@ -132,7 +132,6 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     }
     lifecycle::move_to::<Promoting>(layout, failed_sha, Promotion::RolledBack, "rolled back on this host after promotion")?;
     lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
-    lifecycle::trust(layout, &host::name(), &previous, layout::short(failed_sha));
     println!("north runtime rolled back to {previous}");
     Ok(previous)
 }

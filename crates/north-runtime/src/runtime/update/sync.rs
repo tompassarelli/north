@@ -176,3 +176,12 @@ pub(in crate::runtime) fn alert_proxy(text: &str) {
         eprintln!("north runtime update: proxy alert delivery failed");
     }
 }
+
+pub(in crate::runtime) fn page_proxy(key: &str, text: &str) {
+    let sent = Command::new("north")
+        .args(["fleet", "send", "--from", "service:north-runtime-update", "--key", key, "proxy", text])
+        .status();
+    if !sent.is_ok_and(|status| status.success()) {
+        eprintln!("north runtime update: proxy page delivery failed");
+    }
+}

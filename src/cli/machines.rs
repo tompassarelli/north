@@ -167,7 +167,7 @@ const MACHINES: &[Machine] = &[
         code: &["crates/north-runtime/src/runtime/canary"],
         explore: Some(|| {
             use north_runtime::runtime::lifecycle::{Canarying, Canary};
-            explore::<Canarying>(&Promises { ends: &[Canary::Passed, Canary::Stuck, Canary::Trusted], repeats: &[] })
+            explore::<Canarying>(&Promises { ends: &[Canary::Passed, Canary::Stuck, Canary::Kept], repeats: &[] })
         }),
     },
     Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, guard: &[], code: &[], explore: None },
