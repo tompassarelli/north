@@ -50,3 +50,6 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
 }
+
+#[cfg(test)]
+mod landed_twice_tests;

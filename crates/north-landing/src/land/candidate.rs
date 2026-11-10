@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use north_base::platform::process;
 
+use super::landed_copy;
 use super::queue::{self, Ticket};
 use super::lane_gates::{self, Lane};
 use super::reservation::{self, Attempt, Judged};
@@ -157,6 +158,16 @@ fn carrier(worktree: &Path, base: &str, head: &str) -> Option<String> {
     git(worktree, &["log", "--cherry-mark", "--left-only", "--no-merges", "--format=%m%H", &range]).ok()?.lines().find_map(|line| line.strip_prefix('=').map(str::to_owned))
 }
 
+fn landed_twice(worktree: &Path, base: &str, head: &str, unlanded: &HashSet<&str>) -> Result<Option<landed_copy::Landed>, String> {
+    if unlanded.is_empty() {
+        return Ok(None);
+    }
+    let fork = git(worktree, &["merge-base", base, head])?;
+    let main = git(worktree, &["log", "--no-merges", landed_copy::FIELDS, &format!("{fork}..{base}")])?;
+    let lane = git(worktree, &["log", "--no-merges", landed_copy::FIELDS, &format!("{base}..{head}")])?;
+    Ok(landed_copy::amended_after_landing(&main, &lane, unlanded))
+}
+
 fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase, gating: &mut Option<Gating>) -> Result<Pick, String> {
     let (ticket, earlier) = (turn.ticket, turn.earlier);
     case.readable = Some(readable(worktree, ticket));
@@ -167,6 +178,10 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
     case.unlanded = Some(cherry.lines().any(|line| line.starts_with('+')));
     if case.unlanded == Some(false) {
         return Ok(Pick::Decided(format!("landed {}", carrier(worktree, base, &ticket.head).unwrap_or_else(|| base.to_owned()))));
+    }
+    let plus: HashSet<&str> = cherry.lines().filter_map(|line| line.strip_prefix("+ ")).collect();
+    if let Some(landed) = landed_twice(worktree, base, &ticket.head, &plus)? {
+        return refuse(logs, name, "landed-twice", &landed_copy::refusal(&landed, base));
     }
     let picked_onto = git(worktree, &["rev-parse", "HEAD"])?;
     let stack_cherry = git(worktree, &["cherry", &picked_onto, &ticket.head])?;

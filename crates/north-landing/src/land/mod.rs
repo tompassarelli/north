@@ -11,6 +11,7 @@ pub mod checks;
 pub mod credential;
 pub mod heartbeat;
 pub mod hold;
+pub mod landed_copy;
 pub mod lane_gates;
 pub mod incidents;
 pub mod jobs;
