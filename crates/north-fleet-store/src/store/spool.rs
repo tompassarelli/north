@@ -25,9 +25,7 @@ impl Spool {
     pub fn put(&self, row: &FleetRow) -> NorthResult<()> {
         row.validate()?;
         fs::create_dir_all(&self.dir)?;
-        let staged = self.dir.join(format!(".{}.tmp", row.id));
-        fs::write(&staged, serde_json::to_vec(row)?)?;
-        fs::rename(staged, self.path(&row.id)?)?;
+        north_publish::publish(&self.path(&row.id)?, &serde_json::to_vec(row)?, 0o666)?;
         Ok(())
     }
 

@@ -284,3 +284,41 @@ fn a_git_stash_run_through_the_wrapper_with_no_hook_is_refused_with_the_hooks_me
     assert!(stderr.contains("The stash is shared by every worktree"), "the refusal lacks the hook's message: {stderr}");
     assert_eq!(std::fs::read_to_string(repository.join("work.txt")).unwrap(), "unfinished", "the refused stash still took the worker's change");
 }
+
+const SPOOLING_CHILD: &str = "NORTH_956_SPOOLING_CHILD";
+
+#[test]
+fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
+    if let Some(id) = std::env::var_os(SPOOLING_CHILD) {
+        use north_core::fleet::gates::GateRequest;
+        use north_core::fleet::sender::Sender;
+        use north_core::fleet::store::{FleetRow, RowKind, Spool};
+        let request = GateRequest { verification: false, issue: None, box_text: None, session: "far-1".into(), question: "which?".into(), options: vec!["a".into(), "b".into()], recommend: 1, default: 1, default_after_ms: 60_000 };
+        let row = FleetRow { id: id.to_string_lossy().into_owned(), kind: RowKind::Gate, to: "far-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "which?".into(), sender: Sender::Tom, gate: Some(Box::new(request)), answer: None, job: None, origin: None };
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        Spool::at(&home.join(".local/state/north/fleet")).put(&row).expect("a sandboxed worker opens a gate in the fleet spool");
+        let queued = north_core::threads::client::spool_ingest(b"{\"type\":\"done-check\"}\n").expect("a sandboxed worker queues a box check");
+        assert!(queued, "the check was not queued for the ledger host");
+        return;
+    }
+    let home = Home::new();
+    let state = home.path().join(".local/state/north");
+    std::fs::remove_file(&state).unwrap();
+    std::fs::rename(home.path().join("code/north-data"), &state).unwrap();
+    std::fs::create_dir_all(home.path().join(".config/threads")).unwrap();
+    std::fs::write(home.path().join(".config/threads/remote"), "ledger-host\n").unwrap();
+    let test = std::env::current_exe().unwrap();
+    let child = |id: &str| format!("{SPOOLING_CHILD}={id} {} --exact worker_sandbox::a_sandboxed_worker_opens_a_gate_and_records_a_box_check --nocapture", test.display());
+    let warmup = Command::new("bash").args(["-c", &child("1793000000000-955")]).env("HOME", home.path()).env_remove("THREADS_DB").output().unwrap();
+    assert!(warmup.status.success(), "the unconfined run that creates the ledger database failed: {}", String::from_utf8_lossy(&warmup.stderr));
+    let resident = rusqlite::Connection::open(state.join("ledger.db")).unwrap();
+    resident.query_row("pragma journal_mode=wal", [], |_| Ok(())).unwrap();
+    let command = child("1793000000000-956");
+    let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["--worker-sandbox", &command]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("SHELL", "bash").env("NORTH_FLEET_ROLE", "worker").env("NORTH_WORKER_SANDBOX", "1").current_dir(home.lane()).output().unwrap();
+    let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "{report}");
+    let names = |directory: &str| -> Vec<String> { std::fs::read_dir(home.path().join(directory)).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect() };
+    assert!(names(".local/state/north/fleet/spool").contains(&"1793000000000-956.json".to_owned()), "{report}");
+    let threads = names(".local/state/threads/spool");
+    assert!(threads.iter().filter(|name| name.ends_with(".jsonl")).count() == 2, "{threads:?}: {report}");
+}

@@ -103,6 +103,11 @@ paths = ["crates/north-strategy-types/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-publish"
+paths = ["crates/north-publish/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
 name = "north-git-locks"
 paths = ["crates/north-git-locks/src/**"]
 may_use = []
@@ -330,7 +335,7 @@ may_use = ["north-threads"]
 [[crate_dag.crate]]
 name = "north-threads"
 paths = ["crates/*/src/threads.rs", "crates/*/src/threads/**"]
-may_use = ["north-pace"]
+may_use = ["north-pace", "north-publish"]
 
 [[crate_dag.crate]]
 name = "north-session-host"
@@ -345,7 +350,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-fleet-store"
 paths = ["crates/north-fleet-store/src/**"]
-may_use = ["north-base", "north-pace"]
+may_use = ["north-base", "north-pace", "north-publish"]
 
 [[crate_dag.crate]]
 name = "north-fleet"

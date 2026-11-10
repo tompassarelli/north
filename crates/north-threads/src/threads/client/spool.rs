@@ -1,11 +1,12 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::ops::ControlFlow;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use north_base::lifecycle::{Lifecycle, Moved, Refusal, State, Store};
+use north_publish::publish;
 
 use super::process::{Input, detach, python_json};
 use super::{Client, Flush, SPOOL_FLUSH};
@@ -180,18 +181,16 @@ impl Client {
         Spool::open(&self.spool, &self.home.join(".local/state/north/ledger.db"), (self.clock)())
     }
 
-    fn queue_spooled(&self, tmp: &Path, path: &Path, cause: &str) -> NorthResult<()> {
+    fn queue_spooled(&self, path: &Path, contents: &[u8], mode: u32, cause: &str) -> NorthResult<()> {
         let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
         self.spool_records()?.queue(&name, cause, (self.clock)())?;
-        Ok(fs::rename(tmp, path)?)
+        Ok(publish(path, contents, mode)?)
     }
 
     pub(super) fn write_spool(&self, data: &[u8], cause: &str) -> NorthResult<PathBuf> {
         fs::create_dir_all(&self.spool)?;
         let path = self.spool.join(format!("{}.jsonl", spool_stem()));
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, data)?;
-        self.queue_spooled(&tmp, &path, cause)?;
+        self.queue_spooled(&path, data, 0o666, cause)?;
         Ok(path)
     }
 
@@ -199,9 +198,7 @@ impl Client {
         fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.spool)?;
         fs::set_permissions(&self.spool, fs::Permissions::from_mode(0o700))?;
         let path = self.spool.join(format!("{}.argv", spool_stem()));
-        let tmp = path.with_extension("tmp");
-        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?.write_all(python_json(argv).as_bytes())?;
-        self.queue_spooled(&tmp, &path, cause)
+        self.queue_spooled(&path, python_json(argv).as_bytes(), 0o600, cause)
     }
 
     /// The spool's lock, or none while another call flushes it: that call sends every spooled write in order, so this one neither waits behind it nor sends any itself.
