@@ -13,7 +13,7 @@ struct Fleet<'a> {
     layout: &'a Layout,
     failing: Option<(&'static str, Ran)>,
     launchable: Vec<String>,
-    launches: bool,
+    reaches_hub: bool,
     settles: bool,
     landers: Option<probes::Landers>,
     probed: Mutex<Vec<String>>,
@@ -43,8 +43,8 @@ impl Machine for Fleet<'_> {
         self.launchable.clone()
     }
 
-    fn launches_sessions(&self, _host: &str) -> bool {
-        self.launches
+    fn sessions_reach_hub(&self, _host: &str) -> bool {
+        self.reaches_hub
     }
 
     fn settles_fleet(&self, _host: &str) -> bool {
@@ -78,7 +78,7 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), launches: true, settles: false, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), reaches_hub: true, settles: false, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
     }
 
     fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
@@ -283,7 +283,7 @@ fn the_rollback_target_is_trusted_and_never_judged_again() {
 fn a_host_that_launches_no_sessions_is_not_probed_for_a_worker_shell_reaching_the_hub() {
     let host = Host::promoted();
     let mut fleet = host.fleet(None);
-    fleet.launches = false;
+    fleet.reaches_hub = false;
     assert_eq!(check(&host.layout, "tom@cpx62", PROMOTED, &fleet), Verdict::Passed);
     let probed = fleet.probed.lock().unwrap();
     assert!(probed.iter().all(|name| !name.contains("ssh gex45")), "{probed:?}");
@@ -319,4 +319,13 @@ fn a_runtime_that_fails_verify_north_or_the_scratch_landing_is_not_shipped() {
     let elsewhere = probes::core_loop("nexus", PROMOTED, &[], true, false, None);
     let names: Vec<&str> = elsewhere.probes.iter().map(|probe| probe.name.as_str()).collect();
     assert!(names.iter().all(|name| !name.contains("verify-north") && !name.contains("scratch landing")), "{names:?}");
+}
+
+#[test]
+fn a_launching_host_whose_sessions_reach_no_other_host_is_not_probed_for_a_worker_shell_reaching_the_hub() {
+    let config: toml_edit::DocumentMut = "[hosts.cpx62]\nlaunches = true\nreaches = []\n[hosts.whiterabbit]\nreaches = [\"gex45\", \"cpx62\"]\n[hosts.nexus]\n[hosts.cpx62b]\nlaunches = false\n".parse().unwrap();
+    assert!(!probes::sessions_reach_hub(&config, "cpx62"), "on 2026-11-10 the hub probe failed on a host declared to reach no other host and rolled back the laptop's runtime");
+    assert!(probes::sessions_reach_hub(&config, "whiterabbit"));
+    assert!(probes::sessions_reach_hub(&config, "nexus"));
+    assert!(!probes::sessions_reach_hub(&config, "cpx62b"));
 }

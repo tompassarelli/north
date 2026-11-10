@@ -57,11 +57,18 @@ fn probe(name: impl Into<String>, script: String, limit: Duration) -> Probe {
     Probe { name: name.into(), script, limit }
 }
 
-pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], launches: bool, settles: bool, landers: Option<&Landers>) -> CoreLoop {
+pub(super) fn sessions_reach_hub(config: &toml_edit::DocumentMut, name: &str) -> bool {
+    let Some(table) = config.get("hosts").and_then(|hosts| hosts.get(name)) else { return true };
+    let launches = table.get("launches").and_then(|launches| launches.as_bool()).unwrap_or(true);
+    let reaches = table.get("reaches").and_then(|reaches| reaches.as_array()).is_none_or(|reached| reached.iter().any(|named| named.as_str() == Some(HUB)));
+    launches && reaches
+}
+
+pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hub: bool, settles: bool, landers: Option<&Landers>) -> CoreLoop {
     let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
     let north = format!("{runtime}/north");
     let mut probes = Vec::new();
-    match (is_hub(host), launches) {
+    match (is_hub(host), reaches_hub) {
         (true, _) => probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT)),
         (false, true) => probes.push(probe(
             format!("a sandboxed worker shell runs ssh {HUB} true"),
