@@ -73,7 +73,7 @@ fn live_with(host: &Host, name: &str, reply: &str, task_ref: Option<&str>) -> Ar
     let assistant = json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": reply}]}});
     let result = json!({"type": "result", "subtype": "success", "session_id": name});
     std::fs::write(dir.join("g1/stream.jsonl"), format!("{assistant}\n{result}\n")).unwrap();
-    let listener = UnixListener::bind(dir.join("host.sock")).unwrap();
+    let listener = UnixListener::bind(north_base::platform::session_host_files::socket_path(&dir)).unwrap();
     let frames = Arc::new(Mutex::new(Vec::new()));
     let seen = frames.clone();
     std::thread::spawn(move || {

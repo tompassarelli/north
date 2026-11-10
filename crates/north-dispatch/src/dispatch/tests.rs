@@ -260,7 +260,9 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     assert_ne!(names[0], names[1], "two boxes of one issue launch under two names, or the launcher refuses the second");
     let long = decide(&surveyed("- [ ] the machine refusal detector reads the refused machine and files one box per cause", &[]), "test");
     let name = super::effects::session_name(&long.launches[0], 0.0);
-    assert!(name.len() <= 40 && !name.ends_with('-'), "a box-named session keeps its host socket path under the unix limit: {name}");
+    let slug = crate::threads::claims::box_slug("the machine refusal detector reads the refused machine and files one box per cause").unwrap();
+    assert_eq!(name, format!("sc-782-d0000-{slug}"));
+    assert!(name.len() > 40, "a box-named session keeps its whole slug however long it is: {name}");
     assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] a", &[])), [Some("a".to_owned())], "one box line written twice is still one box, so it is launched once");
 }
 

@@ -192,7 +192,7 @@ mod tests {
         let laptop = fleet(home.path());
         let worker = live(&laptop, "worker");
         let id = laptop.open_gate(&request("worker")).unwrap();
-        let socket = laptop.root.join("worker/host.sock");
+        let socket = north_base::platform::session_host_files::socket_path(&laptop.root.join("worker"));
         std::fs::rename(&socket, laptop.root.join("worker/host.moved")).unwrap();
 
         laptop.answer_gate(id, 1, None, None, None).unwrap();

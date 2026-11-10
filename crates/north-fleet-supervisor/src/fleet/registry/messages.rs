@@ -164,7 +164,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());
         let worker = live(&fleet, "worker");
-        let socket = fleet.root.join("worker/host.sock");
+        let socket = north_base::platform::session_host_files::socket_path(&fleet.root.join("worker"));
         std::fs::rename(&socket, fleet.root.join("worker/host.moved")).unwrap();
 
         assert!(fleet.send_signed(&Sender::Tom, "worker", "hello", Delivery::Queued).is_err());

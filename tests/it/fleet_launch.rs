@@ -70,6 +70,7 @@ pub(crate) fn environment(mut command: Command, root: &Path, host: &str) -> Comm
         .current_dir(root)
         .env("HOME", root)
         .env("XDG_STATE_HOME", root.join(".local/state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
         .env("NORTH_TEST_ROOT", root)
         .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
         .env("AGENTS_OPERATOR_DIR", root.join("op"))
@@ -131,6 +132,30 @@ fn a_launch_whose_provider_exits_before_the_host_registers_leaves_no_session_dir
     assert!(retried.status.success(), "{}", text(&retried.stderr));
     assert!(sent.status.success(), "{}", text(&sent.stderr));
     assert!(answered(&shown), "the relaunched session never answered the message: {shown}");
+}
+
+#[test]
+fn a_120_character_session_name_launches_and_answers_its_first_turn() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let brief = brief.display().to_string();
+    let name: String = format!("north-1042-d0432-{}", "the-machine-refusal-detector-reads-the-refused-machine-".repeat(3)).chars().take(120).collect();
+    assert_eq!(name.len(), 120);
+
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", &name, "--parent", "none", "--system-prompt", &brief, "start the box"]);
+    let stderr = text(&launched.stderr);
+    let mut shown = String::new();
+    let answered = north_core::platform::wait::until(std::time::Duration::from_secs(20), || {
+        shown = text(&north(root, &["fleet", "show", &name]).stdout);
+        shown.contains("OK")
+    });
+    north(root, &["fleet", "forget", &name]);
+
+    assert!(launched.status.success(), "{stderr}");
+    assert!(answered, "the long-named session never answered its first turn: {shown}");
 }
 
 #[test]

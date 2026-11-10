@@ -91,12 +91,7 @@ impl HostConfig {
         if let Some(socket) = &self.socket {
             return Ok(socket.clone());
         }
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| NorthError::State("XDG_RUNTIME_DIR is not set".into()))?;
-        Ok(PathBuf::from(runtime)
-            .join("north")
-            .join(format!("{}-g{}.sock", self.name, self.generation)))
+        Ok(north_base::platform::session_host_files::socket_path(&self.state_dir))
     }
 }
 

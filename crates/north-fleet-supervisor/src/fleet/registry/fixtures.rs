@@ -26,7 +26,7 @@ pub(crate) fn live_under(fleet: &Fleet, name: &str, parent: Option<&str>) -> Ses
     let assistant = serde_json::json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": "Not done: waiting."}]}});
     let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": name});
     std::fs::write(dir.join("g1/stream.jsonl"), format!("{assistant}\n{result}\n")).unwrap();
-    let listener = std::os::unix::net::UnixListener::bind(dir.join("host.sock")).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(north_base::platform::session_host_files::socket_path(&dir)).unwrap();
     let frames = Arc::new(Mutex::new(Vec::new()));
     let seen = frames.clone();
     std::thread::spawn(move || {

@@ -55,13 +55,13 @@ impl Host {
 
     pub fn start(&self, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>, served_by: &str) -> NorthResult<u32> {
         fs::create_dir_all(&self.dir)?;
-        if self.socket().is_dir() {
+        if self.dir.join(SOCKET).is_dir() {
             return Err(NorthError::Refused(format!("{} is held by an interactive window; the fleet starts no host there", self.dir.display())));
         }
         if session_host_files::scope_path(&self.dir).exists() {
             self.retire()?;
         }
-        let socket = self.socket();
+        let socket = self.socket_path();
         let _ = fs::remove_file(&socket);
         fs::write(self.dir.join(SERVED_BY), served_by)?;
         let unit = session_scope::session_unit(provider.label(), &new_uuid()?);
@@ -194,14 +194,20 @@ impl Host {
         await_exit(self.pid())
     }
 
+    fn socket_path(&self) -> PathBuf {
+        session_host_files::socket_path(&self.dir)
+    }
+
     fn socket(&self) -> PathBuf {
-        self.dir.join(SOCKET)
+        let legacy = self.dir.join(SOCKET);
+        let short = self.socket_path();
+        if !short.exists() && legacy.exists() && !legacy.is_dir() { legacy } else { short }
     }
 
     fn await_socket(&self, pid: u32) -> NorthResult<()> {
         let deadline = Instant::now() + SOCKET_WAIT;
         while Instant::now() < deadline {
-            if UnixStream::connect(self.socket()).is_ok() {
+            if UnixStream::connect(self.socket_path()).is_ok() {
                 return Ok(());
             }
             if !alive(pid) {
