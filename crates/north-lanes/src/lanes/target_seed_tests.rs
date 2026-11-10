@@ -1,9 +1,10 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-use super::{reclaim_dead_seeds, seed_or_build_cold};
+use super::{reclaim_dead_seeds, seed_or_build_cold, target_subvolume};
 
 fn checkout(dir: &Path) {
     fs::create_dir_all(dir.join(".git")).unwrap();
@@ -61,4 +62,42 @@ fn a_dead_seeds_partial_target_is_reclaimed() {
     assert!(!dead_main.exists() && !dead_lane.exists());
     assert!(alive.exists(), "a seeding process that is still alive keeps its copy");
     assert!(fresh.exists(), "a dead seed younger than an hour may still be a live copy of a just-killed process");
+}
+
+fn btrfs(arguments: &[&str], paths: &[&Path]) {
+    let output = Command::new("btrfs").args(arguments).args(paths).output().unwrap();
+    assert!(output.status.success(), "btrfs {arguments:?} {paths:?}: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+#[ignore = "needs this crate's checkout on btrfs, as on the laptop: run it there with --run-ignored only"]
+fn worktree_build_output_lives_in_an_excluded_subvolume() {
+    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(target_subvolume::on_btrfs(here), "{} is not on btrfs; run this check on the laptop", here.display());
+    let scratch = tempfile::tempdir_in(here).unwrap();
+    let home = scratch.path().join("home");
+    btrfs(&["subvolume", "create"], &[&home]);
+    let main = home.join("code/north/main");
+    let lane = home.join("code/north/worktrees/fresh");
+    checkout(&main);
+    checkout(&lane);
+
+    assert_eq!(seed_or_build_cold(&main), 0);
+    assert_eq!(seed_or_build_cold(&lane), 0);
+
+    for checkout in [&main, &lane] {
+        let target = checkout.join("target");
+        assert!(target.join("CACHEDIR.TAG").is_file(), "{} holds cargo's CACHEDIR.TAG", target.display());
+        assert_eq!(fs::metadata(&target).unwrap().ino(), 256, "{} is the root of a btrfs subvolume", target.display());
+        btrfs(&["subvolume", "show"], &[&target]);
+        fs::create_dir_all(target.join("debug/deps")).unwrap();
+        fs::write(target.join("debug/deps/libnorth.rlib"), "rlib").unwrap();
+    }
+    let snapshot = scratch.path().join("snapshot");
+    btrfs(&["subvolume", "snapshot"], &[&home, &snapshot]);
+    for checkout in ["code/north/main", "code/north/worktrees/fresh"] {
+        assert!(snapshot.join(checkout).join("Cargo.lock").is_file(), "the snapshot holds the checkout itself");
+        let target = snapshot.join(checkout).join("target");
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "a home snapshot holds none of {}'s build output", target.display());
+    }
 }
