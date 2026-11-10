@@ -31,7 +31,7 @@ impl Client {
     }
 
     pub(super) fn refresh_snapshot(&self, dest: &str, within: Duration) -> NorthResult<()> {
-        let _ = snapshot::refresh(&self.pull_argv(dest), &self.snapshot, within, snapshot::PULL_TIMEOUT);
+        let _ = snapshot::refresh(&self.pull_argv(dest), &self.snapshot, (within, !within.is_zero()), snapshot::PULL_TIMEOUT);
         Ok(())
     }
 
@@ -43,7 +43,7 @@ impl Client {
         if !snapshot::take_turn(&self.snapshot, within).unwrap_or(false) {
             return;
         }
-        detach(program, &["snapshot-pull".as_ref(), "--force".as_ref(), "--snapshot".as_ref(), self.snapshot.as_os_str(), dest.as_ref()]);
+        detach(program, &["snapshot-pull".as_ref(), "--force".as_ref(), "--recent".as_ref(), "--snapshot".as_ref(), self.snapshot.as_os_str(), dest.as_ref()]);
     }
 
     pub(super) fn pull_argv(&self, dest: &str) -> Vec<OsString> {
@@ -55,7 +55,7 @@ impl Client {
             return self.snapshot_pages(stdin, err);
         }
         let pull = SnapshotPull::parse(&argv[1..], self.snapshot.clone())?;
-        match snapshot::refresh(&self.pull_argv(&pull.dest), &pull.path, if pull.force { Duration::ZERO } else { snapshot::SNAPSHOT_AGE }, snapshot::PULL_TIMEOUT) {
+        match snapshot::refresh(&self.pull_argv(&pull.dest), &pull.path, (if pull.force { Duration::ZERO } else { snapshot::SNAPSHOT_AGE }, pull.recent), snapshot::PULL_TIMEOUT) {
             Ok(_) => Ok(0),
             Err(error) => {
                 writeln!(err, "NorthThreads: snapshot pull from {} failed: {error}", pull.dest)?;
@@ -78,24 +78,26 @@ impl Client {
 
 struct SnapshotPull {
     force: bool,
+    recent: bool,
     path: PathBuf,
     dest: String,
 }
 
 impl SnapshotPull {
     fn parse(args: &[String], default_path: PathBuf) -> NorthResult<Self> {
-        const USAGE: &str = "usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST";
-        let (mut force, mut path, mut dest) = (false, default_path, None);
+        const USAGE: &str = "usage: north threads snapshot-pull [--force] [--recent] [--snapshot PATH] DEST";
+        let (mut force, mut recent, mut path, mut dest) = (false, !args.iter().any(|arg| arg == "--force"), default_path, None);
         let mut rest = args.iter();
         while let Some(arg) = rest.next() {
             match arg.as_str() {
                 "--force" => force = true,
+                "--recent" => recent = true,
                 "--snapshot" => path = rest.next().map(PathBuf::from).ok_or_else(|| NorthError::Usage("--snapshot needs a path".into()))?,
                 _ if dest.is_none() && !arg.starts_with('-') => dest = Some(arg.clone()),
                 _ => return Err(NorthError::Usage(USAGE.into())),
             }
         }
         let dest = dest.ok_or_else(|| NorthError::Usage(USAGE.into()))?;
-        Ok(Self { force, path, dest })
+        Ok(Self { force, recent, path, dest })
     }
 }

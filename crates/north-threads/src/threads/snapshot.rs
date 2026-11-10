@@ -19,6 +19,10 @@ use crate::threads::catalog::CATALOG;
 use crate::threads::verb::names_native_ref;
 
 pub const MAGIC: &[u8] = b"NORTH-SNAPSHOT-PAGES 1\n";
+/// Opens a manifest that accepts an image built up to `REUSE_SECONDS` ago; `MAGIC` opens one that demands an image built now.
+const MAGIC_RECENT: &[u8] = b"NORTH-SNAPSHOT-PAGES 2\n";
+/// How long the ledger host serves one built image to callers that accept a recent one, so the peers' pulls share one build of the 800 MB ledger.
+const REUSE_SECONDS: u64 = 300;
 pub const REMOTE_COMMAND: &str = "north threads snapshot-pages";
 pub const SNAPSHOT_SECONDS: u64 = 900;
 /// How old a snapshot may be before a call that reads it pulls it again.
@@ -32,25 +36,82 @@ const MAX_PAGES: u32 = 1 << 24;
 type Hash = [u8; 32];
 
 /// Streams the pages of the ledger image that differ from the caller's manifest; `withhold_native`
-/// builds the image with every row naming a native item removed.
+/// builds the image with every row naming a native item removed. A manifest that accepts a recent image
+/// is answered from the image the last build left beside the ledger, built anew once that is older than `REUSE_SECONDS`.
 pub fn serve(database: &Path, withhold_native: bool, input: &mut dyn Read, output: &mut dyn Write) -> io::Result<()> {
-    let (manifest_size, manifest) = read_manifest(input)?;
-    let image = image(database, withhold_native)?;
-    let size = page_size(&image).ok_or_else(|| invalid("the ledger image has no SQLite header"))?;
+    let (manifest_size, manifest, recent) = read_manifest(input)?;
+    let served = served(database, withhold_native, recent.then_some(Duration::from_secs(REUSE_SECONDS)))?;
+    let size = served.size;
     let mut out = BufWriter::with_capacity(1 << 16, output);
     out.write_all(MAGIC)?;
     out.write_all(&(size as u32).to_be_bytes())?;
-    out.write_all(&((image.len() / size) as u32).to_be_bytes())?;
-    for (index, page) in image.chunks_exact(size).enumerate() {
-        let unchanged = manifest_size == size && manifest.get(index).is_some_and(|hash| *hash == hash_of(page));
-        if !unchanged {
+    out.write_all(&(served.hashes.len() as u32).to_be_bytes())?;
+    let mut page = vec![0; size];
+    for (index, hash) in served.hashes.iter().enumerate() {
+        if !(manifest_size == size && manifest.get(index) == Some(hash)) {
+            served.file.read_exact_at(&mut page, served.body + (index * size) as u64)?;
             out.write_all(&(index as u32 + 1).to_be_bytes())?;
-            out.write_all(page)?;
+            out.write_all(&page)?;
         }
     }
     out.write_all(&0u32.to_be_bytes())?;
-    out.write_all(&hash_of(&image))?;
+    out.write_all(&served.digest)?;
     out.flush()
+}
+
+/// A built image kept beside the ledger: its page size, page count, the hash of every page, the hash of the whole image, then the image itself from `body`.
+struct Served {
+    file: File,
+    size: usize,
+    hashes: Vec<Hash>,
+    digest: Hash,
+    body: u64,
+}
+
+fn served(database: &Path, withhold_native: bool, reuse: Option<Duration>) -> io::Result<Served> {
+    let path = suffixed(database, if withhold_native { ".served-withheld" } else { ".served-full" });
+    if let Some(found) = reuse.and_then(|age| open_served(&path, age)) {
+        return Ok(found);
+    }
+    let building = OpenOptions::new().create(true).append(true).open(suffixed(&path, ".lock"))?;
+    building.lock()?;
+    if let Some(found) = reuse.and_then(|age| open_served(&path, age)) {
+        return Ok(found);
+    }
+    let image = image(database, withhold_native)?;
+    let size = page_size(&image).ok_or_else(|| invalid("the ledger image has no SQLite header"))?;
+    let hashes: Vec<Hash> = image.chunks_exact(size).map(hash_of).collect();
+    let mut head = (size as u32).to_be_bytes().to_vec();
+    head.extend((hashes.len() as u32).to_be_bytes());
+    hashes.iter().for_each(|hash| head.extend(hash));
+    head.extend(hash_of(&image));
+    let tmp = suffixed(&path, &format!(".{}.tmp", std::process::id()));
+    let written = File::create(&tmp).and_then(|mut file| file.write_all(&head).and_then(|()| file.write_all(&image)));
+    if let Err(error) = written.and_then(|()| fs::rename(&tmp, &path)) {
+        let _ = fs::remove_file(&tmp);
+        return Err(error);
+    }
+    open_served(&path, Duration::MAX).ok_or_else(|| invalid("the built ledger image cannot be read back"))
+}
+
+fn open_served(path: &Path, within: Duration) -> Option<Served> {
+    let file = File::open(path).ok()?;
+    let meta = file.metadata().ok()?;
+    if SystemTime::now().duration_since(meta.modified().ok()?).is_ok_and(|age| age > within) {
+        return None;
+    }
+    let mut head = [0; 8];
+    file.read_exact_at(&mut head, 0).ok()?;
+    let (size, count) = (be32(&head) as usize, be32(&head[4..]) as usize);
+    let listed = 8 + 32 * (count + 1);
+    if !(512..=65536).contains(&size) || count == 0 || count > MAX_PAGES as usize || meta.len() != (listed + size * count) as u64 {
+        return None;
+    }
+    let mut listing = vec![0; 32 * (count + 1)];
+    file.read_exact_at(&mut listing, 8).ok()?;
+    let mut hashes: Vec<Hash> = listing.chunks_exact(32).map(|chunk| chunk.try_into().expect("32 bytes")).collect();
+    let digest = hashes.pop()?;
+    Some(Served { file, size, hashes, digest, body: listed as u64 })
 }
 
 /// Whether this caller pulls now, which it does once the snapshot and its last try are older than `within` (always for zero); it marks its try first, so callers racing it do not pull again.
@@ -68,7 +129,7 @@ pub fn take_turn(snapshot: &Path, within: Duration) -> io::Result<bool> {
     Ok(true)
 }
 
-pub fn refresh(ssh: &[OsString], snapshot: &Path, within: Duration, wait: Duration) -> io::Result<bool> {
+pub fn refresh(ssh: &[OsString], snapshot: &Path, (within, recent): (Duration, bool), wait: Duration) -> io::Result<bool> {
     if !take_turn(snapshot, within)? {
         return Ok(false);
     }
@@ -78,7 +139,7 @@ pub fn refresh(ssh: &[OsString], snapshot: &Path, within: Duration, wait: Durati
         Err(fs::TryLockError::WouldBlock) => return Ok(false),
         Err(fs::TryLockError::Error(error)) => return Err(error),
     }
-    let pulled = pull(ssh, snapshot, wait);
+    let pulled = pull(ssh, snapshot, wait, recent);
     record(&pulling, pulled.as_ref().err())?;
     pulled.map(|()| true)
 }
@@ -93,7 +154,8 @@ fn record(mut tried: &File, failure: Option<&io::Error>) -> io::Result<()> {
     failure.map_or(Ok(()), |error| writeln!(tried, "{error}"))
 }
 
-pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()> {
+/// Pulls the ledger image into `snapshot`; `recent` accepts one the ledger host built within `REUSE_SECONDS`, for a caller that reads a snapshot it tolerates being aged, not one that just wrote.
+pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration, recent: bool) -> io::Result<()> {
     let partial = suffixed(snapshot, ".partial");
     let fresh = !snapshot.exists();
     let old = File::open(snapshot).or_else(|_| File::open(&partial)).ok();
@@ -101,7 +163,7 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()>
     let directory = snapshot.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
     let mut child = Command::new(&ssh[0]).args(&ssh[1..])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
-    let manifest = manifest_bytes(size, &hashes);
+    let manifest = manifest_bytes(size, &hashes, recent);
     let mut stdin = child.stdin.take().ok_or_else(|| invalid("ssh has no stdin"))?;
     std::thread::spawn(move || {
         let _ = stdin.write_all(&manifest);
@@ -387,18 +449,19 @@ fn hash_file(file: &File) -> io::Result<Hash> {
     }
 }
 
-pub fn manifest_bytes(size: usize, hashes: &[Hash]) -> Vec<u8> {
-    let mut bytes = MAGIC.to_vec();
+pub fn manifest_bytes(size: usize, hashes: &[Hash], recent: bool) -> Vec<u8> {
+    let mut bytes = if recent { MAGIC_RECENT } else { MAGIC }.to_vec();
     bytes.extend((size as u32).to_be_bytes());
     bytes.extend((hashes.len() as u32).to_be_bytes());
     hashes.iter().for_each(|hash| bytes.extend(hash));
     bytes
 }
 
-fn read_manifest(input: &mut dyn Read) -> io::Result<(usize, Vec<Hash>)> {
+fn read_manifest(input: &mut dyn Read) -> io::Result<(usize, Vec<Hash>, bool)> {
     let mut magic = [0; MAGIC.len()];
     input.read_exact(&mut magic)?;
-    if magic != MAGIC {
+    let recent = magic == MAGIC_RECENT;
+    if magic != MAGIC && !recent {
         return Err(invalid("the page manifest has no magic line"));
     }
     let size = read_u32(input)? as usize;
@@ -412,7 +475,7 @@ fn read_manifest(input: &mut dyn Read) -> io::Result<(usize, Vec<Hash>)> {
         input.read_exact(&mut hash)?;
         hashes.push(hash);
     }
-    Ok((size, hashes))
+    Ok((size, hashes, recent))
 }
 
 fn page_size(header: &[u8]) -> Option<usize> {

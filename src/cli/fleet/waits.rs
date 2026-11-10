@@ -87,13 +87,17 @@ fn settle(fleet: &Fleet) -> NorthResult<()> {
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum Probes {
-    Fleet,
+    Fleet { reports: bool },
     Registry,
 }
 
 impl Probes {
     pub(super) fn here(fleet: &Fleet) -> Self {
-        if config().is_ok_and(|cfg| gate::spool_pulled(&cfg, fleet.host())) { Self::Registry } else { Self::Fleet }
+        match config() {
+            Ok(cfg) if gate::spool_pulled(&cfg, fleet.host()) => Self::Registry,
+            Ok(cfg) => Self::Fleet { reports: gate::fleet_reports(&cfg, fleet.host()) },
+            Err(_) => Self::Fleet { reports: true },
+        }
     }
 }
 
@@ -131,15 +135,18 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.reap", own: Some(2 * reaper::BUDGET), run: Box::new(|fleet| said(reaper::reap(&fleet, &reaper::Here, now_ms(), true).lines())) },
             ProbeJob { name: "probes.settle.strays", own: None, run: Box::new(|fleet| said(crate::fleet::strays::stop_strays(&fleet, now_ms()))) },
         ];
-        let fleet_wide = vec![
+        let reports = vec![
             ProbeJob { name: "probes.settle.goals", own: None, run: Box::new(|_| said(north_goals::tick::lines(i64::try_from(now_ms() / 1000).unwrap_or_default(), &crate::cli::concern_history::LedgerHistory))) },
             ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
+        ];
+        let published = vec![
             ProbeJob { name: "probes.records_mirror", own: None, run: Box::new(|_| said(crate::runtime::mirror::publish())) },
             ProbeJob { name: "probes.checkouts", own: None, run: Box::new(|_| said(crate::runtime::checkouts::publish())) },
         ];
         match self {
-            Self::Fleet => registry.into_iter().chain(fleet_wide).collect(),
+            Self::Fleet { reports: true } => registry.into_iter().chain(reports).chain(published).collect(),
+            Self::Fleet { reports: false } => registry.into_iter().chain(published).collect(),
             Self::Registry => registry,
         }
     }
@@ -279,3 +286,7 @@ impl Waker for Revival<'_> {
         attribution::record(name, "resume", cause, reason);
     }
 }
+
+#[cfg(test)]
+#[path = "waits_tests.rs"]
+mod tests;

@@ -351,6 +351,11 @@ pub fn spool_pulled(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("pulls_spool")).and_then(Item::as_bool) == Some(true)
 }
 
+/// Whether this host's fleet tick computes the fleet-wide reports (goals, scoreboard, corrections): every `[hosts.NAME]` does unless it sets `fleet_reports = false`.
+pub fn fleet_reports(cfg: &DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("fleet_reports")).and_then(Item::as_bool) != Some(false)
+}
+
 pub fn job_source(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("job_source")).and_then(Item::as_bool) == Some(true)
 }

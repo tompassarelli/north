@@ -46,7 +46,7 @@ fn rig(env: &[(&str, &str)]) -> Rig {
     let ledger = root.join("ledger.db");
     rusqlite::Connection::open(&ledger).unwrap().execute_batch("CREATE TABLE t(v); INSERT INTO t VALUES (1);").unwrap();
     let mut pages = Vec::new();
-    snapshot::serve(&ledger, false, &mut &snapshot::manifest_bytes(0, &[])[..], &mut pages).unwrap();
+    snapshot::serve(&ledger, false, &mut &snapshot::manifest_bytes(0, &[], false)[..], &mut pages).unwrap();
     fs::write(root.join("pages"), pages).unwrap();
     let ssh = format!("ROOT='{}'\n{FAKE_SSH}", root.display());
     let mut variables: BTreeMap<String, String> = env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
@@ -454,8 +454,27 @@ fn a_first_snapshot_pull_cut_short_keeps_its_pages_and_the_next_pull_finishes_it
     fs::write(&cut, &pages[..pages.len() - 40]).unwrap();
     let snapshot = rig.root.join("first.db");
     let serving = |file: &Path| vec![OsString::from("/bin/sh"), "-c".into(), "cat >/dev/null; cat \"$1\"".into(), "ssh".into(), file.into()];
-    assert!(snapshot::pull(&serving(&cut), &snapshot, Duration::from_secs(10)).is_err());
+    assert!(snapshot::pull(&serving(&cut), &snapshot, Duration::from_secs(10), false).is_err());
     assert!(!snapshot.exists() && rig.root.join("first.db.partial").exists());
-    snapshot::pull(&serving(&rig.root.join("pages")), &snapshot, Duration::from_secs(10)).unwrap();
+    snapshot::pull(&serving(&rig.root.join("pages")), &snapshot, Duration::from_secs(10), false).unwrap();
     assert!(snapshot.exists() && !rig.root.join("first.db.partial").exists());
+}
+
+/// On 2026-11-11 each peer pull made the ledger host rebuild its 800 MB image, 20 CPU seconds and 1.6 GB a time, four times in a quarter hour on a 3-core host (north#1036).
+#[test]
+fn pulls_that_accept_a_recent_image_share_one_build_and_pulls_that_demand_a_fresh_one_rebuild() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = directory.path().join("ledger.db");
+    let connection = rusqlite::Connection::open(&ledger).unwrap();
+    connection.execute_batch("CREATE TABLE t(v); INSERT INTO t VALUES (1);").unwrap();
+    let served = |recent: bool| {
+        let mut pages = Vec::new();
+        snapshot::serve(&ledger, false, &mut &snapshot::manifest_bytes(0, &[], recent)[..], &mut pages).unwrap();
+        pages
+    };
+    let first = served(true);
+    connection.execute_batch("INSERT INTO t VALUES (2);").unwrap();
+    assert_eq!(served(true), first, "a recent pull rebuilt the image");
+    assert_ne!(served(false), first, "a fresh pull was answered from the old image");
+    assert_ne!(served(true), first, "the fresh build did not replace the kept image");
 }
