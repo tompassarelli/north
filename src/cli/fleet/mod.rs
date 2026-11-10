@@ -12,6 +12,7 @@ mod dispatch_tick;
 mod gated;
 mod held;
 mod launch;
+mod launch_queue;
 mod drain;
 mod need;
 mod interactive;

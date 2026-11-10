@@ -2,6 +2,7 @@ pub use north_fleet::fleet::*;
 
 pub mod forget;
 pub mod handover;
+pub mod launch_queue;
 pub mod limit;
 pub mod reaper;
 pub mod strays;

@@ -10,6 +10,7 @@ use crate::pacing::placement::{config, gate, pass};
 
 use super::api_spend;
 use super::dispatch_tick;
+use super::launch_queue;
 use super::ledger::Ledger;
 use super::rebooted;
 use super::waits::Probes;
@@ -44,6 +45,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if probes == Probes::Registry {
         let ticked = probe_pass(fleet, &ledger, &probes, Budgets::TICK)?;
         ticked.lines().iter().for_each(|line| println!("{line}"));
+        launch_queue::drain(fleet)?.iter().for_each(|line| println!("{line}"));
         println!("{}", ticked.timing());
         if let Some(line) = dispatch_line(&dispatch_pass(fleet)) {
             println!("{line}");
@@ -81,11 +83,14 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         }
         Err(late) => late_beside(&mut ticked, "window_move", &late.why(BESIDE), began),
     };
+    let queueing = Instant::now();
+    let queued = launch_queue::drain(fleet)?;
+    ticked.steps.push(Step { name: "launch_queue", began: queueing - began, took: queueing.elapsed() });
     let dispatching = Instant::now();
     let dispatched = dispatch_pass(fleet);
     ticked.steps.push(Step { name: "dispatch", began: dispatching - began, took: dispatching.elapsed() });
     ticked.wall = began.elapsed();
-    ticked.lines().iter().chain(&spend_lines).chain(&moved).for_each(|line| println!("{line}"));
+    ticked.lines().iter().chain(&spend_lines).chain(&moved).chain(&queued).for_each(|line| println!("{line}"));
     println!("{}", ticked.timing());
     if let Some(line) = dispatch_line(&dispatched) {
         println!("{line}");

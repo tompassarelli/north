@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::launch_queue::Priority;
 use crate::fleet::model::{Effort, LaunchRequest, ProviderName, Role};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::runtime::{PROXY, new_uuid};
@@ -29,6 +30,7 @@ struct LaunchFlags {
     overrides: Overrides,
     wait: Option<bool>,
     take_over: bool,
+    priority: Priority,
 }
 
 impl LaunchFlags {
@@ -48,6 +50,7 @@ impl LaunchFlags {
             "--task" => self.task_ref = Some(value),
             "--box" => self.claim_box = Some(value),
             "--role" => self.role = Some(Role::parse(&value)?),
+            "--priority" => self.priority = Priority::parse(&value).ok_or_else(usage)?,
             _ if self.overrides.set(flag, &value) => {}
             _ => return Err(usage()),
         }
@@ -110,6 +113,8 @@ pub(super) struct LaunchParts {
     pub wait: Option<bool>,
     /// `--take-over`: end the session holding the name and give the new one the name and its messages.
     pub take_over: bool,
+    /// `--priority`: where a spend-refused launch waits in the launch queue.
+    pub priority: Priority,
 }
 
 pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<LaunchParts> {
@@ -130,8 +135,8 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
         index += 1;
     }
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
-    let (overrides, take_over) = (std::mem::take(&mut flags.overrides), flags.take_over);
-    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over })
+    let (overrides, take_over, priority) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority);
+    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority })
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {

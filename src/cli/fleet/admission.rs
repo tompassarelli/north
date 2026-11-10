@@ -41,16 +41,16 @@ pub(super) fn admitted(
     mut attempt: impl FnMut(bool) -> NorthResult<Result<Placed, Refusal>>,
     mut say: impl FnMut(&str),
     tell_parent: impl FnOnce(&str),
-) -> NorthResult<Placed> {
+) -> NorthResult<Result<Placed, Refusal>> {
     let started = Instant::now();
     let mut first = true;
     loop {
         let why = match attempt(first)? {
-            Ok(placed) => return Ok(placed),
+            Ok(placed) => return Ok(Ok(placed)),
             Err(Refusal::Saturated(why)) => why,
-            Err(refusal) => return Err(refusal.into()),
+            Err(refusal) => return Ok(Err(refusal)),
         };
-        let Some(waiting) = waiting else { return Err(NorthError::Saturated(why)) };
+        let Some(waiting) = waiting else { return Ok(Err(Refusal::Saturated(why))) };
         if started.elapsed() >= waiting.limit {
             let reason = format!("{why}; still saturated after waiting {} min", waiting.limit.as_secs() / 60);
             tell_parent(&format!("[from {name} · launch refused] Not done: {name} was not launched: {reason}\nStop: capacity"));
