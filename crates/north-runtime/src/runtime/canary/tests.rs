@@ -303,6 +303,29 @@ fn a_host_that_launches_no_sessions_is_not_probed_for_a_worker_shell_reaching_th
 }
 
 #[test]
+fn a_canary_probe_answered_by_a_provider_limit_retries_on_the_next_account() {
+    let weekly = "canary-claude-1 on claude:c answered its first turn with 'You've hit your weekly limit · resets Nov 12, 7pm'; claude:c stays unavailable";
+    assert!(launch::refused(weekly) && launch::refused("Not logged in · Please run /login") && launch::refused("Your credit balance is too low"));
+    assert!(!launch::refused("north fleet launch failed: the runtime exited 1"));
+
+    let listing = "  claude:c available: 5h 10%\n  claude:d available: 5h 36%\n  claude:api:gmail available: $197\nwr.md: target whiterabbit claude:c (5h 10%)\n";
+    let accounts: Vec<Option<String>> = launch::candidates(listing).into_iter().map(Some).collect();
+    assert_eq!(accounts, [Some("c".to_owned()), Some("d".to_owned())]);
+
+    let mut tried = Vec::new();
+    let verdict = launch::judge("claude", &accounts, |account, _| {
+        tried.push(account.unwrap().to_owned());
+        Ok(if account == Some("c") { launch::Attempt::Refused(weekly.to_owned()) } else { launch::Attempt::Answered })
+    });
+    assert!(verdict.is_ok() && tried == ["c", "d"], "a provider limit on the first account must hand the probe to the next: {verdict:?} {tried:?}");
+
+    let verdict = launch::judge("claude", &accounts, |_, _| Ok(launch::Attempt::Refused(weekly.to_owned())));
+    assert!(verdict.is_ok(), "every account refused, so the probe is not judged, never failed: {verdict:?}");
+    let broken = launch::judge("claude", &accounts, |_, _| Err(crate::runtime::failure::failed(1, "boom")));
+    assert!(broken.is_err(), "an answer that is no refusal still fails the probe");
+}
+
+#[test]
 fn a_launch_probe_fails_when_the_worker_cannot_quote_the_shared_policy_heading() {
     assert_eq!(launch::carries("# Tom's policy", Some("Tom's policy")), Ok(()));
     assert_eq!(launch::carries("ok", Some("Tom's policy")), Err("Tom's policy"));
