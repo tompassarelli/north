@@ -21,9 +21,6 @@ pub(super) fn list(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()>
         ("list", ["--json"]) => list_json(fleet, false),
         ("list", ["--json", "--all"] | ["--all", "--json"]) => list_json(fleet, true),
         ("stranded", ["--json"]) => stranded(fleet),
-        ("rebooted", flags) => super::rebooted::run(fleet, flags),
-        ("reports", flags) => super::reports::run(fleet, flags),
-        ("held", flags) => super::withheld::run(fleet, flags),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }

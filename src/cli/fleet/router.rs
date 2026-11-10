@@ -29,7 +29,6 @@ use super::drain;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
 use super::launch::{LaunchParts, launch_parts};
-use super::list;
 use super::usage::usage;
 use super::interactive;
 use super::relaunch;
@@ -37,10 +36,8 @@ use super::revive;
 use super::row;
 use super::show;
 use super::need;
-use super::spend;
 use super::waits;
 use super::tick;
-use super::tree;
 use crate::cli::{gate, orders, send};
 
 pub fn run(arguments: &[String]) -> ExitCode {
@@ -115,12 +112,9 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         [] => tui::fleet::run(fleet, crate::cli::dash::for_fleet, crate::cli::glance::lines),
-        [verb @ ("list" | "stranded" | "rebooted" | "reports" | "held"), rest @ ..] => list::list(&fleet, verb, rest),
-        ["tree"] => tree::tree(&fleet),
-        ["spend", rest @ ..] => spend::run(&fleet, rest),
-        [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["need", rest @ ..] => need::run(rest),
         ["drain", rest @ ..] => drain::run(rest),
+        [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["hold", task] => hold(&fleet, task),
         ["accounts", flags @ ..] => accounts::run(&fleet, flags),
         ["digest", ..] => {
@@ -136,7 +130,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["ask", name, rest @ ..] => ask::run(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
-        _ => dispatch_session(&fleet, &words),
+        words => super::views::run(&fleet, words).unwrap_or_else(|| dispatch_session(&fleet, words)),
     }
 }
 
