@@ -27,13 +27,11 @@ impl Fleet {
             return Err(NorthError::Usage(format!("{name}'s conversation lives on {}; run the interactive UI there", machine.name)));
         }
         let conversation = record.conversation.clone().ok_or_else(|| NorthError::State(format!("{name} never started a conversation")))?;
-        let request = record.relaunch_request();
         let runtime = self.runtime(&record)?;
-        let account = self.account(&request)?;
-        runtime.prepare_interactive(&account, &request)?;
+        let account = self.account(&record.relaunch_request())?;
         self.refuse_beside_interactive(&record)?;
         let (instructions, _) = self.instructions(&record)?;
-        let spec = runtime.interactive(&account, &request, &conversation, &instructions)?;
+        let spec = runtime.interactive(&account, &record.relaunch_request(), &conversation, &instructions)?;
         if after_turn && self.work_running(name)? {
             eprintln!("north fleet: {name} is mid-turn or runs a background task; its turn streams here and its window opens on the conversation when both have ended");
             let mut follower = self.follow(name)?;
@@ -54,13 +52,9 @@ impl Fleet {
         launch(&spec)
     }
 
-    /// Completes the first-run answers north can write for `name`'s profile, then names any prompt its interactive UI would still stop at; `Err` when the profile cannot be written.
     pub fn interactive_prompt(&self, name: &str) -> NorthResult<Option<String>> {
         let (record, request) = (self.record(name)?, self.record(name)?.relaunch_request());
-        let runtime = self.runtime(&record)?;
-        let account = self.account(&request)?;
-        runtime.prepare_interactive(&account, &request)?;
-        Ok(runtime.interactive_prompt(&account, &request))
+        Ok(self.runtime(&record)?.interactive_prompt(&self.account(&request)?, &request))
     }
 
     fn work_running(&self, name: &str) -> NorthResult<bool> {

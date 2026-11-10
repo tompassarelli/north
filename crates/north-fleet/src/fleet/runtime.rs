@@ -90,10 +90,6 @@ pub trait Runtime: Send + Sync {
     fn interactive(&self, _account: &Account, _request: &LaunchRequest, _conversation: &str, _instructions: &str) -> NorthResult<HostSpec> {
         Err(NorthError::Usage(format!("{} sessions have no interactive UI to hand over to", self.provider().label())))
     }
-    /// Writes the first-run state north can complete by itself, so the interactive UI opens on the conversation instead of a setup question; `interactive_prompt` then names whatever would still stop it.
-    fn prepare_interactive(&self, _account: &Account, _request: &LaunchRequest) -> NorthResult<()> {
-        Ok(())
-    }
     fn interactive_prompt(&self, _account: &Account, _request: &LaunchRequest) -> Option<String> {
         None
     }
