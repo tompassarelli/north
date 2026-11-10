@@ -146,12 +146,7 @@ pub fn examine(now: u64) -> Facts {
     let units = queues.iter().map(|queue| queue.unit.clone()).collect();
     let link = facts::link_facts(&state.join("north"), north.as_deref(), units, now);
     let places: Vec<facts::PlaceFacts> = std::iter::once(Place { name: host, reach: Reach::Here }).chain(facts::offload_places()).map(facts::place_facts).collect();
-    let mut orphaned_remote: Vec<(Place, PathBuf)> = Vec::new();
-    for found in places.iter().filter(|found| matches!(found.place.reach, Reach::Ssh(_))) {
-        if let Ok(probe) = &found.probe {
-            orphaned_remote.extend(probe.orphaned.iter().map(|queue| (found.place.clone(), queue.clone())));
-        }
-    }
+    let orphaned_remote = facts::remote_orphans(&places);
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map_or_else(|| PathBuf::from("/"), PathBuf::from);
     let config = std::env::var_os("XDG_CONFIG_HOME").filter(|config| !config.is_empty()).map_or_else(|| home.join(".config"), PathBuf::from);
     let repositories = facts::lander_repositories(&config, &home.join("code"));
