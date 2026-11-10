@@ -72,6 +72,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Targets rationale](targets.md): Cold-path reasoning behind numeric performance, time and size targets.
 - [Test selection: every test a change can reach runs before it lands](test-selection.md): On 2026-11-10 lane ds-1033 (5f42fb5463, north#1033) moved the worker sandbox's path policy from north-runtime into north-base across 16 files.
 - [Tier routing rationale](tier-routing.md): Cold-path reasoning behind which model tier a box starts on.
+- [Usage resets: read the grant, never automate the click](usage-resets.md): Decided 2026-11-10 under north#1048, moved there from north#1065.
 - [Verdict reuse by recorded inputs: a test's pass carries to every tree where the files it read are the same](verdict-reuse.md): Plan of 2026-11-08 for the "Verdict reuse by recorded inputs" section of north#842.
 - [Wake paths: what wakes an agent turn, and what to cut](wake-paths.md): Measured 2026-11-04 over the 7 days 2026-10-28 to 2026-11-04 (UTC).
 - [Worker sandbox: removal confined by the kernel](worker-sandbox.md): North#706, 2026-11-08.
