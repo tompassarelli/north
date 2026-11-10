@@ -55,22 +55,24 @@ pub(super) fn land(arguments: &[String]) -> u8 {
 const LANE: &[(&str, Run)] = &[
     ("exec", |arguments| crate::lanes::lane_exec(arguments, crate::worker_sandbox::confined(), crate::worker_sandbox::run_built)),
     ("audit", |arguments| crate::lanes::repo_verb(&[vec!["audit".to_owned()], arguments.to_vec()].concat())),
-    ("gc", |arguments| outside_the_sandbox("gc", crate::lanes::lane_gc, arguments)),
+    ("gc", |arguments| outside_the_sandbox("lane", "gc", crate::lanes::lane_gc, arguments)),
     ("layout", crate::lanes::layout_check),
     ("new", crate::lanes::new_lane),
     ("reap", crate::lanes::wt_reap),
     ("reclaim", crate::ops::reclaim::run),
-    ("remove", |arguments| outside_the_sandbox("remove", crate::lanes::remove, arguments)),
+    ("remove", |arguments| outside_the_sandbox("lane", "remove", crate::lanes::remove, arguments)),
     ("rescue", crate::lanes::wt_rescue),
     ("seed", crate::lanes::target_seed),
-    ("stray", |arguments| outside_the_sandbox("stray", crate::lanes::stray, arguments)),
+    ("stray", |arguments| outside_the_sandbox("lane", "stray", crate::lanes::stray, arguments)),
     ("squash", lane_squash::run),
     ("sweep", crate::ops::cleanup_sweep::run),
-    ("unlock", |arguments| outside_the_sandbox("unlock", crate::lanes::unlock, arguments)),
+    ("unlock", |arguments| outside_the_sandbox("lane", "unlock", crate::lanes::unlock, arguments)),
 ];
 
-fn outside_the_sandbox(verb: &str, run: Run, arguments: &[String]) -> u8 {
-    let words: Vec<String> = ["lane", verb].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect();
+const HOME: &[(&str, Run)] = &[("move", |arguments| outside_the_sandbox("home", "move", crate::lanes::home_move, arguments))];
+
+fn outside_the_sandbox(noun: &str, verb: &str, run: Run, arguments: &[String]) -> u8 {
+    let words: Vec<String> = [noun, verb].into_iter().map(str::to_owned).chain(arguments.iter().cloned()).collect();
     match crate::worker_sandbox::reenter_outside(&words) {
         Some(code) => code,
         None => run(arguments),
@@ -83,6 +85,17 @@ pub(super) fn lane(arguments: &[String]) -> u8 {
         None => {
             let verbs: Vec<&str> = LANE.iter().map(|(verb, _)| *verb).collect();
             eprintln!("usage: north lane ({}) ...; north lane --help lists each", verbs.join("|"));
+            2
+        }
+    }
+}
+
+pub(super) fn home(arguments: &[String]) -> u8 {
+    match arguments.split_first().and_then(|(verb, rest)| runner(HOME, verb).map(|run| run(rest))) {
+        Some(code) => code,
+        None => {
+            let verbs: Vec<&str> = HOME.iter().map(|(verb, _)| *verb).collect();
+            eprintln!("usage: north home ({}) ...; north home --help lists each", verbs.join("|"));
             2
         }
     }

@@ -655,7 +655,7 @@ may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "thr
 [[module]]
 name = "lanes"
 paths = ["crates/north-lanes/src/**"]
-responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks."
+responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks, and the rename-only home move plan that runs outside the worker sandbox."
 may_use = ["threads", "foundation", "crate-roots", "github_mirror", "lifecycle", "platform.git", "platform.process", "platform.records", "platform.host", "git_locks"]
 
 [[module]]

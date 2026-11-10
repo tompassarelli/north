@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, merge_set, landed_tree, stale_revert};
 use self::graph::graph;
-use self::subverbs::{Run, code_health, lane, land, ledger_verb, ops, runner, runtime};
+use self::subverbs::{Run, code_health, home, lane, land, ledger_verb, ops, runner, runtime};
 pub(super) use self::subverbs::ledger_runner;
 use crate::timers::{self, Timer};
 use crate::{
@@ -71,6 +71,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("agent-contain", crate::agent_contain::run),
     ("retain", crate::ops::retention::run),
     ("lane", lane),
+    ("home", home),
     ("runtime", runtime),
     ("tune", crate::tune::run),
     ("loops", crate::loops::run),

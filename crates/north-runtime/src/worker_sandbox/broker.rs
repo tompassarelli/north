@@ -67,6 +67,7 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
     match words.as_slice() {
         ["depbox", "fetch" | "run", "--", program, ..] | [FLAG, "--built" | "--lane", "--", program, ..] => !program.is_empty(),
         ["lane", "unlock" | "stray" | "remove" | "gc", ..] => true,
+        ["home", "move", ..] => true,
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
         _ => false,
     }
@@ -94,15 +95,15 @@ fn own_homes() -> Vec<(String, String)> {
     fn set(name: &str) -> Option<PathBuf> {
         std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
     }
-    homes(set("HOME"), set)
+    homes(set("HOME"), set).into_iter().chain(set("HOME").map(|home| ("HOME".to_owned(), home.to_string_lossy().into_owned()))).collect()
 }
 
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes (`homes`) are the broker's own too: a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` (`homes`) are the broker's own too: a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
 pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)]) -> Vec<(String, String)> {
     let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
     let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
-    sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && !HOMES.iter().any(|(own, _)| *own == name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).chain(homes.iter().cloned()).collect()
+    sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && name != "HOME" && !HOMES.iter().any(|(own, _)| *own == name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).chain(homes.iter().cloned()).collect()
 }
 
 /// Runs `north ARGUMENTS` outside this process's Landlock domain through the broker, with this process's standard streams, working directory and environment; its exit code.

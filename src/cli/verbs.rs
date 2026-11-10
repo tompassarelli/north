@@ -86,6 +86,8 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("hardcoded-repo-path-check", Diagnosis),
     ("health", Status),
     ("help", Diagnosis),
+    ("home move", Bookkeeping),
+    ("home", Bookkeeping),
     ("hook", Diagnosis),
     ("incident-mine", Diagnosis),
     ("incident-retro", Diagnosis),
