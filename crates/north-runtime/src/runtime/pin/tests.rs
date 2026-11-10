@@ -57,31 +57,54 @@ fn a_landing_not_live_after_5_min_pages_the_coordinator() {
     let promoted = |sha: &str, at: i64| super::note(&layout, &Event::Promoted { sha: sha.to_owned(), at });
     let mut pages = Vec::<String>::new();
     landed(MAIN, NOW - 299);
-    page(&layout, NOW, "laptop", &mut deliver(&mut pages));
+    page(&layout, NOW, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
     assert!(pages.is_empty(), "a landing younger than five minutes waits");
-    page(&layout, NOW + 1, "laptop", &mut deliver(&mut pages));
+    page(&layout, NOW + 1, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
     assert_eq!(pages.len(), 1, "a landing five minutes from live pages the coordinator");
     assert!(pages[0].contains("landing 22222222") && pages[0].contains("5 min") && pages[0].contains("300s"), "{}", pages[0]);
-    page(&layout, NOW + 120, "laptop", &mut deliver(&mut pages));
+    page(&layout, NOW + 120, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
     assert_eq!(pages.len(), 1, "a landing pages once");
     promoted(MAIN, NOW + 130);
-    page(&layout, NOW + 1000, "laptop", &mut deliver(&mut pages));
+    page(&layout, NOW + 1000, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
     assert_eq!(pages.len(), 1, "a promoted landing needs no page");
     landed(PINNED, NOW + 1000);
     landed(THIRD, NOW + 1100);
     promoted(PINNED, NOW + 1200);
-    page(&layout, NOW + 1500, "laptop", &mut deliver(&mut pages));
+    page(&layout, NOW + 1500, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
     assert_eq!(pages.len(), 2, "a landing that arrived while another built still waits when that one goes live");
     assert!(pages[1].contains("landing 33333333") && pages[1].contains("400s"), "{}", pages[1]);
     let mut refusals = 0;
     promoted(THIRD, NOW + 1600);
     landed(FOURTH, NOW + 2000);
-    page(&layout, NOW + 2400, "laptop", &mut |_| {
+    page(&layout, NOW + 2400, "laptop", &mut |_, _| false, &mut |_| {
         refusals += 1;
         false
     });
-    page(&layout, NOW + 2401, "laptop", &mut deliver(&mut pages));
+    page(&layout, NOW + 2401, "laptop", &mut |_, _| false, &mut deliver(&mut pages));
     assert_eq!((refusals, pages.len()), (1, 3), "a page that was not delivered is sent again");
+}
+
+#[test]
+fn a_landing_the_host_already_runs_is_not_paged() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_owned() };
+    symlink(layout::link(MAIN), layout.current()).unwrap();
+    super::note(&layout, &Event::Landed { sha: MAIN.to_owned(), at: NOW - 300 });
+    let pages = std::cell::RefCell::new(Vec::<String>::new());
+    let mut send = |text: &str| {
+        pages.borrow_mut().push(text.to_owned());
+        true
+    };
+    page(&layout, NOW, "laptop", &mut |_, _| panic!("the live runtime is the landing itself"), &mut send);
+    assert!(pages.borrow().is_empty(), "a landing whose sha is the live pin is live, with no promotion journaled");
+
+    super::note(&layout, &Event::Landed { sha: PINNED.to_owned(), at: NOW - 600 });
+    page(&layout, NOW, "laptop", &mut |live, landing| live == MAIN && landing == PINNED, &mut send);
+    assert!(pages.borrow().is_empty(), "a landing the live runtime descends from is live");
+
+    page(&layout, NOW, "laptop", &mut |_, _| false, &mut send);
+    assert_eq!(pages.borrow().len(), 1, "a landing the live runtime does not contain still pages");
+    assert!(pages.borrow()[0].contains("landing 11111111") && pages.borrow()[0].contains("600s") && pages.borrow()[0].contains("pinned runtime is 22222222"), "{}", pages.borrow()[0]);
 }
 
 #[test]

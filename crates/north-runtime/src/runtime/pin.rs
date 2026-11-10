@@ -75,8 +75,8 @@ pub(super) fn target(layout: &Layout, checkout: &Path, main: &str) -> String {
     }
 }
 
-/// The oldest landing still waiting for a promotion, with when it landed. A promotion of a landed sha makes live that landing and every one journaled before it, not those that landed while it built; a promotion of any other sha makes all of them live.
-fn waiting(events: &[Event]) -> Option<(&str, i64)> {
+/// The landings still waiting for a promotion, oldest first, with when each landed. A promotion of a landed sha makes live that landing and every one journaled before it, not those that landed while it built; a promotion of any other sha makes all of them live.
+fn waiting(events: &[Event]) -> Vec<(&str, i64)> {
     let mut landings: Vec<(&str, i64)> = Vec::new();
     for event in events {
         match event {
@@ -88,23 +88,26 @@ fn waiting(events: &[Event]) -> Option<(&str, i64)> {
             _ => {}
         }
     }
-    landings.first().copied()
+    landings
 }
 
 fn waiting_since(events: &[Event]) -> Option<i64> {
-    waiting(events).map(|(_, at)| at)
+    waiting(events).first().map(|&(_, at)| at)
 }
 
-/// Pages the coordinator once per landing when the oldest landing has waited `LIVE_PAGE` for the promotion that makes it live; `send` carries the text and says whether it was delivered, and only a delivered page is journaled, so a failed send is tried again by the next caller.
-pub(super) fn page(layout: &Layout, now: i64, host: &str, send: &mut dyn FnMut(&str) -> bool) {
+/// Pages the coordinator once per landing when the oldest landing has waited `LIVE_PAGE` for the promotion that makes it live; `send` carries the text and says whether it was delivered, and only a delivered page is journaled, so a failed send is tried again by the next caller. A landing the live runtime is, or descends from (`contained(live, landing)`), is live whatever the journal holds, so a runtime that came live by a path that journaled no promotion is not paged about, and its recorded promotion is journaled here.
+pub(super) fn page(layout: &Layout, now: i64, host: &str, contained: &mut dyn FnMut(&str, &str) -> bool, send: &mut dyn FnMut(&str) -> bool) {
+    let live = layout.live_sha();
+    adopt_recorded_promotion(layout, live.as_deref());
     let events = read(&layout.state);
-    let Some((sha, landed)) = waiting(&events) else { return };
+    let mut runs = |sha: &str| live.as_deref().is_some_and(|live| live == sha || contained(live, sha));
+    let Some((sha, landed)) = waiting(&events).into_iter().find(|&(sha, landed)| now - landed < LIVE_PAGE || !runs(sha)) else { return };
     let seconds = now - landed;
     let paged = events.iter().any(|event| matches!(event, Event::Paged { sha: page, .. } if page == sha));
     if seconds < LIVE_PAGE || paged {
         return;
     }
-    let pinned = layout.live_sha().unwrap_or_else(|| "none".to_owned());
+    let pinned = live.unwrap_or_else(|| "none".to_owned());
     let delivered = send(&format!(
         "north runtime: landing {} is not live 5 min after it landed ({host} has waited {seconds}s for its promotion; pinned runtime is {})",
         layout::short(sha),

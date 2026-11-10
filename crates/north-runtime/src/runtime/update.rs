@@ -71,7 +71,8 @@ pub(super) fn update(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Fl
 /// Pages the coordinator when the oldest landing that changes a runtime input has waited past five minutes for the promotion that makes it live (pin::page); only the host that settles the fleet journals landings, so only it has a wait to page about, and the caller holding the page lock is the only one that reads the journal, sends and records.
 fn page_overdue(layout: &Layout) {
     if land_offload::settles_fleet_here() && let Ok(Some(_paging)) = named_lock(layout, PAGE_LOCK, FlockOperation::NonBlockingLockExclusive) {
-        pin::page(layout, pin::now(), &host::name(), &mut |text| send_alert(text));
+        let checkout = checkout();
+        pin::page(layout, pin::now(), &host::name(), &mut |live, landing| ancestor(&checkout, landing, live), &mut |text| send_alert(text));
     }
 }
 
