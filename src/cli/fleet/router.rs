@@ -92,7 +92,7 @@ pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
 }
 
 fn open_fleet_claiming(claims: ThreadsCli) -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(claims), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases)).map(|fleet| fleet.writing_usage(Arc::new(IngestUsage::default())).recording_runs(Arc::new(IngestRuns)).showing_proxy_on(Arc::new(desktop::Desktop)))
 }
 
 fn far_machine(host: &str) -> bool {
@@ -256,7 +256,7 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     if let Err(error) = fleet.release_exited_claims_on(&tasks) {
         eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, tasks.join(" "), error.user_message());
     }
-    let record = if take_over { fleet.take_over(&request).inspect(|record| desktop::show_taken(fleet, record))? } else { fleet.launch(&request)? };
+    let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())

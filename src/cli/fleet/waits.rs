@@ -123,7 +123,7 @@ impl WaitProbes for Probes {
                 own: None,
                 run: Box::new(|fleet| {
                     let lanes = reaper::Evidence::lanes(&reaper::Here);
-                    let handed = hand_over(&fleet, &UsageTable, &lanes, &|record| holds_unlanded_lane(&record.name, &lane_of(&record.cwd, |worktrees| worktree_of(record, worktrees)), &lanes), &|request| super::trips::spend_admits(&fleet, request).and_then(|()| fleet.take_over(request)).inspect(|record| super::desktop::show_taken(&fleet, record)), &tell_tom, now_ms());
+                    let handed = hand_over(&fleet, &UsageTable, &lanes, &|record| holds_unlanded_lane(&record.name, &lane_of(&record.cwd, |worktrees| worktree_of(record, worktrees)), &lanes), &|request| super::trips::spend_admits(&fleet, request).and_then(|()| fleet.take_over(request)), &tell_tom, now_ms());
                     said(handed.lines.into_iter().chain(handed.alert))
                 }),
             },

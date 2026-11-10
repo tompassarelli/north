@@ -74,6 +74,7 @@ mod senders;
 mod status;
 mod rebooting;
 mod stranding;
+mod proxy_window;
 mod testing;
 #[doc(hidden)]
 pub mod fixtures;
@@ -90,6 +91,7 @@ pub use takeover::backlog_line;
 pub use messages::Sent;
 pub use spend_rows::Spent;
 pub use wait_rows::Waiting;
+pub use proxy_window::{NoDesk, OpenedWindows, ProxyDesk};
 
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
 const HOSTS: &str = ".hosts";
@@ -113,6 +115,7 @@ pub struct Fleet {
     usage: Arc<dyn UsageSink>,
     recording: Arc<dyn RunRecording>,
     remote_lanes: Arc<dyn RemoteLanes>,
+    desk: Arc<dyn ProxyDesk>,
 }
 
 struct Ports {
@@ -140,7 +143,7 @@ impl Fleet {
         let Ports { runtimes, ledger, claims, registrar, leases } = ports;
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes) };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes), desk: Arc::new(NoDesk) };
         fleet.adopt_journals()?;
         Ok(fleet)
     }
@@ -152,6 +155,12 @@ impl Fleet {
 
     pub fn recording_runs(mut self, recording: Arc<dyn RunRecording>) -> Self {
         self.recording = recording;
+        self
+    }
+
+    /// Shows the proxy on `desk`, the desktop Tom types on; a fleet without one starts no proxy.
+    pub fn showing_proxy_on(mut self, desk: Arc<dyn ProxyDesk>) -> Self {
+        self.desk = desk;
         self
     }
 
@@ -356,6 +365,7 @@ impl Fleet {
         if let Some(reason) = remote::unguarded_where_it_runs(runtime.as_ref(), account, record.machine.as_ref()) {
             return Err(NorthError::Refused(reason));
         }
+        self.refuse_headless_proxy(record, runtime.as_ref(), account)?;
         let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
@@ -394,6 +404,7 @@ impl Fleet {
         }
         remote::leave_record(record, &self.root.join(PLACED));
         claims::hold_for(self.claims.as_ref(), record, &self.ancestors(record.parent.as_deref()));
+        self.show_proxy(record, &host)?;
         Ok(())
     }
 

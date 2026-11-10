@@ -102,16 +102,15 @@ fn socket() -> Option<PathBuf> {
     std::fs::read_dir(runtime).ok()?.flatten().map(|entry| entry.path()).find(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("niri.") && name.ends_with(".sock")))
 }
 
-/// The desktop's one adapter: niri spawns a ghostty window, so the window is the compositor's child and outlives the north process that asked for it.
-pub(in crate::cli::fleet) struct NiriGhostty;
+/// Whether a graphical session is live on this host, or why not.
+pub(in crate::cli::fleet) fn live() -> Result<(), String> {
+    socket().map(drop).ok_or_else(|| "no graphical session is live on this host (no niri socket)".to_owned())
+}
 
-impl super::Opener for NiriGhostty {
-    fn open(&self, title: &str, command: &[String]) -> Result<u64, String> {
-        if socket().is_none() {
-            return Err("no graphical session is live on this host (no niri socket)".to_owned());
-        }
-        let mut terminal = vec!["ghostty".to_owned(), format!("--title={title}"), "-e".to_owned()];
-        terminal.extend_from_slice(command);
-        open(&terminal).map(|placed| placed.id).map_err(|error| error.user_message())
-    }
+/// Opens `command` in a ghostty window titled `title` that niri spawns, so the window is the compositor's child and outlives the north process that asked for it; returns the window's id.
+pub(in crate::cli::fleet) fn open_terminal(title: &str, command: &[String]) -> Result<u64, String> {
+    live()?;
+    let mut terminal = vec!["ghostty".to_owned(), format!("--title={title}"), "-e".to_owned()];
+    terminal.extend_from_slice(command);
+    open(&terminal).map(|placed| placed.id).map_err(|error| error.user_message())
 }

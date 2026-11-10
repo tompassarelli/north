@@ -27,7 +27,7 @@ impl Fleet {
 
     pub fn at_claiming(home: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>) -> NorthResult<Self> {
         let policy = crate::platform::orchestration::under(&home);
-        Self::rooted(home, policy, runtimes, ledger, claims, Arc::new(Unrecorded), Arc::new(HeldLeases::default()))
+        Self::rooted(home, policy, runtimes, ledger, claims, Arc::new(Unrecorded), Arc::new(HeldLeases::default())).map(|fleet| fleet.showing_proxy_on(Arc::new(super::OpenedWindows::default())))
     }
 
     pub fn arming(mut self, arm: fn(i64) -> NorthResult<()>) -> Self {

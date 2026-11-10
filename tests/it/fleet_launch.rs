@@ -86,6 +86,7 @@ pub(crate) fn environment(mut command: Command, root: &Path, host: &str) -> Comm
         .env("FAKE_CLAUDE_STALL_MARK", root.join("stalled"))
         .env("NORTH_FLEET_SESSION", "")
         .env_remove("NORTH_FLEET_TEST")
+        .env_remove("NIRI_SOCKET")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()));
     command
@@ -261,4 +262,34 @@ fn a_first_turn_at_the_weekly_limit_marks_the_account_refused_and_north_accounts
     let row = listed.lines().find(|line| line.starts_with("a ")).unwrap_or_else(|| panic!("no row for a: {listed}"));
     assert!(row.contains(" held ") && row.contains("refused by its client: You've hit"), "{listed}");
     assert!(!row.contains(" open "), "a 99% reading was offered as headroom after the provider refused it: {listed}");
+}
+
+#[test]
+fn a_revived_proxy_opens_in_a_window_on_the_desktop_and_starts_no_host_where_there_is_none() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    let profile = root.join(".local/state/north/profiles/claude-a");
+    fs::write(profile.join("settings.json"), r#"{"hooks": {"PreToolUse": []}, "skipDangerousModePermissionPrompt": true}"#).unwrap();
+    fs::write(profile.join(".claude.json"), serde_json::json!({"projects": {root.display().to_string(): {"hasTrustDialogAccepted": true}}}).to_string()).unwrap();
+    let session = root.join(".local/state/north/fleet/proxy");
+    fs::create_dir_all(&session).unwrap();
+    let record = serde_json::json!({"name": "proxy", "provider": "claude", "account": "a", "cwd": root, "model": null, "created_ms": 1, "host_pid": null, "conversation": "6d1f6f3c-1048-4c1e-9a52-6a0c8b0e1048", "host_dir": session, "role": "proxy", "stopped": false});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let spawned = root.join("niri-spawned");
+    executable(&root.join("bin/niri"), &format!("case \"$*\" in\n  *'action spawn'*) printf '%s\\n' \"$*\" >> {0}; exit 0;;\n  *'-j windows'*) if [ -f {0} ]; then echo '[{{\"id\":7,\"pid\":1,\"app_id\":\"com.mitchellh.ghostty\",\"workspace_id\":1,\"layout\":{{\"pos_in_scrolling_layout\":[1,1]}}}}]'; else echo '[]'; fi;;\nesac\n", spawned.display()));
+
+    let headless = north(root, &["fleet", "revive", "proxy"]);
+    let host_after_refusal = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(session.join("session.json")).unwrap()).unwrap()["host_pid"].clone();
+    fs::create_dir_all(root.join("run")).unwrap();
+    fs::write(root.join("run/niri.wayland-1.1.sock"), "").unwrap();
+    let shown = north(root, &["fleet", "revive", "proxy"]);
+    let opened = fs::read_to_string(&spawned).unwrap_or_default();
+    north(root, &["fleet", "forget", "proxy"]);
+
+    assert!(!headless.status.success(), "{}", text(&headless.stdout));
+    assert!(text(&headless.stderr).contains("runs only in a window Tom types into"), "{}", text(&headless.stderr));
+    assert!(host_after_refusal.is_null(), "a refused revive started host {host_after_refusal}");
+    assert!(shown.status.success(), "{}", text(&shown.stderr));
+    assert!(opened.contains("--title=north proxy -e env") && opened.ends_with("fleet interactive proxy --after-turn\n"), "{opened}");
 }
