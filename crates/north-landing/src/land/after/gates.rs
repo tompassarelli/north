@@ -107,20 +107,17 @@ pub fn code_health_program() -> PathBuf {
 
 fn code_health(landed: &Landed, out: &mut Vec<u8>) -> bool {
     let program = landed.code_health;
-    let enrolled = git::bytes(landed.tree, &["cat-file", "-e", &format!("{}:structure.toml", landed.head)]).is_some();
+    if git::bytes(landed.tree, &["cat-file", "-e", &format!("{}:structure.toml", landed.head)]).is_none() {
+        return true;
+    }
     let mut command = Command::new(program);
     command.args(["code-health", "gate", landed.base, landed.head]);
     let status = if is_executable(program) { captured(&mut command, &root(landed.tree), out) } else { None };
-    let verdict = match (status, enrolled) {
-        (Some(0), _) => return true,
-        (Some(1), _) => "✗ code-health gate refused.".to_owned(),
-        (None, true) => format!("code-health missing at {} — a repo with structure.toml is ungated.", program.display()),
-        (None, false) => return true,
-        (Some(status), true) => format!("✗ code-health gate failed (exit {status}) — fix the tool."),
-        (Some(status), false) => {
-            let _ = writeln!(out, "after-landing: code-health gate failed (exit {status}) in a repo with no structure.toml — continuing");
-            return true;
-        }
+    let verdict = match status {
+        Some(0) => return true,
+        Some(1) => "✗ code-health gate refused.".to_owned(),
+        None => format!("code-health missing at {} — a repo with structure.toml is ungated.", program.display()),
+        Some(status) => format!("✗ code-health gate failed (exit {status}) — fix the tool."),
     };
     let _ = writeln!(out, "after-landing: {verdict}");
     false

@@ -39,9 +39,28 @@ pub(super) fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
     String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect()
 }
 
+struct Blob(Vec<(String, String)>);
+
+impl Blob {
+    fn read(repo: &Path, head: &str) -> Self {
+        let blob = format!("{head}:.safe-push");
+        let Ok(output) = Command::new("git").arg("-C").arg(repo).args(["config", "--blob", &blob, "--list", "-z"]).output() else {
+            return Self(Vec::new());
+        };
+        if !output.status.success() {
+            return Self(Vec::new());
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        Self(text.split('\0').filter_map(|entry| entry.split_once('\n')).flat_map(|(key, value)| value.lines().map(move |line| (key.to_owned(), line.to_owned()))).collect())
+    }
+
+    fn values(&self, key: &str) -> Vec<String> {
+        self.0.iter().filter(|(name, _)| name == key).map(|(_, value)| value.clone()).collect()
+    }
+}
+
 fn blob_values(repo: &Path, head: &str, key: &str) -> Vec<String> {
-    let blob = format!("{head}:.safe-push");
-    git_lines(repo, &["config", "--blob", &blob, "--get-all", key])
+    Blob::read(repo, head).values(key)
 }
 
 /// Expands one `STORE@PINS` host input into the store root and the entries the check's head pins:
@@ -83,8 +102,9 @@ fn expand_host_inputs(repo: &Path, head: &str, line: String) -> String {
 
 impl Config {
     pub fn load(repo: &Path, head: &str) -> Self {
-        let first = |key: &str| blob_values(repo, head, key).into_iter().next_back();
-        let checks = blob_values(repo, head, "land.check");
+        let blob = Blob::read(repo, head);
+        let first = |key: &str| blob.values(key).into_iter().next_back();
+        let checks = blob.values("land.check");
         let inference_off = first("land.inferred").is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "false" | "no" | "off" | "0"));
         let inferred = if checks.is_empty() && !inference_off { inferred_checks(repo, head) } else { Vec::new() };
         Self {
@@ -93,13 +113,13 @@ impl Config {
             runner: first("land.runner"),
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks,
-            after: blob_values(repo, head, "land.after"),
-            after_landing: blob_values(repo, head, "after-landing.check"),
-            after_only: blob_values(repo, head, "land.after-only"),
-            local_only: blob_values(repo, head, "land.local-only"),
-            machine_bound: blob_values(repo, head, "land.machine-bound"),
-            host_inputs: blob_values(repo, head, "land.host-input").into_iter().map(|line| expand_host_inputs(repo, head, line)).collect(),
-            deadlines: blob_values(repo, head, "land.deadline"),
+            after: blob.values("land.after"),
+            after_landing: blob.values("after-landing.check"),
+            after_only: blob.values("land.after-only"),
+            local_only: blob.values("land.local-only"),
+            machine_bound: blob.values("land.machine-bound"),
+            host_inputs: blob.values("land.host-input").into_iter().map(|line| expand_host_inputs(repo, head, line)).collect(),
+            deadlines: blob.values("land.deadline"),
             inferred,
             local_checks: first("land.check-local").is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "yes" | "on" | "1")),
         }

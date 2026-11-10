@@ -12,7 +12,7 @@ fi
 [ "$1 $2 $3" = "land checks --after" ] || exit 0
 echo "$SAFE_PUSH_LAND_RUNNER" >>"$LAND_TRACE/runners"
 if [ ! -e "$LAND_TRACE/release" ] && [ "$(wc -l <"$LAND_TRACE/runners")" -le 2 ]; then
-  for _ in $(seq 1200); do [ -e "$LAND_TRACE/release" ] && exit 0; sleep 0.1; done
+  exec 9<> <(:); for ((i = 0; i < 1200; i++)); do [ -e "$LAND_TRACE/release" ] && exit 0; read -t 0.1 -u 9 _; done
   exit 1
 fi
 "#;
@@ -163,7 +163,7 @@ const HOLD_THEN_HANG_NEXT_AFTER_RUN: &str = r#"#!/usr/bin/env bash
 if [ "$1 $2 $3" = "land checks --after" ]; then
   if [ ! -e "$LAND_TRACE/held" ]; then
     touch "$LAND_TRACE/held"
-    for _ in $(seq 1200); do [ -e "$LAND_TRACE/release" ] && exit 0; sleep 0.1; done
+    exec 9<> <(:); for ((i = 0; i < 1200; i++)); do [ -e "$LAND_TRACE/release" ] && exit 0; read -t 0.1 -u 9 _; done
     exit 1
   fi
   echo $$ >>"$LAND_TRACE/hung"
@@ -254,7 +254,7 @@ const RED_THEN_HOLD_CULPRIT_PROBES: &str = r#"#!/usr/bin/env bash
 while [ $# -gt 0 ]; do case $1 in --head) head=$2; shift ;; --tree) tree=$2; shift ;; --outcome) outcome=$2; shift ;; esac; shift; done
 echo "$head $tree" >>"$LAND_TRACE/after-runs"
 if [ "$head" != "$tree" ]; then
-  for _ in $(seq 1200); do [ -e "$LAND_TRACE/release" ] && break; sleep 0.1; done
+  exec 9<> <(:); for ((i = 0; i < 1200; i++)); do [ -e "$LAND_TRACE/release" ] && break; read -t 0.1 -u 9 _; done
 fi
 if [ -e broken.txt ] && [ ! -e last.txt ]; then echo "test after_landing_probe ... FAILED"; printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
 "#;
