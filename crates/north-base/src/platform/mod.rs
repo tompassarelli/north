@@ -20,6 +20,7 @@ pub mod cleanup;
 pub mod disk_budget;
 pub mod disk_ledger;
 pub mod orchestration;
+pub use north_shared_config as shared_config;
 pub mod project_status;
 pub mod entry_points;
 pub mod github;

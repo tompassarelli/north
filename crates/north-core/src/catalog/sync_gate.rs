@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::NorthResult;
-use crate::platform::{git, harness};
+use crate::platform::{git, harness, shared_config};
 
 use super::{home, operator_dir, repo_root};
 
@@ -16,9 +16,21 @@ pub fn operator_directory() -> NorthResult<PathBuf> {
 const SIBLING_PROJECTS: [&str; 2] = ["wisp", "makgora"];
 
 pub fn run(arguments: &[String]) -> NorthResult<u8> {
-    let projected = project_profiles();
     let operator = operator_directory()?;
-    let Some(south) = toplevel(&operator) else {
+    let mut say = |line: String| eprintln!("{line}");
+    let now = crate::platform::records_mirror::now() as u64;
+    let south = toplevel(&operator);
+    let shared = match &south {
+        Some(south) => shared_configuration(&home()?, south, now, &mut say),
+        None => Ok(()),
+    };
+    let projected = shared.is_ok() && project_profiles();
+    if let Err(line) = shared {
+        eprintln!("{line}");
+        eprintln!("{NOT_PUBLISHED}");
+        return Ok(1);
+    }
+    let Some(south) = south else {
         eprintln!("agents sync: operator directory is not in a Git checkout");
         return Ok(1);
     };
@@ -27,18 +39,17 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
         env::var_os("NORTH_HOME"),
         &home()?,
     )?;
-    let mut say = |line: String| eprintln!("{line}");
     let nixos_config = repo_root("nixos-config")?;
-    let current = current_main("south", &south, &mut say)
-        .and_then(|()| current_main("north", &north, &mut say))
-        .and_then(|()| current_main("nixos-config", &nixos_config, &mut say));
+    let current = current_main("south", &south, now, &mut say)
+        .and_then(|()| current_main("north", &north, now, &mut say))
+        .and_then(|()| current_main("nixos-config", &nixos_config, now, &mut say));
     if let Err(line) = current {
         eprintln!("{line}");
         eprintln!("{NOT_PUBLISHED}");
         return Ok(1);
     }
     for project in SIBLING_PROJECTS {
-        if let Err(line) = repo_root(project).map_err(|error| error.to_string()).and_then(|directory| current_main(project, &directory, &mut say)) {
+        if let Err(line) = repo_root(project).map_err(|error| error.to_string()).and_then(|directory| current_main(project, &directory, now, &mut say)) {
             say(format!("agents sync: {line}; its goals are read from the checkout as it stands"));
         }
     }
@@ -86,6 +97,7 @@ fn policy_gate(nixos_config: &Path, operator: &Path) -> bool {
 pub(super) fn current_main(
     name: &str,
     directory: &Path,
+    now: u64,
     say: &mut impl FnMut(String),
 ) -> Result<(), String> {
     let git = |args: &[&str]| {
@@ -108,15 +120,27 @@ pub(super) fn current_main(
     let fetched = git(&["fetch", "-q", "origin", "main"]).is_some();
     let mut behind = 0;
     if fetched {
+        stamp_fetch(directory, now);
         behind = count(&["rev-list", "--count", "HEAD..origin/main"])
             .ok_or_else(|| format!("{name} main: cannot count commits behind origin"))?;
         if behind == 0 {
             return Ok(());
         }
     } else {
-        say(format!(
-            "agents sync: {name} fetch failed; using local main"
-        ));
+        let age = last_fetch(directory).map(|at| now.saturating_sub(at));
+        match age.filter(|age| *age <= shared_config::BOUND_SECONDS) {
+            Some(age) => say(format!(
+                "agents sync: {name} fetch failed; using local main, last fetched {} min ago",
+                age / 60
+            )),
+            None => {
+                return Err(format!(
+                    "{name} main refused offline: its last fetch of origin/main is {}, past the {} min bound",
+                    age.map_or_else(|| "unknown".to_owned(), |age| format!("{} min old", age / 60)),
+                    shared_config::BOUND_SECONDS / 60
+                ));
+            }
+        }
     }
     let ahead = count(&["rev-list", "--count", "origin/main..HEAD"]).unwrap_or(0);
     let branch = git(&["symbolic-ref", "-q", "--short", "HEAD"])
@@ -210,4 +234,34 @@ pub(super) fn north_checkout(
                 .map(PathBuf::from)
         })
         .unwrap_or_else(|| home.join("code/north/main")))
+}
+
+fn shared_configuration(home: &Path, south: &Path, now: u64, say: &mut impl FnMut(String)) -> Result<(), String> {
+    match shared_config::refresh(home, south, now) {
+        Ok(stamp) => {
+            say(format!("agents sync: shared configuration at south {}", &stamp.revision[..10]));
+            Ok(())
+        }
+        Err(error) => {
+            say(format!("agents sync: shared configuration fetch failed: {error}"));
+            shared_config::fresh(home, now).map(drop)
+        }
+    }
+}
+
+const FETCH_STAMP: &str = "north-last-fetch";
+
+fn fetch_stamp(directory: &Path) -> Option<PathBuf> {
+    let output = git::run(directory, &["rev-parse", "--path-format=absolute", "--git-path", FETCH_STAMP]).ok()?;
+    output.status.success().then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+}
+
+fn stamp_fetch(directory: &Path, now: u64) {
+    if let Some(path) = fetch_stamp(directory) {
+        let _ = std::fs::write(path, now.to_string());
+    }
+}
+
+fn last_fetch(directory: &Path) -> Option<u64> {
+    std::fs::read_to_string(fetch_stamp(directory)?).ok()?.trim().parse().ok()
 }
