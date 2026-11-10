@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/north-logo.png" alt="North logo" width="200"></p>
+
 # North
 
 North is an autonomous software factory. It takes issues that carry runnable Done-when checks and
