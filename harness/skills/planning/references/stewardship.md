@@ -114,7 +114,7 @@ with its date, a run file plus rerun command, a link or an issue) in its box or
 in `docs/rationale/<topic>.md`, a cold-path store agents do not load with rules,
 whose entry holds the reasoning, the alternatives that lost and why, the
 trade-off accepted, what would overturn it and links to its evidence. A landing
-needs no `Provenance:` trailer; Tom approved retiring that gate (2026-11-04) because its failures were fixed by editing a trailer, a record or the runner, never landed code; a rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and brings a gate back on evidence. A box that lands over a soft target,
+needs no `Provenance:` trailer (see Provenance trailer retired). A box that lands over a soft target,
 or a gate moved to debt, carries `Target-debt: <bar>; measured <value>; owner
 <lead or org name>; revisit <date YYYY-MM-DD | closed REPO#N>`; `Target-paid:
 <commit of the Target-debt>` retires it and names what was measured.

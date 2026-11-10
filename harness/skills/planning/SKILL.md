@@ -2,8 +2,8 @@
 name: planning
 description: >-
   Plan costly-to-reverse changes (interfaces, state, dependencies, boundaries); consequential briefs; prior art; hardening, security or compatibility level; price infra, CI or harness work vs features; code-health review size; delivery scope, stalled work, merging issues; resist extra process. Skip routine changes.
-grounded: 2026-10-15
-written: 2026-10-15
+grounded: 2026-11-10
+written: 2026-11-10
 portable: true
 ---
 
