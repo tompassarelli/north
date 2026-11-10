@@ -184,7 +184,7 @@ fn a_safe_push_from_the_brokered_lane_child_of_an_opencode_shell_command_is_gran
     let started = fixture.ask(&["--worker-sandbox", "--lane", "--", "/bin/sh", "-c", "safe-push --to main"], &fixture.lane);
     assert_eq!(started.code, 0, "{}", started.stderr);
     if let Ok(procs) = std::fs::read_to_string(fixture.root.path().join("scope")) {
-        super::join_scope(Path::new(&procs)).unwrap();
+        super::super::session_join::join_scope(Path::new(&procs)).unwrap();
     }
     let child = if std::fs::read_to_string(scope.join("cgroup.procs")).unwrap() == "0" { cgroup() } else { OUTSIDE_CGROUP.to_owned() };
     let landed = fixture.ask_from(&child, &["safe-push", "--to", "main"], &fixture.lane);

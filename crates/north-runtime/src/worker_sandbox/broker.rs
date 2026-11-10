@@ -16,6 +16,7 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAnci
 use serde::{Deserialize, Serialize};
 
 use super::lane_grant::{self, Host};
+use super::session_join;
 use super::{Context, FLAG, LANE_ONLY, MAKER, MARK, SESSION_SCOPE, SOCKETS_HIDDEN, removable};
 
 const DIRECTORY: &str = "north-outside";
@@ -282,7 +283,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }
-    variables.extend(lane_grant::scope_for(&request.arguments, cgroup, &host.cgroups));
+    variables.extend(session_join::scope_for(&request.arguments, cgroup, &host.cgroups));
     let child = brokered(north, confined(north, request.arguments.clone()), cgroup)
         .current_dir(&request.directory)
         .env_clear()

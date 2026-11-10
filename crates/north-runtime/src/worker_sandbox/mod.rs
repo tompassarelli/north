@@ -3,6 +3,7 @@ mod broker;
 mod except;
 mod executable;
 mod lane_grant;
+mod session_join;
 mod lane_only;
 mod lane_session;
 mod readable;
@@ -151,7 +152,7 @@ fn program(program: &[String], lift: bool) -> std::process::ExitCode {
 
 /// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable. The session's shell tool asks the outside broker for a fresh domain of this kind for each command, since a lane the session creates after its long-lived domain was built holds no rule there; a fresh domain, known by the lane-only marker already in its environment, keeps what the long-lived one kept plus the lanes created since (lane_session.rs). The broker must answer before the long-lived domain hides the sockets.
 fn in_lane(program: &[String]) -> std::process::ExitCode {
-    lane_grant::join_named_scope();
+    session_join::join_named_scope();
     broker::ensure();
     let mut context = Context::from_env(&program.join(" "));
     let kept = if std::env::var_os(LANE_ONLY).is_some() {

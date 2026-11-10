@@ -5,12 +5,12 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use north_base::platform::session_scope::{self, LANE_ONLY_UNIT_PREFIX, REMOVAL_ROOTS};
+use north_base::platform::session_scope::{LANE_ONLY_UNIT_PREFIX, REMOVAL_ROOTS};
 use north_base::platform::{gh_shim, git_credential, session_host_files};
 use regex::Regex;
 use serde_json::Value;
 
-use super::{FLAG, LANE, LANE_ONLY, MARK, SESSION_SCOPE, SOCKETS_HIDDEN};
+use super::{LANE_ONLY, MARK, SOCKETS_HIDDEN};
 
 const DESTINATION: &str = "main";
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
@@ -185,30 +185,6 @@ pub(super) fn environment(session: &Session, own: impl IntoIterator<Item = (Stri
     kept.push((SESSION_ENV.to_owned(), session.name.clone()));
     kept.extend(git_credential::session_env_with(&GIT_HARDENING));
     Ok(kept)
-}
-
-/// The variable that names, to the `--lane` child the broker starts for a lane-only session's shell command (`arguments`), the `cgroup.procs` of the session scope `cgroup` (the caller's `/proc/PID/cgroup`) names, in the cgroup filesystem at `root`. The child would otherwise run in the broker's own cgroup, so a `safe-push` or `task check` its command asks for would reach the broker from outside every session and be refused; it joins this scope first and keeps its session's grant (north#1068).
-pub(super) fn scope_for(arguments: &[String], cgroup: Option<&str>, root: &Path) -> Option<(String, String)> {
-    let [flag, lane, ..] = arguments else { return None };
-    if flag != FLAG || lane != LANE {
-        return None;
-    }
-    let path = cgroup?.lines().find_map(|line| line.strip_prefix("0::"))?;
-    let procs = root.join(path.trim_start_matches('/')).join("cgroup.procs");
-    session_scope::lane_only_cgroup(path).then(|| (SESSION_SCOPE.to_owned(), procs.to_string_lossy().into_owned()))
-}
-
-/// Moves this process, and the command it then runs, into the session scope the broker named with [`scope_for`], telling the caller when it cannot.
-pub(super) fn join_named_scope() {
-    let Some(procs) = std::env::var_os(SESSION_SCOPE) else { return };
-    if let Err(error) = join_scope(Path::new(&procs)) {
-        eprintln!("north worker-sandbox: cannot join the session's scope through {} ({error}), so a safe-push or task check this command asks the broker for is refused", Path::new(&procs).display());
-    }
-}
-
-/// Moves this process into the cgroup whose `cgroup.procs` is `procs`.
-pub(super) fn join_scope(procs: &Path) -> std::io::Result<()> {
-    std::fs::write(procs, "0")
 }
 
 /// `text` with every token-shaped word withheld.
