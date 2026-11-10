@@ -195,15 +195,10 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let running = survey.box_holds.get(&reference).unwrap_or(&none);
         let tried = survey.box_tries.get(&reference).unwrap_or(&none);
         let boxes = open_boxes(issue, running, tried, survey.at, &mut claims);
+        let boxes = survey.mainline.unretired(issue, boxes, &mut outcome.skipped);
         let mut staffed = running.len();
         for box_text in &boxes {
             let box_text = box_text.as_deref();
-            if let Some(text) = box_text
-                && let Some(what) = survey.mainline.retired(&issue.repo, text)
-            {
-                outcome.skipped.push((reference.clone(), format!("ready, not placed: box `{text}` check retired: {what}")));
-                continue;
-            }
             if issue.worker_cap().is_some_and(|cap| staffed >= cap) {
                 break;
             }
