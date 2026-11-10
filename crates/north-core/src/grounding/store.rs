@@ -514,3 +514,7 @@ pub fn search(query: &str, index: &mut Index, mut now: f64, limit: usize, as_of:
     words.sort_by(|a, b| b.1.total_cmp(&a.1));
     Ok((out.into_iter().enumerate().filter_map(|(i, h)| retained.contains(&i).then_some(h)).collect(), words.into_iter().map(|(w, _)| w).collect()))
 }
+
+#[cfg(test)]
+#[path = "store_tests.rs"]
+mod tests;
