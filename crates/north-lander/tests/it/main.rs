@@ -7,6 +7,7 @@ mod lane_adds_crates;
 mod promote;
 mod reland;
 mod serve;
+mod verify_north_fixture;
 mod sheriff;
 mod watchdog;
 mod land_merge_sets;

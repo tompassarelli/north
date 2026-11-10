@@ -89,7 +89,7 @@ impl Pull {
         Self { fleet, remote: world.path().join("remote-state"), calls: world.path().join("ssh.calls"), key: repository.queue.file_name().unwrap().to_string_lossy().into_owned(), checkout: repository.checkout, world }
     }
 
-    fn pull(&self, test_root: Option<&Path>) -> String {
+    fn pull(&self) -> String {
         let path = format!("{}:{}", self.world.path().join("bin").display(), std::env::var("PATH").unwrap_or_default());
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
@@ -104,10 +104,7 @@ impl Pull {
             .env("NORTH_LAND_NORTH", self.world.path().join("bin/north"))
             .env("GIT_CONFIG_GLOBAL", self.world.path().join("gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1");
-        match test_root {
-            Some(root) => command.env("NORTH_TEST_ROOT", root),
-            None => command.env_remove("NORTH_TEST_ROOT"),
-        };
+        command.env_remove("NORTH_TEST_ROOT");
         let output = command.output().unwrap();
         format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
     }
@@ -116,17 +113,8 @@ impl Pull {
 #[test]
 fn a_pull_from_a_host_with_no_outbox_leaves_no_queue_in_that_hosts_state() {
     let pull = Pull::new();
-    let transcript = pull.pull(None);
+    let transcript = pull.pull();
 
     assert!(std::fs::read_to_string(&pull.calls).is_ok_and(|calls| calls.contains("gex45")), "the pull never asked gex45:\n{transcript}");
-    assert!(!pull.remote.join("north/land-queue").join(&pull.key).exists(), "a host with no outbox for {} gained its queue:\n{transcript}", pull.key);
-}
-
-#[test]
-fn a_test_fixture_pulls_no_outbox_from_a_real_fleet_host() {
-    let pull = Pull::new();
-    let transcript = pull.pull(Some(pull.world.path()));
-
-    assert!(std::fs::read_to_string(&pull.calls).is_err(), "a test root still reached a real fleet host:\n{transcript}");
     assert!(!pull.remote.join("north/land-queue").join(&pull.key).exists(), "a host with no outbox for {} gained its queue:\n{transcript}", pull.key);
 }
