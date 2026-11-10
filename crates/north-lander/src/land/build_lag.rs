@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use super::after;
 use super::candidate::git;
 use super::lander::state_home;
-use north_base::platform::harness::is_sha;
+use north_runtime_follow::runtime_of;
 
 pub const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
 pub const BEHIND_LIMIT: usize = 3;
@@ -42,16 +42,9 @@ fn short(sha: &str) -> &str {
     sha.get(..10).unwrap_or(sha)
 }
 
-pub fn build_of(executable: &Path) -> Option<String> {
-    executable.ancestors().find_map(|dir| {
-        let name = dir.file_name()?.to_str()?;
-        (is_sha(name) && dir.parent()?.file_name()? == "runtimes").then(|| name.to_owned())
-    })
-}
-
 fn own_build() -> Option<&'static str> {
     static BUILD: OnceLock<Option<String>> = OnceLock::new();
-    BUILD.get_or_init(|| std::env::current_exe().ok().and_then(|exe| build_of(&exe))).as_deref()
+    BUILD.get_or_init(|| std::env::current_exe().ok().and_then(|exe| runtime_of(&exe)).map(|(build, _)| build)).as_deref()
 }
 
 pub fn measure(checkout: &Path, build: Option<&str>, main: &str) -> Lag {

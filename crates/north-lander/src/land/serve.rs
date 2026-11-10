@@ -14,9 +14,9 @@ use super::hold::{self, Hold};
 use super::watch::Watch;
 use super::heartbeat::{self, Step};
 use super::watchdog;
-use super::build_lag::LANDER_INPUTS;
 use super::repositories;
 use north_base::foundation::exit::NO_VERDICT;
+use north_runtime_follow::Follow;
 use options::{Options, lander_for, parse};
 
 mod alone;
@@ -47,58 +47,9 @@ pub enum Pushed {
     Refused(Refusal),
 }
 
-fn runtime_link() -> PathBuf {
-    std::env::var_os("NORTH_RUNTIME_LINK").filter(|value| !value.is_empty()).map_or_else(|| state_home().join("north/current"), PathBuf::from)
-}
-
-fn runtime_target(link: &Path) -> Option<PathBuf> {
-    std::fs::read_link(link).ok()
-}
-
 struct Serving {
     lander: Arc<Lander>,
     handle: std::thread::JoinHandle<u8>,
-}
-
-struct RuntimeWatch {
-    link: PathBuf,
-    started_on: Option<PathBuf>,
-    seen: Option<PathBuf>,
-}
-
-impl RuntimeWatch {
-    fn new(link: PathBuf) -> Self {
-        let started_on = runtime_target(&link);
-        Self { link, seen: started_on.clone(), started_on }
-    }
-
-    fn retires<'a>(&mut self, repos: impl IntoIterator<Item = &'a Path>) -> bool {
-        let target = runtime_target(&self.link);
-        if target == self.seen {
-            return false;
-        }
-        if lander_changed(self.started_on.as_deref(), target.as_deref(), repos) {
-            return true;
-        }
-        println!("north land: the live runtime moved to {} without changing the lander; serving on", target.as_deref().unwrap_or(Path::new("?")).display());
-        self.seen = target;
-        false
-    }
-}
-
-fn runtime_sha(target: Option<&Path>) -> Option<&str> {
-    let name = target?.file_name()?.to_str()?;
-    (name.len() == 40 && name.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(name)
-}
-
-fn lander_changed<'a>(from: Option<&Path>, to: Option<&Path>, repos: impl IntoIterator<Item = &'a Path>) -> bool {
-    let (Some(from), Some(to)) = (runtime_sha(from), runtime_sha(to)) else {
-        return true;
-    };
-    repos
-        .into_iter()
-        .find_map(|repo| git(repo, &["diff", "--no-renames", "--name-only", from, to]).ok())
-        .is_none_or(|paths| paths.lines().any(|path| LANDER_INPUTS.iter().any(|input| path.starts_with(input))))
 }
 
 fn micros() -> u128 {
@@ -314,16 +265,16 @@ fn serve_once(options: &Options) -> u8 {
 }
 
 fn serve_forever(options: &Options) -> u8 {
-    let mut runtime = RuntimeWatch::new(runtime_link());
+    let mut runtime = Follow::current();
     let retire = Arc::new(AtomicBool::new(false));
     let mut running: HashMap<PathBuf, Serving> = HashMap::new();
     let mut scanned: Option<Instant> = None;
     let mut seeded = false;
     let mut reported: HashSet<String> = HashSet::new();
     loop {
-        if runtime.retires(running.keys().map(PathBuf::as_path)) {
+        if let Some(next) = runtime.replaced() {
             retire.store(true, Ordering::Relaxed);
-            handover::announce();
+            handover::announce(&next);
             let landing: Vec<PathBuf> = running.iter().filter(|(_, serving)| handover::landing(serving.lander.heartbeat.current().0)).map(|(repo, _)| repo.clone()).collect();
             let deadline = Instant::now() + handover::BOUND;
             loop {
@@ -389,6 +340,3 @@ pub fn run(arguments: &[String]) -> u8 {
     if options.once { serve_once(&options) } else { serve_forever(&options) }
 }
 
-#[cfg(test)]
-#[path = "serve_tests.rs"]
-mod tests;

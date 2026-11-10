@@ -10,6 +10,7 @@ publish = false
 doctest = false
 
 [dependencies]
+north-runtime-follow = { path = "../north-runtime-follow" }
 north-base = { path = "../north-base" }
 north-fleet = { path = "../north-fleet" }
 north-graph-loops = { path = "../north-graph-loops" }

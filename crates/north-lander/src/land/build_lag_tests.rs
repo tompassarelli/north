@@ -50,5 +50,5 @@ fn a_lander_more_than_the_limit_of_lander_changes_behind_main_names_its_build_an
     }
     assert_eq!(pages.borrow().len(), 3);
     assert_eq!(report(&dir.path().join("south")), None, "only the lander serving north reports north lander lag");
-    assert_eq!(build_of(Path::new(&format!("/s/north/runtimes/{build}/tree/bin/north"))), Some(build));
+    assert_eq!(runtime_of(Path::new(&format!("/s/north/runtimes/{build}/tree/bin/north"))).map(|(build, _)| build), Some(build));
 }

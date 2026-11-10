@@ -113,6 +113,11 @@ paths = ["crates/north-tree-verdict/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-runtime-follow"
+paths = ["crates/north-runtime-follow/src/**"]
+may_use = []
+
+[[crate_dag.crate]]
 name = "north-broker"
 paths = ["crates/north-broker/src/**"]
 may_use = ["north-base"]
@@ -160,7 +165,7 @@ may_use = ["north-base", "north-land-scans", "north-landing-gates"]
 [[crate_dag.crate]]
 name = "north-lander"
 paths = ["crates/north-lander/src/**", "crates/north-check-environment/src/**"]
-may_use = ["north-base", "north-check-environment", "north-git-locks", "north-goals", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types"]
+may_use = ["north-base", "north-check-environment", "north-git-locks", "north-goals", "north-land-sandbox", "north-land-scans", "north-landing", "north-strategy-types", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-safe-push"
@@ -205,7 +210,7 @@ may_use = ["north-base", "north-git-locks", "north-github-mirror"]
 [[crate_dag.crate]]
 name = "north-capacity-host"
 paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
-may_use = ["north-capacity", "north-fleet", "north-calibration", "north-graph-loops", "north-tree-verdict"]
+may_use = ["north-capacity", "north-fleet", "north-calibration", "north-graph-loops", "north-tree-verdict", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-capacity"
@@ -305,7 +310,7 @@ may_use = ["north-base", "north-dispatch", "north-graph", "north-replay", "north
 [[crate_dag.crate]]
 name = "north-runtime"
 paths = ["crates/north-runtime/src/**"]
-may_use = ["north-capacity-host", "north-dispatch", "north-lanes", "north-providers"]
+may_use = ["north-capacity-host", "north-dispatch", "north-lanes", "north-providers", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-convo"
@@ -355,7 +360,7 @@ may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resu
 [[crate_dag.crate]]
 name = "north-fleet-supervisor"
 paths = ["crates/north-fleet-supervisor/src/**"]
-may_use = ["north-fleet", "north-resume", "north-session-host", "north-graph-loops"]
+may_use = ["north-fleet", "north-resume", "north-session-host", "north-graph-loops", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-providers"
@@ -401,6 +406,12 @@ may_use = []
 name = "tree_verdict"
 paths = ["crates/north-tree-verdict/src/**"]
 responsibility = "One verdict per tree: the verdict-bearing form of a clippy run and its cache key, shared by the capacity gate that records a session's own run and the land checks that reuse it."
+may_use = []
+
+[[module]]
+name = "runtime_follow"
+paths = ["crates/north-runtime-follow/src/**"]
+responsibility = "How a long-lived north process moves onto the runtime its link promotes: whether the link names another runtime than the one it runs, and the re-exec onto it."
 may_use = []
 
 [[module]]
@@ -545,7 +556,7 @@ may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness"]
 name = "fleet"
 paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs", "crates/north-session-host/src/session_lifecycle.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
-may_use = ["domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform.harness", "graph_loops"]
+may_use = ["domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform.harness", "graph_loops", "runtime_follow"]
 
 [[module]]
 name = "fleet_store"
@@ -587,7 +598,7 @@ may_use = ["foundation", "platform.github", "platform.process"]
 name = "landing"
 paths = ["crates/north-landing/src/landing/**", "crates/north-diff-gates/src/**", "crates/north-landing/src/issue_body.rs", "crates/north-landing/src/land/**", "crates/north-landing-gates/src/follows_release.rs", "crates/north-landing-gates/src/issue_box_lint.rs", "crates/north-landing-gates/src/land_abandon.rs", "crates/north-landing-gates/src/land_abandon/**", "crates/north-landing-gates/src/landing/**", "crates/north-land-scans/src/**", "crates/north-land-checks/src/**", "crates/north-land-watch/src/**", "crates/north-lander/src/**", "crates/north-check-environment/src/**", "crates/north-land-sandbox/src/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "graph_loops", "git_locks", "platform.records", "tree_verdict"]
+may_use = ["strategy_types", "shell", "autoland_status", "threads", "domain", "foundation", "crate-roots", "github_mirror", "verdict_cache", "goals", "mutants", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.git", "platform.harness", "platform.process", "platform", "platform.host", "graph_loops", "git_locks", "platform.records", "tree_verdict", "runtime_follow"]
 
 [[module]]
 name = "landing.safe_push.shell"
@@ -677,7 +688,7 @@ may_use = ["threads", "domain", "foundation", "crate-roots", "graph_ground", "li
 name = "capacity"
 paths = ["crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs", "crates/north-capacity/src/capacity/**", "crates/north-capacity/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "tree_verdict"]
+may_use = ["strategy_types", "shell", "foundation", "crate-roots", "fleet", "threads", "lifecycle", "platform.process", "platform.ssh", "platform", "platform.harness", "platform.records", "graph_loops", "verdict_cache", "tree_verdict", "runtime_follow"]
 
 [[module]]
 name = "lanes"
@@ -761,7 +772,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes"]
+may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow"]
 
 [[module]]
 name = "usage"

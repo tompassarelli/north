@@ -334,8 +334,9 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut remote_rooms = RemoteRooms::read_from(hosts.clone());
     let mut printed: HashMap<String, String> = HashMap::new();
     let mut taken = false;
+    let mut runtime = north_runtime_follow::Follow::current();
     loop {
-        if !once && serving.load(Ordering::SeqCst) == 0 && north_base::platform::north_binary::superseded() {
+        if !once && serving.load(Ordering::SeqCst) == 0 && runtime.replaced().is_some() {
             log("the promoted runtime moved; exiting so the service starts it");
             return 0;
         }

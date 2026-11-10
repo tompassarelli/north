@@ -86,3 +86,5 @@ network's reach are in South (agents/decisions/infra/propagation-2026-11-10.md).
   it keeps the relayed copy. Which hosts have one is in South.
 - Stage timings go to the ledger per artifact, stage and host, so the landing-to-live p90 targets
   (2 minutes for the runtime, 5 for a firn closure) are read from records instead of journals.
+- Once a host holds a new runtime, every long-lived north process on it moves onto it at its next
+  safe point through one mechanism ([runtime follow](runtime-follow.md)).

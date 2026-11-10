@@ -196,6 +196,7 @@ pub fn serve() -> std::process::ExitCode {
     let own = inode(&path);
     let running = std::sync::Arc::new(AtomicUsize::new(0));
     let mut handed_over = false;
+    let mut follow = north_runtime_follow::Follow::current();
     loop {
         let idle = running.load(Ordering::SeqCst) == 0;
         if inode(&path) != own {
@@ -217,7 +218,7 @@ pub fn serve() -> std::process::ExitCode {
                 });
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if !handed_over && north_base::platform::north_binary::superseded() {
+                if !handed_over && follow.replaced().is_some() {
                     handed_over = true;
                     if !start(&north_base::platform::north_binary::north_binary(), &format!("{UNIT}-{}", std::process::id())) {
                         eprintln!("north worker-sandbox broker: cannot start the promoted north as a successor, so this one serves until it is idle");

@@ -12,8 +12,8 @@ pub(super) fn landing(step: Step) -> bool {
     matches!(step, Step::Push | Step::Finish | Step::Speculate)
 }
 
-pub(super) fn announce() {
-    println!("north land: the live runtime changed; exiting so the service restarts on it");
+pub(super) fn announce(next: &str) {
+    println!("north land: the live runtime changed to {next}; exiting so the service restarts on it");
 }
 
 pub(super) fn hand_over(lander: &Lander, watch: &Watch) -> u8 {

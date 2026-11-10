@@ -3,6 +3,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use north_base::lifecycle::{self, Effect};
+use north_runtime_follow::Follow;
 
 use crate::error::NorthResult;
 
@@ -32,7 +33,12 @@ impl Fleet {
 
     /// Watches `host_pid` while it serves `name`, then acts on its death as `guard` does.
     pub fn guard_host(&self, name: &str, host_pid: u32) -> NorthResult<()> {
+        let mut follow = Some(Follow::current());
         while alive(host_pid) && still_watched(self.record(name).ok().as_ref(), host_pid) {
+            if let Some(next) = follow.as_mut().and_then(Follow::replaced) {
+                let error = follow.take().map_or_else(String::new, |follow| follow.reexec().to_string());
+                eprintln!("north fleet watchdog: {name} stays on its runtime, since it cannot move onto {next}: {error}");
+            }
             std::thread::sleep(WATCHDOG_POLL);
         }
         let Ok(child) = self.record(name) else { return Ok(()) };

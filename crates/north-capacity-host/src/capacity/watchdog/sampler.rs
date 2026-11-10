@@ -106,6 +106,7 @@ pub(super) fn run(arguments: &[String]) -> Result<(), String> {
     let north = super::north_binary();
     let mut samples = Samples { dir: dir.clone(), file_start: None };
     let mut state = State::default();
+    let mut runtime = north_runtime_follow::Follow::current();
     loop {
         let stepped = step(state, snapshot(&north));
         state = stepped.state;
@@ -120,7 +121,7 @@ pub(super) fn run(arguments: &[String]) -> Result<(), String> {
         if once && measured {
             return Ok(());
         }
-        if !once && north_base::platform::north_binary::superseded() {
+        if !once && runtime.replaced().is_some() {
             eprintln!("north capacity watchdog: the promoted runtime moved; exiting so the service starts it");
             return Ok(());
         }

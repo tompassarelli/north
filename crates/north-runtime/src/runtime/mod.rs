@@ -11,6 +11,7 @@ mod lifecycle;
 mod health;
 mod history;
 mod host_facts;
+mod lag;
 pub mod layout;
 pub mod live;
 mod peers;
@@ -31,7 +32,7 @@ pub(crate) use update::collect;
 use crate::land_offload;
 use std::path::Path;
 
-const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime checkouts | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
+const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime checkouts | north runtime lag --processes | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
 covers [--head REV] [--code PATH,...]
 
 update [--sha SHA]     bring this host's current runtime to the pinned runtime (or SHA): on the host that settles the fleet, origin/main is promoted on each landing whose commits since the pin change a runtime input (one promotion at a time, a landing waiting for it takes the newest head next; a sha rolled back after its canary failed stays quarantined); every other host runs only what the settling host ships it after the runtime walked the spine there; pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health fails, and for 10 min after a swap roll back when launch failures, session-host exits or land refusals ran faster than over the hour before (only current moves, so running session hosts keep their runtime); an agents sync failure keeps the code, alerts the proxy and retries each tick
@@ -46,6 +47,7 @@ mirror                 on the host that settles the fleet: copy its lander and r
 checkouts              on the host that settles the fleet: ask every host it ships runtimes to fast-forward its ~/code/<project>/main checkouts onto origin/main (south, then north, nixos-config, wisp and makgora), naming each move and each checkout a host could not move, as each fleet tick does in the background
 agents [VERSION]       update this host's north runtime, then the Claude, Pi and OpenCode runtimes, as the twice-daily timer does
 claude|pi|opencode [VERSION]   install a checksum-verified Claude, Pi or OpenCode runtime and select it
+lag --processes        list each long-lived north process on this host (landers, session hosts and links, watchdogs, brokers, the offload taker) with the runtime it runs, and `behind` with the runtime its link names for each that runs another one
 covers [--head REV] [--code PATH,...]
                        print the live runtime's north when REV (default HEAD) in this checkout changes no Rust build input since it, or with --code none of those path prefixes nor rust-toolchain.toml nor any package Cargo.lock held at the live runtime (a lock that only adds packages still covers), so a land check runs it instead of building north from the tree";
 
@@ -118,6 +120,10 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         (command, []) if command == "promote" => Some(follow::promote_detached(layout)),
         (command, []) if command == "mirror" => Some(mirror::run()),
         (command, []) if command == "checkouts" => Some(checkouts::run()),
+        (command, [flag]) if command == "lag" && flag == "--processes" => {
+            print!("{}", lag::report(Path::new("/proc"), &layout.state));
+            Some(Ok(()))
+        }
         (command, flags) if command == "covers" => covers(layout, flags),
         (command, [verb, provider]) if command == "probe" && verb == "launch" => Some(canary::launch_probe(provider)),
         (command, [flag, repo]) if command == "follow" && flag == "--repo-dir" => Some(follow::follow(layout, Path::new(repo))),

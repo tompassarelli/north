@@ -24,11 +24,11 @@ fn enqueue_process() {
 }
 
 #[test]
-fn a_runtime_change_exits_the_lander_instead_of_waiting_for_a_check_in_flight() {
+fn a_runtime_change_that_touches_no_lander_input_still_exits_the_lander_while_a_check_is_in_flight() {
     let world = World::new();
     let repository = world.repository("north");
-    let old = lander_input_commit(&repository, "old");
-    let new = lander_input_commit(&repository, "new");
+    let old = runtime_commit(&repository, "old");
+    let new = runtime_commit(&repository, "new");
     std::os::unix::fs::symlink(format!("runtimes/{old}"), world.path().join("current")).unwrap();
     repository.lane("stale");
     let (path, mut ticket) = queue::pending(&repository.queue).unwrap().pop().unwrap();
@@ -68,8 +68,8 @@ pub(super) fn git(dir: &Path, arguments: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-fn lander_input_commit(repository: &Repository, text: &str) -> String {
-    let path = repository.checkout.join("crates/north-lander/src/runtime-fixture.txt");
+fn runtime_commit(repository: &Repository, text: &str) -> String {
+    let path = repository.checkout.join("crates/north-ops/src/runtime-fixture.txt");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, text).unwrap();
     git(&repository.checkout, &["add", "-A"]);

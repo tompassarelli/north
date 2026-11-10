@@ -1085,6 +1085,7 @@ dependencies = [
  "north-capacity",
  "north-fleet",
  "north-graph-loops",
+ "north-runtime-follow",
  "north-threads",
  "north-tree-verdict",
  "proptest",
@@ -1291,6 +1292,7 @@ dependencies = [
  "north-fleet",
  "north-graph-loops",
  "north-resume",
+ "north-runtime-follow",
  "north-session-host",
  "regex",
  "rustix 0.38.44",
@@ -1552,6 +1554,7 @@ dependencies = [
  "north-land-sandbox",
  "north-land-scans",
  "north-landing",
+ "north-runtime-follow",
  "north-strategy-types",
  "rustix 0.38.44",
  "serde",
@@ -1784,6 +1787,7 @@ dependencies = [
  "north-lanes",
  "north-pacing",
  "north-providers",
+ "north-runtime-follow",
  "percent-encoding",
  "regex",
  "rusqlite",
@@ -1795,6 +1799,10 @@ dependencies = [
  "tokio",
  "toml_edit",
 ]
+
+[[package]]
+name = "north-runtime-follow"
+version = "0.1.0"
 
 [[package]]
 name = "north-safe-push"
