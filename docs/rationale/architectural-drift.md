@@ -2,7 +2,7 @@
 
 Decided 2026-11-06 under north#636, after Tom shared a community skill for untangling a codebase in one pass and a
 model's rewrite of it, and asked how it should fold into north. The source is
-[untangle-codebase](../references.md#untangle-codebase). North already had most of it: `code-health` measures structure, `code-health tick` starts a review when its
+[untangle-codebase](../references.md#untangle-codebase). North already had most of it: `code-health` measures structure, the `code-health-review` flow detector files a review box when its
 signal fires, and the review brief tells the worker what to do. North adds no untangle skill. Each idea goes to the
 part of north that already owns its kind of decision.
 

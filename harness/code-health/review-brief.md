@@ -1,13 +1,11 @@
-# Code health review: {{repo}} ({{date}})
+# Code health review: {{repo}}
 Tier: worker
 Surface: ts
 Needs: local-state
 
-Goal: a recurring structure and test-value review of {{repo}}, started by `code-health tick` because the review signal fired:
+Goal: a recurring structure and test-value review of {{repo}}, filed as a box by the `code-health-review` flow detector because the review signal fired. The box names the reasons that fired and the cost measured since the last review (north graph, `north-graph-loops` writer `code-health`).
 
-{{reasons}}
-
-Measured since the last review (north graph, `north-graph-loops` writer `code-health`): {{measured}}.
+In this brief {{repo}} is the repository the box names, {{checkout}} is `~/code/{{repo}}/main`, and {{list}} is `~/.local/state/agents/handoffs/code-health-{{repo}}-list.md`.
 
 Finished means the top refactor items have landed on {{repo}} main as behavior-preserving slices, the baseline
 is refreshed and the review marker is recorded. Nobody asked for this review; Tom gets nothing to do.
@@ -34,7 +32,7 @@ volatile imports (a module importing one that changes more often) and special ca
 - After each round, staff a fresh reviewer that has not seen your list to read the landed diff.
 - Stop after a clean round, when two fixes undo each other, or after three rounds.
 
-1. Read the report the tick saved at {{report}} (or rerun `north code-health report --repo {{checkout}} --rev origin/main`). Write a
+1. Run `north code-health report --repo {{checkout}} --rev origin/main`. Write a
    ranked refactor list to {{list}}: cycles, layer violations, hidden links and volatile imports first, then
    hotspots (churn x complexity), then oversize functions and files, then `Code-health-allow` debt the report lists, then test value (below). Each item names the
    files, the split or move, the test that covers the behavior, and an ETA. Price each item with a
@@ -61,12 +59,12 @@ volatile imports (a module importing one that changes more often) and special ca
    Autoland repo) and delete its branch. Stop staffing when the remaining items are minor or the run passes
    4 hours; leave the rest on the list for the next review.
 4. When the slices have landed: `git -C {{checkout}} fetch -q origin`, `north code-health report --repo {{checkout}} --rev origin/main --save`, then
-   `north code-health review-done --repo {{checkout}} --rev origin/main`, then remove the lock: `rm -f {{lock}}`.
+   `north code-health review-done --repo {{checkout}} --rev origin/main`, and tick the box.
 5. Report landed slices and remaining items in your final Fleet message.
 
 Done when: (1) every landed slice's SHA is on {{repo}} origin/main with the repo's gate green;
-(2) `north code-health signal --repo {{checkout}} --rev origin/main` prints `quiet`; (3) the proxy event is sent.
+(2) `north code-health signal --repo {{checkout}} --rev origin/main` prints `quiet`; (3) the box is ticked with that output.
 
 Not required: new features, metric changes (that is north's code-health tool), Tom-facing notices, paid compute.
 
-Finish the session after reporting. If you stop early, still remove the lock so the next signal can start a fresh review.
+Finish the session after reporting.

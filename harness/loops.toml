@@ -256,11 +256,11 @@ sites = [
   "crates/north-code-health/src/code_health/signal.rs",
   "crates/north-code-health/src/code_health/coupling.rs",
   "crates/north-code-health/src/code_health/change_cost.rs",
-  "crates/north-code-health/src/code_health/tick.rs",
+  "crates/north-flow/src/detectors/code_health_review.rs",
   "structure.toml",
 ]
 signal = "median hand files touched per feature commit and the share of feature commits later reverted, since the last review, with the thresholds in force and the reasons that fired"
-updated_by = "north ops climb run proposes [review] threshold changes in structure.toml; code-health tick records the signal each hour through code-health signal --record"
+updated_by = "north ops climb run proposes [review] threshold changes in structure.toml; the code-health-review flow detector reads the signal each hour through code-health signal --record and files one review box per repository whose signal fires"
 cadence_hours = 24
 store = "graph"
 writer = "code-health"

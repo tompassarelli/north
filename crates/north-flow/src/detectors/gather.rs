@@ -20,6 +20,7 @@ use crate::health::loops::{self, Declared, Origin};
 use crate::flow::{Host, Places};
 use crate::platform::sqlite::{self, Access};
 
+mod code_health;
 mod machines;
 mod skills;
 

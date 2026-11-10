@@ -20,7 +20,6 @@ pub(super) const USAGE: &str = "usage: north code-health <command> [--repo DIR] 
   imports                  resolve imports of files given as JSON on stdin
   habits [--repo DIR] [--base REV [--head REV] [--shadow]]  the Rust habit checks; --base reports the code comments added since REV instead
   implicit-state           every implicit-state finding in REV's tree, counted by shape, and each stale allow
-  tick [--dry-run]         the hourly review tick
   crate-lines [BASE HEAD]  workspace crate line caps (the default with no command)
   layers BASE HEAD         module and crate DAG breaches between two commits
   build-time ...           see north code-health build-time --help";

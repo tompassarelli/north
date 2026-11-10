@@ -1387,6 +1387,30 @@ source = "tom: the slow-test reflex files on the issue that owns the test's file
 fallback = "the box is not filed"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
+[detector_code_health_repos]
+value = ["north", "makgora", "wisp", "padbridge", "makgora-client"]
+allowed = { min_len = 0 }
+unit = "repositories whose `north code-health signal` the code-health-review detector reads and files a review box for"
+source = "tom: recurring reviews fire from signals through the flow detectors, not from timers of their own (north#1059, 2026-11-10); the list is the repositories the hourly code-health tick enrolled"
+fallback = "no code-health review box is filed"
+consumers = ["crates/north-flow/src/detectors/mod.rs"]
+
+[detector_code_health_owner]
+value = "north#722"
+allowed = { prefix = "north#" }
+unit = "issue a repository's code-health review box is filed on by the code-health-review detector"
+source = "tom: detectors file on the owning issue and never as a new issue (2026-11-05); structure debt shares the owner of the crate-split rationale (docs/rationale/crate-split.md)"
+fallback = "the box is not filed"
+consumers = ["crates/north-flow/src/detectors/mod.rs"]
+
+[detector_code_health_read_minutes]
+value = 60
+allowed = { min = 5, max = 1440 }
+unit = "minutes between one repository's code-health signal readings, each a fetch and a record into the review loop"
+source = "the hourly timer of the retired `north code-health tick` (north#1059)"
+fallback = "60"
+consumers = ["crates/north-flow/src/detectors/mod.rs"]
+
 [detector_slow_check_owner]
 value = "north#634"
 allowed = { prefix = "north#" }

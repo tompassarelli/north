@@ -37,16 +37,12 @@ mod signal;
 mod snapshot;
 mod source;
 mod state;
-mod tick;
-#[cfg(test)]
-mod tick_tests;
 
 const HABITS_USAGE: &str = "usage: north code-health habits [--repo DIR] [--base REV [--head REV] [--shadow]] [--new-since REV] [--grown-since REV]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("habits") => habits_command(&arguments[1..]),
-        Some("tick") => tick::run_tick(&arguments[1..]),
         Some("crate-lines") => crate_lines::run(&arguments[1..]),
         Some("layers") => layers::run(&arguments[1..]),
         None => crate_lines::run(&[]),

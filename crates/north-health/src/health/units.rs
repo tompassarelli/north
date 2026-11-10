@@ -2,7 +2,7 @@ use crate::platform::rolling_issue::{Breaches, Tracker, alarm};
 
 type Verdict = Result<(), String>;
 
-const IMMEDIATE: [&str; 1] = ["code-health-review.service"];
+const FAILURES_IN_A_ROW: usize = 2;
 
 pub(super) struct Reading {
     loaded: bool,
@@ -29,16 +29,12 @@ pub(super) fn service_of(timer: &str) -> String {
     format!("{}.service", timer.strip_suffix(".timer").unwrap_or(timer))
 }
 
-fn limit(unit: &str) -> usize {
-    if IMMEDIATE.contains(&unit) { 1 } else { 2 }
-}
-
 pub(super) fn judge(unit: &str, reading: Option<&Reading>) -> Verdict {
     let Some(reading) = reading.filter(|reading| reading.loaded) else {
         return Ok(());
     };
     let streak = reading.failed_in_a_row();
-    if streak >= limit(unit) {
+    if streak >= FAILURES_IN_A_ROW {
         Err(format!("{unit} failed {streak} runs in a row"))
     } else {
         Ok(())
