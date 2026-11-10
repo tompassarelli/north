@@ -91,7 +91,9 @@ fn record(mut tried: &File, failure: Option<&io::Error>) -> io::Result<()> {
 }
 
 pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()> {
-    let old = File::open(snapshot).ok();
+    let partial = suffixed(snapshot, ".partial");
+    let fresh = !snapshot.exists();
+    let old = File::open(snapshot).or_else(|_| File::open(&partial)).ok();
     let (size, hashes) = old.as_ref().map(hash_pages).unwrap_or((0, Vec::new()));
     let directory = snapshot.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
     let mut child = Command::new(&ssh[0]).args(&ssh[1..])
@@ -102,7 +104,8 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()>
         let _ = stdin.write_all(&manifest);
     });
     let stdout = child.stdout.take().ok_or_else(|| invalid("ssh has no stdout"))?;
-    let receiver = std::thread::spawn(move || receive(stdout, &directory, old, size, hashes.len()));
+    let keep = fresh.then(|| partial.clone());
+    let receiver = std::thread::spawn(move || receive(stdout, &directory, keep, old, size, hashes.len()));
     let mut stderr = child.stderr.take().ok_or_else(|| invalid("ssh has no stderr"))?;
     let complaint = std::thread::spawn(move || {
         let mut text = String::new();
@@ -117,10 +120,12 @@ pub fn pull(ssh: &[OsString], snapshot: &Path, wait: Duration) -> io::Result<()>
     }
     let file = built?;
     file.sync_all()?;
-    publish(&file, snapshot)
+    publish(&file, snapshot)?;
+    let _ = fs::remove_file(&partial);
+    Ok(())
 }
 
-fn receive(stdout: impl Read, directory: &Path, old: Option<File>, old_size: usize, old_pages: usize) -> io::Result<File> {
+fn receive(stdout: impl Read, directory: &Path, partial: Option<PathBuf>, old: Option<File>, old_size: usize, old_pages: usize) -> io::Result<File> {
     let mut input = BufReader::with_capacity(1 << 16, stdout);
     let mut magic = [0; MAGIC.len()];
     input.read_exact(&mut magic)?;
@@ -136,9 +141,26 @@ fn receive(stdout: impl Read, directory: &Path, old: Option<File>, old_size: usi
     if let Some(old) = old.filter(|_| old_size == size && old_pages > 0) {
         clone_into(&old, &file)?;
     }
+    let finished = receive_pages(&mut input, &file, size, count);
+    if let (Err(_), Some(partial)) = (&finished, &partial) {
+        let _ = keep_partial(&file, partial);
+    }
+    finished?;
+    Ok(file)
+}
+
+/// The pages received so far stay in `partial`, so a first pull too big for one try resumes where it stopped.
+fn keep_partial(file: &File, partial: &Path) -> io::Result<()> {
+    let tmp = suffixed(partial, ".tmp");
+    let _ = fs::remove_file(&tmp);
+    rustix::fs::linkat(CWD, format!("/proc/self/fd/{}", file.as_raw_fd()), CWD, &tmp, AtFlags::SYMLINK_FOLLOW)?;
+    fs::rename(&tmp, partial)
+}
+
+fn receive_pages(input: &mut impl Read, file: &File, size: usize, count: u32) -> io::Result<()> {
     let mut page = vec![0; size];
     loop {
-        let number = read_u32(&mut input)?;
+        let number = read_u32(input)?;
         if number == 0 {
             break;
         }
@@ -154,10 +176,10 @@ fn receive(stdout: impl Read, directory: &Path, old: Option<File>, old_size: usi
         return Err(invalid("the page stream has trailing bytes"));
     }
     file.set_len(u64::from(count) * size as u64)?;
-    if hash_file(&file)? != digest {
+    if hash_file(file)? != digest {
         return Err(invalid("the rebuilt snapshot does not match the ledger host's digest"));
     }
-    Ok(file)
+    Ok(())
 }
 
 fn clone_into(old: &File, file: &File) -> io::Result<()> {

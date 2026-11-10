@@ -444,3 +444,18 @@ fn logged(root: &Path) -> Vec<Value> {
     fs::read_to_string(root.join("ingest.log")).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect()
 }
 
+
+/// On 2026-11-10 two new peer hosts never got a first snapshot: the ~780 MB pull outlasted its 80 s and every retry began again from nothing (north#1076).
+#[test]
+fn a_first_snapshot_pull_cut_short_keeps_its_pages_and_the_next_pull_finishes_it() {
+    let rig = rig(&[]);
+    let pages = fs::read(rig.root.join("pages")).unwrap();
+    let cut = rig.root.join("cut");
+    fs::write(&cut, &pages[..pages.len() - 40]).unwrap();
+    let snapshot = rig.root.join("first.db");
+    let serving = |file: &Path| vec![OsString::from("/bin/sh"), "-c".into(), "cat >/dev/null; cat \"$1\"".into(), "ssh".into(), file.into()];
+    assert!(snapshot::pull(&serving(&cut), &snapshot, Duration::from_secs(10)).is_err());
+    assert!(!snapshot.exists() && rig.root.join("first.db.partial").exists());
+    snapshot::pull(&serving(&rig.root.join("pages")), &snapshot, Duration::from_secs(10)).unwrap();
+    assert!(snapshot.exists() && !rig.root.join("first.db.partial").exists());
+}
