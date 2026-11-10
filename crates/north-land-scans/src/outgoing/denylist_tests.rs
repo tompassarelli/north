@@ -53,12 +53,19 @@ fn a_public_push_whose_override_names_a_missing_or_empty_source_is_refused_and_o
     let (home, empty) = (dir.path().join("home"), dir.path().join("empty.toml"));
     std::fs::write(&empty, "\n").unwrap();
     let missing = dir.path().join("no-south");
+    let no_main = dir.path().join("south-without-main");
+    std::fs::create_dir_all(&no_main).unwrap();
+    let empty_kinds = dir.path().join("empty-kinds.toml");
+    std::fs::write(&empty_kinds, "\n").unwrap();
     let stand = |vars: &[(&str, &Path)]| {
         let denylist = Denylist::from_vars(|name| vars.iter().chain([&("HOME", home.as_path())]).find(|(set, _)| *set == name).map(|(_, value)| value.as_os_str().to_owned()));
         denylist.verdict(|| "PUBLIC".to_owned(), || Ok(BTreeSet::new()), || Ok(Vec::new())).stand
     };
     assert_eq!(stand(&[("SAFE_PUSH_SOUTH", &missing)]), Stand::Refuse, "ds-940b: SAFE_PUSH_SOUTH at a missing directory skipped the scan");
+    assert_eq!(stand(&[("SAFE_PUSH_SOUTH", &no_main)]), Stand::Refuse, "a named south with no main checkout has no deny-list to scan");
     assert_eq!(stand(&[("SAFE_PUSH_DENYLIST", &empty)]), Stand::Refuse);
+    assert_eq!(stand(&[("SAFE_PUSH_DENYLIST", &missing)]), Stand::Refuse);
     assert_eq!(stand(&[("NORTH_PRIVATE_KINDS", &missing)]), Stand::Refuse);
+    assert_eq!(stand(&[("NORTH_PRIVATE_KINDS", &empty_kinds)]), Stand::Refuse);
     assert_eq!(stand(&[]), Stand::Pass, "a host with no south and no override passes with a warning");
 }
