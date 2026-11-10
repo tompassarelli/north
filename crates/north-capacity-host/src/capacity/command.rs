@@ -32,7 +32,7 @@ fn route(arguments: &[String], host: &Host) -> Option<u8> {
         Some("game-reserve") => game_reserve::run(&arguments[1..]),
         Some("deadline") => deadline::run(&arguments[1..]),
         Some("dev-shell") => dev_shell::run(&arguments[1..]),
-        Some("exec") => dev_shell::exec(&arguments[1..]),
+        Some("exec") => dev_shell::exec(&arguments[1..], &|command| gate::lease_class(command, host).is_some()),
         Some("sandbox") => sandbox::run(&arguments[1..]),
         Some("carry") => carry::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),

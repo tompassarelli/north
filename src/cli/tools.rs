@@ -165,7 +165,7 @@ impl Tool {
             Self::Capacity => match arguments.split_first() {
                 Some((verb, rest)) if verb == "bounded" => ExitCode::from(crate::ops::run_bounded::run(rest)),
                 Some((verb, rest)) if verb == "nexus" => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(rest).await)) }),
-                Some((verb, rest)) if verb == "dev-shell" && rest.first().is_some_and(|run| run == "run") => ExitCode::from(crate::capacity::dev_shell::command(rest)),
+                Some((verb, rest)) if verb == "dev-shell" && rest.first().is_some_and(|run| run == "run") => ExitCode::from(crate::capacity::dev_shell::command(rest, &|command| capacity::gate::lease_class(command, &capacity_host()).is_some())),
                 _ => ExitCode::from(capacity::command::run(arguments, capacity_host())),
             },
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),

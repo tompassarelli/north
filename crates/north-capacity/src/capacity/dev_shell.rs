@@ -167,14 +167,14 @@ pub fn run(arguments: &[String]) -> u8 {
     u8::from(printed.and_then(|()| out.flush()).is_err())
 }
 
-/// `north capacity exec [--dev-shell DIRECTORY] -- COMMAND...` becomes COMMAND, inside DIRECTORY's dev shell through `north capacity dev-shell run` when one is named, and exits 127 naming the program when it is not found.
-pub fn exec(arguments: &[String]) -> u8 {
+/// `north capacity exec [--dev-shell DIRECTORY] -- COMMAND...` becomes COMMAND, inside DIRECTORY's dev shell through `north capacity dev-shell run` when one is named, and exits 127 naming the program when it is not found; `gated` is the capacity gate's word on whether it leases a command, as `command` takes it.
+pub fn exec(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
     if let [flag, directory, rest @ ..] = arguments
         && flag == "--dev-shell"
     {
         let mut run = vec!["run".to_owned(), "--dir".to_owned(), directory.clone()];
         run.extend_from_slice(rest);
-        return command(&run);
+        return command(&run, gated);
     }
     let Some(command) = arguments.split_first().filter(|(separator, command)| *separator == "--" && !command.is_empty()).map(|(_, command)| command) else {
         eprintln!("{EXEC_USAGE}");
@@ -333,12 +333,32 @@ fn parse(arguments: &[String]) -> Option<Invocation> {
     }
 }
 
-/// `north capacity dev-shell run [--dir DIRECTORY] (--prepare | -- COMMAND...)` runs COMMAND inside the flake's default dev shell, entering it once: when `NORTH_DEV_SHELL` already holds the shell's derivation path the command runs directly, otherwise it enters offline from the shell's GC root, realising that root first with the network when it is missing. `--prepare` only realises the root. A flake without a dev shell runs COMMAND bare after saying so.
-pub fn command(arguments: &[String]) -> u8 {
+/// The capacity gate's command for a run the gate leases (`gated`), which must not enter a dev shell here first: inside it the shell's own toolchain comes before the gate's shims on PATH, so a fleet session's compile would run on this host unleased. The gate offers it to the build hosts first and otherwise leases it here, and that lease enters the dev shell. The gate gets the bare command when its dev shell is the current directory's (`own_shell`), which the lease and every build host enter themselves, else the whole run.
+fn placed(north: &str, invocation: &Invocation, own_shell: bool, gated: &dyn Fn(&[String]) -> bool) -> Option<Vec<String>> {
+    if invocation.prepare_only || !gated(&invocation.command) {
+        return None;
+    }
+    let mut words = vec![north.to_owned(), "capacity".to_owned(), "gate".to_owned()];
+    if !own_shell {
+        words.extend([north.to_owned(), "capacity".to_owned(), "dev-shell".to_owned(), "run".to_owned(), "--dir".to_owned(), invocation.directory.to_string_lossy().into_owned(), "--".to_owned()]);
+    }
+    words.extend(invocation.command.iter().cloned());
+    Some(words)
+}
+
+/// `north capacity dev-shell run [--dir DIRECTORY] (--prepare | -- COMMAND...)` runs COMMAND inside the flake's default dev shell, once the capacity gate has seen it (`gated` says whether the gate leases a command, `placed`), entering it once: when `NORTH_DEV_SHELL` already holds the shell's derivation path the command runs directly, otherwise it enters offline from the shell's GC root, realising that root first with the network when it is missing. `--prepare` only realises the root. A flake without a dev shell runs COMMAND bare after saying so.
+pub fn command(arguments: &[String], gated: &dyn Fn(&[String]) -> bool) -> u8 {
     let Some(invocation) = parse(arguments) else {
         eprintln!("{RUN_USAGE}");
         return 2;
     };
+    let north = north_base::platform::north_binary::north_binary().to_string_lossy().into_owned();
+    let shell_of = |directory: &Path| std::fs::canonicalize(directory).ok().and_then(|directory| flake_root(&directory));
+    let own_shell = std::env::current_dir().ok().and_then(|directory| shell_of(&directory)) == shell_of(&invocation.directory);
+    if let Some(words) = placed(&north, &invocation, own_shell, gated) {
+        trace("place through the capacity gate");
+        return replace_with("north capacity dev-shell", std::process::Command::new(&words[0]).args(&words[1..]), &words[0]);
+    }
     let what = invocation.command.first().map_or_else(|| "nothing".to_owned(), Clone::clone);
     let bare = |reason: String| {
         eprintln!("north capacity dev-shell: {reason}, so {what} runs outside a dev shell");
@@ -376,8 +396,11 @@ pub fn command(arguments: &[String]) -> u8 {
         return SEED_FAILED;
     }
     trace(&format!("enter {identity}"));
-    let north = north_base::platform::north_binary::north_binary().to_string_lossy().into_owned();
     let mut words = vec!["develop".to_owned(), profile.to_string_lossy().into_owned(), "--offline".to_owned(), "-c".to_owned(), "env".to_owned(), format!("{MARK}={identity}"), north, "capacity".to_owned(), "exec".to_owned(), "--".to_owned()];
     words.extend(invocation.command);
     replace_with("north capacity dev-shell", std::process::Command::new(&nix).arg0("nix").args(&words), "nix")
 }
+
+#[cfg(test)]
+#[path = "dev_shell_tests.rs"]
+mod tests;

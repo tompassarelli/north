@@ -60,3 +60,8 @@ admission decides, and goes to the one with the most free cores (`build_offload:
 itself only when every build host is short of room or out of reach, and its queued run offers itself again every 15 s.
 A build host decides on its own sessions' builds first, and a build outside a fleet session never leaves
 the host it started on.
+
+Every entry a session's compile takes meets that rule at the capacity gate: `cargo`, `bun` and `nix` through their
+shims, and `north capacity dev-shell run -- COMMAND` by handing COMMAND to the gate before it enters a dev shell, since
+inside one the shell's own toolchain comes before the shims on PATH and the compile would run here unleased. The gate's
+lease enters the dev shell itself, so a run the gate leases nothing for, or one already in its lease, enters it directly.

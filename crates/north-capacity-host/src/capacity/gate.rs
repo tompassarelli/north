@@ -52,7 +52,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             let process = process();
             let executed = executed(&process, std::env::var(EXECUTED).ok().as_deref());
             let Some(real) = real_program(program, &name, rest, &executed) else {
-                if !(host.lease_builds)() && agent_compile(&words(program, rest)) && !in_lease() && let Some(class) = class_of(&words(program, rest), 0) {
+                if let Some(class) = lease_class(&words(program, rest), host) {
                     return own_run::leased(&name, rest, (&name, &name), |program| leased(class, program, rest, host));
                 }
                 let command: Vec<String> = std::iter::once(name.clone()).chain(rest.iter().cloned()).collect();

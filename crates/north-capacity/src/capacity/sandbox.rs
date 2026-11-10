@@ -117,7 +117,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("north capacity sandbox: {} is outside the lane {}", directory.display(), lane.display());
         return 2;
     }
-    let prepared = dev_shell::command(&["run".to_owned(), "--dir".to_owned(), directory.to_string_lossy().into_owned(), "--prepare".to_owned()]);
+    let prepared = dev_shell::command(&["run".to_owned(), "--dir".to_owned(), directory.to_string_lossy().into_owned(), "--prepare".to_owned()], &|_| false);
     if prepared != 0 {
         return prepared;
     }
