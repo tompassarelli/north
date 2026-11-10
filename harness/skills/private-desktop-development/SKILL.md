@@ -2,8 +2,8 @@
 name: private-desktop-development
 description: >-
   GPU games or graphical tools on a private desktop beside Niri; repeated screenshots; image request-size failures; unattended automation-chrome or Playwright work.
-grounded: 2026-10-15
-written: 2026-10-15
+grounded: 2026-11-10
+written: 2026-11-10
 metadata:
   kind: playbook
 ---
