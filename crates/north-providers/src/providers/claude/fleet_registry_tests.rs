@@ -317,6 +317,34 @@ fn an_interactive_window_that_would_stop_at_a_trust_or_bypass_prompt_is_named_be
     fs::write(profile.join("settings.json"), r#"{"skipDangerousModePermissionPrompt":true}"#).unwrap();
 
     assert_eq!(fleet.interactive_prompt("proxy").unwrap(), None);
+
+    // claude-api: the pooled API profile gets the first-run answers north can write, including the key its launch injects.
+    let here = crate::platform::host::name();
+    let api = home.path().join(".local/state/north/profiles/claude-api");
+    fs::create_dir_all(&api).unwrap();
+    let key = home.path().join("gmail.key");
+    let api_key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz";
+    fs::write(&key, api_key).unwrap();
+    let policy = crate::platform::orchestration::under(home.path());
+    let mut text = fs::read_to_string(&policy).unwrap();
+    text.push_str(&format!(
+        "[accounts.claude.api_keys.api]\n\"{here}\" = {{ path = \"{}\" }}\n[accounts.claude.api_orgs.gmail]\nid = \"org-gmail\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n",
+        api.display(),
+        key.display()
+    ));
+    fs::write(&policy, text).unwrap();
+    fs::write(api.join(".claude.json"), r#"{"projects":{"/tmp":{"hasTrustDialogAccepted":true}}}"#).unwrap();
+    fs::write(api.join("settings.json"), r#"{"skipDangerousModePermissionPrompt":true}"#).unwrap();
+    let session = home.path().join(".local/state/north/fleet/api-proxy");
+    fs::create_dir_all(&session).unwrap();
+    let record = serde_json::json!({"name": "api-proxy", "provider": "claude", "account": "api:gmail", "cwd": "/tmp", "model": null, "created_ms": 6, "host_pid": null, "conversation": "api-c", "host_dir": session, "role": "proxy", "stopped": false});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    assert_eq!(fleet.interactive_prompt("api-proxy").unwrap(), None, "an onboarded claude-api profile has no prompt left");
+    let config: serde_json::Value = serde_json::from_str(&fs::read_to_string(api.join(".claude.json")).unwrap()).unwrap();
+    assert_eq!(config["hasCompletedOnboarding"], true, "{config}");
+    assert_eq!(config["theme"], "dark", "{config}");
+    let suffix: String = api_key.chars().skip(api_key.chars().count() - 20).collect();
+    assert!(config["customApiKeyResponses"]["approved"].as_array().is_some_and(|approved| approved.iter().any(|key| key == &suffix)), "{config}");
 }
 
 #[test]
