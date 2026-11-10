@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
+use crate::fleet::launch_queue::QueuedLaunch;
 use crate::fleet::model::{Effort, Phase, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
@@ -36,6 +37,9 @@ fn list_lines(fleet: &Fleet) -> NorthResult<()> {
     let records = fleet.sessions()?;
     for record in &records {
         println!("{}", list_line(record, fleet.status(record)));
+    }
+    for (position, queued) in queued(fleet).iter().enumerate() {
+        println!("{}", queued_line(queued, position + 1));
     }
     let now = now_ms();
     let named = records.iter().map(|record| record.name.clone()).collect();
@@ -102,6 +106,9 @@ fn listing(fleet: &Fleet, all: bool) -> NorthResult<Value> {
     let waits = fleet.waits();
     let records = fleet.sessions()?;
     let mut sessions: Vec<Value> = records.iter().map(|record| session_json(record, fleet.status(record), &waits)).collect();
+    for (position, queued) in queued(fleet).iter().enumerate() {
+        sessions.push(queued_json(queued, position + 1));
+    }
     if all {
         let named: BTreeSet<String> = records.iter().map(|record| record.name.clone()).collect();
         for record in fleet.past_sessions() {
@@ -134,6 +141,44 @@ fn remote_json(row: &SessionRow, now: u64) -> Value {
         "remote": true,
         "seen_ms": updated_ms(row),
         "stale": minutes_since(row, now) >= STALE_MINUTES,
+    })
+}
+
+fn queued(fleet: &Fleet) -> Vec<QueuedLaunch> {
+    match fleet.queued_launches() {
+        Ok(queued) => queued,
+        Err(error) => {
+            eprintln!("north fleet: the launch queue is unreadable, so queued launches are not listed: {}", error.user_message());
+            Vec::new()
+        }
+    }
+}
+
+fn queued_line(queued: &QueuedLaunch, position: usize) -> String {
+    let cwd = match &queued.request.machine {
+        Some(machine) => format!("{}:{}", machine.name, queued.request.cwd.display()),
+        None => queued.request.cwd.display().to_string(),
+    };
+    columns(&queued.name, queued.request.provider.label(), &queued.request.account, &format!("queued #{position}"), &cwd, queued.request.parent.as_deref(), queued.request.placement.as_deref())
+}
+
+fn queued_json(queued: &QueuedLaunch, position: usize) -> Value {
+    json!({
+        "name": queued.name,
+        "provider": queued.request.provider.label(),
+        "account": queued.request.account,
+        "status": "queued",
+        "position": position,
+        "priority": queued.priority.label(),
+        "parent": queued.request.parent,
+        "cwd": queued.request.cwd,
+        "task_ref": queued.request.task_ref,
+        "tasks": queued.request.tasks(),
+        "placement": queued.request.placement,
+        "machine": queued.request.machine.as_ref().map(|machine| &machine.name),
+        "refused": queued.refused,
+        "queued_ms": queued.created_ms,
+        "tried_ms": queued.tried_ms,
     })
 }
 
