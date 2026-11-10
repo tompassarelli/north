@@ -1800,6 +1800,6 @@ consumers = ["crates/north-graph-ingest/src/run.rs"]
 value = 45
 allowed = { min = 30, max = 3650 }
 unit = "days of withdrawn fact-graph history north graph retain keeps; asOf or since below the resulting horizon is refused as snapshot expired"
-source = "proxy: the longest history reader is the climb archive, which reads each candidate asOf its landing seq over dispatch's 30-day ARM_WINDOW (crates/north-dispatch/src/dispatch/tier.rs); route replay reads 14 days (docs/rationale/nearest-routing.md); 45 is that 30 plus half again, so a reader that runs late or a horizon taken from an hour-old time mark never meets the edge (north#882, 2026-11-08)"
+source = "proxy: the longest history reader north had when the horizon was chosen was the climb archive, which read each candidate asOf its landing seq over dispatch's 30-day ARM_WINDOW (crates/north-dispatch/src/dispatch/tier.rs; the archive went with north-climb in bce9c60404, north#970); route replay reads 14 days (docs/rationale/nearest-routing.md); 45 is that 30 plus half again, so a reader that runs late or a horizon taken from an hour-old time mark never meets the edge (north#882, 2026-11-08)"
 fallback = "none: the verb panics without it, since a guessed horizon would delete history a reader needs"
 consumers = ["crates/north-graph-ingest/src/run.rs"]

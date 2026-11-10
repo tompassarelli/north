@@ -1,5 +1,5 @@
 //! The shares an experiment's arms hold of a category's next boxes, read off the ledger's closed-box
-//! report: what `north ops climb run --dry-run` prints and what every dispatched or hand launch draws from.
+//! report: what `north dash --closed` prints and what every dispatched or hand launch draws from.
 use super::tier::CONTEXT_WINDOWS;
 use crate::ledger::closed::ClosedReport;
 use crate::router::settle::{self, Outcome};

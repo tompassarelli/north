@@ -96,7 +96,7 @@ pub fn effort_arm(item: &str, category: &str, history: &History, evidence: &Evid
     Some((Effort::parse(stamp.strip_prefix("deepseek-")?)?, stamp, drawn))
 }
 
-/// The Claude tier a launch record keeps, which the climb reads as a rung tried; a DeepSeek launch tried none.
+/// The Claude tier a launch record keeps, read as a rung tried; a DeepSeek launch tried none.
 pub fn tier(launch: &Launch) -> Option<String> {
     (!is(launch)).then(|| launch.route.tier.name().to_owned())
 }

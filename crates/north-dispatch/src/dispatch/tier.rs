@@ -6,7 +6,7 @@
 //! from one of its category's three live cells (`super::cells`), drawn from the shares below; no route
 //! starts at max effort. A local box on no cell arm takes one auto-compact window of
 //! `CONTEXT_WINDOWS`. Every arm is a seeded draw from the shares `Shares` reads off the ledger, the
-//! same shares `north ops climb run --dry-run` prints: equal while the arms hold no boxes, then
+//! same shares `north dash --closed` prints: equal while the arms hold no boxes, then
 //! Thompson sampling on cost per kept box with a floor per arm.
 use super::cells::{self, Cell};
 use super::facets;

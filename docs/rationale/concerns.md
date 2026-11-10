@@ -7,7 +7,7 @@ Design of 2026-11-07 for north#709, which asks that north be supervised as stand
 A **concern** is one named judgment north keeps forever: a measured value, the line it is judged against and what north does when it leaves green. "Goal" read as a thing hit and done, so the primitive is renamed (north#709, 2026-11-07): the verb, each project's registry file, its table and the crate now carry the name concern, with every caller updated in the same change and no alias. Two kinds replace the classes:
 
 - A **floor** is today's contract: a line the value must not cross. `direction` says which way is better (`down` for a latency, `up` for a share), and `bound` is the line.
-- A **climb** is today's debt-allowed goal: a value being moved in a `direction` toward a `target`, with an optional `worst` (today's `ceiling`) past which it reads red, at least one owner and a `revisit` trigger. The policy climber (crates/north-climb, docs/rationale/policy-climber.md) is one climber of one such value, the cost per kept box; the shared word is deliberate.
+- A **climb** is today's debt-allowed goal: a value being moved in a `direction` toward a `target`, with an optional `worst` (today's `ceiling`) past which it reads red, at least one owner and a `revisit` trigger. The policy climber (`crates/north-climb`, retired by north#970; docs/rationale/policy-climber.md records the design) was one climber of one such value, the cost per kept box; the shared word is deliberate.
 
 `max` and `min` go: `direction` plus `bound` (floor) or `target` (climb) say the same thing once, for both kinds.
 

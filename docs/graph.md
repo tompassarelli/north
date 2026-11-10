@@ -185,8 +185,8 @@ query can join a claim to the checks of the commit it names.
 A worker's claim counts only when a mechanical writer corroborates it. `harness/graph-rules/corroborated.json` derives
 `corroborated(BOX, SHA, WRITER)`: a quoted `(BOX :done-at SHA)` claim whose SHA is not `:none`, with `checker` asserting
 `(SHA :check-passed CMD)` for the box's own `:done-when` CMD, or with `lander` asserting `(SHA :landed-on "main")` and `git`
-asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north dash --closed`, dispatch's arm shares, `north ops
-climb run`) marks a kept box checker-verified only when the rule holds by `checker` for the box its run's brief named; the
+asserting `(SHA :ancestor-of "origin/main")`. The closed-box report (`north dash --closed`, dispatch's arm shares) marks a
+kept box checker-verified only when the rule holds by `checker` for the box its run's brief named; the
 `Evidence:` stamp in the issue body, which any writer of the body can type, is read only on a host with no graph.
 
 A predicate belongs to one source: a run refuses a source that replaces a predicate another source of the run replaces.
@@ -260,8 +260,9 @@ truncates the WAL.
 The horizon is the newest sequence known to be at least `graph_retain_days` (45) days old. Time comes from marks: each
 `north graph ingest` and `north graph retain` records the head sequence under `mark/UNIX-SECONDS` in `meta`, at most one an
 hour, so the first horizon exists 45 days after a host's first mark. The horizon only rises; it is kept in `meta` as
-`retain/horizon` and marks below it go. 45 days covers the longest history reader: the climb archive reads each candidate
-`asOf` its landing sequence over dispatch's 30-day arm window, and route replay reads 14 days.
+`retain/horizon` and marks below it go. 45 days covers the longest history reader north had when the horizon was chosen: the
+climb archive read each candidate `asOf` its landing sequence over dispatch's 30-day arm window (the archive went with
+`north-climb` in bce9c60404, north#970), and route replay reads 14 days.
 
 An `asOf` below the horizon, or a `since` whose lower bound is below it, is a `SnapshotExpired` query error, which a reader
 must not retry. Views at or after the horizon read what they read before. `occurrence` and `withdrawal` in the current view

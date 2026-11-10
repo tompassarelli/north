@@ -1,5 +1,8 @@
 # The policy climber: north improves its own staffing policy
 
+Retired 2026-11-10 by north#970 (bce9c60404): `north-climb`, `north ops climb run` and the archive's rule file are gone, so
+nothing on main runs this design. This note stays as the record of what was built and why.
+
 Decided 2026-11-06 under north#636 after Tom asked for a self-improving harness. `north loops check` lists closed loops that tune
 a constant (the tier cells, ETA, budget, cores, deadline), and nothing changes the policy's structure from outcomes, so every
 structural fix waited for the proxy. The climber is the outer loop: it finds the largest measured loss in the worker ledger,
@@ -102,10 +105,10 @@ at or under 5%.
   review), and a verdict between the bars at `min_n` settles on keep or on a revert box. A missing reading still
   re-measures. `experiments::verdict_tests` pins both with no Tom line.
 
-## The archive in north-graph
+## The archive in north-graph (retired with north#970)
 
-Each candidate is a node `climb:ID-SEQ` that `north ops climb run` tells under writer `climb` in one `Graph::apply`
-transaction per run (`crates/north-climb/src/lineage.rs`): `:parent` (another node, or the root `climb:current`), `:change`
+Each candidate was a node `climb:ID-SEQ` that `north ops climb run` told under writer `climb` in one `Graph::apply`
+transaction per run (the deleted `crates/north-climb/src/lineage.rs`): `:parent` (another node, or the root `climb:current`), `:change`
 (the typed change as a string), `:mutates FILE` for each file its diff touches, `:arm` (the arm it routes boxes onto; a tier
 route has none), `:loss-category`, `:loss-usd`, `:replay-refusals` (a count), `:replay-reached` (cases), `:status` (proposed,
 refused, arm, kept, reverted) and `:landed-seq`, the graph head the run judged it at. `:corroborated-kept` and `:scored`
@@ -113,7 +116,7 @@ refused, arm, kept, reverted) and `:landed-seq`, the graph head the run judged i
 with `asOf` the landing seq, so a box a worker ticked itself never scores and a check that passes later never leaks into an
 earlier candidate's score. Selection adds `:arm-share`, `:usd-per-kept` and `:first-pass`.
 
-The generator reads the archive back through `harness/graph-rules/lineage.json` and draws the parent across it, as in DGM:
+The generator read the archive back through its own rule file in `harness/graph-rules/` (deleted with the crate) and drew the parent across it, as in DGM:
 the root and every node that ran as an arm or was kept, each weighted by its score against the archive's best and by one
 over one plus its children, with a seed from the candidate and the head so a rerun draws the same parent. A proposed or
 refused candidate never ran and is no parent. Retraction never deletes: a reverted change keeps its node with status
