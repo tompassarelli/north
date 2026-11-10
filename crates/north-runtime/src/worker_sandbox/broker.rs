@@ -104,7 +104,17 @@ fn own_homes() -> Vec<(String, String)> {
     homes(set("HOME"), set).into_iter().chain(set("HOME").map(|home| ("HOME".to_owned(), home.to_string_lossy().into_owned()))).collect()
 }
 
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` (`homes`) are the broker's own too: a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
+/// The homes a request's process gets: `own`, the broker's (`homes`), apart from a `safe-push` a caller outside every lane-only scope asked for, which keeps the XDG homes the caller set, since the state home holds the landing queue its ticket belongs in, as when it ran in place before it ran through the broker (north#1094): a verify-north worker's ticket went to the host's queue instead of its scratch one, and the walk found none (north#1022).
+pub(super) fn request_homes(arguments: &[String], cgroup: Option<&str>, sent: &[(String, String)], own: Vec<(String, String)>) -> Vec<(String, String)> {
+    let queues = arguments.first().is_some_and(|verb| verb == "safe-push") && !cgroup.is_none_or(session_scope::lane_only_cgroup);
+    let client = |name: &str| sent.iter().find(|(sent, value)| sent == name && !value.is_empty()).map(|(_, value)| value.clone());
+    own.into_iter().map(|(name, value)| match (queues && name != "HOME").then(|| client(&name)).flatten() {
+        Some(kept) => (name, kept),
+        None => (name, value),
+    }).collect()
+}
+
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes and `HOME` are `homes`, the broker's own apart from a safe-push's state home (`request_homes`): a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030), and `north home move` takes the broker's `HOME` as the top of its moves (north#992). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
 pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)]) -> Vec<(String, String)> {
     let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
@@ -287,7 +297,8 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
-    let mut variables = environment(request.environment, cgroup, &runtime(), &own_homes());
+    let homes = request_homes(&request.arguments, cgroup, &request.environment, own_homes());
+    let mut variables = environment(request.environment, cgroup, &runtime(), &homes);
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }

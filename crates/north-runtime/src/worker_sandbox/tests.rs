@@ -388,3 +388,14 @@ fn a_lane_only_command_cannot_write_a_fleet_record_a_cgroup_procs_file_or_a_sibl
     let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", "worker_sandbox::tests::a_lane_only_write_child", "--nocapture"]).env(WRITE_HOME, &home).output().unwrap();
     assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
+
+#[test]
+fn a_brokered_safe_push_queues_in_its_caller_s_state_home_and_every_other_request_in_the_broker_s() {
+    let sent = [("XDG_STATE_HOME", "/tmp/verify-north-x/state"), ("HOME", "/home/a/elsewhere")].map(|(name, value)| (name.to_owned(), value.to_owned()));
+    let own = || [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("HOME", "/home/a")].map(|(name, value)| (name.to_owned(), value.to_owned())).to_vec();
+    let words = |text: &str| -> Vec<String> { text.split(' ').map(str::to_owned).collect() };
+    let state = |homes: Vec<(String, String)>| homes.into_iter().filter(|(name, _)| name == "XDG_STATE_HOME" || name == "HOME").map(|(_, value)| value).collect::<Vec<_>>();
+    assert_eq!(state(super::broker::request_homes(&words("safe-push --to main"), Some(OPEN_SCOPE), &sent, own())), ["/tmp/verify-north-x/state", "/home/a"], "a worker's brokered safe-push queued its ticket in the host's landing queue, so verify-north found none in its scratch state (north#1022)");
+    assert_eq!(state(super::broker::request_homes(&words("depbox run -- cargo check"), Some(OPEN_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
+    assert_eq!(state(super::broker::request_homes(&words("safe-push --to main"), Some(LANE_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
+}

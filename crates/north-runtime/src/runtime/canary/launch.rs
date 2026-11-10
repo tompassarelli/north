@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 const PLAIN_PROMPT: &str = "Reply with the single word ok and nothing else.";
-const POLICY_PROMPT: &str = "Reply with the first heading line, the one that starts with `# `, of the standing policy text you were given before this message, and nothing else.";
+const POLICY_PROMPT: &str = "Reply with the words of the first top-level heading of the standing policy text you were given before this message, without its leading mark, and nothing else.";
 const ASK: Duration = Duration::from_secs(30);
 const ANSWER_WITHIN: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(3);
@@ -104,7 +104,7 @@ fn answer(north: &Path, state: &Path, name: &str, heading: Option<&str>) -> Resu
         match fleet(north, state, &["show", name, "--json"]) {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(session) => match answered(&session) {
-                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return carries(&reply, heading).map_err(|missing| failed(1, format!("{name} answered, but its first-turn context lacks the shared policy: asked for its heading, it replied {:?} where {missing:?} was expected", reply.trim()))),
+                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return carries(&reply, heading).map_err(|missing| failed(1, format!("{name} answered without the shared policy's heading: asked for it, it replied {:?} where {missing:?} was expected", reply.trim()))),
                     Some(Turn::Failed(error)) if at_usage_limit(&error) => {
                         println!("north runtime canary probe: {name}'s account is at its usage limit ({error}), so the launch is not judged");
                         return Ok(());

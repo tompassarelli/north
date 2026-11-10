@@ -26,7 +26,7 @@ Landlock cannot be applied before bubblewrap's mount calls, so depbox cannot its
 
 ## Landing from inside the domain (north#1094)
 
-The checks `safe-push --to main` runs before it queues a lane include tests that start bubblewrap, which cannot start under a domain for the reason depbox cannot, so `safe-push` runs through the broker. A lane-only session's request is granted as lane_grant.rs describes; any other caller's runs with its own environment, as it would outside a worker sandbox, and the lander runs the same checks of the same tree once the lane is queued. The broker reads its `--message` file only when the caller could, as it does a `north home move` plan.
+The checks `safe-push --to main` runs before it queues a lane include tests that start bubblewrap, which cannot start under a domain for the reason depbox cannot, so `safe-push` runs through the broker. A lane-only session's request is granted as lane_grant.rs describes; any other caller's runs with its own environment and its own XDG homes, as it would outside a worker sandbox, so its ticket goes to the landing queue under the caller's state home (north#1022), and the lander runs the same checks of the same tree once the lane is queued. The broker reads its `--message` file only when the caller could, as it does a `north home move` plan.
 
 ## Hidden sockets and ssh (north#1083)
 
