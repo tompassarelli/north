@@ -13,6 +13,7 @@ use rustix::fs::FlockOperation;
 
 const LANDER_SHADOW_MINUTES: &str = "3";
 const LANDER_LOCK: &str = "lander-promote.lock";
+const LANDER_WANTED: &str = "lander-follow-wanted";
 const LANDER_REPLAY_LIMIT: Duration = Duration::from_secs(30 * 60);
 const SCOPED: &str = "NORTH_RUNTIME_PROMOTE_SCOPED";
 const SYSTEMD_RUN: &str = "systemd-run";
@@ -116,18 +117,20 @@ fn joined(threads: Vec<ScopedJoinHandle<'_, Result<(), Failure>>>, panicked: &st
     (!threads.is_empty()).then(|| threads.into_iter().map(|thread| thread.join().unwrap_or_else(|_| Err(failed(1, panicked)))).fold(Ok(()), Result::and))
 }
 
+/// A promotion whose runtime passed its canary asks the replay of an older runtime to stop, so the link follows the newest runtime within seconds rather than after a replay of up to `LANDER_REPLAY_LIMIT`: the promotion holding `LANDER_LOCK` kills that replay and runs the newest next.
 pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
     if fs::symlink_metadata(layout.lander()).is_err() {
         return Ok(());
     }
-    let binary = layout.current().join(TREE).join("bin/north");
+    request_newest(layout);
     loop {
         let Some(serial) = update::named_lock(layout, LANDER_LOCK, FlockOperation::NonBlockingLockExclusive)? else {
-            println!("north runtime lander: another promotion holds {LANDER_LOCK} and replays the newest runtime when its replay ends");
+            println!("north runtime lander: another promotion holds {LANDER_LOCK}; it stops its replay of an older runtime and replays the newest at once");
             return Ok(());
         };
         let judged = fs::read_link(layout.current()).ok();
-        let verdict = lander_verdict(&binary, &update::checkout());
+        let binary = layout.current().join(TREE).join("bin/north");
+        let verdict = lander_verdict(&binary, &update::checkout(), &mut || superseded(layout, judged.as_deref()));
         drop(serial);
         let newest = fs::read_link(layout.current()).ok();
         if newest == judged {
@@ -137,12 +140,31 @@ pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
     }
 }
 
-fn lander_verdict(binary: &Path, checkout: &Path) -> Result<(), Failure> {
+fn request_newest(layout: &Layout) {
+    let Some(newest) = fs::read_link(layout.current()).ok() else { return };
+    if let Err(error) = fs::write(layout.state.join(LANDER_WANTED), newest.display().to_string()) {
+        println!("north runtime lander: could not record that {} wants the link: {error}", newest.display());
+    }
+}
+
+/// Whether a promotion asked for the runtime current names now, and it is not the one under replay.
+fn superseded(layout: &Layout, judged: Option<&Path>) -> bool {
+    let current = fs::read_link(layout.current()).ok();
+    let wanted = fs::read_to_string(layout.state.join(LANDER_WANTED)).ok();
+    current.as_deref() != judged && current.is_some_and(|current| wanted.is_some_and(|wanted| wanted == current.display().to_string()))
+}
+
+fn lander_verdict(binary: &Path, checkout: &Path, superseded: &mut dyn FnMut() -> bool) -> Result<(), Failure> {
     let mut command = Command::new(binary);
     command.args(["land", "promote", "--shadow-minutes", LANDER_SHADOW_MINUTES, "--repo"]).arg(checkout);
-    let ran = process::try_run_group_traced_within(command, LANDER_REPLAY_LIMIT)
-        .map_err(|error| failed(1, format!("lander link held: {}: {error}", binary.display())))?
-        .map_err(|stalled| failed(1, format!("lander link held: north land promote ran past {} min and was killed{stalled}", LANDER_REPLAY_LIMIT.as_secs() / 60)))?;
+    let ran = match process::try_run_group_until(command, LANDER_REPLAY_LIMIT, superseded).map_err(|error| failed(1, format!("lander link held: {}: {error}", binary.display())))? {
+        process::Ended::Finished(ran) => ran,
+        process::Ended::Stalled(stalled) => return Err(failed(1, format!("lander link held: north land promote ran past {} min and was killed{stalled}", LANDER_REPLAY_LIMIT.as_secs() / 60))),
+        process::Ended::Stopped => {
+            println!("north runtime lander: the replay was stopped, a newer runtime passed its canary");
+            return Ok(());
+        }
+    };
     let stdout = String::from_utf8_lossy(&ran.stdout);
     print!("{stdout}");
     if ran.status.success() {
@@ -172,3 +194,6 @@ fn names_north(url: &str) -> bool {
     let url = url.strip_suffix(".git").unwrap_or(url);
     url.rsplit(['/', ':']).next() == Some("north")
 }
+
+#[cfg(test)]
+mod tests;

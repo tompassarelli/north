@@ -102,7 +102,30 @@ pub fn try_run_group_traced_within(mut command: Command, limit: Duration) -> std
     run_prepared(command, None, limit, true, true, false)
 }
 
-fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool, leave: bool) -> std::io::Result<Result<Output, String>> {
+pub enum Ended {
+    Finished(Output),
+    Stalled(String),
+    Stopped,
+}
+
+/// Runs `command` in a process group of its own for up to `limit`, killing the group when `stop` answers true; `stop` is asked about twice a second.
+pub fn try_run_group_until(mut command: Command, limit: Duration, stop: &mut dyn FnMut() -> bool) -> std::io::Result<Ended> {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    run_until(command, None, limit, true, true, false, stop)
+}
+
+fn run_prepared(command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool, leave: bool) -> std::io::Result<Result<Output, String>> {
+    run_until(command, input, limit, group, traced, leave, &mut || false).map(|ended| match ended {
+        Ended::Finished(output) => Ok(output),
+        Ended::Stalled(stalled) => Err(stalled),
+        Ended::Stopped => Err(String::new()),
+    })
+}
+
+const STOP_POLL: Duration = Duration::from_millis(500);
+
+fn run_until(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool, traced: bool, leave: bool, stop: &mut dyn FnMut() -> bool) -> std::io::Result<Ended> {
     let stdin = match input {
         Some(input) => {
             let mut file = tempfile::tempfile()?;
@@ -116,6 +139,7 @@ fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, gro
     let errors = tempfile::tempfile()?;
     let mut child = command.stdin(stdin).stdout(output.try_clone()?).stderr(errors.try_clone()?).spawn()?;
     let started = Instant::now();
+    let mut asked = started;
     let status = loop {
         if let Some(status) = child.try_wait()? {
             if group {
@@ -125,12 +149,20 @@ fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, gro
         }
         if started.elapsed() >= limit {
             if leave {
-                return Ok(Err(String::new()));
+                return Ok(Ended::Stalled(String::new()));
             }
             let stalled = if traced { tree(child.id()) } else { String::new() };
             kill(&mut child, group);
             let _ = child.wait();
-            return Ok(Err(stalled));
+            return Ok(Ended::Stalled(stalled));
+        }
+        if asked.elapsed() >= STOP_POLL {
+            asked = Instant::now();
+            if stop() {
+                kill(&mut child, group);
+                let _ = child.wait();
+                return Ok(Ended::Stopped);
+            }
         }
         std::thread::sleep(Duration::from_millis(1));
     };
@@ -142,7 +174,7 @@ fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, gro
     errors.rewind()?;
     let mut stderr = Vec::new();
     errors.read_to_end(&mut stderr)?;
-    Ok(Ok(Output { status, stdout, stderr }))
+    Ok(Ended::Finished(Output { status, stdout, stderr }))
 }
 
 fn tree(pid: u32) -> String {
