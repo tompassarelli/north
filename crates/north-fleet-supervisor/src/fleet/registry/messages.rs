@@ -165,13 +165,14 @@ mod tests {
         let fleet = fleet(home.path());
         let worker = live(&fleet, "worker");
         let socket = north_base::platform::session_host_files::socket_path(&fleet.root.join("worker"));
-        std::fs::rename(&socket, fleet.root.join("worker/host.moved")).unwrap();
+        let parked = socket.with_extension("moved");
+        std::fs::rename(&socket, &parked).unwrap();
 
         assert!(fleet.send_signed(&Sender::Tom, "worker", "hello", Delivery::Queued).is_err());
         assert!(Spool::at(&fleet.root).pending().unwrap().is_empty());
         let row = fleet.spool_message(&Sender::Tom, "worker", "again", Delivery::Queued).unwrap();
         assert!(fleet.hand_in(&row).is_err());
-        std::fs::rename(fleet.root.join("worker/host.moved"), &socket).unwrap();
+        std::fs::rename(&parked, &socket).unwrap();
 
         assert_eq!(fleet.hand_in(&row).unwrap(), HandedIn::Delivered);
         assert_eq!(worker.frames.lock().unwrap().len(), 1);

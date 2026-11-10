@@ -193,7 +193,8 @@ mod tests {
         let worker = live(&laptop, "worker");
         let id = laptop.open_gate(&request("worker")).unwrap();
         let socket = north_base::platform::session_host_files::socket_path(&laptop.root.join("worker"));
-        std::fs::rename(&socket, laptop.root.join("worker/host.moved")).unwrap();
+        let parked = socket.with_extension("moved");
+        std::fs::rename(&socket, &parked).unwrap();
 
         laptop.answer_gate(id, 1, None, None, None).unwrap();
 
@@ -201,7 +202,7 @@ mod tests {
         assert!(worker.frames.lock().unwrap().is_empty());
         let pending = spooled(&laptop);
         assert_eq!((pending.kind, pending.to.as_str(), pending.urgent), (RowKind::Message, "worker", true));
-        std::fs::rename(laptop.root.join("worker/host.moved"), &socket).unwrap();
+        std::fs::rename(&parked, &socket).unwrap();
 
         assert_eq!(laptop.deliver_row(&pending).unwrap(), HandedIn::Delivered);
         assert_eq!(laptop.deliver_row(&pending).unwrap(), HandedIn::Already);
