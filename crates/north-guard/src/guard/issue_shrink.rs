@@ -1,5 +1,5 @@
 use super::gh_write;
-use super::issue_labels::gh;
+use super::issue_labels::gh_program;
 use crate::hook::{HookInput, Verdict};
 use regex::Regex;
 use std::sync::LazyLock;
@@ -8,29 +8,29 @@ const OWNER: &str = "tompassarelli/";
 static ALLOWED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"--allow-shrink\s+\S").unwrap());
 
 trait World {
-    fn repo(&mut self, named: Option<&str>) -> Option<String>;
+    fn repo(&mut self, named: Option<&str>, dir: Option<&str>) -> Option<String>;
     fn body(&mut self, repo: &str, number: u64) -> Option<String>;
 }
 
 struct Live {
-    cwd: Option<String>,
+    program: String,
 }
 
 impl World for Live {
-    fn repo(&mut self, named: Option<&str>) -> Option<String> {
+    fn repo(&mut self, named: Option<&str>, dir: Option<&str>) -> Option<String> {
         match named {
             Some(repo) => Some(repo.to_owned()),
-            None => gh(self.cwd.as_deref(), &["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).map(|out| out.trim().to_owned()),
+            None => gh_program(&self.program, dir, &["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).map(|out| out.trim().to_owned()),
         }
     }
 
     fn body(&mut self, repo: &str, number: u64) -> Option<String> {
-        gh(None, &["issue", "view", &number.to_string(), "-R", repo, "--json", "body", "-q", ".body"])
+        gh_program(&self.program, None, &["issue", "view", &number.to_string(), "-R", repo, "--json", "body", "-q", ".body"])
     }
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    refuse(input, &mut Live { cwd: input.cwd().map(str::to_owned) })
+    refuse(input, &mut Live { program: "gh".to_owned() })
 }
 
 fn refuse(input: &HookInput, world: &mut impl World) -> Verdict {
@@ -54,7 +54,7 @@ fn refuse(input: &HookInput, world: &mut impl World) -> Verdict {
         if !write.body_set || write.opaque || write.unread || written_here(&text, &write) {
             continue;
         }
-        let Some(repo) = world.repo(write.repo.as_deref()).filter(|repo| repo.to_lowercase().starts_with(OWNER)) else {
+        let Some(repo) = world.repo(write.repo.as_deref(), write.dir.as_deref()).filter(|repo| repo.to_lowercase().starts_with(OWNER)) else {
             continue;
         };
         let Some(current) = world.body(&repo, number) else {
