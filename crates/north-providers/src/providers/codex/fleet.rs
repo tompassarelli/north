@@ -10,6 +10,7 @@ use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::fleet::runtime::{HostSpec, ACTOR_ENV, Instructions, Opening, Runtime, ROLE_ENV, SESSION_ENV, new_uuid, summarize};
+use crate::platform::attribution::{self, Cause, Harness};
 
 use super::{accounts, launch, questions};
 
@@ -203,6 +204,9 @@ fn observe_turn_completed(params: &Value, transcript: &mut Transcript) {
     transcript.active_turn = None;
     if let Some(message) = params["turn"]["error"]["message"].as_str() {
         push(transcript, EntryKind::Error, message.to_owned());
+        if params["turn"]["status"].as_str() == Some("failed") {
+            attribution::record(&transcript.name, "provider", Cause::Harness(Harness::ProviderError), message);
+        }
     }
     push(transcript, EntryKind::TurnEnd, params["turn"]["status"].as_str().unwrap_or("completed").to_owned());
 }

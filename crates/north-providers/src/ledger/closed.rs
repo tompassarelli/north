@@ -213,14 +213,14 @@ impl SpendRun {
 
 pub fn checker_verified(body: &str) -> bool {
     let ticked: Vec<&str> = ticked(body).collect();
-    !ticked.is_empty() && ticked.iter().all(|line| crate::platform::box_oracles::passed(line))
+    !ticked.is_empty() && ticked.iter().all(|line| crate::platform::box_oracles::own_command_passed(line))
 }
 
 /// Whether the ticked box of `body` that `box_text` names carries the checker's stamp. A box matches by the slug a claim keeps, so one stored shorter than the slug limit names every box it begins.
 pub fn box_verified(body: &str, box_text: &str) -> bool {
     let Some(wanted) = crate::threads::claims::box_slug(box_text) else { return false };
     let named: Vec<&str> = ticked(body).filter(|line| crate::threads::claims::box_slug(line.trim_start_matches(['-', '*', ' ']).trim_start_matches("[x]").trim_start_matches("[X]")).is_some_and(|slug| slug.starts_with(&wanted))).collect();
-    !named.is_empty() && named.iter().all(|line| crate::platform::box_oracles::passed(line))
+    !named.is_empty() && named.iter().all(|line| crate::platform::box_oracles::own_command_passed(line))
 }
 
 fn ticked(body: &str) -> impl Iterator<Item = &str> {

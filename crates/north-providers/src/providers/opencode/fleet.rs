@@ -12,6 +12,7 @@ use crate::fleet::model::{Account, Effort, Entry, EntryKind, LaunchRequest, Prov
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, LiveWindow, Opening, ROLE_ENV, Runtime, SESSION_ENV, WindowInbox, new_uuid};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
+use crate::platform::attribution::{self, Cause, Harness as CauseHarness};
 use crate::platform::harness;
 
 use super::route::{self, MODELS, Route, Visibility};
@@ -268,6 +269,7 @@ fn observe_end(frame: &Value, transcript: &mut Transcript) {
     let exit = frame["exit"].as_str().unwrap_or("completed");
     if let Some(error) = frame["error"].as_str().filter(|_| exit == "failed") {
         push(transcript, EntryKind::Error, error.to_owned());
+        attribution::record(&transcript.name, "provider", Cause::Harness(CauseHarness::ProviderError), error);
     }
     push(transcript, EntryKind::TurnEnd, exit.to_owned());
 }

@@ -94,6 +94,7 @@ async fn guard(mut clock: Clock, program: &str, rest: &[String]) -> u8 {
         attribution::record_here("capacity", Cause::Harness(Harness::Capacity), "deadline reached while waiting for a slot (exit 75)");
         NO_VERDICT
     } else {
+        attribution::record_here("capacity", Cause::Harness(Harness::LeaseTimeout), "the lease's deadline expired under the command it held");
         ended
     }
 }

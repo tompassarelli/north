@@ -11,6 +11,7 @@ use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
 use crate::fleet::link::quote;
+use crate::platform::attribution::{self, Cause, Harness};
 
 use super::session_env::{self, claude_env};
 use super::{accounts, limit, quota, turns, user_text, window_inbox};
@@ -274,6 +275,7 @@ fn observe_assistant_text(text: &str, transcript: &mut Transcript) {
 }
 
 fn observe_result(frame: &Value, transcript: &mut Transcript) {
+    let limited = limit::rate_limited_result(frame).is_some();
     if let Some(stopped) = limit::rate_limited_result(frame) {
         limit::record(stopped, &mut transcript.limit);
     }
@@ -284,6 +286,9 @@ fn observe_result(frame: &Value, transcript: &mut Transcript) {
     if frame["is_error"] == true && !aborted {
         let detail = frame["result"].as_str().unwrap_or(subtype);
         push(transcript, EntryKind::Error, detail.to_owned());
+        if !limited && turns::credential_failure(frame).is_none() {
+            attribution::record(&transcript.name, "provider", Cause::Harness(Harness::ProviderError), detail);
+        }
     }
     let label = if aborted { "interrupted".to_owned() } else { subtype.to_owned() };
     push(transcript, EntryKind::TurnEnd, label);

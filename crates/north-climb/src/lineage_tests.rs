@@ -79,9 +79,10 @@ fn rewards_compare_only_checker_verified_boxes_under_one_judge() {
     assert_eq!((calls.get(), old.judge, old.kept, new.kept), (1, 2, 8, 10));
     let (_, _) = comparable(reward(1.0, 1, 1), reward(1.0, 1, 1), rejudge);
     assert_eq!(calls.get(), 1, "rewards under one judge are compared as taken");
-    let checked = "- [x] Done when tests pass. Evidence: `cargo test -p north-climb reward` exited 0 on main 1a2b3c4 on 2026-11-06.";
+    let checked = "- [x] Done when: `cargo test -p north-climb reward`. Evidence: `cargo test -p north-climb reward` exited 0 on main 1a2b3c4 on 2026-11-06.";
     assert!(checker_verified(checked));
     assert!(!checker_verified(&format!("{checked}\n- [x] Self-ticked by its worker (landed 1a2b3c4).")));
-    assert!(!checker_verified("- [x] Done when x. Evidence: `cargo test` exited 1 on main 1a2b3c4 on 2026-11-06."));
+    assert!(!checker_verified("- [x] Done when: `cargo test`. Evidence: `cargo test` exited 1 on main 1a2b3c4 on 2026-11-06."));
+    assert!(!checker_verified("- [x] Done when: `cargo test`. Evidence: `cargo nextest run` exited 0 on main 1a2b3c4 on 2026-11-06."), "another command's pass is not this box's Done-when passing");
     assert!(!checker_verified("- [ ] nothing ticked"));
 }
