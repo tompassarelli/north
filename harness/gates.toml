@@ -16,9 +16,9 @@ mode = "shadow"
 [gate.detector-proof]
 mode = "shadow"
 
-# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). The 2026-11-09 review read all 77 reports of the 41 h since it landed and a sample of 20 held none false: 74 were `// KEEP(bug|mutant|contract)` notes that repeat the test's title and 3 named an external program's behaviour without the rule's words. Enforcing stops the `KEEP` notes, 218 of main's 262 comment lines, and this lane deleted the 243 such lines from the tree so the rule holds of main's own tests (north#865).
+# A lane that adds a Rust `//` comment other than one line naming a determinism, engine, Lua or external-format constraint (north#865). The 2026-11-09 review read all 77 reports of the 41 h since it landed and a sample of 20 held none false, so it enforced. Tom's decision on 2026-11-10 made the habit advisory again (north#970): findings print in safe-push before queueing and are filed on the After-landing gate debt issue, and the check can neither refuse a lane nor fail a post-landing run.
 [gate.code-comment]
-mode = "enforce"
+mode = "shadow"
 
 [gate.code-comment.review]
 reviewed = "2026-11-09"

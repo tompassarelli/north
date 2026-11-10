@@ -37,6 +37,7 @@
 	check = "@enqueue,tests/it/main.rs,tests/it/crates.txt :: ! grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort | uniq -d | grep . && comm -3 <(sed -n 's/^mod //p' tests/it/main.rs | tr -d ';' | LC_ALL=C sort -u) <(grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort -u) | { ! grep .; }"
 	check = @enqueue,structure.toml,src/,crates/,tests/,examples/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ --no-build code-health layers ${SAFE_PUSH_LAND_BASE} ${SAFE_PUSH_LAND_HEAD}
 	check = @enqueue,structure.toml,ambient-test-,src/,crates/,tests/,examples/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ --no-build code-health habits --shadow
+	check = @enqueue,src/,crates/,tests/,examples/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ --no-build code-health habits --base ${SAFE_PUSH_LAND_BASE} --head ${SAFE_PUSH_LAND_HEAD} --shadow
 	check = docs/features.md,docs/features/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/features_index/ --no-build docs features-index --check
 	check = src/cli/help.txt,src/cli/help/,crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/help_index/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/help_index/ --no-build docs help-index --check
 	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/rationale_index/ --no-build docs rationale-index --check
@@ -59,6 +60,8 @@
 	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only machine-bound"
 	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target ./bin/head-north --code src/cli/,crates/north-ops/src/ops/citation_check/ check citations --root $PWD
 	runner = build-host
+	after-only = the code-comment habit is debt on the after-landing gate debt issue and never refuses a lane :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ --no-build code-health habits --base ${SAFE_PUSH_LAND_BASE} --head ${SAFE_PUSH_LAND_HEAD}
+	after-only = every whole-tree habit finding is debt on the after-landing gate debt issue and never refuses a lane :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ --no-build code-health habits
 	after-only = it reads the graph database the landed code wrote, which no lane tree holds, and its guards are in shadow :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-graph/,src/cli/ graph guards harness/graph-guards --shadow
 	after-only = it judges north against the south and nixos-config checkouts on main beside the host, which a lane tree does not hold :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/catalog/,crates/north-core/src/agent_catalog.rs,crates/north-base/ config agents check-owners --north-root $PWD --south-root $HOME/code/south/main --nixos-root $HOME/code/nixos-config/main # hardcoded-repo-path:allow
 	after-only = the changed portable integration tests are the slowest land check, 125 s on the critical path of a landing (docs/rationale/landing-latency.md), and the lane's unit and changed-crate tests run before it lands :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only portable
@@ -66,3 +69,7 @@
 	after-only = needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests), which an offload slot does not have :: CARGO_TARGET_DIR=target ./bin/head-north land tests --select changed --only machine-bound
 [test-admission]
 	contract = file-or-wire-format :: a format another program or a past north writes or reads: ledgers, trailers, transcripts, the GitHub and Claude APIs, git output
+
+[after-landing]
+advisory = code-comment habit :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ code-health habits --base ${SAFE_PUSH_LAND_BASE} --head ${SAFE_PUSH_LAND_HEAD}
+advisory = whole-tree habits :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ code-health habits
