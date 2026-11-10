@@ -137,9 +137,11 @@ pub enum Newest {
     Missing { found: usize, want: usize },
 }
 
-/// Every finished land check log under `state/north/land-queue`, oldest first: the logs the slow-test
-/// detector reads, so a box's Done when and the finding that filed it read the same runs.
-fn check_logs(state: &Path) -> Vec<PathBuf> {
+/// Every finished land check log the slow-test detector reads, oldest first: the lander's candidate,
+/// speculative and post-land logs under `north/land-queue`, and the `safe-push` checks before queueing,
+/// whose nextest output moved to `safe-push/land-check-*.log`; the box's Done when and the finding that
+/// filed it read the same runs.
+pub(crate) fn check_logs(state: &Path) -> Vec<PathBuf> {
     let mut logs: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(state.join("north/land-queue"))
         .into_iter()
         .flatten()
@@ -148,6 +150,14 @@ fn check_logs(state: &Path) -> Vec<PathBuf> {
         .filter(|entry| entry.file_name().to_str().is_some_and(|name| check_log(name, entry.path().with_extension("outcome").is_file())))
         .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
         .collect();
+    logs.extend(
+        fs::read_dir(state.join("safe-push"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|entry| entry.file_name().to_str().is_some_and(|name| name.starts_with("land-check-") && name.ends_with(".log")))
+            .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path()))),
+    );
     logs.sort_by_key(|entry| entry.0);
     logs.into_iter().map(|(_, path)| path).collect()
 }
@@ -238,6 +248,12 @@ mod tests {
         assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 2), Newest::Runs(vec![8.0, 7.0]), "a run that skipped the test is not a run of it");
         assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 4), Newest::Missing { found: 3, want: 4 }, "fewer runs than asked never reads as a pass");
         assert_eq!(newest(state.path(), "slow-test:north::it:slow::absent", 1), Newest::Missing { found: 0, want: 1 });
+        let pre_queue = state.path().join("safe-push");
+        std::fs::create_dir_all(&pre_queue).unwrap();
+        let mut file = std::fs::File::create(pre_queue.join("land-check-abc.log")).unwrap();
+        writeln!(file, "        PASS [   2.000s] (  1/2) north::it slow::eight").unwrap();
+        file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(50)).unwrap();
+        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 3), Newest::Runs(vec![8.0, 7.0, 2.0]), "the safe-push check before queueing is a land check run");
     }
 
 }

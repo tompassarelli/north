@@ -269,14 +269,9 @@ impl<'a> Gatherer<'a> {
 
 impl Gatherer<'_> {
     fn check_logs(&self) -> Vec<PathBuf> {
-        let mut logs: Vec<(f64, PathBuf)> = subdirectories(&self.places.state.join("north/land-queue"))
-            .into_iter()
-            .flat_map(|queue| files(&queue.join("logs"), "log"))
-            .filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| slow_test::check_log(name, path.with_extension("outcome").is_file())))
-            .filter_map(|path| Some((modified(&path)?, path)))
-            .collect();
-        logs.sort_by(|a, b| a.0.total_cmp(&b.0));
-        logs.split_off(logs.len().saturating_sub(RUN_HISTORY)).into_iter().map(|(_, path)| path).collect()
+        let mut logs = slow_test::check_logs(&self.places.state);
+        logs.drain(..logs.len().saturating_sub(RUN_HISTORY));
+        logs
     }
 
     fn owner_documents(&self) -> Vec<slow_test::Document> {

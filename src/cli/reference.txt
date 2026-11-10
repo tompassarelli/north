@@ -276,7 +276,7 @@ Commands:
   convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex|corpus]  Search past agent transcripts and the Tom corpus; corpus appends typed messages to it
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
-  ledger flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Alarms and detectors; the lane view is `north work` and the usage line is `north accounts`
+  ledger flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run] | slow-tests --test KEY [--max SECONDS] [--runs N]  Alarms and detectors; one test's newest land check times; the lane view is `north work` and the usage line is `north accounts`
   broker serve [--user]                          Run the credential broker that holds the app credentials and cloud tokens
   broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]...  Print a scoped one-hour GitHub App installation token
   broker inspect [--json]                          Print the repositories and permissions the broker granted the token on stdin
