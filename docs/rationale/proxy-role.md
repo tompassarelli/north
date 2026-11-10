@@ -215,7 +215,7 @@ worker is a fleet session the lander can tell. The body holds only what no mecha
   `north gate`.
 - Do a task yourself only when it takes about 3 tool calls or its answer is predictable; anything
   longer is a brief.
-- The names (from `know-socrates-names`): Socrates is Tom's workforce of fleet sessions coordinated by
+- The names (from `know-fleet-names`): the fleet is Tom's set of sessions coordinated by
   the proxy; North is its harness; the proxy is Tom's primary assistant, and voice transcription may write "Play-Doh";
   Nexus is the always-on server.
 
@@ -319,7 +319,7 @@ Enforced by: metric with an alarm, on a running timer.
 
 South's `agents/rules.toml` registers five rules written for the proxy whose placement is `dropped`:
 the three in its `Proxy` section (`status-in-toms-terms`, `ground-before-answering`,
-`check-facts-before-stating`), `know-socrates-names`, which the same role hook carried, and
+`check-facts-before-stating`), `know-fleet-names`, which the same role hook carried, and
 `proxy-delegates-durable-work`.
 
 Why they are dropped, from South's history:
@@ -356,10 +356,10 @@ Disposition, each with what enforces it:
   each issue, gate, session or commit in plain words with its number trailing. Text only: no Stop
   guard exists (`crates/north-core/src/hook.rs:201` registers none), and a blocking Stop check would
   cost a full-context turn to catch a bare number.
-- `know-socrates-names`: **placed** as `agent:proxy`, a new placement kind meaning "this rule's text
+- `know-fleet-names`: **placed** as `agent:proxy`, a new placement kind meaning "this rule's text
   is in `harness/claude/agents/NAME.md`". Only the proxy reads Tom's voice-transcribed messages, so the
   names belong in its role file, not in every session's global rules. Its text also carries a typo
-  (`Tom.s workforce is coordinated`) fixed in the same change. Enforced by `north check harness`:
+  (a misspelt possessive) fixed in the same change. Enforced by `north check harness`:
   for every `agent:NAME` placement it checks that the role file exists and contains the rule's text,
   so a placement can no longer silently lose its home the way `hook:org-role` did.
 

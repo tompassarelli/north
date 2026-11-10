@@ -109,8 +109,8 @@ a repository with no committed host still lands per lane today. That includes th
    tag push, tag delete and restore. It sets `SAFE_PUSH_ACTIVE=1` (the tripwire's marker) and
    `SAFE_PUSH_OUTPUT_CLAIMED`, which lets a nested safe-push in a pre-push hook skip the log lock
    (`land/push.rs:166`, `safe_push_tag.rs:159`). It never clears the environment and never sets a
-   `credential.*` option. So north#619's per-session credential helper (`GIT_CONFIG_COUNT`, the Socrates
-   Agent app) applies to every safe-push write without safe-push knowing about it. One consequence is
+   `credential.*` option. So north#619's per-session credential helper (`GIT_CONFIG_COUNT`, the North Fleet App
+   token) applies to every safe-push write without safe-push knowing about it. One consequence is
    unchanged by the port: GitHub refuses a non-`v*` tag created from an agent session (no App bypass on
    that ruleset, `agent-push-identity.md`; observed in b081e327c). `--tag` therefore succeeds only from
    Tom's own login, while `--delete-tag` (the ruleset governs creation) and `north land release` (the App has

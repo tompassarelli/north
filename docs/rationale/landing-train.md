@@ -84,7 +84,7 @@ into the code safe-push's exact train already calls (land-checks.sh, `north land
 drivers), so it pays off before the lander exists; the lander is safe-push's train loop ported to Rust
 and run as a service.
 
-1. **Identity.** A dedicated GitHub App, "North Lander", separate from the Socrates Agent App that
+1. **Identity.** A dedicated GitHub App, "North Lander", separate from the North Fleet App that
    bin/gh-app-token mints gex45's tokens from (ruleset bypass is per App, so a shared App would let
    gex45 bypass too). Installed on every repository it serves, permissions `contents: write`, `workflows: write`,
    `metadata: read`, `actions: write` (dispatch land-check.yml), `statuses: write`. `workflows` lets it
@@ -92,8 +92,7 @@ and run as a service.
    bin/safe-push ~1982). Its key lives only in the lander unit's credentials directory.
 2. **Host.** Nexus (lead's call, recorded below). The lander runs as a systemd unit with
    `DynamicUser=yes`, `InaccessiblePaths=/home/tom /run/secrets` and the lander key by
-   `LoadCredential`, the pattern of the gex45 plan's south-land unit, so nothing else on Nexus (Tom's
-   PATs, the Socrates App key) is reachable from it and it reaches nothing of Tom's. Its own clones of
+   `LoadCredential`, the pattern of the gex45 plan's south-land unit. Its own clones of
    north, south and nixos-config live in `StateDirectory`.
 3. **Queue.** `safe-push --to main` runs the cheap local gates (language gate, scans, denylist
    attestation, the selected checks as an advisory pre-check), pushes `claude/land-<lane>-<sha>`, prints
@@ -197,7 +196,7 @@ and run as a service.
 | Guarantee | Target | Measured by |
 |---|---|---|
 | Every main commit's tree was a tested candidate | 100% | `north land train audit --since 1d`: main commits with no `landings` row whose tree equals the commit's tree: 0 |
-| Only the lander and Tom's admin role advance main | GitHub rule | `gh api repos/tompassarelli/north/rulesets` shows one main ruleset with bypass actors the lander App and the admin role; a push with a Socrates App token is refused |
+| Only the lander and Tom's admin role advance main | GitHub rule | `gh api repos/tompassarelli/north/rulesets` shows one main ruleset naming the lander App and the admin role; a push from a fleet session is refused |
 | Red-main minutes attributable to a landed change | 0/day | `main_red` rows with cause `landing` over 7 days |
 | A break never blocks unrelated lanes | 0 lanes refused for a case failing on the base | `landings.verdict` joined to quarantine |
 | Finished to landed | p50 <= 12 min, p90 <= 20 min (baseline p50 7, p90 39 over 4.5 days, plus 12 stranded); a target to measure, priced below | `landings.queued_at` to `landed_at` |
@@ -219,7 +218,7 @@ and run as a service.
   - Per-lane safe-push with wider selection only: still strands lanes on base breaks.
   - Dependency-derived selection: the proof needs a build-graph model, and most lanes touch crates the `north` binary links, so it selects the full suite anyway.
   - Laptop as lander: it sleeps and the gaming hold defers heavy work. Superseded by D4 (lander on the laptop, heavy checks on gex45 slots).
-  - Shared Socrates App as lander: ruleset bypass is per App, so gex45 tokens would bypass.
+  - Shared fleet App as lander: rejected; the lander has its own App (Identity above).
   - Per-SHA uncancelled main CI: doubles Actions load for trees the lander already tested.
   - `merge=union` on docs/features.md: keeps both sides of an edited line and drops deletes.
   - Per-file judge: one red case on the base masks a lane's new red case in the same file.
@@ -353,7 +352,7 @@ right lane only.
 - **B23** Category infra; Scope cross-repo (south); recorded in south.
 - **B24 Main ruleset.** Follows B6, B16, B21, B22. Category infra; Surface GitHub settings. Done when: `gh api repos/tompassarelli/north/rulesets`
   shows the main ruleset with bypass actors the lander App and the admin role, a push to main with a
-  Socrates App token and one from a workflow `GITHUB_TOKEN` are both refused, and the lander lands the
+  North Fleet App token and one from a workflow `GITHUB_TOKEN` are both refused, and the lander lands the
   next queued lane.
 - **B25 Removed.** The review gate it would have rebuilt was retired on 2026-11-04.
 
@@ -1041,7 +1040,7 @@ Recorded, not reopened:
 
 - **D1 (Tom, 2026-11-04).** Tom approved a GitHub App lander identity and a main ruleset letting only
   that App and his admin role push north main. Written here as a dedicated lander App, separate from
-  the Socrates Agent App, which is the approved shape.
+  the North Fleet App, which is the approved shape.
 - **D2 (lead, 2026-11-04).** The lander and machine-bound checks run on Nexus; B4 measures its 3 cores.
 - **D3 (lead, 2026-11-04).** `landing.exact = true` in north's .safe-push (5c12c46f3) as Wave 0.
 - **D4 (lead, 2026-11-04 8:00 AM).** The lander is `north land serve`, a user service on the laptop, and

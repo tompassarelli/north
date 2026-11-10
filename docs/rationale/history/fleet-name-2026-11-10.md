@@ -1,6 +1,6 @@
 # Fleet replaces the old agent names
 
-Tom decided on 2026-11-10 that north's agents are north's fleet, and retired the two old names (north#1058). The fourth layer in [terms.md](../terms.md) is now **fleet**.
+Tom decided on 2026-11-10 that north's agents are north's fleet, and retired the two old names (north#1058). The fourth layer in [terms.md](../../terms.md) is now **fleet**.
 
 The retired names are "Socrates" and "workforce".
 

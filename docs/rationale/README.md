@@ -3,7 +3,7 @@
 Why north is built the way it is, one note per decision. `north docs rationale-index` writes this list from each note's title and first sentence; edit the notes, not this file.
 
 - [Account usage: one reserve, placement that manages work in flight, and a spend breaker](account-capacity.md): Plan of 2026-11-04 (laptop time), revised the same day to Tom's design of 2026-11-05.
-- [Agent push identity: agents push as the Socrates Agent app, Tom keeps his login](agent-push-identity.md): Tom approved on 2026-11-06 moving agent pushes off his admin login, so that GitHub itself refuses an agent's stray tag instead of safe-push alone (north#619).
+- [Agent push identity: agents push as the North Fleet app, Tom keeps his login](agent-push-identity.md): Tom approved on 2026-11-06 moving agent pushes off his admin login, so that GitHub itself refuses an agent's stray tag instead of safe-push alone (north#619).
 - [Agent user: agents run under a Unix user of their own](agent-user.md): Decided 2026-11-09 under north#977.
 - [Architectural drift: a measured loop, not only a periodic review](architectural-drift.md): Decided 2026-11-06 under north#636, after Tom shared a community skill for untangling a codebase in one pass and a model's rewrite of it, and asked how it should fold into north.
 - [Attribution: which side each worker outcome belongs to](attribution.md): A worker run can fail because of the worker or because of the harness that staffed, placed, landed or gated it.
@@ -24,7 +24,6 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Docs architecture](docs-architecture.md): Owner: north#523
 - [Estimation audit, 2026-11-05: what north predicts about work, and whether it learns](estimation-audit-2026-11-05.md): Tom asked on 2026-11-05 for an audit of the estimates north makes about work: which model and effort can do which category, how long a box takes, what it costs, what CPU and memory a command needs, how long a check may run, when a goal finishes, and how much account room a launch needs.
 - [Failing-first rationale](failing-first.md): Cold-path reasoning behind the rule that a bug fix lands with a test seen failing on the code before the fix, and a refactor declares `Behavior: unchanged` with its changed tests passing on the old code.
-- [Fleet replaces the old agent names](fleet-name-2026-11-10.md): Tom decided on 2026-11-10 that north's agents are north's fleet, and retired the two old names (north#1058).
 - [Frontier scoreboard: north against plain Claude Code on the same boxes](frontier.md): The owner asked on 2026-11-07 for a scoreboard that shows whether north is at the frontier of agent harnesses, by how much and where it is not (north#730).
 - [Guard false refusals, measured 2026-11-08](guard-false-refusals.md): Every PreToolUse guard that refused a tool call from 2026-11-01 to 2026-11-08 has a labelled sample in `crates/north-guard/src/guard/hook_refusal_samples.toml`.
 - [First tries lost to the harness, 24 h to 2026-11-08 03:15 UTC](harness-losses-2026-11-08.md): The readiness bar "first tries lost to the harness" (ceiling 0.1%, `ready-harness-loss` in goals.toml) read 6% over 24 h on 2026-11-08 at 03:08 UTC, with n=323.
