@@ -66,10 +66,10 @@ impl Config {
     }
 }
 
-/// The logins whose posts are ours: Tom, both agent App logins so history the old bot wrote is
-/// still recognised, and GitHub's own action and dependency bots.
+/// The logins whose posts are ours: Tom, both agent and both lander App logins so history the old
+/// bots wrote is still recognised, and GitHub's own action and dependency bots.
 fn default_own() -> BTreeSet<String> {
-    ["tompassarelli"].into_iter().chain(github_app::AGENT_LOGINS).chain(["github-actions[bot]", "dependabot[bot]"]).map(str::to_owned).collect()
+    ["tompassarelli"].into_iter().chain(github_app::AGENT_LOGINS).chain(github_app::LANDER_LOGINS).chain(["github-actions[bot]", "dependabot[bot]"]).map(str::to_owned).collect()
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -277,6 +277,8 @@ mod tests {
         let config = config();
         assert!(config.owns("socrates-agent[bot]"));
         assert!(config.owns("north-fleet[bot]"));
+        assert!(config.owns("lander[bot]"));
+        assert!(config.owns("north-lander[bot]"));
         assert!(!config.owns("someone-else"));
     }
 }

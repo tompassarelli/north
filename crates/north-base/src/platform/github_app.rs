@@ -11,6 +11,10 @@ const PUSHED_FRESH_SECONDS: i64 = super::pushed_token::FRESH_SECONDS;
 /// the 2026-11-10 rename, so history the old bot wrote is still recognised.
 pub const AGENT_LOGINS: [&str; 2] = ["socrates-agent[bot]", "north-fleet[bot]"];
 
+/// The logins the lander GitHub App posts as: the name it had before North Lander and the name after
+/// the 2026-11-10 rename, so history the old bot pushed is still recognised.
+pub const LANDER_LOGINS: [&str; 2] = ["lander[bot]", "north-lander[bot]"];
+
 fn pushed_file() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
     Some(PathBuf::from(home).join(PUSHED_TOKEN)).filter(|path| path.exists())
@@ -52,11 +56,13 @@ fn pushed_token(pushed: &std::path::Path, now: i64) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::AGENT_LOGINS;
+    use super::{AGENT_LOGINS, LANDER_LOGINS};
 
     #[test]
     fn the_agent_app_answers_to_both_its_old_and_its_north_fleet_login() {
         assert!(AGENT_LOGINS.contains(&"socrates-agent[bot]"));
         assert!(AGENT_LOGINS.contains(&"north-fleet[bot]"));
+        assert!(LANDER_LOGINS.contains(&"lander[bot]"));
+        assert!(LANDER_LOGINS.contains(&"north-lander[bot]"));
     }
 }

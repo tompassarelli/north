@@ -84,9 +84,9 @@ into the code safe-push's exact train already calls (land-checks.sh, `north land
 drivers), so it pays off before the lander exists; the lander is safe-push's train loop ported to Rust
 and run as a service.
 
-1. **Identity.** A dedicated GitHub App, "north lander", separate from the Socrates Agent App that
+1. **Identity.** A dedicated GitHub App, "North Lander", separate from the Socrates Agent App that
    bin/gh-app-token mints gex45's tokens from (ruleset bypass is per App, so a shared App would let
-   gex45 bypass too). Installed on north only, permissions `contents: write`, `workflows: write`,
+   gex45 bypass too). Installed on every repository it serves, permissions `contents: write`, `workflows: write`,
    `metadata: read`, `actions: write` (dispatch land-check.yml), `statuses: write`. `workflows` lets it
    land `.github/workflows` lanes, which safe-push's autoland path refuses (`touches_workflows`,
    bin/safe-push ~1982). Its key lives only in the lander unit's credentials directory.
@@ -1051,7 +1051,7 @@ Recorded, not reopened:
 
 Only Tom can act (his GitHub session):
 
-- Create the "north lander" App with the permissions of design step 1 and install it on north only;
+- Create the "North Lander" App with the permissions of design step 1 and install it on every repository it serves;
   the agent opens the creation page with every field filled, and Tom clicks Create. Blocks B16.
 
 Decisions that are Tom's (credentials, cost):
@@ -1128,7 +1128,7 @@ load. The test's cleanup also stops the batch subslice. With these, `machine-cap
 
 Already measured by B6: a user-owned repository's ruleset accepts an Integration (GitHub App) and the
 RepositoryRole admin as bypass actors; north had no rulesets (`gh api repos/tompassarelli/north/rulesets
---jq length` returns 0); the north lander App holds
+--jq length` returns 0); the North Lander App holds
 `workflows: write`, so it can push `.github/workflows` changes under the ruleset.
 
 `gh api repos/tompassarelli/north/keys --jq '.[]|{title,read_only}'` returns nothing (raw response

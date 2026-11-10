@@ -94,12 +94,34 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, orphaned: vec![stray.clone()], ..Facts::default() };
     let hands = Fake::default();
     let text = render(&cure(&facts, &mut Book::default(), &hands, NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "orphan-queues lander/8733aa0a99314382: 1", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes"] {
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "orphan-queues lander/8733aa0a99314382: 1", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes", "lander-reach lander: 0"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
     assert_eq!(*hands.applied.borrow(), vec![Remedy::RemoveQueue { queue: stray.clone() }]);
     assert_eq!(hands.incidents.borrow()[0].0, "lander-stray-queue");
     assert!(!stray.exists(), "the stray queue is removed");
+
+    let unreachable = Facts { unreachable: vec!["tompassarelli/firn".to_owned()], ..Facts::default() };
+    let missing = Fake::default();
+    let text = render(&cure(&unreachable, &mut Book::default(), &missing, NOW));
+    assert!(text.contains("bound lander-reach tompassarelli/firn: unreachable (limit 0): over: unknown state"), "{text}");
+    assert!(missing.pages.borrow()[0].contains("the North Lander installation token cannot reach tompassarelli/firn"), "{:?}", missing.pages.borrow());
+
+    let repositories = ["a/one", "b/two"].map(str::to_owned).into_iter().collect();
+    assert_eq!(facts::unreachable(&repositories, &|repository| Ok(if repository == "b/two" { 404 } else { 200 })).unwrap(), ["b/two"]);
+    let fixture = tempfile::tempdir().unwrap();
+    let (config, code) = (fixture.path().join("config"), fixture.path().join("code"));
+    for (project, login) in [("one", "one-main"), ("two", "two-main")] {
+        let checkout = code.join(project).join("main");
+        fs::create_dir_all(&checkout).unwrap();
+        git(&checkout, &["init", "-q", "-b", "main"]);
+        git(&checkout, &["remote", "add", "origin", &format!("git@github.com:tompassarelli/{login}.git")]);
+    }
+    fs::write(code.join("one/main/.safe-push"), "[landing]\n\tpush-app = lander\n").unwrap();
+    let units = config.join("systemd/user");
+    fs::create_dir_all(&units).unwrap();
+    fs::write(units.join("north-land@two.service"), format!("[Service]\nExecStart=/x/north land serve --repo {}\n", code.join("two/main").display())).unwrap();
+    assert_eq!(facts::lander_repositories(&config, &code).into_iter().collect::<Vec<_>>(), ["tompassarelli/one-main", "tompassarelli/two-main"]);
 }
 
 #[test]

@@ -3,7 +3,7 @@
 //! remedy as an incident row, keeps the lander builds that landed a batch green to roll back to, and pages the proxy
 //! once per episode only for a state it has no remedy for. It may use north-base and north-landing, never the root crate.
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use north_lander::land::lander::state_home;
 use north_lander::land::{queue, repositories};
@@ -146,7 +146,21 @@ pub fn examine(now: u64) -> Facts {
     let units = queues.iter().map(|queue| queue.unit.clone()).collect();
     let link = facts::link_facts(&state.join("north"), north.as_deref(), units, now);
     let places = std::iter::once(Place { name: host, reach: Reach::Here }).chain(facts::offload_places()).map(facts::place_facts).collect();
-    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned }
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map_or_else(|| PathBuf::from("/"), PathBuf::from);
+    let config = std::env::var_os("XDG_CONFIG_HOME").filter(|config| !config.is_empty()).map_or_else(|| home.join(".config"), PathBuf::from);
+    let repositories = facts::lander_repositories(&config, &home.join("code"));
+    let (unreachable, reach_error) = if repositories.is_empty() {
+        (Vec::new(), None)
+    } else {
+        match facts::lander_token() {
+            Ok(token) => match facts::unreachable(&repositories, &|repository| facts::github_status(&token, repository)) {
+                Ok(unreachable) => (unreachable, None),
+                Err(error) => (Vec::new(), Some(error)),
+            },
+            Err(error) => (Vec::new(), Some(error)),
+        }
+    };
+    Facts { queues, link, places, unserved: discovery.unserved, orphaned: discovery.orphaned, unreachable, reach_error }
 }
 
 fn project(checkout: &Path) -> String {

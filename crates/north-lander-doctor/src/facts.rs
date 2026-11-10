@@ -42,6 +42,8 @@ pub struct Facts {
     pub places: Vec<PlaceFacts>,
     pub unserved: Vec<String>,
     pub orphaned: Vec<PathBuf>,
+    pub unreachable: Vec<String>,
+    pub reach_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -398,6 +400,90 @@ pub fn shell(place: &Place, script: &str, arguments: &[&str]) -> Result<String, 
 pub fn place_facts(place: Place) -> PlaceFacts {
     let probe = shell(&place, &probe(), &[]).and_then(|text| parse_probe(&text));
     PlaceFacts { place, probe }
+}
+
+/// The GitHub repositories this host's lander units and `.safe-push` files name, as `OWNER/REPO`.
+pub fn lander_repositories(config: &Path, code: &Path) -> BTreeSet<String> {
+    let mut repositories = BTreeSet::new();
+    for entry in fs::read_dir(config.join("systemd/user")).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("north-land@") || !name.ends_with(".service") {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(entry.path()) else { continue };
+        for line in text.lines() {
+            let Some(words) = line.strip_prefix("ExecStart=") else { continue };
+            let words: Vec<&str> = words.split_whitespace().collect();
+            if let Some(checkout) = words.iter().position(|word| *word == "--repo").and_then(|at| words.get(at + 1)) {
+                repositories.extend(github_slug(Path::new(checkout)));
+            }
+        }
+    }
+    for project in fs::read_dir(code).into_iter().flatten().flatten() {
+        let checkout = project.path().join("main");
+        if checkout.join(".safe-push").is_file() {
+            repositories.extend(github_slug(&checkout));
+        }
+    }
+    repositories
+}
+
+/// The GitHub repository a checkout pushes to, when its origin is GitHub.
+fn github_slug(checkout: &Path) -> Option<String> {
+    let output = Command::new("git").arg("-C").arg(checkout).args(["remote", "get-url", "--push", "origin"]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let url = String::from_utf8_lossy(&output.stdout);
+    let url = url.trim().trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    let path = ["https://github.com/", "ssh://git@github.com/", "git@github.com:"].iter().find_map(|prefix| url.strip_prefix(prefix))?.trim_start_matches('/');
+    let mut parts = path.split('/');
+    let (owner, repository) = (parts.next()?, parts.next()?);
+    (parts.next().is_none() && !owner.is_empty() && !repository.is_empty()).then(|| format!("{owner}/{repository}"))
+}
+
+/// The repositories `status` refuses to read; an error stops the check rather than naming every repository.
+pub fn unreachable(repositories: &BTreeSet<String>, status: &dyn Fn(&str) -> Result<u16, String>) -> Result<Vec<String>, String> {
+    let mut unreachable = Vec::new();
+    for repository in repositories {
+        match status(repository)? {
+            code if (200..400).contains(&code) => {}
+            _ => unreachable.push(repository.clone()),
+        }
+    }
+    Ok(unreachable)
+}
+
+/// A North Lander installation token from the credential broker.
+pub(super) fn lander_token() -> Result<String, String> {
+    let output = Command::new(follow::program()).args(["broker", "github-token", "--app", "lander"]).stdin(Stdio::null()).output().map_err(|error| format!("north broker github-token --app lander: {error}"))?;
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if output.status.success() && !token.is_empty() {
+        Ok(token)
+    } else {
+        Err(format!("north broker github-token --app lander: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+/// The HTTP status GitHub answers for `repository` with `token`.
+pub(super) fn github_status(token: &str, repository: &str) -> Result<u16, String> {
+    let url = format!("https://api.github.com/repos/{repository}");
+    let authorization = format!("Authorization: Bearer {token}");
+    let output = Command::new("curl")
+        .args(["-q", "--silent", "--show-error", "--output", "/dev/null", "--write-out", "%{http_code}", "--max-time", "10", "--header", authorization.as_str(), "--header", "Accept: application/vnd.github+json", url.as_str()])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("curl GET {url}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("curl GET {url}: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    let code: u16 = String::from_utf8_lossy(&output.stdout).trim().parse().map_err(|_| format!("curl GET {url} printed no HTTP status"))?;
+    if code == 0 {
+        return Err(format!("curl GET {url} reached no answer"));
+    }
+    Ok(code)
 }
 
 /// The offload hosts the lander's checks reach, as `north capacity offload hosts` names them.

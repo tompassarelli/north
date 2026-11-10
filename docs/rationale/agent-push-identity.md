@@ -8,13 +8,13 @@ Every git push from an agent session went through `gh auth git-credential`, whic
 
 ## Decision
 
-- **Identity.** Fleet sessions push as the Socrates Agent GitHub App (app id 5265857), installed on all of Tom's repositories with `contents: write` and `workflows: write`. The north lander App is installed on north alone, so it cannot carry pushes to the other repositories; it stays the lander's identity for north's main (`.safe-push` `landing.push-app = lander`).
+- **Identity.** Fleet sessions push as the Socrates Agent GitHub App. The North Lander App is the lander's push identity wherever a repository's `.safe-push` sets `landing.push-app = lander`.
 - **Mechanism.** `north git-credential` is a git credential helper that answers `get` for `https://github.com` with the App's cached installation token (`north broker github-token`, limited to the repository the push names) and nothing for any other host. The Claude fleet runtime sets it per session through `GIT_CONFIG_COUNT`: an empty `credential.https://github.com.helper` drops the inherited `gh` helper, then the north helper follows. Where each host takes the token from, and the order of its fallbacks, is in south `agents/decisions/infra/agent-push-credential-detail-2026-11-07.md`. `north gh-session` takes its token from the same function (`github_app::agent_token`), so the two helpers cannot drift (north#668). The session also sets `credential.https://github.com.useHttpPath`, so git sends that path. No config file changes, so Tom's own git and `gh` login are unchanged.
 - **Releases.** `north land release` pushes its `v*` tag as the agent identity; the repository rules that allow it are in south `agents/decisions/infra/agent-push-credential-detail-2026-11-07.md`. Non-version tags have no App bypass: GitHub refuses them from an agent session.
 
 ## Alternatives not taken
 
-- Give the north lander App the `v*` bypass and have `north land release` mint its token: not taken, because safe-push already refuses `v*` tags outside `north land release` and the tripwire refuses a raw `git push`, so the extra GitHub-side guard buys little; the credential cost is in south `agents/decisions/infra/agent-push-credential-detail-2026-11-07.md`.
+- The alternatives and their credential costs are recorded in south `agents/decisions/infra/agent-push-credential-detail-2026-11-07.md`.
 
 ## Observed
 
