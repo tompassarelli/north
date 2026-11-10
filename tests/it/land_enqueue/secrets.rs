@@ -14,7 +14,24 @@ fn deny_list(fixture: &Fixture) -> PathBuf {
 #[test]
 fn enqueue_refuses_a_lane_a_deny_list_or_secret_scan_flags_and_writes_no_ticket() {
     a_deny_listed_value_is_refused();
+    a_named_missing_south_is_refused_rather_than_passing_unscanned();
     a_lane_the_secret_scan_flags_is_refused();
+}
+
+/// ds-940b: `safe-push --to main` (this enqueue step) with SAFE_PUSH_SOUTH at a missing directory used to warn and pass
+/// unscanned, skipping both the value scan and the private-kind judge.
+fn a_named_missing_south_is_refused_rather_than_passing_unscanned() {
+    let fixture = Fixture::new();
+    fixture.commit(&fixture.repo, "notes.txt", "Add notes");
+    let missing = fixture.root.join("no-south");
+    let path = stub_gh(&fixture, "echo PUBLIC");
+    let output = north_enqueue_with(&fixture, &[("SAFE_PUSH_SOUTH", &missing), ("PATH", &path)]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stdout}{stderr}");
+    assert!(stdout.contains("SAFE_PUSH_SOUTH") && stdout.contains("so a PUBLIC push cannot be checked") && stdout.contains("NOT pushed."), "{stdout}{stderr}");
+    assert!(stderr.contains("deny-list scan refused the landing") && stderr.contains("NOT queued"), "{stderr}");
+    assert!(!fixture.state.exists(), "a refused lane writes nothing to the state directory: {:?}", written(&fixture.state));
 }
 
 fn a_deny_listed_value_is_refused() {
