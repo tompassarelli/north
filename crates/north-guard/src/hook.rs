@@ -199,6 +199,7 @@ impl HookKind {
                 Guard("north-hook", crate::guard::public_text::evaluate),
                 Guard("north-hook", crate::guard::frozen_topics::evaluate),
                 Guard("poll-loop-guard", crate::guard::poll_loop::verdict),
+                Guard("poll-loop-guard", crate::guard::poll_loop_task_output::verdict),
                 Guard("heavy-command-guard", crate::guard::heavy_command::judge),
                 Guard("", crate::guard::scratch_log::evaluate),
                 Guard("session-kill-guard", crate::guard::session_kill::evaluate),
