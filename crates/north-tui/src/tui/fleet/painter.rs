@@ -76,6 +76,7 @@ fn paint_entry(entry: &Entry, width: usize, lines: &mut Vec<Line<'static>>) {
         EntryKind::Tool => lines.push(Line::from(vec![Span::styled("  ↳ ", dim), Span::styled(one_line(&entry.text, width.saturating_sub(4)), dim)])),
         EntryKind::ToolResult => lines.push(Line::from(Span::styled(format!("    {}", one_line(&entry.text, width.saturating_sub(4))), dim))),
         EntryKind::Error => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Red))),
+        EntryKind::Refusal => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Yellow))),
         EntryKind::Notice => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Yellow).add_modifier(Modifier::DIM))),
         EntryKind::TurnEnd => {}
     }

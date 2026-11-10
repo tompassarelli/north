@@ -124,6 +124,10 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     }
     assert_eq!(failed("Done: landed abc123.\nStop: reasoning", &on("sonnet-high", None)).stop.climb, None, "only a Not done report climbs");
     assert!(super::tries::unspent(&session(reasoning), &Evidence::default()).is_some(), "a climb is no try toward the two that hand the box to the proxy");
+    let safety = serde_json::json!({"entries": [{"kind": "refusal", "text": "safety refusal (cyber: claude-opus-5 -> claude-opus-4-8)"}, {"kind": "assistant", "text": reasoning}], "turns": [{"exit": "completed", "ended_ms": 1_000_000}]});
+    let refused = Issue { stop: super::stops::stop(&safety, &on("sonnet-high", None), &Evidence::default()), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
+    assert_eq!(refused.stop.climb, None, "a safety refusal is a boundary row, not a reasoning failure that climbs");
+    assert_eq!(climbed(&refused).signal, None, "a safety refusal relaunches on the same step or parks, and never escalates");
     let topped = failed(reasoning, &on("worker", Some("max")));
     assert_eq!(issues::readiness(&topped, &world(0.0)), Err("last worker stopped for a decision".into()), "the top rung parks the box");
     assert_eq!(issues::readiness(&Issue { touched: 1001.0, ..topped }, &world(0.0)), Ok(()), "a decision on the issue relaunches it");

@@ -496,6 +496,8 @@ pub enum EntryKind {
     ToolResult,
     TurnEnd,
     Error,
+    /// A provider's safety classifier flagged a turn and refused it or moved it to a fallback model.
+    Refusal,
     Notice,
 }
 
@@ -508,6 +510,7 @@ impl EntryKind {
             EntryKind::ToolResult => "result",
             EntryKind::TurnEnd => "turn",
             EntryKind::Error => "error",
+            EntryKind::Refusal => "refusal",
             EntryKind::Notice => "notice",
         }
     }

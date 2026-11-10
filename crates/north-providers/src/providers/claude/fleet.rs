@@ -63,6 +63,8 @@ impl Runtime for Claude {
                 "bypassPermissions",
                 "--system-prompt-snapshot",
                 "off",
+                "--settings",
+                r#"{"switchModelsOnFlag":true}"#,
             ]
             .map(str::to_owned),
         );
@@ -208,10 +210,32 @@ impl Runtime for Claude {
 }
 
 fn observe_system(frame: &Value, transcript: &mut Transcript) {
-    if frame["subtype"] == "init"
-        && let Some(session) = frame["session_id"].as_str() {
-            transcript.conversation = Some(session.to_owned());
+    match frame["subtype"].as_str() {
+        Some("init") => {
+            if let Some(session) = frame["session_id"].as_str() {
+                transcript.conversation = Some(session.to_owned());
+            }
         }
+        Some("model_refusal_fallback" | "model_refusal_no_fallback") => observe_refusal(frame, transcript),
+        _ => {}
+    }
+}
+
+/// The category and models a refusal frame names, as its row and its recorded cause read them.
+fn refusal(frame: &Value) -> String {
+    let field = |keys: &[&str]| keys.iter().find_map(|key| frame[*key].as_str());
+    let category = field(&["apiRefusalCategory", "api_refusal_category", "category"]).unwrap_or("unknown");
+    let original = field(&["originalModel", "original_model", "model"]).unwrap_or("unknown");
+    match field(&["fallbackModel", "fallback_model"]) {
+        Some(fallback) => format!("{category}: {original} -> {fallback}"),
+        None => format!("{category}: {original}, no fallback"),
+    }
+}
+
+fn observe_refusal(frame: &Value, transcript: &mut Transcript) {
+    let detail = refusal(frame);
+    push(transcript, EntryKind::Refusal, format!("safety refusal ({detail})"));
+    attribution::record(&transcript.name, "provider", Cause::Harness(Harness::SafetyRefusal), &detail);
 }
 
 fn observe_user(frame: &Value, transcript: &mut Transcript) {
@@ -290,7 +314,7 @@ fn observe_result(frame: &Value, transcript: &mut Transcript) {
     if frame["is_error"] == true && !aborted {
         let detail = frame["result"].as_str().unwrap_or(subtype);
         push(transcript, EntryKind::Error, detail.to_owned());
-        if !limited && turns::credential_failure(frame).is_none() {
+        if !limited && turns::credential_failure(frame).is_none() && !transcript.entries.iter().any(|entry| entry.kind == EntryKind::Refusal) {
             attribution::record(&transcript.name, "provider", Cause::Harness(Harness::ProviderError), detail);
         }
     }

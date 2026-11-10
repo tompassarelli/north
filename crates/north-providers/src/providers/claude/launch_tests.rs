@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+use serde_json::json;
+
+use crate::fleet::model::EntryKind;
 use crate::fleet::prompt::PromptMode;
 
 use super::*;
@@ -43,11 +46,32 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
     let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
 
     assert!(spec.argv.iter().all(|arg| !arg.contains("sk-test-value")), "{:?}", spec.argv);
+    assert!(spec.argv.windows(2).any(|pair| pair == ["--settings", r#"{"switchModelsOnFlag":true}"#]), "a fleet session lets a safety-flagged turn finish on the fallback model: {:?}", spec.argv);
+    let interactive = Claude.interactive(&account, &request(), "conversation", "").unwrap();
+    assert!(interactive.argv.iter().all(|arg| arg != "--settings"), "Tom's interactive window keeps ~/.claude/settings.json: {:?}", interactive.argv);
     assert!(spec.env.iter().all(|(_, value)| !value.to_string_lossy().contains("sk-test-value")), "{:?}", spec.env);
     assert!(spec.env_remove.contains(&"CLAUDE_CODE_OAUTH_TOKEN".to_owned()), "{:?}", spec.env_remove);
     let probe = [&spec.argv[..4], &["sh".into(), "-c".into(), "printf %s \"$CLAUDE_CODE_OAUTH_TOKEN\"".into()]].concat();
     let output = std::process::Command::new(&probe[0]).args(&probe[1..]).env_remove("CLAUDE_CODE_OAUTH_TOKEN").output().unwrap();
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "sk-test-value");
+    let mut transcript = Transcript::default();
+    Claude.observe(
+        &json!({
+            "type": "system",
+            "subtype": "model_refusal_fallback",
+            "scope": "session",
+            "level": "warning",
+            "trigger": "refusal",
+            "originalModel": "claude-opus-5",
+            "fallbackModel": "claude-opus-4-8",
+            "apiRefusalCategory": "cyber",
+            "content": "Opus 5's safeguards flagged this message. Switched to Opus 4.8."
+        }),
+        &mut transcript,
+    );
+    let rows: Vec<&str> = transcript.entries.iter().filter(|entry| entry.kind == EntryKind::Refusal).map(|entry| entry.text.as_str()).collect();
+    assert_eq!(rows, ["safety refusal (cyber: claude-opus-5 -> claude-opus-4-8)"], "{:?}", transcript.entries);
+    assert_eq!(Cause::parse("safety refusal"), Some(Cause::Harness(Harness::SafetyRefusal)));
 }
 
 

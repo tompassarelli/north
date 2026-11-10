@@ -61,6 +61,9 @@ pub struct Evidence {
 
 /// Why the session in `north fleet show NAME --json` shows a spin signal, with the evidence behind it.
 pub fn observed(session: &Value, evidence: &Evidence) -> Option<Spin> {
+    if session["entries"].as_array().is_some_and(|entries| entries.iter().any(|entry| entry["kind"] == "refusal")) {
+        return None;
+    }
     let report = stops::final_report(session)?;
     if let Some(refused) = refused_twice(session) {
         return Some(Spin { signal: Signal::LandRefusal, evidence: refused });
