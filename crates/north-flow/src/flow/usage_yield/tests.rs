@@ -22,6 +22,6 @@ fn credit_on_an_org_the_provider_refused_is_not_held_back() {
     std::fs::write(dir.path().join("claude-accounts.toml"), "[[account]]\n[account.api_org]\nid = \"p\"\ngrants = [{ usd = 100.0, expires = \"2099-12-31\" }]\n[[account]]\n[account.api_org]\nid = \"g\"\ngrants = [{ usd = 40.0, expires = \"2099-12-31\" }]\n").unwrap();
     let at = Timestamp::from_unix_seconds(1_794_000_000);
     assert_eq!(held_back(&policy, dir.path(), at), 140.0);
-    north_pace::credit::marks::mark(&dir.path().join("north/api-exhausted"), "p", "north-1", &at.iso_date(), None).unwrap();
+    north_pace::credit::marks::mark(&dir.path().join("north/api-exhausted"), "p", "north-1", &at.iso_date(), None, "Your credit balance is too low to access the Anthropic API.").unwrap();
     assert_eq!(held_back(&policy, dir.path(), at), 40.0);
 }

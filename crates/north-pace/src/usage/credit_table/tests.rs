@@ -7,7 +7,7 @@ fn grant(usd: f64, expires: &str) -> Grant {
 }
 
 fn entry(name: &str, expires: &str, spent: f64, later: &[Grant]) -> Entry {
-    Entry { name: name.to_owned(), balance: Some(Balance { grant: grant(200.0, expires), spent, left: 200.0 - spent, later: later.to_vec() }), marked: false }
+    Entry { name: name.to_owned(), balance: Some(Balance { grant: grant(200.0, expires), spent, left: 200.0 - spent, later: later.to_vec() }), marked: false, reading: None }
 }
 
 #[test]
@@ -17,7 +17,7 @@ fn the_api_section_is_one_aligned_table_in_the_order_the_pool_spends_it_with_its
         entry("pmme", "2026-11-30", 0.0, &[grant(100.0, "2027-01-02")]),
         entry("spent", "2026-11-20", 200.0, &[]),
         entry("gmail", "2026-11-12", 21.8, &[]),
-        Entry { name: "empty".to_owned(), balance: None, marked: false },
+        Entry { name: "empty".to_owned(), balance: None, marked: false, reading: None },
         Entry { marked: true, ..entry("refused", "2026-11-15", 10.0, &[]) },
     ];
     let reading = Reading { hosts: vec![("ccx33".to_owned(), 59_000), ("here".to_owned(), 61_000)], ..Reading::default() };

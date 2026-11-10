@@ -13,6 +13,7 @@ struct Entry {
     name: String,
     balance: Option<Balance>,
     marked: bool,
+    reading: Option<credit::readings::Reading>,
 }
 
 impl Entry {
@@ -36,12 +37,13 @@ pub(super) fn lines(places: &Places, now: Timestamp) -> Vec<String> {
     let grants = credit::grants(&places.policy);
     let spends = crate::router::pricing::PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| credit::spends(&places.state.join("north/ledger.db"), &prices, now));
     let today = now.iso_date();
+    let readings = credit::readings::directory(&places.state);
     let entries = named
         .into_iter()
         .map(|(name, id)| {
             let mine = spends.as_ref().ok().and_then(|reading| reading.orgs.get(&name).cloned()).unwrap_or_default();
             let balance = credit::balance(grants.get(&id).map_or(&[][..], Vec::as_slice), &mine, &today);
-            Entry { name, balance, marked: places.state.join("north/api-exhausted").join(&id).exists() }
+            Entry { name, balance, marked: places.state.join("north/api-exhausted").join(&id).exists(), reading: credit::readings::get(&readings, &id) }
         })
         .collect();
     let mut out = grid(&rows(entries, spends.is_ok()), 0);
@@ -63,10 +65,11 @@ fn rows(mut entries: Vec<Entry>, read: bool) -> Vec<Vec<String>> {
 fn row(entry: &Entry, read: bool) -> Vec<String> {
     let Some(balance) = &entry.balance else { return vec![entry.name.clone(), "none".to_owned(), UNREAD.to_owned(), UNREAD.to_owned(), UNREAD.to_owned()] };
     let money = |usd: f64| format!("${usd:.2}");
+    let left_usd = entry.reading.as_ref().map_or(balance.left, |reading| reading.usd);
     let (spent, left) = match (read, entry.exhausted()) {
         (false, _) => (UNREAD.to_owned(), UNREAD.to_owned()),
         (true, true) => (money(balance.spent), EXHAUSTED.to_owned()),
-        (true, false) => (money(balance.spent), money(balance.left)),
+        (true, false) => (money(balance.spent), money(left_usd)),
     };
     let mut cells = vec![entry.name.clone(), money(balance.grant.usd), plain::day(&balance.grant.expires), spent, left];
     if !balance.later.is_empty() {

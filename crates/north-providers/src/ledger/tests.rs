@@ -316,3 +316,15 @@ fn run_times_names_each_run_its_wall_minutes_and_the_eta_its_brief_stated() {
     assert_eq!(times.get("n940-d0900"), Some(&super::RunTime { minutes: 36, eta_min: 18 }));
     assert_eq!(times.get("n940-d0901"), None, "a run whose brief stated no ETA climbs on no ETA signal");
 }
+
+#[test]
+fn a_fable_5_2_run_is_priced_so_fleet_spend_prints_dollars_instead_of_unmeasured() {
+    use crate::fleet::books::Books;
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    ledger.record_run(&run("fable", "claude-fable-5-2", 1_000_000, 0)).unwrap();
+    let spend = ledger.spend().unwrap();
+    let fable = spend.iter().find(|spend| spend.session == "fable").unwrap();
+    assert_eq!(fable.tokens, 1_000_000);
+    assert!(fable.api_usd.is_some_and(|usd| usd > 0.0), "a Fable session reads {:?}", fable.api_usd);
+}

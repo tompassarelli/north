@@ -23,6 +23,7 @@ toml_edit.workspace = true
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -9,6 +9,7 @@ use crate::foundation::clock::Timestamp;
 use crate::router::pricing::PriceTable;
 
 pub mod marks;
+pub mod readings;
 mod runs;
 pub use runs::{Finished, Open, Reading, Snapshot, api_runs, store};
 
@@ -133,15 +134,17 @@ fn named(policy: &Path) -> Vec<(String, String)> {
     orgs.into_iter().flat_map(|orgs| orgs.iter()).filter_map(|(name, org)| Some((name.to_owned(), org.get("id")?.as_str()?.to_owned()))).collect()
 }
 
-pub fn left(policy: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today: &str) -> BTreeMap<String, Left> {
+pub fn left(policy: &Path, state: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today: &str) -> BTreeMap<String, Left> {
     let named = named(policy);
     let grants = grants(policy);
     let next = next_credits(policy);
+    let readings = readings::directory(state);
     named
         .iter()
         .map(|(name, id)| {
             let mine: Vec<(String, f64)> = named.iter().filter(|(_, other)| other == id).flat_map(|(other, _)| spends.get(other).cloned().unwrap_or_default()).collect();
-            let usd = balance(grants.get(id).map_or(&[][..], Vec::as_slice), &mine, today).map_or(0.0, |balance| balance.left.max(0.0) + balance.later.iter().map(|grant| grant.usd).sum::<f64>());
+            let estimate = balance(grants.get(id).map_or(&[][..], Vec::as_slice), &mine, today).map_or(0.0, |balance| balance.left.max(0.0) + balance.later.iter().map(|grant| grant.usd).sum::<f64>());
+            let usd = readings::get(&readings, id).map_or(estimate, |reading| reading.usd);
             (name.clone(), Left { id: id.clone(), usd, next_credit: next.get(id).cloned() })
         })
         .collect()
@@ -181,6 +184,9 @@ pub struct Source {
     pub expires_s: i64,
     pub burn_per_h: f64,
     pub exhausted: bool,
+    /// North's list-price estimate of what is left, kept beside a console or provider reading.
+    pub estimated: f64,
+    pub reading: Option<readings::Reading>,
 }
 
 impl Source {
@@ -196,7 +202,10 @@ impl Source {
 
     pub fn line(&self, now_s: i64) -> String {
         let pace = if self.drains(now_s) { "drains by then" } else { "cannot drain by then" };
-        format!("${:.2} left, expires in {:.0}h; at the fleet's ${:.2}/h over the last day it {pace}", self.left, self.deadline_h(now_s), self.burn_per_h)
+        let read = self.reading.as_ref().map_or_else(String::new, |reading| {
+            format!(" ({} reading {}, estimate ${:.2})", reading.source.label(), crate::foundation::clock::Timestamp::from_unix_seconds(reading.at).iso_minute(), self.estimated)
+        });
+        format!("${:.2} left{read}, expires in {:.0}h; at the fleet's ${:.2}/h over the last day it {pace}", self.left, self.deadline_h(now_s), self.burn_per_h)
     }
 }
 
@@ -217,6 +226,7 @@ pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
     let reading = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices, now)).unwrap_or_default();
     let (spends, burn_per_h) = (reading.orgs, reading.last_day_usd / 24.0);
     let today = now.iso_date();
+    let readings = readings::directory(state);
     orgs(policy)
         .into_iter()
         .filter_map(|(name, id)| {
@@ -224,7 +234,9 @@ pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
             let balance = balance(grants.get(&id).map_or(&[][..], Vec::as_slice), &mine, &today)?;
             let expires_s = crate::foundation::clock::parse_day_number(&balance.grant.expires)? * 86_400;
             let exhausted = marks::held(&state.join("north/api-exhausted"), &id, &today);
-            Some(Source { name, left: balance.left, expires_s, burn_per_h, exhausted })
+            let reading = readings::get(&readings, &id);
+            let left = reading.as_ref().map_or(balance.left, |reading| reading.usd);
+            Some(Source { name, left, expires_s, burn_per_h, exhausted, estimated: balance.left, reading })
         })
         .collect()
 }

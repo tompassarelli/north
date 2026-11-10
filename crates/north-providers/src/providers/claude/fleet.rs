@@ -17,7 +17,7 @@ use super::{accounts, limit, quota, turns, user_text, window_inbox};
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
-const MODELS: &[&str] = &["fable", "opus", "sonnet", "haiku", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
+const MODELS: &[&str] = &["fable", "opus", "sonnet", "haiku", "claude-fable-5-1", "claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
 
 pub struct Claude;
 

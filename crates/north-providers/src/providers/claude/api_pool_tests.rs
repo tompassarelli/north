@@ -1,4 +1,4 @@
-use super::{Org, Reading, declared, moved_to, next_subscription, open, ran_out, settle, since, switch, today};
+use super::{Org, Reading, declared, moved_to, next_subscription, open, ran_out, rejudge, settle, since, switch, today};
 use crate::fleet::model::SessionRecord;
 use crate::credit::{Grant, launchable};
 use crate::fleet::model::Transcript;
@@ -269,4 +269,78 @@ fn a_refused_session_whose_host_died_restarts_on_the_next_account_and_is_handed_
     assert_eq!((moved.account.as_str(), moved.live()), ("api:gmail", true));
     let handed = child.frames.lock().unwrap();
     assert!(handed.iter().any(|frame| frame.contains("Carry on with that turn")), "{handed:?}");
+}
+
+#[test]
+fn a_mark_written_from_a_refusal_keeps_its_body_and_a_passing_probe_clears_it_without_a_peer_copy_restoring_it() {
+    use crate::credit::marks;
+    use crate::platform::host::name;
+    let home = tempfile::tempdir().unwrap();
+    let here = name();
+    let policy = home.path().join("orchestration.toml");
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n", home.path().join("p.key").display())).unwrap();
+    std::fs::write(home.path().join("p.key"), "sk-ant-test\n").unwrap();
+    let state = home.path().join(".local/state/north");
+    let dir = state.join("api-exhausted");
+    let refusal = "HTTP 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API.\"}}";
+    assert!(marks::mark(&dir, "p", "north-1", &today(), None, refusal).unwrap());
+    let stale = std::fs::read_to_string(dir.join("p")).unwrap();
+
+    let lines = rejudge(&policy, home.path(), &state, &here, |_| Ok(()));
+
+    assert!(!marks::held(&dir, "p", &today()), "{lines:?}");
+    assert!(lines.iter().any(|line| line.contains("exhausted mark cleared")), "{lines:?}");
+    let mut peer = std::collections::BTreeMap::new();
+    peer.insert("p".to_owned(), stale);
+    assert!(marks::adopt(&dir, &peer, &today()).unwrap().is_empty(), "a peer's stale copy restored the cleared mark");
+    assert!(!marks::held(&dir, "p", &today()));
+}
+
+#[test]
+fn a_probe_that_still_refuses_keeps_the_organizations_mark() {
+    use crate::credit::marks;
+    use crate::platform::host::name;
+    let home = tempfile::tempdir().unwrap();
+    let here = name();
+    let policy = home.path().join("orchestration.toml");
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"{}\"] }}\n", home.path().join("p.key").display())).unwrap();
+    std::fs::write(home.path().join("p.key"), "sk-ant-test\n").unwrap();
+    let state = home.path().join(".local/state/north");
+    let dir = state.join("api-exhausted");
+    marks::mark(&dir, "p", "north-1", &today(), None, "Your credit balance is too low to access the Anthropic API.").unwrap();
+
+    let lines = rejudge(&policy, home.path(), &state, &here, |_| Err("Your credit balance is too low to access the Anthropic API.".to_owned()));
+
+    assert!(marks::held(&dir, "p", &today()), "{lines:?}");
+    assert!(lines.iter().any(|line| line.contains("keeps its exhausted mark")), "{lines:?}");
+}
+#[test]
+fn a_low_credit_turn_writes_the_providers_refusal_body_into_the_mark() {
+    use crate::fleet::registry::{Fleet, fixtures};
+    let home = tempfile::tempdir().unwrap();
+    let here = crate::platform::host::name();
+    let policy = home.path().join("orchestration.toml");
+    std::fs::write(&policy, format!("[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = {{ \"{here}\" = [\"/k/p\"] }}\n")).unwrap();
+    let fleet = Fleet::at(home.path().into(), crate::fleet::runtimes::Runtimes::new(vec![std::sync::Arc::new(Claude)]), std::sync::Arc::new(crate::fleet::fakes::Paper::default())).unwrap();
+    fixtures::live(&fleet, "working");
+    let file = home.path().join(".local/state/north/fleet/working/session.json");
+    let mut record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    record["account"] = json!("api:proton");
+    std::fs::write(&file, record.to_string()).unwrap();
+    let turn = [
+        json!({"type": "user", "session_id": "working", "uuid": "u1", "message": {"content": "carry on"}}),
+        json!({"type": "assistant", "session_id": "working", "message": {"model": "<synthetic>", "content": [{"type": "text", "text": "Credit balance is too low"}]}}),
+        json!({"type": "result", "session_id": "working", "subtype": "success", "is_error": true, "api_error_status": 400, "result": "Your credit balance is too low to access the Anthropic API."}),
+    ];
+    let mut stream = String::new();
+    for frame in turn {
+        stream.push_str(&frame.to_string());
+        stream.push('\n');
+    }
+    std::fs::write(home.path().join(".local/state/north/fleet/working/g1/stream.jsonl"), stream).unwrap();
+    let today = today();
+    let reading = Reading { grants: [("p".to_owned(), vec![grant(200.0, "2099-12-31")])].into(), next_credits: [("p".to_owned(), "2099-01-01".to_owned())].into(), today };
+    let lines = settle(&fleet, &Claude, (&policy, home.path()), &reading, |_: &SessionRecord, _: &str| None, |_, _, _, _, _, _| String::new());
+    let mark = std::fs::read_to_string(home.path().join(".local/state/north/api-exhausted/p")).unwrap();
+    assert!(mark.contains("Your credit balance is too low to access the Anthropic API."), "{lines:?} {mark:?}");
 }

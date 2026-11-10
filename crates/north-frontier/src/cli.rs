@@ -179,7 +179,7 @@ fn job(task: &Task, harness: Arm, sample: u32, out: &Path, briefs: &Path, source
                 charge_ledger(&key.org, &spent);
             }
             if record.ended == session::CREDIT {
-                let _ = api_pool::mark_ran_out(&north_base::platform::orchestration::path(), &state_root(), &org, &record.session);
+                let _ = api_pool::mark_ran_out(&north_base::platform::orchestration::path(), &state_root(), &org, &record.session, &record.final_text);
                 if !refused.is_empty() {
                     return Err(refusal("the API refused the run for credit on two orgs in a row"));
                 }

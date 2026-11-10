@@ -63,7 +63,7 @@ fn credits(now_ms: u64) -> BTreeMap<String, Credit> {
     let spends = crate::router::pricing::PriceTable::load().ok().and_then(|prices| north_core::credit::spends(&state.join("north/ledger.db"), &prices, Timestamp::from_unix_millis(now_ms as i64)).ok()).map(|reading| reading.orgs).unwrap_or_default();
     let today = Timestamp::from_unix_millis(now_ms as i64).iso_date();
     let marks = state.join("north/api-exhausted");
-    north_core::credit::left(&policy, &spends, &today)
+    north_core::credit::left(&policy, &state, &spends, &today)
         .into_iter()
         .map(|(name, left)| {
             let usd = if marks.join(&left.id).exists() { 0.0 } else { left.usd };

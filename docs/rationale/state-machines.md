@@ -146,10 +146,12 @@ fixes in each machine's code from history.
     `gen-*` directories and the `current` link (`crates/north-core/src/catalog/generation.rs:28-77`); a failed
     profile projection still publishes and then reports "not published" (`catalog/sync_gate.rs:17-46`).
     Shapes: presence-flag, link-read.
-16. **API organization exhaustion** (57: 19 x 3). A bare file `api-exhausted/ORG` per host, never cleared, read for
-    presence in five places (`crates/north-providers/src/providers/claude/api_pool.rs:73-119`, `accounts.rs:63-102`,
-    `crates/north-pace/src/credit.rs:213`, `usage/credit_table.rs:19`, `src/cli/fleet/limit.rs:64`), overlapping the
-    computed balance with nothing reporting a contradiction. Shapes: presence-flag.
+16. **API organization exhaustion** (57: 19 x 3). A file `api-exhausted/ORG` per host keeps the provider's refusal
+    body and is written only from a refusal that names low credit; a passing one-token probe (`north fleet accounts
+    --probe`) clears it and leaves a tombstone of the cleared text so a peer's host sync cannot restore that mark.
+    Five readers still read presence (`crates/north-providers/src/providers/claude/api_pool.rs`, `accounts.rs`,
+    `crates/north-pace/src/credit.rs`, `usage/credit_table.rs`, `src/cli/fleet/limit.rs`), and a reading can now
+    contradict the computed balance. Shapes: presence-flag, status-string.
 17. **Capacity mode, game reserve and host mode** (52: 26 x 2). `capacity-mode/state.json` read-modify-written
     without a lock by the tick and the quiet phrase (`crates/north-guard/src/guard/quiet_phrase.rs:107`); a quota
     applied with `set-property --runtime` is cached past a reboot; `gaming.json` has two writers; the game reserve is

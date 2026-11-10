@@ -19,7 +19,6 @@ use crate::foundation::clock::Timestamp;
 use crate::usage::decide::world::LimitEvent;
 
 const NEVER: &str = "9999-12-31";
-const LOW_CREDIT: &str = "credit balance is too low";
 const ENDED_RECENT: Duration = Duration::from_secs(6 * 3600);
 const ACCOUNT_SINCE: &str = "account-since";
 
@@ -124,20 +123,55 @@ pub fn next_key(policy: &Path, home: &Path, state_root: &Path, here: &str, skipp
     open(&orgs, &today(), |org| skipped.contains(&org.id) || exhausted(&marks, org), readable).map(|(org, key)| (org.id.clone(), key))
 }
 
-/// Marks organization `id` exhausted on `session`'s report that the API refused a turn for a credit balance too low.
-pub fn mark_ran_out(policy: &Path, state_root: &Path, id: &str, session: &str) -> std::io::Result<bool> {
-    marks::mark(&state_root.join("api-exhausted"), id, session, &today(), crate::credit::next_credits(policy).get(id).map(String::as_str))
+/// Marks organization `id` exhausted on `session`'s report that the API refused a turn for a credit balance too low,
+/// keeping the refusal's own body; a body that names anything else writes nothing.
+pub fn mark_ran_out(policy: &Path, state_root: &Path, id: &str, session: &str, body: &str) -> std::io::Result<bool> {
+    marks::mark(&state_root.join("api-exhausted"), id, session, &today(), crate::credit::next_credits(policy).get(id).map(String::as_str), body)
 }
 
 /// Whether an API error message is the low-credit refusal.
 pub fn low_credit(message: &str) -> bool {
-    message.to_lowercase().contains(LOW_CREDIT)
+    marks::names_low_credit(message)
 }
 
-/// Whether a transcript's newest ended turn ended on the API's low-credit error, even when a message delivered since has started another turn.
+/// The provider's refusal body of a transcript's newest ended turn, when it ended on the API's low-credit error, even when a message delivered since has started another turn.
+pub fn refusal(entries: &[Entry]) -> Option<&str> {
+    let end = entries.iter().rposition(|entry| entry.kind == EntryKind::TurnEnd)?;
+    let error = end.checked_sub(1).and_then(|error| entries.get(error))?;
+    (error.kind == EntryKind::Error && low_credit(&error.text)).then_some(error.text.as_str())
+}
+
+/// Whether a transcript's newest ended turn ended on the API's low-credit error.
 pub fn ran_out(entries: &[Entry]) -> bool {
-    let Some(end) = entries.iter().rposition(|entry| entry.kind == EntryKind::TurnEnd) else { return false };
-    end.checked_sub(1).and_then(|error| entries.get(error)).is_some_and(|error| error.kind == EntryKind::Error && low_credit(&error.text))
+    refusal(entries).is_some()
+}
+
+/// Re-judges every held exhausted mark under `state_root` with one cheap probe per organization, clearing each that now passes; one line per mark cleared or left, and per mark whose organization this host holds no key for. `probe` returns the provider's refusal body when the organization still refuses.
+pub fn rejudge(policy: &Path, home: &Path, state_root: &Path, here: &str, probe: impl Fn(&Path) -> Result<(), String>) -> Vec<String> {
+    let marks = state_root.join("api-exhausted");
+    let today = today();
+    let held = marks::all(&marks, &today);
+    if held.is_empty() {
+        return Vec::new();
+    }
+    let orgs = pool(policy, home, state_root, here);
+    let mut lines = Vec::new();
+    for (id, mark) in held {
+        let Some(org) = orgs.iter().find(|org| org.id == id) else { continue };
+        let Some(key) = org.keys.first() else {
+            lines.push(format!("api:{} keeps its exhausted mark: this host holds no key to probe it with", org.name));
+            continue;
+        };
+        match probe(key) {
+            Ok(()) => match marks::clear(&marks, &id, Timestamp::now().unix_seconds()) {
+                Ok(true) => lines.push(format!("api:{} exhausted mark cleared: a one-token probe passed (it kept {})", org.name, mark.lines().next().unwrap_or(""))),
+                Ok(false) => {}
+                Err(error) => lines.push(format!("api:{} exhausted mark was not cleared: {error}", org.name)),
+            },
+            Err(body) => lines.push(format!("api:{} keeps its exhausted mark: the probe refused with {}", org.name, body.trim().replace(['\r', '\n'], " "))),
+        }
+    }
+    lines
 }
 
 /// The transcript of `conversation` in the host stream at `stream` from byte `since` on: the turns a session ran on the account it moved onto there.
@@ -229,11 +263,15 @@ fn settle(
         let orgs = declared(&document, grants, home, &machine);
         let Some(org) = orgs.iter().find(|org| org.name == name) else { continue };
         let Some(transcript) = on_account(fleet, runtime, &record) else { continue };
-        let failed = ran_out(&transcript.entries);
+        let refusal = refusal(&transcript.entries);
+        let failed = refusal.is_some();
         if !failed && (record.ended() || transcript.status == Status::Working || !exhausted(&dir, org)) {
             continue;
         }
-        let marked = if failed { marks::mark(&dir, &org.id, &record.name, today, until(org)) } else { Ok(false) };
+        let marked = match refusal {
+            Some(body) => marks::mark(&dir, &org.id, &record.name, today, until(org), body),
+            None => Ok(false),
+        };
         lines.extend(marked_line(org, &record.name, &marked));
         let next = match moved_to(&record.account, &orgs, today, |org| exhausted(&dir, org)) {
             Some(to) => Some((to, None)),
