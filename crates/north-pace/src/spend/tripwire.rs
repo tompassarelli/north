@@ -31,6 +31,16 @@ pub struct Spender {
     pub spent: Vec<(f64, f64)>,
 }
 
+/// The fleet's measured burn on one account at `at`, which the burn governor projects to the resets: percent of each window per second, and how many five-hour points one week point costs (zero while the account's rates are unmeasured).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct Burn {
+    pub account: String,
+    pub at: f64,
+    pub five_hour: f64,
+    pub week: f64,
+    pub five_hour_per_week: f64,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Trip {
     pub account: String,
@@ -68,9 +78,20 @@ pub fn projected(samples: &[Sample], now: f64, minutes: f64) -> Option<f64> {
     Some(latest.used_pct + rise(samples, now, minutes) / (minutes * 60.0) * left)
 }
 
+/// Whether the week resets before the five-hour window does, or within `WEEK_RESET_GRACE_S` after it, so exhausting the five-hour window costs nothing the week would keep.
+pub fn week_resets_first(week_resets_at: Option<f64>, five_hour_resets_at: Option<f64>, now: f64) -> bool {
+    week_resets_at.zip(five_hour_resets_at).is_some_and(|(week, five_hour)| week > now && week <= five_hour + WEEK_RESET_GRACE_S)
+}
+
 /// The reset of the five-hour window the latest reading belongs to.
 fn five_hour_reset(samples: &[Sample], now: f64) -> Option<f64> {
     samples.iter().filter(|sample| sample.at <= now).max_by(|a, b| a.at.total_cmp(&b.at))?.resets_at
+}
+
+/// The fleet's burn on `account` from the readings the breaker takes: the five-hour rise of the last `spend_trip_fleet_min` minutes and the week's rise of the last `spend_burn_week_h` hours, each over its own span.
+pub fn burn(rules: &Rules, account: &str, five_hour: &[Sample], week: &[Sample], five_hour_per_week: f64, now: f64) -> Burn {
+    let per_second = |samples: &[Sample], minutes: f64| rise(samples, now, minutes) / (minutes * 60.0);
+    Burn { account: account.to_owned(), at: now, five_hour: per_second(five_hour, rules.fleet_trip.minutes), week: per_second(week, rules.week_burn_h * 60.0), five_hour_per_week }
 }
 
 /// Dollars a session settled in the last `minutes`: its latest total less its total at the span's
@@ -95,7 +116,7 @@ pub fn trip(rules: &Rules, account: &str, samples: &[Sample], week_resets_at: Op
     let points = |spender: &Spender, burst: Burst| spent(&spender.spent, now, burst.minutes) * points_per_usd;
     let rose = rise(samples, now, rules.fleet_trip.minutes);
     let fleet = (rose > rules.fleet_trip.points).then(|| format!("{account} five-hour window rose {rose:.0} points in {:.0} min, over the {:.0}-point tripwire", rules.fleet_trip.minutes, rules.fleet_trip.points));
-    let week_first = week_resets_at.zip(five_hour_reset(samples, now)).is_some_and(|(week, five_hour)| week > now && week <= five_hour + WEEK_RESET_GRACE_S);
+    let week_first = week_resets_first(week_resets_at, five_hour_reset(samples, now), now);
     let exhaust = projected(samples, now, rules.fleet_trip.minutes).filter(|reach| *reach >= 100.0 && !week_first).map(|reach| format!("{account} circuit breaker: its five-hour window rose {rose:.0} points in {:.0} min, which reaches {reach:.0}% before it resets", rules.fleet_trip.minutes));
     let fleet = fleet.or(exhaust);
     let session = own.iter().map(|spender| (spender.session.as_str(), points(spender, rules.session_trip))).filter(|(_, spent)| *spent > rules.session_trip.points).max_by(|a, b| a.1.total_cmp(&b.1));

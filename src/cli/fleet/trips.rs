@@ -11,8 +11,9 @@ use crate::fleet::runtime::PROXY;
 use crate::fleet::sender::Sender;
 use crate::foundation::clock::Timestamp;
 use crate::spend::tripwire::{self, SPENDERS, Sample, Spenders, TRIP_LOG, Trip};
-use crate::spend::{Rules, TRIPS};
+use crate::spend::{BURNS, Rules, TRIPS};
 use crate::threads::calibration::{self, Priced};
+use crate::usage::decide::world::Rates;
 use crate::usage::{open_ledger, profiles};
 use crate::watch;
 
@@ -25,7 +26,11 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
     let now = now_ms as f64 / 1000.0;
     let rules = Rules::configured();
     let span = rules.fleet_trip.minutes.max(rules.session_trip.minutes) * 60.0;
-    let samples = match five_hour_samples(&db, now - span) {
+    let samples = match window_samples(&db, "session", now - span) {
+        Ok(samples) => samples,
+        Err(why) => return vec![format!("the spend tripwire did not run: the usage table is unreadable: {why}")],
+    };
+    let week_samples = match window_samples(&db, "weekly_all", now - rules.week_burn_h * 3600.0) {
         Ok(samples) => samples,
         Err(why) => return vec![format!("the spend tripwire did not run: the usage table is unreadable: {why}")],
     };
@@ -55,6 +60,17 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
             tripwire::trip(&rules, account, &own, week, &spenders.sessions, *rate.as_ref().unwrap_or(&0.0), now)
         })
         .collect();
+    let burns: Vec<tripwire::Burn> = judged_accounts
+        .iter()
+        .map(|account| {
+            let of = |readings: &[(String, Sample)]| readings.iter().filter(|(name, _)| name == account).map(|(_, sample)| *sample).collect::<Vec<Sample>>();
+            let per_week = priced_rates(&db, account, now_ms).ok().flatten().map_or(0.0, |rates| rates.five_hour.points_per_usd() / rates.week.points_per_usd());
+            tripwire::burn(&rules, account, &of(&samples), &of(&week_samples), if per_week.is_finite() { per_week } else { 0.0 }, now)
+        })
+        .collect();
+    if let Err(why) = write_json(&agents.join(BURNS), &json!({ "burns": burns })) {
+        lines.push(format!("the spend burn governor's burn readings were not written, so spawners project the last ones: {why}"));
+    }
     lines.extend(stale_alarm(fleet, &agents, &priced));
     let previous: Vec<Trip> = serde_json::from_value(read_json::<Value>(&agents.join(TRIPS))["trips"].clone()).unwrap_or_default();
     let judged = tripwire::judge(&previous, confirmed, now, &rules, |account| points_per_usd(&db, account, now_ms).unwrap_or(0.0));
@@ -82,15 +98,16 @@ fn running(fleet: &Fleet) -> Vec<(String, String)> {
     sessions.into_iter().filter(|record| record.provider.label() == "claude" && !record.verification && record.role() != Role::Proxy && fleet.running(record)).map(|record| (record.name, format!("claude:{}", record.account))).collect()
 }
 
-fn five_hour_samples(db: &Connection, since: f64) -> rusqlite::Result<Vec<(String, Sample)>> {
+/// Every account's readings of the usage-table window `name` (`session` is the five-hour window, `weekly_all` the week) since `since`.
+fn window_samples(db: &Connection, name: &str, since: f64) -> rusqlite::Result<Vec<(String, Sample)>> {
     let seconds = |text: &str| Timestamp::parse(text).ok().map(|at| at.unix_millis() as f64 / 1000.0);
     let since = Timestamp::from_unix_millis((since * 1000.0) as i64).iso();
     let present: i64 = db.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'usage'", [], |row| row.get(0))?;
     if present == 0 {
         return Ok(Vec::new());
     }
-    let mut query = db.prepare("SELECT account, ts, used_pct, resets_at FROM usage WHERE provider = 'claude' AND kind = 'window' AND name = 'session' AND used_pct IS NOT NULL AND ts >= ?1")?;
-    let rows = query.query_map(params![since], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?, row.get::<_, Option<String>>(3)?)))?;
+    let mut query = db.prepare("SELECT account, ts, used_pct, resets_at FROM usage WHERE provider = 'claude' AND kind = 'window' AND name = ?1 AND used_pct IS NOT NULL AND ts >= ?2")?;
+    let rows = query.query_map(params![name, since], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?, row.get::<_, Option<String>>(3)?)))?;
     Ok(rows.flatten().filter_map(|(account, ts, used_pct, resets_at)| Some((format!("claude:{account}"), Sample { at: seconds(&ts)?, used_pct, resets_at: resets_at.as_deref().and_then(seconds) }))).collect())
 }
 
@@ -112,14 +129,19 @@ fn week_resets(db: &Connection, now: f64) -> rusqlite::Result<Vec<(String, f64)>
     Ok(newest.into_iter().collect())
 }
 
-/// The five-hour points per dollar the session rule prices `account`'s spend with: zero when unmeasured, so the rule refuses nothing, and why when the newest rate is stale.
-fn points_per_usd(db: &Connection, account: &str, now_ms: u64) -> Result<f64, String> {
+/// The rates that price `account`'s spend: none when unmeasured, and why when the newest are stale.
+fn priced_rates(db: &Connection, account: &str, now_ms: u64) -> Result<Option<Rates>, String> {
     let label = account.strip_prefix("claude:").unwrap_or(account);
     match calibration::priced(db, label, Timestamp::from_unix_millis(now_ms as i64)) {
-        Ok(Priced::Measured(rates)) => Ok(rates.five_hour.points_per_usd()),
+        Ok(Priced::Measured(rates)) => Ok(Some(rates)),
         Ok(Priced::Stale(why)) => Err(why),
-        Ok(Priced::Unmeasured) | Err(_) => Ok(0.0),
+        Ok(Priced::Unmeasured) | Err(_) => Ok(None),
     }
+}
+
+/// The five-hour points per dollar the session rule prices `account`'s spend with: zero when unmeasured, so the rule refuses nothing, and why when the newest rate is stale.
+fn points_per_usd(db: &Connection, account: &str, now_ms: u64) -> Result<f64, String> {
+    priced_rates(db, account, now_ms).map(|rates| rates.map_or(0.0, |rates| rates.five_hour.points_per_usd()))
 }
 
 /// The text the proxy gets once when the session rule's rate input on `accounts` is stale, so the rule refuses nothing on it.

@@ -318,6 +318,15 @@ source = "tom: 2026-11-07 starting span (north#702)"
 fallback = "none"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
+[spend_burn_week_h]
+value = 6
+allowed = { min = 1, max = 168 }
+unit = "hours over which the fleet's rise in an account's week window is measured for the burn governor, which holds that rate to the week's reset"
+source = "prior: the five-hour breaker's 15 minutes held to a week's reset would turn one burst into days of burn, and a week reading moves by whole steps; six hours spans a work session and a week reading's steps (north#1076)"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs with week readings before and after, to compare the projected week with the week each reset reached" }
+fallback = "none: a stated span, not a measurement"
+consumers = ["crates/north-pace/src/spend/mod.rs", "src/cli/fleet/trips.rs"]
+
 [spend_rate_max_h]
 value = 3
 allowed = { min = 1, max = 168 }

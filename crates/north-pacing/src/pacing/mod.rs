@@ -8,6 +8,8 @@ pub mod placement;
 #[cfg(test)]
 mod breaker_tests;
 #[cfg(test)]
+mod governor_tests;
+#[cfg(test)]
 mod operational_tests;
 #[cfg(test)]
 mod placement_gate_tests;

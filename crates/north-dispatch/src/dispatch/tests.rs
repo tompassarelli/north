@@ -68,7 +68,7 @@ pub(super) fn sized(name: &str, hosts: &[&str], plan: PlanSize, room: Room) -> A
 pub(super) fn view(accounts: &[Account]) -> View {
     let window = |left: f64, reset_h: f64| Some(Window { used_pct: 100.0 - left, resets_at: Some(reset_h * 3600.0) });
     let spent = |account: &Account| spend::Account { name: account.name.clone(), plan_week: account.plan.week, five_hour: window(account.room.five_hour, 5.0), week: window(account.room.week, account.room.week_reset_h), counted: true };
-    View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, trips: Vec::new(), keyed: Vec::new(), operational: Vec::new(), drain: false }
+    View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, trips: Vec::new(), burns: Vec::new(), keyed: Vec::new(), operational: Vec::new(), drain: false }
 }
 
 /// The shipped rules, so these tests pin slots and order alone.

@@ -1,4 +1,4 @@
-# Spend rule: one reserve, one floor, one tripwire
+# Spend rule: one reserve, one floor, one tripwire, one burn governor
 
 Decided 2026-11-07 under north#702: north spends account capacity as fast as useful work allows, and only these
 rules may stop a new worker. Before this, about 35 files read pace state and each derived its own limit from a
@@ -10,7 +10,7 @@ fate.
 
 One module, `north_pace::spend`, holds the rule. Dispatch, `north fleet launch`, the spawn hook and
 follows-release call it, and nothing else may refuse a worker on usage grounds. A refusal names the rule that
-fired: `spend reserve`, `operational reserve`, `spend floor`, `spend tripwire`, `provider limit` or `no usage reading`.
+fired: `spend reserve`, `operational reserve`, `spend floor`, `burn governor`, `spend tripwire`, `provider limit` or `no usage reading`.
 
 1. **Pooled reserve.** One reserve covers all accounts together. The pool is the sum, over the accounts
    spend counts, of each account's unspent share of its week (all of it once the week has reset), scaled by
@@ -41,6 +41,19 @@ fired: `spend reserve`, `operational reserve`, `spend floor`, `spend tripwire`, 
    routines and Tom's own sessions) still passes inside the floor. The drain switch turns off the pooled
    reserve, not this floor.
 
+4. **Burn governor (north#1076).** A worker starts on an account only if the account's use at its next five-hour
+   reset and at its next week reset stays inside the budget that keeps the operational floor (100 less
+   `spend_floor_five_hour` and `spend_floor_week`). The projection is the window's used percent now, plus the fleet's
+   measured burn on that account held to the reset, plus the expected charge of this worker and of each worker the
+   run has placed. The burn is the five-hour rise of the last `spend_trip_fleet_min` minutes (the breaker's reading)
+   and the week's rise of the last `spend_burn_week_h` hours, which `north fleet tick` writes per account to
+   `agents/spend/burns.json` beside the trips and spawners read for as long as the tripwire's span. The charge is
+   `spend_worker_charge` Max 5x week points, in the account's own week percent, and in five-hour percent through the
+   account's measured five-hour-to-week points per dollar (none while unmeasured). A five-hour window that resets
+   after a week that resets first, or within an hour of it, is not projected (the breaker's rule), and the drain
+   switch skips the week's projection, leaving the floor. The refusal names the account, the projection, the window, the burn and the
+   reset time.
+
 The provider's own limit is not a north rule. An account at the end of either window cannot run anything, so
 placement skips it and the refusal names `provider limit`.
 
@@ -60,7 +73,7 @@ default reserve applies. A refusal reads "a new worker session would leave N poi
 accounts, not above the M-point reserve".
 The money refusal and its ceiling stay; they are cost policy, not pacing.
 
-Nothing else refuses: no burn projection, no week spread over the hours to reset, no pace line, no hold,
+Nothing else refuses: no pace line, no week spread over the hours to reset beyond the burn governor's, no pace line, no hold,
 grant, reservation or per-account `allowed_workers` beyond the operational floor, no stale-sample hold, and no
 requirement that a named account match placement's first pick.
 
