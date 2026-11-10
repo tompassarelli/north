@@ -5,6 +5,7 @@ pub mod check_timings;
 pub mod denylist;
 pub mod denylist_attest;
 pub mod fails_first;
+pub mod generated_registry;
 pub mod flake;
 pub mod instruction_limits;
 pub mod judge;

@@ -59,3 +59,14 @@ fn a_lane_that_edits_only_the_per_unit_source_is_accepted() {
 
     assert_eq!(check(directory, &base, &head), Ok(()));
 }
+
+#[test]
+fn a_lane_that_removes_a_generated_file_from_the_repository_is_accepted() {
+    let root = repo();
+    let directory = root.path();
+    let base = commit(directory, "base");
+    git_in(directory, &["rm", "-q", "docs/features.md"]);
+    let head = commit(directory, "stop tracking the generated index");
+
+    assert_eq!(check(directory, &base, &head), Ok(()));
+}

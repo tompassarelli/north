@@ -132,6 +132,10 @@ pub fn run(arguments: &[String]) -> u8 {
         [name, kills, rest @ ..] if name == "test-admission" && kills == "kills" => test_admission::kills(&directory, rest, &mut std::io::stdout()),
         [name, run, range] if name == "test-admission" && run == "run" => test_admission::fail_to_pass(&directory, range, &mut std::io::stdout()),
         [name, range] => ranged(&directory, name, range).unwrap_or_else(|| unrecognized(arguments)),
+        [] => {
+            println!("{USAGE}");
+            0
+        }
         [flag] if flag == "-h" || flag == "--help" => {
             println!("{USAGE}");
             0
