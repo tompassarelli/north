@@ -21,10 +21,16 @@ pub enum Harness {
     GateRefusal,
     /// The fleet stopped the session in the middle of a turn: a stop, forget, relaunch or retirement.
     Halted,
+    /// A provider's stream ended the turn with an error that is neither an access nor a capacity refusal.
+    ProviderError,
+    /// The launch gate refused to start a session, so no run of it exists to carry the loss.
+    LaunchRefusal,
+    /// A capacity lease's deadline expired under the command the lease held.
+    LeaseTimeout,
 }
 
 impl Harness {
-    pub const ALL: [Harness; 10] = [Self::Placement, Self::Access, Self::LandingRefusal, Self::FalseRevert, Self::Capacity, Self::Compaction, Self::Waits, Self::Duplicate, Self::GateRefusal, Self::Halted];
+    pub const ALL: [Harness; 13] = [Self::Placement, Self::Access, Self::LandingRefusal, Self::FalseRevert, Self::Capacity, Self::Compaction, Self::Waits, Self::Duplicate, Self::GateRefusal, Self::Halted, Self::ProviderError, Self::LaunchRefusal, Self::LeaseTimeout];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -38,6 +44,9 @@ impl Harness {
             Self::Duplicate => "duplicate",
             Self::GateRefusal => "gate refusal",
             Self::Halted => "halted",
+            Self::ProviderError => "provider error",
+            Self::LaunchRefusal => "launch refusal",
+            Self::LeaseTimeout => "lease timeout",
         }
     }
 }

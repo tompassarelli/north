@@ -26,7 +26,7 @@ cutoff="datetime('now','-$days days')"
 sqlite3 -readonly "$threads" "
   select case when class like 'nix-%' then 'harness' when class='false-refusal' then 'north-diff-gates' when class='flaky-test' then 'north-landing-gates' else 'north-landing' end, 'loss', count(*) from incidents
     where detected_at>=$cutoff and class not in ('lander-refused','lander-conflict') group by 1;
-  select case source when 'lander' then 'north-landing' when 'dispatch' then 'north-dispatch' when 'capacity' then 'north-capacity' else 'north-fleet' end, 'loss', count(*) from boundary_causes
+  select case source when 'lander' then 'north-landing' when 'dispatch' then 'north-dispatch' when 'capacity' then 'north-capacity' when 'provider' then 'north-providers' when 'launch' then 'north-pace' else 'north-fleet' end, 'loss', count(*) from boundary_causes
     where at>=$cutoff and cause not in ('worker','tom','proxy') group by 1;
   select 'north-landing', 'loss', count(*) from land_checks where started_at>=$cutoff and outcome='timeout';
   select 'north-landing', 'decision', count(*) from landings where queued_at>=$cutoff and verdict in ('conflict','failed');
