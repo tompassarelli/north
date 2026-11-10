@@ -249,8 +249,24 @@ consumers = ["crates/north-calibration/src/threads/calibration/mod.rs"]
 value = 5
 allowed = { min = 0, max = 100 }
 unit = "percent of the combined week of all counted accounts (the sum of their plan_week) that must stay unspent across them together; a new worker starts only while the pooled week left after it stays above this, and the drain switch turns it off"
-source = "tom, 2026-11-09 (paraphrased): the fleet keeps one small reserve of about 5% in total across every account for ad hoc needs and nothing else holds workers back on usage grounds (north#1000)"
+source = "tom, 2026-11-09 (paraphrased): the fleet keeps one small reserve of about 5% in total across every account for ad hoc needs and nothing else holds workers back on usage grounds (north#1000); north#1049 later carved the per-account operational floor for the privacy judge, lander and canaries out of each subscription, so the pooled reserve is no longer the only usage stop"
 fallback = "none: the reserve is a stated amount, not a measurement"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_floor_week]
+value = 5
+allowed = { min = 0, max = 100 }
+unit = "percent of an account's weekly window kept for operational callers, so no new worker starts while the week has this much or less left"
+source = "tom, 2026-11-10: the reserve is a floor carved out of the Claude subscriptions, starting at the last 5% of the week window (north#1049)"
+fallback = "none: a stated amount, not a measurement"
+consumers = ["crates/north-pace/src/spend/mod.rs"]
+
+[spend_floor_five_hour]
+value = 10
+allowed = { min = 0, max = 100 }
+unit = "percent of an account's five-hour window kept for operational callers, so no new worker starts while the window has this much or less left"
+source = "tom, 2026-11-10: the reserve is a floor carved out of the Claude subscriptions, starting at the last 10% of the five-hour window (north#1049)"
+fallback = "none: a stated amount, not a measurement"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
 [spend_reading_max_h]

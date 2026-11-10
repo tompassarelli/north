@@ -18,6 +18,10 @@ pub use tripwire::Trip;
 pub struct Rules {
     /// Percent of the combined week of all counted accounts that must stay unspent across them together, unless the drain switch is on.
     pub reserve: f64,
+    /// Percent of an account's week kept for operational callers; no new worker starts inside it.
+    pub floor_week: f64,
+    /// Percent of an account's five-hour window kept for operational callers; no new worker starts inside it.
+    pub floor_five_hour: f64,
     /// Points of a Max 5x week one new worker is expected to take from the pool.
     pub charge: f64,
     /// Worker sessions that may be working at once across every host and account.
@@ -33,6 +37,8 @@ impl Rules {
         let number = crate::platform::harness::default_number;
         Self {
             reserve: number("spend_reserve"),
+            floor_week: number("spend_floor_week"),
+            floor_five_hour: number("spend_floor_five_hour"),
             charge: number("spend_worker_charge"),
             cap: number("spend_worker_cap") as usize,
             fleet_trip: tripwire::Burst { points: number("spend_trip_fleet_points"), minutes: number("spend_trip_fleet_min") },
@@ -115,6 +121,7 @@ pub enum Starter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
     Reserve,
+    Floor,
     Cap,
     Tripwire,
     ProviderLimit,
@@ -125,6 +132,7 @@ impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Reserve => "spend reserve",
+            Self::Floor => "spend floor",
             Self::Cap => "spend cap",
             Self::Tripwire => "spend tripwire",
             Self::ProviderLimit => "provider limit",
@@ -176,10 +184,28 @@ impl View {
         if let Some(refusal) = chosen.limit(self.at) {
             return Err(refusal);
         }
+        if starter == Starter::Worker {
+            self.floor(rules, chosen)?;
+        }
         match self.trips.iter().find(|trip| trip.account == account).filter(|_| starter != Starter::Reserved) {
             Some(trip) => Err(Refusal { rule: Rule::Tripwire, line: trip.line.clone() }),
             None => Ok(()),
         }
+    }
+
+    /// The operational floor: the last percent of each window no new worker may spend, which the
+    /// privacy judge, lander and canaries keep (north#1049).
+    fn floor(&self, rules: &Rules, account: &Account) -> Result<(), Refusal> {
+        let kept = |window: Option<Window>, percent: f64, kind: &str| {
+            let window = window.filter(|_| percent > 0.0)?;
+            let left = 100.0 - window.used(self.at);
+            (left <= percent).then(|| format!("{kind} {left:.0}% left, inside the {percent:.0}% floor"))
+        };
+        let reasons: Vec<String> = [kept(account.five_hour, rules.floor_five_hour, "five-hour"), kept(account.week, rules.floor_week, "week")].into_iter().flatten().collect();
+        if reasons.is_empty() {
+            return Ok(());
+        }
+        Err(Refusal { rule: Rule::Floor, line: format!("{} is inside its operational floor: {}; the privacy judge, lander and canaries keep it", account.name, reasons.join("; ")) })
     }
 
     /// The rules no account choice passes: the cap on working sessions and the pooled reserve.

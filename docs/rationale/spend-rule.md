@@ -1,6 +1,6 @@
-# Spend rule: one reserve, one concurrency cap, one tripwire
+# Spend rule: one reserve, one floor, one concurrency cap, one tripwire
 
-Decided 2026-11-07 under north#702: north spends account capacity as fast as useful work allows, and only three
+Decided 2026-11-07 under north#702: north spends account capacity as fast as useful work allows, and only these
 rules may stop a new worker. Before this, about 35 files read pace state and each derived its own limit from a
 usage projection; the gates disagreed, and on 2026-11-07 dispatch saw 18 ready boxes and 10 free slots and
 launched none. This note states the rule, names every gate that existed on that date, and gives each one its
@@ -10,7 +10,7 @@ fate.
 
 One module, `north_pace::spend`, holds the rule. Dispatch, `north fleet launch`, the spawn hook and
 follows-release call it, and nothing else may refuse a worker on usage grounds. A refusal names the rule that
-fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no usage reading`.
+fired: `spend reserve`, `spend floor`, `spend cap`, `spend tripwire`, `provider limit` or `no usage reading`.
 
 1. **Pooled reserve.** One reserve covers all accounts together. The pool is the sum, over the accounts
    spend counts, of each account's unspent share of its week (all of it once the week has reset), scaled by
@@ -18,9 +18,9 @@ fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no u
    `spend_reserve` (5, restated 2026-11-09 under north#1000) percent of the combined week of all counted
    accounts, in the same units, so it means "a twentieth of everything" whatever the plans are. A worker starts only if the pool, less `spend_worker_charge` for
    it and for each worker this run has already placed, stays above the reserve. Workers may drain any single
-   account to the provider's limit. An account that refills first returns its week to the pool. The proxy,
-   scheduled routines (a `[routine:...]` brief) and Tom's own sessions are not held by the reserve and go to
-   whichever account still has headroom.
+   account to the operational floor (rule 4), and reserved starters to the provider's limit. An account that
+   refills first returns its week to the pool. The proxy, scheduled routines (a `[routine:...]` brief) and
+   Tom's own sessions are not held by the reserve and go to whichever account still has headroom.
 2. **Concurrency cap.** At most `spend_worker_cap` (18) worker sessions may be active at once. Active means a
    fleet session in status `starting` or `working`, other than the proxy and adopted windows, counted once per
    name across every registry the caller surveys (dispatch and `north fleet launch` survey every host's
@@ -41,27 +41,35 @@ fired: `spend reserve`, `spend cap`, `spend tripwire`, `provider limit` or `no u
    The proxy is told once per trip, with the top spenders. Running sessions continue. A trip lapses once no
    tick confirms it within the longer of the two spans. Trip events go to `agents/spend/trips.jsonl` so a week
    of them can tune the thresholds.
+4. **Operational floor.** Each subscription account keeps `spend_floor_week` (5) percent of its week and
+   `spend_floor_five_hour` (10) percent of its five-hour window for the privacy judge, the lander and the
+   canaries (north#1049). A new worker refuses on `spend floor` once either window has that much or less left,
+   so a busy fleet cannot spend the capacity the gates that let it land need. A reserved starter (the proxy,
+   routines and Tom's own sessions) still passes inside the floor. The drain switch turns off the pooled
+   reserve, not this floor.
 
 The provider's own limit is not a north rule. An account at the end of either window cannot run anything, so
 placement skips it and the refusal names `provider limit`.
 
 **No per-account cover (2026-11-09, north#1000).** An earlier rule (north#259) refused a worker on an account whose
 windows could not cover one worker run at its p90. It is deleted: a worker that reaches a provider limit
-mid-run continues on another account in its own conversation (north#998), so admission no longer predicts
-whether a session fits in one account. Besides the reserve, the provider limit is the only account-level usage
-stop. The proxy, routines and Tom's sessions, and Agent-tool subagents, meet only the provider limit.
+mid-run continues on another account in its own conversation (north#998), so admission does not predict
+whether a session fits in one account. The reserve pools every account, the operational floor (rule 4,
+north#1049) keeps the last 5% of a week and 10% of a five-hour window for operational callers, and the
+provider limit is the only other account-level usage stop. The proxy, routines and Tom's sessions, and
+Agent-tool subagents, meet only the provider limit.
 
 **Drain.** `north fleet drain on [--until TIME]` turns the reserve off until `north fleet drain off` or the time
-passes; every account may then be spent to its provider limit. The cap and the tripwire stay. The switch lives in
-`spend/drain.json` in the agents state directory of the host that admits the launch, and `north fleet usage`
-prints the mode on its first line. The proxy flips it only on Tom's own word to drain; without that word the
+passes; every account may then be spent past the pooled reserve, to its provider limit unless it is inside the
+operational floor. The cap, the tripwire and the floor stay. The switch lives in `spend/drain.json` in the agents
+state directory of the host that admits the launch, and `north fleet usage` prints the mode on its first line. The proxy flips it only on Tom's own word to drain; without that word the
 default reserve applies. A refusal reads "a new worker session would leave N points of week across all
 accounts, not above the M-point reserve".
 The money refusal and its ceiling stay; they are cost policy, not pacing.
 
 Nothing else refuses: no burn projection, no week spread over the hours to reset, no pace line, no hold,
-grant, reservation or per-account `allowed_workers`, no stale-sample hold, and no requirement that a named
-account match placement's first pick.
+grant, reservation or per-account `allowed_workers` beyond the operational floor, no stale-sample hold, and no
+requirement that a named account match placement's first pick.
 
 **Readings.** Spend reads the last sampled used percent of each account's five-hour and week windows from
 `usage-gate.json`. A window whose reset has passed reads 0. An account counts toward the pool only while a

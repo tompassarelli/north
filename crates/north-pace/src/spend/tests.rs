@@ -5,7 +5,7 @@ const NOW: f64 = 1_800_000_000.0;
 const HOUR: f64 = 3600.0;
 
 fn rules() -> Rules {
-    Rules { reserve: 5.0, charge: 1.0, cap: 12, fleet_trip: Burst { points: 30.0, minutes: 15.0 }, session_trip: Burst { points: 10.0, minutes: 10.0 }, reading_max_h: 2.0 }
+    Rules { reserve: 5.0, floor_week: 5.0, floor_five_hour: 10.0, charge: 1.0, cap: 12, fleet_trip: Burst { points: 30.0, minutes: 15.0 }, session_trip: Burst { points: 10.0, minutes: 10.0 }, reading_max_h: 2.0 }
 }
 
 fn account(name: &str, five_hour: f64, week: f64) -> Account {
@@ -49,26 +49,37 @@ fn the_tripwire_fires_on_a_planted_burst_and_names_the_top_spender() {
     assert_eq!(tripwire::trip(&rules(), "claude:c", &calm, &[], 1.0, NOW), None);
 }
 
-/// 2026-11-09: workers were refused on b and c at 3% and 1% of their week by a per-account cover while the pool sat above its reserve.
+/// north#1000 let a worker start with 3% of the week left; north#1049 reserves the last 5% of the
+/// week and 10% of the five-hour window for the privacy judge, lander and canaries, so a worker
+/// stops there while a reserved starter still uses it.
 #[test]
-fn a_worker_starts_on_an_account_with_3_percent_of_its_week_left_while_the_pool_is_above_the_reserve_and_stops_at_it() {
-    let mut view = View { at: NOW, accounts: vec![account("claude:a", 10.0, 97.0), account("claude:b", 10.0, 50.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false };
-    assert_eq!(view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()), Ok(()));
-    view.accounts[1] = account("claude:b", 10.0, 93.0);
-    let refused = view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).unwrap_err();
-    assert_eq!(refused.rule, Rule::Reserve, "{refused}");
-    assert!(refused.line.contains("worker session") && !refused.to_string().contains("turn"), "{refused}");
+fn a_worker_stops_at_the_operational_floor_while_the_judge_lander_and_canaries_may_use_it() {
+    let mut view = View { at: NOW, accounts: vec![account("claude:a", 0.0, 94.9), account("claude:b", 10.0, 50.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false };
+    assert_eq!(view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()), Ok(()), "5.1% of the week is still above the 5% floor");
+    view.accounts[0] = account("claude:a", 0.0, 95.0);
+    let week = view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).unwrap_err();
+    assert_eq!(week.rule, Rule::Floor, "{week}");
+    assert!(week.line.contains("week 5% left, inside the 5% floor") && week.line.contains("privacy judge, lander and canaries"), "{week}");
+    view.accounts[0] = account("claude:a", 90.0, 50.0);
+    let five_hour = view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).unwrap_err();
+    assert_eq!(five_hour.rule, Rule::Floor, "{five_hour}");
+    assert!(five_hour.line.contains("five-hour 10% left, inside the 10% floor"), "{five_hour}");
+    assert_eq!(view.admit(&rules(), "claude:a", Starter::Reserved, Placed::default()), Ok(()), "the judge, lander and canaries keep the floor");
 }
 
-/// Tom's drain word (2026-11-09) turns the reserve off; the provider limit and the cap stay.
+/// Tom's drain word (2026-11-09) turns the pooled reserve off; the provider limit, the cap and the
+/// per-account operational floor stay.
 #[test]
-fn drain_skips_the_reserve_but_not_the_provider_limit_or_the_cap() {
-    let view = View { at: NOW, accounts: vec![account("claude:a", 10.0, 99.0), account("claude:b", 10.0, 100.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false };
-    assert_eq!(view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Reserve));
-    let drained = View { drain: true, ..view };
-    assert_eq!(drained.admit(&rules(), "claude:a", Starter::Worker, Placed::default()), Ok(()));
-    assert_eq!(drained.admit(&rules(), "claude:b", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::ProviderLimit));
-    assert_eq!(drained.admit(&rules(), "claude:a", Starter::Worker, Placed { workers: 12 }).map_err(|refusal| refusal.rule), Err(Rule::Cap));
+fn drain_skips_the_reserve_but_not_the_provider_limit_the_cap_or_the_floor() {
+    let tight = Rules { charge: 6.0, ..rules() };
+    let view = View { at: NOW, accounts: vec![account("claude:a", 10.0, 94.0), account("claude:b", 10.0, 100.0)], working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false };
+    assert_eq!(view.admit(&tight, "claude:a", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Reserve));
+    let drained = View { drain: true, ..view.clone() };
+    assert_eq!(drained.admit(&tight, "claude:a", Starter::Worker, Placed::default()), Ok(()));
+    assert_eq!(drained.admit(&tight, "claude:b", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::ProviderLimit));
+    assert_eq!(drained.admit(&tight, "claude:a", Starter::Worker, Placed { workers: 12 }).map_err(|refusal| refusal.rule), Err(Rule::Cap));
+    let floor = View { drain: true, accounts: vec![account("claude:a", 10.0, 96.0)], ..view };
+    assert_eq!(floor.admit(&tight, "claude:a", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Floor));
 }
 
 /// The 2026-11-08 failure: a session trip on b priced before the 2:05 AM recalibration held every b launch until 2:22 AM.
