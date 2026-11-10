@@ -23,7 +23,10 @@ pub const EVERY: Duration = Duration::from_secs(600);
 
 const USAGE: &str = "/v1/organizations/usage_report/messages";
 const COST: &str = "/v1/organizations/cost_report";
-const ATTEMPT: Duration = Duration::from_secs(6);
+/// How long one Admin report request may take: a week of hourly buckets is a large answer the provider
+/// sometimes serves after six seconds (2026-11-10: `curl exit 28: Operation timed out after 6001
+/// milliseconds with 0 bytes received`), so each request gets enough room to finish.
+const ATTEMPT: Duration = Duration::from_secs(15);
 const DAYS_BACK: i64 = 31;
 const PAGES: usize = 40;
 /// The most hourly buckets the usage report answers in one page: the provider refuses `limit` over 168
