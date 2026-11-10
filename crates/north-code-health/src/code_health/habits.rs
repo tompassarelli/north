@@ -1,6 +1,6 @@
 use super::ambient::{self, Ambient};
 use super::finding::Finding;
-use super::fix::{self, Rewrite};
+use super::fix::{self, Suggestion};
 use super::rust_text::RustFile;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
@@ -262,6 +262,14 @@ pub fn findings(root: &Path, edited: Option<&str>) -> Result<Vec<String>, String
     Ok(lines)
 }
 
+pub fn findings_without_fix(root: &Path, edited: &str) -> Result<Vec<String>, String> {
+    let findings = found(root, Some(edited))?;
+    let text = std::fs::read_to_string(root.join(edited)).map_err(|error| format!("{edited}: {error}"))?;
+    let mut lines: Vec<String> = findings.iter().filter(|finding| !fix::applies(finding, &text)).map(Finding::render).collect();
+    lines.dedup();
+    Ok(lines)
+}
+
 fn at_rev(root: &Path, rev: &str, path: &str) -> Result<String, String> {
     let verify = Command::new("git").arg("-C").arg(root).args(["rev-parse", "--verify", "--quiet", rev]).output().map_err(|error| format!("git rev-parse: {error}"))?;
     if !verify.status.success() {
@@ -348,16 +356,12 @@ pub fn findings_new(root: &Path, rev: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-pub(super) fn fix_file(root: &Path, edited: &str) -> Result<Vec<Rewrite>, String> {
+pub(super) fn suggestions(root: &Path, edited: &str) -> Result<Vec<Suggestion>, String> {
     let findings = found(root, Some(edited))?;
     if findings.iter().all(|finding| finding.fix.is_none()) {
         return Ok(Vec::new());
     }
     let path = root.join(edited);
     let text = std::fs::read_to_string(&path).map_err(|error| format!("{edited}: {error}"))?;
-    let (fixed, rewrites) = fix::apply(&text, &findings);
-    if !rewrites.is_empty() {
-        std::fs::write(&path, fixed).map_err(|error| format!("{edited}: {error}"))?;
-    }
-    Ok(rewrites)
+    Ok(fix::suggest(&text, &findings))
 }

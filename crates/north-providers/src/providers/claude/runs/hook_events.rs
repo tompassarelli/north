@@ -60,10 +60,12 @@ fn habit_rows(text: &str) -> Vec<(&'static str, &'static str)> {
                 continue;
             }
             let (word, tail) = rest.split_once(' ').unwrap_or((rest, ""));
-            if tail.starts_with("rewrote ")
-                && let Some(rule) = habit(word)
-            {
-                rows.push(("rewrite", rule));
+            if let Some(rule) = habit(word) {
+                if tail.starts_with("rewrote ") {
+                    rows.push(("rewrite", rule));
+                } else if tail.starts_with("wants ") {
+                    rows.push(("advisory", rule));
+                }
             }
             continue;
         }

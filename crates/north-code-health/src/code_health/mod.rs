@@ -13,7 +13,7 @@ mod coupling;
 mod crate_lines;
 mod finding;
 mod fix;
-pub use fix::Rewrite;
+pub use fix::Suggestion;
 mod functions;
 mod gate;
 #[cfg(test)]
@@ -55,12 +55,12 @@ fn fail(message: &str) -> u8 {
     2
 }
 
-pub fn habits(root: &std::path::Path, edited: &str) -> Vec<String> {
-    habits::findings(root, Some(edited)).unwrap_or_default()
+pub fn habit_warnings(root: &std::path::Path, edited: &str) -> Vec<String> {
+    habits::findings_without_fix(root, edited).unwrap_or_default()
 }
 
-pub fn habits_fix(root: &std::path::Path, edited: &str) -> Vec<Rewrite> {
-    habits::fix_file(root, edited).unwrap_or_default()
+pub fn habit_suggestions(root: &std::path::Path, edited: &str) -> Vec<Suggestion> {
+    habits::suggestions(root, edited).unwrap_or_default()
 }
 
 pub fn crate_headroom(root: &std::path::Path, edited: &str) -> Option<String> {

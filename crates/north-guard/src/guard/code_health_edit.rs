@@ -146,16 +146,16 @@ fn findings(path: &Path, cwd: &Path, limit: Duration) -> (Vec<String>, Vec<Strin
 }
 
 fn habit_notes(top: &Path, relative: &str) -> Vec<String> {
-    let mut notes: Vec<String> = crate::code_health::habits_fix(top, relative)
+    let mut notes: Vec<String> = crate::code_health::habit_suggestions(top, relative)
         .iter()
-        .map(|rewrite| {
+        .map(|suggestion| {
             format!(
-                "habits: {} rewrote {}:{} for you. Before: `{}` After: `{}` Write this form next time.",
-                rewrite.rule, rewrite.path, rewrite.line, rewrite.before, rewrite.after
+                "habits: {} wants {}:{} changed. Before: `{}` After: `{}` Apply this form yourself; the hook never edits your file, so your next edit still matches what you read, and safe-push refuses a lane that still holds the finding.",
+                suggestion.rule, suggestion.path, suggestion.line, suggestion.before, suggestion.after
             )
         })
         .collect();
-    let open = crate::code_health::habits(top, relative);
+    let open = crate::code_health::habit_warnings(top, relative);
     if !open.is_empty() {
         notes.push(format!("{HABIT_WARNING}\n{}", open.join("\n")));
     }
