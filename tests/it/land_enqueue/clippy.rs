@@ -41,7 +41,7 @@ fn enqueue_refuses_a_lane_failing_clippy_on_its_changed_crates_and_reuses_a_pass
     assert_eq!(runs(&counter), 1, "a cached pass for the same tree runs clippy no second time: {second_log}");
     a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_is_queued_in_order();
     enqueue_refuses_a_lane_whose_check_before_queueing_reached_no_verdict();
-    enqueue_sorts_an_unsorted_block_into_the_lane_and_leaves_a_stale_index_to_the_lander_while_landing_refusals_is_shadow();
+    enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_every_after_line_to_the_lander_while_landing_refusals_is_shadow();
     enqueue_compiles_on_the_queueing_host_when_no_build_host_has_room_and_refuses_a_failure_there();
     enqueue_runs_an_added_check_whose_checker_the_live_runtime_does_not_cover_on_north_built_from_the_lane();
 }
@@ -92,7 +92,7 @@ fn a_lane_paying_an_over_ceiling_debt_goal_is_queued_urgent_and_any_other_lane_i
     assert_eq!(urgent("docs/elsewhere"), None, "any other lane keeps its place");
 }
 
-fn enqueue_sorts_an_unsorted_block_into_the_lane_and_leaves_a_stale_index_to_the_lander_while_landing_refusals_is_shadow() {
+fn enqueue_folds_a_stale_index_and_an_unsorted_block_into_the_lane_and_leaves_every_after_line_to_the_lander_while_landing_refusals_is_shadow() {
     let first = "- A short entry.\n";
     let long = |word: &str| format!("- {}\n", format!("{word} ").repeat(100));
     let sets = "[[set]]\npath = \"docs/features.md\"\nkind = \"regenerate\"\ncommand = \"north docs features-index\"\nsources = [\"docs/features/\"]\n\n[[set]]\npath = \"list.txt\"\nkind = \"block\"\nstart = \"BEGIN\"\nend = \"END\"\nsorted = true\n";
@@ -105,7 +105,7 @@ fn enqueue_sorts_an_unsorted_block_into_the_lane_and_leaves_a_stale_index_to_the
         ("list.txt", "BEGIN\na\nc\nEND\n"),
     ]);
     let unmarked = fixture.root.join("unmarked-runs");
-    let lines = format!("[land]\n\tafter = \"docs/features/,docs/features.md :: $NORTH_LAND_NORTH docs features-index --check\"\n\tafter = \"@enqueue,docs/,list.txt :: ! grep -rq BROKEN docs/features && sed -n '/^BEGIN$/,/^END$/{{//!p}}' list.txt | LC_ALL=C sort -c -u\"\n\tafter = \"docs/ :: echo ran >>{} && exit 1\"\n", unmarked.display());
+    let lines = format!("[land]\n\tafter = \"@enqueue,docs/features/,docs/features.md :: $NORTH_LAND_NORTH docs features-index --check\"\n\tafter = \"@enqueue,docs/,list.txt :: ! grep -rq BROKEN docs/features && sed -n '/^BEGIN$/,/^END$/{{//!p}}' list.txt | LC_ALL=C sort -c -u\"\n\tafter = \"docs/ :: echo ran >>{} && exit 1\"\n", unmarked.display());
     fs::write(fixture.repo.join(".safe-push"), lines).unwrap();
     git(&fixture.repo, &["add", "."]);
     git(&fixture.repo, &["commit", "-qm", "Add the features index check"]);
@@ -125,15 +125,8 @@ fn enqueue_sorts_an_unsorted_block_into_the_lane_and_leaves_a_stale_index_to_the
     let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert!(output.status.success(), "a stale index or an unsorted block refused the lane: {log}");
     assert_eq!(git(&fixture.repo, &["show", "HEAD:list.txt"]), "BEGIN\na\nb\nc\nEND", "{log}");
-    assert!(!git(&fixture.repo, &["show", "HEAD:docs/features.md"]).contains("word word"), "enqueue folded the generated index into the lane, so a worker's diff touches it: {log}");
+    assert!(git(&fixture.repo, &["show", "HEAD:docs/features.md"]).contains("word word"), "the regenerated index was not folded into the lane: {log}");
     assert_eq!(runs(&unmarked), 0, "a line without the enqueue marker ran before queueing: {log}");
-
-    fs::write(fixture.repo.join("docs/features.md"), "# Features\n\n## First\n\n- A short entry.\n- word word\n").unwrap();
-    git(&fixture.repo, &["add", "docs/features.md"]);
-    git(&fixture.repo, &["commit", "-qm", "Hand-edit the generated index"]);
-    let output = north_enqueue_with(&fixture, &[]);
-    let log = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(!output.status.success() && log.contains("docs/features.md is generated from docs/features/"), "a lane that commits the generated index was not refused: {log}");
 }
 
 fn enqueue_runs_an_added_check_whose_checker_the_live_runtime_does_not_cover_on_north_built_from_the_lane() {

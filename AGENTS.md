@@ -34,5 +34,5 @@ Build output stays in the worktree's `target/`.
 - Before changing the policy gate in `crates/north-core/src/agent_config_check/gate.rs` or `agents sync`, read [docs/harness.md](docs/harness.md#install) for how policy is published.
 - Before changing `crates/north-core/src/grounding/sources/repos.rs` or `crates/north-core/src/grounding/prompt_hook.rs`, read the [policy measurement](docs/features.md#policy-measurement) features, since docs lines feed that index.
 - Before changing what `crates/north-threads/src/threads/runs/record.rs` or `crates/north-providers/src/ledger/mod.rs` records, read [docs/feedback-loop.md](docs/feedback-loop.md) for each signal and the reader that acts on it.
-- Before adding or changing a command, add its entry under `docs/features/` and leave [docs/features.md](docs/features.md) alone: the lander regenerates it from those files at land time, and `north land scan generated-registry` refuses a lane that commits it.
+- Before adding or changing a command, add its entry under `docs/features/` and run `north docs features-index`, because [docs/features.md](docs/features.md) is generated and never edited by hand.
 - Before changing provider-independent doctrine, contracts or procedures, read [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md); [docs/terms.md](docs/terms.md) names the layers.
