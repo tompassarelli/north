@@ -58,7 +58,18 @@ fn placed_onto(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort
     if record.provider.label() == "claude" && !record.verification && (moving || !fleet.running(&record)) {
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
-        let launch = Launch { name, account: account.unwrap_or(&record.account), brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()), lead: false };
+        let model = record.model.as_deref();
+        let launch = Launch {
+            name,
+            account: account.unwrap_or(&record.account),
+            brief: brief.as_deref(),
+            cwd: None,
+            machine: record.machine.as_ref().map(|machine| machine.name.as_str()),
+            lead: false,
+            role: record.role(),
+            model,
+            family: model.and_then(crate::usage::meter::family).unwrap_or(crate::usage::decide::world::ModelFamily::Opus),
+        };
         placement = match placement::check(&launch, &placement::brief_text(brief.as_deref(), "")?, &overrides, &placement::machine_load(fleet)?, &fleet.roster(), true)? {
             Ok(placed) => placed.note,
             Err(refusal) => return Ok(Err(refusal)),

@@ -13,6 +13,7 @@ fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
 fn decision(target: Target) -> Decision {
     Decision {
         target,
+        family: None,
         code_only: true,
         surface: "code-only box on public north".into(),
         verdicts: vec![verdict("claude:a", Some(60.0)), verdict("claude:c", None)],
@@ -32,9 +33,20 @@ fn decision(target: Target) -> Decision {
 }
 
 #[test]
+fn a_coordinator_launch_with_no_fable_headroom_takes_opus_high_on_the_account_placement_chose() {
+    let mut fallback = decision(Target::Account("claude:b".into()));
+    fallback.family = Some(ModelFamily::Opus);
+    fallback.verdicts.push(verdict("claude:b", Some(40.0)));
+    let launch = Launch { name: "proxy", account: "b", brief: None, cwd: None, machine: None, lead: false, role: Role::parse("proxy").unwrap(), model: Some("fable"), family: ModelFamily::Fable };
+    let placed = settle(&fallback, &launch, "", &Overrides::default()).unwrap();
+    assert_eq!((placed.model.as_deref(), placed.effort), (Some("opus"), Some(Effort::High)), "{placed:?}");
+    assert!(placed.note.as_deref().is_some_and(|note| note.contains("Opus high, no account has Fable headroom")), "{placed:?}");
+}
+
+#[test]
 fn an_account_at_its_provider_limit_refuses_even_a_pin_and_names_the_account_placement_picks() {
     let placed = decision(Target::Account("claude:a".into()));
-    let launch = Launch { name: "burndown-lead", account: "c", brief: None, cwd: None, machine: None, lead: false };
+    let launch = Launch { name: "burndown-lead", account: "c", brief: None, cwd: None, machine: None, lead: false, role: Role::Worker, model: None, family: ModelFamily::Opus };
     let revived = Overrides::default().recorded(Some("pin: north fleet dispatch ranks claude:c first"));
     let refused = admit(&placed, &launch, "", &revived).unwrap_err().to_string();
     assert!(refused.starts_with("provider limit: claude:c unavailable: 5h window at the provider's limit"), "{refused}");
@@ -46,7 +58,7 @@ fn an_account_at_its_provider_limit_refuses_even_a_pin_and_names_the_account_pla
     assert!(admit(&week, &launch, "", &local).unwrap_err().to_string().starts_with("provider limit: claude:c unavailable: week window at the provider's limit; placement picks claude:a"));
 
     let mut all_out = decision(Target::Held("no account".into()));
-    let week_out = placement::verdict("claude:c", &serde_json::json!([{"window": "week", "used_pct": 100.0}]));
+    let week_out = placement::verdict("claude:c", &serde_json::json!([{"window": "week", "used_pct": 100.0}]), None);
     assert!(week_out.exhausted && !week_out.available, "{week_out:?}");
 
     all_out.verdicts.retain(|verdict| verdict.exhausted);
@@ -57,7 +69,7 @@ fn an_account_at_its_provider_limit_refuses_even_a_pin_and_names_the_account_pla
 #[test]
 fn a_lead_launched_on_a_worker_host_or_onto_a_worker_machine_is_refused_with_the_reason_that_a_lead_runs_where_it_places() {
     let trusted = |host: &str| matches!(host, "whiterabbit" | "nexus");
-    let lead = |machine| Launch { name: "n-state-machines", account: "api", brief: None, cwd: Some(Path::new("/home/tom/code/north/main")), machine, lead: true };
+    let lead = |machine| Launch { name: "n-state-machines", account: "api", brief: None, cwd: Some(Path::new("/home/tom/code/north/main")), machine, lead: true, role: Role::Lead, model: None, family: ModelFamily::Opus };
     let on_worker_host = lead_refusal("cpx62", &lead(None), trusted).unwrap();
     assert!(on_worker_host.starts_with("cpx62 is a worker host: a lead staffs other hosts") && on_worker_host.ends_with("launch n-state-machines from the laptop or nexus"), "{on_worker_host}");
     assert!(lead_refusal("whiterabbit", &lead(Some("gex45")), trusted).is_some_and(|why| why.starts_with("gex45 is a worker host")));
@@ -71,7 +83,7 @@ fn a_pin_keeps_a_saturated_machine_but_queues_on_it_instead_of_starting() {
     let mut full = decision(Target::Account("claude:a".into()));
     full.machine = Some(gex45);
     full.saturated = Some("gex45 skipped: 4 jobs queued in machine-capacity admission (limit 4)".into());
-    let launch = Launch { name: "gex45-n757-leases", account: "a", brief: None, cwd: Some(Path::new("/home/tom/code/north/main")), machine: Some("gex45"), lead: false };
+    let launch = Launch { name: "gex45-n757-leases", account: "a", brief: None, cwd: Some(Path::new("/home/tom/code/north/main")), machine: Some("gex45"), lead: false, role: Role::Worker, model: None, family: ModelFamily::Opus };
     let pinned = Overrides { pin: Some("continues the lead's wave on gex45".into()), ..Overrides::default() };
     let mut placed = full;
     fall_through(&mut placed, &launch, &pinned);
