@@ -59,7 +59,7 @@ pub fn page(model: &Model, source: &str) -> String {
          - Checked: {situations} situations and {steps} steps, every ordering of three processes (two on one host, one on\n  \
            another) that each try every move for every holder and settle the instance, the death of the process holding\n  \
            the state, and its dwell running out.\n\
-         - Held by a process, and left when that process is gone: {held}.\n\
+         {scope}- Held by a process, and left when that process is gone: {held}.\n\
          - Dwell: {dwell}.\n\
          - Ends, which an instance never leaves: {ends}.\n\
          - May be announced again: {repeats}.\n\
@@ -75,5 +75,10 @@ pub fn page(model: &Model, source: &str) -> String {
         dwell = listed(states, |state| state.dwell.map(|dwell| format!("{} {}", state.name, span(dwell)))),
         ends = listed(states, |state| state.end.then(|| state.name.to_owned())),
         repeats = listed(states, |state| state.repeats.then(|| state.name.to_owned())),
+        scope = if model.instances > 1 {
+            "- Two instances: the first through every ordering above, the second attempting to start at each of the first's situations, gated by the machine's real admission path, and two launches racing from no record; the `together` promise names the situations in which no second instance may start.\n"
+        } else {
+            ""
+        },
     )
 }

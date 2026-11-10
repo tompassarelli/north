@@ -104,11 +104,15 @@ needed one; none earned its place.
 ## The design
 
 - **Model source.** The machine's own `impl Lifecycle` (its table, dwells, holders and replacing moves) and the
-  lifecycle `Store`, driven through its public calls on an in-memory database. The only hand-stated part is two lists
-  per machine in the registry: its ends and the states a writer may announce again.
+  lifecycle `Store`, driven through its public calls on an in-memory database. The only hand-stated part is the lists
+  per machine in the registry: its ends, the states a writer may announce again, and, for the two machines with a
+  promise between two instances, the situations in which one instance holds the name and the call into its real
+  admission path.
 - **Checker.** `north_machine_model::explore`, a breadth-first search that replays each ordering from an empty store.
 - **Scope, stated on every chart.** One instance; three processes, two on one host and one on another; each tries
-  every move for every holder and settles the instance; the process holding the state dies; its dwell runs out.
+  every move for every holder and settles the instance; the process holding the state dies; its dwell runs out. On
+  fleet session and land ticket a second instance attempts to start at each of the first's situations, and two
+  launches race from no record (north#1042's nested box).
 - **Promises checked.** `logged`: every accepted move is in the log and the log alone rebuilds the record.
   `one-holder`: a live holder is never declared gone, and a held state is taken from a live holder only by a move the
   machine lets replace one. `ends`: an end has no way out, no dwell and no holder. `repeats`: a state is accepted
@@ -245,8 +249,9 @@ All measured on 2026-11-10 on gex45. The check is `north check machines --root .
 - The chart is generated from the search and refused when stale; no view module exists.
 - A fix or a refused move opens the review by itself, with a budget and a key.
 
-What pstack's version has and this lacks: a TLA+ spec can state a promise across many instances and processes with
-no code to drive. North's search is bound to one instance of one machine.
+What pstack's version still has: a TLA+ spec states a promise across any number of instances and processes with no
+code to drive. North's search now covers two instances of the machines whose recorded fixes need it, and is still
+bound to the code that admits them.
 
 ## Decided
 
@@ -255,6 +260,9 @@ no code to drive. North's search is bound to one instance of one machine.
 - Boxes on north#1042 for what is not done: promises across instances in the kernel, so fleet session and land
   ticket fail at `97e4aa682`'s and `f1ff89dde`'s parents; the refusal detector on every host's ledger;
   after-landing-run's refused `retired`.
+- The two-instance box closed: `fleet-session` and `land-ticket` search a second instance, gated by the name claim
+  and the withdrawal check, and the `together` promise names the situations in which it may not start
+  (docs/rationale/state-machines.md, two instances).
 - No box by hand for the five private machines. The `machine-fix` detector files "Model NAME" for runtime-promotion,
   runtime-canary and threads-spool on its first run (19, 8 and 13 incident fixes in the week), and for
   runtime-landing-judgement and offload-offer when a fix lands in their code.

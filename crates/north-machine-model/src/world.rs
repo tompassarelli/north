@@ -153,6 +153,111 @@ impl<L: Lifecycle> World<L> {
     }
 }
 
+/// Two instances of one machine, played together so a promise between them can be stated: the first through every
+/// move, the second attempting to start at each of the first's situations.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct PairSituation {
+    pub(crate) sides: [Situation; 2],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PairEvent {
+    /// One instance's move.
+    One { side: usize, event: Event },
+    /// Two launches claiming one name at the same time, each into the state at its index.
+    Race { left: usize, right: usize },
+}
+
+/// One ordering of two instances: where each ended, and the transitions the last event made, one per instance.
+pub(crate) struct PairPlayed<S> {
+    pub(crate) sides: [Situation; 2],
+    pub(crate) moved: [Option<Played<S>>; 2],
+}
+
+pub(crate) struct PairWorld<L: Lifecycle> {
+    stores: Vec<Store>,
+    dead: Rc<Cell<Option<usize>>>,
+    plays: u64,
+    machine: PhantomData<L>,
+}
+
+impl<L: Lifecycle> PairWorld<L> {
+    pub(crate) fn open() -> NorthResult<Self> {
+        let memory = format!("file:north-machine-model-pair-{}-{}?mode=memory&cache=shared", std::process::id(), WORLDS.fetch_add(1, Ordering::Relaxed));
+        let dead = Rc::new(Cell::new(None));
+        let stores = (0..ACTORS.len())
+            .map(|index| Store::open_as(Path::new(&memory), actor(index), Box::new(Watch { host: ACTORS[index].0, dead: Rc::clone(&dead) })))
+            .collect::<NorthResult<_>>()?;
+        Ok(Self { stores, dead, plays: 0, machine: PhantomData })
+    }
+
+    pub(crate) fn play(&mut self, path: &[PairEvent]) -> NorthResult<PairPlayed<L::State>> {
+        self.plays += 1;
+        self.dead.set(None);
+        let instances = [format!("l{}", self.plays), format!("r{}", self.plays)];
+        let (mut now, mut seen) = (START_MS, [0_usize; 2]);
+        let mut moved: [Option<Played<L::State>>; 2] = [None, None];
+        for (position, step) in path.iter().enumerate() {
+            now += 1;
+            match *step {
+                PairEvent::One { side, event } => {
+                    if position + 1 == path.len() {
+                        seen[side] = self.stores[side].history(L::NAME, &instances[side])?.len();
+                    }
+                    self.apply(&instances[side], side, event, &mut now)?;
+                }
+                PairEvent::Race { left, right } => {
+                    if position + 1 == path.len() {
+                        (seen[0], seen[1]) = (self.stores[0].history(L::NAME, &instances[0])?.len(), self.stores[1].history(L::NAME, &instances[1])?.len());
+                    }
+                    self.apply(&instances[0], 0, Event::Move { by: 0, to: left, holder: 0 }, &mut now)?;
+                    self.apply(&instances[1], 1, Event::Move { by: 1, to: right, holder: 1 }, &mut now)?;
+                }
+            }
+        }
+        let sides = [self.situation(&instances[0], now)?, self.situation(&instances[1], now)?];
+        if let Some(PairEvent::One { side, .. }) = path.last() {
+            moved[*side] = Some(self.played(&instances[*side], *side, seen[*side], sides[*side])?);
+        } else if path.last().is_some() {
+            (moved[0], moved[1]) = (Some(self.played(&instances[0], 0, seen[0], sides[0])?), Some(self.played(&instances[1], 1, seen[1], sides[1])?));
+        }
+        Ok(PairPlayed { sides, moved })
+    }
+
+    fn played(&self, instance: &str, side: usize, seen: usize, situation: Situation) -> NorthResult<Played<L::State>> {
+        let log = self.stores[side].history(L::NAME, instance)?;
+        let record = self.stores[side].current::<L>(instance)?;
+        Ok(Played { situation, log, record, seen })
+    }
+
+    fn situation(&self, instance: &str, now: i64) -> NorthResult<Situation> {
+        let record = self.stores[0].current::<L>(instance)?;
+        let holder = self.holder(instance)?;
+        Ok(Situation {
+            state: record.as_ref().and_then(|record| L::State::ALL.iter().position(|state| *state == record.state)),
+            holder,
+            dead: holder.is_some() && self.dead.get() == holder,
+            overdue: record.as_ref().and_then(|record| record.due).is_some_and(|due| now > due.unix_millis()),
+        })
+    }
+
+    fn apply(&mut self, instance: &str, side: usize, event: Event, now: &mut i64) -> NorthResult<()> {
+        let at = Timestamp::from_unix_millis(*now);
+        match event {
+            Event::Move { by, to, holder } => drop(self.stores[by].transition_for::<L>(instance, L::State::ALL[to], CAUSE, at, &actor(holder))?),
+            Event::Settle { by } => drop(self.stores[by].settle::<L>(instance, at)?),
+            Event::Die => self.dead.set(self.holder(instance)?),
+            Event::Late => *now = self.stores[side].current::<L>(instance)?.and_then(|record| record.due).map_or(*now, |due| due.unix_millis() + 1),
+        }
+        Ok(())
+    }
+
+    fn holder(&self, instance: &str) -> NorthResult<Option<usize>> {
+        let owner = self.stores[0].current::<L>(instance)?.and_then(|record| record.owner);
+        Ok(owner.and_then(|owner| (0..ACTORS.len()).find(|index| actor(*index) == owner)))
+    }
+}
+
 /// Everything that can happen next: each live process tries every state, for every holder where the state is one a
 /// process holds, and settles the instance; the holder dies; the dwell runs out.
 pub(crate) fn events<L: Lifecycle>(situation: &Situation) -> Vec<Event> {

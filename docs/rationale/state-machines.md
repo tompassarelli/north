@@ -373,6 +373,10 @@ formal-verification skills, TLA+, stateright and Kani, and the measured results,
   changed and "Extend the NAME model to the fixes its check let through" for a modelled one, counting fixes newer
   than its chart. The machine-refusal detector files "Settle NAME's refused move to STATE" when the store refused a
   move in the last hour. Each is one box per machine and week on the owner above.
-- **Limit.** The search covers one instance. A promise across instances (one live session per name, one queued
-  ticket per head) is outside it, and the recorded ordering fixes of fleet session and land ticket are of that kind
-  (north#1042).
+- **Two instances.** `fleet-session` and `land-ticket` also search a second instance: the first through every
+  ordering of the scope above, the second attempting to start at each of the first's situations, and two launches
+  racing from no record. The machine's real admission path decides whether a start is possible — the name claim
+  (`Session::claim`) for a session, the withdrawal check (`withdraw::refuse_requeue`) for a ticket — and the
+  `together` promise names the situations in which no second instance may start: a live session name, a withdrawn
+  head. The recorded ordering fixes `97e4aa682` (two launches of one name) and `f1ff89dde` (a withdrawn head queued
+  again) are of that kind (north#1042).

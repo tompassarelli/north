@@ -31,8 +31,7 @@ impl Fleet {
         if claim == Claim::TakeOver {
             return self.launch_into(request, claim, &session_dir);
         }
-        fs::create_dir_all(&self.root)?;
-        match fs::create_dir(&session_dir) {
+        match north_session_host::session_lifecycle::claim(&session_dir) {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 return Err(NorthError::Usage(format!("a session named {} already exists; --take-over ends it and moves the name and its messages to the new session", request.name)));
             }

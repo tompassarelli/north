@@ -11,10 +11,12 @@ use north_base::error::NorthResult;
 use north_base::lifecycle::{Lifecycle, State};
 
 mod chart;
+mod pair;
 mod rules;
 mod world;
 
 pub use chart::page;
+pub use pair::Together;
 use rules::Step;
 use world::{Event, START, Situation, World};
 
@@ -74,6 +76,8 @@ pub struct Model {
     pub moves: BTreeSet<Moved>,
     pub situations: usize,
     pub steps: usize,
+    /// Instances the search covered: one, or two where a promise between two instances is stated.
+    pub instances: usize,
     pub findings: Vec<Finding>,
 }
 
@@ -124,5 +128,18 @@ pub fn explore<L: Lifecycle>(promises: &Promises<L::State>) -> NorthResult<Model
         .iter()
         .map(|state| Facts { name: state.name(), dwell: L::dwell(*state), held: L::orphan(*state).is_some(), end: promises.ends.contains(state), repeats: promises.repeats.contains(state) })
         .collect();
-    Ok(Model { machine: L::NAME, states, moves: search.moves, situations: search.paths.len(), steps: search.steps.len(), findings: search.findings })
+    Ok(Model { machine: L::NAME, states, moves: search.moves, situations: search.paths.len(), steps: search.steps.len(), instances: 1, findings: search.findings })
+}
+
+/// Explores one instance of `L` and then two instances of it together, so a promise between two instances (one live
+/// session per name, one queued ticket per withdrawn head) is stated and checked by the machine's real admission path.
+pub fn explore_together<L: Lifecycle>(promises: &Promises<L::State>, together: &Together<L::State>) -> NorthResult<Model> {
+    let mut model = explore::<L>(promises)?;
+    let pair = pair::explore::<L>(together)?;
+    model.moves.extend(pair.moves);
+    model.situations += pair.situations;
+    model.steps += pair.steps;
+    model.instances = 2;
+    model.findings.extend(pair.findings);
+    Ok(model)
 }

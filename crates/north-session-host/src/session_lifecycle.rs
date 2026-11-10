@@ -91,6 +91,15 @@ impl Lifecycle for Session {
     }
 }
 
+/// Claims `path` for one launch: `create_dir` lets only one of two racing launches win, so a name has one launch at a
+/// time (north#1042).
+pub fn claim(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::create_dir(path)
+}
+
 /// The launch a session record names: one lifecycle instance per launch, so a name a later launch reuses starts
 /// afresh.
 #[derive(Clone, Copy, Debug)]
@@ -223,4 +232,18 @@ fn admitted(record: Launch<'_>, moved: Result<Phase, Refusal<Phase>>) -> NorthRe
         Refusal::Illegal { from, to } => NorthError::Refused(format!("{}: a session cannot move from {} to {}", record.name, from.map_or("nothing", Phase::name), to.name())),
         Refusal::Held { state, owner } => NorthError::Refused(format!("{}: {} is held by {owner}", record.name, state.name())),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn two_launches_racing_for_one_name_leave_exactly_one_winner() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("session");
+        let winners = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..2).map(|_| scope.spawn(|| super::claim(&path).is_ok())).collect();
+            handles.into_iter().map(|handle| handle.join().unwrap_or(false)).filter(|won| *won).count()
+        });
+        assert_eq!(winners, 1);
+    }
 }

@@ -9,7 +9,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use north_core::error::{NorthError, NorthResult};
-use north_machine_model::{Model, Promises, explore, page};
+use north_machine_model::{Model, Promises, Together, explore, explore_together, page};
 
 mod history;
 
@@ -33,6 +33,8 @@ struct Machine {
     name: &'static str,
     kind: &'static str,
     source: &'static str,
+    /// Code the model's two-instance search drives or gates, so a lane that changes it runs the search.
+    guard: &'static [&'static str],
     code: &'static [&'static str],
     explore: Option<fn() -> NorthResult<Model>>,
 }
@@ -42,6 +44,7 @@ const MACHINES: &[Machine] = &[
         name: "fleet-session",
         kind: "Session",
         source: "crates/north-session-host/src/session_lifecycle.rs",
+        guard: &["crates/north-fleet-supervisor/src/fleet/registry/launching.rs"],
         code: &[
             "crates/north-session-host/src/session_host.rs",
             "crates/north-fleet-supervisor/src/fleet/reaper.rs",
@@ -52,13 +55,14 @@ const MACHINES: &[Machine] = &[
         ],
         explore: Some(|| {
             use north_session_host::session_lifecycle::{Phase, Session};
-            explore::<Session>(&Promises { ends: &[Phase::Retired], repeats: &[Phase::Live, Phase::Stopped, Phase::Adopted] })
+            explore_together::<Session>(&Promises { ends: &[Phase::Retired], repeats: &[Phase::Live, Phase::Stopped, Phase::Adopted] }, &session_together())
         }),
     },
     Machine {
         name: "land-ticket",
         kind: "LandTicket",
         source: "crates/north-base/src/land_ticket.rs",
+        guard: &["crates/north-land-scans/src/withdrawal.rs", "crates/north-landing/src/land/enqueue.rs"],
         code: &[
             "crates/north-lander/src/land/enqueue",
             "crates/north-lander/src/land/promote",
@@ -70,13 +74,14 @@ const MACHINES: &[Machine] = &[
         ],
         explore: Some(|| {
             use north_core::land_ticket::{LandTicket, Phase};
-            explore::<LandTicket>(&Promises { ends: &[Phase::Landed, Phase::Replaced, Phase::Withdrawn], repeats: &[Phase::Queued] })
+            explore_together::<LandTicket>(&Promises { ends: &[Phase::Landed, Phase::Replaced, Phase::Withdrawn], repeats: &[Phase::Queued] }, &ticket_together())
         }),
     },
     Machine {
         name: "row-delivery",
         kind: "RowDelivery",
         source: "crates/north-session-host/src/row_delivery.rs",
+        guard: &[],
         code: &["crates/north-fleet-supervisor/src/fleet/registry/senders.rs"],
         explore: Some(|| {
             use north_session_host::row_delivery::{Phase, RowDelivery};
@@ -87,17 +92,19 @@ const MACHINES: &[Machine] = &[
         name: "after-landing-run",
         kind: "AfterLandingRun",
         source: AFTER_LANDING,
+        guard: &[],
         code: &["crates/north-landing/src/landing/after_landing", "crates/north-landing/src/land/sheriff.rs"],
         explore: Some(|| {
             use north_landing::land::after_landing_lifecycle::{AfterLandingRun, Run};
             explore::<AfterLandingRun>(&Promises { ends: &[Run::Retired], repeats: &[Run::Journaled] })
         }),
     },
-    Machine { name: "red-main", kind: "RedMain", source: AFTER_LANDING, code: &[], explore: Some(|| explore::<north_landing::land::after_landing_lifecycle::RedMain>(&Promises { ends: &[], repeats: &[] })) },
+    Machine { name: "red-main", kind: "RedMain", source: AFTER_LANDING, guard: &[], code: &[], explore: Some(|| explore::<north_landing::land::after_landing_lifecycle::RedMain>(&Promises { ends: &[], repeats: &[] })) },
     Machine {
         name: "base-broken",
         kind: "BaseBroken",
         source: AFTER_LANDING,
+        guard: &[],
         code: &[],
         explore: Some(|| {
             use north_landing::land::after_landing_lifecycle::{BaseBroken, Pause};
@@ -108,6 +115,7 @@ const MACHINES: &[Machine] = &[
         name: "capacity-lease",
         kind: "Leased",
         source: "crates/north-capacity/src/capacity/lease_lifecycle.rs",
+        guard: &[],
         code: &["crates/north-capacity/src/capacity/lease_deadline.rs", "crates/north-capacity/src/capacity/deadline.rs"],
         explore: Some(|| {
             use north_capacity::capacity::lease_lifecycle::{Leased, Phase};
@@ -118,6 +126,7 @@ const MACHINES: &[Machine] = &[
         name: "gate",
         kind: "GateLife",
         source: "crates/north-fleet-store/src/gate_lifecycle.rs",
+        guard: &[],
         code: &["src/cli/gate"],
         explore: Some(|| {
             use north_fleet_store::gate_lifecycle::{GateLife, GatePhase};
@@ -128,6 +137,7 @@ const MACHINES: &[Machine] = &[
         name: "claim",
         kind: "Claiming",
         source: "crates/north-threads/src/threads/claims/lifecycle.rs",
+        guard: &[],
         code: &["crates/north-threads/src/threads/claims/"],
         explore: Some(|| {
             use north_threads::threads::claims::lifecycle::{Claiming, Phase};
@@ -138,18 +148,82 @@ const MACHINES: &[Machine] = &[
         name: "check-environment",
         kind: "CheckEnvironment",
         source: "crates/north-check-environment/src/lib.rs",
+        guard: &[],
         code: &["crates/north-check-environment/src/"],
         explore: Some(|| {
             use north_check_environment::{CheckEnvironment, Environment};
             explore::<CheckEnvironment>(&Promises { ends: &[], repeats: &[Environment::Placed, Environment::Local] })
         }),
     },
-    Machine { name: "runtime-promotion", kind: "Promoting", source: RUNTIME, code: &["crates/north-runtime/src/runtime/lifecycle", "crates/north-runtime/src/runtime/update", "crates/north-runtime/src/runtime/settle.rs"], explore: None },
-    Machine { name: "runtime-canary", kind: "Canarying", source: RUNTIME, code: &["crates/north-runtime/src/runtime/canary"], explore: None },
-    Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, code: &[], explore: None },
-    Machine { name: "threads-spool", kind: "SpooledWrite", source: "crates/north-threads/src/threads/client/spool.rs", code: &["crates/north-threads/src/threads/client"], explore: None },
-    Machine { name: "offload-offer", kind: "OffloadOffer", source: "crates/north-capacity-host/src/capacity/host/offer_lifecycle.rs", code: &[], explore: None },
+    Machine { name: "runtime-promotion", kind: "Promoting", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/lifecycle", "crates/north-runtime/src/runtime/update", "crates/north-runtime/src/runtime/settle.rs"], explore: None },
+    Machine { name: "runtime-canary", kind: "Canarying", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/canary"], explore: None },
+    Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, guard: &[], code: &[], explore: None },
+    Machine { name: "threads-spool", kind: "SpooledWrite", source: "crates/north-threads/src/threads/client/spool.rs", guard: &[], code: &["crates/north-threads/src/threads/client"], explore: None },
+    Machine { name: "offload-offer", kind: "OffloadOffer", source: "crates/north-capacity-host/src/capacity/host/offer_lifecycle.rs", guard: &[], code: &[], explore: None },
 ];
+
+fn claims(path: &Path) -> bool {
+    north_session_host::session_lifecycle::claim(path).is_ok()
+}
+
+/// Two launches of one session name: the name is claimed by `create_dir`, so the guard refuses a sequential second
+/// launch, and two launches racing for an empty name must leave exactly one winner.
+fn session_together() -> Together<north_session_host::session_lifecycle::Phase> {
+    use north_session_host::session_lifecycle::Phase;
+    Together {
+        alone: &[Phase::Live, Phase::Parked, Phase::IdleExited, Phase::HostEnded, Phase::Stopped, Phase::Adopted],
+        admits: |other| match other {
+            Phase::Retired => true,
+            _ => tempfile::tempdir().is_ok_and(|root| {
+                let path = root.path().join("launch");
+                claims(&path) && claims(&path)
+            }),
+        },
+        race: || {
+            let Ok(root) = tempfile::tempdir() else { return 0 };
+            let path = root.path().join("launch");
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..2).map(|_| scope.spawn(|| claims(&path))).collect();
+                handles.into_iter().map(|handle| handle.join().unwrap_or(false)).filter(|won| *won).count()
+            })
+        },
+    }
+}
+
+/// Two tickets of one head: a head whose newest ticket was withdrawn is not queued again until the withdrawal is
+/// cleared, which `refuse_requeue` decides from the queue.
+fn ticket_together() -> Together<north_core::land_ticket::Phase> {
+    use north_core::land_ticket::Phase;
+    Together {
+        alone: &[Phase::Withdrawn],
+        admits: |other| match other {
+            Phase::Withdrawn => withdrawn_head_admitted(),
+            _ => true,
+        },
+        race: || 1,
+    }
+}
+
+fn withdrawn_head_admitted() -> bool {
+    let Ok(root) = tempfile::tempdir() else { return false };
+    let queue = root.path().join("queue");
+    let withdrawn = queue.join("withdrawn");
+    if fs::create_dir_all(&withdrawn).is_err() {
+        return false;
+    }
+    let ticket = serde_json::json!({
+        "root": root.path().to_string_lossy(),
+        "branch": "lane",
+        "head": "abc",
+        "session": "session",
+        "verdict": "withdrawn by Tom: the callers were not audited",
+        "queued_micros": 1
+    });
+    if fs::write(withdrawn.join("1-ticket.json"), ticket.to_string()).is_err() {
+        return false;
+    }
+    north_landing::land::scans::withdrawal::refuse_requeue(&queue, root.path(), "lane", "abc", Some("session")).is_ok()
+}
 
 enum Mode {
     Explore { write: bool },
@@ -322,7 +396,12 @@ fn unselected(root: &Path) -> NorthResult<Vec<String>> {
         .map(|(paths, command)| (paths.split(',').map(str::trim).collect(), command))
         .collect();
     let selects = |registry: bool, source: &str| lines.iter().any(|(paths, command)| command.contains(REGISTRY_ONLY) == registry && paths.iter().any(|path| !path.is_empty() && source.starts_with(path)));
-    let modelled = MACHINES.iter().filter(|machine| machine.explore.is_some()).map(|machine| machine.source).chain(ALWAYS).filter(|source| !selects(false, source));
+    let modelled = MACHINES
+        .iter()
+        .filter(|machine| machine.explore.is_some())
+        .flat_map(|machine| std::iter::once(machine.source).chain(machine.guard.iter().copied()))
+        .chain(ALWAYS)
+        .filter(|source| !selects(false, source));
     let unexplored = modelled.map(|source| format!("{source} belongs to a modelled machine and no `north {VERB}` line in {LAND_CHECKS} selects it, so a lane changing it lands unchecked"));
     let unscanned = SOURCE.into_iter().chain([LAND_CHECKS]).filter(|source| !selects(true, source));
     let unnamed = unscanned.map(|source| format!("no `north {VERB} {REGISTRY_ONLY}` line in {LAND_CHECKS} selects {source}, so a lane adding a lifecycle machine there lands it unmodelled"));

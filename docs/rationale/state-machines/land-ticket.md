@@ -35,9 +35,10 @@ stateDiagram-v2
     withdrawn --> [*]
 ```
 
-- Checked: 20 situations and 606 steps, every ordering of three processes (two on one host, one on
+- Checked: 172 situations and 5349 steps, every ordering of three processes (two on one host, one on
   another) that each try every move for every holder and settle the instance, the death of the process holding
   the state, and its dwell running out.
+- Two instances: the first through every ordering above, the second attempting to start at each of the first's situations, gated by the machine's real admission path, and two launches racing from no record; the `together` promise names the situations in which no second instance may start.
 - Held by a process, and left when that process is gone: checking.
 - Dwell: checking 2 h.
 - Ends, which an instance never leaves: landed, replaced, withdrawn.
