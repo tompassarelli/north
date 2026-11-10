@@ -69,6 +69,7 @@ pub(super) fn credential_failure(frame: &Value) -> Option<ClientRefusal> {
         text if text.starts_with("Not logged in") => CredentialFailure::SignedOut,
         text if text.contains("OAuth session expired") => CredentialFailure::Expired,
         text if text.contains("disabled Claude subscription access") => CredentialFailure::Disabled,
+        text if super::limit::stop_text(text) => CredentialFailure::UsageLimit,
         _ => return None,
     };
     Some(ClientRefusal { failure, text: text.to_owned() })

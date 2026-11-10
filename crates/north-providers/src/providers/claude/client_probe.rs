@@ -16,7 +16,8 @@ const PROMPT: &str = "Reply with the single word ok.";
 #[derive(Debug, Eq, PartialEq)]
 pub enum Answer {
     Passed,
-    /// The client refused the account itself (subscription access disabled, signed out, a revoked login), with its text.
+    /// The client refused the account itself (subscription access disabled, signed out, a revoked login, a weekly or
+    /// five-hour limit), with its text.
     Refused(String),
     /// Anything else that kept the probe from passing, which says nothing about the account.
     Failed(String),

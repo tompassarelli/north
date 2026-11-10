@@ -93,6 +93,7 @@ impl Fleet {
             CredentialFailure::SignedOut => "signed-out",
             CredentialFailure::Expired => "oauth-expired",
             CredentialFailure::Disabled => "subscription-disabled",
+            CredentialFailure::UsageLimit => "usage-limit",
         };
         let row = json!({"at_ms": now_ms(), "session": record.name, "provider": record.provider.label(), "account": record.account, "failure": failure});
         let mut log = OpenOptions::new().create(true).append(true).open(self.root.join(CREDENTIAL_FAILURES))?;
@@ -120,6 +121,8 @@ fn refusal(record: &SessionRecord, failure: &ClientRefusal) -> NorthError {
             "{name} on {account} answered its first turn with 'OAuth session expired': {account}'s login on {} was revoked, most likely by a copy refreshing on another host; sign it in again here and keep it in this host's profiles only",
             crate::platform::host::name()
         ),
-        CredentialFailure::Disabled => format!("{name} on {account} answered its first turn with '{}'; {account} stays unavailable until `north fleet accounts --probe` passes on it", failure.text),
+        CredentialFailure::Disabled | CredentialFailure::UsageLimit => {
+            format!("{name} on {account} answered its first turn with '{}'; {account} stays unavailable until `north fleet accounts --probe` passes on it", failure.text)
+        }
     })
 }

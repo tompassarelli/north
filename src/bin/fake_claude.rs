@@ -7,12 +7,13 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|done|commit|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|crash [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|done|commit|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|weekly-limit|crash [ARG...]";
 const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
 const NOT_DONE_REPORT: &str = "Not done: test\nStop: landing";
 const SIGNED_OUT: &str = "Not logged in · Please run /login";
 const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could not be refreshed";
+const WEEKLY_LIMIT: &str = "You've hit your weekly limit · resets Nov 12, 7pm";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Trace {
@@ -25,6 +26,7 @@ enum Trace {
     SlowHooks,
     SignedOutOnce,
     OAuthExpired,
+    WeeklyLimit,
     Crash,
 }
 
@@ -40,6 +42,7 @@ impl Trace {
             "slow-hooks" => Some(Self::SlowHooks),
             "signed-out-once" => Some(Self::SignedOutOnce),
             "oauth-expired" => Some(Self::OAuthExpired),
+            "weekly-limit" => Some(Self::WeeklyLimit),
             "crash" => Some(Self::Crash),
             _ => None,
         }
@@ -98,6 +101,9 @@ impl<W: Write> Fake<W> {
         }
         if self.trace == Trace::OAuthExpired {
             return self.refuse(uuid, message, EXPIRED);
+        }
+        if self.trace == Trace::WeeklyLimit {
+            return self.refuse(uuid, message, WEEKLY_LIMIT);
         }
         if self.turn.is_empty() {
             self.start(uuid, message)?;

@@ -48,6 +48,8 @@ pub enum CredentialFailure {
     Expired,
     /// The account's organization turned off subscription access for the client.
     Disabled,
+    /// The provider refused the account at its weekly or five-hour limit, whatever its sampled windows read.
+    UsageLimit,
 }
 
 /// A client's refusal to run on an account, with the text it answered.

@@ -1,6 +1,7 @@
 //! The marks that keep placement and launches off an account its own client refused (subscription access
-//! disabled, signed out, a revoked login): one file per account label under `account-refused`, whose first line
-//! reads `SESSION ISO-TIME` and whose rest is the client's refusal text verbatim. Only a passing probe clears one.
+//! disabled, signed out, a revoked login, a weekly or five-hour limit): one file per account label under
+//! `account-refused`, whose first line reads `SESSION ISO-TIME` and whose rest is the client's refusal text
+//! verbatim. Only a passing probe clears one.
 use std::io;
 use std::path::{Path, PathBuf};
 

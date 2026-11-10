@@ -102,6 +102,15 @@ fn launch_on(root: &Path, host: &str) -> Output {
     north_on(root, host, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &brief, "start the box"])
 }
 
+/// A verification launch skips placement and the spend floor, so a first turn can be fed on an account whose
+/// sampled windows sit inside the floor.
+fn launch_test(root: &Path) -> Output {
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let brief = brief.display().to_string();
+    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--test", "--system-prompt", &brief, "start the box"])
+}
+
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
@@ -218,4 +227,37 @@ fn a_test_launch_without_a_declared_fixture_root_refuses_before_it_writes_a_sess
     assert!(stderr.contains(&brief.display().to_string()), "{stderr}");
     assert!(stderr.contains("under this host's home, which gex45 cannot read"), "{stderr}");
     assert!(!root.join(".local/state/north/fleet/narrow").exists(), "{stderr}");
+}
+
+/// The sampled windows the placement gate reads, with the account's week at `week` percent.
+fn usage_gate(root: &Path, week: f64) {
+    let read_at = north_core::foundation::clock::Timestamp::now().iso();
+    let windows = serde_json::json!([
+        {"window": "5h", "used_pct": 10.0, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at},
+        {"window": "week", "used_pct": week, "resets_at": "2099-01-01T00:00:00Z", "as_of": read_at},
+    ]);
+    fs::write(root.join(".local/state/agents/usage-gate.json"), serde_json::json!({"claude": {"windows": {"claude:a": windows}}}).to_string()).unwrap();
+}
+
+#[test]
+fn a_first_turn_at_the_weekly_limit_marks_the_account_refused_and_north_accounts_shows_it_unavailable() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "weekly-limit");
+    // On 2026-11-10 north read claude:c at 99% of its week and kept it for canaries; the provider then refused its first turn.
+    usage_gate(root, 99.0);
+
+    let refused = launch_test(root);
+
+    let mark = root.join(".local/state/north/account-refused/a");
+    let written = fs::read_to_string(&mark).unwrap_or_else(|error| panic!("no refusal mark at {}: {error}\n{}", mark.display(), text(&refused.stderr)));
+    let text_written = "You've hit your weekly limit · resets Nov 12, 7pm";
+    assert!(written.contains(text_written), "{written}");
+    assert!(text(&refused.stderr).contains(text_written), "{}", text(&refused.stderr));
+
+    let accounts = north(root, &["accounts"]);
+    let listed = text(&accounts.stdout);
+    assert!(accounts.status.success(), "{listed}{}", text(&accounts.stderr));
+    assert!(listed.contains(&format!("claude:a unavailable: refused by its client: {text_written}")), "{listed}");
+    assert!(!listed.contains("claude:a available"), "a 99% reading was offered as headroom after the provider refused it: {listed}");
 }
