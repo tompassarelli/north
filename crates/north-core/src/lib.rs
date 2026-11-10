@@ -13,3 +13,6 @@ pub mod grounding;
 pub mod nix_gc;
 pub mod proxy;
 pub mod split;
+
+#[cfg(test)]
+mod gate_box_tests;

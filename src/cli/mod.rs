@@ -17,7 +17,7 @@ mod token_usage;
 mod alarm_stats;
 mod fleet;
 mod gate;
-mod gate_orphan;
+mod gate_closing;
 mod gate_relay;
 mod glance;
 mod hook_stats;

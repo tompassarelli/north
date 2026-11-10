@@ -55,7 +55,7 @@ impl GatePhase {
     /// The phase a gate rests in once its answer reached the asking session, by who answered.
     pub fn settled(by: &Answerer) -> Self {
         match by {
-            Answerer::Session(_) | Answerer::Tom => Self::Answered,
+            Answerer::Session(_) | Answerer::Tom | Answerer::Ticked => Self::Answered,
             Answerer::Default => Self::Defaulted,
             Answerer::Orphaned => Self::Orphaned,
         }

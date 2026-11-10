@@ -15,7 +15,8 @@ pub(super) fn admit(fleet: &Fleet, request: &mut LaunchRequest) -> NorthResult<(
     if request.verification || tasks.is_empty() {
         return Ok(());
     }
-    let item = request.item_line();
+    let lines: Vec<String> = [request.item_line(), request.claimed_box()].into_iter().flatten().collect();
+    let item = (!lines.is_empty()).then(|| lines.join("\n"));
     if let Some(refusal) = gated(&tasks, item.as_deref(), &fleet.gate_holds()?) {
         return Err(NorthError::Refused(refusal));
     }

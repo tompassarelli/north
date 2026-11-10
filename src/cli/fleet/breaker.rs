@@ -107,7 +107,7 @@ fn answers(fleet: &Fleet, now_ms: u64) -> Vec<Answer> {
             let by = match closure.by {
                 Answerer::Tom => "tom".to_owned(),
                 Answerer::Session(name) => name,
-                Answerer::Default | Answerer::Orphaned => return None,
+                Answerer::Default | Answerer::Orphaned | Answerer::Ticked => return None,
             };
             Some(Answer { workstream: gate.request.issue?, at_ms: closure.closed_ms, by, text: closure.answer })
         })

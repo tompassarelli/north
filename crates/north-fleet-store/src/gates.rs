@@ -10,7 +10,7 @@ pub struct GateRequest {
     pub verification: bool,
     #[serde(default)]
     pub issue: Option<String>,
-    /// The one box of `issue` this gate decides, matched against a launch's `Item:` line; none holds the whole issue.
+    /// The one box of `issue` this gate decides, matched against a launch's `Item:` and `Box:` lines; none holds the whole issue.
     #[serde(default)]
     pub box_text: Option<String>,
     pub session: String,
@@ -98,6 +98,7 @@ pub enum Answerer {
     Tom,
     Default,
     Orphaned,
+    Ticked,
 }
 
 impl Answerer {
@@ -107,6 +108,7 @@ impl Answerer {
             Answerer::Tom => "tom",
             Answerer::Default => "default",
             Answerer::Orphaned => "orphaned",
+            Answerer::Ticked => "ticked",
         }
     }
 
@@ -115,6 +117,7 @@ impl Answerer {
             "tom" => Some(Answerer::Tom),
             "default" => Some(Answerer::Default),
             "orphaned" => Some(Answerer::Orphaned),
+            "ticked" => Some(Answerer::Ticked),
             name if !name.is_empty() => Some(Answerer::Session(name.to_owned())),
             _ => None,
         }
@@ -357,8 +360,28 @@ pub struct Hold {
 impl Hold {
     /// Whether a launch for `issue` whose `Item:` line is `item` waits on this gate: a whole-issue hold refuses every launch on the issue; a box hold only the launch whose line carries the box's text, or one naming no line to tell it apart.
     pub fn refuses(&self, issue: &str, item: Option<&str>) -> bool {
-        self.issue == issue && self.box_text.as_deref().is_none_or(|text| item.is_none_or(|line| line.to_lowercase().contains(&text.to_lowercase())))
+        self.issue == issue && self.box_text.as_deref().is_none_or(|text| item.is_none_or(|line| carries(line, text)))
     }
+}
+
+fn carries(line: &str, text: &str) -> bool {
+    line.to_lowercase().contains(&text.trim().to_lowercase())
+}
+
+/// The ticked box line of the issue `body` that the box-scoped gate `request` decides, once no unticked box carries its text.
+pub fn ticked_box<'a>(request: &GateRequest, body: &'a str) -> Option<&'a str> {
+    let text = request.box_text.as_deref()?;
+    let boxes = |marks: &'static [&'static str]| body.lines().map(str::trim_start).filter(move |line| marks.iter().any(|mark| line.starts_with(mark)) && carries(line, text));
+    if boxes(&["- [ ]", "* [ ]"]).next().is_some() {
+        return None;
+    }
+    boxes(&["- [x]", "- [X]", "* [x]", "* [X]"]).next()
+}
+
+/// Closes the open box-scoped gate `id` whose box `line` was ticked, with the tick as its answer.
+pub fn tick(book: &dyn GateBook, id: i64, line: &str, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    let text = format!("its box was ticked, so the work it decided is done: {}", line.trim());
+    settle_as(book, id, Decision::Text(text), Answerer::Ticked, None, now_ms, deliver)
 }
 
 pub fn decisions(gates: Vec<Gate>) -> Vec<Gate> {
@@ -403,6 +426,7 @@ fn message(gate: &Gate, closure: &Closure) -> String {
         Answerer::Tom => format!("Tom answered: {}", closure.answer),
         Answerer::Default => format!("No answer in time, so the default applies: {}", closure.answer),
         Answerer::Orphaned => format!("Closed unanswered: {}", closure.answer),
+        Answerer::Ticked => format!("Closed by its box: {}", closure.answer),
     };
     format!("[gate {}] {verdict}\nYour question: {}", gate.id, gate.request.question)
 }

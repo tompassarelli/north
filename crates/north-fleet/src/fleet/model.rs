@@ -142,7 +142,7 @@ impl LaunchRequest {
         texts().map(item_issues).find(|named| !named.is_empty()).or_else(|| texts().find_map(lead_issue).map(|issue| vec![issue])).unwrap_or_default()
     }
 
-    /// The first `Item:` line, in the prompt or else in the brief it points at: what a box-scoped gate's text is matched against.
+    /// The first `Item:` line, in the prompt or else in the brief it points at: what a box-scoped gate's text is matched against, beside [`Self::claimed_box`].
     pub fn item_line(&self) -> Option<String> {
         first_item_line(&self.prompt).or_else(|| self.named_brief().and_then(|brief| first_item_line(&brief)))
     }

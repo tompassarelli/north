@@ -86,8 +86,9 @@ fn host_table<'a>(cfg: &'a DocumentMut, name: &str) -> Option<&'a Item> {
 }
 
 /// The issues the open gates in one host's `north gate list --json` name, by `--issue`, in the
-/// question or by the asking session's name, each with the gate that holds it.
-pub fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
+/// question or by the asking session's name, each with the gate that holds it; a gate opened with
+/// `--box` names only its `--issue`, with the box text it holds.
+pub fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, Option<String>, String)> {
     let mut found = Vec::new();
     for gate in listing.as_array().into_iter().flatten().filter(|gate| gate["closed_ms"].is_null()) {
         let session = gate["session"].as_str().unwrap_or_default();
@@ -96,12 +97,33 @@ pub fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
         let held_on = gate["host"].as_str().unwrap_or(host);
         let label = gate["id"].as_str().map_or_else(|| format!("{held_on}:{}", gate["id"]), str::to_owned);
         let why = format!("open north gate {label} on {held_on} from {session}, for Tom");
+        if let (Some(text), Some(item)) = (gate["box"].as_str(), gate["issue"].as_str().and_then(IssueRef::parse)) {
+            found.push((item, Some(text.to_owned()), why));
+            continue;
+        }
         let mut items: Vec<IssueRef> = issues::references(question, &repo).into_iter().filter(|item| !item.repo.is_empty()).chain(fleets::named_items(session)).chain(gate["issue"].as_str().and_then(IssueRef::parse)).collect();
         items.sort();
         items.dedup();
-        found.extend(items.into_iter().map(|item| (item, why.clone())));
+        found.extend(items.into_iter().map(|item| (item, None, why.clone())));
     }
     found
+}
+
+/// The issues the open gates in `rows` hold whole; a box-scoped gate holds instead, in `box_holds`, each takeable box of its issue carrying its text.
+fn gate_holds(rows: impl Iterator<Item = (IssueRef, Option<String>, String)>, issues: &[Issue], at: f64, box_holds: &mut record::BoxHolds) -> Vec<(IssueRef, String)> {
+    let mut held = Vec::new();
+    for (item, text, why) in rows {
+        let Some(text) = text else {
+            held.push((item, why));
+            continue;
+        };
+        let Some(issue) = issues.iter().find(|issue| issue.reference() == item) else { continue };
+        let wanted = text.trim().to_lowercase();
+        for slug in issue.takeable(at).filter(|line| line.to_lowercase().contains(&wanted)).filter_map(crate::threads::claims::box_slug) {
+            box_holds.entry(item.clone()).or_default().entry(slug).or_insert_with(|| why.clone());
+        }
+    }
+    held
 }
 
 fn host(cfg: &DocumentMut, name: &str, here: &str, hosted_elsewhere: i64, laptop_running: i64) -> Host {
@@ -413,7 +435,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
             box_holds.entry(item.clone()).or_default().entry(slug).or_insert(why);
         }
     }
-    let mut held: Vec<(IssueRef, String)> = gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)).collect();
+    let mut held = gate_holds(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)), &issues, at, &mut box_holds);
     held.sort();
     held.dedup();
     holds.extend(held);

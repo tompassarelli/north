@@ -55,6 +55,17 @@ impl Fleet {
         Ok(orphaned.map(|gate| (gate.id, gates::orphan(self.ledger.as_ref(), gate.id, now_ms()))).collect())
     }
 
+    /// Closes, with the tick as its answer, each open gate scoped to one box whose box `body_of` its issue shows ticked, telling its asking session if it still runs.
+    pub fn close_ticked_gates(&self, body_of: impl Fn(&str) -> Option<String>) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
+        let mut closed = Vec::new();
+        for gate in self.ledger.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && gate.request.box_text.is_some()) {
+            let Some(body) = gate.request.issue.as_deref().and_then(&body_of) else { continue };
+            let Some(line) = gates::ticked_box(&gate.request, &body) else { continue };
+            closed.push((gate.id, gates::tick(self.ledger.as_ref(), gate.id, line, now_ms(), |session, text| self.answer_session(session, text))));
+        }
+        Ok(closed)
+    }
+
     /// Each decision gate naming an issue that closed since `since_ms` with an answer its asking session never read, because that session has retired.
     pub fn unread_answers(&self, since_ms: u64) -> NorthResult<Vec<Gate>> {
         let closed = gates::decisions(self.ledger.gates(since_ms)?).into_iter().filter(|gate| gate.request.issue.is_some() && gate.closure.as_ref().is_some_and(|closure| closure.by != gates::Answerer::Orphaned));

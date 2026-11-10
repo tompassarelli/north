@@ -42,7 +42,7 @@ use crate::cli::{gate, orders, send};
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let result = open_fleet_claiming(ThreadsCli::for_verb(arguments)).and_then(|fleet| {
-        crate::cli::gate_orphan::close_orphaned(&fleet);
+        crate::cli::gate_closing::close_moot(&fleet);
         sweep_gates(&fleet);
         release_exited_claims(&fleet, arguments);
         dispatch(fleet, arguments)
