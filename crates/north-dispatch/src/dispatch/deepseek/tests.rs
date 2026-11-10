@@ -56,6 +56,27 @@ fn verdict(category: &str, kind: Kind, sha: &str) -> Verdict {
     Verdict { at: 0.0, session: "ds".into(), category: category.into(), sha: sha.into(), kind, class: None, effort: None }
 }
 
+#[test]
+fn opencode_landings_get_full_review_for_ten_runs_then_one_in_five_and_a_defect_resets_it() {
+    let shas: Vec<String> = (0..12u32).map(|number| format!("{:08x}", number * 7 + 1)).collect();
+    let mut verdicts: Vec<Verdict> = Vec::new();
+    let mut requested = Vec::new();
+    for sha in &shas {
+        let asked = sampling::reviews(&verdicts, "feature", false, sha);
+        requested.push(asked);
+        verdicts.push(verdict("feature", if asked { Kind::Clean } else { Kind::Unsampled }, sha));
+    }
+    assert!(requested[..FULL_REVIEWS].iter().all(|asked| *asked), "the first 10 runs of a category are all reviewed: {requested:?}");
+    let sampled = |sha: &String| u64::from_str_radix(sha, 16).unwrap().is_multiple_of(sampling::SAMPLE_EVERY);
+    assert!(requested[FULL_REVIEWS..].iter().zip(&shas[FULL_REVIEWS..]).all(|(asked, sha)| *asked == sampled(sha)), "after 10, a run is reviewed only when its sha is sampled: {requested:?}");
+    let unsampled = "00000001";
+    assert!(!sampling::reviews(&verdicts, "feature", false, unsampled));
+    let mut defect = verdict("feature", Kind::Defect, unsampled);
+    defect.class = Some("out-of-scope".into());
+    verdicts.push(defect);
+    assert!(sampling::reviews(&verdicts, "feature", false, unsampled), "a defect finding puts the category back on full review");
+}
+
 fn a_category_is_reviewed_in_full_until_ten_clean_then_one_in_five_while_a_defect_resets_it_and_landing_boxes_are_always_reviewed() {
     let unsampled = "00000001";
     let sampled = "00000005";
