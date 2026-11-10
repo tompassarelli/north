@@ -253,3 +253,23 @@ fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the
     assert!(!marker.exists(), "the red record outlived a green rerun of its tests: {:?}", sent.borrow());
     assert!(sent.borrow().len() == 1 && sent.borrow()[0].contains("main is green again"), "{:?}", sent.borrow());
 }
+
+#[test]
+fn an_after_landing_run_starts_over_a_leftover_worktree_directory() {
+    let scratch = tempfile::tempdir().unwrap();
+    let repo = scratch.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let head = committed_repo(&repo);
+    let mut again = run();
+    again.runner = vec!["sh".to_owned(), "-c".to_owned(), "test -f README".to_owned(), "again".to_owned()];
+    again.worktree = scratch.path().join("queue").join(format!("post-land-{}", &head[..12]));
+    again.log = scratch.path().join("post-land.log");
+    again.outcome = scratch.path().join("post-land.outcome");
+    std::fs::create_dir_all(again.worktree.join("target/debug")).unwrap();
+    std::fs::write(again.worktree.join("target/debug/half-removed"), "x").unwrap();
+    let mut landed = landed(&[&head]);
+    landed.repo = repo;
+    let checked = super::execute::check(&landed, &head, &again);
+    assert!(matches!(checked.verdict, Verdict::Green), "{:?}", checked.verdict);
+    assert!(!again.worktree.exists(), "the run removes its worktree when it ends");
+}

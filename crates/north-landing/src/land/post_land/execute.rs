@@ -33,13 +33,25 @@ pub(super) fn check(landed: &Landed, tree: &str, run: &Run) -> Checked {
         return superseded(landed).into();
     }
     let Some((program, prefix)) = run.runner.split_first() else { return Verdict::Transient("no post-land runner".to_owned()).into() };
-    let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
+    if let Err(error) = clear(&landed.repo, &run.worktree) {
+        return Verdict::Transient(format!("post-land worktree: {} left by an earlier run could not be removed: {error}", run.worktree.display())).into();
+    }
     if let Err(error) = change_worktrees_alone(&landed.repo, &["worktree", "add", "--detach", &run.worktree.to_string_lossy(), tree]) {
         return Verdict::Transient(format!("post-land worktree: {error}")).into();
     }
     let checked = execute(program, prefix, landed, tree, run);
     let _ = change_worktrees_alone(&landed.repo, &["worktree", "remove", "--force", &run.worktree.to_string_lossy()]);
     checked
+}
+
+fn clear(repo: &Path, worktree: &Path) -> std::io::Result<()> {
+    let _ = change_worktrees_alone(repo, &["worktree", "remove", "--force", &worktree.to_string_lossy()]);
+    match fs::remove_dir_all(worktree) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    let _ = change_worktrees_alone(repo, &["worktree", "prune"]);
+    Ok(())
 }
 
 pub(crate) fn execute(program: &str, prefix: &[String], landed: &Landed, tree: &str, run: &Run) -> Checked {
