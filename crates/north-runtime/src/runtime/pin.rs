@@ -151,15 +151,18 @@ pub(super) fn promoted(layout: &Layout, sha: &str) {
     note(layout, &Event::Promoted { sha: sha.to_owned(), at: now() });
 }
 
-pub fn status(state: &Path, live: Option<&str>) -> String {
+/// The journal this host keeps when it holds a landing, else the copy of the settling host's that the records mirror holds.
+pub(super) fn events_here_or_mirrored(state: &Path, reader: &str) -> Vec<Event> {
     let local = state.join(JOURNAL);
-    let events = match local.is_file() {
-        true => read_path(&local),
-        false => {
-            let records = crate::platform::records_mirror::read("north runtime status");
-            read_path(&records.local(&local))
-        }
-    };
+    let events = read_path(&local);
+    match events.iter().any(|event| matches!(event, Event::Landed { .. })) {
+        true => events,
+        false => read_path(&crate::platform::records_mirror::read(reader).local(&local)),
+    }
+}
+
+pub fn status(state: &Path, live: Option<&str>) -> String {
+    let events = events_here_or_mirrored(state, "north runtime status");
     let promoted = live.and_then(|live| events.iter().rev().find_map(|event| match event {
         Event::Promoted { sha, at } if sha == live => Some(*at),
         _ => None,

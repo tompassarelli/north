@@ -1,9 +1,22 @@
 //! `north runtime lag --processes`: each long-lived north process on this host, the runtime it runs and whether that
-//! is the runtime its link names (docs/rationale/runtime-follow.md).
+//! is the runtime its link names (docs/rationale/runtime-follow.md); `--json`: for every declared host and process, the
+//! seconds it has run behind the newest landing that changed a runtime input (docs/rationale/propagation.md).
+mod ask;
+mod behind;
+mod page;
+pub mod samples;
+#[cfg(test)]
+mod json_tests;
+
+use super::failure::Failure;
+use super::layout::Layout;
+use behind::Process;
 use north_runtime_follow::{named, runtime_of};
 use std::fs;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
+
+pub(super) use page::watch;
 
 const RESIDENTS: &[(&[&str], &str)] = &[
     (&["land", "serve"], "land serve"),
@@ -39,12 +52,26 @@ impl Resident {
     }
 }
 
-pub(super) fn command(state: &Path, flags: &[String]) -> Option<Result<(), super::failure::Failure>> {
-    let [flag] = flags else { return None };
-    (flag == "--processes").then(|| print!("{}", report(Path::new("/proc"), state))).map(Ok)
+pub(super) fn command(layout: &Layout, flags: &[String]) -> Option<Result<(), Failure>> {
+    let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+    match flags.as_slice() {
+        ["--processes"] => print!("{}", report(Path::new("/proc"), &layout.state)),
+        ["--processes", "--json"] => println!("{}", serde_json::to_string(&processes(Path::new("/proc"), &layout.state)).unwrap_or_default()),
+        ["--json"] => println!("{:#}", serde_json::Value::Array(page::objects(layout, &[]))),
+        _ => return None,
+    }
+    Some(Ok(()))
 }
 
 fn report(proc_root: &Path, state: &Path) -> String {
+    residents(proc_root, state).iter().map(|resident| resident.line() + "\n").collect()
+}
+
+fn processes(proc_root: &Path, state: &Path) -> Vec<Process> {
+    residents(proc_root, state).into_iter().map(|resident| Process { pid: resident.pid, process: format!("{}{}", resident.kind, resident.subject), runtime: resident.runtime }).collect()
+}
+
+fn residents(proc_root: &Path, state: &Path) -> Vec<Resident> {
     let lander = state.join("lander");
     let lander = if fs::symlink_metadata(&lander).is_ok() { lander } else { state.join("current") };
     let current = state.join("current");
@@ -59,7 +86,7 @@ fn report(proc_root: &Path, state: &Path) -> String {
         })
         .collect();
     residents.sort_by(|left, right| (left.kind, left.pid).cmp(&(right.kind, right.pid)));
-    residents.iter().map(|resident| resident.line() + "\n").collect()
+    residents
 }
 
 fn resident(process: &Path, pid: u32, boot: Option<u64>, [lander, current]: [&Path; 2]) -> Option<Resident> {

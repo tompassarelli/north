@@ -72,6 +72,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         }
         records.push(probe::record(&facts, &problems));
     }
+    super::lag::watch(layout, &records);
     if let Err(error) = history.save().and_then(|()| growth.save()) {
         eprintln!("north runtime settle: could not record each host's problems and process counts: {error}");
     }
@@ -242,7 +243,7 @@ fn judge(layout: &Layout, checkout: &Path, landing: &Landing, broken: &[String])
     }
 }
 
-fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
+pub(super) fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
     process::run("git", Some(checkout), &["merge-base", "--is-ancestor", earlier, later]).is_ok_and(|output| output.status.success())
 }
 

@@ -198,6 +198,13 @@ max = 120
 class = "ready"
 
 [[goal]]
+name = "ready-runtime-lag"
+source = "north#1081: no long-lived north process on any declared host runs more than 5 min behind the newest landing that changed a runtime input, read as the worst of north runtime lag --json that each settle samples into records/north/runtime-lag.jsonl (added 2026-11-11); the coordinator is paged once per episode past it"
+unit = "s"
+max = 300
+class = "ready"
+
+[[goal]]
 name = "ready-firn-closure-live-p90"
 source = "north#1081: a landed firn change is built once and substituted on every host, so landing to live for a firn closure is at most 5 min p90 over the newest 1 h, read from the per-host rows in records/north/propagation.jsonl (added 2026-11-10); the coordinator is paged past twice that"
 unit = "s"

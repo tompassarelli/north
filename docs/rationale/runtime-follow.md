@@ -62,3 +62,13 @@ moves even while busy, so it moves within a minute of the flip.
 repository), the runtime it runs and `current`, or `behind` with the runtime its link names. It reads the runtime from
 the program path in `/proc/PID/cmdline`, then from `/proc/PID/exe`. When neither names one, a process that started
 through a link after the link last moved counts as running that link's runtime. Any other process runs an older one.
+
+`north runtime lag --json` answers the fleet-wide question (north#1081): a JSON array with one object per long-lived
+process on every declared host, `host`, `process`, `runtime` and `seconds`. The settling host asks each other host for
+its own list with `north runtime lag --processes --json` over ssh, and times each process from the first landing in
+`runtime-pins.jsonl` that changed a runtime input which the runtime it runs does not hold, so a host stuck behind
+several landings keeps growing instead of resetting at each new one; a process on a runtime it holds every landing of
+reads 0, one whose runtime cannot be named is timed from the newest landing, and a host that did not answer is one
+object with a null `seconds` and its reason in `unread`. Each `north runtime settle` appends the worst reading to
+`runtime-lag.jsonl`, which the `ready-runtime-lag` bar reads (at most 5 min), and pages the proxy once, keyed
+`runtime-lag`, when a process passes 5 min; the episode ends when none does.

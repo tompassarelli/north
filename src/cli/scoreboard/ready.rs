@@ -50,6 +50,7 @@ enum Bar {
     RuntimeBreaks,
     RuntimeRollback,
     RuntimeLive,
+    RuntimeLag,
     FirnClosureLive,
     UsagePerLanding,
     StrandedUsage,
@@ -58,7 +59,7 @@ enum Bar {
 }
 
 impl Bar {
-    const ALL: [Self; 18] = [
+    const ALL: [Self; 19] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -72,6 +73,7 @@ impl Bar {
         Self::RuntimeBreaks,
         Self::RuntimeRollback,
         Self::RuntimeLive,
+        Self::RuntimeLag,
         Self::FirnClosureLive,
         Self::UsagePerLanding,
         Self::StrandedUsage,
@@ -94,6 +96,7 @@ impl Bar {
             Self::RuntimeBreaks => "ready-runtime-breaks",
             Self::RuntimeRollback => "ready-runtime-rollback",
             Self::RuntimeLive => "ready-runtime-live-p90",
+            Self::RuntimeLag => "ready-runtime-lag",
             Self::FirnClosureLive => "ready-firn-closure-live-p90",
             Self::UsagePerLanding => "ready-usage-per-landing",
             Self::StrandedUsage => "ready-stranded-usage",
@@ -117,6 +120,7 @@ impl Bar {
             Self::RuntimeBreaks => "runtime breaks reaching a 2nd host (all)",
             Self::RuntimeRollback => "runtime rollback after swap, slowest (all)",
             Self::RuntimeLive => "landing to live p90 (all)",
+            Self::RuntimeLag => "runtime lag, worst process (all)",
             Self::FirnClosureLive => "firn closure landing to live p90 (all)",
             Self::UsagePerLanding => "usage per first try landed (all)",
             Self::StrandedUsage => "usage stranded while work waited (all)",
@@ -274,6 +278,7 @@ struct Records {
     idle: Idle,
     pins: Vec<north_runtime::runtime::pin::Event>,
     propagation: Vec<propagation::Row>,
+    lags: Vec<north_runtime::runtime::lag::samples::Sample>,
     lander_red: HashMap<String, main_green::Reds>,
     ci_red: HashMap<String, main_green::Reds>,
     usage: Facts,
@@ -327,6 +332,7 @@ impl Records {
             usage: Facts::load(&usage_yield::Sources { db: &threads, policy: &crate::platform::orchestration::path(), state: &state_root() }, now),
             pins: north_runtime::runtime::pin::read(&sources.records.join("north")),
             propagation: propagation::read(&sources.records),
+            lags: north_runtime::runtime::lag::samples::read(&sources.records.join("north")),
         })
     }
 
@@ -339,6 +345,13 @@ impl Records {
             _ => (!pins.landing_to_live_seconds.is_empty()).then(|| (percentile(&pins.landing_to_live_seconds, 0.9), pins.landing_to_live_seconds.len())),
         };
         reading.map(Reading::from)
+    }
+
+    fn propagation_held(&self, bar: Bar, window: Window) -> Option<Reading> {
+        match bar {
+            Bar::RuntimeLag => north_runtime::runtime::lag::samples::worst_in(&self.lags, window.start, window.end).map(Reading::from),
+            _ => propagation::firn_closure_p90(&self.propagation, window.start, window.end).map(Reading::from),
+        }
     }
 
     fn priority(&self, repo: &str, window: Window) -> Option<Reading> {
@@ -362,7 +375,7 @@ impl Records {
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
             Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive => self.runtime(bar, window),
-            Bar::FirnClosureLive => propagation::firn_closure_p90(&self.propagation, window.start, window.end).map(Reading::from),
+            Bar::FirnClosureLive | Bar::RuntimeLag => self.propagation_held(bar, window),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)
