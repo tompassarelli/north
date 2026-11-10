@@ -205,9 +205,11 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
     refuse_conflict(&root, &base, &destination)?;
+    let authored = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    super::scans::generated_registry::check(&root, &base, &authored)?;
     let folded = crate::landing::merge_continue::fold(&root, &root.join(crate::landing::merge_set::DEFAULT_CONFIG), &base)?;
     if !folded.is_empty() {
-        println!("safe-push: regenerated or sorted {} and folded the result into the lane", folded.join(", "));
+        println!("safe-push: sorted {} and folded the result into the lane", folded.join(", "));
     }
     let alone_tree = check_lane(&root, &base, &branch, &origin, &destination, environment)?;
     if alone_tree.is_none() {

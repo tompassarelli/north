@@ -127,11 +127,11 @@ pub fn fold(worktree: &Path, config: &Path, base: &str) -> Result<Vec<String>, S
     let fork = stdout(worktree, &["merge-base", base, "HEAD"])?;
     let changed = stdout(worktree, &["diff", "--name-only", "-z", fork.trim(), "HEAD"])?;
     let changed: Vec<&str> = changed.split('\0').filter(|path| !path.is_empty()).collect();
-    let touches = |prefixes: &[String]| changed.iter().any(|path| prefixes.iter().any(|prefix| path.starts_with(prefix.as_str())));
     let mut folded = Vec::new();
     for rule in merge_set::read_rules(config)? {
         match &rule.kind {
-            Kind::Regenerate { command, sources, generator } if touches(sources) && !touches(generator) => generate(worktree, command, generator)?,
+            // The lander writes a generated file from its sources; the lane never commits one.
+            Kind::Regenerate { .. } => continue,
             Kind::Block { start, end, sorted: true } if changed.contains(&rule.path.as_str()) => {
                 let path = worktree.join(&rule.path);
                 let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", rule.path))?;
