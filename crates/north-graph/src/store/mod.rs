@@ -25,8 +25,8 @@ pub use validate::Report;
 pub use text::{Field, TextHit, TextSearch};
 pub use write::{Action, ActionKind, Receipt};
 
-const SCHEMA_VERSION: i64 = 4;
-const KEYED_BY_VALUE: i64 = 2;
+pub(crate) const SCHEMA_VERSION: i64 = 4;
+pub(crate) const KEYED_BY_VALUE: i64 = 2;
 const KEYED_BY_HASH: i64 = 3;
 const PATIENCE: Duration = Duration::from_secs(30);
 const HORIZON: &str = "retain/horizon";

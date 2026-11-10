@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Barrier};
 
-use crate::store::{Action, Graph, Told};
+use crate::store::{Action, Graph, KEYED_BY_VALUE, SCHEMA_VERSION, Told};
 use crate::sync::{Synced, Telling};
 use crate::term::{Term, Triple};
 
@@ -119,17 +119,21 @@ fn retiring_a_writer_withdraws_each_of_its_live_assertions_and_keeps_the_rest() 
 }
 
 #[test]
-fn a_read_only_open_upgrades_a_store_an_older_build_wrote_instead_of_calling_it_corrupt() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("graph.db");
-    let mut graph = Graph::open(&path).unwrap();
-    graph.tell("writer-0", fact(0, 1)).unwrap();
-    let head = graph.head().unwrap();
-    graph
-        .connection()
-        .execute_batch("CREATE TABLE terms_v2 (id INTEGER PRIMARY KEY, key BLOB NOT NULL UNIQUE); INSERT INTO terms_v2 SELECT id, key FROM terms; DROP TABLE terms; ALTER TABLE terms_v2 RENAME TO terms; PRAGMA user_version = 2;")
-        .unwrap();
-    drop(graph);
-    let reader = Graph::open_read_only(&path, std::time::Duration::from_secs(1)).unwrap();
-    assert_eq!(reader.head().unwrap(), head, "the upgraded store keeps every fact the older build told");
+fn a_read_only_open_upgrades_an_old_state_store_instead_of_calling_it_corrupt() {
+    // A store left at the previous schema version, and one left at the v2 layout that keyed terms by
+    // value, must both upgrade on a read-only open and keep every fact the older build told.
+    for (old_state, reshape) in [
+        (KEYED_BY_VALUE, "CREATE TABLE terms_v2 (id INTEGER PRIMARY KEY, key BLOB NOT NULL UNIQUE); INSERT INTO terms_v2 SELECT id, key FROM terms; DROP TABLE terms; ALTER TABLE terms_v2 RENAME TO terms;"),
+        (SCHEMA_VERSION - 1, ""),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("graph.db");
+        let mut graph = Graph::open(&path).unwrap();
+        graph.tell("writer-0", fact(0, 1)).unwrap();
+        let head = graph.head().unwrap();
+        graph.connection().execute_batch(&format!("{reshape} PRAGMA user_version = {old_state};")).unwrap();
+        drop(graph);
+        let reader = Graph::open_read_only(&path, std::time::Duration::from_secs(1)).unwrap();
+        assert_eq!(reader.head().unwrap(), head, "the upgraded store keeps every fact the older build told at schema {old_state}");
+    }
 }
