@@ -210,11 +210,11 @@ impl Placement {
     }
 }
 
-/// A reserved host or a laptop on battery takes no land check; one that offloads builds, or a laptop build host on mains whose seat is idle, competes with the others for room; any other, such as a laptop Tom is working at, takes one only when no build host answers.
-fn standing(reserved: bool, on_battery: bool, builds: bool) -> room::Standing {
+/// A reserved host or a laptop on battery takes no land check; one `cfg` names as offloading builds competes with the others for room; any other, such as the laptop in any capacity mode, takes one only when no build host answers, and queues it on the least busy build host while they are all full: on 2026-11-10 at 2:05 PM the away laptop counted as a build host and ran 6 land checks at load 40 while cpx62 sat at 8 (north#1036).
+fn standing(reserved: bool, on_battery: bool, cfg: Option<&toml_edit::DocumentMut>, here: &str) -> room::Standing {
     if reserved || on_battery {
         room::Standing::Reserved
-    } else if builds {
+    } else if cfg.is_some_and(|cfg| destinations::offloads_builds(cfg, here)) {
         room::Standing::Peer
     } else {
         room::Standing::Fallback
@@ -223,11 +223,6 @@ fn standing(reserved: bool, on_battery: bool, builds: bool) -> room::Standing {
 
 fn on_battery() -> bool {
     laptop_auto::settled_battery(&laptop_auto::power_supply(), &laptop_auto::discharging_since(&agent_load::Host::from_env()), mode::now()).is_some()
-}
-
-/// Whether this host's capacity mode reads its seat as idle (away): on 2026-11-08 the laptop ran 2 land checks at load 73 while Tom worked at it, because desktop mode made it a build host like away.
-fn seat_idle() -> bool {
-    mode::read(&mode::state_dir()).mode == mode::Mode::Away
 }
 
 fn choose(any: bool, placement: &Placement) -> u8 {
@@ -304,7 +299,7 @@ fn survey(in_reserve: bool, placement: &Placement) -> Survey {
     let reserved = in_reserve || checks_confined_here() || !placement.admits(&here) || !lacks.is_empty();
     let reached = |name: &str| config().is_ok_and(|cfg| crate::platform::orchestration::reaches(&cfg, &here, name));
     let builds = |name: &str| config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, name));
-    let standing = standing(reserved, on_battery(), builds(&here) || (mode::takes_land_checks() && seat_idle()));
+    let standing = standing(reserved, on_battery(), config().ok().as_ref(), &here);
     let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here && reached(&machine.name) && placement.admits(&machine.name) && (standing != room::Standing::Fallback || builds(&machine.name))).collect();
     let remotes = std::thread::scope(|scope| {
         let reads: Vec<_> = others.iter().map(|machine| (machine.name.clone(), scope.spawn(|| room::read(&machine.ssh)), scope.spawn(|| readiness::admits(&needs, &machine.name, &machine.ssh)))).collect();
