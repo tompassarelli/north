@@ -16,7 +16,8 @@ pub struct Tier {
 
 const SCREEN: Tier = Tier { model: "claude-haiku-5-5", effort: "low" };
 const CONFIRM: Tier = Tier { model: "claude-sonnet-5-5", effort: "low" };
-const AGY_MODEL: &str = "gemini-3.8-flash-high";
+/// agy models the judge tries in turn; only Google and Anthropic models, the vendors the judge already sends to.
+const AGY_MODELS: [&str; 4] = ["gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-4-argon-medium", "claude-sonnet-5-5-low"];
 const PROMPT_VERSION: &str = "1";
 const CLEAN: &str = "NONE\n";
 const ATTEMPT_LIMIT: Duration = Duration::from_secs(90);
@@ -133,20 +134,86 @@ fn verdict(kinds: &Kinds, chunk: &str, cache: &Cache, tier: &Tier, run: usize, a
     Ok(fresh)
 }
 
+/// Asks each judge in turn until one answers: the Claude subscription accounts, then the Claude API credit pool,
+/// then agy's models. Every judge is Anthropic or Google, the two vendors the judge already used; a judge that fails
+/// only moves the ask on, and a run where none answers stays unjudged, so the push stays refused (fail closed).
 pub fn ask_subscription(tier: &Tier, prompt: &str, access: &RuntimeAccess) -> Result<String, String> {
-    let refused = match oneshot::ask_claude(tier.model, tier.effort, ATTEMPT_LIMIT, prompt, access, &mut |line| eprintln!("privacy judge: {line}")) {
-        Asked::Answer(answer) => return Ok(answer),
-        Asked::AtLimit => "every claude subscription account is at its usage limit".to_owned(),
-        Asked::Failed(reason) => reason,
+    let subscription = || match oneshot::ask_claude(tier.model, tier.effort, ATTEMPT_LIMIT, prompt, access, &mut |line| eprintln!("privacy judge: {line}")) {
+        Asked::Answer(answer) => Ok(answer),
+        Asked::AtLimit => Err("every claude subscription account is at its usage limit".to_owned()),
+        Asked::Failed(reason) => Err(reason),
     };
-    eprintln!("privacy judge: {refused}; asking agy");
-    ask_agy(prompt).map_err(|agy| format!("{refused}; agy: {agy}"))
+    let api = || ask_api_pool(tier, prompt);
+    let agy = || ask_agy(prompt);
+    first_answer(&[("subscription", &subscription), ("api credit", &api), ("agy", &agy)])
 }
 
+type Judge<'a> = (&'a str, &'a dyn Fn() -> Result<String, String>);
+
+/// The first answer of `judges` in order, or every judge's refusal when none answers.
+fn first_answer(judges: &[Judge]) -> Result<String, String> {
+    let mut refused = Vec::new();
+    for (name, ask) in judges {
+        match ask() {
+            Ok(answer) => return Ok(answer),
+            Err(why) => {
+                eprintln!("privacy judge: {name}: {why}");
+                refused.push(format!("{name}: {why}"));
+            }
+        }
+    }
+    Err(refused.join("; "))
+}
+
+/// Asks `tier`'s model on each api organization the pool would launch on, soonest-expiring credit first.
+fn ask_api_pool(tier: &Tier, prompt: &str) -> Result<String, String> {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let state = home.join(".local/state/north");
+    let profile = std::env::var_os("NORTH_PROFILES").map_or_else(|| state.join("profiles"), PathBuf::from).join("claude-api");
+    let (policy, here) = (crate::platform::orchestration::path(), crate::platform::host::name());
+    let mut skipped: Vec<String> = Vec::new();
+    let mut refused: Vec<String> = Vec::new();
+    while let Some((id, key)) = crate::providers::claude::api_pool::next_key(&policy, &home, &state, &here, &skipped) {
+        skipped.push(id);
+        let secret = match std::fs::read_to_string(&key.file) {
+            Ok(secret) if !secret.trim().is_empty() => secret.trim().to_owned(),
+            _ => {
+                refused.push(format!("{}: key unreadable", key.org));
+                continue;
+            }
+        };
+        let mut command = std::process::Command::new("claude");
+        for name in oneshot::EXTERNAL_BILLING {
+            command.env_remove(name);
+        }
+        command.env("ANTHROPIC_API_KEY", secret).env("CLAUDE_CONFIG_DIR", &profile).env("CLAUDE_CODE_DISABLE_FAST_MODE", "1");
+        command.args(["-p", "--model", tier.model, "--effort", tier.effort, "--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"]);
+        match crate::platform::process::run_command_within(command, Some(prompt.as_bytes()), ATTEMPT_LIMIT) {
+            Some(output) if output.status.success() && !output.stdout.is_empty() => return Ok(String::from_utf8_lossy(&output.stdout).into_owned()),
+            Some(output) => refused.push(format!("{}: exited {:?}: {}{}", key.org, output.status.code(), String::from_utf8_lossy(&output.stdout).trim(), String::from_utf8_lossy(&output.stderr).trim())),
+            None => refused.push(format!("{}: did not finish", key.org)),
+        }
+    }
+    if refused.is_empty() { Err("no api organization has credit left".to_owned()) } else { Err(refused.join("; ")) }
+}
+
+/// Asks agy's models in turn: Gemini first, then the Claude models agy also serves.
 fn ask_agy(prompt: &str) -> Result<String, String> {
+    let mut refused = Vec::new();
+    for model in AGY_MODELS {
+        match ask_agy_model(model, prompt) {
+            Ok(answer) => return Ok(answer),
+            Err(why) => refused.push(format!("{model}: {why}")),
+        }
+    }
+    Err(refused.join("; "))
+}
+
+fn ask_agy_model(model: &str, prompt: &str) -> Result<String, String> {
     let prompt_arg = format!("-p={prompt}");
-    let args = ["--model", AGY_MODEL, "--dangerously-skip-permissions", "--disable-slash-commands", prompt_arg.as_str()];
-    let output = crate::platform::process::run_with_input_within(&crate::fleet::install::runtime("agy").to_string_lossy(), &args, None, ATTEMPT_LIMIT).ok_or("agy did not finish")?;
+    let mut command = std::process::Command::new(crate::fleet::install::runtime("agy"));
+    command.env("AGY_CLI_DISABLE_AUTO_UPDATE", "1").args(["--model", model, "--dangerously-skip-permissions", "--disable-slash-commands", prompt_arg.as_str()]);
+    let output = crate::platform::process::run_command_within(command, None, ATTEMPT_LIMIT).ok_or("agy did not finish")?;
     let answer = String::from_utf8_lossy(&output.stdout).into_owned();
     if output.status.success() && !answer.trim().is_empty() {
         Ok(answer)
@@ -288,5 +355,20 @@ mod tests {
         }
         assert_eq!(judge(&kinds, &text("second note, reworded"), &cache, &ask), Ok(stable));
         assert_eq!(*asked.lock().unwrap(), [true, true, true, true, false, false]);
+    }
+
+    #[test]
+    fn a_judge_that_fails_moves_the_ask_to_the_next_and_none_answering_names_every_refusal_north_1049() {
+        let later = std::cell::Cell::new(false);
+        let refuse = || Err::<String, String>("at its usage limit".to_owned());
+        let answer = || Ok::<String, String>("NONE".to_owned());
+        let after = || {
+            later.set(true);
+            Ok("too late".to_owned())
+        };
+        assert_eq!(first_answer(&[("subscription", &refuse), ("api credit", &answer), ("agy", &after)]), Ok("NONE".to_owned()));
+        assert!(!later.get(), "a judge after the one that answered was asked");
+        let none = first_answer(&[("subscription", &refuse), ("api credit", &refuse), ("agy", &refuse)]).unwrap_err();
+        assert!(["subscription:", "api credit:", "agy:"].iter().all(|name| none.contains(name)), "{none}");
     }
 }
