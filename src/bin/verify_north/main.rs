@@ -116,5 +116,7 @@ fn locate(options: &Options, notes: &Notes, state: &std::path::Path) -> Result<N
     };
     notes.note(&Note::North(program.clone()));
     notes.note(&Note::Directory(directory.clone()));
-    Ok(North::new(program, directory, state.to_path_buf(), Some(notes.clone())))
+    let north = North::new(program, directory, state.to_path_buf(), Some(notes.clone()));
+    north.create_ledger()?;
+    Ok(north)
 }

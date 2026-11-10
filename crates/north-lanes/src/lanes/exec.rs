@@ -15,6 +15,7 @@ Outside a worker sandbox, inside depbox, and with no checkout to vouch for it, i
 
 const LOCKS: [&str; 6] = ["Cargo.lock", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
 const DEPBOX: &str = "DEPBOX";
+const OUTPUTS: [&str; 2] = ["target", "node_modules"];
 
 /// `north lane exec`; `confined` says whether this command runs in a worker sandbox, and `leave` runs a program without the worker sandbox's rule against executing build output, returning its exit code, or `None` when it did not run it.
 pub fn run(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option<u8>) -> u8 {
@@ -49,7 +50,7 @@ fn run_with(arguments: &[String], confined: bool, leave: fn(&[String]) -> Option
 }
 
 fn named_lane(lane: Option<PathBuf>, program: &[String]) -> Result<Option<PathBuf>, u8> {
-    let program_checkout = std::fs::canonicalize(&program[0]).ok().filter(|_| program[0].contains('/')).and_then(|path| path.parent().and_then(toplevel));
+    let program_checkout = std::fs::canonicalize(&program[0]).ok().filter(|_| program[0].contains('/')).and_then(|path| build_output_checkout(&path));
     match (lane, program_checkout) {
         (Some(lane), Some(owner)) if std::fs::canonicalize(&lane).ok().as_ref() != Some(&owner) => {
             eprintln!("lane exec: {} is built in {}, not in {}; name that checkout with --lane or run it with `north depbox run -- {}`", program[0], owner.display(), lane.display(), program.join(" "));
@@ -59,6 +60,12 @@ fn named_lane(lane: Option<PathBuf>, program: &[String]) -> Result<Option<PathBu
         (None, Some(owner)) => Ok(Some(owner)),
         (None, None) => Ok(None),
     }
+}
+
+fn build_output_checkout(program: &Path) -> Option<PathBuf> {
+    let checkout = program.parent().and_then(toplevel)?;
+    let inside = program.strip_prefix(&checkout).ok()?;
+    inside.components().any(|part| OUTPUTS.iter().any(|name| part.as_os_str() == *name)).then_some(checkout)
 }
 
 /// The exit code of running `program` in a way that is safe for `lane`'s locks, or `None` when it may run in place.

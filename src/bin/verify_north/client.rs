@@ -81,6 +81,10 @@ impl North {
         Ok(Transcript::parse(&self.json(&["fleet", "show", name, "--json"])?))
     }
 
+    pub fn create_ledger(&self) -> Result<(), String> {
+        self.run(&["threads", "list"], QUERY_WAIT).map(drop).map_err(|problem| format!("the state root's ledger, which `north fleet` opens but never creates: {problem}"))
+    }
+
     pub fn forget(&self, name: &str) -> Result<(), String> {
         self.run(&["fleet", "forget", name], QUERY_WAIT).map(drop)
     }

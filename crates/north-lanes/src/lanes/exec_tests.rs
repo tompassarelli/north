@@ -43,13 +43,20 @@ fn a_source_less_package_counts_as_unchanged_only_when_the_workspace_holds_its_m
 }
 
 #[test]
-fn a_program_built_in_another_checkout_than_the_named_lane_is_refused() {
+fn a_program_built_in_another_checkout_than_the_named_lane_is_refused_but_a_runtime_in_a_store_repository_runs() {
     let main = lane_with_lock(WORKSPACE);
     let lane = lane_with_lock(WORKSPACE);
-    let binary = lane.path().join("tool");
+    let binary = lane.path().join("target/debug/tool");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
     std::fs::write(&binary, "#!/bin/sh\n").unwrap();
-    let arguments = ["--lane".to_owned(), main.path().display().to_string(), "--".to_owned(), binary.display().to_string()];
-    assert_eq!(run(&arguments, true, |_| None), 1);
+    let arguments = |program: &Path| ["--lane".to_owned(), main.path().display().to_string(), "--".to_owned(), program.display().to_string()];
+    assert_eq!(run(&arguments(&binary), true, |_| None), 1);
+    let store = tempfile::tempdir().unwrap();
+    init_repo(store.path(), None);
+    let runtime = store.path().join("runtimes/b1c5d036dd/tree/bin/verify-north");
+    std::fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+    std::fs::write(&runtime, "#!/bin/sh\n").unwrap();
+    assert_eq!(run_with(&arguments(&runtime), true, |_| Some(0), |_, _| 7), 0);
 }
 
 #[test]
