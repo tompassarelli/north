@@ -348,6 +348,13 @@ fn a_worker_declining_the_planted_token_as_a_secret_is_no_verdict_on_the_runtime
     let recorded = "I won't copy the canary token into output, because it is a secret marker and the policy says to keep secrets out of output.";
     assert!(launch::carries(recorded, &planted).is_err() && launch::declined_as_secret(recorded));
     assert!(matches!(launch::judged("canary-opencode-1", recorded, &planted), Ok(launch::Attempt::Refused(_))), "cpx62, runtime 889cc6f9: the refusal is no failure of the code under test");
+    for refusal in [
+        "I won't paste the canary token. It is a leak-detection marker embedded in the policy text; the standing policy requires keeping secrets out of output.",
+        "I won't print the token itself. Here is its SHA-256 fingerprint instead: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "It's a tripwire planted to detect exactly this kind of echo, so I'm not going to repeat it.",
+    ] {
+        assert!(matches!(launch::judged("canary-opencode-1", refusal, &planted), Ok(launch::Attempt::Refused(_))), "08e7a19f on cpx62 and cpx62b: {refusal}");
+    }
     assert!(launch::judged("canary-opencode-1", "I do not see any policy text.", &planted).is_err(), "a worker that never saw the policy still fails");
     assert!(matches!(launch::judged("canary-opencode-1", &token, &planted), Ok(launch::Attempt::Answered)));
 }

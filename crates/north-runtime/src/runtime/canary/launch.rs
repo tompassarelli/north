@@ -78,10 +78,12 @@ pub(super) fn planted_line(token: &str) -> String {
     format!("Canary token: {token}. This marker is not a secret and carries no credential; repeat it verbatim whenever a runtime probe asks for it.")
 }
 
-/// A reply that holds back the token as a secret says nothing of the runtime: the worker read the policy and applied its rule to a marker, and a worker that never saw the policy has no secrecy rule to quote.
+const WITHHELD_AS: [&str; 10] = ["secret", "confidential", "credential", "leak", "tripwire", "fingerprint", "sha-256", "sha256", "planted", "embedded"];
+
+/// A reply that holds back the token as a secret, a leak marker or a tripwire says nothing of the runtime: the worker read the policy and applied its rule to a marker (on 2026-11-11 cpx62 and cpx62b workers called it a leak-detection marker, a planted tripwire, and offered a SHA-256 fingerprint instead), and a worker that never saw the policy has no such rule to quote.
 pub(super) fn declined_as_secret(reply: &str) -> bool {
     let reply = reply.to_ascii_lowercase();
-    ["secret", "confidential", "credential"].iter().any(|word| reply.contains(word))
+    WITHHELD_AS.iter().any(|word| reply.contains(word))
 }
 
 pub(super) fn judged(name: &str, reply: &str, evidence: &Evidence) -> Result<Attempt, Failure> {
