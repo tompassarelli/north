@@ -1,6 +1,5 @@
 use super::database::{OffloadRow, capacity_database, failure_status, offload_rows};
 use super::{args, fail};
-use crate::capacity::build_offload::median;
 
 const DEFAULT_LAST: usize = 5;
 
@@ -26,4 +25,15 @@ pub(super) fn print(argv: &[String]) -> u8 {
     let rows = offload_rows(&db, last).unwrap_or_else(|error| fail(&format!("capacity database: {error}"), failure_status(&error)));
     println!("{}", summary(&rows));
     0
+}
+
+fn median(values: &[f64]) -> Option<f64> {
+    let mut sorted: Vec<f64> = values.iter().copied().filter(|value| value.is_finite()).collect();
+    sorted.sort_by(f64::total_cmp);
+    let middle = sorted.len() / 2;
+    match sorted.len() {
+        0 => None,
+        length if length % 2 == 1 => Some(sorted[middle]),
+        _ => Some((sorted[middle - 1] + sorted[middle]) / 2.0),
+    }
 }
