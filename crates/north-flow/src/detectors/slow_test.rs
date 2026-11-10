@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 pub use north_graph_loops::slow_test::{Slow as Crossing, read as told, tell};
@@ -77,7 +79,7 @@ pub fn slow(facts: &Facts, limits: &Limits) -> Vec<Finding> {
                 owner: Some(slow.owner.clone()),
                 title: format!("Speed up the slow test {name}"),
                 detail: format!("`{binary} {name}` in {} took {seconds:.1} s in its newest land check run and was over the {:.0} s line in each of its newest {} runs; {}", slow.file, limits.slow_test_seconds, limits.slow_test_runs, slow.profile),
-                done_when: format!("`{binary} {name}` passes in at most {:.0} s in each of {} later land check runs per `north land profile`.", limits.slow_test_seconds, limits.slow_test_runs),
+                done_when: format!("`north ledger flow slow-tests --test {}` exits 0.", key(binary, name)),
                 instances: vec![format!("{binary} {name}")],
             }
         })
@@ -128,6 +130,44 @@ pub fn pick(files: &[&str], binary: &str, name: &str) -> Option<String> {
     files.max_by_key(|file| (score(file), std::cmp::Reverse(file.len()))).map(|file| (*file).to_owned())
 }
 
+/// The newest land check runs that name one test, oldest first, or how many were found when fewer than asked.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Newest {
+    Runs(Vec<f64>),
+    Missing { found: usize, want: usize },
+}
+
+/// Every finished land check log under `state/north/land-queue`, oldest first: the logs the slow-test
+/// detector reads, so a box's Done when and the finding that filed it read the same runs.
+fn check_logs(state: &Path) -> Vec<PathBuf> {
+    let mut logs: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(state.join("north/land-queue"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .flat_map(|queue| fs::read_dir(queue.path().join("logs")).into_iter().flatten().flatten())
+        .filter(|entry| entry.file_name().to_str().is_some_and(|name| check_log(name, entry.path().with_extension("outcome").is_file())))
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .collect();
+    logs.sort_by_key(|entry| entry.0);
+    logs.into_iter().map(|(_, path)| path).collect()
+}
+
+/// The times the test behind `key` (`slow-test:BINARY:NAME`) passed in its newest `runs` land check logs,
+/// oldest first; a log that does not name the test is no run of it, since selection may have skipped it.
+pub fn newest(state: &Path, key: &str, runs: usize) -> Newest {
+    let mut times: Vec<f64> = Vec::new();
+    for log in check_logs(state).iter().rev() {
+        let text = fs::read_to_string(log).unwrap_or_default();
+        let Some(seconds) = passed(&text).into_iter().find(|((binary, name), _)| self::key(binary, name) == key).map(|(_, seconds)| seconds) else { continue };
+        times.push(seconds);
+        if times.len() == runs {
+            break;
+        }
+    }
+    times.reverse();
+    if times.len() < runs { Newest::Missing { found: times.len(), want: runs } } else { Newest::Runs(times) }
+}
+
 pub struct Document {
     pub owner: String,
     pub paths: Vec<String>,
@@ -172,6 +212,32 @@ mod tests {
         assert!(summarize(&clean).unwrap().contains("1.01 s of syscall wall time in all"));
         assert_eq!(summarize("no table here"), None);
         assert_eq!(summarize(&format!("{PROFILE_MARK}\n")), None);
+    }
+
+    #[test]
+    fn a_tests_newest_times_come_from_the_newest_land_check_logs_that_name_it_and_too_few_runs_is_no_pass() {
+        use std::io::Write;
+        use std::time::{Duration, SystemTime};
+        let state = tempfile::tempdir().unwrap();
+        let logs = state.path().join("north/land-queue/queue/logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        let write = |name: &str, at: u64, pass: Option<f64>| {
+            let path = logs.join(name);
+            let mut file = std::fs::File::create(&path).unwrap();
+            if let Some(seconds) = pass {
+                writeln!(file, "        PASS [   {seconds:.3}s] (  1/2) north::it slow::eight").unwrap();
+            }
+            writeln!(file, "        PASS [   0.100s] (  2/2) north::it slow::other").unwrap();
+            file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(at)).unwrap();
+        };
+        write("a-candidate.log", 10, Some(9.0));
+        write("b-candidate.log", 20, Some(8.0));
+        write("c-candidate.log", 30, Some(7.0));
+        write("d-candidate.log", 40, None);
+        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 3), Newest::Runs(vec![9.0, 8.0, 7.0]));
+        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 2), Newest::Runs(vec![8.0, 7.0]), "a run that skipped the test is not a run of it");
+        assert_eq!(newest(state.path(), "slow-test:north::it:slow::eight", 4), Newest::Missing { found: 3, want: 4 }, "fewer runs than asked never reads as a pass");
+        assert_eq!(newest(state.path(), "slow-test:north::it:slow::absent", 1), Newest::Missing { found: 0, want: 1 });
     }
 
 }

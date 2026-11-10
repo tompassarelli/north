@@ -108,7 +108,7 @@ fn a_test_over_the_line_in_three_land_check_runs_gets_one_profiled_box_on_its_ow
     let box_line = edits[0].lines().last().unwrap();
     assert!(box_line.starts_with("- [ ] **Speed up the slow test slow::sixteen_seconds.** `north::it slow::sixteen_seconds` in tests/it/slow.rs took 16.3 s in its newest land check run and was over the 15 s line in each of its newest 3 runs;"), "{box_line}");
     assert!(box_line.contains("clock_nanosleep 99.9% 16.00 s in 1 calls"), "{box_line}");
-    assert!(box_line.contains(" Done when: `north::it slow::sixteen_seconds` passes in at most 15 s in each of 3 later land check runs"), "{box_line}");
+    assert!(box_line.contains(" Done when: `north ledger flow slow-tests --test slow-test:north::it:slow::sixteen_seconds` exits 0."), "{box_line}");
     assert!(box_line.ends_with("(detector slow-test:north::it:slow::sixteen_seconds)"));
     drop((offloads, edits));
 

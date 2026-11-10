@@ -46,7 +46,7 @@ mod typed_tests;
 mod usage;
 pub mod usage_yield;
 
-const USAGE: &str = "usage: north ledger flow [--json] [--repo NAME]... [--stall-alarm] | north ledger flow row REPO [FIELD]... | north ledger flow detect [--dry-run]";
+const USAGE: &str = "usage: north ledger flow [--json] [--repo NAME]... [--stall-alarm] | north ledger flow row REPO [FIELD]... | north ledger flow detect [--dry-run] | north ledger flow slow-tests --test KEY [--max SECONDS] [--runs N]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];
 const DEFAULT_REPOS: [&str; 4] = ["makgora", "wisp", "north", "makgora-client"];
 const WATCH_SILENT_SECONDS: f64 = 120.0;
@@ -156,6 +156,48 @@ fn row(arguments: &[String]) -> u8 {
     0
 }
 
+/// `north ledger flow slow-tests --test KEY [--max SECONDS] [--runs N]`: the times one test passed in its newest
+/// land check runs, read from the logs the slow-test detector read; exit 0 when every one is at most the line, 1 when
+/// one is over, and 3 when fewer than N runs name it, so a box whose Done when names this command is never ticked on
+/// a run the test skipped.
+fn slow_tests(arguments: &[String]) -> u8 {
+    let (mut key, mut max, mut runs) = (None, None, None);
+    let mut rest = arguments.iter();
+    while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+            ("--test", Some(value)) => key = Some(value.clone()),
+            ("--max", Some(value)) if value.parse::<f64>().is_ok_and(|seconds| seconds > 0.0) => max = value.parse().ok(),
+            ("--runs", Some(value)) if value.parse::<usize>().is_ok_and(|count| count > 0) => runs = value.parse().ok(),
+            _ => {
+                eprintln!("{USAGE}");
+                return 2;
+            }
+        }
+    }
+    let Some(key) = key else {
+        eprintln!("{USAGE}");
+        return 2;
+    };
+    let limits = super::detectors::Limits::registry();
+    let (max, runs) = (max.unwrap_or(limits.slow_test_seconds), runs.unwrap_or(limits.slow_test_runs));
+    let state = crate::platform::records_mirror::read("north ledger flow slow-tests").home().to_owned();
+    let times = |times: &[f64]| times.iter().map(|seconds| format!("{seconds:.2} s")).collect::<Vec<_>>().join(", ");
+    match super::detectors::newest_slow_test(&state, &key, runs) {
+        super::detectors::Newest::Runs(found) if found.iter().all(|seconds| *seconds <= max) => {
+            println!("north ledger flow slow-tests: {key} passed in each of its newest {runs} land check runs, oldest first: {} (at most {max:.0} s)", times(&found));
+            0
+        }
+        super::detectors::Newest::Runs(found) => {
+            eprintln!("north ledger flow slow-tests: {key} was over {max:.0} s in its newest land check runs, oldest first: {}", times(&found));
+            1
+        }
+        super::detectors::Newest::Missing { found, want } => {
+            eprintln!("north ledger flow slow-tests: {found} of the {want} land check runs a pass needs name {key}; it is not judged");
+            3
+        }
+    }
+}
+
 fn detect(arguments: &[String]) -> u8 {
     let file = match arguments {
         [] => true,
@@ -212,6 +254,7 @@ pub fn run(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("row") => return row(&arguments[1..]),
         Some("detect") => return detect(&arguments[1..]),
+        Some("slow-tests") => return slow_tests(&arguments[1..]),
         _ => {}
     }
     let Some(options) = parse(arguments) else {

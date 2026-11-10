@@ -13,6 +13,7 @@ use super::flow::Places;
 pub use filing::Filer;
 pub use gather::Gatherer;
 pub use kind::Detector;
+pub use slow_test::{Newest, newest as newest_slow_test};
 
 mod correction;
 mod crate_headroom;
