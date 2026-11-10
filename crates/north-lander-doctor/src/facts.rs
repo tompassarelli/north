@@ -44,6 +44,8 @@ pub struct Facts {
     pub orphaned: Vec<PathBuf>,
     pub unreachable: Vec<String>,
     pub reach_error: Option<String>,
+    /// The stray queues the probe found on the offload hosts, with the host each sits on.
+    pub orphaned_remote: Vec<(Place, PathBuf)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -119,6 +121,8 @@ pub struct Probe {
     pub free_gib: f64,
     pub slots: Vec<SlotHold>,
     pub prunable: Vec<(PathBuf, usize)>,
+    /// Land queues under the probe's state home that hold no ticket in any area and that no lander holds.
+    pub orphaned: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -346,12 +350,49 @@ for g in "$HOME"/code/*/main/.git; do
   n=$(git -C "${g%/.git}" worktree list --porcelain 2>/dev/null | grep -c '^prunable' || true)
   [ "$n" = 0 ] || echo "prunable $n ${g%/.git}"
 done
+@ORPHANS@
 "#;
 
-/// The probe script that reads a host's disk, held slots and prunable worktree entries.
+/// The probe script that reads a host's disk, held slots, prunable worktree entries and stray land queues.
 pub fn probe() -> String {
-    PROBE.replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH)
+    PROBE.replace("@SLOT_HELD@", north_base::foundation::offload::SLOT_HELD_SH).replace("@ORPHANS@", &orphan_scan(None))
 }
+
+/// The script that names each land queue directly under `root` (the host's land-queue when `None`) that holds no ticket in any area, no lander lock and no file touched in the last hour, so a queue a test or a stray write left on an offload host is found and removed while a live outbox is left alone.
+pub fn orphan_scan(root: Option<&Path>) -> String {
+    let root = root.map_or_else(|| "\"${XDG_STATE_HOME:-$HOME/.local/state}/north/land-queue\"".to_owned(), |root| format!("\"{}\"", root.display()));
+    format!(
+        r#"root={root}
+if [ -d "$root" ]; then
+  for q in "$root"/*; do
+    [ -d "$q" ] && [ ! -L "$q" ] || continue
+    name=${{q##*/}}
+    [ "${{#name}}" = 16 ] || continue
+    case $name in *[!0-9a-f]*) continue ;; esac
+    [ -f "$q/lander.lock" ] && continue
+    find "$q" -type f -name '*.json' -print -quit | grep -q . && continue
+    [ -n "$(find "$q" -type f -mmin -60 -print -quit 2>/dev/null)" ] && continue
+    echo "orphan $q"
+  done
+fi
+"#
+    )
+}
+
+/// The script that removes the queue `$1`: only a 16-hex name directly under a `land-queue`, holding no ticket in any area and no lander lock.
+pub const REMOVE_QUEUE: &str = r#"set -u
+q=$1
+name=${q##*/}
+parent=${q%/*}
+[ "${parent##*/}" = land-queue ] || { echo "not a queue under a land-queue: $q" >&2; exit 1; }
+[ "${#name}" = 16 ] || { echo "not a queue key: $name" >&2; exit 1; }
+case $name in *[!0-9a-f]*) echo "not a queue key: $name" >&2; exit 1 ;; esac
+[ -d "$q" ] && [ ! -L "$q" ] || { echo "not a queue directory: $q" >&2; exit 1; }
+[ -f "$q/lander.lock" ] && { echo "a lander serves $q" >&2; exit 1; }
+find "$q" -type f -name '*.json' -print -quit | grep -q . && { echo "$q holds a ticket" >&2; exit 1; }
+rm -rf -- "$q"
+echo "removed $q"
+"#;
 
 pub fn parse_probe(text: &str) -> Result<Probe, String> {
     let mut probe = Probe::default();
@@ -365,6 +406,7 @@ pub fn parse_probe(text: &str) -> Result<Probe, String> {
             }
             ["slot", slot, held, pgid, state @ ("locked" | "free")] => probe.slots.push(SlotHold { slot: (*slot).to_owned(), held: held.parse().map_err(|_| format!("slot line {line:?}"))?, pgid: pgid.parse().ok().filter(|pgid| *pgid > 1), locked: *state == "locked" }),
             ["prunable", count, repo] => probe.prunable.push((PathBuf::from(repo), count.parse().map_err(|_| format!("prunable line {line:?}"))?)),
+            ["orphan", queue] => probe.orphaned.push(PathBuf::from(queue)),
             _ => {}
         }
     }

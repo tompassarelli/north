@@ -10,7 +10,7 @@ use north_lander::land::{promote, queue};
 
 use crate::bounds::Remedy;
 use north_check_environment::Environment;
-use crate::facts::shell;
+use crate::facts::{Place, REMOVE_QUEUE, shell};
 
 pub const PROXY: &str = "proxy";
 pub const NOTICED_BY: &str = "lander-doctor";
@@ -65,6 +65,7 @@ impl Hands for Host {
             Remedy::Clear { place, slot } => shell(place, CLEAR, &[slot]).map(|said| said.trim().to_owned()),
             Remedy::Rerun { queue, ticket } => rerun(queue, ticket),
             Remedy::RemoveQueue { queue } => remove_queue(queue),
+            Remedy::RemoveQueueAt { place, queue } => remove_queue_at(place, queue),
             Remedy::Evict { place } => shell(place, EVICT, &[]).map(|said| said.trim().to_owned()),
             Remedy::Restart { unit } => watchdog::Host.restart(unit, "the lander doctor read it wedged").map(|()| format!("restarted {unit}")),
             Remedy::Rollback { home, from, to, units } => roll_back(home, from, to, units),
@@ -125,6 +126,11 @@ pub(crate) fn remove_queue_in(root: &Path, queue: &Path) -> Result<String, Strin
     }
     fs::remove_dir_all(queue).map_err(|error| format!("{}: {error}", queue.display()))?;
     Ok(format!("removed the land queue {} no checkout serves and no ticket waits in", queue.display()))
+}
+
+/// Removes an orphan queue on an offload host, the same rule as `remove_queue_in` run over ssh: the script refuses anything but a 16-hex queue directly under a `land-queue`, one holding a ticket in any area, or one a lander holds.
+pub(crate) fn remove_queue_at(place: &Place, queue: &Path) -> Result<String, String> {
+    shell(place, REMOVE_QUEUE, &[&queue.to_string_lossy()]).map(|said| said.trim().to_owned())
 }
 
 /// Points the lander link at `to`, names `from` refused so north land promote leaves it off the lander, and restarts each lander unit.

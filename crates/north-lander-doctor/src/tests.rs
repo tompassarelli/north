@@ -50,6 +50,73 @@ fn gex45() -> Place {
     Place { name: "gex45".to_owned(), reach: Reach::Ssh("gex45".to_owned()) }
 }
 
+/// Writes `content` into `path`, pinning the file's modification time to 2020 when `old`, so the orphan scan's freshness guard reads it as stale while a file written now reads as fresh.
+fn written(path: &Path, content: &str, old: bool) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(path, content).unwrap();
+    if old {
+        let at = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        fs::File::options().write(true).open(path).unwrap().set_times(fs::FileTimes::new().set_modified(at)).unwrap();
+    }
+}
+
+#[test]
+fn the_orphan_scan_names_a_stray_land_queue_and_leaves_one_that_holds_a_ticket_a_lander_or_a_fresh_file() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path().join("north/land-queue");
+    let stray = root.join("8733aa0a99314382");
+    written(&stray.join("logs/lander-post-land.tsv"), "", true);
+    let ticketed = root.join("de2e0e8479546ba9");
+    written(&ticketed.join("done/1-x.json"), "{}", true);
+    let served = root.join("0123456789abcdef");
+    written(&served.join("lander.lock"), "", true);
+    let fresh = root.join("fedcba9876543210");
+    written(&fresh.join("outbox/1-x.part"), "{}", false);
+    let named = root.join("worker");
+
+    let listed = facts::shell(&here(), &facts::orphan_scan(Some(&root)), &[]).unwrap();
+    let named_queues: Vec<&str> = listed.lines().filter_map(|line| line.strip_prefix("orphan ")).collect();
+    assert_eq!(named_queues, [stray.to_string_lossy().as_ref()], "{listed}");
+    for kept in [&ticketed, &served, &fresh, &named] {
+        assert!(!listed.contains(&kept.to_string_lossy().into_owned()), "{} is not missing a ticket, a lander or its age: {listed}", kept.display());
+    }
+}
+
+#[test]
+fn a_stray_land_queue_on_an_offload_host_is_removed_and_one_that_holds_a_ticket_a_lander_or_a_foreign_name_is_kept() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path().join("north/land-queue");
+    let stray = root.join("8733aa0a99314382");
+    fs::create_dir_all(stray.join("logs")).unwrap();
+    let ticketed = root.join("de2e0e8479546ba9");
+    fs::create_dir_all(ticketed.join("done")).unwrap();
+    fs::write(ticketed.join("done/1-x.json"), "{}").unwrap();
+    let served = root.join("0123456789abcdef");
+    fs::create_dir_all(&served).unwrap();
+    fs::write(served.join("lander.lock"), "").unwrap();
+    let named = root.join("worker");
+    fs::create_dir_all(&named).unwrap();
+
+    assert!(hands::remove_queue_at(&here(), &stray).unwrap().contains("removed"), "the stray queue is removed");
+    assert!(!stray.exists());
+    assert!(hands::remove_queue_at(&here(), &ticketed).is_err() && ticketed.join("done/1-x.json").is_file());
+    assert!(hands::remove_queue_at(&here(), &served).is_err() && served.is_dir());
+    assert!(hands::remove_queue_at(&here(), &named).is_err() && named.is_dir());
+}
+
+#[test]
+fn a_stray_queue_on_an_offload_host_is_a_known_finding_the_doctor_removes() {
+    let queue = PathBuf::from("/home/tom/.local/state/north/land-queue/8733aa0a99314382");
+    let facts = Facts { orphaned_remote: vec![(gex45(), queue.clone())], ..Facts::default() };
+    let hands = Fake::default();
+    let text = render(&cure(&facts, &mut Book::default(), &hands, NOW));
+    assert!(text.contains("bound orphan-queues gex45/8733aa0a99314382: 1"), "{text}");
+    assert_eq!(*hands.applied.borrow(), vec![Remedy::RemoveQueueAt { place: gex45(), queue }]);
+    assert_eq!(hands.incidents.borrow()[0].0, "lander-stray-queue");
+}
+
 fn here() -> Place {
     Place { name: "here".to_owned(), reach: Reach::Here }
 }
@@ -85,6 +152,7 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     assert_eq!(probe.free_percent, 25.0);
     assert_eq!(probe.slots, [SlotHold { slot: "code-north-main-1".to_owned(), held: 3600, pgid: Some(991), locked: true }, SlotHold { slot: "code-wisp-main".to_owned(), held: 10, pgid: None, locked: false }]);
     assert_eq!(probe.prunable, [(PathBuf::from("/home/tom/code/north/main"), 3)]);
+    assert_eq!(facts::parse_probe("disk 1 1\norphan /state/north/land-queue/8733aa0a99314382\n").unwrap().orphaned, [PathBuf::from("/state/north/land-queue/8733aa0a99314382")]);
     assert!(facts::parse_probe("").is_err());
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
     let scratch = tempfile::tempdir().unwrap();

@@ -86,6 +86,7 @@ pub enum Remedy {
     Clear { place: Place, slot: String },
     Rerun { queue: PathBuf, ticket: PathBuf },
     RemoveQueue { queue: PathBuf },
+    RemoveQueueAt { place: Place, queue: PathBuf },
     Evict { place: Place },
     Restart { unit: String },
     Rollback { home: PathBuf, from: String, to: String, units: Vec<String> },
@@ -102,7 +103,7 @@ impl Remedy {
             Remedy::Prune { .. } => Some("lander-stale-worktree"),
             Remedy::Release { .. } | Remedy::Clear { .. } => Some("lander-slot-overdue"),
             Remedy::Rerun { .. } => Some("lander-infrastructure-failure"),
-            Remedy::RemoveQueue { .. } => Some("lander-stray-queue"),
+            Remedy::RemoveQueue { .. } | Remedy::RemoveQueueAt { .. } => Some("lander-stray-queue"),
             Remedy::Evict { .. } => Some("lander-disk-pressure"),
             Remedy::Restart { .. } => Some("lander-wedged"),
             Remedy::Rollback { .. } => Some("lander-rollback"),
@@ -123,6 +124,7 @@ impl fmt::Display for Remedy {
             Remedy::Clear { place, slot } => write!(formatter, "remove the holder files of slot {slot} on {}, whose lock is free", place.name),
             Remedy::Rerun { ticket, .. } => write!(formatter, "requeue {} once", ticket.file_name().unwrap_or_default().to_string_lossy()),
             Remedy::RemoveQueue { queue } => write!(formatter, "remove the land queue {} no checkout serves and no ticket waits in", queue.display()),
+            Remedy::RemoveQueueAt { place, queue } => write!(formatter, "remove the land queue {} on {}, which holds no ticket and no lander", queue.display(), place.name),
             Remedy::Evict { place } => write!(formatter, "evict unlocked offload caches on {}", place.name),
             Remedy::Restart { unit } => write!(formatter, "restart {unit}"),
             Remedy::Rollback { from, to, .. } => write!(formatter, "roll the lander link back from {from} to {to}, the last build that landed a batch green"),
@@ -196,6 +198,11 @@ pub fn judge(facts: &Facts, book: &Book, now: u64) -> Vec<Finding> {
             Some(error) => Finding::over(Bound::Reach, "lander", "unchecked".to_owned(), State::Unknown(format!("could not ask GitHub whether a North Lander installation token reaches every repository: {error}"))),
             None => Finding::healthy(Bound::Reach, "lander", "0".to_owned()),
         });
+    }
+    for (place, queue) in &facts.orphaned_remote {
+        let subject = format!("{}/{}", place.name, queue.file_name().unwrap_or_default().to_string_lossy());
+        let remedy = Remedy::RemoveQueueAt { place: place.clone(), queue: queue.clone() };
+        findings.push(Finding::over(Bound::OrphanQueues, &subject, "1".to_owned(), known("stray queue", remedy)));
     }
     for queue in &facts.queues {
         findings.extend(judge_queue(queue, facts.link.as_ref(), book, now));
