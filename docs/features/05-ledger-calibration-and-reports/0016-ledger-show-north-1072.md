@@ -1,0 +1,1 @@
+- Ledger show (north#1072): `north ledger show L<id>` opens one decision the grounding ledger recorded, printing its decision, date, owner and source and exiting 1 naming the id when none exists, so a `ledger:L<id>` citation a hook or report hands over can be read instead of costing a turn.

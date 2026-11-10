@@ -105,6 +105,7 @@ const LEDGER: &[(&str, Run)] = &[
     ("flow", crate::flow::run),
     ("incident", |arguments| ledger_verb("incident", arguments)),
     ("opencode", opencode),
+    ("show", crate::cli::ledger_show::run),
     ("tempo", crate::tempo::run),
     ("worker", super::super::worker_ledger::run),
 ];

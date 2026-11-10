@@ -99,6 +99,7 @@ Commands:
   ledger incident report [--days N] [--since EPOCH --until EPOCH]  Read incidents by class, detector-first rate and recurrences
   ledger duplicate [--days N] [--json]          Count the worker runs that started on a box another run still worked, by day; a day without one reads 0
   ledger opencode [--since 7d]                  Per week and DeepSeek model: boxes attempted, landed Done, checked, escalated to Claude and its cost, Go window share and limit wait, against the ledger's Sonnet rate
+  ledger show L<id>                             Print one recorded decision's date, owner, source and decision; exit 1 naming the id when none exists
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   lane squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main

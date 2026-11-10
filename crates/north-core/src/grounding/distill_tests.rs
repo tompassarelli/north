@@ -79,6 +79,29 @@ fn two_corrections_of_one_class_in_one_session_stay_two_rows_after_paraphrase() 
 }
 
 #[test]
+fn a_decision_record_reads_by_id_from_its_citation_or_bare_form_and_a_missing_id_is_none() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = directory.path().join("ledger.jsonl");
+    let row = Row {
+        id: "Ldemo".into(),
+        at: "2026-11-07T03:39:20Z".into(),
+        kind: "decision".into(),
+        topic: "stop hook citations".into(),
+        quote: "We go with the lander.".into(),
+        source: "tom convo:7 session:s1".into(),
+        superseded_by: None,
+        class: None,
+        corrected: None,
+        digest: None,
+    };
+    std::fs::write(&ledger, format!("{}\n", serde_json::to_string(&row).unwrap())).unwrap();
+    assert_eq!(show_at("Ldemo", &ledger).unwrap().as_ref(), Some(&row));
+    assert_eq!(show_at("ledger:Ldemo", &ledger).unwrap().as_ref(), Some(&row));
+    assert_eq!(show_at("Lmissing", &ledger).unwrap(), None);
+    assert_eq!(show_at("demo", &ledger).unwrap(), None);
+}
+
+#[test]
 fn backfill_paraphrases_an_old_rule_row_and_keeps_a_hand_paraphrase_while_adding_the_corrected_reply() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("convo.db");

@@ -111,6 +111,12 @@ pub struct Row {
     pub digest: Option<String>,
 }
 
+impl Row {
+    pub fn owner(&self) -> &str {
+        self.source.split_whitespace().next().unwrap_or("unknown")
+    }
+}
+
 struct Paths {
     db: PathBuf,
     state: PathBuf,
@@ -755,6 +761,15 @@ fn load_ledger(ledger: &Path) -> NorthResult<Vec<Row>> {
     }
     let text = fs::read_to_string(ledger)?;
     text.split('\n').filter(|l| !l.trim().is_empty()).map(|l| Ok(serde_json::from_str(l)?)).collect()
+}
+
+pub fn ledger_path() -> PathBuf {
+    paths().ledger
+}
+
+pub fn show_at(id: &str, ledger: &Path) -> NorthResult<Option<Row>> {
+    let id = id.strip_prefix("ledger:").unwrap_or(id);
+    Ok(load_ledger(ledger)?.into_iter().find(|row| row.id == id))
 }
 
 fn write_ledger(ledger: &Path, rows: &[Row]) -> NorthResult<()> {
