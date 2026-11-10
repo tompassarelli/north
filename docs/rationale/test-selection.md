@@ -139,12 +139,16 @@ passes `--tests` in `SAFE_PUSH_LAND_IT`, which builds every test target of the s
 is gone.
 
 The filter is built by inclusion, not by subtraction. A subtraction filter for a hub lane would name about 1100
-tests at about 117 bytes each, past `graph_selection`'s 96 KiB limit. The included tests are the known tests no rule
-proves unaffected, plus every test that `cargo nextest list` finds at the lane's head and the map does not know. The
-check already builds those binaries, so listing adds only the list run. Whole packages or binaries that are wholly
-included collapse to one `package` or `binary_id` term. Past the limit, the selection falls back to the whole
-closure, never to fewer tests. The lane that builds this measures the list run and the filter length on the 9 hub
-commits of the cost sample below.
+tests at about 117 bytes each, past `graph_selection`'s 96 KiB limit. The included tests are the known tests
+no rule proves unaffected, plus every test that `cargo nextest list` finds at the lane's head and the map does
+not know. The check already builds those binaries, so listing adds only the list run. Whole packages or binaries
+that are wholly included collapse to one `package` or `binary_id` term. Past the limit, the selection falls back
+to the whole closure, never to fewer tests. The list runs through `bin/land-shell --dev` with the check's flags,
+because outside the dev shell `cargo` is only the capacity shim, and a binary it lacks is dropped from the filter,
+because nextest refuses a filter whose `binary_id` matches no binary in the workspace; when nothing is listed,
+the selection falls back to the whole closure too, so a stale binary name in the map never reaches the filter
+(north#1099). The lane that builds this measures the list run and the filter length on the 9 hub commits of the
+cost sample below.
 
 ## The map stays fresh where checks run
 

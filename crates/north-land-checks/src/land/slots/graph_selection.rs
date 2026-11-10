@@ -58,12 +58,20 @@ struct Suite {
     testcases: BTreeMap<String, serde_json::Value>,
 }
 
-/// Every test `cargo nextest list` finds at `root`, by binary id. An unbuilt or unlistable tree lists nothing, so the selection falls back to the graph answer alone.
+/// Every test `cargo nextest list` finds at `root`, by binary id, listed through the tree's `bin/land-shell --dev` with the flags the Rust test check runs, since outside the dev shell `cargo` is only the capacity shim. An unbuilt or unlistable tree lists nothing, so the selection falls back to the crate closure.
 pub fn list(root: &Path) -> ListedTests {
     if !root.join("Cargo.toml").is_file() {
         return BTreeMap::new();
     }
-    let output = Command::new("cargo").args(["nextest", "list", "--message-format", "json"]).current_dir(root).stdin(Stdio::null()).stderr(Stdio::null()).output();
+    let shell = root.join("bin/land-shell");
+    let mut command = if shell.is_file() {
+        let mut command = Command::new(&shell);
+        command.args(["--dev", "--", "cargo"]);
+        command
+    } else {
+        Command::new("cargo")
+    };
+    let output = command.args(["nextest", "list", "--workspace", "--locked", "--offline", "--message-format", "json"]).env("CARGO_TARGET_DIR", "target").current_dir(root).stdin(Stdio::null()).stderr(Stdio::null()).output();
     match output {
         Ok(output) if output.status.success() => listing(&String::from_utf8_lossy(&output.stdout)),
         _ => BTreeMap::new(),
@@ -71,7 +79,7 @@ pub fn list(root: &Path) -> ListedTests {
 }
 
 fn listing(json: &str) -> ListedTests {
-    let Ok(listing) = serde_json::from_str::<Listing>(json) else { return BTreeMap::new() };
+    let Some(listing) = json.lines().filter_map(|line| serde_json::from_str::<Listing>(line).ok()).find(|listing| !listing.suites.is_empty()) else { return BTreeMap::new() };
     listing.suites.into_values().map(|suite| (suite.binary_id, Listed { package: suite.package, tests: suite.testcases.into_keys().collect() })).filter(|(_, listed)| !listed.tests.is_empty()).collect()
 }
 
@@ -101,25 +109,26 @@ impl Tests {
         (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests)
     }
 
-    /// The inclusion filter's second source: every test `cargo nextest list` sees that the map does not know. `added` already names the unknown tests the change graph scanned; the listing gives each its binary, and it catches a test the scan cannot see. A test the listing does not match stays a name term. `None` when the resulting filter passes the limit, so the caller runs the whole closure instead of fewer tests.
+    /// The inclusion filter's second source: every test `cargo nextest list` sees that the map does not know. `added` already names the unknown tests the change graph scanned; the listing gives each its binary, and it catches a test the scan cannot see. A test the listing does not match stays a name term, and a binary it lacks is dropped, since nextest refuses a filter naming a binary the workspace does not have. `None` when nothing was listed, so no binary the graph names can be checked, or when the resulting filter passes the limit, so the caller runs the whole closure instead.
     pub fn with_listed(mut self, listed: ListedTests) -> Option<Self> {
         let listed: ListedTests = listed.into_iter().filter(|(_, suite)| !suite.tests.is_empty()).collect();
-        if !listed.is_empty() {
-            let unknown = self.added.clone();
-            let matches: Vec<(String, String)> = listed
-                .iter()
-                .flat_map(|(binary, suite)| {
-                    unknown.iter().filter(|(package, _)| package.is_empty() || *package == suite.package || binary.split("::").next() == Some(package.as_str())).flat_map(move |(_, name)| {
-                        suite.tests.iter().filter(move |test| test.as_str() == name || test.ends_with(&format!("::{name}"))).map(move |test| (binary.clone(), test.clone()))
-                    })
-                })
-                .collect();
-            for (binary, test) in matches {
-                self.by_binary.entry(binary).or_default().insert(test);
-            }
-            self.by_binary.retain(|binary, names| !names.is_empty() && listed.contains_key(binary));
-            self.listed = listed;
+        if listed.is_empty() {
+            return None;
         }
+        let unknown = self.added.clone();
+        let matches: Vec<(String, String)> = listed
+            .iter()
+            .flat_map(|(binary, suite)| {
+                unknown.iter().filter(|(package, _)| package.is_empty() || *package == suite.package || binary.split("::").next() == Some(package.as_str())).flat_map(move |(_, name)| {
+                    suite.tests.iter().filter(move |test| test.as_str() == name || test.ends_with(&format!("::{name}"))).map(move |test| (binary.clone(), test.clone()))
+                })
+            })
+            .collect();
+        for (binary, test) in matches {
+            self.by_binary.entry(binary).or_default().insert(test);
+        }
+        self.by_binary.retain(|binary, names| !names.is_empty() && listed.contains_key(binary));
+        self.listed = listed;
         (self.filter().len() <= FILTER_LIMIT).then_some(self)
     }
 
