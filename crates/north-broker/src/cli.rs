@@ -4,7 +4,6 @@ use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use north_base::platform::broker_client::{self, Client, SYSTEM_SOCKET};
@@ -143,19 +142,7 @@ fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>) -> Result
     let Some(listener) = bind(&socket, user)? else { return Ok(()) };
     let broker = Arc::new(broker);
     if let Some(limit) = idle {
-        let watched = Arc::clone(&broker);
-        let path = socket.clone();
-        let mut runtime = north_runtime_follow::Follow::current();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(5));
-                let quiet = runtime.replaced().is_some() || watched.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).elapsed() > limit;
-                if quiet && watched.active.load(Ordering::SeqCst) == 0 {
-                    let _ = std::fs::remove_file(&path);
-                    std::process::exit(0);
-                }
-            }
-        });
+        broker.retire_when_idle(socket.clone(), limit);
     }
     eprintln!("north-broker: serving {}", socket.display());
     broker.serve(&listener);
