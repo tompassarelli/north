@@ -111,14 +111,17 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: followed for its fire and stay-quiet skill evals and rejected-change ledger; nothing taken yet.
 
 - <a id="t3code"></a>**T3 Code** (T3 Tools Inc., Theo Browne and contributors, MIT), https://github.com/pingdotgg/t3code, read at
-  `32a0531` on 2026-11-07. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
-  Informed: [rationale/watch/2026-11-07-t3code.md](rationale/watch/2026-11-07-t3code.md), north#714, north#715 and north#716; the second read, [rationale/watch/2026-11-08-t3code-gemini.md](rationale/watch/2026-11-08-t3code-gemini.md), checked Gemini's review against main and led to north#862 to north#866.
-  Outcome: adopted as ideas, no code copied. Three mechanisms were kept:
+  `32a0531` on 2026-11-07 and at `5e59ece720` on 2026-11-10. A followed source ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: [rationale/watch/2026-11-07-t3code.md](rationale/watch/2026-11-07-t3code.md), north#714, north#715 and north#716; the second read, [rationale/watch/2026-11-08-t3code-gemini.md](rationale/watch/2026-11-08-t3code-gemini.md), checked Gemini's review against main and led to north#862 to north#866; the second cycle, [rationale/watch/2026-11-10-t3code.md](rationale/watch/2026-11-10-t3code.md), led to north#1051.
+  Outcome: adopted as ideas, no code copied. Four mechanisms were kept:
   - behavior evals of harness text built from real failures (north#714);
   - stay-quiet controls and a measured false-refusal rate for refusing guards (north#715), after 24 of 30 sampled
     launch-critical denials proved false;
-  - tests that read time and host state only through fixtures (north#716).
-  The context byte budget, the event outbox, the attention phase and the release path fell below the bar.
+  - tests that read time and host state only through fixtures (north#716);
+  - stores opened as an older build wrote them before a schema change lands, and in the runtime canary (north#1051),
+    after a graph schema change stopped every host's read-only graph readers for 82 minutes on 2026-11-08.
+  The context byte budget, the event outbox, the attention phase, the release path and the worktree checkout cache fell
+  below the bar; the outbox was taken later (north#862).
 
 - <a id="claude-code-compaction"></a>**Claude Code 2.1.318 auto-compaction and prompt-cache pricing**: the threshold code in the installed
   `claude` binary (window less a 20,000-token output reserve less a 13,000-token buffer, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
