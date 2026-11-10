@@ -1716,6 +1716,29 @@ source = "north#1106, 2026-11-11: Tom asked for a break-glass path beside the pr
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/break_glass.rs"]
 
+[proxy_role]
+value = [
+  { class = "launch", owner = "proxy", what = "start or restaff a fleet session: `north fleet launch|revive|relaunch`" },
+  { class = "send", owner = "proxy", what = "message a fleet session: `north fleet send|interrupt`, SendMessage" },
+  { class = "ask", owner = "proxy", what = "put a question to a running session: `north fleet ask`" },
+  { class = "stop", owner = "proxy", what = "stop or forget a session: `north fleet stop|forget`, TaskStop" },
+  { class = "adopt", owner = "proxy", what = "adopt a session as the proxy's child: `north fleet adopt`" },
+  { class = "gate", owner = "proxy", what = "open, answer and relay gates: `north gate`" },
+  { class = "issue-box", owner = "proxy", what = "read an issue and add, tick or close its boxes: `gh issue view|edit|close`, `north task check`" },
+  { class = "status", owner = "proxy", what = "read reports and the status verbs: `north fleet tree|show|accounts`, `north land status`" },
+  { class = "placement-look", owner = "proxy", what = "one bounded look to choose where work goes, inside the look budget" },
+  { class = "source-read", owner = "worker", what = "read repository source to find a cause" },
+  { class = "remote-read", owner = "worker", what = "read another host's processes or journals over ssh" },
+  { class = "build", owner = "worker", what = "build a repository: cargo, bun, nix, make" },
+  { class = "test", owner = "worker", what = "run a repository's tests" },
+  { class = "repository-edit", owner = "worker", what = "edit any repository file; the proxy's scratch directory and issue bodies stay its own" },
+]
+allowed = { min_len = 14 }
+unit = "what the proxy does itself (owner proxy) and what it writes a brief and launches a worker for (owner worker), one row per class the proxy-role guard sorts a call into; `north config proxy role` prints it"
+source = "tom: the coordinator holds itself to an explicit, harness-enforced standard for what it does itself and what it hands to workers, after it traced four problems by hand in about 50 read-only calls over two messages before staffing anyone (north#1106, 2026-11-11)"
+fallback = "an unreadable table leaves the proxy-role guard allowing the call, and `north config proxy role` exits 1 naming the fault"
+consumers = ["crates/north-guard/src/guard/proxy_table.rs"]
+
 [graph_retired_writers]
 value = ["decision-log"]
 allowed = { min_len = 0 }

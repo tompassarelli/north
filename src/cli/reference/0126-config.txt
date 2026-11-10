@@ -1,1 +1,2 @@
   config proxy calls TRANSCRIPT                  Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
+  config proxy role                              Print the proxy role table of harness/defaults.toml: what the proxy does itself and what it launches a worker for

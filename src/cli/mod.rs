@@ -119,7 +119,7 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(Command::Agents(arguments[2..].to_vec()));
     }
-    if arguments.len() >= 3 && arguments[0] == "config" && matches!([arguments[1].as_str(), arguments[2].as_str()], ["context", "audit"] | ["proxy", "calls"]) {
+    if arguments.len() >= 3 && arguments[0] == "config" && matches!([arguments[1].as_str(), arguments[2].as_str()], ["context", "audit"] | ["proxy", "calls" | "role"]) {
         return Ok(Command::Tool(Tool::Config, arguments[1..].to_vec()));
     }
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "check" {
