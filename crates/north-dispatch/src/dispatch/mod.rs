@@ -266,39 +266,63 @@ fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool, standing: f
     lines
 }
 
-/// The line one launch prints, and its failure for Tom's alert; a box whose issue GitHub shows closed or fully ticked since
-/// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
-fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> (String, Option<String>) {
-    let verb = if launch.cloud { "cloud-launch" } else { "launch" };
-    let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));
-    if let Some(reason) = standing().filter(|_| !dry_run) {
-        return (format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item), None);
+/// What one planned launch came to: started, skipped by a guard the run met after planning it, or failed.
+enum Started {
+    Launched(String),
+    Skipped(String),
+    Failed(String, String),
+}
+
+impl Started {
+    fn line(&self) -> &str {
+        match self {
+            Self::Launched(line) | Self::Skipped(line) | Self::Failed(line, _) => line,
+        }
     }
-    if let Some(why) = survey::github::recheck(&launch.item, facets::declared_in(&launch.brief, "Box")) {
-        return (format!("skip {}: {why}", launch.item), None);
-    }
-    if dry_run {
-        let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
-        return (format!("would {line} ({why})"), None);
-    }
-    match effects::launch(survey, launch) {
-        Ok(name) => (format!("{line}: {name}"), None),
-        Err(why) => (format!("{line} failed: {why}"), Some(format!("{} on {}: {why}", launch.item, launch.host))),
+
+    /// Why the launch did not happen, for the freeze page and Tom's alert.
+    fn stopped(&self) -> Option<String> {
+        match self {
+            Self::Launched(_) => None,
+            Self::Skipped(line) => Some(line.clone()),
+            Self::Failed(_, alert) => Some(alert.clone()),
+        }
     }
 }
 
-/// Runs the revivals and every launch side by side, since each `north fleet launch` takes most of a minute and the plan already placed them, then prints their lines in plan order.
+/// The line one launch prints; a box whose issue GitHub shows closed or fully ticked since
+/// the mirror copied it is skipped, and so is every box once the proxy has paused dispatch, even in a run that began before the pause.
+fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Option<String>) -> Started {
+    let verb = if launch.cloud { "cloud-launch" } else { "launch" };
+    let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, deepseek::rung(launch));
+    if let Some(reason) = standing().filter(|_| !dry_run) {
+        return Started::Skipped(format!("skip {}: dispatch was paused while this run was working: {reason}", launch.item));
+    }
+    if let Some(why) = survey::github::recheck(&launch.item, facets::declared_in(&launch.brief, "Box")) {
+        return Started::Skipped(format!("skip {}: {why}", launch.item));
+    }
+    if dry_run {
+        let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
+        return Started::Launched(format!("would {line} ({why})"));
+    }
+    match effects::launch(survey, launch) {
+        Ok(name) => Started::Launched(format!("{line}: {name}")),
+        Err(why) => Started::Failed(format!("{line} failed: {why}"), format!("{} on {}: {why}", launch.item, launch.host)),
+    }
+}
+
+/// Runs the revivals and every launch side by side, since each `north fleet launch` takes most of a minute and the plan already placed them, then prints their lines in plan order; returns why each planned launch that did not happen did not.
 fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     let (revived, started) = std::thread::scope(|scope| {
         let revived = scope.spawn(|| revive(survey, &outcome.revival, dry_run, pause::standing));
         let started: Vec<_> = outcome.launches.iter().map(|launch| scope.spawn(move || start(survey, launch, dry_run, pause::standing))).collect();
-        let started: Vec<(String, Option<String>)> = started.into_iter().map(|handle| handle.join().unwrap_or_else(|_| ("a launch thread panicked".to_owned(), Some("a launch thread panicked".to_owned())))).collect();
+        let started: Vec<Started> = started.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Started::Failed("a launch thread panicked".to_owned(), "a launch thread panicked".to_owned()))).collect();
         (revived.join().unwrap_or_else(|_| vec!["the revival thread panicked".to_owned()]), started)
     });
-    for line in revived.iter().chain(started.iter().map(|(line, _)| line)) {
+    for line in revived.iter().map(String::as_str).chain(started.iter().map(Started::line)) {
         println!("{line}");
     }
-    started.into_iter().filter_map(|(_, failure)| failure).collect()
+    started.iter().filter_map(Started::stopped).collect()
 }
 
 fn mode(arguments: &[String]) -> Result<bool, u8> {
@@ -326,12 +350,12 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         Ok(dry_run) => dry_run,
         Err(code) => return code,
     };
-    if dry_run && let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &crate::platform::host::name())) {
-        return home::dry_run_there(&crate::platform::host::name(), &host, &ssh);
-    }
     if !dry_run && let Some(reason) = pause::standing() {
         println!("north fleet dispatch: paused on this host, launching nothing: {reason}; `north fleet dispatch resume` ends the pause");
         return 0;
+    }
+    if let Some((host, ssh)) = placement::config().ok().and_then(|cfg| home::elsewhere(&cfg, &crate::platform::host::name())) {
+        return home::run_there(&crate::platform::host::name(), &host, &ssh, dry_run);
     }
     let survey = match roster().map_err(|error| error.to_string()).and_then(|roster| survey::survey(&roster)) {
         Ok(survey) => survey,
@@ -354,12 +378,12 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         println!("needs a box: {}", boxless.iter().map(|issue| issue.reference().to_string()).collect::<Vec<_>>().join(", "));
         effects::ask_for_boxes(&survey.cfg, &survey.listed, &boxless, dry_run, placement::now());
     }
-    let failures = execute(&survey, &outcome, dry_run);
+    let stopped = execute(&survey, &outcome, dry_run);
     for line in deepseek::review::queue(&survey.deepseek.done, &survey.here, survey.laptop.as_deref(), dry_run) {
         println!("{line}");
     }
     let now = placement::now();
-    let frozen = freeze::frozen(&outcome, &failures, &freeze::guards(&survey));
+    let frozen = freeze::frozen(&outcome, &stopped, &freeze::guards(&survey));
     let told = match &frozen {
         Some(basis) => effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, now),
         None => Ok(()),

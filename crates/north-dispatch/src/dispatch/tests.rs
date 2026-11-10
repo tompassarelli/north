@@ -225,9 +225,9 @@ fn a_run_that_began_before_the_proxy_paused_dispatch_launches_and_revives_nothin
     let (hosts, accounts) = fleet();
     let survey = survey(vec![issue("north", 757, "- [ ] a", &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
     let launch = &decide(&survey, "test").launches[0];
-    let (line, failure) = super::start(&survey, launch, false, || Some("claim rule not live".to_owned()));
-    assert_eq!(line, "skip north#757: dispatch was paused while this run was working: claim rule not live");
-    assert_eq!(failure, None);
+    let started = super::start(&survey, launch, false, || Some("claim rule not live".to_owned()));
+    assert_eq!(started.line(), "skip north#757: dispatch was paused while this run was working: claim rule not live");
+    assert_eq!(started.stopped().as_deref(), Some(started.line()), "a launch the pause stopped is named, not counted as launched");
     let step = super::revive::Step::Revive(super::revive::Revive { name: "n-state-machines".into(), registry: "gex45".into(), host: "gex45".into(), account: "claude:a".into(), stop: crate::fleet::stranded::Stop::Capacity, lanes: vec!["lane".into()], ended_ms: 0, local: None });
     let revival = super::revive::Revival { steps: vec![step], ..Default::default() };
     let lines = super::revive(&survey, &revival, false, || Some("paused".to_owned()));

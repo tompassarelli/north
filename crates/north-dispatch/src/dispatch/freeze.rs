@@ -20,13 +20,13 @@ pub struct Stretch {
     pub told: bool,
 }
 
-/// Why this run is frozen: ready boxes and free slots and no launch, with the spend guards refusing each account and the first refusal; None when it launched or had nothing to do.
-pub fn frozen(outcome: &Outcome, failures: &[String], guards: &[String]) -> Option<String> {
-    let launched = outcome.launches.len() - failures.len().min(outcome.launches.len());
+/// Why this run is frozen: ready boxes and free slots and no launch (`stopped` is why each planned launch did not happen: the guard that skipped it, or its failure), with the spend guards refusing each account and the first refusal; None when it launched or had nothing to do.
+pub fn frozen(outcome: &Outcome, stopped: &[String], guards: &[String]) -> Option<String> {
+    let launched = outcome.launches.len() - stopped.len().min(outcome.launches.len());
     if outcome.ready.is_empty() || outcome.free == 0 || launched > 0 {
         return None;
     }
-    let first = failures.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
+    let first = stopped.first().cloned().or_else(|| outcome.skipped.iter().find(|(_, why)| why.starts_with("ready, not placed")).map(|(item, why)| format!("{item} {why}")));
     let guards = if guards.is_empty() { "no spend guard refuses an account".to_owned() } else { format!("refusing guards: {}", guards.join("; ")) };
     Some(format!("{} ready, {} free slots and no launch; {guards}; first refusal: {}", outcome.ready.len(), outcome.free, first.unwrap_or_else(|| "none recorded".into())))
 }
