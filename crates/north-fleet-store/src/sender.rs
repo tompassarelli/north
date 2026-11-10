@@ -8,6 +8,8 @@ use crate::error::{NorthError, NorthResult};
 const SESSION: &str = "session:";
 const SERVICE: &str = "service:";
 const TOM: &str = "tom";
+const FLEET: &str = "north-fleet";
+const RELAYED: &str = "[from ";
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Sender {
@@ -18,7 +20,7 @@ pub enum Sender {
 
 impl Sender {
     pub fn fleet() -> Self {
-        Self::Service("north-fleet".into())
+        Self::Service(FLEET.into())
     }
 
     pub fn session_host() -> Self {
@@ -69,6 +71,19 @@ impl Sender {
             Self::Session(name) => Some(name.clone()),
             Self::Service(unit) => Some(format!("{SERVICE}{unit}")),
         }
+    }
+
+    /// Who wrote `text`: a session whose report the fleet relays under its `[from NAME · …]` header, else this sender.
+    pub fn author(&self, text: &str) -> Self {
+        let Self::Service(unit) = self else { return self.clone() };
+        if unit.split('@').next() != Some(FLEET) {
+            return self.clone();
+        }
+        text.strip_prefix(RELAYED)
+            .and_then(|rest| rest.split_once(" · "))
+            .map(|(name, _)| name)
+            .filter(|name| !name.is_empty() && !name.contains(':') && !name.chars().any(char::is_whitespace))
+            .map_or_else(|| self.clone(), |name| Self::Session(name.to_owned()))
     }
 
     pub fn sign(&self, text: &str) -> String {

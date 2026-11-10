@@ -197,4 +197,21 @@ mod tests {
         assert!(matches!(&distinct[2], Admit::Flood(line) if line.contains("sent 4 messages") && line.contains(CLASS)), "{distinct:?}");
         assert_eq!(&distinct[3..], &[Admit::Hold, Admit::Hold], "whatever its keys, a sender past the ceiling waits in the digest");
     }
+
+    #[test]
+    fn four_reports_from_four_sessions_in_ten_minutes_all_reach_the_coordinator() {
+        let root = tempfile::tempdir().unwrap();
+        let relay = Sender::fleet();
+        let report = |worker: &str, turn: u64| format!("[from {worker} · turn {turn} · exit completed] Done: landed it.\nStop: landing");
+        let reports: Vec<Admit> = ["north-1-a", "north-2-b", "north-3-c", "north-4-d"].iter().enumerate().map(|(at, worker)| admit(root.path(), &relay, PROXY, &report(worker, 1), None, at as u64 * 120_000)).collect();
+        assert_eq!(reports, vec![Admit::Send; 4], "four workers' reports relayed by the fleet each reach the coordinator");
+
+        let repeats: Vec<Admit> = (2..6_u64).map(|turn| admit(root.path(), &relay, PROXY, &report("north-1-a", turn), None, 480_000 + turn)).collect();
+        assert_eq!(&repeats[..2], &[Admit::Send, Admit::Send]);
+        assert!(matches!(&repeats[2], Admit::Flood(line) if line.contains("session:north-1-a sent 4 messages") && line.contains("`north fleet held --since 10m`")), "{repeats:?}");
+        assert_eq!(repeats[3], Admit::Hold, "one session repeating itself is still folded");
+
+        let ticks: Vec<Admit> = (0..4_u64).map(|tick| admit(root.path(), &relay, PROXY, &format!("north fleet: trip {tick} opened"), None, 500_000 + tick)).collect();
+        assert!(matches!(&ticks[3], Admit::Flood(line) if line.contains("service:north-fleet sent 4 messages")), "the relay's own messages still count against it: {ticks:?}");
+    }
 }

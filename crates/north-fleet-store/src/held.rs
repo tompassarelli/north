@@ -1,6 +1,6 @@
 //! Messages the fleet holds back from waking their recipient: a worker's interim turn, an alarm's
 //! cleared or recovered notice and a repeat of an alarm still open. They change nothing the recipient
-//! must act on, so they wait in one log that `north fleet digest` prints and the proxy reads hourly.
+//! must act on, so they wait in one log that `north fleet held` and `north work --since` print and the proxy reads hourly.
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;

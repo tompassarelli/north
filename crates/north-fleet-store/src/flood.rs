@@ -1,6 +1,7 @@
 //! The ceiling on one service's messages to the proxy, whatever their condition keys: past three in ten
 //! minutes, the next is folded into one line carrying the count that goes out in its place and is
-//! recorded as a `page-flood` incident, and the rest of the window waits in `north fleet digest`. On
+//! recorded as a `page-flood` incident, and the rest of the window waits in `north fleet held`. A report
+//! the fleet relays counts against the session that wrote it, so distinct workers' reports never fold. On
 //! 2026-11-10 one lander condition reached the proxy several hundred times in fifteen minutes because
 //! nothing below the senders bounded the rate, so a sender with a wrong key or none cannot flood.
 use std::collections::BTreeMap;
@@ -40,7 +41,8 @@ pub fn admit(root: &Path, sender: &Sender, text: &str, now_ms: u64) -> Ceiling {
         rate.folded_ms = rate.folded_ms.filter(within);
     }
     rates.retain(|_, rate| !rate.sent_ms.is_empty() || rate.folded_ms.is_some());
-    let rate = rates.entry(sender.to_string()).or_default();
+    let author = sender.author(text);
+    let rate = rates.entry(author.to_string()).or_default();
     let admitted = if rate.sent_ms.len() < LIMIT {
         rate.sent_ms.push(now_ms);
         Ceiling::Under
@@ -49,7 +51,7 @@ pub fn admit(root: &Path, sender: &Sender, text: &str, now_ms: u64) -> Ceiling {
     } else {
         rate.sent_ms.push(now_ms);
         rate.folded_ms = Some(now_ms);
-        Ceiling::Flood(line(sender, rate.sent_ms.len(), text))
+        Ceiling::Flood(line(&author, rate.sent_ms.len(), text))
     };
     let scratch = path.with_extension("json.part");
     if let Ok(json) = serde_json::to_string(&rates)
@@ -62,7 +64,8 @@ pub fn admit(root: &Path, sender: &Sender, text: &str, now_ms: u64) -> Ceiling {
 
 fn line(sender: &Sender, count: usize, text: &str) -> String {
     format!(
-        "north fleet: page flood: {sender} sent {count} messages to the proxy within {} minutes, past the ceiling of {LIMIT}, so its next messages for {} minutes wait in `north fleet digest`, which counts them, and the flood is recorded as a {CLASS} incident; the folded one: {text}",
+        "north fleet: page flood: {sender} sent {count} messages to the proxy within {} minutes, past the ceiling of {LIMIT}, so its next messages for {} minutes wait in `north fleet held --since {}m`, which prints them, and the flood is recorded as a {CLASS} incident; the folded one: {text}",
+        WINDOW_MS / 60_000,
         WINDOW_MS / 60_000,
         WINDOW_MS / 60_000
     )
