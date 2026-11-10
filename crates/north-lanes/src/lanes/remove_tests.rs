@@ -71,3 +71,19 @@ fn a_squash_landed_lane_is_removed_and_one_with_unlanded_work_is_kept_north_958(
     assert!(kept.contains("dirty"), "{kept}");
     assert!(dirty.exists());
 }
+
+#[test]
+fn a_lane_landed_on_origin_is_removed_while_the_hosts_local_main_lags_north_1036() {
+    let container = Container::new();
+    let lane = container.add("landed-on-origin", false);
+    container.commit_in(&lane, "work.txt");
+    let main = container.main();
+    let landed = git_in(&lane, &["rev-parse", "HEAD"]);
+    git_in(&main, &["remote", "add", "origin", container.path().join("origin.git").to_str().unwrap()]);
+    git_in(&main, &["update-ref", "refs/remotes/origin/main", landed.trim()]);
+    git_in(&main, &["branch", "--set-upstream-to=origin/main", "main"]);
+
+    let removed = remove(&lane, &container.path().join("queues")).expect("a lane on origin/main is spent");
+    assert!(!lane.exists(), "{removed}");
+    assert!(!git_in(&main, &["branch", "--list", "landed-on-origin"]).contains("landed-on-origin"));
+}

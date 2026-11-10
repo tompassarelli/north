@@ -174,8 +174,9 @@ impl Sweep {
         let listing = git_out(&main_dir, &["worktree", "list", "--porcelain"]).unwrap_or_default();
         let (trees, locked) = parse_listing(&listing);
         let sweep_dir = container.join("worktrees");
+        let main_ref = git_out(&main_dir, &["rev-parse", "--symbolic-full-name", &format!("{main_branch}@{{upstream}}")]).unwrap_or_else(|| format!("refs/heads/{main_branch}"));
         for tree in trees.into_iter().filter(|tree| tree.parent() == Some(sweep_dir.as_path()) && !is_lander_tree(tree) && self.only.as_ref().is_none_or(|only| only == tree)) {
-            let lane = Lane { main_dir: &main_dir, main_ref: format!("refs/heads/{main_branch}"), tree, locked: &locked };
+            let lane = Lane { main_dir: &main_dir, main_ref: main_ref.clone(), tree, locked: &locked };
             if let Some(outcome) = self.judge(&lane) {
                 self.act(&lane, outcome, report)?;
             }
@@ -258,7 +259,7 @@ impl Sweep {
                 if self.dry_run {
                     (format!("would reap: {tree} ({branch})"), false)
                 } else {
-                    self.remove(lane, &branch, "-d")?;
+                    self.remove(lane, &branch)?;
                     (format!("reaped: {tree} ({branch})"), false)
                 }
             }
@@ -267,7 +268,7 @@ impl Sweep {
                 if self.dry_run {
                     (format!("would reap (equiv): {tree} ({branch} was {head})"), false)
                 } else {
-                    self.remove(lane, &branch, "-D")?;
+                    self.remove(lane, &branch)?;
                     (format!("reaped (equiv): {tree} ({branch} was {head})"), false)
                 }
             }
@@ -323,10 +324,10 @@ impl Sweep {
         !branch_ref.is_empty() && equivalent_to_main(lane.main_dir, &lane.main_ref, &branch_ref)
     }
 
-    fn remove(&self, lane: &Lane, branch: &str, delete_flag: &str) -> Result<(), String> {
+    fn remove(&self, lane: &Lane, branch: &str) -> Result<(), String> {
         git_checked(lane.main_dir, &["worktree", "remove", &lane.tree.to_string_lossy()])?;
         if branch != DETACHED {
-            git_checked(lane.main_dir, &["branch", delete_flag, branch])?;
+            git_checked(lane.main_dir, &["branch", "-D", branch])?;
         }
         Ok(())
     }
