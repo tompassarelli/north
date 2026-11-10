@@ -1,4 +1,4 @@
-//! One verdict per tree (north#902): the verdict-bearing form of a `cargo clippy` run and its cache key, which the capacity gate records when a fleet session's own clippy passes on a clean tree and the land checks look up before running the same clippy on that tree. It depends on std, git and sha2 alone.
+//! One verdict per tree (north#902, live check): the verdict-bearing form of a `cargo clippy` run and its cache key, which the capacity gate records when a fleet session's own clippy passes on a clean tree and the land checks look up before running the same clippy on that tree. It depends on std, git and sha2 alone.
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeSet;
