@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub const REPORT_CHARS: usize = 600;
+const ABSENT: &str = "[absent on this host]";
+const BRACKETS: &str = "\"'`(<[{)]}>,;:.";
 const PRIOR_REPORTS: usize = 2;
 /// The closed-box window the ETA and budget are read from.
 pub const WINDOW: &str = "7d";
@@ -199,11 +201,27 @@ impl Grounds {
     }
 }
 
-/// The carried report as the brief says it: this host's absent paths are marked, so a worker is not sent to a lane other
-/// hosts had, and the whole is cut to [`REPORT_CHARS`].
+/// The carried report as the brief says it: each path under this host's home that this host no longer holds reads
+/// [`ABSENT`], keeping whitespace and the word's own punctuation, so a worker is not sent to a lane that is gone; the
+/// whole is cut to [`REPORT_CHARS`].
 fn carried(report: &str, home: Option<&Path>) -> String {
-    let marked = home.map_or_else(|| report.to_owned(), |home| crate::platform::home_paths::without_absent(report, home));
-    marked.chars().take(REPORT_CHARS).collect()
+    let Some(home) = home else { return report.chars().take(REPORT_CHARS).collect() };
+    let mut out = String::with_capacity(report.len());
+    for part in report.split_inclusive(char::is_whitespace) {
+        let word = part.trim_end_matches(char::is_whitespace);
+        let core = word.trim_matches(|c: char| BRACKETS.contains(c));
+        let path = crate::platform::home_paths::expand(core, home);
+        if !core.is_empty() && path != home && path.starts_with(home) && !path.exists() {
+            let lead = word.len() - word.trim_start_matches(|c: char| BRACKETS.contains(c)).len();
+            out.push_str(&word[..lead]);
+            out.push_str(ABSENT);
+            out.push_str(&word[lead + core.len()..]);
+        } else {
+            out.push_str(word);
+        }
+        out.push_str(&part[word.len()..]);
+    }
+    out.chars().take(REPORT_CHARS).collect()
 }
 
 /// The minutes a brief's ETA gives a box in a cell with these figures.
