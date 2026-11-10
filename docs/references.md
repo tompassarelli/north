@@ -446,6 +446,10 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
 - <a id="seccomp-unotify"></a>**seccomp_unotify(2)**, https://man7.org/linux/man-pages/man2/seccomp_unotify.2.html.
   Informed: the land sandbox's recorder of every path a test's process tree looks up
   ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
+- <a id="harmonia"></a>**Harmonia** (README, NixOS module services.harmonia.cache), https://github.com/nix-community/harmonia.
+  MIT, nix-community, packaged in the nixpkgs firn pins (3.1.0); serves a host's /nix/store as a signed binary
+  cache with no upload step. Informed: the build host serves its store and every host substitutes from it.
+  Outcome: adopted; see [propagation.md](rationale/propagation.md).
 - <a id="sccache-capacity"></a>**sccache** (README and docs/Rust.md), https://github.com/mozilla/sccache.
   Informed: no laptop-shared compiler cache, per-host caches only. Outcome: prior only; see also
   [build-cost.md](rationale/build-cost.md).
