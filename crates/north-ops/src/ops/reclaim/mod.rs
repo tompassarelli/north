@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io;
-use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -210,9 +209,6 @@ pub(super) fn idle_for(path: &Path, now: SystemTime) -> io::Result<Duration> {
 
 fn newest_change(path: &Path) -> io::Result<SystemTime> {
     let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_socket() || metadata.file_type().is_fifo() {
-        return Err(io::Error::other(format!("{} is a live endpoint", path.display())));
-    }
     let mut newest = metadata.modified()?;
     if metadata.is_dir() {
         for entry in fs::read_dir(path)? {

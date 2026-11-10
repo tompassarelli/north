@@ -87,11 +87,16 @@ fn scratch_goes_once_idle_past_the_limit_and_held_by_no_process() {
     symlink(held.join("out.log"), machine.path("proc/4242/fd/3")).unwrap();
     let display = machine.file("tmp/.X1-lock", 3 * DAY);
     let multiplexer = machine.dir("tmp/tmux-1000", 3 * DAY);
-    std::os::unix::net::UnixListener::bind(multiplexer.join("default")).unwrap();
+    let _listener = std::os::unix::net::UnixListener::bind(multiplexer.join("default")).unwrap();
     touch(&multiplexer, machine.now - 3 * DAY);
+    let stale = machine.dir("tmp/north-opencode-ended", 3 * DAY);
+    drop(std::os::unix::net::UnixListener::bind(stale.join("broker.sock")).unwrap());
+    touch(&stale, machine.now - 3 * DAY);
+    fs::create_dir_all(machine.path("proc/net")).unwrap();
+    fs::write(machine.path("proc/net/unix"), format!("Num RefCount Protocol Flags Type St Inode Path\n0000: 00000002 00000000 00010000 0001 01 7 {}\n", multiplexer.join("default").display())).unwrap();
 
-    assert_eq!(machine.reclaim(false), vec![abandoned.clone(), abandoned_file.clone()]);
-    assert!(!abandoned.exists() && !abandoned_file.exists());
+    assert_eq!(machine.reclaim(false), vec![stale.clone(), abandoned.clone(), abandoned_file.clone()]);
+    assert!(!abandoned.exists() && !abandoned_file.exists() && !stale.exists());
     assert!(fresh.exists() && working.exists() && held.exists() && display.exists() && multiplexer.exists());
 }
 
