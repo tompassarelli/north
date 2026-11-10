@@ -456,3 +456,17 @@ fn a_probe_worker_follows_the_judged_runtime_while_the_link_still_names_the_live
         assert!(output.status.success(), "{}: {}", probe.name, String::from_utf8_lossy(&output.stderr));
     }
 }
+
+#[test]
+fn the_verify_north_probe_reads_all_of_the_placement_listing_before_judging_it() {
+    let home = tempfile::tempdir().unwrap();
+    let judged = home.path().join(".local/state/north/runtimes").join(PROMOTED);
+    fs::create_dir_all(&judged).unwrap();
+    let north = "#!/bin/sh\nif [ \"$1\" = config ]; then\n  echo 'claude:a available'\n  sleep 1\n  echo 'claude:b available'\n  echo 'wr.md: target whiterabbit claude:a'\nfi\n";
+    north_base::foundation::shim::write_executable(&judged.join("north"), north);
+    north_base::foundation::shim::write_executable(&judged.join("verify-north"), "#!/bin/sh\nexit 0\n");
+    let plan = probes::core_loop("whiterabbit", PROMOTED, &["claude".to_owned()], false, true, None);
+    let walk = plan.probes.iter().find(|probe| probe.name.contains("verify-north")).unwrap();
+    let output = Command::new(bash_program()).arg("-c").arg(&walk.script).env("HOME", home.path()).env_remove("XDG_STATE_HOME").env_remove("NORTH_RUNTIME_LINK").output().unwrap();
+    assert!(output.status.success(), "grep -q closed the listing's pipe at its first line and the writer died on it, exit {:?}: {}", output.status.code(), String::from_utf8_lossy(&output.stderr));
+}

@@ -121,7 +121,8 @@ north=__NORTH__
 brief=$(mktemp "${TMPDIR:-/tmp}/north-canary-verify.XXXXXX")
 trap 'rm -f "$brief"' EXIT
 printf 'Surface: shell\nNeeds: laptop\n' > "$brief"
-if ! "$north" config agents plan --place "$brief" | grep -q 'claude:'; then
+placed=$("$north" config agents plan --place "$brief")
+if ! grep -q 'claude:' <<<"$placed"; then
   echo 'no Claude account can place the verify-north worker here' >&2
   exit 75
 fi
@@ -183,7 +184,8 @@ if [ "$landed" = "$base" ]; then
   echo "the scratch landing did not move origin main past $base" >&2
   exit 1
 fi
-if ! git -C "$origin" show --format= --name-only "$landed" | grep -qx canary.txt; then
+changed=$(git -C "$origin" show --format= --name-only "$landed")
+if ! grep -qx canary.txt <<<"$changed"; then
   echo "origin main $landed does not change canary.txt" >&2
   exit 1
 fi
