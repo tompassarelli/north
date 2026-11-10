@@ -6,8 +6,8 @@ description: >-
   tests in any project: what earns a test, property, replay and golden tests,
   tiers and CPU cost, committed records, mutants, flaky tests, landing gates
   and reuse by input hash.
-grounded: 2026-10-15
-written: 2026-11-04
+grounded: 2026-11-10
+written: 2026-11-10
 portable: true
 metadata:
   kind: playbook
