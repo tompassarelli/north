@@ -1,5 +1,6 @@
 //! The threads claim a fleet session holds on its task while its host runs, so a hand launch is as visible to dispatch as a dispatched one.
 use std::collections::BTreeSet;
+use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 
@@ -30,31 +31,85 @@ pub fn claim_keys(tasks: &[String], box_text: Option<&str>, others: &[String]) -
     tasks.iter().enumerate().map(|(index, task)| claim_key(task, box_text.filter(|_| index == 0))).chain(others.iter().cloned()).collect()
 }
 
+/// How long a launch waits for a claim the ledger only queued to land, a few times the 4 to 5 s a loaded ledger host took to answer on 2026-11-06.
+const QUEUED_CLAIM_WAIT: Duration = Duration::from_secs(30);
+
+/// How long a launch waits between two reads of a queued claim.
+const QUEUED_CLAIM_POLL: Duration = Duration::from_millis(500);
+
+/// What the ledger did with a claim.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Taken {
+    /// The ledger recorded the claim.
+    Held,
+    /// The ledger recorded the claim after moving it from an earlier owner, and says from whom and why.
+    Moved(String),
+    /// The ledger did not answer in time and the claim waits in a spool to land once it does, so no other launch sees it yet.
+    Queued,
+}
+
 pub trait Claims: Send + Sync {
-    /// Claims the claim key `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`, and Some says from whom and why. A box claim beside a live whole-issue claim is refused unless that claim's owner is one of `ancestors`, the sessions above `session`.
-    fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>>;
+    /// Claims the claim key `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`. A box claim beside a live whole-issue claim is refused unless that claim's owner is one of `ancestors`, the sessions above `session`.
+    fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Taken>;
+    /// How long a launch waits for a claim [`Taken::Queued`] to land before it refuses.
+    fn queued_claim_wait(&self) -> Duration {
+        QUEUED_CLAIM_WAIT
+    }
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
     /// The claim rows `rows` names as (item, owner), including those no dispatch or launch honours any more.
     fn holders(&self, rows: Rows<'_>) -> NorthResult<Vec<(String, String)>>;
 }
 
-/// Claims every task before the session starts, so a live holder refuses the launch and nothing is left half-claimed; a ledger that cannot be read waits for the claim `hold_for` makes once the session runs.
+/// Claims every task before the session starts, so a live holder refuses the launch and nothing is left half-claimed; a ledger that cannot be read waits for the claim `hold_for` makes once the session runs. A claim the ledger only queued is waited for until it lands, because a second launch of the same item sees no holder before then; one that does not land in time refuses the launch.
 pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str, ancestors: &BTreeSet<String>) -> NorthResult<()> {
+    let mut queued = Vec::new();
     for (index, task) in tasks.iter().enumerate() {
         match claims.hold(task, session, ancestors) {
             Err(error @ NorthError::Refused(_)) => {
-                for held in &tasks[..index] {
-                    let _ = claims.release(held, session);
-                }
+                give_up(claims, &tasks[..index], session);
                 return Err(error);
             }
             Err(error) => eprintln!("north fleet: {session} does not hold {task} yet: {}", error.user_message()),
-            Ok(Some(moved)) => eprintln!("north fleet: {moved}"),
-            Ok(None) => {}
+            Ok(Taken::Moved(moved)) => eprintln!("north fleet: {moved}"),
+            Ok(Taken::Queued) => queued.push(task.clone()),
+            Ok(Taken::Held) => {}
         }
     }
+    if let Err(error) = land_queued(claims, &queued, session) {
+        give_up(claims, tasks, session);
+        return Err(error);
+    }
     Ok(())
+}
+
+fn give_up(claims: &dyn Claims, tasks: &[String], session: &str) {
+    for held in tasks {
+        let _ = claims.release(held, session);
+    }
+}
+
+/// Reads the ledger until every key in `queued` is held by `session`: a key another owner holds refuses, and keys still unread when the claim's wait ends refuse too. Each read sends the spooled claims first.
+fn land_queued(claims: &dyn Claims, queued: &[String], session: &str) -> NorthResult<()> {
+    if queued.is_empty() {
+        return Ok(());
+    }
+    let issues: Vec<String> = queued.iter().map(|key| split_key(key).0.to_owned()).collect();
+    let deadline = Instant::now() + claims.queued_claim_wait();
+    loop {
+        if let Ok(rows) = claims.holders(Rows::Items(&issues)) {
+            if let Some(owner) = rows.iter().find(|(key, owner)| owner != session && queued.contains(key)).map(|(_, owner)| owner) {
+                return Err(NorthError::Refused(format!("{} is already owned by {owner}", split_key(&queued[0]).0)));
+            }
+            if queued.iter().all(|key| rows.iter().any(|(held, owner)| held == key && owner == session)) {
+                return Ok(());
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(NorthError::State(format!("the claim of {} is only queued: the threads ledger did not take it within {} s, so {session} does not start beside a holder it cannot see", queued.join(", "), claims.queued_claim_wait().as_secs())));
+        }
+        std::thread::sleep(QUEUED_CLAIM_POLL);
+    }
 }
 
 /// The tasks a session claims for itself: it leaves a whole-issue claim to a session above it, so a lead keeps the
@@ -130,9 +185,9 @@ pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
 pub struct Held(pub std::sync::Mutex<Vec<(&'static str, String, String)>>);
 
 impl Claims for Held {
-    fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Option<String>> {
+    fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
         self.0.lock().unwrap().push(("hold", item.to_owned(), session.to_owned()));
-        Ok(None)
+        Ok(Taken::Held)
     }
 
     fn release(&self, item: &str, session: &str) -> NorthResult<()> {
@@ -167,12 +222,12 @@ mod tests {
     struct Owned<'a>(&'a str, Mutex<Vec<String>>);
 
     impl Claims for Owned<'_> {
-        fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Option<String>> {
+        fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
             if item == self.0 {
                 return Err(NorthError::Refused(format!("{item} is already owned by tom")));
             }
             self.1.lock().unwrap().push(format!("hold {item} {session}"));
-            Ok(None)
+            Ok(Taken::Held)
         }
 
         fn release(&self, item: &str, session: &str) -> NorthResult<()> {
@@ -191,7 +246,7 @@ mod tests {
     struct Beside(Mutex<Vec<(String, String)>>);
 
     impl Claims for Beside {
-        fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>> {
+        fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Taken> {
             let (issue, boxed) = split_key(item);
             let mut held = self.0.lock().unwrap();
             let outside = held.iter().find(|(claim, owner)| {
@@ -202,7 +257,7 @@ mod tests {
             }
             held.retain(|(claim, owner)| !(claim.as_str() == item && owner.as_str() == session));
             held.push((item.to_owned(), session.to_owned()));
-            Ok(None)
+            Ok(Taken::Held)
         }
 
         fn release(&self, item: &str, session: &str) -> NorthResult<()> {

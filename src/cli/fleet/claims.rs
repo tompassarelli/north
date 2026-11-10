@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process;
-use crate::fleet::claims::{Claims, Rows, claim_key, split_key};
+use crate::fleet::claims::{Claims, Rows, Taken, claim_key, split_key};
 use crate::threads::client;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::SESSION_ENV;
@@ -164,7 +164,7 @@ impl ThreadsCli {
 }
 
 impl Claims for ThreadsCli {
-    fn hold(&self, key: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>> {
+    fn hold(&self, key: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Taken> {
         let named = named(key);
         let words: Vec<&str> = ["claim"]
             .into_iter()
@@ -174,7 +174,7 @@ impl Claims for ThreadsCli {
             .collect();
         match self.write(&words) {
             Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
-            other => other.map(|said| said.and_then(|said| moved(said.trim(), key, session))),
+            other => other.map(|said| said.map_or(Taken::Queued, |said| moved(said.trim(), key, session).map_or(Taken::Held, Taken::Moved))),
         }
     }
 
@@ -235,7 +235,7 @@ mod tests {
         let spooled = Arc::new(Mutex::new(Vec::new()));
         let (_slow, slow) = ledger("sleep 30", &spooled);
         let begun = Instant::now();
-        assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), None);
+        assert_eq!(slow.hold("north#7", "cpx62-worker", &BTreeSet::new()).unwrap(), Taken::Queued);
         slow.release("north#7", "cpx62-worker").unwrap();
         assert!(begun.elapsed() < Duration::from_secs(10), "{:?}", begun.elapsed());
         let words: Vec<Vec<String>> = spooled.lock().unwrap().clone();

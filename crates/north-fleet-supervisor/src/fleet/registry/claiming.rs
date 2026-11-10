@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::claims::{self, Rows};
+use crate::fleet::claims::{self, Rows, Taken};
 use crate::fleet::model::{LaunchRequest, SessionRecord, Status};
 use crate::fleet::records::{CLAIMS_RELEASED, CLAIMS_SWEEP_LOG, read_record, write_record};
 use crate::fleet::runtime::now_ms;
@@ -47,8 +47,9 @@ impl Fleet {
             write_record(&session_dir, &record)?;
         }
         match self.claims.hold(task, name, &self.ancestors(record.parent.as_deref())) {
-            Ok(Some(moved)) => println!("{moved}"),
-            Ok(None) => println!("{name} holds {task}"),
+            Ok(Taken::Moved(moved)) => println!("{moved}"),
+            Ok(Taken::Queued) => println!("{name} holds {task}; its claim is queued and lands once the ledger answers"),
+            Ok(Taken::Held) => println!("{name} holds {task}"),
             Err(error) => eprintln!("north fleet: {name} holds {task} in its record, but the threads ledger did not take its claim: {}", error.user_message()),
         }
         Ok(())
@@ -145,7 +146,7 @@ mod tests {
     struct Whole(Mutex<Vec<(String, String)>>);
 
     impl Claims for Whole {
-        fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Option<String>> {
+        fn hold(&self, item: &str, session: &str, ancestors: &BTreeSet<String>) -> NorthResult<Taken> {
             let (issue, boxed) = claims::split_key(item);
             let mut held = self.0.lock().unwrap();
             let outside = held.iter().find(|(claim, owner)| {
@@ -156,7 +157,7 @@ mod tests {
             }
             held.retain(|(claim, owner)| !(claim.as_str() == item && owner.as_str() == session));
             held.push((item.to_owned(), session.to_owned()));
-            Ok(None)
+            Ok(Taken::Held)
         }
 
         fn release(&self, item: &str, session: &str) -> NorthResult<()> {
@@ -313,6 +314,95 @@ mod ghost_tests {
             assert_eq!(held, Vec::<(String, String)>::new(), "take_over={take_over}");
             assert_eq!(fleet.queued_launches().unwrap().len(), 0, "take_over={take_over}: the queued launch outlived the launch that replaced it");
         }
+    }
+}
+
+#[cfg(test)]
+mod queued_claim_tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use crate::fleet::claims::Claims;
+    use crate::fleet::fakes::{Paper, Stream};
+    use crate::fleet::model::{LaunchRequest, ProviderName};
+    use crate::fleet::prompt::PromptMode;
+    use crate::fleet::runtimes::Runtimes;
+
+    use super::*;
+
+    /// A ledger host too slow to answer a claim in time: the claim waits in a spool and lands, ahead of any later one, when the ledger is next read.
+    #[derive(Default)]
+    struct Spooled {
+        waiting: Mutex<Vec<(String, String)>>,
+        landed: Mutex<Vec<(String, String)>>,
+    }
+
+    impl Claims for Spooled {
+        fn hold(&self, item: &str, session: &str, _: &BTreeSet<String>) -> NorthResult<Taken> {
+            self.waiting.lock().unwrap().push((item.to_owned(), session.to_owned()));
+            Ok(Taken::Queued)
+        }
+
+        fn queued_claim_wait(&self) -> Duration {
+            Duration::ZERO
+        }
+
+        fn release(&self, item: &str, session: &str) -> NorthResult<()> {
+            self.landed.lock().unwrap().retain(|(claim, owner)| !(claim == item && owner == session));
+            Ok(())
+        }
+
+        fn holders(&self, _: Rows<'_>) -> NorthResult<Vec<(String, String)>> {
+            let mut landed = self.landed.lock().unwrap();
+            for (item, session) in self.waiting.lock().unwrap().drain(..) {
+                if !landed.iter().any(|(claim, _)| *claim == item) {
+                    landed.push((item, session));
+                }
+            }
+            Ok(landed.clone())
+        }
+    }
+
+    fn request(name: &str, cwd: &std::path::Path) -> LaunchRequest {
+        LaunchRequest {
+            verification: false,
+            name: name.into(),
+            provider: ProviderName::new("claude"),
+            account: "a".into(),
+            cwd: cwd.into(),
+            model: None,
+            effort: None,
+            prompt: "Item: north#1106".into(),
+            system_prompt: None,
+            foreground_cap_secs: None,
+            prompt_mode: PromptMode::North,
+            idle_exit_minutes: None,
+            parent: None,
+            task_ref: Some("north#1106".into()),
+            claim_box: None,
+            placement: None,
+            machine: None,
+            capacity_need: None,
+            role: None,
+            resume: None,
+            compact_window: None,
+        }
+    }
+
+    /// On 2026-11-11 dispatch staffed north#1106's replay box twice on one host: the first launch went ahead on a claim the ledger had only queued, so the second saw no holder.
+    #[test]
+    fn a_launch_whose_claim_is_only_queued_does_not_start_a_second_worker_on_the_box() {
+        let home = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Spooled::default());
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), ledger.clone()).unwrap();
+        let tasks = ["north#1106".to_owned()];
+        ledger.hold("north#1106", "north-1106-first", &BTreeSet::new()).unwrap();
+
+        let second = fleet.launch(&request("north-1106-second", &home.path().join("no-such-directory"))).unwrap_err();
+
+        assert!(matches!(&second, NorthError::Refused(why) if why == "north#1106 is already owned by north-1106-first"), "{}", second.user_message());
+        assert_eq!(ledger.holders(Rows::Items(&tasks)).unwrap(), [("north#1106".to_owned(), "north-1106-first".to_owned())]);
+        assert!(!fleet.root.join("north-1106-second").exists(), "the refused launch left a session directory");
     }
 }
 
