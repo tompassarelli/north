@@ -28,6 +28,8 @@ const LENGTH_BYTES: usize = 8;
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
 const REQUEST_LIMIT: usize = 4 << 20;
 const STDIO: usize = 3;
+const CGROUP_ROOT: &str = "/sys/fs/cgroup";
+const JOIN_LEASE: &str = r#"echo 0 >"$0" || echo "north worker-sandbox broker: could not join the caller's lease scope $0, so this run counts against no lease" >&2; exec "$@""#;
 const INJECTED_NAMES: [&str; 19] = [
     "GCONV_PATH", "LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES", "BASH_ENV", "ENV", "NODE_OPTIONS", "SSH_ASKPASS", "GIT_EXEC_PATH", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "GIT_PAGER", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR",
 ];
@@ -281,8 +283,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }
     variables.extend(lane_grant::scope_for(&request.arguments, cgroup, &host.cgroups));
-    let child = Command::new(north)
-        .args(confined(north, request.arguments.clone()))
+    let child = brokered(north, confined(north, request.arguments.clone()), cgroup)
         .current_dir(&request.directory)
         .env_clear()
         .envs(variables)
@@ -293,6 +294,18 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .spawn()
         .map_err(|error| format!("{}: {error}", north.display()))?;
     wait(child, stream)
+}
+
+/// The command that starts `north ARGUMENTS` for a caller whose `/proc/PID/cgroup` reads `cgroup`: inside the caller's capacity lease scope when it runs in one, so a leased build's depbox and the compiles it forks count against that lease and its host's admission. Started in the broker's own service, a leased land check's clippy and a session's depbox compiles ran outside every lease, and admission read 0.05 cores for a lease whose compiles held 7 (gex45, 2026-11-10, north#1036).
+pub(super) fn brokered(north: &Path, arguments: Vec<String>, cgroup: Option<&str>) -> Command {
+    let Some(scope) = cgroup.and_then(crate::capacity::gate::lease_cgroup) else {
+        let mut command = Command::new(north);
+        command.args(arguments);
+        return command;
+    };
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", JOIN_LEASE]).arg(Path::new(CGROUP_ROOT).join(scope.trim_start_matches('/')).join("cgroup.procs")).arg(north).args(arguments);
+    command
 }
 
 /// Runs a verb `lane_grant` grants a lane-only session in its own lane, with the broker's environment and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; a refusal is told to the client and logged.

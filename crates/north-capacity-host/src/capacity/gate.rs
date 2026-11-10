@@ -113,6 +113,11 @@ pub(super) fn agent_compile_in(words: &[String], agent: bool) -> bool {
     agent && compiles_rust(words)
 }
 
+/// The lease scope a process whose `/proc/PID/cgroup` reads `cgroup` runs in, as its path under the cgroup root.
+pub fn lease_cgroup(cgroup: &str) -> Option<&str> {
+    cgroup.lines().filter_map(|line| line.strip_prefix("0::")).find(|path| LEASE_SCOPES.iter().any(|scope| path.contains(scope)))
+}
+
 /// Whether this process runs inside a capacity lease: in a lease scope, or in a depbox sandbox whose depbox was admitted, which a worker sandbox starts outside the lease scope once it leaves the Landlock domain.
 pub(super) fn in_lease() -> bool {
     let admitted = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());

@@ -323,3 +323,16 @@ fn hidden_sockets_without_the_mark_never_run_an_outside_command_in_place() {
         .unwrap();
     assert!(!marker.exists(), "--outside ran its command in place under hidden sockets, so `capacity host run` exec'd itself in a loop at a full core: {}", String::from_utf8_lossy(&output.stderr));
 }
+
+#[test]
+fn a_leased_caller_s_brokered_run_starts_inside_its_lease_scope_north_1036() {
+    let north = Path::new("/n/north");
+    let arguments = vec!["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "cargo".to_owned(), "clippy".to_owned()];
+    let leased = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/agent-capacity.slice/agent-capacity-44328cc608bb40a3880b26c9e0d73a21.scope\n";
+    let started = super::broker::brokered(north, arguments.clone(), Some(leased));
+    let words: Vec<String> = started.get_args().map(|word| word.to_string_lossy().into_owned()).collect();
+    assert_eq!(started.get_program(), "/bin/sh", "on gex45 on 2026-11-10 a leased land check's clippy ran in the broker's own service, so its lease read 0.05 cores while its compiles held 7");
+    assert_eq!(words[2..], ["/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/agent.slice/agent-capacity.slice/agent-capacity-44328cc608bb40a3880b26c9e0d73a21.scope/cgroup.procs", "/n/north", "depbox", "run", "--", "cargo", "clippy"]);
+    let open = super::broker::brokered(north, arguments, Some(OPEN_SCOPE));
+    assert_eq!(open.get_program(), "/n/north");
+}
