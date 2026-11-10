@@ -2,59 +2,35 @@
 //! them (soonest expiring grant with credit left first), and one footer line saying which hosts' spend it was charged with.
 use super::Places;
 use super::plain::{self, grid};
-use crate::credit::{self, Balance, Reading};
+use crate::credit::{self, Reading, Standing};
 use crate::foundation::clock::Timestamp;
 
 const HEADER: [&str; 5] = ["API", "grant", "expires", "spent", "left"];
 const EXHAUSTED: &str = "exhausted";
 const UNREAD: &str = "—";
 
-struct Entry {
-    name: String,
-    balance: Option<Balance>,
-    marked: bool,
-    reading: Option<credit::readings::Reading>,
-}
-
-impl Entry {
-    fn exhausted(&self) -> bool {
-        self.marked || self.balance.as_ref().is_some_and(Balance::exhausted)
-    }
-
-    fn order(&self) -> (u8, &str) {
-        match &self.balance {
-            None => (2, ""),
-            Some(balance) => (u8::from(self.exhausted()), balance.grant.expires.as_str()),
-        }
+fn order(org: &Standing) -> (u8, &str) {
+    match &org.balance {
+        None => (3, ""),
+        Some(_) if org.exhausted => (2, ""),
+        Some(balance) => (u8::from(org.left <= 0.0), balance.grant.expires.as_str()),
     }
 }
 
 pub(super) fn lines(places: &Places, now: Timestamp) -> Vec<String> {
-    let named = credit::orgs(&places.policy);
-    if named.is_empty() {
+    let credits = credit::standing(&places.policy, &places.state, now);
+    if credits.orgs.is_empty() {
         return Vec::new();
     }
-    let grants = credit::grants(&places.policy);
-    let spends = crate::router::pricing::PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| credit::spends(&places.state.join("north/ledger.db"), &prices, now));
-    let today = now.iso_date();
-    let readings = credit::readings::directory(&places.state);
-    let entries = named
-        .into_iter()
-        .map(|(name, id)| {
-            let mine = spends.as_ref().ok().and_then(|reading| reading.orgs.get(&name).cloned()).unwrap_or_default();
-            let balance = credit::balance(grants.get(&id).map_or(&[][..], Vec::as_slice), &mine, &today);
-            Entry { name, balance, marked: places.state.join("north/api-exhausted").join(&id).exists(), reading: credit::readings::get(&readings, &id) }
-        })
-        .collect();
-    let mut out = grid(&rows(entries, spends.is_ok()), 0);
-    out.push(footer(&spends, &credit::peers(&places.policy), now.unix_millis()));
+    let mut out = grid(&rows(credits.orgs, credits.spend.is_ok()), 0);
+    out.push(footer(&credits.spend, &credit::peers(&places.policy), now.unix_millis()));
     out
 }
 
-fn rows(mut entries: Vec<Entry>, read: bool) -> Vec<Vec<String>> {
-    entries.sort_by(|a, b| a.order().cmp(&b.order()));
+fn rows(mut orgs: Vec<Standing>, read: bool) -> Vec<Vec<String>> {
+    orgs.sort_by(|a, b| order(a).cmp(&order(b)));
     let mut header: Vec<String> = HEADER.map(str::to_owned).to_vec();
-    let mut table: Vec<Vec<String>> = entries.iter().map(|entry| row(entry, read)).collect();
+    let mut table: Vec<Vec<String>> = orgs.iter().map(|org| row(org, read)).collect();
     if table.iter().any(|row| row.len() > HEADER.len()) {
         header.push("then".to_owned());
     }
@@ -62,16 +38,15 @@ fn rows(mut entries: Vec<Entry>, read: bool) -> Vec<Vec<String>> {
     table
 }
 
-fn row(entry: &Entry, read: bool) -> Vec<String> {
-    let Some(balance) = &entry.balance else { return vec![entry.name.clone(), "none".to_owned(), UNREAD.to_owned(), UNREAD.to_owned(), UNREAD.to_owned()] };
+fn row(org: &Standing, read: bool) -> Vec<String> {
+    let Some(balance) = &org.balance else { return vec![org.name.clone(), "none".to_owned(), UNREAD.to_owned(), UNREAD.to_owned(), UNREAD.to_owned()] };
     let money = |usd: f64| format!("${usd:.2}");
-    let left_usd = entry.reading.as_ref().map_or(balance.left, |reading| reading.usd);
-    let (spent, left) = match (read, entry.exhausted()) {
+    let (spent, left) = match (read, org.exhausted) {
         (false, _) => (UNREAD.to_owned(), UNREAD.to_owned()),
         (true, true) => (money(balance.spent), EXHAUSTED.to_owned()),
-        (true, false) => (money(balance.spent), money(left_usd)),
+        (true, false) => (money(balance.spent), money(org.left)),
     };
-    let mut cells = vec![entry.name.clone(), money(balance.grant.usd), plain::day(&balance.grant.expires), spent, left];
+    let mut cells = vec![org.name.clone(), money(balance.grant.usd), plain::day(&balance.grant.expires), spent, left];
     if !balance.later.is_empty() {
         cells.push(balance.later.iter().map(|grant| format!("{} {}", money(grant.usd), plain::day(&grant.expires))).collect::<Vec<_>>().join(", "));
     }

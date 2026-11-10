@@ -45,16 +45,17 @@ use screen::{Command, Screen};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-pub fn run(fleet: Fleet) -> NorthResult<()> {
-    run_focused(fleet, None)
+/// `credit` reads each api organization's credit line, which the digest shows under accounts.
+pub fn run(fleet: Fleet, credit: fn() -> Vec<String>) -> NorthResult<()> {
+    run_focused(fleet, None, credit)
 }
 
-pub fn run_on(fleet: Fleet, session: &str) -> NorthResult<()> {
-    run_focused(fleet, Some(session.to_owned()))
+pub fn run_on(fleet: Fleet, session: &str, credit: fn() -> Vec<String>) -> NorthResult<()> {
+    run_focused(fleet, Some(session.to_owned()), credit)
 }
 
-fn run_focused(fleet: Fleet, session: Option<String>) -> NorthResult<()> {
-    let mut desk = FleetDesk::new(fleet);
+fn run_focused(fleet: Fleet, session: Option<String>, credit: fn() -> Vec<String>) -> NorthResult<()> {
+    let mut desk = FleetDesk::new(fleet, credit);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
     screen.selected = session;
     screen.offer(desk.choices());
@@ -156,6 +157,7 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
             let facts = screen.sessions.iter().map(|session| (session.record.name.clone(), SessionFacts::of(&session.record, desk.transcript(&session.record.name)))).collect();
             screen.observe(desk.digest(), facts);
             screen.digest.project_status = desk.project_status();
+            screen.digest.credit = desk.credit();
             true
         }
         Err(error) => {

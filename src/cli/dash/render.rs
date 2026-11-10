@@ -329,6 +329,7 @@ fn billing(screen: &Screen, window: &str) -> Section {
     let spent = Spend::of(screen);
     let mut section = Section::headed(&format!("Billing: Claude plans, spend and machines; infra read from {}", billing::path().display()), billing_summary(screen, &spent, window));
     section.append(accounts(screen, &screen.billing));
+    screen.credit.iter().map(north_core::credit::Standing::line).for_each(|line| section.push(line));
     section.append(spend(&spent, window));
     section.append(machines(&screen.billing));
     section

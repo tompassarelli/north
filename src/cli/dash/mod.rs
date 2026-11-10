@@ -37,6 +37,8 @@ pub struct Screen {
     /// The runs of the last 7 days, from which each subscription's week is sized in dollars.
     pub week_runs: Result<Vec<WindowRun>, String>,
     pub billing: Result<billing::Billing, String>,
+    /// Each api organization's credit, as `north fleet usage`, `north fleet accounts --plan` and the fleet screen print it.
+    pub credit: Vec<north_core::credit::Standing>,
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -112,13 +114,17 @@ fn read(window: &str) -> Result<Screen, String> {
         let joined = |name: &str| format!("{name} reader panicked");
         (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))))
     });
-    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, billing: billing::read() })
+    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, billing: billing::read(), credit: credit() })
 }
 
 /// Colour only for a person at a terminal: never into a pipe or file, under NO_COLOR, or on a dumb terminal.
 fn colored() -> bool {
     use std::io::IsTerminal;
     std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()) && std::env::var("TERM").is_ok_and(|term| term != "dumb")
+}
+
+fn credit() -> Vec<north_core::credit::Standing> {
+    north_core::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), Timestamp::now()).orgs
 }
 
 fn accounts() -> Result<Vec<AccountOutlook>, String> {
@@ -173,6 +179,7 @@ fn figures(screen: &Screen) -> Value {
         "at": Timestamp::from_unix_seconds(screen.now).iso(),
         "bars": section(screen.bars.as_ref().map(|bars| json!(bars))),
         "accounts": section(accounts),
+        "api_credit_left": screen.credit.iter().map(|org| json!({"account": format!("api:{}", org.name), "left_usd": org.left, "estimate_usd": org.estimated, "read_by": org.reading.as_ref().map(|reading| reading.source.label()), "exhausted": org.exhausted, "figure": org.figure()})).collect::<Vec<_>>(),
         "spend": section(mixes.as_ref().map(|mixes| json!(mixes.spend))),
         "subscription_spend": section(spent.as_ref().cloned()),
         "spend_by_model": section(mixes.as_ref().map(|mixes| json!(mixes.models))),

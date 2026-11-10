@@ -301,12 +301,12 @@ pub fn grants_left(at: f64) -> Vec<GrantSource> {
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state"), std::path::PathBuf::from);
     let now = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at);
-    crate::credit::sources(&crate::platform::orchestration::path(), &state, now)
+    crate::credit::sources(&crate::credit::standing(&crate::platform::orchestration::path(), &state, now))
         .into_iter()
-        .filter(|source| !source.exhausted && source.left > 0.0)
+        .filter(|source| !source.credit.exhausted && source.credit.left > 0.0)
         .map(|source| {
             let now_s = now.unix_seconds();
-            GrantSource { account: format!("claude:api:{}", source.name), left_usd: source.left, deadline_h: source.deadline_h(now_s), urgent: !source.drains(now_s), line: source.line(now_s) }
+            GrantSource { account: format!("claude:api:{}", source.credit.name), left_usd: source.credit.left, deadline_h: source.deadline_h(now_s), urgent: !source.drains(now_s), line: source.line(now_s) }
         })
         .collect()
 }

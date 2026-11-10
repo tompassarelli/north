@@ -37,6 +37,7 @@ impl SessionFacts {
 pub struct DigestPane {
     pub shown: bool,
     pub project_status: Vec<String>,
+    pub credit: Vec<String>,
     pub books: Digest,
     pub facts: BTreeMap<String, SessionFacts>,
     pub selected_gate: Option<i64>,

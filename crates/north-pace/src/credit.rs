@@ -128,13 +128,6 @@ pub fn open_grants(policy: &Path, ledger: &Path, today: &str) -> BTreeMap<String
         .collect()
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Left {
-    pub id: String,
-    pub usd: f64,
-    pub next_credit: Option<String>,
-}
-
 /// Every pool entry name `[accounts.claude.api_orgs.NAME]` declares, as (name, organization id).
 fn named(policy: &Path) -> Vec<(String, String)> {
     let document: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
@@ -142,20 +135,85 @@ fn named(policy: &Path) -> Vec<(String, String)> {
     orgs.into_iter().flat_map(|orgs| orgs.iter()).filter_map(|(name, org)| Some((name.to_owned(), org.get("id")?.as_str()?.to_owned()))).collect()
 }
 
-pub fn left(policy: &Path, state: &Path, spends: &BTreeMap<String, Vec<(String, f64)>>, today: &str) -> BTreeMap<String, Left> {
-    let named = named(policy);
-    let grants = grants(policy);
-    let next = next_credits(policy);
+/// One api organization's credit as every operator view and placement read it (north#1063): the only place north works out what an organization has left.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Standing {
+    /// The first pool entry name that declares the organization, and every name that does.
+    pub name: String,
+    pub names: Vec<String>,
+    pub id: String,
+    /// The soonest unexpired grant with credit left at list price, what is spent of it and the grants after it; none when no grant is unexpired.
+    pub balance: Option<Balance>,
+    /// North's list-price estimate of the credit left on every unexpired grant.
+    pub estimated: f64,
+    pub reading: Option<readings::Reading>,
+    /// The credit left on every unexpired grant: the console or provider reading where one is recorded, else the estimate.
+    pub left: f64,
+    /// Whether the provider refused a turn for low credit and the mark still holds; only that closes the organization.
+    pub exhausted: bool,
+    pub next_credit: Option<String>,
+}
+
+impl Standing {
+    /// The part of `left` on the soonest-expiring grant: the later grants are charged only after it, so they hold their face value.
+    pub fn expiring(&self) -> f64 {
+        let later: f64 = self.balance.iter().flat_map(|balance| &balance.later).map(|grant| grant.usd).sum();
+        (self.left - later).max(0.0)
+    }
+
+    /// What is left and where the figure comes from, worded the same in every view: `$X left (console reading TIME, estimate $Y)`.
+    pub fn figure(&self) -> String {
+        if self.exhausted {
+            return "exhausted".to_owned();
+        }
+        let read = self.reading.as_ref().map_or_else(String::new, |reading| format!(" ({} reading {}, estimate ${:.2})", reading.source.label(), Timestamp::from_unix_seconds(reading.at).iso_minute(), self.estimated));
+        format!("${:.2} left{read}", self.left)
+    }
+
+    /// The organization's account and its figure: the line `north dash` and the fleet screen print.
+    pub fn line(&self) -> String {
+        format!("api:{} {}", self.name, self.figure())
+    }
+}
+
+/// Every api organization's credit and the list-price spend it was charged with, read once from the grants beside `policy`, the ledger and the other hosts' snapshots, readings and exhausted marks under `state` (the XDG state root).
+pub struct Credits {
+    pub orgs: Vec<Standing>,
+    pub spend: Result<Reading, String>,
+}
+
+impl Credits {
+    /// The whole fleet's list-price api spend per hour over the last day.
+    pub fn burn_per_h(&self) -> f64 {
+        self.spend.as_ref().map_or(0.0, |reading| reading.last_day_usd / 24.0)
+    }
+
+    /// The organization a pool entry name declares.
+    pub fn named(&self, name: &str) -> Option<&Standing> {
+        self.orgs.iter().find(|org| org.names.iter().any(|named| named == name))
+    }
+}
+
+pub fn standing(policy: &Path, state: &Path, now: Timestamp) -> Credits {
+    let spend = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices, now));
+    let empty = BTreeMap::new();
+    let spends = spend.as_ref().map_or(&empty, |reading| &reading.orgs);
+    let (named, grants, next, today) = (named(policy), grants(policy), next_credits(policy), now.iso_date());
     let readings = readings::directory(state);
-    named
-        .iter()
+    let orgs = orgs(policy)
+        .into_iter()
         .map(|(name, id)| {
-            let mine: Vec<(String, f64)> = named.iter().filter(|(_, other)| other == id).flat_map(|(other, _)| spends.get(other).cloned().unwrap_or_default()).collect();
-            let estimate = balance(grants.get(id).map_or(&[][..], Vec::as_slice), &mine, today).map_or(0.0, |balance| balance.left.max(0.0) + balance.later.iter().map(|grant| grant.usd).sum::<f64>());
-            let usd = readings::get(&readings, id).map_or(estimate, |reading| reading.usd);
-            (name.clone(), Left { id: id.clone(), usd, next_credit: next.get(id).cloned() })
+            let names: Vec<String> = named.iter().filter(|(_, other)| *other == id).map(|(other, _)| other.clone()).collect();
+            let mine: Vec<(String, f64)> = names.iter().flat_map(|other| spends.get(other).cloned().unwrap_or_default()).collect();
+            let balance = balance(grants.get(&id).map_or(&[][..], Vec::as_slice), &mine, &today);
+            let estimated = balance.as_ref().map_or(0.0, |balance| balance.left.max(0.0) + balance.later.iter().map(|grant| grant.usd).sum::<f64>());
+            let reading = readings::get(&readings, &id);
+            let left = reading.as_ref().map_or(estimated, |reading| reading.usd);
+            let exhausted = marks::held(&state.join("north/api-exhausted"), &id, &today);
+            Standing { name, names, next_credit: next.get(&id).cloned(), id, balance, estimated, reading, left, exhausted }
         })
-        .collect()
+        .collect();
+    Credits { orgs, spend }
 }
 
 /// The credit each grant still held on the day it expired, as (expiry, usd), for the grants that expired from `since_day` up to `today`, charged by every pool entry's list-price `spends` of its organization.
@@ -183,18 +241,13 @@ pub fn next_credits(policy: &Path) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// One pool entry as the router ranks it against plan accounts: what is left of its soonest unexpired grant,
-/// when that grant expires, and the whole fleet's list-price spend per hour over the last day, the most it could send there.
+/// One pool entry as the router ranks it against plan accounts: its credit, when its soonest unexpired grant expires,
+/// and the whole fleet's list-price spend per hour over the last day, the most it could send there.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Source {
-    pub name: String,
-    pub left: f64,
+    pub credit: Standing,
     pub expires_s: i64,
     pub burn_per_h: f64,
-    pub exhausted: bool,
-    /// North's list-price estimate of what is left, kept beside a console or provider reading.
-    pub estimated: f64,
-    pub reading: Option<readings::Reading>,
 }
 
 impl Source {
@@ -203,17 +256,14 @@ impl Source {
         (self.expires_s - now_s) as f64 / 3600.0
     }
 
-    /// Whether the fleet, at its last day's burn, could spend what is left before the grant expires.
+    /// Whether the fleet, at its last day's burn, could spend what is left of the soonest grant before it expires.
     pub fn drains(&self, now_s: i64) -> bool {
-        self.burn_per_h * self.deadline_h(now_s) >= self.left
+        self.burn_per_h * self.deadline_h(now_s) >= self.credit.expiring()
     }
 
     pub fn line(&self, now_s: i64) -> String {
         let pace = if self.drains(now_s) { "drains by then" } else { "cannot drain by then" };
-        let read = self.reading.as_ref().map_or_else(String::new, |reading| {
-            format!(" ({} reading {}, estimate ${:.2})", reading.source.label(), crate::foundation::clock::Timestamp::from_unix_seconds(reading.at).iso_minute(), self.estimated)
-        });
-        format!("${:.2} left{read}, expires in {:.0}h; at the fleet's ${:.2}/h over the last day it {pace}", self.left, self.deadline_h(now_s), self.burn_per_h)
+        format!("{}, expires in {:.0}h; at the fleet's ${:.2}/h over the last day it {pace}", self.credit.figure(), self.deadline_h(now_s), self.burn_per_h)
     }
 }
 
@@ -228,23 +278,15 @@ pub fn orgs(policy: &Path) -> Vec<(String, String)> {
     first
 }
 
-/// Every pool entry with an unexpired grant, from the grants beside `policy`, the ledger, the other hosts' snapshots beside it and exhausted marks under `state` (the XDG state root).
-pub fn sources(policy: &Path, state: &Path, now: Timestamp) -> Vec<Source> {
-    let grants = grants(policy);
-    let reading = PriceTable::load().map_err(|error| error.to_string()).and_then(|prices| spends(&state.join("north/ledger.db"), &prices, now)).unwrap_or_default();
-    let (spends, burn_per_h) = (reading.orgs, reading.last_day_usd / 24.0);
-    let today = now.iso_date();
-    let readings = readings::directory(state);
-    orgs(policy)
-        .into_iter()
-        .filter_map(|(name, id)| {
-            let mine = spends.get(&name).cloned().unwrap_or_default();
-            let balance = balance(grants.get(&id).map_or(&[][..], Vec::as_slice), &mine, &today)?;
-            let expires_s = crate::foundation::clock::parse_day_number(&balance.grant.expires)? * 86_400;
-            let exhausted = marks::held(&state.join("north/api-exhausted"), &id, &today);
-            let reading = readings::get(&readings, &id);
-            let left = reading.as_ref().map_or(balance.left, |reading| reading.usd);
-            Some(Source { name, left, expires_s, burn_per_h, exhausted, estimated: balance.left, reading })
+/// Every organization in `credits` with an unexpired grant, as placement ranks it.
+pub fn sources(credits: &Credits) -> Vec<Source> {
+    let burn_per_h = credits.burn_per_h();
+    credits
+        .orgs
+        .iter()
+        .filter_map(|credit| {
+            let expires_s = crate::foundation::clock::parse_day_number(&credit.balance.as_ref()?.grant.expires)? * 86_400;
+            Some(Source { credit: credit.clone(), expires_s, burn_per_h })
         })
         .collect()
 }

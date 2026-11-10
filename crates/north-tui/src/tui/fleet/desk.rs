@@ -34,6 +34,7 @@ pub trait SessionDesk {
     fn transcript(&self, name: &str) -> Option<&Transcript>;
     fn digest(&self) -> Digest;
     fn project_status(&self) -> Vec<String> { Vec::new() }
+    fn credit(&self) -> Vec<String> { Vec::new() }
     fn choices(&self) -> Vec<Choices> { Vec::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
@@ -91,12 +92,14 @@ pub struct FleetDesk {
     digest: Digest,
     digest_read: Option<(Revision, u64)>,
     upkeep: Upkeep,
-    status: ProjectStatus,
+    status: Periodic,
+    credit: Periodic,
 }
 
 impl FleetDesk {
-    pub fn new(fleet: Fleet) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: ProjectStatus::default() }
+    /// `credit` reads each api organization's credit line in the background, as `north fleet usage` prints it.
+    pub fn new(fleet: Fleet, credit: fn() -> Vec<String>) -> Self {
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), credit: Periodic::of(credit) }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -160,7 +163,7 @@ impl SessionDesk for FleetDesk {
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
         let measured = self.upkeep.tend(&self.fleet, &self.digest)?;
-        Ok(changed | measured | self.status.tend())
+        Ok(changed | measured | self.status.tend() | self.credit.tend())
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -188,6 +191,8 @@ impl SessionDesk for FleetDesk {
     }
 
     fn project_status(&self) -> Vec<String> { self.status.lines.clone() }
+
+    fn credit(&self) -> Vec<String> { self.credit.lines.clone() }
 
     fn choices(&self) -> Vec<Choices> {
         self.fleet.choices()
@@ -229,22 +234,26 @@ fn upkeep(fleet: &Fleet) -> NorthResult<()> {
     undelivered.map_or(Ok(()), Err)
 }
 
-#[derive(Default)]
-struct ProjectStatus {
+struct Periodic {
+    read: fn() -> Vec<String>,
     job: Option<JoinHandle<Vec<String>>>,
     lines: Vec<String>,
     last: Option<Instant>,
 }
 
-impl ProjectStatus {
+impl Periodic {
+    fn of(read: fn() -> Vec<String>) -> Self {
+        Self { read, job: None, lines: Vec::new(), last: None }
+    }
+
     fn tend(&mut self) -> bool {
         let mut changed = false;
         if let Some(job) = self.job.take_if(|job| job.is_finished()) {
-            self.lines = job.join().unwrap_or_else(|_| vec!["project status panicked".into()]);
+            self.lines = job.join().unwrap_or_else(|_| vec!["the background read panicked".into()]);
             changed = true;
         }
         if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= STATUS_INTERVAL) {
-            self.job = Some(thread::spawn(crate::platform::project_status::lines));
+            self.job = Some(thread::spawn(self.read));
             self.last = Some(Instant::now());
         }
         changed

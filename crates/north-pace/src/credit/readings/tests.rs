@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::{Reading, Source, directory, get, record, record_console};
-use crate::credit::sources;
+use crate::credit::{sources, standing};
 use crate::foundation::clock::Timestamp;
 
 const AT: i64 = 1_794_305_400;
@@ -34,17 +34,17 @@ fn a_console_reading_overrides_the_list_price_estimate_and_the_plan_line_names_i
         "{line}"
     );
 
-    let sources = sources(
+    let sources = sources(&standing(
         &dir.path().join("orchestration.toml"),
         &state,
         Timestamp::from_unix_seconds(AT),
-    );
+    ));
     let gmail = sources
         .iter()
-        .find(|source| source.name == "gmail")
+        .find(|source| source.credit.name == "gmail")
         .unwrap();
-    assert_eq!(gmail.left, 111.0);
-    assert_eq!(gmail.estimated, 200.0);
+    assert_eq!(gmail.credit.left, 111.0);
+    assert_eq!(gmail.credit.estimated, 200.0);
     let line = gmail.line(AT);
     assert!(
         line.contains("$111.00 left (console reading 2026-11-10T10:10Z, estimate $200.00)"),
@@ -115,8 +115,8 @@ fn a_reading_file_written_by_the_console_overrides_the_estimate_even_without_the
     std::fs::create_dir_all(&readings).unwrap();
     std::fs::write(readings.join("g"), "console 111.00 2026-11-10T10:10:00Z\n").unwrap();
 
-    let sources = sources(&dir.path().join("orchestration.toml"), &state, Timestamp::from_unix_seconds(AT));
-    let gmail = sources.iter().find(|source| source.name == "gmail").unwrap();
-    assert_eq!(gmail.left, 111.0);
+    let sources = sources(&standing(&dir.path().join("orchestration.toml"), &state, Timestamp::from_unix_seconds(AT)));
+    let gmail = sources.iter().find(|source| source.credit.name == "gmail").unwrap();
+    assert_eq!(gmail.credit.left, 111.0);
     assert!(gmail.line(AT).contains("$111.00 left (console reading 2026-11-10T10:10Z"), "{}", gmail.line(AT));
 }

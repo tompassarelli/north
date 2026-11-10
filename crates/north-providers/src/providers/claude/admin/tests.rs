@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use super::{COST, Pooled, USAGE, poll_org};
 use north_pace::credit::readings::{Source, directory, get};
-use north_pace::credit::sources;
+use north_pace::credit::{sources, standing};
 use north_pace::foundation::clock::Timestamp;
 use north_pace::router::pricing::PriceTable;
 
@@ -65,7 +65,7 @@ fn the_admin_reports_price_each_day_and_record_the_grants_left_over_norths_estim
 
     let reading = get(&directory(&state), "g").expect("no provider reading was recorded");
     assert_eq!((reading.usd, reading.source), (280.0, Source::Provider));
-    let org_sources = sources(&dir.path().join("orchestration.toml"), &state, now);
-    let gmail = org_sources.iter().find(|source| source.name == "gmail").unwrap();
-    assert!(gmail.line(AT).contains("$280.00 left (provider reading 2026-11-10T05:00Z, estimate $200.00)"), "{}", gmail.line(AT));
+    let org_sources = sources(&standing(&dir.path().join("orchestration.toml"), &state, now));
+    let gmail = org_sources.iter().find(|source| source.credit.name == "gmail").unwrap();
+    assert!(gmail.line(AT).contains("$280.00 left (provider reading 2026-11-10T05:00Z, estimate $400.00)"), "{}", gmail.line(AT));
 }

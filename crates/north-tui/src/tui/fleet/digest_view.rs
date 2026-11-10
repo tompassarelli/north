@@ -38,6 +38,11 @@ pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u6
     for session in sessions {
         lines.extend(session_lines(digest, session, width, now_ms));
     }
+    if !digest.credit.is_empty() {
+        lines.push(Line::default());
+        lines.push(Line::from(Span::styled("api credit", BOLD)));
+        lines.extend(digest.credit.iter().map(|line| Line::from(format!("  {line}"))));
+    }
     lines.push(Line::default());
     lines.push(Line::from(Span::styled("landed today", BOLD)));
     if digest.books.landed.is_empty() {

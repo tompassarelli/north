@@ -114,7 +114,7 @@ impl Facts {
 
 /// The credit left on each organization's open grant that no provider refusal has closed: a refusal for credit is the mechanical truth that the organization is spent, whatever the counted spend left of it.
 fn held_back(policy: &Path, state: &Path, at: Timestamp) -> f64 {
-    north_pace::credit::sources(policy, state, at).iter().filter(|source| !source.exhausted).map(|source| source.left.max(0.0)).fold(0.0, |all, left| all + left)
+    north_pace::credit::standing(policy, state, at).orgs.iter().filter(|org| org.balance.is_some() && !org.exhausted).map(|org| org.left.max(0.0)).fold(0.0, |all, left| all + left)
 }
 
 /// When each worker first try that landed ended: a run with no `Follows:` that no later run follows and whose outcome is done, which the bars count as landed on origin/main.

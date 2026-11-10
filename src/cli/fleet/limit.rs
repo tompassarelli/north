@@ -58,17 +58,14 @@ impl AccountReadings for UsageTable {
 }
 
 fn credits(now_ms: u64) -> BTreeMap<String, Credit> {
-    let policy = crate::platform::orchestration::path();
-    let state = watch::state_home();
-    let spends = crate::router::pricing::PriceTable::load().ok().and_then(|prices| north_core::credit::spends(&state.join("north/ledger.db"), &prices, Timestamp::from_unix_millis(now_ms as i64)).ok()).map(|reading| reading.orgs).unwrap_or_default();
-    let today = Timestamp::from_unix_millis(now_ms as i64).iso_date();
-    let marks = state.join("north/api-exhausted");
-    north_core::credit::left(&policy, &state, &spends, &today)
-        .into_iter()
-        .map(|(name, left)| {
-            let usd = if marks.join(&left.id).exists() { 0.0 } else { left.usd };
-            let next_grant = left.next_credit.as_deref().and_then(parse_day_number).map(|days| Unix(days * 86_400));
-            (name, Credit { left: Usd(usd), next_grant })
+    let credits = north_core::credit::standing(&crate::platform::orchestration::path(), &watch::state_home(), Timestamp::from_unix_millis(now_ms as i64));
+    credits
+        .orgs
+        .iter()
+        .flat_map(|org| {
+            let usd = if org.exhausted { 0.0 } else { org.left };
+            let next_grant = org.next_credit.as_deref().and_then(parse_day_number).map(|days| Unix(days * 86_400));
+            org.names.iter().map(move |name| (name.clone(), Credit { left: Usd(usd), next_grant }))
         })
         .collect()
 }
