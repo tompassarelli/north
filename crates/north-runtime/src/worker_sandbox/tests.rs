@@ -336,3 +336,22 @@ fn a_leased_caller_s_brokered_run_starts_inside_its_lease_scope_north_1036() {
     let open = super::broker::brokered(north, arguments, Some(OPEN_SCOPE));
     assert_eq!(open.get_program(), "/n/north");
 }
+
+#[test]
+fn a_draining_broker_holding_the_unit_name_does_not_stop_a_new_broker_from_starting() {
+    let directory = std::env::temp_dir().join(format!("north-1089-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("broker.sock");
+    let listeners = std::cell::RefCell::new(Vec::new());
+    let tried = std::cell::RefCell::new(Vec::new());
+    super::broker::ensure_listening(&socket, |unit| {
+        tried.borrow_mut().push(unit.to_owned());
+        if unit == "north-worker-outside" {
+            return false;
+        }
+        listeners.borrow_mut().push(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+        true
+    });
+    assert!(std::os::unix::net::UnixStream::connect(&socket).is_ok(), "no broker listened after the unit name was refused; tried {:?}", tried.borrow());
+    std::fs::remove_dir_all(&directory).unwrap();
+}

@@ -140,21 +140,32 @@ pub(super) fn send(stream: &UnixStream, request: Request, streams: [BorrowedFd; 
 }
 
 
-/// Starts the broker as a transient user service when nothing answers its socket. Called before a command's domain is applied: afterwards the command cannot start a service, only ask this one.
+/// Starts the broker as a transient user service when nothing answers its socket. Called before a command's domain is applied: afterwards the command cannot start a service, only ask this one. A draining broker still holds the unit name `UNIT`, so when that name is taken the broker starts under a name of its own.
 pub fn ensure() {
-    let path = socket();
-    if UnixStream::connect(&path).is_ok() {
+    let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
+    ensure_listening(&socket(), |unit| start(&north, unit));
+}
+
+pub(super) fn ensure_listening(path: &Path, start: impl Fn(&str) -> bool) {
+    if UnixStream::connect(path).is_ok() {
         return;
     }
-    let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
-    if start(&north, UNIT) {
-        for _ in 0..40 {
-            if UnixStream::connect(&path).is_ok() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
+    let own = format!("{UNIT}-{}", std::process::id());
+    for unit in [UNIT, own.as_str()] {
+        if start(unit) && listening(path) {
+            return;
         }
     }
+}
+
+fn listening(path: &Path) -> bool {
+    for _ in 0..40 {
+        if UnixStream::connect(path).is_ok() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
 }
 
 /// Starts `north` as the broker in the transient user service `unit`; whether it started.
@@ -206,15 +217,10 @@ pub fn serve() -> std::process::ExitCode {
                 });
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if north_base::platform::north_binary::superseded() {
-                    if idle {
-                        return std::process::ExitCode::SUCCESS;
-                    }
-                    if !handed_over {
-                        handed_over = true;
-                        if !start(&north_base::platform::north_binary::north_binary(), &format!("{UNIT}-{}", std::process::id())) {
-                            eprintln!("north worker-sandbox broker: cannot start the promoted north as a successor, so this one serves until it is idle");
-                        }
+                if !handed_over && north_base::platform::north_binary::superseded() {
+                    handed_over = true;
+                    if !start(&north_base::platform::north_binary::north_binary(), &format!("{UNIT}-{}", std::process::id())) {
+                        eprintln!("north worker-sandbox broker: cannot start the promoted north as a successor, so this one serves until it is idle");
                     }
                 }
                 std::thread::sleep(Duration::from_millis(100));
