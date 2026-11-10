@@ -77,13 +77,14 @@ pub fn alarm_once(home: &Path, lag: &Lag, page: &dyn Fn(&str) -> bool) -> bool {
             return false;
         }
     };
-    if fs::read_to_string(home.join(ALARMED)).is_ok_and(|alarmed| alarmed.trim() == build) {
+    let marked = fs::read_to_string(home.join(ALARMED)).unwrap_or_default();
+    if marked.lines().any(|alarmed| alarmed == build) {
         return false;
     }
     let told = page(&format!("north land: {}; lanes are judged by lander code main has replaced, so read why north land promote holds the lander link", lag.note()));
     if told {
         let _ = fs::create_dir_all(home);
-        let _ = fs::write(home.join(ALARMED), format!("{build}\n"));
+        let _ = fs::write(home.join(ALARMED), format!("{marked}{build}\n"));
     }
     told
 }
