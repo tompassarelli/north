@@ -1339,6 +1339,14 @@ source = "tom: two or more lander refusals of one class within 24 hours are one 
 fallback = "none"
 consumers = ["crates/north-flow/src/detectors/mod.rs"]
 
+[detector_machine_review_floor_hours]
+value = 168
+allowed = { min = 1, max = 8760 }
+unit = "hours a lifecycle machine waits between two review boxes at the least, and the wait a box that led to a change or a refused move returns it to; each box that closed with nothing changed doubles it"
+source = "tom: state-machine review is triggered by signals, at most one box a week per machine, its wait learned from yield (2026-11-10)"
+fallback = "none"
+consumers = ["crates/north-flow/src/detectors/waits.rs"]
+
 [detector_issue_stall_repos]
 value = ["north"]
 allowed = { min_len = 0 }

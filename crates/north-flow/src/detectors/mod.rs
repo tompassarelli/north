@@ -27,6 +27,7 @@ mod refusal;
 mod signal;
 mod slow_check;
 mod slow_test;
+mod waits;
 
 #[cfg(test)]
 mod reflex_tests;
@@ -58,6 +59,11 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// What the finding is about, the second part of its key: the machine of a machine finding.
+    pub fn subject(&self) -> &str {
+        self.key.split(':').nth(1).unwrap_or_default()
+    }
+
     pub fn box_line(&self) -> String {
         format!("- [ ] **{}.** {} Done when: {} (detector {})", self.title, self.detail, self.done_when, self.key)
     }

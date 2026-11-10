@@ -35,6 +35,8 @@ impl Host for GitHub {
     }
 }
 
+const WEEK: f64 = 7.0 * 86400.0;
+
 fn places(root: &Path) -> Places {
     Places { home: root.join("home"), state: root.join("state"), ledger: root.join("threads.db"), graph: root.join("graph.db") }
 }
@@ -79,7 +81,7 @@ fn a_repeated_cause_comments_on_the_open_box_instead_of_filing_a_second_one() {
     let ticked = github.body.borrow().replace("- [ ]", "- [x]");
     *github.body.borrow_mut() = ticked;
     let third = finding("machine-fix:pet:2026-W46", title);
-    let again = Filer::new(&places, &github).file(&[third], 3.0).unwrap();
+    let again = Filer::new(&places, &github).file(&[third], 3.0 * WEEK).unwrap();
     assert!(again[0].filed, "a cause whose box is ticked files a new box: {}", again[0].note);
     assert_eq!(github.edits.borrow().len(), 2);
 }
@@ -95,4 +97,29 @@ fn a_different_cause_on_the_same_issue_still_files_its_box() {
     assert!(outcomes.iter().all(|outcome| outcome.filed));
     assert_eq!(github.edits.borrow().len(), 2);
     assert!(github.comments.borrow().is_empty());
+}
+
+fn tick_box(github: &GitHub, evidence: &str) {
+    let ticked = github.body.borrow().replacen("- [ ]", "- [x]", 1) + evidence;
+    *github.body.borrow_mut() = ticked;
+}
+
+#[test]
+fn a_subject_waits_twice_as_long_after_a_box_that_changed_nothing_and_returns_to_its_floor_after_a_change() {
+    let root = tempfile::tempdir().unwrap();
+    let places = places(root.path());
+    let github = GitHub::default();
+    let file = |key: &str, title: &str, at: f64| Filer::new(&places, &github).file(&[finding(key, title)], at).unwrap().remove(0);
+
+    assert!(file("machine-fix:pet:W1", "Model pet", 0.0).filed);
+    tick_box(&github, "");
+    let held = file("machine-fix:pet:W2", "Model pet again", WEEK + 1.0);
+    assert!(!held.filed && held.note.contains("waiting"), "a box that closed with nothing changed doubles the floor: {}", held.note);
+    assert!(file("machine-fix:cat:W2", "Model cat", WEEK + 1.0).filed, "another machine keeps its own wait");
+    assert!(file("machine-fix:pet:W3", "Model pet once more", 2.0 * WEEK + 1.0).filed);
+
+    let landed = github.body.borrow().replace("- [ ] **Model pet once more.**", "- [x] **Model pet once more.** Landed as 0123abc.");
+    *github.body.borrow_mut() = landed;
+    let after_change = file("machine-fix:pet:W4", "Model pet a fourth time", 3.0 * WEEK + 2.0);
+    assert!(after_change.filed, "a box that led to a change returns the wait to the floor: {}", after_change.note);
 }

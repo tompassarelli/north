@@ -161,10 +161,9 @@ kind of review does not need a new mechanism; it needs one more detector.
   to it is already searched at its landing.
 - **How it learns today.** Extending a model changes its chart, which restarts that machine's fix count; narrowing a
   machine's code paths in the registry removes fixes wrongly counted to it (runtime promotion went from 40 fixes to
-  19 that way in this lane). Both are done by hand, so `harness/loops.toml` lists `machine-review` as an open loop.
-- **What closes it** (north#1059): each machine's week doubles when its last box closed with no model
-  change and returns to a week on a refused move or a box that extended the model, read from the filed keys and the
-  detector yield the ledger already records.
+  19 that way in this lane). `harness/loops.toml` lists `machine-review` as a closed loop.
+- **The learned wait** (north#1059): each machine's week doubles when its last box closed with no commit on its line
+  and returns to a week on a refused move or a box that led to a change, read from the owning issue by the filer.
 - **Not wired.** A selection miss as a signal. north#1039 selects tests by what a lane reaches (`a0e25984b`) and
   does not yet select check lines; when it does, its reachability should replace the path list in `.safe-push`. A
   phase held outside the kernel stays north#758's shapes, whose conversion is what brings a machine under trigger 2.

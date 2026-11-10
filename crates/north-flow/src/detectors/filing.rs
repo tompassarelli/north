@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use rustix::fs::{FlockOperation, flock};
 use serde::{Deserialize, Serialize};
 
-use super::Finding;
+use super::{Finding, waits};
 use crate::flow::{Host, Places, write_atomic};
 
 const FILE_LIMIT: usize = 12;
@@ -26,6 +26,18 @@ enum Appended {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct State {
     filed: BTreeMap<String, Filed>,
+    #[serde(default)]
+    subjects: BTreeMap<String, Subject>,
+}
+
+/// The newest box a detector filed about one subject: when, under which key and issue, and the wait it was filed
+/// after, which the next box's wait is learned from.
+#[derive(Debug, Deserialize, Serialize)]
+struct Subject {
+    at: f64,
+    key: String,
+    issue: String,
+    wait_s: f64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -49,6 +61,10 @@ impl Outcome {
 pub struct Filer<'a> {
     places: &'a Places,
     host: &'a dyn Host,
+}
+
+fn subject_id(finding: &Finding) -> String {
+    format!("{}:{}", finding.detector.name(), finding.subject())
 }
 
 fn issue_of(owner: &str) -> Option<(String, String)> {
@@ -89,6 +105,30 @@ impl<'a> Filer<'a> {
 
     fn save(&self, state: &State) -> Result<(), String> {
         write_atomic(&self.path(), &(serde_json::to_string(state).map_err(|error| error.to_string())? + "\n")).map_err(|error| error.to_string())
+    }
+
+    /// Whether the box a subject's last finding filed is ticked, and if so whether its line names a commit.
+    fn closed(&self, last: &Subject) -> Result<Option<bool>, String> {
+        let (slug, number) = issue_of(&last.issue).ok_or_else(|| format!("owner {} is not REPO#N", last.issue))?;
+        let issue = self.host.json(&["gh", "issue", "view", &number, "-R", &slug, "--json", "body"]).ok_or_else(|| format!("gh issue view {slug}#{number} did not answer"))?;
+        let marker = format!("(detector {})", last.key);
+        let line = issue["body"].as_str().unwrap_or_default().lines().find(|text| text.contains(&marker));
+        Ok(line.filter(|text| text.trim_start().starts_with("- [x]")).map(waits::names_commit))
+    }
+
+    /// The wait that applies before a finding's subject gets another box, and the time its last box was filed when
+    /// that wait has not passed yet.
+    fn wait(&self, state: &State, finding: &Finding, policy: &waits::Policy, now: f64) -> Result<(f64, Option<f64>), String> {
+        let Some(last) = state.subjects.get(&subject_id(finding)) else {
+            return Ok((policy.floor_s, None));
+        };
+        match self.closed(last)? {
+            None => Ok((last.wait_s, None)),
+            Some(changed) => {
+                let wait = waits::after(policy, last.wait_s, changed);
+                Ok((wait, (now < last.at + wait).then_some(last.at)))
+            }
+        }
     }
 
     fn append(&self, finding: &Finding, slug: &str, number: &str) -> Result<Appended, String> {
@@ -140,9 +180,24 @@ impl<'a> Filer<'a> {
                 outcome(false, "deferred: this tick filed its limit".into());
                 continue;
             }
+            let policy = waits::policy(finding.detector);
+            let wait = match policy.as_ref().map(|policy| self.wait(&state, finding, policy, now)).transpose() {
+                Ok(wait) => wait,
+                Err(error) => {
+                    outcome(false, format!("not filed: {error}"));
+                    continue;
+                }
+            };
+            if let Some((wait, Some(last))) = wait {
+                outcome(false, format!("waiting: the last box on {} was filed {} ago and this subject now waits {} between boxes", finding.subject(), waits::describe(now - last), waits::describe(wait)));
+                continue;
+            }
             match self.append(finding, &slug, &number) {
                 Ok(appended) => {
                     state.filed.insert(finding.key.clone(), Filed { at: now, issue: owner.to_owned() });
+                    if let (Appended::Box, Some((wait_s, _))) = (&appended, wait) {
+                        state.subjects.insert(subject_id(finding), Subject { at: now, key: finding.key.clone(), issue: owner.to_owned(), wait_s });
+                    }
                     self.save(&state)?;
                     let note = match appended {
                         Appended::Box => {

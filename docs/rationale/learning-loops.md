@@ -55,7 +55,20 @@ A loop that learns tells its learned values to north's graph (`~/.local/state/no
 ### Named exceptions
 
 - **remote-branches** and **credentials** stay on their record files: each records that a sweep or an expiry check ran, not a value learned from an outcome, so the graph would hold only a tick. They move if they start learning (a sweep age or a renewal lead time set from outcomes).
-- **effort**, **pressure-band**, **placement**, **worker-concurrency** and **skill-routing** are set by hand (orchestration.toml, defaults.toml, `resident_cap`, skill frontmatter) and learn from no outcome; **context-window**, **landing-batch**, **machine-review** and **policy-climber** are open loops whose owners have not closed them. Each moves to the graph in the lane that gives it a signal, telling its first learned value as above.
+- **effort**, **pressure-band**, **placement**, **worker-concurrency** and **skill-routing** are set by hand (orchestration.toml, defaults.toml, `resident_cap`, skill frontmatter) and learn from no outcome; **context-window**, **landing-batch** and **policy-climber** are open loops whose owners have not closed them. Each moves to the graph in the lane that gives it a signal, telling its first learned value as above.
+
+### The machine-review wait, 2026-11-10
+
+north#1059 closed **machine-review**: the filer (`crates/north-flow/src/detectors/filing.rs`, policy in `waits.rs`) keeps each machine's newest box, with the wait it was filed after, in `agents/flow/detectors.json`, which is the loop's `record`. Before a machine's next box it reads the owning issue's box line: a box still open changes nothing (a repeated cause comments on it); a box ticked with no commit on its line closed with nothing changed, so the machine waits twice the wait that box was filed after; a box ticked with a commit, or any `machine-refusal` box (a refused move is the run disagreeing with the model), returns the wait to the floor, `detector_machine_review_floor_hours` (168). A finding held by the wait is not recorded as filed, so a signal still in the detector's census when the wait ends files then; one that has aged out of the `--fixes` window (`FIX_DAYS`, 7 days) is dropped, and the next incident files the box.
+
+Tuned on `north check machines --replay --days 30 --root .` (30 days, 488 commits narrating an incident, 87 fixes in the code of 11 of 15 machines):
+
+- signal, one review per machine and week: 12 reviews, 1 with no fix of that machine in the week after, 67 fixes preceded within 3 days and 76 within 7.
+- weekly sweep: 75 reviews, 57 idle, 14 fixes preceded within 3 days and 87 within 7.
+- monthly sweep: 15 reviews, 15 idle, 0 preceded.
+- churn-placed sweep: 60 reviews, 35 idle, 76 preceded within 3 days and 87 within 7.
+
+The floor stays at one week: with a week's wait the signal files 12 reviews against the weekly sweep's 75 and leaves 1 idle, and a longer floor would drop fixes the replay shows landing within a week of a review. Doubling acts only after a box that changed nothing, which the replay cannot score because git does not record what a review box yielded; the factor is 2 as north#1059 states and is read from the filed boxes as they close.
 
 ### The effort cell retired, 2026-11-10
 
