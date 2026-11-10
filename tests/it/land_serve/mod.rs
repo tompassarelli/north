@@ -60,6 +60,22 @@ printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
 [ "$1 $2" != "land checks" ] || env >"$LAND_TRACE/after-env"
 if { [ "$1 $2" = "land train" ] || [ "$1" = incident ]; } && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" exec "$LAND_REAL_NORTH" "$@"; fi
 if [ "$1 $2" = "land checks" ] && { [ -e "$LAND_TRACE/post-land-fail" ] || { [ -f "$LAND_TRACE/post-land-red-if" ] && [ -e "$(cat "$LAND_TRACE/post-land-red-if")" ]; }; }; then echo "test after_landing_probe ... FAILED"; outcome=; previous=; for argument in "$@"; do [ "$previous" != --outcome ] || outcome=$argument; previous=$argument; done; [ -z "$outcome" ] || printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
+if [ "$1 $2 $3" = "capacity offload run" ]; then
+  tree=; previous=
+  for argument in "$@"; do [ "$previous" != --base ] || tree=$argument; previous=$argument; done
+  if [ -e "$LAND_TRACE/hold-probe" ] && [ ! -e "$LAND_TRACE/probe-held" ]; then
+    : >"$LAND_TRACE/probe-held"
+    exec 9<> <(:); for ((i = 0; i < 1200; i++)); do [ -e "$LAND_TRACE/release" ] && break; read -t 0.1 -u 9 _; done
+  fi
+  break_file=broken.txt
+  [ ! -f "$LAND_TRACE/post-land-red-if" ] || break_file=$(cat "$LAND_TRACE/post-land-red-if")
+  if [ -n "$tree" ] && git -C "${LAND_REPO:-.}" cat-file -e "$tree:$break_file" 2>/dev/null; then
+    echo "test after_landing_probe ... FAILED"
+    echo "test wide_selection ... FAILED"
+    exit 1
+  fi
+  exit 0
+fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
 [ ! -x "$LAND_TRACE/north-hook" ] || exec "$LAND_TRACE/north-hook" "$@"
 if [ "$1" = fleet ] && [ "$2" = send ] && [ "${6%% *}" = landed ]; then

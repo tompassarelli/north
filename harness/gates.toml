@@ -74,3 +74,7 @@ mode = "shadow"
 # Pre-landing test selection by measured reachability (docs/rationale/test-selection.md, north#1039). Every alone check and after-landing run records the selection that runs as a `selected` line in its outcome, and appends one row to $XDG_STATE_HOME/north/gates/test-selection.jsonl on the checking host with the base, the head, the size of the selection that runs and the tests only the new selection adds, by rule: today `since-map`, the known tests whose reached functions changed between the coverage map's commit and the lane's base (the M..HEAD condition). Those extra tests do not gate yet; the review reads every host's log after 24 h and at least 20 lanes with a non-empty difference.
 [gate.test-selection]
 mode = "shadow"
+
+# A post-landing culprit search whose base is already red on the failed tests walks back over the landings before it, each probed on the same failed tests, to the first one red where its parent passes, and would revert that earlier lane (north#1039, docs/rationale/test-selection.md "Blame"). Would-be reverts: $XDG_STATE_HOME/north/gates/blame-walk-back.jsonl on the lander host.
+[gate.blame-walk-back]
+mode = "shadow"

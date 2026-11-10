@@ -127,6 +127,8 @@ fn a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_rec
     switching.outcome = scratch.path().join("post-land.outcome");
     switching.ledger = scratch.path().join("post-land.tsv");
     switching.store = scratch.path().join("ledger.db");
+    std::fs::create_dir_all(switching.worktree.join("target/debug")).unwrap();
+    std::fs::write(switching.worktree.join("target/debug/half-removed"), "x").unwrap();
     let mut landed = landed(&[&head]);
     landed.repo = repo;
     landed.head = head;
@@ -138,6 +140,7 @@ fn a_check_that_a_runtime_switch_killed_is_rerun_once_and_neither_alarms_nor_rec
     assert_eq!(verdict, Verdict::Green);
     assert!(alarms.borrow().is_empty(), "{:?}", alarms.borrow());
     assert!(counter.exists());
+    assert!(!switching.worktree.exists(), "the run removes a worktree an earlier run left behind");
 }
 
 const RED: &str = "safe-push: the Rust checks cover -p north -p north-base\n        FAIL [   0.006s] ( 97/668) north-base error::tests::drill\n    test error::tests::drill ... FAILED\n";
@@ -255,21 +258,31 @@ fn a_green_after_landing_run_while_main_is_red_reruns_the_red_tests_and_ends_the
 }
 
 #[test]
-fn an_after_landing_run_starts_over_a_leftover_worktree_directory() {
-    let scratch = tempfile::tempdir().unwrap();
-    let repo = scratch.path().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    let head = committed_repo(&repo);
-    let mut again = run();
-    again.runner = vec!["sh".to_owned(), "-c".to_owned(), "test -f README".to_owned(), "again".to_owned()];
-    again.worktree = scratch.path().join("queue").join(format!("post-land-{}", &head[..12]));
-    again.log = scratch.path().join("post-land.log");
-    again.outcome = scratch.path().join("post-land.outcome");
-    std::fs::create_dir_all(again.worktree.join("target/debug")).unwrap();
-    std::fs::write(again.worktree.join("target/debug/half-removed"), "x").unwrap();
-    let mut landed = landed(&[&head]);
-    landed.repo = repo;
-    let checked = super::execute::check(&landed, &head, &again);
-    assert!(matches!(checked.verdict, Verdict::Green), "{:?}", checked.verdict);
-    assert!(!again.worktree.exists(), "the run removes its worktree when it ends");
+fn a_failure_outside_the_base_selection_probes_the_base_before_blaming() {
+    let sandbox = "worker_sandbox::a_command_confined_to_its_lane_reads_its_lane_and_not_another_project_the_sops_keys_or_agent_state";
+    let failing = std::collections::BTreeSet::from([Failure::Cargo(sandbox.to_owned()), Failure::Step("cargo nextest run".to_owned())]);
+    let probe = super::Probe::of(&failing);
+    assert_eq!(probe, super::Probe::Tests(std::collections::BTreeSet::from([Failure::Cargo(sandbox.to_owned())])), "the probe runs the failed test, not the after-landing selection");
+    let red_with_the_test = ["ds-1033", "95afbfbca", "lane-b"];
+    let probed = std::sync::Mutex::new(Vec::new());
+    let check = |tree: &str| {
+        probed.lock().unwrap().push(tree.to_owned());
+        let red = match &probe {
+            super::Probe::Tests(tests) => tests.contains(&Failure::Cargo(sandbox.to_owned())) && red_with_the_test.contains(&tree),
+            _ => tree != "ds-1033",
+        };
+        let failing = if red { std::collections::BTreeSet::from([sandbox.to_owned()]) } else { std::collections::BTreeSet::new() };
+        crate::land::blame::Probe { verdict: if red { Verdict::RedMain(sandbox.to_owned()) } else { Verdict::Green }, failing }
+    };
+    let mut landed = landed(&["lane-b"]);
+    landed.base = "ds-1033".to_owned();
+    landed.lanes = vec!["dash".to_owned(), "lane-b".to_owned()];
+    landed.tips = vec!["95afbfbca".to_owned(), "lane-b".to_owned()];
+    let gates = tempfile::tempdir().unwrap();
+    let blamed = super::blamed(&landed, 1, &crate::land::blame::Suspects::Batch, &check, || vec!["before-ds".to_owned()], gates.path(), &failing);
+    assert_eq!(blamed, None, "no lane of the batch is red where its parent passes the failed test");
+    assert!(probed.lock().unwrap().iter().any(|tree| tree == "ds-1033"), "the base is probed: {probed:?}");
+    let log = std::fs::read_to_string(gates.path().join("blame-walk-back.jsonl")).unwrap();
+    let row: serde_json::Value = serde_json::from_str(log.trim()).unwrap();
+    assert_eq!(row["would_revert"].as_str(), Some("ds-1033"), "walking back names the earlier lane red where its parent passes: {log}");
 }

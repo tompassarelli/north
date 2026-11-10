@@ -61,7 +61,7 @@ pub fn ask(repo: &Path, log: &Path, base: &str, head: &str, lanes: &[String], ti
     let asked = north_base::platform::process::run_command_within(command, None, ASK_LIMIT);
     let suspects = asked.as_ref().map_or(Suspects::Batch, |output| self::suspects(lanes, output.status.code(), &String::from_utf8_lossy(&output.stdout)));
     match &suspects {
-        Suspects::Named(named) if named.len() == 1 => println!("north land: the change graph blames {} alone for the red after-landing run of {head}, so it is reverted with no bisect round", lanes[named[0]]),
+        Suspects::Named(named) if named.len() == 1 => println!("north land: the change graph blames {} alone for the red after-landing run of {head}, so it is blamed once its parent passes the failed checks", lanes[named[0]]),
         Suspects::Named(named) => println!("north land: the change graph blames {} of the {} lanes of {head}, so the culprits are bisected among {}", named.len(), lanes.len(), named.iter().map(|&at| lanes[at].as_str()).collect::<Vec<_>>().join(", ")),
         Suspects::Batch if room < lanes.len() => println!("north land: the change graph names no culprit for the red after-landing run of {head}, and {room} offload slots are free for its {} prefixes, so the whole batch is bisected", lanes.len()),
         Suspects::Batch => println!("north land: the change graph names no culprit for the red after-landing run of {head}, so the whole batch is bisected"),
@@ -69,25 +69,99 @@ pub fn ask(repo: &Path, log: &Path, base: &str, head: &str, lanes: &[String], ti
     suspects
 }
 
-pub fn culprit(lanes: usize, room: usize, suspects: &Suspects, mut round: impl FnMut(&[usize]) -> Vec<Verdict>) -> Option<usize> {
+/// The outcome of a prefix search: the first lane red where its parent passes, a base already red on the failed
+/// checks, or no verdict.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Blame {
+    Lane(usize),
+    BaseRed,
+    Unknown,
+}
+
+struct Prefixes<R> {
+    seen: BTreeMap<usize, Verdict>,
+    round: R,
+}
+
+impl<R: FnMut(&[usize]) -> Vec<Verdict>> Prefixes<R> {
+    fn probe(&mut self, counts: &[usize]) -> Vec<Verdict> {
+        let fresh: Vec<usize> = counts.iter().copied().filter(|count| !self.seen.contains_key(count)).collect::<BTreeSet<_>>().into_iter().collect();
+        if !fresh.is_empty() {
+            let verdicts = (self.round)(&fresh);
+            self.seen.extend(fresh.into_iter().zip(verdicts));
+        }
+        counts.iter().map(|count| self.seen.get(count).cloned().unwrap_or_else(|| Verdict::Transient(format!("no verdict for the first {count} lanes")))).collect()
+    }
+
+    fn red(&mut self, count: usize) -> Option<bool> {
+        red(self.probe(&[count]).pop())
+    }
+}
+
+/// Searches the prefixes of a red batch of `lanes` landings for the first red one; `round` checks each prefix, by its
+/// count of landed lanes (0 is the base), on the failed checks alone. The red run is the full prefix's check, so it is
+/// seeded and costs no probe. A lane is blamed only once its parent prefix is seen to pass, so a single graph-named
+/// suspect is probed on its parent and a base red on the failed checks is `BaseRed`, never a lane of this batch.
+pub fn culprit(lanes: usize, room: usize, suspects: &Suspects, round: impl FnMut(&[usize]) -> Vec<Verdict>) -> Blame {
     if lanes == 0 {
-        return None;
+        return Blame::Unknown;
     }
-    match suspects {
-        Suspects::Named(named) if named.len() == 1 => return named.first().copied(),
-        Suspects::Named(named) if !named.is_empty() => return among(named, room, round),
-        _ => {}
+    let mut prefixes = Prefixes { seen: BTreeMap::from([(lanes, Verdict::RedMain("the red after-landing run of the head".to_owned()))]), round };
+    let found = match suspects {
+        Suspects::Named(named) if named.len() == 1 => Some(named[0]),
+        Suspects::Named(named) if !named.is_empty() => among(named, room, &mut prefixes),
+        _ => batch(0, lanes, room, &mut prefixes),
+    };
+    confirmed(found, lanes, room, &mut prefixes)
+}
+
+/// Blames `found` only once its parent prefix passes and its own prefix is red, searching again below or above it
+/// otherwise; prefix verdicts are remembered, so each search adds facts and the bound only stops a flapping check.
+fn confirmed<R: FnMut(&[usize]) -> Vec<Verdict>>(mut found: Option<usize>, lanes: usize, room: usize, prefixes: &mut Prefixes<R>) -> Blame {
+    for _ in 0..=lanes {
+        let Some(lane) = found else { return Blame::Unknown };
+        let verdicts = prefixes.probe(&[lane, lane + 1]);
+        let Some(own) = verdicts.get(1).cloned() else { return Blame::Unknown };
+        match (red(verdicts.first().cloned()), red(Some(own))) {
+            (Some(true), _) if lane == 0 => return Blame::BaseRed,
+            (Some(true), _) => found = batch(0, lane, room, prefixes),
+            (Some(false), Some(true)) => return Blame::Lane(lane),
+            (Some(false), Some(false)) if lane + 1 == lanes => return Blame::Unknown,
+            (Some(false), Some(false)) => found = batch(lane + 1, lanes, room, prefixes),
+            _ => return Blame::Unknown,
+        }
     }
-    if room >= lanes
-        && let Some(found) = at_once(lanes, &round(&(0..lanes).collect::<Vec<_>>()))
-    {
-        return found;
+    Blame::Unknown
+}
+
+/// The lane whose prefix is the first red one after the prefix count `green`, `red_count` being a red one.
+fn batch<R: FnMut(&[usize]) -> Vec<Verdict>>(green: usize, red_count: usize, room: usize, prefixes: &mut Prefixes<R>) -> Option<usize> {
+    if room >= red_count - green {
+        let counts: Vec<usize> = (green..red_count).collect();
+        for (count, verdict) in counts.iter().zip(prefixes.probe(&counts)) {
+            if red(Some(verdict))? {
+                return Some(count.saturating_sub(1));
+            }
+        }
+        return Some(red_count - 1);
     }
-    let red = bisected(lanes, |count| red(round(&[count]).pop()))?;
-    if red == 1 && matches!(round(&[0]).pop(), Some(Verdict::RedMain(_))) {
-        return None;
+    bisected(green, red_count, |count| prefixes.red(count)).map(|red| red - 1)
+}
+
+/// Walks back from a base red on the failed checks over the landings before it, `earlier` of them newest first, `room`
+/// at a time, to the first landing red where its parent passes: 0 is the base itself, `n` the nth landing before it.
+pub fn walk_back(earlier: usize, room: usize, mut round: impl FnMut(&[usize]) -> Vec<Verdict>) -> Option<usize> {
+    let mut next = 1;
+    while next <= earlier {
+        let counts: Vec<usize> = (next..=earlier.min(next + room.max(1) - 1)).collect();
+        for (at, verdict) in counts.iter().zip(round(&counts)) {
+            if !red(Some(verdict))? {
+                return Some(at - 1);
+            }
+        }
+        next += counts.len();
     }
-    Some(red - 1)
+    None
 }
 
 /// Every suspect whose prefix first reaches one of the red run's failure signatures: the signatures are searched level by level, one binary search each, and every prefix a search needs is checked once. Two lanes that break different checks are therefore isolated in two runs per level, at most k·log2(n) runs for k such lanes, without a revert between the searches. None when a prefix reached no verdict or a signature first appears outside the suspects, so the caller falls back to the single-culprit search.
@@ -146,10 +220,10 @@ pub fn culprits(lanes: usize, suspects: &Suspects, signatures: &BTreeSet<String>
     Some(found)
 }
 
-fn among(named: &[usize], room: usize, mut round: impl FnMut(&[usize]) -> Vec<Verdict>) -> Option<usize> {
+fn among<R: FnMut(&[usize]) -> Vec<Verdict>>(named: &[usize], room: usize, prefixes: &mut Prefixes<R>) -> Option<usize> {
     let through = |at: usize| named[at] + 1;
     if room + 1 >= named.len() {
-        let verdicts = round(&(0..named.len() - 1).map(through).collect::<Vec<_>>());
+        let verdicts = prefixes.probe(&(0..named.len() - 1).map(through).collect::<Vec<_>>());
         for (at, verdict) in verdicts.into_iter().enumerate() {
             if red(Some(verdict))? {
                 return Some(named[at]);
@@ -157,7 +231,7 @@ fn among(named: &[usize], room: usize, mut round: impl FnMut(&[usize]) -> Vec<Ve
         }
         return named.last().copied();
     }
-    bisected(named.len(), |at| red(round(&[through(at - 1)]).pop())).map(|red| named[red - 1])
+    bisected(0, named.len(), |at| prefixes.red(through(at - 1))).map(|red| named[red - 1])
 }
 
 fn red(verdict: Option<Verdict>) -> Option<bool> {
@@ -168,22 +242,7 @@ fn red(verdict: Option<Verdict>) -> Option<bool> {
     }
 }
 
-fn at_once(lanes: usize, verdicts: &[Verdict]) -> Option<Option<usize>> {
-    if matches!(verdicts.first(), Some(Verdict::RedMain(_))) {
-        return Some(None);
-    }
-    for (count, verdict) in verdicts.iter().enumerate().skip(1) {
-        match verdict {
-            Verdict::Green => {}
-            Verdict::RedMain(_) => return Some(Some(count - 1)),
-            _ => return None,
-        }
-    }
-    Some(Some(lanes - 1))
-}
-
-fn bisected(lanes: usize, mut red_at: impl FnMut(usize) -> Option<bool>) -> Option<usize> {
-    let (mut green, mut red) = (0, lanes);
+fn bisected(mut green: usize, mut red: usize, mut red_at: impl FnMut(usize) -> Option<bool>) -> Option<usize> {
     while red - green > 1 {
         let middle = green + (red - green) / 2;
         if red_at(middle)? {

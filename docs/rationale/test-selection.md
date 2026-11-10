@@ -248,17 +248,15 @@ cost sample below.
   changed, so the next lane touching those files runs the test (rule 2), and it starts a refresh. An edge is dropped
   only when its file is deleted. The responsible lane is reverted like any lane that turned main red, because it is
   differentially red on the exact failed tests (invariant 2).
-- **Blame.** Today `blame::culprit` returns a single graph-named suspect without any probe, `among` never probes the
-  base, and graph blame's `Cone::holds` reads the old allow-list cones, so a test it does not know names no lane or
-  the wrong one. Three changes fix this. First, every prefix probe, the base included, runs exactly the failed
-  tests. Second, a single named suspect is confirmed by probing its parent before it is blamed. Third, a red base no
-  longer ends the search with "main was already red": the search walks back over earlier landings, each probed on the
-  same failed tests, and reverts the first lane that is red where its parent passes (in shadow first, below).
-  A probe of a tree where a failed test does not exist yet counts as a pass for that test, never as red, so the lane
-  that added a broken test is the one blamed. nextest reads an empty run as a failure by default, so the probe lists
-  the failed tests at that tree with `cargo nextest list`, counts the absent ones as passes and runs the rest.
-  `Cone::holds` moves to the rules above. This closes the 95afbfbca misattribution and reverts ds-1033, the lane
-  actually at fault.
+- **Blame.** `blame::culprit` confirms a single graph-named suspect by probing its parent before it blames it,
+  `among` searches only the prefixes of the lanes the graph names, and graph blame's `Cone::holds` is unchanged, so a
+  test it does not know costs probes rather than naming the wrong lane. Every prefix probe, the base included, runs
+  exactly the failed tests: a probe of a tree where a failed test does not exist yet counts as a pass for that test,
+  never as red, so the lane that added a broken test is the one blamed. A harness test absent at the tree is skipped,
+  and an exact `cargo test` filter naming an absent Cargo test runs none and exits green. A red base no longer ends
+  the search with "main was already red": the search walks back over earlier landings, each probed on the same failed
+  tests, and would revert the first lane that is red where its parent passes (in shadow, below). This closes the
+  95afbfbca misattribution and names ds-1033, the lane actually at fault.
 
 ## Cost per batch
 
@@ -403,8 +401,15 @@ Each lane has a box on north#1039 with its Done when command:
   commit and the lane's base) that the new selection adds. The Rust test check line firing whenever the selection is
   non-empty and the inclusion filter with its `cargo nextest list` step landed as n1039-select-tail (a0cd450b3).
 - n1039-blame: every prefix probe runs exactly the failed tests, a single named suspect is confirmed against its
-  parent, a red base walks back to the first differentially red lane and reverts it, and `Cone::holds` follows the
-  new rules.
+  parent, a red base walks back to the first differentially red lane and would revert it in shadow, and `Cone::holds`
+  follows the new rules.
+- Landed by the blame lane: a prefix probe, the base included, runs only the failed tests that exist at its tree (an
+  exact `cargo test` filter naming an absent test runs none, an absent harness test is skipped), else the failed check
+  lines, and only a red run that named neither reruns the after-landing check. A single graph-named suspect, or the
+  lane of the single-culprit search, is blamed only when its parent prefix passes and its own prefix is red, so a red
+  base yields no lane of the batch and walks back over up to 16 earlier first-parent landings in shadow. The
+  multi-failure search still names every lane that first reaches one of the failing checks. `Cone::holds` is
+  unchanged: a wrong graph answer now costs probes, not a misattribution.
 - n1039-miss: `north land missed` extended to the pre-landing records and run after each Cargo run on main, the
   `selection-miss` incident and the `:guards` writer.
 - n1039-map: the record on the build hosts with reads and the unprofiled marking, the ingest into every host's graph

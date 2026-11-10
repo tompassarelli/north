@@ -51,7 +51,7 @@ fn a_lane_whose_change_breaks_a_test_is_reverted_alone_after_landing_and_the_oth
         assert!(body.contains(&format!("Reverts: {commit}")), "{body}");
     }
     assert!(tickets.iter().all(|ticket| fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed "))), "every lane landed first");
-    assert_eq!(post_land_runs(&fixture), 4, "the batch, two bisection probes, and the revert");
+    assert_eq!(post_land_runs(&fixture), 2, "the batch and the revert; the failed test is probed exactly, not the after-landing selection");
     let told: Vec<String> = fixture.fleet().into_iter().filter(|call| call.starts_with("fleet send --from service:north-land session-lane-breaker ") && call.contains("post-land checks failed") && call.contains("Follows:")).collect();
     assert_eq!(told.len(), 1, "{:?}", fixture.fleet());
     assert!(fixture.fleet().iter().all(|call| !call.contains("session-lane-first ") && !call.contains("session-lane-last ") || call.contains("landed ")), "{:?}", fixture.fleet());
@@ -68,7 +68,9 @@ fn a_main_that_was_already_red_before_the_batch_blames_and_reverts_no_lane() {
     fixture.enqueue(&lane, None);
     assert!(fixture.serve().status.success());
     assert_eq!(fixture.subjects(), ["change from innocent"]);
-    assert_eq!(post_land_runs(&fixture), 2, "the batch and its base");
+    assert_eq!(post_land_runs(&fixture), 1, "the batch; the base is probed on the failed test");
+    let probes = fixture.calls("capacity offload run ");
+    assert!(probes.iter().any(|probe| probe.contains(&format!("--base {} --head {} ", fixture.base, fixture.base))), "the base is probed on the failed test: {probes:?}");
 }
 
 #[test]
@@ -84,13 +86,13 @@ fn a_base_that_fails_only_the_wide_selection_of_the_red_run_blames_and_reverts_n
     assert!(fixture.serve().status.success());
     assert_eq!(fixture.subjects(), ["change from wide"]);
     let runs = fixture.calls("land checks --after ");
-    let head = git(&fixture.origin, &["rev-parse", "main"]);
-    assert_eq!(runs.len(), 2, "the batch and its base: {runs:?}");
-    assert!(runs[1].contains(&format!("--base {} --head {head} --tree {} ", fixture.base, fixture.base)), "the base runs with the red run's selection: {runs:?}");
+    assert_eq!(runs.len(), 1, "the batch; the base is probed on the failed test: {runs:?}");
+    let probes = fixture.calls("capacity offload run ");
+    assert!(probes.iter().any(|probe| probe.contains(&format!("--base {} --head {} ", fixture.base, fixture.base))), "the base is probed on the failed test: {probes:?}");
 }
 
 #[test]
-fn a_bisection_prefix_runs_with_the_red_run_selection_so_the_lane_that_carries_the_break_is_reverted() {
+fn a_bisection_prefix_runs_the_failed_test_alone_so_the_lane_that_carries_the_break_is_reverted() {
     let mut fixture = Fixture::new();
     git(&fixture.repo, &["config", "landing.capacity", "env POST_LAND_LEASE=one"]);
     git(&fixture.repo, &["config", "land.runner", "build-host"]);
@@ -110,6 +112,10 @@ fn a_bisection_prefix_runs_with_the_red_run_selection_so_the_lane_that_carries_t
 
 fn until(what: &str, done: impl Fn() -> bool) {
     assert!(north_core::platform::wait::until(Duration::from_secs(120), done), "timed out waiting for {what}");
+}
+
+fn until_within(seconds: u64, what: &str, done: impl Fn() -> bool) {
+    assert!(north_core::platform::wait::until(Duration::from_secs(seconds), done), "timed out waiting for {what}");
 }
 
 fn landed(fixture: &Fixture, ticket: &Path) -> String {
@@ -253,9 +259,6 @@ const RED_THEN_HOLD_CULPRIT_PROBES: &str = r#"#!/usr/bin/env bash
 [ "$1 $2 $3" = "land checks --after" ] || exit 0
 while [ $# -gt 0 ]; do case $1 in --head) head=$2; shift ;; --tree) tree=$2; shift ;; --outcome) outcome=$2; shift ;; esac; shift; done
 echo "$head $tree" >>"$LAND_TRACE/after-runs"
-if [ "$head" != "$tree" ]; then
-  exec 9<> <(:); for ((i = 0; i < 1200; i++)); do [ -e "$LAND_TRACE/release" ] && break; read -t 0.1 -u 9 _; done
-fi
 if [ -e broken.txt ] && [ ! -e last.txt ]; then echo "test after_landing_probe ... FAILED"; printf 'failed-step\tafter_landing_probe\t\n' >>"$outcome"; exit 1; fi
 "#;
 
@@ -263,6 +266,7 @@ if [ -e broken.txt ] && [ ! -e last.txt ]; then echo "test after_landing_probe .
 fn a_red_runs_culprit_search_does_not_hold_the_next_landings_run() {
     let mut fixture = Fixture::new();
     executable(&fixture.trace.join("north-hook"), RED_THEN_HOLD_CULPRIT_PROBES);
+    fs::write(fixture.trace.join("hold-probe"), "").unwrap();
     let breaker = fixture.lane("breaker", "broken.txt", "breaker\n");
     let breaker = fixture.enqueue(&breaker, None);
     let mut serve = fixture.command().spawn().unwrap();
@@ -270,7 +274,7 @@ fn a_red_runs_culprit_search_does_not_hold_the_next_landings_run() {
     let ledger = fixture.state.join("safe-push/post-land.tsv");
     let trace = fixture.trace.join("after-runs");
     let runs = || fs::read_to_string(&trace).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>();
-    until("the culprit search to hold on the base probe", || runs().iter().any(|run| run.split_once(' ').is_some_and(|(head, tree)| head != tree)));
+    until_within(30, "the culprit search to hold on the base probe", || fixture.trace.join("probe-held").exists());
     let last = fixture.lane("last", "last.txt", "last\n");
     let last = fixture.enqueue(&last, None);
     let last = landed(&fixture, &last);

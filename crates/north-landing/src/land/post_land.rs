@@ -24,11 +24,13 @@ const EPISODE: &str = "post-land-red";
 const DEADLINE_SETTING: &str = "landing.after-deadline-sec";
 
 mod execute;
+mod probe;
 mod runner;
 mod settle;
 pub use runner::{Record, SLICE_ENV, abandon, adopt, adoptable, after_owner, reap_scratch};
 pub(crate) use execute::{Checked, failing, steps};
 use execute::{check, judged, record};
+use probe::Probe;
 pub(crate) use settle::rerun;
 pub use settle::settle;
 use settle::{offload_rerun, settle_from};
@@ -56,6 +58,7 @@ pub struct Outcome {
 pub struct Search {
     landed: Landed,
     run: Run,
+    failing: BTreeSet<Failure>,
 }
 
 pub struct Found {
@@ -225,14 +228,14 @@ fn outcome(landed: Landed, run: Run, verdict: Verdict) -> Outcome {
     }
     let failing = failing(&run.log, &run.outcome);
     let (superseded, log) = (run.superseded(), run.log.clone());
-    Outcome { verdict, search: Some(Search { landed, run }), failing, log, superseded }
+    Outcome { verdict, search: Some(Search { landed, run, failing: failing.clone() }), failing, log, superseded }
 }
 
 pub fn search(search: Search) -> std::thread::JoinHandle<Found> {
     std::thread::spawn(move || {
-        let Search { landed, run } = search;
+        let Search { landed, run, failing } = search;
         let started = telemetry::epoch();
-        let culprits = locate(&landed, &run);
+        let culprits = locate(&landed, &run, &failing);
         if run.superseded() {
             println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
             return Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: true };
@@ -254,24 +257,35 @@ fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
     }
 }
 
-fn locate(landed: &Landed, run: &Run) -> Vec<usize> {
+const WALK_BACK: usize = 16;
+const WALK_BACK_GATE: &str = "blame-walk-back";
+
+fn locate(landed: &Landed, run: &Run, failing: &BTreeSet<Failure>) -> Vec<usize> {
     let lanes = landed.tips.len();
     let room = probe_slots::free_slots(&landed.repo).map_or(1, |(free, _)| free);
     let suspects = blame::ask(&landed.repo, &run.log, &landed.base, &landed.head, &landed.lanes, &landed.tips, room);
-    let signatures: std::collections::BTreeSet<String> = steps(&run.outcome).into_iter().map(|failure| failure.label().to_owned()).collect();
+    let probe = Probe::of(failing);
+    let check = |tree: &str| probe::probe(landed, &run.at(&landed.head, tree), tree, &probe);
+    let signatures: BTreeSet<String> = failing.iter().map(|failure| failure.label().to_owned()).collect();
     let searchable = signatures.len() > 1 && !matches!(&suspects, blame::Suspects::Named(named) if named.len() == 1);
+    let gates = state_home().join("north/gates");
+    let earlier = || git(&landed.repo, &["rev-list", "--first-parent", &format!("--max-count={WALK_BACK}"), &format!("{}^", landed.base)]).map(|listed| listed.lines().map(str::to_owned).collect::<Vec<String>>()).unwrap_or_default();
     let found = if searchable {
-        if !matches!(probes(landed, run, &[0]).first().map(|probe| &probe.verdict), Some(Verdict::Green)) {
-            println!("north land: post-land checks of {} are red on their base {}, so no landed lane is blamed", landed.head, landed.base);
+        let base = check(&landed.base);
+        if !matches!(&base.verdict, Verdict::Green) {
+            println!("north land: post-land checks of {} are red on their base {} on the failed tests, so no landed lane is blamed", landed.head, landed.base);
+            if matches!(&base.verdict, Verdict::RedMain(_)) {
+                walked_back(landed, room, &check, &earlier(), &gates, failing);
+            }
             return Vec::new();
         }
-        blame::culprits(lanes, &suspects, &signatures, |counts| probes(landed, run, counts))
+        blame::culprits(lanes, &suspects, &signatures, |counts| probed(landed, counts, &check))
     } else {
         None
     };
     let culprits: Vec<usize> = match found {
         Some(found) if !found.is_empty() => found,
-        _ => blame::culprit(lanes, room, &suspects, |counts| probes(landed, run, counts).into_iter().map(|probe| probe.verdict).collect()).into_iter().collect(),
+        _ => blamed(landed, room, &suspects, &check, earlier, &gates, failing).into_iter().collect(),
     };
     for &at in &culprits {
         println!("north land: {} is a landed lane whose prefix of {} is red", landed.lanes.get(at).map_or("?", String::as_str), landed.head);
@@ -282,34 +296,57 @@ fn locate(landed: &Landed, run: &Run) -> Vec<usize> {
     culprits
 }
 
-fn probes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<blame::Probe> {
+/// Blames the first lane of `landed` red on the failed checks where its parent passes; a base red on them walks back
+/// over the landings before it, in shadow: the earlier lane it would revert goes to the `blame-walk-back` gate log.
+pub(super) fn blamed(landed: &Landed, room: usize, suspects: &blame::Suspects, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: impl Fn() -> Vec<String>, gates: &Path, failing: &BTreeSet<Failure>) -> Option<usize> {
+    let blame = blame::culprit(landed.tips.len(), room, suspects, |counts| probed(landed, counts, check).into_iter().map(|probe| probe.verdict).collect());
+    match blame {
+        blame::Blame::Lane(at) => {
+            println!("north land: {} is the first landed lane of {} red on the failed checks where its parent passes them", landed.lanes.get(at).map_or("?", String::as_str), landed.head);
+            Some(at)
+        }
+        blame::Blame::BaseRed => {
+            walked_back(landed, room, check, &earlier(), gates, failing);
+            None
+        }
+        blame::Blame::Unknown => {
+            println!("north land: post-land checks of {} are red, but the prefix search reached no verdict", landed.head);
+            None
+        }
+    }
+}
+
+fn walked_back(landed: &Landed, room: usize, check: &(dyn Fn(&str) -> blame::Probe + Sync), earlier: &[String], gates: &Path, failing: &BTreeSet<Failure>) {
+    let tree = |at: usize| if at == 0 { landed.base.as_str() } else { earlier[at - 1].as_str() };
+    let found = blame::walk_back(earlier.len(), room, |ats| checked(&ats.iter().map(|&at| tree(at)).collect::<Vec<_>>(), check).into_iter().map(|probe| probe.verdict).collect()).map(tree);
+    match found {
+        Some(commit) => println!("north land: main was already red at {} on the failed checks; walking back, {commit} is the first landing red where its parent passes, and in shadow it is logged, not reverted", landed.base),
+        None => println!("north land: main was already red at {} on the failed checks, and walking back over {} earlier landings found none red where its parent passes", landed.base, earlier.len()),
+    }
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+    let line = serde_json::json!({"gate": WALK_BACK_GATE, "at": at, "head": landed.head, "base": landed.base, "would_revert": found, "failing": failing.iter().map(Failure::label).collect::<Vec<_>>()});
+    let _ = fs::create_dir_all(gates);
+    if let Err(error) = fs::OpenOptions::new().create(true).append(true).open(gates.join(format!("{WALK_BACK_GATE}.jsonl"))).and_then(|mut file| std::io::Write::write_all(&mut file, format!("{line}\n").as_bytes())) {
+        eprintln!("north land: could not log the blame walk-back of {}: {error}", landed.head);
+    }
+}
+
+fn probed(landed: &Landed, counts: &[usize], check: &(dyn Fn(&str) -> blame::Probe + Sync)) -> Vec<blame::Probe> {
     let tree = |count: usize| if count == 0 { landed.base.as_str() } else { landed.tips[count - 1].as_str() };
-    let trees: std::collections::BTreeSet<&str> = counts.iter().map(|&count| tree(count)).collect();
+    let probes = checked(&counts.iter().map(|&count| tree(count)).collect::<Vec<_>>(), check);
+    for (count, probe) in counts.iter().zip(&probes) {
+        println!("north land: the failed checks with the first {count} of {} landed lanes ended {:?}", landed.tips.len(), probe.verdict);
+    }
+    probes
+}
+
+fn checked(trees: &[&str], check: &(dyn Fn(&str) -> blame::Probe + Sync)) -> Vec<blame::Probe> {
+    let distinct: BTreeSet<&str> = trees.iter().copied().collect();
     let probes: std::collections::BTreeMap<&str, blame::Probe> = std::thread::scope(|scope| {
-        let checks: Vec<_> = trees
-            .into_iter()
-            .map(|at| {
-                let probe_run = run.at(&landed.head, at);
-                (at, scope.spawn(move || {
-                    let checked = check(landed, at, &probe_run);
-                    let failing = match &checked.verdict {
-                        Verdict::RedMain(_) => failing(&probe_run.log, &probe_run.outcome).into_iter().map(|failure| failure.label().to_owned()).collect(),
-                        _ => std::collections::BTreeSet::new(),
-                    };
-                    blame::Probe { verdict: checked.verdict, failing }
-                }))
-            })
-            .collect();
-        checks.into_iter().map(|(at, handle)| (at, handle.join().unwrap_or_else(|_| blame::Probe { verdict: Verdict::Transient("a prefix check panicked".to_owned()), failing: std::collections::BTreeSet::new() }))).collect()
+        let checks: Vec<_> = distinct.into_iter().map(|tree| (tree, scope.spawn(move || check(tree)))).collect();
+        checks.into_iter().map(|(tree, handle)| (tree, handle.join().unwrap_or_else(|_| blame::Probe { verdict: Verdict::Transient("a prefix check panicked".to_owned()), failing: BTreeSet::new() }))).collect()
     });
-    counts
-        .iter()
-        .map(|&count| {
-            let probe = probes[tree(count)].clone();
-            println!("north land: post-land checks with the first {count} of {} landed lanes ended {:?}", landed.tips.len(), probe.verdict);
-            probe
-        })
-        .collect()
+    trees.iter().map(|tree| probes[*tree].clone()).collect()
 }
 
 
