@@ -61,6 +61,7 @@ pub fn map(queue: &Path, host: &str) -> Mapping {
 pub struct Discovery {
     pub checkouts: Vec<PathBuf>,
     pub unserved: Vec<String>,
+    pub orphaned: Vec<PathBuf>,
 }
 
 pub fn discovered(state_home: &Path, host: &str) -> Discovery {
@@ -72,12 +73,22 @@ pub fn discovered(state_home: &Path, host: &str) -> Discovery {
         match map(&queue, host) {
             Mapping::Checkout(checkout) => discovery.checkouts.push(checkout),
             Mapping::Unmapped(reason) if !hold::held(&queue) && queue::pending(&queue).is_ok_and(|pending| !pending.is_empty()) => discovery.unserved.push(reason),
+            Mapping::Unmapped(_) if !hold::held(&queue) && orphan(&queue) => discovery.orphaned.push(queue),
             Mapping::Unmapped(_) => {}
         }
     }
     discovery.checkouts.sort();
     discovery.checkouts.dedup();
     discovery
+}
+
+/// Whether `queue` holds no ticket in any area: the waiting queue, the decided areas or a host's outbox. A queue a
+/// test or a stray write left with only logs and watchdog rounds is orphaned; a queue with any ticket keeps its history.
+pub fn orphan(queue: &Path) -> bool {
+    ["", "done", queue::WITHDRAWN, queue::QUARANTINE, queue::OUTBOX, "outbox/withdrawn"]
+        .iter()
+        .flat_map(|area| std::fs::read_dir(queue.join(area)).into_iter().flatten().flatten())
+        .all(|entry| !entry.path().is_file() || entry.path().extension().is_none_or(|extension| extension != "json"))
 }
 
 pub use crate::platform::land_queue::local_host;

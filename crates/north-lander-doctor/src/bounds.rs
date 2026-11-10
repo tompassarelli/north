@@ -32,6 +32,7 @@ pub enum Bound {
     StaleWorktrees,
     InfrastructureFailures,
     UnservedQueues,
+    OrphanQueues,
     SourceBuilds,
     NoVerdict,
     BaseBroken,
@@ -50,6 +51,7 @@ impl Bound {
             Bound::StaleWorktrees => "stale-worktrees",
             Bound::InfrastructureFailures => "infrastructure-failures",
             Bound::UnservedQueues => "unserved-queues",
+            Bound::OrphanQueues => "orphan-queues",
             Bound::SourceBuilds => "toolchain-from-source",
             Bound::NoVerdict => "promotion-no-verdict",
             Bound::BaseBroken => "base-broken",
@@ -66,7 +68,7 @@ impl Bound {
             Bound::BaseBroken => minutes(BASE_BROKEN_SECS),
             Bound::SlotHold => minutes(SLOT_DEADLINE_SECS),
             Bound::DiskFree => format!("{DISK_FREE_PERCENT:.0}% free"),
-            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::SourceBuilds | Bound::NoVerdict => "0".to_owned(),
+            Bound::StaleWorktrees | Bound::InfrastructureFailures | Bound::UnservedQueues | Bound::OrphanQueues | Bound::SourceBuilds | Bound::NoVerdict => "0".to_owned(),
         }
     }
 }
@@ -81,6 +83,7 @@ pub enum Remedy {
     Release { place: Place, slot: String, pgid: u32 },
     Clear { place: Place, slot: String },
     Rerun { queue: PathBuf, ticket: PathBuf },
+    RemoveQueue { queue: PathBuf },
     Evict { place: Place },
     Restart { unit: String },
     Rollback { home: PathBuf, from: String, to: String, units: Vec<String> },
@@ -97,6 +100,7 @@ impl Remedy {
             Remedy::Prune { .. } => Some("lander-stale-worktree"),
             Remedy::Release { .. } | Remedy::Clear { .. } => Some("lander-slot-overdue"),
             Remedy::Rerun { .. } => Some("lander-infrastructure-failure"),
+            Remedy::RemoveQueue { .. } => Some("lander-stray-queue"),
             Remedy::Evict { .. } => Some("lander-disk-pressure"),
             Remedy::Restart { .. } => Some("lander-wedged"),
             Remedy::Rollback { .. } => Some("lander-rollback"),
@@ -116,6 +120,7 @@ impl fmt::Display for Remedy {
             Remedy::Release { place, slot, pgid } => write!(formatter, "release slot {slot} on {} by ending its process group {pgid}", place.name),
             Remedy::Clear { place, slot } => write!(formatter, "remove the holder files of slot {slot} on {}, whose lock is free", place.name),
             Remedy::Rerun { ticket, .. } => write!(formatter, "requeue {} once", ticket.file_name().unwrap_or_default().to_string_lossy()),
+            Remedy::RemoveQueue { queue } => write!(formatter, "remove the land queue {} no checkout serves and no ticket waits in", queue.display()),
             Remedy::Evict { place } => write!(formatter, "evict unlocked offload caches on {}", place.name),
             Remedy::Restart { unit } => write!(formatter, "restart {unit}"),
             Remedy::Rollback { from, to, .. } => write!(formatter, "roll the lander link back from {from} to {to}, the last build that landed a batch green"),
@@ -172,6 +177,14 @@ pub fn judge(facts: &Facts, book: &Book, now: u64) -> Vec<Finding> {
     } else {
         Finding::over(Bound::UnservedQueues, "lander", facts.unserved.len().to_string(), State::Unknown(format!("lanes wait in queues no checkout on this host can serve: {}", facts.unserved.join("; "))))
     }];
+    if facts.orphaned.is_empty() {
+        findings.push(Finding::healthy(Bound::OrphanQueues, "lander", "0".to_owned()));
+    }
+    for queue in &facts.orphaned {
+        let subject = format!("lander/{}", queue.file_name().unwrap_or_default().to_string_lossy());
+        let remedy = Remedy::RemoveQueue { queue: queue.clone() };
+        findings.push(Finding::over(Bound::OrphanQueues, &subject, "1".to_owned(), known("stray queue", remedy)));
+    }
     for queue in &facts.queues {
         findings.extend(judge_queue(queue, facts.link.as_ref(), book, now));
     }

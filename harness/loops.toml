@@ -310,7 +310,7 @@ constants = [
 
 [[loop]]
 name = "lander-doctor"
-decision = "which remedy the lander doctor applies to each lander health bound over its limit: prune, release a slot, rerun, evict, restart, roll the lander link back, or page the proxy for an unknown state"
+decision = "which remedy the lander doctor applies to each lander health bound over its limit: prune, release a slot, rerun, remove an orphan queue, evict, restart, roll the lander link back, or page the proxy for an unknown state"
 sites = [
   "crates/north-lander-doctor/src/bounds.rs",
   "crates/north-lander-doctor/src/lib.rs",

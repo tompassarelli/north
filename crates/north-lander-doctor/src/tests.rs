@@ -27,6 +27,7 @@ impl Hands for Fake {
         self.applied.borrow_mut().push(remedy.clone());
         match remedy {
             Remedy::Rerun { queue, ticket } => hands::rerun(queue, ticket),
+            Remedy::RemoveQueue { queue } => hands::remove_queue_in(queue.parent().unwrap_or(queue), queue),
             Remedy::Prune { .. } => hands::Host.apply(remedy),
             Remedy::Rollback { home, from, to, .. } => hands::roll_back(home, from, to, &[]),
             Remedy::Alarm(text) => Ok(format!("paged: {}", self.page(text))),
@@ -86,11 +87,19 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     assert_eq!(probe.prunable, [(PathBuf::from("/home/tom/code/north/main"), 3)]);
     assert!(facts::parse_probe("").is_err());
     let link = LinkFacts { lander: "runtimes/a".to_owned(), current: "runtimes/a".to_owned(), lag: Some(60), ..LinkFacts::default() };
-    let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, unserved: Vec::new() };
-    let text = render(&cure(&facts, &mut Book::default(), &Fake::default(), NOW));
-    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes"] {
+    let scratch = tempfile::tempdir().unwrap();
+    let stray = scratch.path().join("north/land-queue/8733aa0a99314382");
+    fs::create_dir_all(stray.join("logs")).unwrap();
+    fs::write(stray.join("logs/spans.jsonl"), "").unwrap();
+    let facts = Facts { queues: vec![QueueFacts { since_landing: Some(60), since_decision: Some(60), ..busy_queue(30) }], link: Some(link), places: at(gex45(), roomy()).places, orphaned: vec![stray.clone()], ..Facts::default() };
+    let hands = Fake::default();
+    let text = render(&cure(&facts, &mut Book::default(), &hands, NOW));
+    for bound in ["oldest-queued-lane north: 40 min", "since-landing north: 1 min", "round-silence north: 0 min", "link-lag lander: 1 min", "link-behind lander: on current", "slot-hold gex45: no slot held", "disk-free gex45: 60% free", "stale-worktrees gex45: 0", "infrastructure-failures north: 0", "unserved-queues lander: 0", "orphan-queues lander/8733aa0a99314382: 1", "toolchain-from-source north: 0", "promotion-no-verdict lander: 0", "base-broken north: passes"] {
         assert!(text.contains(&format!("bound {bound}")), "{bound} missing from:\n{text}");
     }
+    assert_eq!(*hands.applied.borrow(), vec![Remedy::RemoveQueue { queue: stray.clone() }]);
+    assert_eq!(hands.incidents.borrow()[0].0, "lander-stray-queue");
+    assert!(!stray.exists(), "the stray queue is removed");
 }
 
 #[test]

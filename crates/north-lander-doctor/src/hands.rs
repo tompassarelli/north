@@ -64,6 +64,7 @@ impl Hands for Host {
             Remedy::Release { place, slot, pgid } => shell(place, &release(), &[slot, &pgid.to_string()]).map(|said| said.trim().to_owned()),
             Remedy::Clear { place, slot } => shell(place, CLEAR, &[slot]).map(|said| said.trim().to_owned()),
             Remedy::Rerun { queue, ticket } => rerun(queue, ticket),
+            Remedy::RemoveQueue { queue } => remove_queue(queue),
             Remedy::Evict { place } => shell(place, EVICT, &[]).map(|said| said.trim().to_owned()),
             Remedy::Restart { unit } => watchdog::Host.restart(unit, "the lander doctor read it wedged").map(|()| format!("restarted {unit}")),
             Remedy::Rollback { home, from, to, units } => roll_back(home, from, to, units),
@@ -107,6 +108,23 @@ pub fn rerun(queue_dir: &Path, ticket: &Path) -> Result<String, String> {
     let requeued = queue::requeue(queue_dir, ticket, "the lander doctor reran an infrastructure refusal").map_err(|error| format!("{}: {error}", ticket.display()))?;
     let branch = queue::read(&requeued).map(|decided| decided.branch).unwrap_or_default();
     Ok(format!("requeued {branch} ({})", name.to_string_lossy()))
+}
+
+/// Removes a queue under this host's land-queue directory that holds no ticket and that no checkout serves.
+fn remove_queue(queue: &Path) -> Result<String, String> {
+    let root = north_lander::land::lander::state_home().join("north/land-queue");
+    remove_queue_in(&root, queue)
+}
+
+pub(crate) fn remove_queue_in(root: &Path, queue: &Path) -> Result<String, String> {
+    if queue.parent() != Some(root) {
+        return Err(format!("{} is not a queue directly under {}", queue.display(), root.display()));
+    }
+    if !north_lander::land::repositories::orphan(queue) {
+        return Err(format!("{} holds a ticket, so its history stays", queue.display()));
+    }
+    fs::remove_dir_all(queue).map_err(|error| format!("{}: {error}", queue.display()))?;
+    Ok(format!("removed the land queue {} no checkout serves and no ticket waits in", queue.display()))
 }
 
 /// Points the lander link at `to`, names `from` refused so north land promote leaves it off the lander, and restarts each lander unit.

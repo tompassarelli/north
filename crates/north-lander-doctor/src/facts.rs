@@ -41,6 +41,7 @@ pub struct Facts {
     pub link: Option<LinkFacts>,
     pub places: Vec<PlaceFacts>,
     pub unserved: Vec<String>,
+    pub orphaned: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default)]

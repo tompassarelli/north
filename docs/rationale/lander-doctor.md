@@ -16,6 +16,7 @@ Each run prints every bound with its live value and limit:
 - stale worktree registrations: 0 under `~/code/*/main` on each of those hosts;
 - land checks refused in the last 2 hours whose verdict or check log names an infrastructure signature (a missing registered worktree, a runtime missing on the check host, a host lacking the commits, a full disk): 0;
 - queues with waiting lanes that no checkout on the lander host can serve: 0;
+- queue directories that hold no ticket in any area (the waiting queue, `done/`, `withdrawn/`, `quarantine/` or an outbox) and no lander holds: 0. A queue a test or a stray write left with only `logs/` and `watchdog/rounds.json` has no repository to serve and no history to keep;
 - running land checks whose log shows nix building a toolchain (gcc, binutils, glibc, clang, llvm, rustc, ghc) from source: 0. A log counts as running until its `.outcome` is written, up to a slot's deadline, because nix prints nothing while it builds gcc.
 - promotions in a row whose replay of the current runtime reached no verdict (`lander-unreached`): 0.
 
@@ -31,6 +32,7 @@ A known state has one remedy, applied once per episode, the run of rounds a boun
 - slot past its deadline: end the process group its `.pgid` names, only while the slot's lock is still held and `.pgid` still names that group, and remove its holder files;
 - holder file past that bound whose lock is free: remove its holder files under that lock, recorded as one `lander-slot-overdue` incident with no message to the proxy, since nothing holds the slot (on 2026-11-07 a holder file left on gex45 since 2026-11-05 read as held 3334 minutes);
 - infrastructure failure: requeue the ticket once, marked in `<queue>/doctor/reran/`, unless the lane was queued again;
+- orphan queue: remove the directory, only while it is directly under this host's `land-queue`, no lander holds it and no ticket file sits in any of its areas, so a queue that ever held a lane keeps its history;
 - disk pressure: `north capacity disk keep` on that host, the disk pass run to its end in the doctor's shell, which evicts unlocked offload caches;
 - round silence: restart `north-land@PROJECT.service`; still silent 5 minutes later, roll the lander link back to the newest build that landed a batch green, name the bad build in `lander-refused` so `north land promote` leaves it off until current moves on, and restart the lander units.
 - toolchain built from source: tell the proxy once per episode, naming the check log and the derivation. The binary cache holds these toolchains, so a source build means the check runs without substituters (`nix --offline` on a host whose store lacks the closure), on a pin the cache does not hold, or under an override that changes the hash, and only a change to the check or the pin fixes it. The doctor neither cancels nor reruns it: a rerun of the same command builds the same derivations again, and an after-landing run ended early reads to the sheriff as a red main. On 2026-11-06 a firn after-landing check that ran `nix flake check --offline` on ccx33 built binutils and gcc from source for up to 50 minutes, although cache.nixos.org held them; firn now runs that build only on whiterabbit, whose store holds the closure.
@@ -48,4 +50,4 @@ A bound over with no remedy (rounds run but nothing is decided, the runtime stop
 
 ## Incidents
 
-Every remedy writes one incident row, `noticed_by = lander-doctor`, with a class per state (`lander-stale-worktree`, `lander-slot-overdue`, `lander-infrastructure-failure`, `lander-disk-pressure`, `lander-wedged`, `lander-rollback`, `lander-source-build`, `lander-promotion-retry`, `lander-check-environment`), so the policy loop counts recurrences by class and a recurring remedy points at a cause to fix.
+Every remedy writes one incident row, `noticed_by = lander-doctor`, with a class per state (`lander-stale-worktree`, `lander-slot-overdue`, `lander-infrastructure-failure`, `lander-stray-queue`, `lander-disk-pressure`, `lander-wedged`, `lander-rollback`, `lander-source-build`, `lander-promotion-retry`, `lander-check-environment`), so the policy loop counts recurrences by class and a recurring remedy points at a cause to fix.
