@@ -41,6 +41,10 @@ pub struct Record {
     /// The spin signal that climbed this launch, which makes it one row of the escalation ledger.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<String>,
+    /// The higher-rung escalation this launch shadows for a lift check, so `north dash` can compare the
+    /// higher rung's landed rate with the parallel lower rung's; absent on a launch that is no lift try.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lift: Option<String>,
     /// The effort it overrode its tier's with, whether drawn on an arm, tuned or escalated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,

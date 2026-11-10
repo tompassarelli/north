@@ -89,6 +89,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         hand: false,
         effort_arm: launch.route.stamp().map(str::to_owned),
         signal: launch.route.signal.map(|signal| signal.key().to_owned()),
+        lift: None,
         effort: launch.route.effort.map(|effort| effort.name().to_owned()),
         cell,
         cell_role: launch.route.cell_role.map(str::to_owned),

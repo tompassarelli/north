@@ -39,10 +39,12 @@ fn the_screen_names_each_plan_and_machine_within_fifty_lines_of_120_characters_a
     let screen = Screen {
         window: "24h".to_owned(),
         now: 1_793_990_000,
+        since: 1_793_903_600,
         bars: Err("unread".to_owned()),
         accounts: Ok(["a", "b", "c", "d"].map(account).to_vec()),
         runs: Err("unread".to_owned()),
         attempts: Err("unread".to_owned()),
+        launches: Vec::new(),
         habits: Err("unread".to_owned()),
         week_runs: Err("unread".to_owned()),
         billing: billing::parse(MANIFEST),
@@ -62,11 +64,15 @@ fn the_screen_names_each_plan_and_machine_within_fifty_lines_of_120_characters_a
 }
 
 fn run(account: &str, mix: (&str, &str), started: &str, usd: f64) -> crate::ledger::WindowRun {
-    crate::ledger::WindowRun { agent: "x".to_owned(), role: "worker".to_owned(), category: "tooling".to_owned(), tier: String::new(), model: mix.0.to_owned(), effort: mix.1.to_owned(), account: account.to_owned(), started: started.to_owned(), usd }
+    crate::ledger::WindowRun { agent: "x".to_owned(), role: "worker".to_owned(), category: "tooling".to_owned(), tier: String::new(), model: mix.0.to_owned(), effort: mix.1.to_owned(), account: account.to_owned(), started: started.to_owned(), outcome: "done".to_owned(), usd }
 }
 
 fn feature_run(agent: &str, tier: &str, model: &str, effort: &str, started: &str, usd: f64) -> crate::ledger::WindowRun {
-    crate::ledger::WindowRun { agent: agent.to_owned(), role: "worker".to_owned(), category: "feature".to_owned(), tier: tier.to_owned(), model: model.to_owned(), effort: effort.to_owned(), account: "claude-b".to_owned(), started: started.to_owned(), usd }
+    crate::ledger::WindowRun { agent: agent.to_owned(), role: "worker".to_owned(), category: "feature".to_owned(), tier: tier.to_owned(), model: model.to_owned(), effort: effort.to_owned(), account: "claude-b".to_owned(), started: started.to_owned(), outcome: "done".to_owned(), usd }
+}
+
+fn escalation_run(agent: &str, mix: (&str, &str), outcome: &str, started: &str, usd: f64) -> crate::ledger::WindowRun {
+    crate::ledger::WindowRun { agent: agent.to_owned(), role: "worker".to_owned(), category: "tooling".to_owned(), tier: String::new(), model: mix.0.to_owned(), effort: mix.1.to_owned(), account: "claude-b".to_owned(), started: started.to_owned(), outcome: outcome.to_owned(), usd }
 }
 
 fn attempt(agent: &str, succeeded: bool) -> super::super::scoreboard::workers::Attempt {
@@ -85,6 +91,29 @@ fn attempt(agent: &str, succeeded: bool) -> super::super::scoreboard::workers::A
     }
 }
 
+fn launch(name: &str, tier: &str, effort: &str, signal: Option<&str>, lift: Option<&str>, at: f64) -> north_dispatch::dispatch::LaunchRecord {
+    north_dispatch::dispatch::LaunchRecord {
+        at,
+        item: "north#940".to_owned(),
+        host: "gex45".to_owned(),
+        account: "claude:c".to_owned(),
+        name: name.to_owned(),
+        cloud: false,
+        launched: true,
+        detail: String::new(),
+        tier: Some(tier.to_owned()),
+        category: Some("feature".to_owned()),
+        box_text: Some("Box: Done when: the escalation lands".to_owned()),
+        hand: false,
+        effort_arm: None,
+        signal: signal.map(str::to_owned),
+        lift: lift.map(str::to_owned),
+        effort: Some(effort.to_owned()),
+        cell: None,
+        cell_role: None,
+    }
+}
+
 #[test]
 fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework_within_48_h_by_model_and_effort() {
     let started = "2026-11-09T01:00:00Z";
@@ -92,6 +121,8 @@ fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework
         feature_run("s1", "sonnet-high", "claude-sonnet-5-5", "high", started, 6.0),
         feature_run("s2", "sonnet-high", "claude-sonnet-5-5", "high", started, 4.0),
         feature_run("o1", "opus-medium", "claude-opus-5-5", "medium", started, 20.0),
+        escalation_run("e1", ("opus", "high"), "done", started, 20.0),
+        escalation_run("e2", ("opus", "medium"), "not done", started, 10.0),
     ];
     let mut sonnet = crate::ledger::closed::Cell::priced("sonnet-high", "feature", 2, 10.0);
     sonnet.reworked = 1;
@@ -105,10 +136,12 @@ fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework
     let screen = Screen {
         window: "24h".to_owned(),
         now: 0,
+        since: -86_400,
         bars: Err(String::new()),
         accounts: Err(String::new()),
         runs: Ok((runs, report)),
         attempts: Ok(vec![attempt("s1", true), attempt("s2", false), attempt("o1", true)]),
+        launches: vec![launch("e1", "worker", "high", Some("reasoning"), None, -60.0), launch("e2", "worker", "medium", None, Some("e1"), -60.0)],
         habits: Err(String::new()),
         week_runs: Err(String::new()),
         billing: Err(String::new()),
@@ -123,7 +156,9 @@ fn the_workers_section_shows_feature_boxes_cost_per_first_try_landing_and_rework
     assert!(line.contains("1 of 2") && line.contains("$10.00") && line.contains("$5.00"), "{line}");
     let opus = text.lines().find(|line| line.starts_with("claude-opus-5-5 medium")).expect("the opus feature row");
     assert!(opus.contains("0 of 1") && opus.contains("$20.00"), "{opus}");
-    assert!(line.chars().count() <= 120 && opus.chars().count() <= 120, "{line}\n{opus}");
+    let escalation = text.lines().find(|line| line.starts_with("worker at high effort")).expect("the escalated rung's row");
+    assert!(escalation.contains("1 of 1") && escalation.contains("0 of 1") && escalation.contains("+100 pts"), "the lift check compares the higher rung's landing with the parallel lower one: {escalation}");
+    assert!(line.chars().count() <= 120 && opus.chars().count() <= 120 && escalation.chars().count() <= 120, "{line}\n{opus}\n{escalation}");
     let leader = text.lines().find(|line| line.contains("sonnet-high") && line.contains("leader")).expect("the sonnet cell row");
     assert!(leader.contains("1 of 2") && leader.contains("80%"), "{leader}");
     let challenger = text.lines().find(|line| line.contains("opus-medium") && line.contains("1 of 1")).expect("the opus cell row");
@@ -137,7 +172,7 @@ fn a_class_uses_the_share_of_a_week_its_dollars_are_of_the_week_sized_from_the_s
     let week_runs = vec![run("claude-c", ("opus", "high"), &in_week, 40.0), run("claude-b", ("opus", "high"), &in_week, 100.0), run("claude-b", ("opus", "high"), "2000-01-01T00:00:00Z", 900.0)];
     let window_runs = vec![run("claude-b", ("opus", "high"), &in_week, 10.0), run("claude-api", ("sonnet", "high"), &in_week, 7.0)];
     let account = |letter: &str, used: f64| AccountOutlook { account: letter.to_owned(), week_used: Some(used), week_resets: Some(resets), burn_per_hour: None, runway: Runway::Lasts };
-    let screen = Screen { window: "24h".to_owned(), now: 0, bars: Err(String::new()), accounts: Ok(vec![account("b", 50.0), account("c", 99.0)]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), attempts: Err(String::new()), habits: Err(String::new()), week_runs: Ok(week_runs), billing: Err(String::new()) };
+    let screen = Screen { window: "24h".to_owned(), now: 0, since: -86_400, bars: Err(String::new()), accounts: Ok(vec![account("b", 50.0), account("c", 99.0)]), runs: Ok((window_runs, crate::ledger::ClosedReport::default())), attempts: Err(String::new()), launches: Vec::new(), habits: Err(String::new()), week_runs: Ok(week_runs), billing: Err(String::new()) };
     let spent = super::spend::Spend::of(&screen).unwrap();
     assert_eq!(spent.classes.len(), 1);
     assert!((spent.classes[0].week_pct["b"] - 5.0).abs() < 1e-9, "{:?}", spent.classes[0]);
@@ -176,10 +211,12 @@ fn the_habit_section_counts_each_rules_rewrites_and_warnings_inside_the_window()
     let screen = Screen {
         window: "24h".to_owned(),
         now: 1_793_990_000,
+        since: 1_793_903_600,
         bars: Err(String::new()),
         accounts: Err(String::new()),
         runs: Err(String::new()),
         attempts: Err(String::new()),
+        launches: Vec::new(),
         habits: Ok(rows),
         week_runs: Err(String::new()),
         billing: Err(String::new()),
@@ -201,7 +238,7 @@ fn the_three_sections_keep_a_worker_row_when_every_bar_fails_and_the_habit_table
         super::habits::Row { rule: "shared-mutability".to_owned(), rewrites: 1, warnings: 0 },
         super::habits::Row { rule: "single-impl-trait".to_owned(), rewrites: 0, warnings: 3 },
     ];
-    let screen = Screen { window: "24h".to_owned(), now: 1_793_990_000, bars: Ok((0..15).map(|_| bar()).collect()), accounts: Ok(accounts), runs: Ok((runs, crate::ledger::ClosedReport::default())), attempts: Ok(Vec::new()), habits: Ok(habits), week_runs: Ok(Vec::new()), billing: billing::parse(MANIFEST) };
+    let screen = Screen { window: "24h".to_owned(), now: 1_793_990_000, since: 1_793_903_600, bars: Ok((0..15).map(|_| bar()).collect()), accounts: Ok(accounts), runs: Ok((runs, crate::ledger::ClosedReport::default())), attempts: Ok(Vec::new()), launches: Vec::new(), habits: Ok(habits), week_runs: Ok(Vec::new()), billing: billing::parse(MANIFEST) };
     let text = render::screen(&screen, false);
     let lines: Vec<&str> = text.lines().collect();
     assert!(lines.len() <= 50, "{text}");

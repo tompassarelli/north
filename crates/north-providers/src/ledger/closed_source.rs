@@ -332,6 +332,8 @@ pub struct WindowRun {
     pub account: String,
     /// When it started, in the ledger's own timestamp text, which orders as time does.
     pub started: String,
+    /// How the run ended, such as `done`, `not done` or `running`; empty when the ledger kept no outcome.
+    pub outcome: String,
     pub usd: f64,
 }
 
@@ -348,7 +350,7 @@ fn window_runs(database: &Path, since: &str, until: &str) -> NorthResult<Vec<Win
         Access::ReadOnly,
         Duration::from_secs(5),
         &format!(
-            "SELECT agent, {ROLE_SQL} AS role, tier, category, model, COALESCE(effort, '') AS effort, COALESCE(account, '') AS account, COALESCE(started, '') AS started, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
+            "SELECT agent, {ROLE_SQL} AS role, tier, category, model, COALESCE(effort, '') AS effort, COALESCE(account, '') AS account, COALESCE(started, '') AS started, COALESCE(outcome, '') AS outcome, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
              FROM runs WHERE started >= '{}' AND started < '{}'",
             since.replace('\'', ""),
             until.replace('\'', "")
@@ -372,6 +374,7 @@ fn window_runs(database: &Path, since: &str, until: &str) -> NorthResult<Vec<Win
                 effort: effort.unwrap_or_default(),
                 account: text(row, "account"),
                 started: text(row, "started"),
+                outcome: text(row, "outcome"),
                 usd: prices.run_usd(model, &tier, row["input"].as_i64().unwrap_or(0), row["cache_read"].as_i64().unwrap_or(0), row["output"].as_i64().unwrap_or(0)),
             }
         })

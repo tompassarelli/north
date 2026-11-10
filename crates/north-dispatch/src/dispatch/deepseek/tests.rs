@@ -48,7 +48,7 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
         ],
         "one opencode session already holds a slot of 3, so two boxes go to DeepSeek; sandbox, locking and a box DeepSeek tried go to Claude"
     );
-    assert_eq!(super::tried(&[Record { at: 0.0, item: "north#5".into(), host: "whiterabbit".into(), account: "opencode:go".into(), name: "north-5-d0101".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: Some("another column".into()), hand: false, effort_arm: None, signal: None, effort: None, cell: None, cell_role: None }]), BTreeSet::from([key(&IssueRef::new("north", 5), Some("another column"))]), "a DeepSeek launch's record makes its box tried");
+    assert_eq!(super::tried(&[Record { at: 0.0, item: "north#5".into(), host: "whiterabbit".into(), account: "opencode:go".into(), name: "north-5-d0101".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: Some("another column".into()), hand: false, effort_arm: None, signal: None, lift: None, effort: None, cell: None, cell_role: None }]), BTreeSet::from([key(&IssueRef::new("north", 5), Some("another column"))]), "a DeepSeek launch's record makes its box tried");
 }
 
 fn verdict(category: &str, kind: Kind, sha: &str) -> Verdict {

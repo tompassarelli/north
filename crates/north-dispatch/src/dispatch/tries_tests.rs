@@ -5,7 +5,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 fn launch(item: &str, name: &str, at: f64) -> Record {
-    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None, cell_role: None }
+    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None }
 }
 
 #[test]

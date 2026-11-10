@@ -176,6 +176,7 @@ impl Start {
             hand: true,
             effort_arm: self.route.stamp().filter(|_| !overridden).map(str::to_owned),
             signal: self.route.signal.filter(|_| !overridden).map(|signal| signal.key().to_owned()),
+            lift: None,
             effort: self.route.effort.filter(|_| !overridden).map(|effort| effort.name().to_owned()),
             cell: super::cells::named(&self.model, self.effort.as_deref().unwrap_or_default()),
             cell_role: self.route.cell_role.filter(|_| !overridden).map(str::to_owned),

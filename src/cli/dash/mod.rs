@@ -13,6 +13,7 @@ use crate::usage::outlook::{AccountOutlook, Runway};
 
 mod billing;
 mod dispatch;
+mod escalations;
 mod habits;
 mod render;
 mod spend;
@@ -24,10 +25,14 @@ const DEFAULT_WINDOW: &str = "24h";
 pub struct Screen {
     pub window: String,
     pub now: i64,
+    /// The window's start in unix seconds, so the screen and its figures read one clock.
+    pub since: i64,
     pub bars: Result<Vec<ready::Line>, String>,
     pub accounts: Result<Vec<AccountOutlook>, String>,
     pub runs: Result<(Vec<WindowRun>, ClosedReport), String>,
     pub attempts: Result<Vec<workers::Attempt>, String>,
+    /// The dispatch records inside the window, from which each escalation and lift check are read.
+    pub launches: Vec<north_dispatch::dispatch::LaunchRecord>,
     pub habits: Result<Vec<habits::Row>, String>,
     /// The runs of the last 7 days, from which each subscription's week is sized in dollars.
     pub week_runs: Result<Vec<WindowRun>, String>,
@@ -107,7 +112,7 @@ fn read(window: &str) -> Result<Screen, String> {
         let joined = |name: &str| format!("{name} reader panicked");
         (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))))
     });
-    Ok(Screen { window: window.to_owned(), now, bars, accounts, runs, attempts, habits, week_runs, billing: billing::read() })
+    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, billing: billing::read() })
 }
 
 /// Colour only for a person at a terminal: never into a pipe or file, under NO_COLOR, or on a dumb terminal.
@@ -153,6 +158,10 @@ fn figures(screen: &Screen) -> Value {
         })).collect::<Vec<_>>().into()
     });
     let mixes = dispatch::Mixes::of(screen);
+    let escalations = match &screen.runs {
+        Ok((runs, _)) => json!(escalations::Escalations::of(&screen.launches, runs, screen.since as f64, screen.now as f64)),
+        Err(why) => json!({"unread": why}),
+    };
     let spent = spend::Spend::of(screen).map(|spent| json!({"classes": spent.classes.iter().map(|class| json!({"mix": class.mix, "runs": class.runs, "usd": class.usd, "week_pct": class.week_pct, "all_pct": class.all_pct})).collect::<Vec<_>>(), "api_credit": {"runs": spent.api.runs, "usd": spent.api.usd}}));
     let habits = screen.habits.as_ref().map(|rows| {
         let rewrites: usize = rows.iter().map(|row| row.rewrites).sum();
@@ -170,6 +179,7 @@ fn figures(screen: &Screen) -> Value {
         "infra": section(screen.billing.as_ref().map(|billing| json!({"machines": billing.machines, "monthly_usd": billing.total_usd(), "capped": billing.capped()}))),
         "dispatch": section(mixes.as_ref().map(|mixes| json!(mixes.rows))),
         "cells": section(mixes.as_ref().map(|mixes| json!(mixes.cells))),
+        "escalations": escalations,
         "habits": section(habits),
     })
 }

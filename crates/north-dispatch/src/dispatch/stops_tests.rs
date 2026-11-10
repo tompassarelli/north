@@ -17,7 +17,7 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
         ],
         "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
     });
-    let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None, cell_role: None };
+    let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
     let ran = launch("makgora#587", "sc-587-d0740", 10.0, true);
     let stop = super::stops::stop(&session("Not done: the two-take limit is reached.\nStop: decision (take three or drop the box)"), &ran, &Evidence::default());
     assert_eq!(stop.decision, Some(1000.0));
@@ -171,6 +171,7 @@ fn dispatch_retries_opus_xhigh_once_then_runs_opus_max_once_and_parks_the_box_af
         box_text: None,
         hand: false,
         signal: None,
+        lift: None,
         effort_arm: None,
         effort: Some(effort.into()),
         cell: None,
@@ -326,7 +327,7 @@ serves = ["laptop"]
 #[test]
 fn north_722_waited_twice_on_one_stop_and_a_box_due_by_a_date_or_after_landings_is_held_beside_a_plain_one() {
     let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
-    let launch = |name: &str, started: &str| record::Record { at: at(started), item: "north#722".into(), host: "cpx62".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None, cell_role: None };
+    let launch = |name: &str, started: &str| record::Record { at: at(started), item: "north#722".into(), host: "cpx62".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
     let waited = serde_json::json!({
         "entries": [{"kind": "assistant", "text": "Not done: the debt box reads after the landings.\nStop: wait until 2026-11-07T10:00Z"}],
         "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
@@ -402,7 +403,7 @@ fn the_relaunch_after_north_733s_recorded_laptop_need_follows_the_stopped_run_an
 
 #[test]
 fn a_laptop_launch_reads_its_stop_from_the_reports_the_laptop_mirrors_north_706() {
-    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None, cell_role: None };
+    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
     let reports = serde_json::json!({"wisp-188-d1646": {"entries": [{"kind": "assistant", "text": "Not done: the capture needs the laptop's client.\nStop: wait until 2026-11-08T03:00Z"}], "turns": [{"exit": "completed", "ended_ms": 5_000}]}});
     let mut boxes = [issue("wisp", 188, "- [ ] a", &[])];
     let mut notes = Vec::new();
@@ -416,7 +417,7 @@ fn a_laptop_launch_reads_its_stop_from_the_reports_the_laptop_mirrors_north_706(
 
 #[test]
 fn a_mirrored_session_keeps_what_dispatch_reads_and_reads_the_same_stop_as_the_whole_transcript_north_706() {
-    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None, cell_role: None };
+    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
     let mut entries: Vec<(String, String)> = vec![("user".into(), "Item: wisp#188".into()), ("assistant".into(), "Starting.".into())];
     entries.extend((0..50).map(|n| ("tool".to_owned(), format!("rg thing{n}"))));
     entries.push(("tool".into(), "git commit -m x".into()));
@@ -483,7 +484,7 @@ fn spinning(report: &str, notices: &[String], evidence: &Evidence) -> Issue {
     let mut entries: Vec<serde_json::Value> = notices.iter().map(|text| serde_json::json!({"kind": "user", "text": format!("[from service:north-land@whiterabbit] {text}\nlast lines of the log:")})).collect();
     entries.push(serde_json::json!({"kind": "assistant", "text": report}));
     let session = serde_json::json!({"entries": entries, "turns": [{"exit": "completed", "ended_ms": 1_000_000}]});
-    let launch = record::Record { at: 10.0, item: "north#940".into(), host: "gex45".into(), account: "claude:c".into(), name: "n940-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("sonnet-high".into()), category: Some("feature".into()), box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None, cell_role: None };
+    let launch = record::Record { at: 10.0, item: "north#940".into(), host: "gex45".into(), account: "claude:c".into(), name: "n940-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("sonnet-high".into()), category: Some("feature".into()), box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
     Issue { stop: super::stops::stop(&session, &launch, evidence), touched: 900.0, ..issue("north", 940, "- [ ] a", &[]) }
 }
 
@@ -520,7 +521,7 @@ fn a_box_a_missed_check_reopened_climbs_one_rung_and_its_launch_record_names_the
     let issue = spinning("Not done: the fix did not hold.\nStop: landing", &[], &reopened);
     assert_eq!(issue.stop.climb.as_ref().map(|climb| climb.signal), Some(Signal::Reopened));
     let route = super::tier::route(&issue, &super::tier::History::default(), &BTreeMap::new()).unwrap();
-    let launched = record::Record { at: 10.0, item: "north#940".into(), host: "gex45".into(), account: "claude:c".into(), name: "n940-d0901".into(), cloud: false, launched: true, detail: String::new(), tier: Some(route.tier.name().to_owned()), category: Some(route.category.clone()), box_text: None, hand: false, signal: None, effort_arm: None, effort: None, cell: None, cell_role: None };
+    let launched = record::Record { at: 10.0, item: "north#940".into(), host: "gex45".into(), account: "claude:c".into(), name: "n940-d0901".into(), cloud: false, launched: true, detail: String::new(), tier: Some(route.tier.name().to_owned()), category: Some(route.category.clone()), box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
     let entry = record::Record { signal: route.signal.map(|signal| signal.key().to_owned()), ..launched.clone() };
     let line = serde_json::to_string(&entry).unwrap();
     assert!(line.contains("\"signal\":\"reopened\""), "{line}");

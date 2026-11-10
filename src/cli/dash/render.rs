@@ -4,6 +4,7 @@
 use super::Screen;
 use super::billing::{self, Billing, Machine};
 use super::dispatch::{Mixes, Row};
+use super::escalations::Escalations;
 use super::ready::Verdict;
 use super::spend::Spend;
 use crate::foundation::clock::Timestamp;
@@ -387,6 +388,37 @@ fn cells(rows: &[super::dispatch::CellRow]) -> Section {
     section
 }
 
+fn escalation_section(escalations: &Result<Escalations, String>, window: &str) -> Section {
+    let title = "Escalations: each rung a spin signal climbed a box to, and the lift check's higher against parallel lower landing".to_owned();
+    let escalations = match escalations {
+        Ok(escalations) => escalations,
+        Err(why) => {
+            let mut section = Section::headed(&title, "the escalation ledger could not be read".to_owned());
+            section.unread(format!("unread: {why}"));
+            return section;
+        }
+    };
+    let mut section = Section::headed(&title, escalations.summary(window));
+    if escalations.rows.is_empty() {
+        return section;
+    }
+    let lift = |rate: Option<f64>| rate.map_or_else(|| "-".to_owned(), |rate| format!("{:+.0} pts", rate * 100.0));
+    let mut table = vec![header(&["rung", "escalations", "landed", "lift checks", "higher landed", "lower landed", "lift"])];
+    table.extend(escalations.rows.iter().map(|row| {
+        vec![
+            row.rung.clone(),
+            row.escalations.to_string(),
+            first_try(row.landed, row.finished),
+            row.lift_checks.to_string(),
+            first_try(row.higher_landed, row.lift_checks),
+            first_try(row.lower_landed, row.lift_checks),
+            lift(row.lift_delta()),
+        ]
+    }));
+    grid(&table, &[Align::Left, Align::Right, Align::Right, Align::Right, Align::Right, Align::Right, Align::Right]).into_iter().for_each(|line| section.push(line));
+    section
+}
+
 fn workers(screen: &Screen, mixes: &Result<Mixes, String>, window: &str, room: usize) -> Section {
     let title = format!("Workers: runs started in the last {window} by task category, and the boxes they closed in it");
     let mixes = match mixes {
@@ -490,12 +522,19 @@ pub fn screen(screen: &Screen, color: bool) -> String {
     all.push(format!("north dash: the last {window}, read at {}", Timestamp::from_unix_seconds(screen.now).local_twelve_hour()));
     all.push(String::new());
     let billed = billing(screen, &window);
-    let others = all.lines.len() + billed.lines.len() + 2;
+    let escalations = match &screen.runs {
+        Ok((runs, _)) => Ok(Escalations::of(&screen.launches, runs, screen.since as f64, screen.now as f64)),
+        Err(why) => Err(why.clone()),
+    };
+    let escalation = escalation_section(&escalations, &window);
+    let others = all.lines.len() + billed.lines.len() + escalation.lines.len() + 3;
     let unfolded = bars(screen, &window, false);
     let metrics = if LINES.saturating_sub(others + unfolded.lines.len()) < WORKERS_MIN { bars(screen, &window, true) } else { unfolded };
     all.append(metrics);
     all.push(String::new());
     all.append(billed);
+    all.push(String::new());
+    all.append(escalation);
     all.push(String::new());
     let room = LINES.saturating_sub(all.lines.len());
     all.append(workers(screen, &mixes, &window, room));
