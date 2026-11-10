@@ -18,6 +18,7 @@ const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
 const UNIT: &str = "north-worker-outside";
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
+const HOMES: [(&str, &str); 4] = [("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache"), ("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")];
 const NAMESPACE: &str = "--namespaces";
 const LENGTH_BYTES: usize = 8;
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
@@ -74,12 +75,28 @@ fn unsafe_name(name: &str) -> bool {
     name == MARK || name == SOCKETS_HIDDEN || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
-/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
-pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path) -> Vec<(String, String)> {
+/// The XDG homes a brokered command reads and writes: this broker's own, since the command runs as the host's process and its state, cache and data belong under the host's homes. Taking the client's scratch ones would record a build's capacity admissions beside the worker instead of in the host's decision ledger (north#1030).
+pub(super) fn homes(home: Option<PathBuf>, get: impl Fn(&str) -> Option<PathBuf>) -> Vec<(String, String)> {
+    let home = home.unwrap_or_else(|| PathBuf::from("/"));
+    HOMES
+        .into_iter()
+        .map(|(name, below)| (name.to_owned(), get(name).unwrap_or_else(|| home.join(below)).to_string_lossy().into_owned()))
+        .collect()
+}
+
+fn own_homes() -> Vec<(String, String)> {
+    fn set(name: &str) -> Option<PathBuf> {
+        std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
+    }
+    homes(set("HOME"), set)
+}
+
+/// The environment a request's process gets: the client's, without the sandbox mark, the variables that make a loader, interpreter or git run code of the client's choosing (git's program, editor, template and configuration variables), and relative or empty `PATH` entries; git's credential helper is north's own, and `XDG_RUNTIME_DIR` is `runtime`, the broker's own, since the command runs outside and reaches the user manager and the capacity database there whatever the client set or left out (an OpenCode worker clears it, north#1023). The XDG homes (`homes`) are the broker's own too: a client's scratch homes would take the state, cache and data a brokered build writes with it (north#1030). Its lane-only marker follows `cgroup`, the cgroup of the process that asked (`None` when unreadable, which counts as lane-only), never the client's word: a caller in a lane-only session's scope gets the marker whether it sent one or not, and any other caller keeps one it sent, since the marker only narrows what its command reads (south#104).
+pub(super) fn environment(sent: Vec<(String, String)>, cgroup: Option<&str>, runtime: &Path, homes: &[(String, String)]) -> Vec<(String, String)> {
     let lane_only = cgroup.is_none_or(session_scope::lane_only_cgroup);
     let path = |value: &str| std::env::join_paths(std::env::split_paths(value).filter(|entry| entry.is_absolute())).map(|joined| joined.to_string_lossy().into_owned()).unwrap_or_default();
     let own_runtime = (RUNTIME_ENV.to_owned(), runtime.to_string_lossy().into_owned());
-    sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).collect()
+    sent.into_iter().filter(|(name, _)| !unsafe_name(name) && name != RUNTIME_ENV && !HOMES.iter().any(|(own, _)| *own == name)).map(|(name, value)| if name == "PATH" { (name, path(&value)) } else { (name, value) }).chain(git_credential::session_env()).chain(lane_only.then(|| (LANE_ONLY.to_owned(), "1".to_owned()))).chain([own_runtime]).chain(homes.iter().cloned()).collect()
 }
 
 /// Runs `north ARGUMENTS` outside this process's Landlock domain through the broker, with this process's standard streams, working directory and environment; its exit code.
@@ -241,7 +258,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .args(confined(north, request.arguments.clone()))
         .current_dir(&request.directory)
         .env_clear()
-        .envs(environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref(), &runtime()))
+        .envs(environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref(), &runtime(), &own_homes()))
         .stdin(Stdio::from(stdin))
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))

@@ -171,16 +171,26 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "--worker-sandbox --built -- ./t", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check"] {
         assert!(super::broker::permitted(&words(allowed)), "{allowed}");
     }
-    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged")];
-    let environment = super::broker::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), Some(OPEN_SCOPE), Path::new("/run/user/1000"));
+    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config")];
+    let homes = [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")].map(|(name, value)| (name.to_owned(), value.to_owned()));
+    let environment = super::broker::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes);
     let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
     assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x")));
     assert_ne!(get("GIT_CONFIG_COUNT"), Some("9"));
     assert_eq!((get("GIT_AUTHOR_NAME"), get("NORTH_SOCKETS_HIDDEN")), (Some("a"), None));
     assert_eq!(environment.iter().filter(|(name, _)| name == "XDG_RUNTIME_DIR").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/run/user/1000"], "an outside command took the client's runtime directory, so an OpenCode worker that clears it got no user manager and no capacity lease (north#1023)");
+    assert_eq!(environment.iter().filter(|(name, _)| name.starts_with("XDG_") && name != "XDG_RUNTIME_DIR").map(|(name, value)| (name.as_str(), value.as_str())).collect::<Vec<_>>(), [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")], "a brokered build took the client's scratch homes, so its capacity admissions landed outside the host's decision ledger (north#1030)");
     let north = Path::new("/n/north");
     let wrapped = super::broker::confined(north, words("capacity host run --class heavy --owner o -- cargo test -p x"));
     assert_eq!(wrapped.join(" "), "capacity host run --class heavy --owner o -- /n/north --worker-sandbox --program -- cargo test -p x");
+}
+
+#[test]
+fn the_broker_names_the_host_s_homes_and_falls_back_to_home_s_xdg_defaults() {
+    let defaults = super::broker::homes(Some(PathBuf::from("/home/a")), |_| None);
+    assert_eq!(defaults, [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")].map(|(name, value)| (name.to_owned(), value.to_owned())).to_vec());
+    let named = super::broker::homes(None, |name| (name == "XDG_STATE_HOME").then(|| PathBuf::from("/srv/state")));
+    assert_eq!(named.iter().find(|(name, _)| name == "XDG_STATE_HOME").map(|(_, value)| value.as_str()), Some("/srv/state"), "a home the host set was replaced by a default");
 }
 
 const OPEN_SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-session-77c49ab1-cccb-4a4d-8623-d56cb8891ace.scope\n";
@@ -189,12 +199,13 @@ const LANE_SCOPE: &str = "0::/user.slice/user-1000.slice/user@1000.service/agent
 #[test]
 fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
     let sent = || vec![("PATH".to_owned(), "/usr/bin".to_owned()), ("HOME".to_owned(), "/home/a".to_owned())];
+    let homes = [("XDG_STATE_HOME".to_owned(), "/home/a/.local/state".to_owned()), ("XDG_CACHE_HOME".to_owned(), "/home/a/.cache".to_owned()), ("XDG_DATA_HOME".to_owned(), "/home/a/.local/share".to_owned()), ("XDG_CONFIG_HOME".to_owned(), "/home/a/.config".to_owned())];
     let marker = |environment: &[(String, String)]| environment.iter().find(|(name, _)| name == super::LANE_ONLY).map(|(_, value)| value.clone());
-    assert_eq!(marker(&super::broker::environment(sent(), Some(LANE_SCOPE), Path::new("/run/user/1000"))), Some("1".to_owned()), "a lane-only scope's caller without its marker got wide reads");
-    assert_eq!(marker(&super::broker::environment(sent(), None, Path::new("/run/user/1000"))), Some("1".to_owned()), "a caller whose scope cannot be read got wide reads");
-    assert_eq!(marker(&super::broker::environment(sent(), Some(OPEN_SCOPE), Path::new("/run/user/1000"))), None);
+    assert_eq!(marker(&super::broker::environment(sent(), Some(LANE_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a lane-only scope's caller without its marker got wide reads");
+    assert_eq!(marker(&super::broker::environment(sent(), None, Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller whose scope cannot be read got wide reads");
+    assert_eq!(marker(&super::broker::environment(sent(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), None);
     let forged = sent().into_iter().chain([(super::LANE_ONLY.to_owned(), "1".to_owned())]).collect();
-    assert_eq!(marker(&super::broker::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"))), Some("1".to_owned()), "a caller may narrow itself");
+    assert_eq!(marker(&super::broker::environment(forged, Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes)), Some("1".to_owned()), "a caller may narrow itself");
 }
 
 #[test]
