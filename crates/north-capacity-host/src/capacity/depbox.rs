@@ -124,8 +124,12 @@ impl Sandbox {
             box_.binds.push(directory);
         }
         for path in READS.iter().map(|path| home.join(path)).filter(|path| path.exists()) {
+            let real = resolved(&path);
             box_.bind("--ro-bind", &path, &path);
-            box_.binds.push(resolved(&path));
+            if real != path {
+                box_.bind("--ro-bind", &real, &real);
+            }
+            box_.binds.push(real);
             box_.binds.push(path);
         }
         let live = home.join(".local/state/north/current");
