@@ -1,5 +1,6 @@
 use crate::shell::{ShellToken, basename, command, heredoc_bodies, operator_tokens, strip_heredocs};
 use regex::Regex;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -86,6 +87,7 @@ struct Walk {
     built: Vec<PathBuf>,
     read: Vec<PathBuf>,
     printed: Vec<String>,
+    vars: BTreeMap<String, String>,
 }
 
 impl Walk {
@@ -97,13 +99,14 @@ impl Walk {
             self.openers - 1
         });
         let segment = std::mem::take(&mut self.segment);
+        let segment = self.assign(segment);
         let start = command(&segment, PREFIXES);
         let args = segment.get(start..).unwrap_or_default();
         let piped = std::mem::take(&mut self.piped);
         let inputs = std::mem::take(&mut self.inputs);
         if args.first().is_some_and(|word| word == "cd") {
             let target = args.iter().skip(1).find(|word| !word.starts_with('-'));
-            self.dir = target.map(|word| resolve(word, self.dir.as_deref()).to_string_lossy().into_owned());
+            self.dir = target.map(|word| resolve(&expand(word, &self.vars), self.dir.as_deref()).to_string_lossy().into_owned());
         } else if args.first().is_some_and(|word| basename(word) == "cat") && operator == "|" {
             self.piped = args.iter().skip(1).filter(|word| !word.starts_with('-')).cloned().collect();
         }
@@ -111,7 +114,7 @@ impl Walk {
             .iter()
             .find_map(|word| word.strip_prefix("GH_REPO="))
             .map(str::to_owned);
-        let parsed = parse(args, self.dir.as_deref());
+        let parsed = parse(args, self.dir.as_deref(), &self.vars);
         self.note_written(args, &preceded, operator, heredoc, parsed.is_some());
         if parsed.is_none() {
             self.note_source(args);
@@ -123,7 +126,7 @@ impl Walk {
         write.dir = self.dir.clone();
         write.opaque |= self.backticks;
         for file in inputs.iter().chain(&piped) {
-            push_file(&mut write, file, self.dir.as_deref());
+            push_file(&mut write, file, self.dir.as_deref(), &self.vars);
         }
         write.bodies.extend(inputs);
         if self.reliable {
@@ -145,6 +148,24 @@ impl Walk {
         self.out.push(write);
     }
 
+    /// Records a leading `NAME=value` word as a variable the command may use in a path, so a
+    /// body file named by `$NAME` is read instead of judged from the command text alone
+    /// (north#1041).
+    fn assign(&mut self, segment: Vec<String>) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut leading = true;
+        for word in segment {
+            if leading && let Some((name, value)) = assignment(&word) {
+                let value = expand(value.trim_matches(['"', '\'']), &self.vars);
+                self.vars.insert(name.to_owned(), value);
+                continue;
+            }
+            leading = false;
+            words.push(word);
+        }
+        words
+    }
+
     fn note_source(&mut self, args: &[String]) {
         let args = args.strip_prefix(&["{".to_owned()]).or_else(|| args.strip_prefix(&["(".to_owned()])).unwrap_or(args);
         let Some((name, operands)) = args.split_first() else { return };
@@ -153,7 +174,7 @@ impl Walk {
             "printf" | "echo" => self.printed.extend(operands.map(|word| word.replace("\\n", "\n"))),
             name if READERS.contains(&name) => {
                 let dir = self.dir.clone();
-                self.read.extend(operands.filter(|word| !word.contains('$')).map(|word| resolve(word, dir.as_deref())));
+                self.read.extend(operands.map(|word| expand(word, &self.vars)).filter(|word| !word.contains('$')).map(|word| resolve(&word, dir.as_deref())));
             }
             _ => {}
         }
@@ -170,14 +191,14 @@ impl Walk {
             };
             match file {
                 Some(file) => {
-                    let path = resolve(file, self.dir.as_deref());
+                    let path = resolve(&expand(file, &self.vars), self.dir.as_deref());
                     self.written.push((path, index));
                     self.pending = None;
                 }
                 None => self.pending = Some(index),
             }
         } else if redirected && let Some(file) = args.first() {
-            self.built.push(resolve(file, self.dir.as_deref()));
+            self.built.push(resolve(&expand(file, &self.vars), self.dir.as_deref()));
         }
         if !matches!(operator, ">" | ">>" | "<<") {
             self.pending = None;
@@ -185,14 +206,14 @@ impl Walk {
     }
 }
 
-fn parse(args: &[String], cwd: Option<&str>) -> Option<GhWrite> {
+fn parse(args: &[String], cwd: Option<&str>, vars: &BTreeMap<String, String>) -> Option<GhWrite> {
     if basename(args.first()?) != "gh" {
         return None;
     }
-    let Scanned { mut write, group, positionals } = scan(&args[1..], cwd);
+    let Scanned { mut write, group, positionals } = scan(&args[1..], cwd, vars);
     let verb = positionals.first().copied();
     let group = group.filter(|group| writes_with(group, verb))?;
-    complete(&mut write, group, &positionals, cwd);
+    complete(&mut write, group, &positionals, cwd, vars);
     Some(write)
 }
 
@@ -222,7 +243,7 @@ fn split_flag(arg: &str) -> (&str, Option<String>) {
     }
 }
 
-fn scan<'a>(args: &'a [String], cwd: Option<&str>) -> Scanned<'a> {
+fn scan<'a>(args: &'a [String], cwd: Option<&str>, vars: &BTreeMap<String, String>) -> Scanned<'a> {
     let mut scanned = Scanned { write: GhWrite::default(), group: None, positionals: Vec::new() };
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
@@ -236,17 +257,17 @@ fn scan<'a>(args: &'a [String], cwd: Option<&str>) -> Scanned<'a> {
             let Some(value) = inline.or_else(|| rest.next().cloned()) else {
                 break;
             };
-            collect(&mut scanned.write, scanned.group, flag, &value, cwd);
+            collect(&mut scanned.write, scanned.group, flag, &value, cwd, vars);
         }
     }
     scanned
 }
 
-fn complete(write: &mut GhWrite, group: &str, positionals: &[&str], cwd: Option<&str>) {
+fn complete(write: &mut GhWrite, group: &str, positionals: &[&str], cwd: Option<&str>, vars: &BTreeMap<String, String>) {
     let verb = positionals.first().copied();
     if group == "gist" {
         for file in positionals.iter().skip(1) {
-            push_file(write, file, cwd);
+            push_file(write, file, cwd, vars);
         }
     }
     if write.repo.is_none() {
@@ -290,16 +311,16 @@ fn takes_value(group: Option<&str>, verb: Option<&str>, flag: &str) -> bool {
     described || labelled || TEXT_FLAGS.contains(&flag) || FILE_FLAGS.contains(&flag)
 }
 
-fn collect(write: &mut GhWrite, group: Option<&str>, flag: &str, value: &str, cwd: Option<&str>) {
+fn collect(write: &mut GhWrite, group: Option<&str>, flag: &str, value: &str, cwd: Option<&str>, vars: &BTreeMap<String, String>) {
     if group == Some("api") {
         if flag == "--input" {
-            push_file(write, value, cwd);
+            push_file(write, value, cwd, vars);
         } else if FIELD_FLAGS.contains(&flag)
             && let Some((_, field)) = value.split_once('=')
         {
             match field.strip_prefix('@') {
-                Some(path) if flag != "-f" => push_file(write, path, cwd),
-                _ => push_text(write, field, cwd),
+                Some(path) if flag != "-f" => push_file(write, path, cwd, vars),
+                _ => push_text(write, field, cwd, vars),
             }
         }
     } else if matches!(flag, "-r" | "--reason") {
@@ -307,18 +328,18 @@ fn collect(write: &mut GhWrite, group: Option<&str>, flag: &str, value: &str, cw
     } else if group == Some("issue") && LABEL_FLAGS.contains(&flag) {
         write.labels.extend(value.split(',').map(str::trim).filter(|label| !label.is_empty()).map(str::to_owned));
     } else if FILE_FLAGS.contains(&flag) {
-        push_file(write, value, cwd);
+        push_file(write, value, cwd, vars);
     } else if TEXT_FLAGS.contains(&flag) || DESCRIPTION_FLAGS.contains(&flag) {
         if matches!(flag, "-t" | "--title") {
             write.title = Some(value.to_owned());
         }
-        push_text(write, value, cwd);
+        push_text(write, value, cwd, vars);
     }
 }
 
-fn push_text(write: &mut GhWrite, text: &str, cwd: Option<&str>) {
+fn push_text(write: &mut GhWrite, text: &str, cwd: Option<&str>, vars: &BTreeMap<String, String>) {
     for capture in CAT_SUBSTITUTION.captures_iter(text) {
-        push_file(write, &capture[1], cwd);
+        push_file(write, &capture[1], cwd, vars);
     }
     let literal = CAT_SUBSTITUTION.replace_all(text, "");
     write.opaque |= EXPANSION.is_match(&literal);
@@ -327,19 +348,58 @@ fn push_text(write: &mut GhWrite, text: &str, cwd: Option<&str>) {
     }
 }
 
-fn push_file(write: &mut GhWrite, path: &str, cwd: Option<&str>) {
+fn push_file(write: &mut GhWrite, path: &str, cwd: Option<&str>, vars: &BTreeMap<String, String>) {
     if path.is_empty() {
         return;
     }
     if path == "-" {
         write.opaque = true;
     } else {
-        let resolved = resolve(path, cwd);
+        let resolved = resolve(&expand(path, vars), cwd);
         write.files.push(resolved.clone());
         if let Some(text) = read_bounded(&resolved) {
             write.bodies.push(text);
         }
     }
+}
+
+/// A leading shell assignment, `NAME=value`, whose value a later word may name as `$NAME`.
+fn assignment(word: &str) -> Option<(&str, &str)> {
+    let (name, value) = word.split_once('=')?;
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    (first.is_ascii_alphabetic() || first == '_').then_some(())?;
+    chars.all(|character| character.is_ascii_alphanumeric() || character == '_').then_some((name, value))
+}
+
+/// `word` with `$NAME` and `${NAME}` replaced from the command's own assignments, then the
+/// environment, so a body file a command names through a variable is read (north#1041).
+fn expand(word: &str, vars: &BTreeMap<String, String>) -> String {
+    let chars: Vec<char> = word.chars().collect();
+    let mut out = String::new();
+    let mut at = 0;
+    while at < chars.len() {
+        if chars[at] == '$' && at + 1 < chars.len() {
+            let (name, next) = if chars[at + 1] == '{' {
+                chars[at + 2..].iter().position(|character| *character == '}').map_or((String::new(), at + 1), |end| (chars[at + 2..at + 2 + end].iter().collect(), at + 3 + end))
+            } else {
+                let mut end = at + 1;
+                while end < chars.len() && (chars[end] == '_' || chars[end].is_ascii_alphanumeric()) {
+                    end += 1;
+                }
+                (chars[at + 1..end].iter().collect(), end)
+            };
+            let value = (!name.is_empty()).then(|| vars.get(&name).cloned().or_else(|| std::env::var(&name).ok())).flatten();
+            if let Some(value) = value {
+                out.push_str(&value);
+                at = next;
+                continue;
+            }
+        }
+        out.push(chars[at]);
+        at += 1;
+    }
+    out
 }
 
 fn resolve(path: &str, cwd: Option<&str>) -> PathBuf {

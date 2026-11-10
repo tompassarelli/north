@@ -142,3 +142,21 @@ prints each source's alerts, labelled rows and false share, then lists each sour
 its newest false row, or "not narrowed". The 2026-11-08 rows are the 9 false alerts that day's fixes record by commit message
 (north-health 3, north-land-watch 4, promise-checker 2); no acted-on row is labelled yet, so those shares are 100% until
 reviewers add the true alerts, and ops-flow reads unmeasured.
+
+## 2026-11-10 re-measure after the north#706 narrowing (north#1041)
+
+The 2026-11-08 samples above are history; `north hook stats` now reads the later samples at the end of
+`hook_refusal_samples.toml`. The post-fix window is 2026-11-07T22:19Z, when 22f4b4c5c9 deployed, to 2026-11-10T11:00Z.
+
+- **issue-cleanup: 1/20 (5%).** Nineteen closes were true: twelve waited on an unproven box and seven named unticked
+  Clean-up boxes. The one false close ran a python script that ticked that issue before closing it in the same call; the
+  guard only sees a `gh issue edit`, so it still checks the body the script will change.
+- **issue-filing: 0/7 kept, after 18 of 30 false rows passed.** The 1-in-2 sample of the 68 post-fix refusals read 18
+  false and 7 true; every false row named its body file through a variable the same command assigned (`f=…;
+  gh issue create --body-file $f`, `${F}`, or `$(cat $F)`), which the guard now resolves before reading the file. The 7
+  true rows (no `Class:` line) stay refused; five rows whose body was cut cannot be replayed.
+- **public-text: 0/1.** One true refusal: a public issue comment named private client projects. The sample row is cut
+  before those names because publishing them here would leak the detail the guard protects.
+- **privacy-judge: no post-fix refusal**, so no fresh false refusal was observed; the 33 refusals in the 7-day window all
+  predate the fix. Replaying the 2026-11-08 sample through the current body selection leaves 0 false rows judged and the
+  2 true rows whose command still shows its body refused.

@@ -146,3 +146,21 @@ pub fn render(stats: &Stats, window: &str, samples: &[Sample]) -> String {
     let _ = writeln!(out, "  {}", if stats.prune.is_empty() { "none".to_owned() } else { stats.prune.join(", ") });
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The 2026-11-07 to 2026-11-10 samples north#1041 added read at most 10% false, and each
+    /// carries enough rows to mean something (north#1041).
+    #[test]
+    fn the_north_1041_samples_read_at_most_10_percent_false() {
+        let samples = samples(SAMPLES).unwrap();
+        for rule in ["issue-cleanup", "issue-filing", "public-text"] {
+            let sample = samples.iter().rev().find(|sample| sample.rule == rule).unwrap_or_else(|| panic!("{rule} has no sample"));
+            assert!(sample.rows > 0, "{rule} has no rows");
+            assert!(sample.falses * 10 <= sample.rows, "{rule} reads {}/{} false", sample.falses, sample.rows);
+            assert!(sample.narrowed.is_some(), "{rule} has no narrowed line");
+        }
+    }
+}

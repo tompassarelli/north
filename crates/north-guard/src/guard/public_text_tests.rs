@@ -93,3 +93,42 @@ fn judges_only_the_heredoc_that_feeds_the_gh_command() {
     assert!(refused(&format!("{body}gh issue comment 5 --body-file /tmp/body-n706.md"), "/tmp"));
     assert!(refused("gh issue comment 5 --body-file - <<'EOF'\nthe orange-bicycle plan\nEOF\n", "/tmp"));
 }
+
+fn sample_rows(rule: &str) -> Vec<(String, String)> {
+    let document: toml_edit::DocumentMut = crate::guard::hook_stats::SAMPLES.parse().unwrap();
+    document["sample"]
+        .as_array_of_tables()
+        .unwrap()
+        .iter()
+        .filter(|sample| sample["rule"].as_str() == Some(rule))
+        .flat_map(|sample| sample["row"].as_array_of_tables().unwrap().iter())
+        .map(|row| (row["command"].as_str().unwrap_or_default().to_owned(), row["label"].as_str().unwrap_or_default().to_owned()))
+        .collect()
+}
+
+/// Replays the stored 2026-11-08 privacy-judge sample through the current body selection: a stub
+/// judge refuses every body, so a row is still refused only when the guard still sends it one.
+/// Every row labelled false must now pass; the true rows whose command still shows its gh body
+/// must still be refused (north#1041).
+#[test]
+fn the_2026_11_08_privacy_judge_sample_reads_no_false_refusal_after_the_body_selection_fix_north_1041() {
+    let mut false_refused = Vec::new();
+    let mut true_refused = 0;
+    for (command, label) in sample_rows("privacy-judge") {
+        let verdict = decide_with(
+            &input(&command, "/tmp"),
+            |_| BTreeSet::new(),
+            |_, _| false,
+            |text| if text.trim().is_empty() { Ok(Vec::new()) } else { Ok(vec![Finding { kind: "fixture-kind".into(), span: "x".into() }]) },
+            |_| None,
+        );
+        let refused = matches!(verdict, Verdict::Deny(_));
+        match label.as_str() {
+            "false" if refused => false_refused.push(command),
+            "true" if refused => true_refused += 1,
+            _ => {}
+        }
+    }
+    assert!(false_refused.is_empty(), "false refusals still judged: {false_refused:#?}");
+    assert!(true_refused >= 2, "only {true_refused} true rows still refused");
+}

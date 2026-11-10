@@ -121,3 +121,20 @@ fn a_body_file_the_command_builds_from_a_file_with_boxes_is_judged_by_both_n867(
     let rewritten = format!("cd {} && {{ printf 'Class: revert guard false positive\\n'; sed '/^Done when:$/,$d' note.md; printf '## Done when\\n\\n- [ ] the revert guard passes a moved import\\n'; }} > body3.md && gh issue create -R tompassarelli/north --label bug --title 'Revert guard flags a moved import' --body-file {}/body3.md", dir.path().display(), dir.path().display());
     assert_eq!(decide_with(&creating(&rewritten), &mut Repo), Verdict::Allow);
 }
+
+#[test]
+fn a_body_file_named_by_a_variable_the_command_assigns_is_judged_by_its_boxes_north_1041() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("body.md"), "Category: tooling\n\n## Done when\n\n- [ ] the body file is read\n").unwrap();
+    std::fs::write(dir.path().join("empty.md"), "Category: tooling\n\nNo checks yet.\n").unwrap();
+    let path = dir.path().display();
+    for command in [
+        format!("F={path}/body.md && gh issue create -R tompassarelli/north --label enhancement --title 'Read a body file' --body-file $F"),
+        format!("F={path} && gh issue create -R tompassarelli/north --label enhancement --title 'Read a body file' --body-file ${{F}}/body.md"),
+        format!("S={path} && gh issue create -R tompassarelli/north --label enhancement --title 'Read a body file' --body \"$(cat $S/body.md)\""),
+    ] {
+        assert_eq!(decide_with(&creating(&command), &mut Repo), Verdict::Allow, "{command}");
+    }
+    let missing = format!("F={path}/empty.md && gh issue create -R tompassarelli/north --label enhancement --title 'Check a body file' --body-file $F");
+    assert!(matches!(decide_with(&creating(&missing), &mut Repo), Verdict::Deny(reason) if reason.contains("no `- [ ]` box")));
+}
