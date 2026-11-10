@@ -19,11 +19,12 @@ const GIT_HARDENING: [(&str, &str); 2] = [("core.hooksPath", "/dev/null"), ("cor
 const WITHHELD: &str = "[token withheld]";
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}").expect("the token pattern compiles"));
 
-/// The host this broker serves: where the fleet keeps its session records, and the home whose gh shim the command reaches GitHub through, and the broker's own environment a granted command starts from.
+/// The host this broker serves: where the fleet keeps its session records, the home whose gh shim the command reaches GitHub through, the broker's own environment a granted command starts from, and where the cgroup filesystem is mounted.
 pub(super) struct Host {
     pub fleet: PathBuf,
     pub home: PathBuf,
     pub environment: Vec<(String, String)>,
+    pub cgroups: PathBuf,
 }
 
 impl Host {
@@ -31,7 +32,7 @@ impl Host {
         let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map_or_else(|| PathBuf::from("/"), PathBuf::from);
         let fleet = std::env::var_os("NORTH_FLEET_DIR").filter(|fleet| !fleet.is_empty()).map_or_else(|| home.join(".local/state/north/fleet"), PathBuf::from);
         let environment = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
-        Self { fleet, home, environment }
+        Self { fleet, home, environment, cgroups: PathBuf::from("/sys/fs/cgroup") }
     }
 }
 

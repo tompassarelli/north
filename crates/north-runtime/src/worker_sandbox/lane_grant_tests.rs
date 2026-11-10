@@ -43,9 +43,10 @@ impl Fixture {
         std::fs::write(fleet.join(NAME).join("session.json"), serde_json::json!({ "name": NAME, "cwd": main, "task_ref": TASK }).to_string()).unwrap();
         let north = root.path().join("north");
         let log = root.path().join("ran");
-        write_executable(&north, format!("#!/bin/sh\nprintf '%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" >> {}\nprintf 'out %s\\n' \"$GH_TOKEN\"\nprintf 'err %s\\n' \"$GH_TOKEN\" >&2\n", log.display()));
+        write_executable(&north, format!("#!/bin/sh\n[ -z \"$NORTH_WORKER_SESSION_SCOPE\" ] || printf '%s' \"$NORTH_WORKER_SESSION_SCOPE\" > {}\nprintf '%s|%s|%s\\n' \"$PWD\" \"$*\" \"$NORTH_FLEET_SESSION\" >> {}\nprintf 'out %s\\n' \"$GH_TOKEN\"\nprintf 'err %s\\n' \"$GH_TOKEN\" >&2\n", root.path().join("scope").display(), log.display()));
         let environment = vec![("HOME".to_owned(), home.display().to_string()), ("PATH".to_owned(), "/run/current-system/sw/bin:/usr/bin:/bin".to_owned()), ("GH_TOKEN".to_owned(), HELD.to_owned())];
-        Self { host: Host { fleet, home, environment }, root, north, lane, other }
+        let cgroups = root.path().join("cgroup");
+        Self { host: Host { fleet, home, environment, cgroups }, root, north, lane, other }
     }
 
     fn ran(&self) -> Vec<String> {
@@ -53,12 +54,16 @@ impl Fixture {
     }
 
     fn ask(&self, arguments: &[&str], directory: &Path) -> Asked {
+        self.ask_from(&cgroup(), arguments, directory)
+    }
+
+    fn ask_from(&self, cgroup: &str, arguments: &[&str], directory: &Path) -> Asked {
         let (client, server) = UnixStream::pair().unwrap();
         let (mut out, out_writer) = std::io::pipe().unwrap();
         let (mut err, err_writer) = std::io::pipe().unwrap();
         let stdin = File::open("/dev/null").unwrap();
         let logged = std::thread::scope(|scope| {
-            let served = scope.spawn(|| broker::answer(&self.north, &server, Some(&cgroup()), &self.host));
+            let served = scope.spawn(|| broker::answer(&self.north, &server, Some(cgroup), &self.host));
             let request = Request { arguments: arguments.iter().map(|word| (*word).to_owned()).collect(), directory: directory.to_owned(), environment: Vec::new() };
             let code = broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap();
             (code, served.join().unwrap())
@@ -89,6 +94,8 @@ impl Asked {
 fn cgroup() -> String {
     format!("0::/user.slice/user-1000.slice/user@1000.service/app.slice/{UNIT}\n")
 }
+
+const OUTSIDE_CGROUP: &str = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-worker-outside.service\n";
 
 #[test]
 fn a_lane_only_session_lands_its_own_lane_on_main_and_nothing_else() {
@@ -166,4 +173,21 @@ fn lane_only_client() {
         let text = std::fs::read(&target).unwrap_or_default();
         assert!(!String::from_utf8_lossy(&text).contains(HELD), "{} holds the token", target.display());
     }
+}
+
+#[test]
+fn a_safe_push_from_the_brokered_lane_child_of_an_opencode_shell_command_is_granted() {
+    let fixture = Fixture::new();
+    let scope = fixture.host.cgroups.join(cgroup().trim_start_matches("0::/").trim_end());
+    std::fs::create_dir_all(&scope).unwrap();
+    std::fs::write(scope.join("cgroup.procs"), "").unwrap();
+    let started = fixture.ask(&["--worker-sandbox", "--lane", "--", "/bin/sh", "-c", "safe-push --to main"], &fixture.lane);
+    assert_eq!(started.code, 0, "{}", started.stderr);
+    if let Ok(procs) = std::fs::read_to_string(fixture.root.path().join("scope")) {
+        super::super::join_scope(Path::new(&procs)).unwrap();
+    }
+    let child = if std::fs::read_to_string(scope.join("cgroup.procs")).unwrap() == "0" { cgroup() } else { OUTSIDE_CGROUP.to_owned() };
+    let landed = fixture.ask_from(&child, &["safe-push", "--to", "main"], &fixture.lane);
+    assert_eq!(landed.code, 0, "the brokered child's nested safe-push is granted: {}", landed.stderr);
+    assert_eq!(fixture.ran().last().unwrap(), &format!("{}|safe-push --to main|{NAME}", fixture.lane.display()));
 }
