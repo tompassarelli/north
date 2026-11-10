@@ -145,6 +145,18 @@ fn the_sonnet_reviewer_draws_medium_or_high_by_seed_and_records_it() {
     std::fs::remove_dir_all(&directory).unwrap();
 }
 
+#[test]
+fn the_deepseek_brief_and_the_review_agree_on_who_lands() {
+    let order = review::worker_order();
+    let full: Vec<Verdict> = (0..FULL_REVIEWS).map(|_| verdict("feature", Kind::Clean, "00000001")).collect();
+    assert_eq!(review::Lander::of(&[], "feature", false, false, "00000001"), review::Lander::Reviewer, "a category under full review goes to a reviewer");
+    assert_eq!(review::Lander::of(&full, "feature", false, false, "00000001"), review::Lander::ReviewJob, "an unsampled commit is landed by the review job");
+    assert!(order.contains("never run safe-push"), "{order}");
+    assert!(order.contains("Sonnet reviewer, who lands it") && order.contains("review job lands any other commit through safe-push itself"), "the worker is told both landings the review code takes: {order}");
+    assert!(order.contains("the lander ticks the box") && !order.contains("reviewer lands it and ticks"), "nobody but the lander ticks, on either path: {order}");
+    let reviewer = review::brief("ds", "north#1020", "feature", None, std::path::Path::new("/lane"), "abc", "medium");
+    assert!(reviewer.contains("land it with `safe-push` from the lane"), "the reviewer brief lands the sampled commit: {reviewer}");
+}
 
 #[test]
 fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_landed() {

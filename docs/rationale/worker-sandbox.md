@@ -56,7 +56,7 @@ A kernel without Landlock ABI 2 or later runs the command unconfined and says so
 
 ## Landing a lane-only session's lane (north#1041)
 
-A lane-only session's shell runs in the broker's fresh `--lane` child, not in the session's own scope, so a `safe-push` from it comes from a caller the broker cannot name. The command refuses at once instead, before its checks, with `lane-only session: end with Done: <worktree> <branch> <sha>; the review-and-land loop lands it`: the worker commits in its lane, reports that line, and a review-and-land session lands the commit through safe-push and ticks the box. A direct caller in the session's own scope still reaches the broker grant of north#1056. The DeepSeek overlay and every DeepSeek worker brief carry the same order.
+A lane-only session's shell runs in the broker's fresh `--lane` child, not in the session's own scope, so a `safe-push` from it comes from a caller the broker cannot name. The command refuses at once instead, before its checks, with `lane-only session: end with Done: <worktree> <branch> <sha>; the review-and-land loop lands it`: the worker commits in its lane, reports that line, and dispatch's review job lands the commit through safe-push, itself or through the Sonnet reviewer it launches when sampling picks the commit, while the lander ticks the box from the commit's `Item:` and `Box:` lines (north#1020). A direct caller in the session's own scope still reaches the broker grant of north#1056. The DeepSeek overlay and every DeepSeek worker brief carry the same order.
 
 ## Rollout
 

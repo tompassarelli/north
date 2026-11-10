@@ -27,8 +27,6 @@ mod effort_tests;
 
 pub const ACCOUNT: &str = "opencode:go";
 pub const PROVIDER: &str = "opencode";
-/// The order every DeepSeek worker's brief carries: its shell cannot land its lane, and the review-and-land loop does.
-pub const LANE_ONLY_ORDER: &str = "Lane-only: never run safe-push; it refuses at once with `lane-only session: end with Done: <worktree> <branch> <sha>; the review-and-land loop lands it`. Commit in your lane and report Done: with that line; the reviewer lands it and ticks the box.";
 
 #[derive(Clone, Debug, Default)]
 pub struct Settings {
@@ -156,6 +154,6 @@ impl Seen {
         pools.take_deepseek();
         let route = super::tier::Route { effort: None, effort_arm: false, signal: None, ..ready.route.clone() };
         let local = Some(format!("north fleet dispatch: DeepSeek takes this box on {host}, the host that holds the opencode key (north#1020)"));
-        Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: format!("{}\n\n{LANE_ONLY_ORDER}", ready.brief), route, cloud: false, local })
+        Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: format!("{}\n\n{}", ready.brief, review::worker_order()), route, cloud: false, local })
     }
 }
