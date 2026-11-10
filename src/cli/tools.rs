@@ -54,7 +54,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("ssh-argv", crate::platform::ssh::run),
     ("provider-capacity", crate::capacity::provider_capacity::run),
     ("github-mirror", crate::github_mirror::sync::run),
-    ("gh-session", crate::platform::gh_session::run),
+    ("gh-session", |arguments| crate::platform::gh_session::run(arguments, crate::guard::gh_screen::screen)),
     ("ssh-session", crate::platform::ssh_session::run),
     ("ssh-master", crate::platform::ssh_master::run),
     ("git-credential", crate::platform::git_credential::run),

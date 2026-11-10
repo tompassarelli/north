@@ -32,7 +32,7 @@ fn an_issue_edit_that_empties_or_halves_the_body_is_refused_and_an_ordinary_edit
     assert!(matches!(verdict(dir.path(), &edit("short.md")), Verdict::Deny(_)));
     assert!(matches!(verdict(dir.path(), "gh issue edit 706 -R tompassarelli/north --body ''"), Verdict::Deny(_)));
     assert!(matches!(verdict(dir.path(), &edit("grown.md")), Verdict::Allow));
-    assert!(matches!(verdict(dir.path(), &format!("{} # --allow-shrink superseded by north#900", edit("empty.md"))), Verdict::Allow));
+    assert!(matches!(verdict(dir.path(), &format!("{} --allow-shrink 'superseded by north#900'", edit("empty.md"))), Verdict::Allow));
     assert!(matches!(verdict(dir.path(), "gh issue edit 706 -R tompassarelli/north --title 'New title'"), Verdict::Allow));
     assert!(matches!(verdict(dir.path(), &format!("script > empty.md && {}", edit("empty.md"))), Verdict::Allow));
 }

@@ -61,10 +61,10 @@ fn refuse(input: &HookInput, world: &mut impl World) -> Verdict {
             continue;
         };
         let new = write.bodies.iter().filter(|part| write.title.as_deref() != Some(part.as_str())).cloned().collect::<Vec<_>>().join("\n");
-        let (old, new) = (current.trim().chars().count(), new.trim().chars().count());
-        if new == 0 && old > 0 || new * 2 < old {
+        if super::gh_screen::shrinks(&current, &new) {
+            let (old, new) = (current.trim().chars().count(), new.trim().chars().count());
             return Verdict::Deny(format!(
-                "No. This edit replaces {repo}#{number}'s {old}-character body with {new} characters, which blanks or drops most of it. Append to the body you read (`gh issue view {number} -R {repo} --json body -q .body > /tmp/{number}.md`, then add your lines) or comment instead; when the shrink is meant, add `# --allow-shrink REASON` to the command."
+                "No. This edit replaces {repo}#{number}'s {old}-character body with {new} characters, which blanks or drops most of it. Append to the body you read (`gh issue view {number} -R {repo} --json body -q .body > /tmp/{number}.md`, then add your lines) or comment instead; when the shrink is meant, pass `--allow-shrink REASON` to `gh issue edit`."
             ));
         }
     }

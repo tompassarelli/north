@@ -83,5 +83,6 @@ mod nix_activity_tests;
 mod argument_words;
 mod search_false_refusal_tests;
 mod worker_tier_tests;
+pub mod gh_screen;
 pub mod issue_shrink;
 pub mod unrunnable_box;

@@ -40,7 +40,7 @@ const ALARM_PERCENTS: [u32; 2] = [50, 80];
 const PROXY: &str = "proxy";
 const HOOK_SHARE_PERCENT: u32 = 10;
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], screen: fn(&mut Command) -> Result<(), String>) -> u8 {
     if matches!(arguments, [word] if word == "-h" || word == "--help") {
         println!("{USAGE}");
         return 0;
@@ -67,7 +67,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let origin = gh_origin::of_parent();
     match prepare(real, rest, &session, Share { budget, ledger: &ledger, pool: &pool }, now, &origin, mint) {
-        Ok(mut command) => match super::gh_broker_route::route(&mut command) {
+        Ok(mut command) => match super::gh_broker_route::route(&mut command).and_then(|()| screen(&mut command)) {
             Ok(()) => {
                 send(budget_notices(&session, &ledger, before, cost(rest), budget, Timestamp::now().unix_seconds(), false));
                 exec(command)
