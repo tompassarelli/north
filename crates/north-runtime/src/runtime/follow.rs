@@ -58,7 +58,7 @@ pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
 
 /// The other hosts take the runtime only after it walked the spine here, so a runtime that breaks the core loop is rolled back on this host and reaches no second one; a promotion that found another running leaves its landing, the shipping and the lander to that one.
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
-    let here = update::update(layout);
+    let (here, replayed) = update_following_lander(layout);
     if matches!(here, Ok(update::Flight::Joined)) {
         return Ok(());
     }
@@ -66,8 +66,18 @@ pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
         true => walk::ship_if_walked(walk::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ()),
         false => Ok(()),
     };
-    let lander = follow_lander(layout);
+    let lander = replayed.unwrap_or_else(|| follow_lander(layout));
     here.map(|_| ()).and(elsewhere).and(lander)
+}
+
+/// Each swap moves the lander link after it on a thread of its own, so the lander follows a runtime the moment it is live while the promotion builds its next pass; the result is the replays' verdict, or none when nothing was swapped.
+pub(super) fn update_following_lander(layout: &Layout) -> (Result<update::Flight, Failure>, Option<Result<(), Failure>>) {
+    std::thread::scope(|scope| {
+        let mut replays = Vec::new();
+        let here = update::update(layout, &mut || replays.push(scope.spawn(|| follow_lander(layout))));
+        let replayed = (!replays.is_empty()).then(|| replays.into_iter().map(|replay| replay.join().unwrap_or_else(|_| Err(failed(1, "lander link held: its replay panicked")))).fold(Ok(()), Result::and));
+        (here, replayed)
+    })
 }
 
 pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {

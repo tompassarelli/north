@@ -88,17 +88,14 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     }
 }
 
-/// Brings this host to the pinned runtime, moves the lander link after it when it changed, and watches a fresh swap for rising failures.
+/// Brings this host to the pinned runtime, moves the lander link after each swap, and watches a fresh swap for rising failures.
 fn promote_here(layout: &Layout) {
-    let before = layout.live_sha();
-    match update::update(layout) {
-        Err(failure) => eprintln!("north runtime settle: {}: {}", host::name(), failure.message),
-        Ok(_) if layout.live_sha() != before => {
-            if let Err(failure) = follow::follow_lander(layout) {
-                eprintln!("north runtime settle: {}", failure.message);
-            }
-        }
-        Ok(_) => {}
+    let (updated, replayed) = follow::update_following_lander(layout);
+    if let Err(failure) = updated {
+        eprintln!("north runtime settle: {}: {}", host::name(), failure.message);
+    }
+    if let Some(Err(failure)) = replayed {
+        eprintln!("north runtime settle: {}", failure.message);
     }
     watch::watch(layout);
 }

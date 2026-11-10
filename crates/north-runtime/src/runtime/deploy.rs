@@ -3,7 +3,7 @@ use super::host_facts;
 use super::layout::{self, BUILT_FROM, Layout, PROGRAMS, TREE};
 use super::remote::{OWN_RSH, limit, output, run, run_reporting, ssh};
 use super::store::references;
-use super::update::{built_main, checkout, lock_waiting, named_lock_waiting};
+use super::update::{built_main, checkout, named_lock_waiting, promotion_waiting};
 use crate::land_offload;
 use std::collections::BTreeSet;
 use std::fs;
@@ -20,7 +20,7 @@ const PROMOTE: Duration = Duration::from_secs(15 * 60);
 
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     let (target, runtime) = {
-        let _building = lock_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
+        let _building = promotion_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
         built_main(layout, &checkout())?
     };
     ship_to(layout, &target, &runtime, hosts, &|| false)

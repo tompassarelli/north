@@ -27,6 +27,7 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 const PASSES: usize = 5;
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
+const PROMOTE_LOCK: &str = "runtime-promote.lock";
 
 pub(super) mod hold;
 mod build;
@@ -49,8 +50,8 @@ pub(super) enum Flight {
     Joined,
 }
 
-pub(super) fn update(layout: &Layout) -> Result<Flight, Failure> {
-    let flown = flight(layout);
+pub(super) fn update(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Flight, Failure> {
+    let flown = flight(layout, after_flip);
     host_facts::record_if_stale(layout);
     flown
 }
@@ -63,16 +64,16 @@ fn note_landing(layout: &Layout) {
     }
 }
 
-/// One promotion runs per host: a caller that finds one running dates its landing and waits for the update lock, then follows origin/main at its newest head, which costs one fetch when the holder already promoted it; a caller still waiting after `PINNED_LOCK_WAIT` leaves its landing to the next tick.
-fn flight(layout: &Layout) -> Result<Flight, Failure> {
-    if let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? {
-        return follow_main(layout).map(|()| Flight::Flew);
+/// One promotion runs per host under runtime-promote.lock, which its fetches and builds hold while runtime-update.lock covers only each swap: a caller that finds one running dates its landing and waits for it, then follows origin/main at its newest head, which costs one fetch when the holder already promoted it; a caller still waiting after `PINNED_LOCK_WAIT` leaves its landing to the next tick. `after_flip` runs after each swap, so the lander link follows a runtime as soon as it is live rather than after the holder's last pass.
+fn flight(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<Flight, Failure> {
+    if let Some(_promoting) = named_lock(layout, PROMOTE_LOCK, FlockOperation::NonBlockingLockExclusive)? {
+        return follow_main(layout, after_flip).map(|()| Flight::Flew);
     }
     if land_offload::settles_fleet_here() {
         note_landing(layout);
     }
-    match lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime promote") {
-        Ok(_lock) => follow_main(layout).map(|()| Flight::Flew),
+    match promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime promote") {
+        Ok(_promoting) => follow_main(layout, after_flip).map(|()| Flight::Flew),
         Err(held) => {
             println!("north runtime: {}; the next tick takes origin/main's newest head", held.message);
             Ok(Flight::Joined)
@@ -80,10 +81,10 @@ fn flight(layout: &Layout) -> Result<Flight, Failure> {
     }
 }
 
-fn follow_main(layout: &Layout) -> Result<(), Failure> {
+fn follow_main(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<(), Failure> {
     for _ in 0..PASSES {
         match pass(layout) {
-            Ok(Pass::Promoted) => continue,
+            Ok(Pass::Promoted) => after_flip(),
             finished => return finished.map(|_| ()),
         }
     }
@@ -94,7 +95,7 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
     if !land_offload::accepts_peer_runtimes_here() {
         return Err(failed(1, format!("this host builds its own runtime and does not promote {} shipped from another host", layout::short(target))));
     }
-    let _lock = lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha")?;
+    let _promoting = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha")?;
     let checkout = checkout();
     let previous = fs::read_link(layout.current()).ok();
     match shipped(layout, &checkout, target, previous.as_deref()) {
@@ -130,7 +131,7 @@ fn shipped(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {
-    let _lock = lock_waiting(layout, remote::limit(ROLLBACK_LOCK_WAIT), "north runtime rollback").map_err(|held| failed(DEFERRED, format!("{}; the promotion holding it decides what stays current", held.message)))?;
+    let _flipping = named_lock_waiting(layout, UPDATE_LOCK, remote::limit(ROLLBACK_LOCK_WAIT), "north runtime rollback").map_err(|held| failed(DEFERRED, format!("{}; the promotion holding it decides what stays current", held.message)))?;
     let current = fs::read_link(layout.current()).ok();
     if current.as_deref() != Some(layout::link(failed_sha).as_path()) {
         return Err(failed(DEFERRED, format!("current is not {}; nothing to roll back", layout::short(failed_sha))));
@@ -150,8 +151,17 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     Ok(previous)
 }
 
-pub(super) fn lock_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {
-    named_lock_waiting(layout, UPDATE_LOCK, limit, waiter)
+pub(super) fn promotion_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {
+    named_lock_waiting(layout, PROMOTE_LOCK, limit, waiter)
+}
+
+/// Only the swap holds runtime-update.lock, so a rollback waits for a swap and never for a build; a current a rollback moved while the runtime was built defers it to the next pass rather than swap from a runtime no longer live.
+fn flip(layout: &Layout, target: &str, before: Option<&Path>) -> Result<File, Failure> {
+    let flipping = named_lock_waiting(layout, UPDATE_LOCK, remote::limit(PINNED_LOCK_WAIT), "north runtime promote")?;
+    if fs::read_link(layout.current()).ok().as_deref() != before {
+        return Err(failed(DEFERRED, format!("current moved while {} was built; the next pass promotes it from the runtime now live", layout::short(target))));
+    }
+    Ok(flipping)
 }
 
 pub(super) fn named_lock_waiting(layout: &Layout, name: &str, limit: Duration, waiter: &str) -> Result<File, Failure> {
@@ -226,7 +236,7 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
         let stopped = if failure.code == DEFERRED { Promotion::Unfinished } else { *stopped };
         lifecycle::move_to::<Promoting>(layout, target, stopped, &failure.message)?;
     }
-    let synced = promoted.map_err(|(_, failure)| failure)?;
+    let (synced, _flipping) = promoted.map_err(|(_, failure)| failure)?;
     lifecycle::went_live(layout, target, was)?;
     note_promotion(layout, target, "live");
     live::note_swap(layout, &layout::link(target));
@@ -259,18 +269,21 @@ fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
     process::run("git", Some(checkout), &["merge-base", "--is-ancestor", earlier, later]).is_ok_and(|output| output.status.success())
 }
 
-fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<String, (Promotion, Failure)> {
+fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<(String, File), (Promotion, Failure)> {
     let unfinished = |failure| (Promotion::Unfinished, failure);
+    let before = fs::read_link(layout.current()).ok();
     let building = !usable(&layout.runtime(target));
     if building {
         lifecycle::move_to::<Promoting>(layout, target, Promotion::Building, "pulling a peer's build or building here").map_err(unfinished)?;
         note_promotion(layout, target, "building");
     }
     let runtime = built(layout, checkout, target).map_err(|failure| (Promotion::BuildFailed, failure))?;
+    let flipping = flip(layout, target, before.as_deref()).map_err(unfinished)?;
     let cause = if building { "built; swapping current to it and checking it" } else { "built elsewhere and shipped; swapping current to it and checking it" };
     lifecycle::move_to::<Promoting>(layout, target, Promotion::Installing, cause).map_err(unfinished)?;
     note_promotion(layout, target, "installing");
-    install(layout, checkout, target, &runtime, previous).map_err(|failure| (if failure.denied { Promotion::Unfinished } else { Promotion::InstallFailed }, failure))
+    let synced = install(layout, checkout, target, &runtime, previous).map_err(|failure| (if failure.denied { Promotion::Unfinished } else { Promotion::InstallFailed }, failure))?;
+    Ok((synced, flipping))
 }
 
 fn note_promotion(layout: &Layout, target: &str, state: &str) {
@@ -295,10 +308,6 @@ fn install(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, previ
     super::deploy::stage_for_lander(layout, target, runtime);
     let synced = sync(layout, previous, target, &mut |text: &str| alert_proxy(&format!("north runtime update: {text}")))?;
     Ok(synced)
-}
-
-pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {
-    named_lock(layout, UPDATE_LOCK, operation)
 }
 
 pub(super) fn named_lock(layout: &Layout, name: &str, operation: FlockOperation) -> Result<Option<File>, Failure> {

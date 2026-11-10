@@ -83,7 +83,7 @@ fn update_command(layout: &layout::Layout, flags: &[String]) -> Option<Result<()
     match flags {
         [] if land_offload::settles_fleet_here() => Some(settle::settle(layout)),
         [] => {
-            let updated = update::update(layout);
+            let updated = update::update(layout, &mut || {});
             watch::watch(layout);
             Some(updated.map(|_| ()))
         }
