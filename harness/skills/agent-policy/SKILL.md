@@ -2,8 +2,8 @@
 name: agent-policy
 description: >-
   Author or change agent instructions, skills, hooks, guards or modules; turn lasting corrections into policy; import skills; audit the harness; review a followed source.
-grounded: 2026-10-15
-written: 2026-10-15
+grounded: 2026-11-10
+written: 2026-11-10
 metadata:
   kind: playbook
 ---
@@ -24,17 +24,17 @@ the existing owner rather than a new rule, because duplicates conflict.
 Fix a repeated correction at the highest level that works: architecture, then
 types, lint, test and prose last, because each lower level is enforced less
 reliably. Prove the fix by replaying a real past mistake against it, because an
-enforcer that never fired on a real case may not fire at all. A lane that fixes an
-agent behavior through harness text (a skill, `CLAUDE.md` or an agent definition)
-adds its case under `harness/cases/`, cut at a turn that loaded the text it
-changes, and its report shows `north policy-replay case harness/cases/NAME.toml
---arm base=north@origin/main --arm lane=north@HEAD` failing on the base text and
-passing on the lane's, and commits the `NAME.proof.jsonl` that run writes, because
-text a replay never saw fail may change nothing; a lane ticking a detector-filed
-box lands only with that proof reading kept.
-A judged case decides only at the 90% level; on an inconclusive replay the text
-stays as it is. Once an enforcer
-holds the rule, delete the prose, because it then only costs context.
+enforcer that never fired on a real case may not fire at all. A lane that fixes
+an agent behavior through harness text (a skill, `CLAUDE.md` or an agent
+definition) adds its case under `harness/cases/`, cut at a turn that loaded the
+text it changes. Its report shows `north policy-replay case
+harness/cases/NAME.toml --arm base=north@origin/main --arm lane=north@HEAD`
+failing on the base text and passing on the lane's, and the lane commits the
+`NAME.proof.jsonl` that run writes, because text a replay never saw fail may
+change nothing. A lane ticking a detector-filed box lands only with that proof
+reading kept. A judged case decides only at the 90% level; on an inconclusive
+replay the text stays as it is. Once an enforcer holds the rule, delete the
+prose, because it then only costs context.
 [enforcers.md](references/enforcers.md) lists the rules a hook or gate already
 holds; add a row when you add an enforcer.
 
@@ -59,8 +59,8 @@ facts count.
 
 1. Read owner instructions; edit an owned worktree, never a projection or pin,
    because projections are regenerated.
-2. Follow `skill-creator` for frontmatter and resources, and register and
-   validate as [notes.md](references/notes.md) describes.
+2. Follow [skill-creator](references/guides/anthropic-skill-creator.md) for
+   frontmatter and resources, and register and validate as [notes.md](references/notes.md) describes.
 3. Across repositories, land new source and confirm it runs live before landing
    the caller switch or registration that depends on it, and delete the old
    source last. Never point the south repository, a registration or a runtime
