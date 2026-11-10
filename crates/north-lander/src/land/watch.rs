@@ -306,7 +306,7 @@ impl Watch {
             if let Some(host) = host {
                 self.hosts.release(&host);
             }
-            let found = search.join().unwrap_or(Found { culprit: None, span: (epoch(), epoch()), superseded: false });
+            let found = search.join().unwrap_or(Found { culprits: Vec::new(), span: (epoch(), epoch()), superseded: false });
             conclude(lander, &batch, &outcome, &found);
             settled = true;
         }
@@ -382,7 +382,7 @@ fn conclude(lander: &Lander, batch: &Batch, outcome: &Outcome, found: &Found) {
     } else if let Some(verdict) = north_check_environment::credential::incident(&outcome.log) {
         println!("north land: the post-land checks of {} are red: {verdict}", batch.head);
     } else if let Verdict::RedMain(detail) = &outcome.verdict {
-        blame(lander, batch, found.culprit, detail, outcome);
+        blame(lander, batch, &found.culprits, detail, outcome);
     }
     retire(lander, batch, "its culprit search ended");
 }
@@ -408,26 +408,28 @@ fn record(lander: &Lander, spans: &[Span]) {
     }
 }
 
-fn blame(lander: &Lander, batch: &Batch, culprit: Option<usize>, detail: &str, outcome: &Outcome) {
-    let Some(at) = culprit else {
+fn blame(lander: &Lander, batch: &Batch, culprits: &[usize], detail: &str, outcome: &Outcome) {
+    if culprits.is_empty() {
         inherited(lander, &batch.head, detail, outcome);
         return;
-    };
-    let (base, lanes) = (&batch.base, &batch.lanes);
-    let lane = &lanes[at];
-    let since = if at == 0 { base } else { &lanes[at - 1].tip };
-    if lane.ticket.red_fix.is_some() {
-        let message = format!("north land: the post-land checks failed ({detail}) with {}, a red fix; it is not reverted again", lane.ticket.branch);
-        println!("{message}");
-        after::send("proxy", &message);
-        return;
     }
-    match revert(lander, lane, since, detail, outcome) {
-        Ok(line) => println!("north land: {line}"),
-        Err(error) => {
-            let message = format!("north land: the post-land checks of {} failed ({detail}) and its revert could not be queued: {error}", lane.ticket.branch);
+    let (base, lanes) = (&batch.base, &batch.lanes);
+    for &at in culprits {
+        let Some(lane) = lanes.get(at) else { continue };
+        let since = if at == 0 { base } else { &lanes[at - 1].tip };
+        if lane.ticket.red_fix.is_some() {
+            let message = format!("north land: the post-land checks failed ({detail}) with {}, a red fix; it is not reverted again", lane.ticket.branch);
             println!("{message}");
             after::send("proxy", &message);
+            continue;
+        }
+        match revert(lander, lane, since, detail, outcome) {
+            Ok(line) => println!("north land: {line}"),
+            Err(error) => {
+                let message = format!("north land: the post-land checks of {} failed ({detail}) and its revert could not be queued: {error}", lane.ticket.branch);
+                println!("{message}");
+                after::send("proxy", &message);
+            }
         }
     }
 }

@@ -59,7 +59,7 @@ pub struct Search {
 }
 
 pub struct Found {
-    pub culprit: Option<usize>,
+    pub culprits: Vec<usize>,
     pub span: (f64, f64),
     pub superseded: bool,
 }
@@ -227,16 +227,16 @@ pub fn search(search: Search) -> std::thread::JoinHandle<Found> {
     std::thread::spawn(move || {
         let Search { landed, run } = search;
         let started = telemetry::epoch();
-        let culprit = locate(&landed, &run);
+        let culprits = locate(&landed, &run);
         if run.superseded() {
             println!("north land: the culprit search of {} stopped because a later landing changed its check lines", landed.head);
-            return Found { culprit: None, span: (started, telemetry::epoch()), superseded: true };
+            return Found { culprits: Vec::new(), span: (started, telemetry::epoch()), superseded: true };
         }
-        if let Some(at) = culprit {
+        for &at in &culprits {
             let probed = run.at(&landed.head, &landed.tips[at]).log;
             judge_coverage(&landed, if at == 0 { &landed.base } else { &landed.tips[at - 1] }, &landed.tips[at], if probed.exists() { &probed } else { &run.log });
         }
-        Found { culprit, span: (started, telemetry::epoch()), superseded: false }
+        Found { culprits, span: (started, telemetry::epoch()), superseded: false }
     })
 }
 
@@ -249,31 +249,60 @@ fn judge_coverage(landed: &Landed, base: &str, tip: &str, log: &Path) {
     }
 }
 
-fn locate(landed: &Landed, run: &Run) -> Option<usize> {
+fn locate(landed: &Landed, run: &Run) -> Vec<usize> {
     let lanes = landed.tips.len();
     let room = probe_slots::free_slots(&landed.repo).map_or(1, |(free, _)| free);
     let suspects = blame::ask(&landed.repo, &run.log, &landed.base, &landed.head, &landed.lanes, &landed.tips, room);
-    let culprit = blame::culprit(lanes, room, &suspects, |counts| prefixes(landed, run, counts));
-    match culprit {
-        Some(at) => println!("north land: {} is the first landed lane whose prefix of {} is red", landed.lanes.get(at).map_or("?", String::as_str), landed.head),
-        None => println!("north land: post-land checks of {} are red, but the prefix search names no lane: main was already red at {} or a prefix reached no verdict", landed.head, landed.base),
+    let signatures: std::collections::BTreeSet<String> = steps(&run.outcome).into_iter().map(|failure| failure.label().to_owned()).collect();
+    let searchable = signatures.len() > 1 && !matches!(&suspects, blame::Suspects::Named(named) if named.len() == 1);
+    let found = if searchable {
+        if !matches!(probes(landed, run, &[0]).first().map(|probe| &probe.verdict), Some(Verdict::Green)) {
+            println!("north land: post-land checks of {} are red on their base {}, so no landed lane is blamed", landed.head, landed.base);
+            return Vec::new();
+        }
+        blame::culprits(lanes, &suspects, &signatures, |counts| probes(landed, run, counts))
+    } else {
+        None
+    };
+    let culprits: Vec<usize> = match found {
+        Some(found) if !found.is_empty() => found,
+        _ => blame::culprit(lanes, room, &suspects, |counts| probes(landed, run, counts).into_iter().map(|probe| probe.verdict).collect()).into_iter().collect(),
+    };
+    for &at in &culprits {
+        println!("north land: {} is a landed lane whose prefix of {} is red", landed.lanes.get(at).map_or("?", String::as_str), landed.head);
     }
-    culprit
+    if culprits.is_empty() {
+        println!("north land: post-land checks of {} are red, but the prefix search names no lane: main was already red at {} or a prefix reached no verdict", landed.head, landed.base);
+    }
+    culprits
 }
 
-fn prefixes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<Verdict> {
+fn probes(landed: &Landed, run: &Run, counts: &[usize]) -> Vec<blame::Probe> {
     let tree = |count: usize| if count == 0 { landed.base.as_str() } else { landed.tips[count - 1].as_str() };
     let trees: std::collections::BTreeSet<&str> = counts.iter().map(|&count| tree(count)).collect();
-    let verdicts: std::collections::BTreeMap<&str, Verdict> = std::thread::scope(|scope| {
-        let checks: Vec<_> = trees.into_iter().map(|at| (at, scope.spawn(move || check(landed, at, &run.at(&landed.head, at)).verdict))).collect();
-        checks.into_iter().map(|(at, handle)| (at, handle.join().unwrap_or_else(|_| Verdict::Transient("a prefix check panicked".to_owned())))).collect()
+    let probes: std::collections::BTreeMap<&str, blame::Probe> = std::thread::scope(|scope| {
+        let checks: Vec<_> = trees
+            .into_iter()
+            .map(|at| {
+                let probe_run = run.at(&landed.head, at);
+                (at, scope.spawn(move || {
+                    let checked = check(landed, at, &probe_run);
+                    let failing = match &checked.verdict {
+                        Verdict::RedMain(_) => failing(&probe_run.log, &probe_run.outcome).into_iter().map(|failure| failure.label().to_owned()).collect(),
+                        _ => std::collections::BTreeSet::new(),
+                    };
+                    blame::Probe { verdict: checked.verdict, failing }
+                }))
+            })
+            .collect();
+        checks.into_iter().map(|(at, handle)| (at, handle.join().unwrap_or_else(|_| blame::Probe { verdict: Verdict::Transient("a prefix check panicked".to_owned()), failing: std::collections::BTreeSet::new() }))).collect()
     });
     counts
         .iter()
         .map(|&count| {
-            let verdict = verdicts[tree(count)].clone();
-            println!("north land: post-land checks with the first {count} of {} landed lanes ended {verdict:?}", landed.tips.len());
-            verdict
+            let probe = probes[tree(count)].clone();
+            println!("north land: post-land checks with the first {count} of {} landed lanes ended {:?}", landed.tips.len(), probe.verdict);
+            probe
         })
         .collect()
 }

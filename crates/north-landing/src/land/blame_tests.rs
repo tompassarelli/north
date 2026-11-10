@@ -1,5 +1,23 @@
-use super::{Suspects, culprit, suspects};
+use std::collections::BTreeSet;
+
+use super::{Probe, Suspects, culprit, culprits, suspects};
 use crate::land::checks::Verdict;
+
+fn searched_signatures(lanes: usize, suspects: &Suspects, bad: &[(usize, &str)], signatures: &[&str]) -> (Option<Vec<usize>>, usize) {
+    let signatures: BTreeSet<String> = signatures.iter().map(|signature| (*signature).to_owned()).collect();
+    let mut runs = 0;
+    let found = culprits(lanes, suspects, &signatures, |counts| {
+        runs += counts.len();
+        counts
+            .iter()
+            .map(|&count| {
+                let failing: BTreeSet<String> = bad.iter().filter(|(at, _)| *at < count).map(|(_, signature)| (*signature).to_owned()).collect();
+                Probe { verdict: if failing.is_empty() { Verdict::Green } else { Verdict::RedMain(format!("first {count}")) }, failing }
+            })
+            .collect()
+    });
+    (found, runs)
+}
 
 fn search(lanes: usize, room: usize, red_from: usize, base_red: bool) -> (Option<usize>, Vec<Vec<usize>>) {
     searched(lanes, room, &Suspects::Batch, red_from, base_red)
@@ -52,6 +70,14 @@ fn a_red_four_lane_batch_whose_graph_blame_names_two_lanes_bisects_only_those_tw
     let (found, rounds) = searched(4, 1, &named, 1, false);
     assert_eq!(found, Some(0));
     assert_eq!(rounds, vec![vec![1]]);
+    let eight: Vec<String> = (0..8).map(|at| format!("lane-{at}")).collect();
+    let (found, runs) = searched_signatures(8, &Suspects::Batch, &[(0, "step citations"), (7, "step layers")], &["step citations", "step layers"]);
+    assert_eq!(found, Some(vec![0, 7]));
+    assert!(runs <= 6, "two bad lanes among eight must cost at most 2·log2(8) bisect runs, not {runs}");
+    let named = suspects(&eight, Some(0), "lane-0\nlane-7\n");
+    assert_eq!(named, Suspects::Named(vec![0, 7]));
+    let (found, runs) = searched_signatures(8, &named, &[(0, "step citations"), (7, "step layers")], &["step citations", "step layers"]);
+    assert_eq!((found, runs), (Some(vec![0, 7]), 1), "the red run already checked both named lanes' full prefix");
 }
 
 #[test]

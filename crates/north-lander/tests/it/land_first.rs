@@ -8,9 +8,23 @@ use super::serve::{Repository, World, git, report};
 
 const COUNTED: &str = "#!/bin/sh\npwd >> \"$0.calls\"\necho 'safe-push: verdict green'\n";
 const AFTER_RUNNER: &str = r#"#!/bin/sh
-[ "$1" = land ] || exit 0
+[ "$1" = land ] && [ "$2" = checks ] || exit 0
 eval outcome=\${$#}
-if [ -e bad.txt ]; then printf "event\tafter\tfailed\tbad.txt check\nfailed-step\tbad.txt check\t\n" > "$outcome"; exit 1; fi
+tree=; head=; previous=
+for argument in "$@"; do
+  [ "$previous" = --tree ] && tree=$argument
+  [ "$previous" = --head ] && head=$argument
+  previous=$argument
+done
+[ -n "$tree" ] && [ "$tree" != "$head" ] && echo "$*" >> "$0.probes"
+failed=
+[ -e bad.txt ] && failed="$failed bad.txt"
+[ -e worse.txt ] && failed="$failed worse.txt"
+[ -z "$failed" ] && exit 0
+for file in $failed; do
+  printf "event\tafter\tfailed\t%s check\nfailed-step\t%s check\t\n" "$file" "$file" >> "$outcome"
+done
+exit 1
 "#;
 
 fn checker(world: &World) -> std::path::PathBuf {
@@ -59,22 +73,29 @@ fn three_queued_lanes_land_in_one_push_with_no_check_of_their_merged_tree_before
 }
 
 #[test]
-fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts_exactly_the_culprit() {
+fn a_red_after_landing_run_of_a_batch_landed_without_a_merged_tree_check_reverts_exactly_the_culprits() {
     let world = World::new();
     let north = world.repository("north");
     north_base::foundation::shim::write_executable(&world.path().join("bin/north"), AFTER_RUNNER);
-    north.lane("a");
-    north.lane_with("bad", "origin/main", ("bad.txt", "bad\n"), ("bad (north#360)", None));
-    north.lane("c");
+    north.lane_with("bad-plan", "origin/main", ("bad.txt", "bad\n"), ("bad-plan (north#360)", None));
+    for branch in ["a", "b", "c", "d", "e", "f"] {
+        north.lane(branch);
+    }
+    north.lane_with("bad-context", "origin/main", ("worse.txt", "worse\n"), ("bad-context (north#360)", None));
     let journal = serve(&world, &north);
-    assert!(journal.contains("carries 3 lanes that passed their checks before queueing"), "{journal}");
+    assert!(journal.contains("carries 8 lanes that passed their checks before queueing"), "{journal}");
     let subjects = subjects(&north);
-    assert_eq!(subjects.iter().filter(|subject| subject.starts_with("Revert ")).count(), 1, "{subjects:?}\n{journal}");
-    assert_eq!(subjects[0], "Revert bad (north#360)", "{subjects:?}\n{journal}");
-    let culprit = git(&north.origin, &["log", "--format=%H", "--grep=^bad (north#360)$", "main"]);
-    assert!(git(&north.origin, &["log", "-1", "--format=%B", "main"]).contains(&format!("Reverts: {culprit}")), "{journal}");
+    let mut reverts: Vec<String> = subjects.iter().filter(|subject| subject.starts_with("Revert ")).cloned().collect();
+    reverts.sort();
+    assert_eq!(reverts, ["Revert bad-context (north#360)", "Revert bad-plan (north#360)"], "{subjects:?}\n{journal}");
     let names = git(&north.origin, &["ls-tree", "--name-only", "main"]);
-    assert!(!names.lines().any(|name| name == "bad.txt") && names.lines().any(|name| name == "a.txt") && names.lines().any(|name| name == "c.txt"), "{names}\n{journal}");
+    for file in ["a", "b", "c", "d", "e", "f"] {
+        assert!(names.lines().any(|name| name == format!("{file}.txt")), "a good lane was reverted: {file}.txt is missing from {names}\n{journal}");
+    }
+    assert!(!names.lines().any(|name| name == "bad.txt" || name == "worse.txt"), "{names}\n{journal}");
+    let probes = fs::read_to_string(world.path().join("bin/north.probes")).unwrap_or_default();
+    let runs = probes.lines().count();
+    assert!(runs > 0 && runs <= 6, "two culprits among eight should isolate in at most 2·log2(8) prefix runs, not {runs}: {probes}\n{journal}");
 }
 
 const HELD_AFTER_RUNNER: &str = r#"#!/bin/sh

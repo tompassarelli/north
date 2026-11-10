@@ -142,12 +142,17 @@ worker updates its own class's line when its lane lands.
   the probes carrying it.
 - Invariant: alone before together (1) makes this rare. Bisection must still be correct for k
   culprits.
-- Mechanism: the suspect set splits in halves and recurses (group testing, about k·log2(n)
-  probes). A ticket leaving the queue directory cancels every probe carrying it, and the round
-  respawns those probes without it.
-- Replay: `cargo nextest run -p north-land-probes -p north-lander`. Two bad lanes among 8 suspects
-  are isolated within two rounds, and a ticket withdrawn mid-round cancels only its probes.
-- Status: in flight. n842-bisect.
+- Mechanism: after `north graph ask blame` narrows the suspects, one binary search per failing
+  check finds the lane whose prefix first reaches it, and every prefix a search needs is checked
+  once, so k independently bad lanes are isolated in at most k·log2(n) prefix checks with no
+  revert between the searches. A red run with one failing check keeps the old prefix bisection,
+  and a bad lane whose check already failed earlier is found by the next run after the first
+  lane's revert lands.
+- Replay: `cargo nextest run -p north-lander --test it -E 'test(land_first::a_red_after_landing_run)'`
+  reverts exactly the two bad lanes of an eight-lane batch, the first and last, in at most 6 prefix
+  checks, and `cargo nextest run -p north-landing --lib -E 'test(land::blame)'` pins the two
+  searches for two bad lanes among eight at no more than 2·log2(8) prefix runs.
+- Status: in flight. n892-bisect (this lane).
 
 ### 5. A gate runs only after landing
 
