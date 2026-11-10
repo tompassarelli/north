@@ -23,6 +23,7 @@ use crate::threads::calibration::rework::Sources as ReworkSources;
 
 mod main_green;
 mod plain;
+pub mod propagation;
 mod table;
 
 pub const REPOS: [&str; 2] = ["north", "makgora"];
@@ -49,6 +50,7 @@ enum Bar {
     RuntimeBreaks,
     RuntimeRollback,
     RuntimeLive,
+    FirnClosureLive,
     UsagePerLanding,
     StrandedUsage,
     MainGreenLander,
@@ -56,7 +58,7 @@ enum Bar {
 }
 
 impl Bar {
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 18] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -70,6 +72,7 @@ impl Bar {
         Self::RuntimeBreaks,
         Self::RuntimeRollback,
         Self::RuntimeLive,
+        Self::FirnClosureLive,
         Self::UsagePerLanding,
         Self::StrandedUsage,
         Self::MainGreenLander,
@@ -91,6 +94,7 @@ impl Bar {
             Self::RuntimeBreaks => "ready-runtime-breaks",
             Self::RuntimeRollback => "ready-runtime-rollback",
             Self::RuntimeLive => "ready-runtime-live-p90",
+            Self::FirnClosureLive => "ready-firn-closure-live-p90",
             Self::UsagePerLanding => "ready-usage-per-landing",
             Self::StrandedUsage => "ready-stranded-usage",
             Self::MainGreenLander => "ready-main-green-lander",
@@ -113,6 +117,7 @@ impl Bar {
             Self::RuntimeBreaks => "runtime breaks reaching a 2nd host (all)",
             Self::RuntimeRollback => "runtime rollback after swap, slowest (all)",
             Self::RuntimeLive => "landing to live p90 (all)",
+            Self::FirnClosureLive => "firn closure landing to live p90 (all)",
             Self::UsagePerLanding => "usage per first try landed (all)",
             Self::StrandedUsage => "usage stranded while work waited (all)",
             Self::MainGreenLander => "main green by the lander's verdicts",
@@ -122,7 +127,7 @@ impl Bar {
 
     /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback or no landing that changed the runtime has none to time.
     fn quiet_passes(self) -> bool {
-        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback | Self::RuntimeLive)
+        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback | Self::RuntimeLive | Self::FirnClosureLive)
     }
 }
 
@@ -268,6 +273,7 @@ struct Records {
     priority: Vec<Noted>,
     idle: Idle,
     pins: Vec<north_runtime::runtime::pin::Event>,
+    propagation: Vec<propagation::Row>,
     lander_red: HashMap<String, main_green::Reds>,
     ci_red: HashMap<String, main_green::Reds>,
     usage: Facts,
@@ -320,6 +326,7 @@ impl Records {
             idle: Idle::read(since),
             usage: Facts::load(&usage_yield::Sources { db: &threads, policy: &crate::platform::orchestration::path(), state: &state_root() }, now),
             pins: north_runtime::runtime::pin::read(&sources.records.join("north")),
+            propagation: propagation::read(&sources.records),
         })
     }
 
@@ -355,6 +362,10 @@ impl Records {
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
             Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive => self.runtime(bar, window),
+            Bar::FirnClosureLive => {
+                let seconds = propagation::totals(&self.propagation, propagation::FIRN_CLOSURE, window.start, window.end);
+                (!seconds.is_empty()).then(|| Reading { value: percentile(&seconds, 0.9), sample: seconds.len() })
+            }
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)

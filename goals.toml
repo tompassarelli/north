@@ -198,6 +198,13 @@ max = 120
 class = "ready"
 
 [[goal]]
+name = "ready-firn-closure-live-p90"
+source = "north#1081: a landed firn change is built once and substituted on every host, so landing to live for a firn closure is at most 5 min p90 over the newest 1 h, read from the per-host rows in records/north/propagation.jsonl (added 2026-11-10); the coordinator is paged past twice that"
+unit = "s"
+max = 300
+class = "ready"
+
+[[goal]]
 name = "ready-main-green-lander"
 source = "north#905: from an outside review on 2026-11-08, at least 99% of the window north's main was green by the lander's own after-landing verdicts (main_red episodes in the threads ledger), with the red episodes counted"
 unit = "% of time"
