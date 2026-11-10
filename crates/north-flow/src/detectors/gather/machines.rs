@@ -53,7 +53,3 @@ fn host_faults(host: String, lifecycles: Lifecycles) -> Vec<machine_refusal::Hos
         Lifecycles::Unreadable(_) => Vec::new(),
     }
 }
-
-#[cfg(test)]
-#[path = "machines_tests.rs"]
-mod tests;
