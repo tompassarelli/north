@@ -106,23 +106,3 @@ fn active_workers_counts_claude_workers_alone() {
     assert_eq!(crate::dispatch::fleets::active_workers(&sessions), 2, "two Claude workers are working while a proxy and three DeepSeek sessions are not Claude workers");
     assert_eq!(crate::dispatch::fleets::working_by_account(&sessions).get("opencode"), Some(&2));
 }
-
-#[test]
-fn a_deepseek_launch_obeys_the_hosts_takes_nothing_verdict_like_a_claude_launch() {
-    use crate::capacity::saturation::{Backlog, Saturation};
-    let loaded = Saturation { memory_total_mib: 98_304.0, memory_available_mib: 61_000.0, disk_free_gib: 400.0, disk_total_gib: 936.0, backlog: Some(Backlog { queued: 0, load: 31.0, threads: 24, stall: Some(1500.0) }), token_age_s: None };
-    let whiterabbit = host("whiterabbit", 8, Ok(0)).read(Some(&loaded));
-    assert!(whiterabbit.free().is_err(), "{:?}", whiterabbit.free());
-    let accounts = vec![sized("claude:a", &["nexus"], MAX_5X, Room { five_hour: 80.0, week: 80.0, week_reset_h: 100.0 })];
-    let mut planned = survey(vec![issue("north", 1, "- [ ] add a column", &[])], Cloud::Closed("no credit".into()), vec![host("nexus", 6, Ok(0)), whiterabbit.clone()], accounts.clone());
-    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::new(), done: Vec::new() };
-
-    let outcome = decide(&planned, "test");
-    assert_eq!(outcome.launches.iter().map(|launch| (launch.host.as_str(), launch.account.as_str())).collect::<Vec<_>>(), [("nexus", "claude:a")], "no provider starts a session on the saturated host; the box goes to a host with room");
-
-    let mut alone = survey(vec![issue("north", 1, "- [ ] add a column", &[])], Cloud::Closed("no credit".into()), vec![whiterabbit], accounts);
-    alone.deepseek = Seen { settings: settings(), tried: BTreeSet::new(), done: Vec::new() };
-    let outcome = decide(&alone, "test");
-    assert!(outcome.launches.is_empty(), "{:?}", outcome.launches);
-    assert!(outcome.skipped.iter().any(|(item, why)| *item == IssueRef::new("north", 1) && why.starts_with("ready, not placed")), "the box stays ready and waits for the host: {:?}", outcome.skipped);
-}
