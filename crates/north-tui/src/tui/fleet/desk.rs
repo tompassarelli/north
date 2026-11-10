@@ -35,6 +35,7 @@ pub trait SessionDesk {
     fn digest(&self) -> Digest;
     fn project_status(&self) -> Vec<String> { Vec::new() }
     fn credit(&self) -> Vec<String> { Vec::new() }
+    fn glance(&self) -> Vec<String> { Vec::new() }
     fn choices(&self) -> Vec<Choices> { Vec::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
@@ -94,12 +95,13 @@ pub struct FleetDesk {
     upkeep: Upkeep,
     status: Periodic,
     credit: Periodic,
+    glance: Periodic,
 }
 
 impl FleetDesk {
-    /// `credit` reads each api organization's credit line in the background, as `north fleet usage` prints it.
-    pub fn new(fleet: Fleet, credit: fn() -> Vec<String>) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), credit: Periodic::of(credit) }
+    /// `credit` reads each api organization's credit line in the background, as `north fleet usage` prints it; `glance` reads layer 0's one line.
+    pub fn new(fleet: Fleet, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> Self {
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), credit: Periodic::of(credit), glance: Periodic::of(glance) }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -163,7 +165,7 @@ impl SessionDesk for FleetDesk {
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
         let measured = self.upkeep.tend(&self.fleet, &self.digest)?;
-        Ok(changed | measured | self.status.tend() | self.credit.tend())
+        Ok(changed | measured | self.status.tend() | self.credit.tend() | self.glance.tend())
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -193,6 +195,8 @@ impl SessionDesk for FleetDesk {
     fn project_status(&self) -> Vec<String> { self.status.lines.clone() }
 
     fn credit(&self) -> Vec<String> { self.credit.lines.clone() }
+
+    fn glance(&self) -> Vec<String> { self.glance.lines.clone() }
 
     fn choices(&self) -> Vec<Choices> {
         self.fleet.choices()

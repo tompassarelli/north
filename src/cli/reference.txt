@@ -159,6 +159,7 @@ Commands:
   dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --frontier | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]  One screen over the window: the readiness bars failing first, each Claude account's week and the spend by model and effort, and per task category the model mix, first-try success and cost per closed box; --closed prints the closed-box report dispatch decides on as JSON, the other flags the scoreboard's reports, and losses lists each first try lost to the harness with its class and boundary record
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   fleet                                         Open the fleet screen; north fleet --help lists each verb
+  glance                                        One line (layer 0): whether anything is broken, whether money is all right and whether any gate waits on Tom
   desktop private start [--port PORT] [--resolution WIDTHxHEIGHT] [--render-node PATH] [--seconds SECONDS] [-- COMMAND ARG...]  Start an isolated private desktop
   desktop private control RUN_DIRECTORY VNC_ACTION...  Send VNC actions to a private desktop
   desktop private type RUN_DIRECTORY < TEXT     Type text into a private desktop

@@ -114,7 +114,7 @@ pub fn host_watch(config: &HostConfig) -> Option<Box<dyn FrameWatch>> {
 fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        [] => tui::fleet::run(fleet, accounts::credit_lines),
+        [] => tui::fleet::run(fleet, accounts::credit_lines, crate::cli::glance::lines),
         [verb @ ("list" | "stranded" | "rebooted" | "reports"), rest @ ..] => list::list(&fleet, verb, rest),
         ["tree"] => tree::tree(&fleet),
         ["spend", rest @ ..] => spend::run(&fleet, rest),

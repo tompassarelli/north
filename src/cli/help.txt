@@ -5,6 +5,7 @@ Usage: north [COMMAND]
 Run north with no arguments to open the fleet screen.
 
 Operator console:
+  glance                One line: anything broken, the money, and what waits on Tom
   dash                  One screen: readiness, account usage, model mix and category cost
   fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
   gate                  Open, answer or list decision gates

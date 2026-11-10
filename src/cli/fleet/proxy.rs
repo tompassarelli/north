@@ -46,7 +46,7 @@ fn attach(fleet: Fleet) -> NorthResult<()> {
     if !std::io::stdout().is_terminal() {
         return Ok(());
     }
-    tui::fleet::run_on(fleet, PROXY, super::accounts::credit_lines)
+    tui::fleet::run_on(fleet, PROXY, super::accounts::credit_lines, crate::cli::glance::lines)
 }
 
 fn launch(fleet: &Fleet) -> NorthResult<()> {

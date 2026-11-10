@@ -45,17 +45,17 @@ use screen::{Command, Screen};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// `credit` reads each api organization's credit line, which the digest shows under accounts.
-pub fn run(fleet: Fleet, credit: fn() -> Vec<String>) -> NorthResult<()> {
-    run_focused(fleet, None, credit)
+/// `credit` reads each api organization's credit line, which the digest shows under accounts; `glance` reads layer 0's one line, which the top segment shows.
+pub fn run(fleet: Fleet, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> NorthResult<()> {
+    run_focused(fleet, None, credit, glance)
 }
 
-pub fn run_on(fleet: Fleet, session: &str, credit: fn() -> Vec<String>) -> NorthResult<()> {
-    run_focused(fleet, Some(session.to_owned()), credit)
+pub fn run_on(fleet: Fleet, session: &str, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> NorthResult<()> {
+    run_focused(fleet, Some(session.to_owned()), credit, glance)
 }
 
-fn run_focused(fleet: Fleet, session: Option<String>, credit: fn() -> Vec<String>) -> NorthResult<()> {
-    let mut desk = FleetDesk::new(fleet, credit);
+fn run_focused(fleet: Fleet, session: Option<String>, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> NorthResult<()> {
+    let mut desk = FleetDesk::new(fleet, credit, glance);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
     screen.selected = session;
     screen.offer(desk.choices());
@@ -158,6 +158,7 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
             screen.observe(desk.digest(), facts);
             screen.digest.project_status = desk.project_status();
             screen.digest.credit = desk.credit();
+            screen.glance = desk.glance();
             true
         }
         Err(error) => {
