@@ -140,8 +140,8 @@ impl Runtime for Stream {
         &[]
     }
 
-    fn roster(&self, _state_root: &Path, _home: &Path, _policy: &Path) -> Roster {
-        Roster::default()
+    fn roster(&self, _state_root: &Path, home: &Path, _policy: &Path) -> Roster {
+        Roster { accounts: vec![super::model::Account { provider: self.provider(), label: "a".into(), home: home.into(), token_file: None, api: None }], ..Roster::default() }
     }
 
     fn assign_conversation(&self) -> NorthResult<Option<String>> {
