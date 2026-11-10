@@ -1,6 +1,6 @@
 use super::super::layout::{self, Layout};
 use super::super::lifecycle::{self, Promoting, Promotion};
-use super::{Bars, Due, Event, bars, due, status};
+use super::{Bars, Due, Event, bars, due, page, status};
 use std::os::unix::fs::symlink;
 
 const PINNED: &str = "1111111111111111111111111111111111111111";
@@ -39,6 +39,49 @@ fn a_landing_is_live_at_the_first_promotion_after_it_or_still_waiting_at_the_win
     let events = vec![landed(NOW - 600), landed(NOW - 300), promoted(NOW - 200), landed(NOW - 100)];
     assert_eq!(bars(&events, NOW - HOUR, NOW).landing_to_live_seconds, [400.0, 100.0, 100.0], "two landings during one build go live together, the newest still waits");
     assert_eq!(bars(&events, NOW - HOUR, NOW - 250).landing_to_live_seconds, [350.0, 50.0], "a promotion after the window's end does not count yet");
+}
+
+#[test]
+fn a_landing_not_live_after_5_min_pages_the_coordinator() {
+    const THIRD: &str = "3333333333333333333333333333333333333333";
+    const FOURTH: &str = "4444444444444444444444444444444444444444";
+    fn deliver(pages: &mut Vec<String>) -> impl FnMut(&str) -> bool + '_ {
+        |text| {
+            pages.push(text.to_owned());
+            true
+        }
+    }
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_owned() };
+    let landed = |sha: &str, at: i64| super::note(&layout, &Event::Landed { sha: sha.to_owned(), at });
+    let promoted = |sha: &str, at: i64| super::note(&layout, &Event::Promoted { sha: sha.to_owned(), at });
+    let mut pages = Vec::<String>::new();
+    landed(MAIN, NOW - 299);
+    page(&layout, NOW, "laptop", &mut deliver(&mut pages));
+    assert!(pages.is_empty(), "a landing younger than five minutes waits");
+    page(&layout, NOW + 1, "laptop", &mut deliver(&mut pages));
+    assert_eq!(pages.len(), 1, "a landing five minutes from live pages the coordinator");
+    assert!(pages[0].contains("landing 22222222") && pages[0].contains("5 min") && pages[0].contains("300s"), "{}", pages[0]);
+    page(&layout, NOW + 120, "laptop", &mut deliver(&mut pages));
+    assert_eq!(pages.len(), 1, "a landing pages once");
+    promoted(MAIN, NOW + 130);
+    page(&layout, NOW + 1000, "laptop", &mut deliver(&mut pages));
+    assert_eq!(pages.len(), 1, "a promoted landing needs no page");
+    landed(PINNED, NOW + 1000);
+    landed(THIRD, NOW + 1100);
+    promoted(PINNED, NOW + 1200);
+    page(&layout, NOW + 1500, "laptop", &mut deliver(&mut pages));
+    assert_eq!(pages.len(), 2, "a landing that arrived while another built still waits when that one goes live");
+    assert!(pages[1].contains("landing 33333333") && pages[1].contains("400s"), "{}", pages[1]);
+    let mut refusals = 0;
+    promoted(THIRD, NOW + 1600);
+    landed(FOURTH, NOW + 2000);
+    page(&layout, NOW + 2400, "laptop", &mut |_| {
+        refusals += 1;
+        false
+    });
+    page(&layout, NOW + 2401, "laptop", &mut deliver(&mut pages));
+    assert_eq!((refusals, pages.len()), (1, 3), "a page that was not delivered is sent again");
 }
 
 #[test]

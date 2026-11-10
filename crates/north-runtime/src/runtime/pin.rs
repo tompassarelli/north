@@ -10,6 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const JOURNAL: &str = "runtime-pins.jsonl";
 
+/// How long a landing may wait for the promotion that makes it live before the settling host pages the coordinator: a stuck promotion is noticed before settle fails the landing at `landing_live_deadline_sec`.
+const LIVE_PAGE: i64 = 5 * 60;
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "event", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
@@ -18,12 +21,14 @@ pub enum Event {
     Walked { sha: String, host: String, at: i64 },
     RolledBack { sha: String, host: String, at: i64, seconds: i64, walker: bool },
     Built { sha: String, host: String, at: i64, seconds: i64, binary: String },
+    /// The coordinator was paged about a landing that waited past `LIVE_PAGE` for its promotion.
+    Paged { sha: String, at: i64 },
 }
 
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } => *at,
         }
     }
 }
@@ -67,13 +72,44 @@ pub(super) fn target(layout: &Layout, checkout: &Path, main: &str) -> String {
     }
 }
 
-/// When the oldest landing still waiting for a promotion landed: one journaled after the last promotion, in journal order.
+/// The oldest landing still waiting for a promotion, with when it landed. A promotion of a landed sha makes live that landing and every one journaled before it, not those that landed while it built; a promotion of any other sha makes all of them live.
+fn waiting(events: &[Event]) -> Option<(&str, i64)> {
+    let mut landings: Vec<(&str, i64)> = Vec::new();
+    for event in events {
+        match event {
+            Event::Landed { sha, at } => landings.push((sha, *at)),
+            Event::Promoted { sha, .. } => match landings.iter().rposition(|(landed, _)| landed == sha) {
+                Some(covered) => drop(landings.drain(..=covered)),
+                None => landings.clear(),
+            },
+            _ => {}
+        }
+    }
+    landings.first().copied()
+}
+
 fn waiting_since(events: &[Event]) -> Option<i64> {
-    events.iter().fold(None, |since, event| match event {
-        Event::Promoted { .. } => None,
-        Event::Landed { at, .. } => since.or(Some(*at)),
-        _ => since,
-    })
+    waiting(events).map(|(_, at)| at)
+}
+
+/// Pages the coordinator once per landing when the oldest landing has waited `LIVE_PAGE` for the promotion that makes it live; `send` carries the text and says whether it was delivered, and only a delivered page is journaled, so a failed send is tried again by the next caller.
+pub(super) fn page(layout: &Layout, now: i64, host: &str, send: &mut dyn FnMut(&str) -> bool) {
+    let events = read(&layout.state);
+    let Some((sha, landed)) = waiting(&events) else { return };
+    let seconds = now - landed;
+    let paged = events.iter().any(|event| matches!(event, Event::Paged { sha: page, .. } if page == sha));
+    if seconds < LIVE_PAGE || paged {
+        return;
+    }
+    let pinned = layout.live_sha().unwrap_or_else(|| "none".to_owned());
+    let delivered = send(&format!(
+        "north runtime: landing {} is not live 5 min after it landed ({host} has waited {seconds}s for its promotion; pinned runtime is {})",
+        layout::short(sha),
+        layout::short(&pinned)
+    ));
+    if delivered {
+        note(layout, &Event::Paged { sha: sha.to_owned(), at: now });
+    }
 }
 
 /// The promotion lifecycle dates each runtime that went live here; the pin a host took before this journal existed is adopted once, so status and the bars date it.
