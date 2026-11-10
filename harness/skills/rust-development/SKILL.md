@@ -2,8 +2,8 @@
 name: rust-development
 description: >-
   Develop, review, debug, test or optimize Rust and Cargo code.
-grounded: 2026-10-15
-written: 2026-10-15
+grounded: 2026-11-10
+written: 2026-11-10
 portable: true
 ---
 
@@ -34,4 +34,4 @@ Use [performance design](../performance-design/SKILL.md) when a runtime budget c
 
 Read [Rust and Cargo details](references/notes.md) when selecting idioms, async/unsafe checks or build commands.
 Read [compile times](references/compile-times.md) before changing linkers, profiles, caches, crate splits or test layout for build speed.
-The project toolchain: nightly with Cranelift for dev and test and no parallel front end, which deadlocked on 2026-11-06, LLVM for release (`rust-toolchain.toml`, `.cargo/config.toml`).
+The project toolchain is nightly with Cranelift for dev and test, no parallel front end (it deadlocked on 2026-11-06, [rust build times](../../../docs/rationale/rust-build-times.md)) and LLVM for release (`rust-toolchain.toml`, `.cargo/config.toml`).
