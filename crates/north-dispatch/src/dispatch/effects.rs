@@ -31,7 +31,11 @@ pub fn session_name(launch: &Launch, at: f64) -> String {
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     let name = format!("{short}-{}-d{hhmm}", launch.item.number);
     match super::facets::declared_in(&launch.brief, "Box").and_then(crate::threads::claims::box_slug) {
-        Some(slug) => format!("{name}-{slug}"),
+        Some(slug) => {
+            let room = 40usize.saturating_sub(name.len() + 1);
+            let slug: String = slug.chars().take(room).collect();
+            format!("{name}-{}", slug.trim_end_matches('-'))
+        }
         None => name,
     }
 }
