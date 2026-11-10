@@ -24,6 +24,8 @@ pub const SNAPSHOT_SECONDS: u64 = 900;
 /// How old a snapshot may be before a call that reads it pulls it again.
 pub const SNAPSHOT_AGE: Duration = Duration::from_secs(SNAPSHOT_SECONDS);
 pub const PULL_TIMEOUT: Duration = Duration::from_secs(80);
+/// How soon a host with no snapshot yet tries again after a pull that could not finish, which resumes from its partial file.
+pub const FIRST_PULL_RETRY: Duration = Duration::from_secs(60);
 const SQLITE_HEADER: &[u8] = b"SQLite format 3\0";
 const MAX_PAGES: u32 = 1 << 24;
 
@@ -53,6 +55,7 @@ pub fn serve(database: &Path, withhold_native: bool, input: &mut dyn Read, outpu
 
 /// Whether this caller pulls now, which it does once the snapshot and its last try are older than `within` (always for zero); it marks its try first, so callers racing it do not pull again.
 pub fn take_turn(snapshot: &Path, within: Duration) -> io::Result<bool> {
+    let within = if snapshot.exists() { within } else { within.min(FIRST_PULL_RETRY) };
     let tried = suffixed(snapshot, ".tried");
     let newest = [snapshot, tried.as_path()].iter().filter_map(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok()).max();
     if !within.is_zero() && newest.is_some_and(|modified| SystemTime::now().duration_since(modified).map_or(true, |age| age < within)) {
