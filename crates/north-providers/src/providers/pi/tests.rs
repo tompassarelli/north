@@ -171,3 +171,38 @@ fn a_limited_free_model_runs_the_turn_again_on_paid_go_flash() {
     assert!(transcript.entries.iter().any(|entry| entry.kind == EntryKind::Assistant && entry.text == "Done: wrote a.txt"));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Ended { exit: TurnExit::Completed, .. })));
 }
+
+const GROUNDING_NORTH: &str = r#"#!/bin/sh
+[ "$2" = prompt-grounding ] || exit 0
+cat > "$(dirname "$0")/prompt.json"
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"Grounding: north#1041 is open"}}'
+"#;
+
+const PROMPT_DRIVER: &str = r#"import bridge from "./north-fleet.ts";
+const handlers: Record<string, Function> = {};
+bridge({ on: (name: string, handler: Function) => { handlers[name] = handler; } } as never);
+const ctx = { cwd: "/tmp", sessionManager: { getSessionId: () => "pi-window" } };
+console.log(JSON.stringify(await handlers.before_agent_start({ prompt: "what is left on north#1041?" }, ctx)));
+"#;
+
+#[test]
+fn a_pi_window_prompt_reaches_its_session_with_the_context_north_hook_adds_north_1041() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("north"), GROUNDING_NORTH).unwrap();
+    std::fs::set_permissions(bin.join("north"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(dir.path().join("north-fleet.ts"), super::windows::EXTENSION).unwrap();
+    std::fs::write(dir.path().join("driver.ts"), PROMPT_DRIVER).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+
+    let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|dir| dir.join("bun")).find(|file| std::fs::File::open(file).and_then(|mut binary| { let mut head = [0; 2]; binary.read_exact(&mut head).map(|()| head != *b"#!") }).unwrap_or(false)).expect("bun on PATH");
+    let run = std::process::Command::new(bun).arg("driver.ts").current_dir(dir.path()).env("PATH", path).env("XDG_STATE_HOME", dir.path()).output().unwrap();
+
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    let reply: Value = serde_json::from_slice(&run.stdout).unwrap();
+    assert_eq!(reply["message"]["content"], "Grounding: north#1041 is open", "the hook's context reaches the Pi session: {reply}");
+    let handed: Value = serde_json::from_str(&std::fs::read_to_string(bin.join("prompt.json")).unwrap()).unwrap();
+    assert_eq!((handed["hook_event_name"].as_str(), handed["prompt"].as_str(), handed["session_id"].as_str()), (Some("UserPromptSubmit"), Some("what is left on north#1041?"), Some("pi-window")));
+}

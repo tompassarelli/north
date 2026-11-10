@@ -20,10 +20,10 @@ use crate::fleet::runtime::{LiveWindow, WindowInbox, now_ms};
 const SESSION_ENV: &str = "PI_SESSION_ID";
 const SESSION_FILE_ENV: &str = "PI_SESSION_FILE";
 const AGENT_ENV: &str = "PI_CODING_AGENT_DIR";
-const EXTENSION: &str = r#"// The north fleet bridge for Pi: register this window so `north fleet adopt` and dispatch see it
+pub(super) const EXTENSION: &str = r#"// The north fleet bridge for Pi: register this window so `north fleet adopt` and dispatch see it
 // live, and listen on its socket so a report to the name reaches this session as a user message.
-// It also hands each tool call to `north hook`, as Claude Code's hooks do, so a Pi session meets the
-// same refusals (north#1041).
+// It also hands each tool call and each submitted prompt to `north hook`, as Claude Code's hooks do,
+// so a Pi session meets the same refusals and the same prompt grounding (north#1041).
 // `north fleet adopt` installs this file under <agent>/extensions; Pi loads it on start or /reload.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
@@ -37,6 +37,7 @@ const state = xdg && xdg.startsWith("/") ? join(xdg, "north") : join(homedir(), 
 const windows = join(state, "pi-windows");
 const sockets = join(state, "pi-sessions");
 const hookTools: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write" };
+const promptHooks = [["hook", "prompt-grounding"], ["hook"]];
 
 function hookInput(tool: string, input: Record<string, unknown>): Record<string, unknown> {
   if (tool === "Bash") return { command: input.command };
@@ -54,6 +55,21 @@ function refusal(toolName: string, input: Record<string, unknown>, cwd: string, 
   return decision?.permissionDecision === "deny" ? String(decision.permissionDecisionReason) : undefined;
 }
 
+function promptContext(prompt: string, cwd: string, session: string): string | undefined {
+  const event = JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt, cwd, session_id: session });
+  const contexts = promptHooks.flatMap((args) => {
+    const run = spawnSync("north", args, { input: event, encoding: "utf8", timeout: 10_000 });
+    if (run.error || run.status !== 0 || !run.stdout.trim()) return [];
+    try {
+      const context = JSON.parse(run.stdout)?.hookSpecificOutput?.additionalContext;
+      return typeof context === "string" && context ? [context] : [];
+    } catch {
+      return [];
+    }
+  });
+  return contexts.length ? contexts.join("\n\n") : undefined;
+}
+
 export default function (pi: ExtensionAPI) {
   let server: Server | undefined;
   let context: ExtensionContext | undefined;
@@ -62,6 +78,11 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const reason = refusal(event.toolName, event.input as Record<string, unknown>, ctx.cwd, ctx.sessionManager.getSessionId());
     return reason ? { block: true, reason } : undefined;
+  });
+
+  pi.on("before_agent_start", async (event, ctx) => {
+    const context = promptContext(event.prompt, ctx.cwd, ctx.sessionManager.getSessionId());
+    return context ? { message: { customType: "north-hook", content: context, display: false } } : undefined;
   });
 
   pi.on("session_shutdown", () => {
