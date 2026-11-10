@@ -11,7 +11,6 @@ use crate::fleet::roster::Roster;
 use crate::dispatch::{cloud_autoland, cloud_branch};
 use crate::pacing::placement::case;
 use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
-use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::decision_log;
 use crate::spend::{self, Starter};
 use north_strategy_types::placement::{self as record, Case};
@@ -141,17 +140,8 @@ impl From<Refusal> for NorthError {
 }
 
 /// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; `report`
-/// prints its verdict lines. A refusal is a loss row written here, by the gate that saw it, since a launch that never
-/// starts leaves no run for the ledger to charge.
+/// prints its verdict lines.
 pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
-    let settled = place(fleet, request, needs, overrides, report)?;
-    if let Err(refusal) = &settled {
-        attribution::record(&request.name, "launch", Cause::Harness(Harness::LaunchRefusal), &refusal.to_string());
-    }
-    Ok(settled)
-}
-
-fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
     if let Some(why) = home_path_refusal(request, request.machine.as_ref()) {
         return Ok(Err(Refusal::Final(why)));
     }

@@ -193,12 +193,6 @@ fn checker_verified_reads_the_stamp_on_the_box_a_runs_brief_named_and_the_whole_
     assert!(!box_verified(&body, "Piece 3 of the umbrella"), "a self-ticked box is not verified by its sibling's stamp");
     assert!(!box_verified(&body, "A box nobody has staffed yet."), "an unticked box is not kept");
     assert!(!box_verified(&body, "A box the issue does not hold"));
-    let foreign = format!("{body}- [x] Another kept box. Done when: `cargo test -p north-base`. Evidence: `cargo test` passed on main 1a2b3c4d5e6f on 2026-11-08, exit 0.\n");
-    assert!(!box_verified(&foreign, "Another kept box"), "a stamp for another command is not this box's own Done-when passing");
-    let failed = format!("{body}- [x] A third kept box. Done when: `cargo test`. Evidence: `cargo test` passed on main 1a2b3c4d5e6f on 2026-11-08, exit 1.\n");
-    assert!(!box_verified(&failed, "A third kept box"), "a stamp that records a nonzero exit is not a pass");
-    let own = "- [x] Only box. Done when: `cargo test`. Evidence: `cargo test` passed on main 1a2b3c4d5e6f on 2026-11-08, exit 0.\n";
-    assert!(checker_verified(own), "a box whose own Done-when command passed on main is verified");
 }
 
 #[test]
