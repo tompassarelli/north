@@ -22,10 +22,21 @@ impl Context {
     /// The context of `command`, run from this process's working directory.
     pub fn from_env(command: &str) -> Self {
         let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
-        let named = named(&set("HOME").unwrap_or_default(), command);
+        Self::with(command, std::env::current_dir().unwrap_or_default(), set)
+    }
+
+    /// The context of `command` when another process runs it in `cwd` with `environment`: the broker reads the handoff it starts from the request the worker command sent, not from its own directory and environment.
+    pub fn from_request(command: &str, cwd: &Path, environment: &[(String, String)]) -> Self {
+        let set = |name: &str| environment.iter().find(|(own, value)| own == name && !value.is_empty()).map(|(_, value)| PathBuf::from(value));
+        Self::with(command, cwd.to_path_buf(), set)
+    }
+
+    fn with(command: &str, cwd: PathBuf, set: impl Fn(&str) -> Option<PathBuf>) -> Self {
+        let home = set("HOME").unwrap_or_default();
+        let named = named(&home, command);
         Self {
-            home: set("HOME").unwrap_or_default(),
-            cwd: std::env::current_dir().unwrap_or_default(),
+            home,
+            cwd,
             uid: rustix::process::getuid().as_raw(),
             tmpdir: set("TMPDIR"),
             cache: set("XDG_CACHE_HOME"),

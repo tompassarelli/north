@@ -7,6 +7,7 @@ use super::{Context, confine, executable, readable, removable};
 
 const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
 const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
+const HAND_OFF_TARGET: &str = "NORTH_975_HAND_OFF_TARGET";
 
 fn git(directory: &Path, arguments: &[&str]) {
     let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"]).args(arguments).output().unwrap();
@@ -37,6 +38,47 @@ fn a_confined_command_child() {
     assert!(matches!(confine(roots.as_deref(), &readable(&context), Some(&executable(&context))), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn a_hand_off_child() {
+    let Some(target) = std::env::var_os(HAND_OFF_TARGET) else {
+        return;
+    };
+    let _ = super::hand_off(&["rm".to_owned(), "-f".to_owned(), target.to_string_lossy().into_owned()]);
+    std::process::exit(126);
+}
+
+#[test]
+fn hand_off_removal_is_refused() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("north-975-hand-off").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    let main = home.join("code/alpha/main");
+    std::fs::create_dir_all(home.join("code/alpha/worktrees")).unwrap();
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    let kept = main.join("kept.txt");
+    let allowed_dir = tempfile::Builder::new().prefix("north-975-allowed").tempdir().unwrap();
+    let allowed = allowed_dir.path().join("file");
+    std::fs::write(&kept, "kept").unwrap();
+    std::fs::write(&allowed, "allowed").unwrap();
+    let hand_off = |target: &Path| {
+        let roots = super::broker::hand_off_roots(&["depbox".to_owned(), "run".to_owned(), "--".to_owned(), "rm".to_owned(), "-f".to_owned(), target.to_string_lossy().into_owned()], &main, &[("HOME".to_owned(), home.to_string_lossy().into_owned())]);
+        Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "worker_sandbox::tests::a_hand_off_child", "--nocapture"])
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .env(super::REMOVAL_ROOTS, serde_json::to_string(&roots).unwrap())
+            .env(HAND_OFF_TARGET, target)
+            .output()
+            .unwrap()
+    };
+    let refused = hand_off(&kept);
+    assert!(!refused.status.success() && kept.exists(), "a hand-off removed a path outside the worker's trees: {}{}", String::from_utf8_lossy(&refused.stdout), String::from_utf8_lossy(&refused.stderr));
+    let removed = hand_off(&allowed);
+    assert!(removed.status.success() && !allowed.exists(), "a hand-off could not remove beneath the worker's git tree: {}{}", String::from_utf8_lossy(&removed.stdout), String::from_utf8_lossy(&removed.stderr));
 }
 
 #[test]
@@ -171,13 +213,13 @@ fn the_outside_broker_runs_only_north_s_fixed_verbs_with_an_environment_that_car
     for allowed in ["depbox run -- cargo check", "depbox fetch -- cargo fetch", "lane unlock x", "lane stray y", "lane remove z", "--worker-sandbox --built -- ./t", "--worker-sandbox --lane -- /bin/sh -c true", "capacity host run --class moderate --owner o --timeout-seconds 9 -- cargo check"] {
         assert!(super::broker::permitted(&words(allowed)), "{allowed}");
     }
-    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config")];
+    let sent = [("LD_PRELOAD", "/tmp/x.so"), ("GIT_SSH_COMMAND", "sh"), ("GIT_CONFIG_COUNT", "9"), ("NORTH_WORKER_SANDBOXED", "1"), ("GIT_SSL_CAINFO", "/ca"), ("GIT_AUTHOR_NAME", "a"), ("NORTH_SOCKETS_HIDDEN", "1"), ("NORTH_WORKER_REMOVAL_ROOTS", "[\"/\"]"), ("CARGO_HOME", "/c"), ("PATH", "bin:/usr/bin::/opt/x"), ("XDG_RUNTIME_DIR", "/forged"), ("XDG_STATE_HOME", "/tmp/north-opencode-1/state"), ("XDG_CACHE_HOME", "/tmp/north-opencode-1/cache"), ("XDG_DATA_HOME", "/tmp/north-opencode-1/data"), ("XDG_CONFIG_HOME", "/tmp/north-opencode-1/config")];
     let homes = [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")].map(|(name, value)| (name.to_owned(), value.to_owned()));
     let environment = super::broker::environment(sent.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(), Some(OPEN_SCOPE), Path::new("/run/user/1000"), &homes);
     let get = |name: &str| environment.iter().find(|(own, _)| own == name).map(|(_, value)| value.as_str());
     assert_eq!((get("LD_PRELOAD"), get("GIT_SSH_COMMAND"), get("NORTH_WORKER_SANDBOXED"), get("GIT_SSL_CAINFO"), get("CARGO_HOME"), get("PATH")), (None, None, None, Some("/ca"), Some("/c"), Some("/usr/bin:/opt/x")));
     assert_ne!(get("GIT_CONFIG_COUNT"), Some("9"));
-    assert_eq!((get("GIT_AUTHOR_NAME"), get("NORTH_SOCKETS_HIDDEN")), (Some("a"), None));
+    assert_eq!((get("GIT_AUTHOR_NAME"), get("NORTH_SOCKETS_HIDDEN"), get("NORTH_WORKER_REMOVAL_ROOTS")), (Some("a"), None, None));
     assert_eq!(environment.iter().filter(|(name, _)| name == "XDG_RUNTIME_DIR").map(|(_, value)| value.as_str()).collect::<Vec<_>>(), ["/run/user/1000"], "an outside command took the client's runtime directory, so an OpenCode worker that clears it got no user manager and no capacity lease (north#1023)");
     assert_eq!(environment.iter().filter(|(name, _)| name.starts_with("XDG_") && name != "XDG_RUNTIME_DIR").map(|(name, value)| (name.as_str(), value.as_str())).collect::<Vec<_>>(), [("XDG_STATE_HOME", "/home/a/.local/state"), ("XDG_CACHE_HOME", "/home/a/.cache"), ("XDG_DATA_HOME", "/home/a/.local/share"), ("XDG_CONFIG_HOME", "/home/a/.config")], "a brokered build took the client's scratch homes, so its capacity admissions landed outside the host's decision ledger (north#1030)");
     let north = Path::new("/n/north");

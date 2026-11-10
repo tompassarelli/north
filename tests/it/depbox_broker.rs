@@ -39,4 +39,18 @@ fn dependency_code_in_depbox_cannot_connect_to_the_broker_socket() {
     let inside = depbox(scratch.path(), &socket, &socket);
     assert!(!inside.status.success(), "the broker socket answered inside depbox: {}", String::from_utf8_lossy(&inside.stderr));
     assert!(listener.accept().is_err(), "dependency code in depbox connected to the broker socket");
+    let checkout = scratch.path().join("home/code/fixture/main");
+    let victim = checkout.join("kept.txt");
+    std::fs::write(&victim, "kept").unwrap();
+    let handed_off = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["depbox", "run", "--", "rm", "-f", "kept.txt"])
+        .current_dir(&checkout)
+        .env("HOME", scratch.path().join("home"))
+        .env("DEPBOX_ADMITTED", "1")
+        .env("NORTH_WORKER_REMOVAL_ROOTS", "[]")
+        .env_remove("DEPBOX")
+        .env_remove("NORTH_WORKER_SANDBOXED")
+        .output()
+        .unwrap();
+    assert!(!handed_off.status.success() && victim.exists(), "depbox removed a path outside the roots the broker handed it: {}", String::from_utf8_lossy(&handed_off.stderr));
 }

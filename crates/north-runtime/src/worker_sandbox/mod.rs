@@ -1,4 +1,4 @@
-//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec`, which reruns a lock-changing lane's program under `north depbox run`. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere: the domain guards removal, not edits. Reading is open apart from the logins. See docs/rationale/worker-sandbox.md.
+//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec`, which reruns a lock-changing lane's program under `north depbox run`. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere: the domain guards removal, not edits. Reading is open apart from the logins. When a worker command hands work to another local process, the outside broker carries the same removal roots to that process, and depbox applies them again inside the mount namespace it must build outside the domain. See docs/rationale/worker-sandbox.md.
 mod broker;
 mod sockets;
 
@@ -7,8 +7,9 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use landlock::RulesetStatus;
+use landlock::{AccessFs, CompatLevel, Compatible, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
 use north_base::platform::git_credential;
+use north_base::platform::session_scope::REMOVAL_ROOTS;
 use north_base::platform::worker_sandbox::{confine, lane_only};
 
 pub use north_base::platform::worker_sandbox::{Context, build_outputs, executable, readable, removable};
@@ -21,11 +22,22 @@ const MAKER: &str = "--make-namespaces";
 const BUILT: &str = "--built";
 const LANE: &str = "--lane";
 const PROGRAM: &str = "--program";
+const HAND_OFF: &str = "--hand-off";
 const SOCKETS_HIDDEN: &str = north_base::platform::session_scope::SOCKETS_HIDDEN;
 const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
 const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 const LANE_ONLY: &str = "NORTH_WORKER_LANE_ONLY";
-const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
+const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
+
+/// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots`: the rule a process the outside broker handed work to keeps inside the namespace it builds, where Landlock could not be applied before the mount calls and the namespace alone does not know the worker's trees.
+fn confine_removal(roots: &[PathBuf]) -> Result<RulesetStatus, String> {
+    let removal = AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer;
+    let ruleset = landlock::Ruleset::default().set_compatibility(CompatLevel::HardRequirement).handle_access(removal).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.create().map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(["/"], AccessFs::Refer)).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(roots.iter().filter(|root| root.is_dir()), removal)).map_err(|error| error.to_string())?;
+    ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
+}
 
 pub fn run(arguments: &[String]) -> std::process::ExitCode {
     match arguments {
@@ -34,6 +46,7 @@ pub fn run(arguments: &[String]) -> std::process::ExitCode {
         [outside, separator, north, words @ ..] if outside == OUTSIDE && separator == "--" && !north.is_empty() => self::outside(north, words),
         [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true),
         [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program),
+        [hand, separator, program @ ..] if hand == HAND_OFF && separator == "--" && !program.is_empty() => self::hand_off(program),
         [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false),
         [command] => shell(command),
         _ => {
@@ -58,6 +71,20 @@ fn through_broker(words: &[String]) -> u8 {
         eprintln!("{error}");
         126
     })
+}
+
+/// Runs `program` under only the removal rule of the worker command the outside broker handed it from, read as the JSON roots [`REMOVAL_ROOTS`] carries. depbox builds the mount namespace that a Landlock domain refuses to a confined process, so the broker cannot hand its work a confined process; it hands it these roots instead, and this applies them to the command once the namespace exists.
+fn hand_off(program: &[String]) -> std::process::ExitCode {
+    let roots: Vec<PathBuf> = std::env::var(REMOVAL_ROOTS).ok().and_then(|roots| serde_json::from_str(&roots).ok()).unwrap_or_default();
+    for root in &roots {
+        if !root.is_dir() {
+            let _ = std::fs::create_dir_all(root);
+        }
+    }
+    report(confine_removal(&roots));
+    let error = Command::new(&program[0]).args(&program[1..]).exec();
+    eprintln!("north worker-sandbox: {}: {error}", program[0]);
+    std::process::ExitCode::from(126)
 }
 
 /// A fleet worker is confined beyond the logins and build output once the `worker-sandbox` gate of harness/gates.toml enforces, or for a canary launch made with NORTH_WORKER_SANDBOX=1 while it is in shadow (north#706): its removal is confined and the sockets that start processes outside the domain are hidden (south#86). The proxy, leads and sessions started by hand keep both open, since they drive windows and units.

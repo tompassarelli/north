@@ -8,11 +8,12 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use north_base::platform::session_scope::REMOVAL_ROOTS;
 use north_base::platform::{git_credential, session_scope};
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, recvmsg, sendmsg};
 use serde::{Deserialize, Serialize};
 
-use super::{FLAG, LANE_ONLY, MAKER, MARK, SOCKETS_HIDDEN};
+use super::{Context, FLAG, LANE_ONLY, MAKER, MARK, SOCKETS_HIDDEN, removable};
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
@@ -72,7 +73,12 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
 }
 
 fn unsafe_name(name: &str) -> bool {
-    name == MARK || name == SOCKETS_HIDDEN || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+    name == MARK || name == SOCKETS_HIDDEN || name == REMOVAL_ROOTS || name.is_empty() || name.contains('=') || INJECTED_NAMES.contains(&name) || INJECTED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+}
+
+/// The trees the worker command that sent a request may remove beneath, read from the arguments, directory and environment it sent, so the process the broker starts stays inside them.
+pub(super) fn hand_off_roots(arguments: &[String], directory: &Path, environment: &[(String, String)]) -> Vec<PathBuf> {
+    removable(&Context::from_request(&arguments.join(" "), directory, environment))
 }
 
 /// The XDG homes a brokered command reads and writes: this broker's own, since the command runs as the host's process and its state, cache and data belong under the host's homes. Taking the client's scratch ones would record a build's capacity admissions beside the worker instead of in the host's decision ledger (north#1030).
@@ -254,11 +260,16 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));
     }
+    let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
+    let mut variables = environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref(), &runtime(), &own_homes());
+    if let Some(roots) = roots {
+        variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
+    }
     let mut child = Command::new(north)
         .args(confined(north, request.arguments.clone()))
         .current_dir(&request.directory)
         .env_clear()
-        .envs(environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref(), &runtime(), &own_homes()))
+        .envs(variables)
         .stdin(Stdio::from(stdin))
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))

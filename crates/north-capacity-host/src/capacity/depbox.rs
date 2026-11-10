@@ -5,12 +5,13 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::depbox_broker;
+use north_base::platform::session_scope::REMOVAL_ROOTS;
 use sha2::{Digest, Sha256};
 
 use super::carry::{self, Boundary};
-use super::effects::Host;
+use super::depbox_broker;
 use super::depbox_mode::Mode;
+use super::effects::Host;
 use super::gate::{self, LEASED};
 
 const USAGE: &str = "usage: north depbox fetch|run -- <command> [args...]\n  fetch  network shared, for installs and fetches\n  run    no network, for builds and tests";
@@ -19,6 +20,9 @@ const ADMITTED: &str = "DEPBOX_ADMITTED";
 const WORKER_SANDBOXED: &str = "NORTH_WORKER_SANDBOXED";
 const FETCHED: &str = ".local/state/depbox/cargo-fetched";
 const UNSHARE: &str = "/run/current-system/sw/bin/unshare";
+const NORTH_HAND_OFF: &str = "/.north-hand-off";
+const WORKER_SANDBOX: &str = "--worker-sandbox";
+const HAND_OFF: &str = "--hand-off";
 const CACHES: [&str; 4] = [".bun/install/cache", ".cargo/registry", ".cargo/git", ".cache/nix"];
 const BUILD_CACHES: [&str; 2] = [".cache/sccache", ".cache/north/head-north"];
 const READS: [&str; 14] = [
@@ -83,6 +87,7 @@ struct Sandbox {
     runtime: PathBuf,
     arguments: Vec<OsString>,
     binds: Vec<PathBuf>,
+    hand_off: Option<Vec<PathBuf>>,
 }
 
 impl Sandbox {
@@ -96,7 +101,7 @@ impl Sandbox {
         let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).and_then(|common| std::fs::canonicalize(common).ok()).ok_or((2, "the checkout has no git directory".to_owned()))?;
         let sandbox = home.join("code").join(project(&common)).join("sandbox");
         let runtime = PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()));
-        let mut box_ = Self { mode, top: top.clone(), sandbox: sandbox.clone(), home: home.clone(), named_home: named_home.clone(), runtime: runtime.clone(), arguments: Vec::new(), binds: vec![top, sandbox, common] };
+        let mut box_ = Self { mode, top: top.clone(), sandbox: sandbox.clone(), home: home.clone(), named_home: named_home.clone(), runtime: runtime.clone(), arguments: Vec::new(), binds: vec![top, sandbox, common], hand_off: std::env::var(REMOVAL_ROOTS).ok().and_then(|roots| serde_json::from_str(&roots).ok()) };
         box_.add(&["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs"]);
         box_.arguments.push(runtime.into());
         box_.add(&["--tmpfs"]);
@@ -222,11 +227,26 @@ impl Sandbox {
             }
         }
         self.set("CARGO_TARGET_DIR", sandbox.join("target").into());
+        let hand_off = self.hand_off.take();
+        let mut hand_off_program = None;
+        if let Some(mut roots) = hand_off {
+            roots.push(sandbox.join("target"));
+            if top.join("node_modules").is_dir() {
+                roots.push(sandbox.join("node_modules"));
+            }
+            self.set(REMOVAL_ROOTS, serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned()).into());
+            let north = std::env::current_exe().unwrap_or_else(|_| north_base::platform::north_binary::north_binary());
+            hand_off_program = Some(if self.visible(&north) { north.into_os_string() } else { self.bind("--ro-bind", &north, Path::new(NORTH_HAND_OFF)); OsString::from(NORTH_HAND_OFF) });
+        }
         let here = std::env::current_dir().and_then(std::fs::canonicalize).unwrap_or_else(|_| top.clone());
         let directory = here.strip_prefix(&top).map_or(here.clone(), |relative| sandbox.join(relative));
         self.arguments.extend([OsString::from("--chdir"), directory.into(), OsString::from("--")]);
         let mut bubblewrap = Command::new(bwrap);
-        bubblewrap.args(&self.arguments).args(command);
+        bubblewrap.args(&self.arguments);
+        if let Some(program) = hand_off_program {
+            bubblewrap.arg(program).args([WORKER_SANDBOX, HAND_OFF, "--"]);
+        }
+        bubblewrap.args(command);
         bubblewrap
     }
 
