@@ -1,4 +1,4 @@
-use crate::platform::process;
+use crate::platform::{cleanup, process};
 pub use north_base::foundation::check_log::{Failure, failures, log_text};
 use north_base::foundation::exit::{NO_VERDICT, RED_MAIN};
 use crate::platform::rolling_issue::{self, Tracker, section_box, settle};
@@ -212,7 +212,6 @@ pub fn event_line(main: &str, red: &[&Failure], culprit: &str, issue: Option<&st
     )
 }
 
-const ISSUE_BODY: &str = "Main CI failures and confirmed culprit decisions.\n\n## Done when\n- [ ] The newest Harness and Cargo runs on main are green on a commit after the newest culprit range below: `gh run list --branch main --workflow Harness --limit 1` and the same for Cargo both print success; close this issue with that run's link.";
 
 fn repository() -> Option<String> {
     gh(&["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).map(|name| name.trim().to_owned()).filter(|name| !name.is_empty())
@@ -222,7 +221,7 @@ pub const ISSUE_TITLE: &str = "main is red";
 const SECTION: &str = "## Red mains";
 
 pub fn record_red(tracker: &mut dyn Tracker, main: &str, line: &str) -> Result<Option<u64>, String> {
-    let base = tracker.open(ISSUE_TITLE)?.map_or_else(|| ISSUE_BODY.to_owned(), |issue| issue.body);
+    let base = tracker.open(ISSUE_TITLE)?.map_or_else(|| cleanup::MAIN_RED_BODY.to_owned(), |issue| issue.body);
     let key = format!("main is red at {}:", &main[..main.len().min(9)]);
     let body = section_box(&base, SECTION, &key, &format!("- [ ] {line}"), true);
     settle(tracker, ISSUE_TITLE, Some(&body), "")?;

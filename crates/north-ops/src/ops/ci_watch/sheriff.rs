@@ -6,12 +6,11 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{Call, TITLE, gh, gh_json};
-use crate::platform::cleanup::MAIN_RED;
+use crate::platform::cleanup::{MAIN_RED, MAIN_RED_BODY};
 
 const USAGE: &str = "usage: north main-red RUN_ID";
 const BODY_LIMIT: usize = 60_000;
 const SECTION: &str = "\n\n<!-- main-red:";
-const DONE_WHEN: &str = "Main CI failures and confirmed culprit decisions.\n\n## Done when\n- [ ] The newest Harness and Cargo runs on main are green on a commit after the newest culprit range below: `gh run list --branch main --workflow Harness --limit 1` and the same for Cargo both print success; close this issue with that run's link.";
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Step {
@@ -202,7 +201,7 @@ pub fn revert_request(head: &str, verdict: &Decision, failed: &[&str], url: &str
 }
 
 pub fn issue_body(existing: Option<&str>, marker: &str, body: &str) -> String {
-    let existing = existing.unwrap_or(DONE_WHEN);
+    let existing = existing.unwrap_or(MAIN_RED_BODY);
     let (head, older) = existing.split_once(SECTION).map_or((existing, ""), |(head, rest)| (head, rest));
     let newest: String = format!("{marker}\n{body}").chars().take(BODY_LIMIT / 2).collect();
     let mut kept: Vec<&str> = Vec::new();
