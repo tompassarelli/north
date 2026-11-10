@@ -25,7 +25,11 @@ pub fn draw_digest(frame: &mut Frame<'_>, screen: &Screen, area: Rect, now_ms: u
 
 pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u64, width: usize) -> Vec<Line<'static>> {
     let open = digest.books.open_gates().count();
-    let mut lines = vec![Line::from(vec![Span::styled("decisions", BOLD), Span::styled(format!(" · {open} open"), MUTED)])];
+    let mut lines = vec![Line::from(Span::styled(digest.board.first_line.clone(), BOLD))];
+    lines.push(Line::from(vec![Span::styled("Work", BOLD), Span::styled(format!(" · {open} open"), MUTED)]));
+    if let Some(panel) = digest.board.panel("Work") {
+        lines.push(Line::from(format!("  {}", panel.headline)));
+    }
     lines.extend(digest.project_status.iter().map(|status| Line::from(status.clone())));
     if digest.books.gates.is_empty() {
         lines.push(Line::from(Span::styled("  no decisions waiting on Tom", MUTED)));
@@ -33,15 +37,8 @@ pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u6
     for gate in &digest.books.gates {
         lines.extend(gate_lines(gate, digest.selected_gate == Some(gate.id), now_ms));
     }
-    lines.push(Line::default());
-    lines.push(Line::from(Span::styled("sessions", BOLD)));
     for session in sessions {
         lines.extend(session_lines(digest, session, width, now_ms));
-    }
-    if !digest.credit.is_empty() {
-        lines.push(Line::default());
-        lines.push(Line::from(Span::styled("api credit", BOLD)));
-        lines.extend(digest.credit.iter().map(|line| Line::from(format!("  {line}"))));
     }
     lines.push(Line::default());
     lines.push(Line::from(Span::styled("landed today", BOLD)));
@@ -49,6 +46,14 @@ pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u6
         lines.push(Line::from(Span::styled("  nothing landed today", MUTED)));
     }
     lines.extend(digest.books.landed.iter().map(landing_line));
+    for title in ["Accounts", "Infra", "Health"] {
+        let Some(panel) = digest.board.panel(title) else { continue };
+        lines.push(Line::default());
+        lines.push(Line::from(Span::styled(panel.title, BOLD)));
+        lines.push(Line::from(format!("  {}", panel.headline)));
+        lines.extend(panel.lines.iter().map(|line| Line::from(format!("  {line}"))));
+        lines.extend(panel.unread.iter().map(|why| Line::from(Span::styled(format!("  unread: {why}"), MUTED))));
+    }
     lines
 }
 

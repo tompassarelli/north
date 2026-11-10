@@ -130,7 +130,3 @@ fn listing(fleet: &Fleet, claude_ai: bool) -> NorthResult<()> {
     Ok(())
 }
 
-/// One line per api organization with what it has left, read from the one credit producer every view shares.
-pub(super) fn credit_lines() -> Vec<String> {
-    north_core::credit::standing(&policy(), &crate::watch::state_home(), Timestamp::now()).orgs.iter().map(north_core::credit::Standing::line).collect()
-}

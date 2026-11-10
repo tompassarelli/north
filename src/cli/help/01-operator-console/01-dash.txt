@@ -1,2 +1,2 @@
 dash
-One screen: readiness, account usage, model mix and category cost
+The board: landings and boxes per hour, then Work, Accounts, Infra and Health panels

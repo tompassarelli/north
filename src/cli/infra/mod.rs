@@ -10,7 +10,18 @@ mod hcloud;
 pub(crate) mod manifest;
 pub(crate) mod report;
 
+pub(crate) struct Read {
+    pub resources: Vec<report::Resource>,
+    pub unread: Vec<String>,
+    pub billing: Result<manifest::Billing, String>,
+}
+
 pub(crate) fn read() -> (Vec<report::Resource>, Vec<String>) {
+    let read = read_with_billing();
+    (read.resources, read.unread)
+}
+
+pub(crate) fn read_with_billing() -> Read {
     let mut unread = Vec::new();
     let live = match Client::discover()
         .call("GET", hcloud::PATH, None)
@@ -22,14 +33,15 @@ pub(crate) fn read() -> (Vec<report::Resource>, Vec<String>) {
             None
         }
     };
-    let billing = match manifest::read() {
+    let billing = manifest::read();
+    let parsed = match &billing {
         Ok(billing) => Some(billing),
         Err(why) => {
             unread.push(format!("manifest: {why}"));
             None
         }
     };
-    let mut resources = match (live, billing.as_ref()) {
+    let mut resources = match (live, parsed) {
         (Some(live), Some(billing)) => report::merge(live, billing),
         (Some(live), None) => live,
         (None, Some(billing)) => report::merge(Vec::new(), billing),
@@ -43,5 +55,5 @@ pub(crate) fn read() -> (Vec<report::Resource>, Vec<String>) {
         }
     };
     report::workloads(&mut resources, ledger.as_ref());
-    (resources, unread)
+    Read { resources, unread, billing }
 }

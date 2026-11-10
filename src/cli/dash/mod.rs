@@ -1,17 +1,20 @@
-//! `north dash`: one screen of the fleet over a window, failing things first: the readiness bars, each Claude
-//! account's week and the spend by model and effort, and per task category which model and effort took it, how
-//! often the first try landed and what a closed box cost. Every figure comes from runs or landings inside the
-//! window; `--json` carries the same figures for machines, and the scoreboard's own reports sit behind its flags.
+//! `north dash`: the board over a window. Its first line is landings and closed boxes per hour, then one panel per
+//! concern in the operator views' order: Work, Accounts, Infra and Health, each opening on its headline fact. Every
+//! panel is a projection of this snapshot; `--json` carries the same figures for machines, and the scoreboard's own
+//! reports sit behind its flags.
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
 use super::scoreboard::{self, ready, workers};
+use crate::fleet::board::Board;
+use crate::fleet::registry::Fleet;
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, Ledger, WindowRun};
 use crate::usage::outlook::{AccountOutlook, Runway};
 
 pub(crate) use crate::cli::infra::manifest as billing;
+mod board;
 mod dispatch;
 mod escalations;
 mod habits;
@@ -37,8 +40,11 @@ pub struct Screen {
     /// The runs of the last 7 days, from which each subscription's week is sized in dollars.
     pub week_runs: Result<Vec<WindowRun>, String>,
     pub billing: Result<billing::Billing, String>,
+    pub infra: Result<(Vec<crate::cli::infra::report::Resource>, Vec<String>), String>,
     /// Each api organization's credit, as `north fleet usage`, `north fleet accounts --plan` and the fleet screen print it.
     pub credit: Vec<north_core::credit::Standing>,
+    /// The fleet store's sessions, gates, landings and held messages, the Work part of the snapshot.
+    pub work: Result<board::Work, String>,
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -101,20 +107,43 @@ fn closed(window: &str) -> u8 {
 }
 
 fn read(window: &str) -> Result<Screen, String> {
+    let fleet = crate::cli::fleet::open_fleet().ok();
+    read_with_fleet(window, fleet.as_ref())
+}
+
+pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Screen, String> {
     let now = Timestamp::now().unix_seconds();
     let since = ledger::window_start_ms(window).map_err(|error| error.user_message())? / 1_000;
     let span = now - since;
-    let (bars, accounts, runs, attempts, habits, week_runs) = std::thread::scope(|scope| {
+    let since_ms = u64::try_from(since.saturating_mul(1_000)).unwrap_or(0);
+    let (bars, accounts, runs, attempts, habits, week_runs, work, infra) = std::thread::scope(|scope| {
         let bars = scope.spawn(|| ready::lines(now, span));
         let accounts = scope.spawn(accounts);
         let runs = scope.spawn(|| ledger::inside(window).map_err(|error| error.user_message()));
         let attempts = scope.spawn(|| first_tries(since, now));
         let habits = scope.spawn(|| habits::rows(&ledger::threads_database(), &Timestamp::from_unix_seconds(since).iso(), &Timestamp::from_unix_seconds(now).iso()));
         let week_runs = scope.spawn(|| ledger::runs_inside("7d").map_err(|error| error.user_message()));
+        let work = scope.spawn(|| match fleet {
+            Some(fleet) => board::work(fleet, since_ms),
+            None => Err("the fleet store is unreadable".to_owned()),
+        });
+        let infra = scope.spawn(|| {
+            let read = crate::cli::infra::read_with_billing();
+            (read.billing, read.resources, read.unread)
+        });
         let joined = |name: &str| format!("{name} reader panicked");
-        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))))
+        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))), work.join().unwrap_or_else(|_| Err(joined("work"))), infra.join().unwrap_or_else(|_| (Err(joined("infra")), Vec::new(), Vec::new())))
     });
-    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, billing: billing::read(), credit: credit() })
+    let (billing, resources, unread) = infra;
+    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, billing, infra: Ok((resources, unread)), credit: credit(), work })
+}
+
+/// The Board the fleet screen reads: the same snapshot `north dash` prints, over the board's day window.
+pub(crate) fn for_fleet(fleet: &Fleet) -> Board {
+    match read_with_fleet(DEFAULT_WINDOW, Some(fleet)) {
+        Ok(screen) => board::of(&screen),
+        Err(why) => Board::unread(why),
+    }
 }
 
 /// Colour only for a person at a terminal: never into a pipe or file, under NO_COLOR, or on a dumb terminal.
@@ -183,7 +212,14 @@ fn figures(screen: &Screen) -> Value {
         "spend": section(mixes.as_ref().map(|mixes| json!(mixes.spend))),
         "subscription_spend": section(spent.as_ref().cloned()),
         "spend_by_model": section(mixes.as_ref().map(|mixes| json!(mixes.models))),
-        "infra": section(screen.billing.as_ref().map(|billing| json!({"machines": billing.machines, "monthly_usd": billing.total_usd(), "capped": billing.capped()}))),
+        "infra": match &screen.infra {
+            Ok((resources, unread)) => json!({"resources": resources, "unread": unread, "total": crate::cli::infra::report::Report::of(Timestamp::from_unix_seconds(screen.now).iso(), resources.clone(), unread.clone()).total_line()}),
+            Err(why) => json!({"unread": why}),
+        },
+        "work": match &screen.work {
+            Ok(work) => json!({"sessions": work.sessions.iter().map(|session| json!({"name": session.name, "status": session.status, "task": session.task})).collect::<Vec<_>>(), "gates": work.gates.len(), "landed": work.landed.len(), "held": work.held}),
+            Err(why) => json!({"unread": why}),
+        },
         "dispatch": section(mixes.as_ref().map(|mixes| json!(mixes.rows))),
         "cells": section(mixes.as_ref().map(|mixes| json!(mixes.cells))),
         "escalations": escalations,

@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use crate::fleet::board::Board;
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Gate;
 use crate::fleet::model::{EntryKind, SessionRecord, Transcript};
@@ -37,7 +38,7 @@ impl SessionFacts {
 pub struct DigestPane {
     pub shown: bool,
     pub project_status: Vec<String>,
-    pub credit: Vec<String>,
+    pub board: Board,
     pub books: Digest,
     pub facts: BTreeMap<String, SessionFacts>,
     pub selected_gate: Option<i64>,

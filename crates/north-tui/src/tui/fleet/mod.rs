@@ -34,6 +34,7 @@ use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::board::Board;
 use crate::fleet::model::Transcript;
 use crate::fleet::registry::Fleet;
 
@@ -45,17 +46,17 @@ use screen::{Command, Screen};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// `credit` reads each api organization's credit line, which the digest shows under accounts; `glance` reads layer 0's one line, which the top segment shows.
-pub fn run(fleet: Fleet, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> NorthResult<()> {
-    run_focused(fleet, None, credit, glance)
+/// `board` reads the four-panel snapshot the digest shows; `glance` reads layer 0's one line, which the top segment shows.
+pub fn run(fleet: Fleet, board: fn(&Fleet) -> Board, glance: fn() -> Vec<String>) -> NorthResult<()> {
+    run_focused(fleet, None, board, glance)
 }
 
-pub fn run_on(fleet: Fleet, session: &str, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> NorthResult<()> {
-    run_focused(fleet, Some(session.to_owned()), credit, glance)
+pub fn run_on(fleet: Fleet, session: &str, board: fn(&Fleet) -> Board, glance: fn() -> Vec<String>) -> NorthResult<()> {
+    run_focused(fleet, Some(session.to_owned()), board, glance)
 }
 
-fn run_focused(fleet: Fleet, session: Option<String>, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> NorthResult<()> {
-    let mut desk = FleetDesk::new(fleet, credit, glance);
+fn run_focused(fleet: Fleet, session: Option<String>, board: fn(&Fleet) -> Board, glance: fn() -> Vec<String>) -> NorthResult<()> {
+    let mut desk = FleetDesk::new(fleet, board, glance);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
     screen.selected = session;
     screen.offer(desk.choices());
@@ -157,7 +158,7 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
             let facts = screen.sessions.iter().map(|session| (session.record.name.clone(), SessionFacts::of(&session.record, desk.transcript(&session.record.name)))).collect();
             screen.observe(desk.digest(), facts);
             screen.digest.project_status = desk.project_status();
-            screen.digest.credit = desk.credit();
+            screen.digest.board = desk.board();
             screen.glance = desk.glance();
             true
         }

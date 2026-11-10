@@ -6,7 +6,7 @@ Run north with no arguments to open the fleet screen.
 
 Operator console:
   glance                One line: anything broken, the money, and what waits on Tom
-  dash                  One screen: readiness, account usage, model mix and category cost
+  dash                  The board: landings and boxes per hour, then Work, Accounts, Infra and Health panels
   fleet                 Sessions, dispatch, pace, usage, laptop, orders, digest, report
   gate                  Open, answer or list decision gates
   ledger                Fleet runs and cost; worker tiers, flow, tempo and incidents

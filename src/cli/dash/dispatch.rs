@@ -51,8 +51,6 @@ pub struct Mixes {
     pub models: Vec<Spend>,
     pub rows: Vec<Row>,
     pub cells: Vec<CellRow>,
-    /// The distinct boxes closed in the window, each counted once though several mixes worked it.
-    pub closed: usize,
 }
 
 impl Mixes {
@@ -119,7 +117,7 @@ impl Mixes {
         }
         rows.sort_by(|a, b| categories[&b.category].total_cmp(&categories[&a.category]).then_with(|| a.category.cmp(&b.category)).then_with(|| b.runs.cmp(&a.runs)));
         let cells = cell_rows(runs, &screen.attempts, report);
-        Ok(Self { spend, models, rows, cells, closed: report.closed })
+        Ok(Self { spend, models, rows, cells })
     }
 }
 

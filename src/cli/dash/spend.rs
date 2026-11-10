@@ -30,7 +30,6 @@ pub struct Api {
 
 #[derive(Clone, Debug)]
 pub struct Spend {
-    pub accounts: Vec<String>,
     pub classes: Vec<Class>,
     pub api: Api,
 }
@@ -84,6 +83,6 @@ impl Spend {
             })
             .collect();
         classes.sort_by(|a, b| b.usd.total_cmp(&a.usd));
-        Ok(Self { accounts: accounts.iter().map(|account| account.account.clone()).collect(), classes, api })
+        Ok(Self { classes, api })
     }
 }

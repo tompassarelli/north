@@ -4,6 +4,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::board::Board;
 use crate::fleet::books::{Digest, Revision};
 use crate::fleet::gates::{Decision, due};
 use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, SessionRecord, Status, Transcript};
@@ -17,6 +18,7 @@ use crate::fleet::runtime::now_ms;
 const UPKEEP_INTERVAL: Duration = Duration::from_secs(30);
 const GATE_RETRY: Duration = Duration::from_secs(2);
 const STATUS_INTERVAL: Duration = Duration::from_secs(300);
+const BOARD_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSummary {
@@ -34,7 +36,7 @@ pub trait SessionDesk {
     fn transcript(&self, name: &str) -> Option<&Transcript>;
     fn digest(&self) -> Digest;
     fn project_status(&self) -> Vec<String> { Vec::new() }
-    fn credit(&self) -> Vec<String> { Vec::new() }
+    fn board(&self) -> Board { Board::default() }
     fn glance(&self) -> Vec<String> { Vec::new() }
     fn choices(&self) -> Vec<Choices> { Vec::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
@@ -94,14 +96,14 @@ pub struct FleetDesk {
     digest_read: Option<(Revision, u64)>,
     upkeep: Upkeep,
     status: Periodic,
-    credit: Periodic,
+    board: BoardRead,
     glance: Periodic,
 }
 
 impl FleetDesk {
-    /// `credit` reads each api organization's credit line in the background, as `north fleet usage` prints it; `glance` reads layer 0's one line.
-    pub fn new(fleet: Fleet, credit: fn() -> Vec<String>, glance: fn() -> Vec<String>) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), credit: Periodic::of(credit), glance: Periodic::of(glance) }
+    /// `board` reads the four-panel snapshot in the background, the same one `north dash` prints; `glance` reads layer 0's one line.
+    pub fn new(fleet: Fleet, board: fn(&Fleet) -> Board, glance: fn() -> Vec<String>) -> Self {
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: StateClock::default(), digest: Digest::default(), digest_read: None, upkeep: Upkeep::default(), status: Periodic::of(crate::platform::project_status::lines), board: BoardRead::of(board), glance: Periodic::of(glance) }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -165,7 +167,7 @@ impl SessionDesk for FleetDesk {
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
         let measured = self.upkeep.tend(&self.fleet, &self.digest)?;
-        Ok(changed | measured | self.status.tend() | self.credit.tend() | self.glance.tend())
+        Ok(changed | measured | self.status.tend() | self.board.tend(&self.fleet) | self.glance.tend())
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -194,7 +196,7 @@ impl SessionDesk for FleetDesk {
 
     fn project_status(&self) -> Vec<String> { self.status.lines.clone() }
 
-    fn credit(&self) -> Vec<String> { self.credit.lines.clone() }
+    fn board(&self) -> Board { self.board.board.clone() }
 
     fn glance(&self) -> Vec<String> { self.glance.lines.clone() }
 
@@ -229,6 +231,34 @@ impl Upkeep {
             self.last = Some(Instant::now());
         }
         Ok(changed)
+    }
+}
+
+struct BoardRead {
+    read: fn(&Fleet) -> Board,
+    job: Option<JoinHandle<Board>>,
+    board: Board,
+    last: Option<Instant>,
+}
+
+impl BoardRead {
+    fn of(read: fn(&Fleet) -> Board) -> Self {
+        Self { read, job: None, board: Board { first_line: "the board is being read".to_owned(), panels: Vec::new() }, last: None }
+    }
+
+    fn tend(&mut self, fleet: &Arc<Fleet>) -> bool {
+        let mut changed = false;
+        if let Some(job) = self.job.take_if(|job| job.is_finished()) {
+            self.board = job.join().unwrap_or_else(|_| Board::unread("the board read panicked"));
+            changed = true;
+        }
+        if self.job.is_none() && self.last.is_none_or(|last| last.elapsed() >= BOARD_INTERVAL) {
+            let fleet = fleet.clone();
+            let read = self.read;
+            self.job = Some(thread::spawn(move || read(&fleet)));
+            self.last = Some(Instant::now());
+        }
+        changed
     }
 }
 

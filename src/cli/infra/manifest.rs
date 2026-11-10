@@ -43,6 +43,7 @@ pub struct Billing {
 }
 
 impl Billing {
+    #[cfg(test)]
     pub fn total_usd(&self) -> f64 {
         self.machines
             .iter()
@@ -51,6 +52,7 @@ impl Billing {
     }
 
     /// True when a machine bills by the hour up to a cap, so the total is the most a month can cost.
+    #[cfg(test)]
     pub fn capped(&self) -> bool {
         self.machines
             .iter()
