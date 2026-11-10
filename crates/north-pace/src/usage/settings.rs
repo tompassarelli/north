@@ -56,8 +56,8 @@ pub(super) fn plan_text(policy: &Path, provider: &str, account: Option<&str>, ob
     }
 }
 
-pub(super) fn services(operator: &Path) -> Option<Vec<toml_edit::Table>> {
-    let document: DocumentMut = fs::read_to_string(operator.join("costs.toml")).ok()?.parse().ok()?;
+pub(super) fn services(costs: &Path) -> Option<Vec<toml_edit::Table>> {
+    let document: DocumentMut = fs::read_to_string(costs).ok()?.parse().ok()?;
     Some(document.get("service").and_then(toml_edit::Item::as_array_of_tables).map(|tables| tables.iter().cloned().collect()).unwrap_or_default())
 }
 

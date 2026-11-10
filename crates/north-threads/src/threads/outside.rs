@@ -36,21 +36,23 @@ impl FleetView for Unread {
 pub struct Live {
     fleet: Arc<dyn FleetView>,
     relayed_owners: Vec<String>,
-    operator: PathBuf,
+    costs: PathBuf,
 }
 
 impl Live {
     /// The effects as this caller's environment shapes them: where the live sessions come from,
     /// the owners a remote caller relayed, and the
-    /// operator directory holding costs.toml.
+    /// costs.toml beside the orchestration file.
     pub fn new(env: &BTreeMap<String, String>, fleet: Arc<dyn FleetView>) -> Self {
         let var = |name: &str| env.get(name).map(String::as_str).filter(|value| !value.is_empty());
         let relayed_owners = var("THREADS_ALIVE_OWNERS")
             .and_then(|text| serde_json::from_str::<Value>(text).ok())
             .and_then(|value| value.as_array().map(|owners| owners.iter().filter_map(Value::as_str).map(str::to_owned).collect()))
             .unwrap_or_default();
-        let operator = var("AGENTS_OPERATOR_DIR").map_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join("code/south/main/agents"), PathBuf::from);
-        Self { fleet, relayed_owners, operator }
+        let home = PathBuf::from(var("HOME").unwrap_or_default());
+        let orchestration = crate::platform::orchestration::path_in(&home, var("AGENTS_ORCHESTRATION").map(std::path::Path::new), var("AGENTS_OPERATOR_DIR").map(std::path::Path::new));
+        let costs = orchestration.with_file_name("costs.toml");
+        Self { fleet, relayed_owners, costs }
     }
 }
 
@@ -84,13 +86,13 @@ impl super::verb::Outside for Live {
     }
 
     fn costs_path(&self) -> PathBuf {
-        self.operator.join("costs.toml")
+        self.costs.clone()
     }
 
     fn prices(&self) -> Result<BTreeMap<String, f64>, String> {
-        let path = self.operator.join("costs.toml");
+        let path = &self.costs;
         let unreadable = |why: String| format!("{}: {why}", path.display());
-        let text = std::fs::read_to_string(&path).map_err(|error| unreadable(error.to_string()))?;
+        let text = std::fs::read_to_string(path).map_err(|error| unreadable(error.to_string()))?;
         let document: toml_edit::DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| unreadable(error.to_string()))?;
         let Some(services) = document.get("service") else { return Ok(BTreeMap::new()) };
         let services = services.as_array_of_tables().ok_or_else(|| unreadable("service is not an array of tables".into()))?;

@@ -137,8 +137,7 @@ pub(super) fn remote_hosts(orchestration: &str, local: &str) -> Vec<(String, Str
 
 fn host_reads() -> Vec<HostRead> {
     let local = fs::read_to_string("/etc/hostname").map(|name| name.trim().to_owned()).unwrap_or_default();
-    let operator = std::env::var_os("AGENTS_OPERATOR_DIR").map_or_else(|| home().join("code/south/main/agents"), PathBuf::from);
-    let remote = remote_hosts(&fs::read_to_string(operator.join("orchestration.toml")).unwrap_or_default(), &local);
+    let remote = remote_hosts(&fs::read_to_string(crate::platform::orchestration::path()).unwrap_or_default(), &local);
     std::thread::scope(|scope| {
         let here = scope.spawn(|| {
             let status = bounded(20, &north(), &["capacity", "host", "status"]).filter(|output| output.status.success()).and_then(|output| serde_json::from_slice(&output.stdout).ok());

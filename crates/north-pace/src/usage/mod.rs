@@ -43,7 +43,7 @@ pub const STALE_SECONDS: f64 = 600.0;
 
 pub struct Places {
     pub policy: PathBuf,
-    pub operator: PathBuf,
+    pub costs: PathBuf,
     pub state: PathBuf,
 }
 
@@ -53,7 +53,7 @@ impl Places {
         let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
         Self {
             policy: crate::platform::orchestration::path(),
-            operator: set("AGENTS_OPERATOR_DIR").unwrap_or_else(|| home.join("code/south/main/agents")),
+            costs: crate::platform::orchestration::policy_file("costs.toml"),
             state: set("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")),
         }
     }

@@ -1,7 +1,6 @@
 use super::{sampling, storage};
 use serde_json::Value;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 use toml_edit::Item;
 
 pub mod case;
@@ -78,16 +77,6 @@ pub fn saturation_reading(name: &str) -> Result<crate::capacity::saturation::Sat
 }
 fn local() -> String {
     crate::platform::host::name()
-}
-fn operator() -> PathBuf {
-    std::env::var_os("AGENTS_OPERATOR_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            crate::platform::orchestration::path()
-                .parent()
-                .unwrap_or(Path::new("."))
-                .to_owned()
-        })
 }
 fn stamp(at: f64) -> String {
     crate::foundation::clock::Timestamp::from_unix_seconds_f64(at)

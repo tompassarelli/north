@@ -658,7 +658,7 @@ may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.landing",
 [[module]]
 name = "catalog"
 paths = ["crates/north-core/src/catalog/**", "crates/north-core/src/agent_catalog.rs", "crates/north-core/src/agent_policy_contract.rs", "crates/north-core/src/agent_policy_contract/**", "crates/north-core/src/agent_config_check/**"]
-responsibility = "Agent catalog, activation generations, projection port and policy checks."
+responsibility = "Agent catalog, activation generations, projection port and policy checks; agent_config_check reads south agents/ policy files from the checkout, not the fetched snapshot, because it gates publishing that checkout."
 may_use = ["domain", "foundation", "crate-roots", "lifecycle", "git_locks"]
 
 [[module]]

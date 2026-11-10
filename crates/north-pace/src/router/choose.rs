@@ -5,7 +5,6 @@ use super::ctx::{Ctx, Project, Tier, WorkBox, account_of, provider, truthy};
 use super::moment::{python_g, python_str};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 pub type Bands = BTreeMap<String, (f64, f64)>;
 
@@ -26,12 +25,7 @@ pub(super) fn brief(item: &WorkBox) -> &str {
 }
 
 fn costs_file() -> Option<Vec<Value>> {
-    let dir = std::env::var_os("AGENTS_OPERATOR_DIR")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join("code/south/main/agents"))
-        })?;
-    let document: toml_edit::DocumentMut = std::fs::read_to_string(dir.join("costs.toml"))
+    let document: toml_edit::DocumentMut = std::fs::read_to_string(crate::platform::orchestration::policy_file("costs.toml"))
         .ok()?
         .parse()
         .ok()?;

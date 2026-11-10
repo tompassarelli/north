@@ -1,26 +1,16 @@
-use std::env;
-use std::path::{Path, PathBuf};
-
-use crate::error::NorthResult;
+use std::path::Path;
 
 use super::status::{self, Options};
 use super::{USAGE, goal, replay};
 
 pub struct Ports<'a> {
     pub harness: &'a Path,
-    pub operator: &'a dyn Fn() -> NorthResult<PathBuf>,
     pub place: &'a dyn Fn(&[String]) -> u8,
 }
 
 pub fn run(arguments: &[String], ports: &Ports) -> u8 {
     match arguments.first().map(String::as_str) {
-        Some("--score") if arguments.len() == 2 => match orchestration(ports) {
-            Ok(config) => goal::score(ports.harness, &arguments[1], &config),
-            Err(error) => {
-                eprintln!("agents plan: {}", error.user_message());
-                2
-            }
-        },
+        Some("--score") if arguments.len() == 2 => goal::score(ports.harness, &arguments[1], &crate::platform::orchestration::path()),
         Some("--score") => {
             eprintln!("{USAGE}");
             2
@@ -46,13 +36,7 @@ pub fn run(arguments: &[String], ports: &Ports) -> u8 {
 fn run_status(arguments: &[String], ports: &Ports) -> u8 {
     match Options::parse(arguments) {
         Some(Options { at: Some(scenario), json, .. }) => replay::run(&scenario, json),
-        Some(options) => match orchestration(ports) {
-            Ok(config) => status::run(&options, ports.harness, &config),
-            Err(error) => {
-                eprintln!("agents plan: {}", error.user_message());
-                2
-            }
-        },
+        Some(options) => status::run(&options, ports.harness, &crate::platform::orchestration::path()),
         None => {
             eprintln!("{USAGE}");
             2
@@ -60,9 +44,3 @@ fn run_status(arguments: &[String], ports: &Ports) -> u8 {
     }
 }
 
-fn orchestration(ports: &Ports) -> NorthResult<PathBuf> {
-    match env::var_os("AGENTS_ORCHESTRATION") {
-        Some(path) => Ok(PathBuf::from(path)),
-        None => (ports.operator)().map(|directory| directory.join("orchestration.toml")),
-    }
-}

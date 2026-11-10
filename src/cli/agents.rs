@@ -32,7 +32,6 @@ pub(super) fn run(arguments: &[String]) -> u8 {
                 rest,
                 &plan::Ports {
                     harness: root,
-                    operator: &sync_gate::operator_directory,
                     place: &pace,
                 },
             )

@@ -33,8 +33,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(env::var("HOME").unwrap_or_default());
     let set = |name: &str| env::var(name).ok().filter(|value| !value.is_empty());
     let state = set("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
-    let operator = set("AGENTS_OPERATOR_DIR").map_or_else(|| home.join("code/south/main/agents"), PathBuf::from);
-    let orchestration = set("AGENTS_ORCHESTRATION").map_or_else(|| operator.join("orchestration.toml"), PathBuf::from);
+    let orchestration = crate::platform::orchestration::path();
     let program = set("USAGE_WEB_READ_CHROME").unwrap_or_else(|| "automation-chrome".to_owned());
     match read(&state.join("agents/usage/claude-web.json"), &orchestration, run_chrome(&program, TIMEOUT)) {
         Ok(()) => {

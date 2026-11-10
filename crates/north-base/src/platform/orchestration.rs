@@ -7,15 +7,29 @@ use toml_edit::{DocumentMut, Item};
 const FILE: &str = "orchestration.toml";
 
 pub fn path() -> PathBuf {
-    if let Some(path) = configured() {
-        return path;
+    path_in(&home(), variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref())
+}
+
+/// The orchestration file `AGENTS_ORCHESTRATION` names, else the operator directory's, else the fetched snapshot's,
+/// else the south checkout's, for a caller that reads its environment and home through its own port.
+pub fn path_in(home: &Path, orchestration: Option<&Path>, operator: Option<&Path>) -> PathBuf {
+    if let Some(path) = orchestration {
+        return path.to_owned();
     }
-    let home = home();
-    let snapshot = shared::current(&home).join(FILE);
+    if let Some(operator) = operator {
+        return operator.join(FILE);
+    }
+    let snapshot = shared::current(home).join(FILE);
     match snapshot.is_file() {
         true => snapshot,
-        false => under(&home),
+        false => under(home),
     }
+}
+
+/// A top-level policy file of south `agents/` beside the orchestration file, such as costs.toml or
+/// claude-accounts.toml, so every policy a run reads comes from the same revision.
+pub fn policy_file(file: &str) -> PathBuf {
+    path().with_file_name(file)
 }
 
 pub fn under(home: &Path) -> PathBuf {
@@ -26,7 +40,7 @@ pub fn under(home: &Path) -> PathBuf {
 /// the bound is refused rather than read.
 pub fn read() -> Result<DocumentMut, String> {
     let home = home();
-    if configured().is_none() && shared::current(&home).is_dir() {
+    if variable("AGENTS_ORCHESTRATION").is_none() && variable("AGENTS_OPERATOR_DIR").is_none() && shared::current(&home).is_dir() {
         shared::fresh(&home, shared::now())?;
     }
     let path = path();
@@ -34,11 +48,8 @@ pub fn read() -> Result<DocumentMut, String> {
     text.parse().map_err(|error| format!("{}: {error}", path.display()))
 }
 
-fn configured() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
-        return Some(path.into());
-    }
-    env::var_os("AGENTS_OPERATOR_DIR").map(|operator| PathBuf::from(operator).join(FILE))
+fn variable(name: &str) -> Option<PathBuf> {
+    env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
 }
 
 fn home() -> PathBuf {

@@ -23,7 +23,7 @@ pub(super) fn lines(places: &Places, now: Timestamp) -> Result<Vec<String>, Stri
 }
 
 pub(super) fn read(places: &Places, now: Timestamp) -> Result<Option<Costs>, String> {
-    let Some(services) = settings::services(&places.operator) else { return Ok(None) };
+    let Some(services) = settings::services(&places.costs) else { return Ok(None) };
     let readout = |id: &str| -> Option<Value> {
         let text = fs::read_to_string(places.state.join("agents/costs").join(format!("{id}.json"))).ok()?;
         serde_json::from_str(&text).ok()

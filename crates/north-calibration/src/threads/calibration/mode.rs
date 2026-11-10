@@ -10,11 +10,8 @@ pub struct Mode {
 }
 
 pub fn configuration(home: &Path) -> PathBuf {
-    if let Some(path) = std::env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
-        return PathBuf::from(path);
-    }
-    let operator = std::env::var_os("AGENTS_OPERATOR_DIR").filter(|path| !path.is_empty()).map_or_else(|| home.join("code/south/main/agents"), PathBuf::from);
-    operator.join("orchestration.toml")
+    let variable = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    crate::platform::orchestration::path_in(home, variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref())
 }
 
 /// The mode and the tier keys it allows, or why the configuration cannot say.

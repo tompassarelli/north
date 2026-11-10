@@ -36,7 +36,7 @@ impl Scratch {
 
     fn places(&self) -> Places {
         let root = self.dir.path();
-        Places { policy: root.join("orchestration.toml"), operator: root.join("op"), state: root.join("state") }
+        Places { policy: root.join("orchestration.toml"), costs: root.join("op/costs.toml"), state: root.join("state") }
     }
 
     fn open(&self) -> Connection {

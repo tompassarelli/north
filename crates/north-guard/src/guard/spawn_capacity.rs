@@ -187,7 +187,8 @@ fn fleet_domain_rank(world: &impl World, event: &Event) -> Option<(String, usize
     }
     let task_ref = found?["task_ref"].as_str()?;
     let domain = task_ref.split('#').next().unwrap_or("").rsplit('/').next().unwrap_or("").to_lowercase();
-    let policy = world.var("AGENTS_ORCHESTRATION").map(PathBuf::from).unwrap_or_else(|| operator_dir(world).join("orchestration.toml"));
+    let variable = |name: &str| world.var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let policy = crate::platform::orchestration::path_in(&home(world), variable("AGENTS_ORCHESTRATION").as_deref(), variable("AGENTS_OPERATOR_DIR").as_deref());
     let document: toml_edit::DocumentMut = std::fs::read_to_string(policy).ok()?.parse().ok()?;
     let mut ranked = Vec::new();
     if let Some(projects) = document.get("projects") {
@@ -203,10 +204,6 @@ fn fleet_domain_rank(world: &impl World, event: &Event) -> Option<(String, usize
     let order: Vec<String> = ranked.into_iter().map(|(_, name)| name).collect();
     let index = order.iter().position(|name| *name == domain)?;
     Some((domain, index, order[0].clone()))
-}
-
-fn operator_dir(world: &impl World) -> PathBuf {
-    world.var("AGENTS_OPERATOR_DIR").map(PathBuf::from).unwrap_or_else(|| home(world).join("code/south/main/agents"))
 }
 
 fn home(world: &impl World) -> PathBuf {
