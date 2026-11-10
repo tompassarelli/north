@@ -228,7 +228,7 @@ fn a_busy_ledger_host_spools_the_batch_keeps_it_queued_and_stays_reachable_for_o
 }
 
 #[test]
-fn a_replayed_ingest_the_host_could_not_run_stays_queued_while_one_refused_for_a_real_reason_is_refused() {
+fn an_ingest_the_ledger_host_could_not_run_goes_back_to_the_queue() {
     for unrunnable in [126, 127] {
         let rig = rig(&[]);
         fs::write(rig.root.join("ingest-code"), ingest_lock::RETRY.to_string()).unwrap();
