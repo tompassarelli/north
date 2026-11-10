@@ -66,6 +66,9 @@ fn run_probes(host: &str, sha: &str, short: &str, machine: &impl Machine) -> (Ve
 
 pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machine) -> Verdict {
     let instance = format!("{host}/{sha}");
+    if let Err(failure) = lifecycle::settle_orphans::<Canarying>(layout, &format!("{host}/")) {
+        eprintln!("north runtime canary: {host}: {}", failure.message);
+    }
     if lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
         return Verdict::Skipped;
     }

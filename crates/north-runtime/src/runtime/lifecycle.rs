@@ -239,3 +239,10 @@ pub(super) fn trust(layout: &Layout, host: &str, previous: &str, failed: &str) {
         eprintln!("north runtime canary: {host}: {}: {}", layout::short(previous), failure.message);
     }
 }
+
+/// Moves each held record of `L` under `prefix` whose holder is gone to its orphan state: an instance no move touches again kept a dead canary's judging for hours, which the state-machines flow read as a live hold (north#1096).
+pub(super) fn settle_orphans<L: Lifecycle>(layout: &Layout, prefix: &str) -> Result<(), Failure> {
+    let mut store = store(layout)?;
+    let held: Vec<String> = store.instances_under::<L>(prefix).map_err(unreadable)?.into_iter().filter(|record| record.owner.is_some()).map(|record| record.instance).collect();
+    held.iter().try_for_each(|instance| store.settle::<L>(instance, Timestamp::now()).map(drop).map_err(unreadable))
+}

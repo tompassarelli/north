@@ -7,6 +7,7 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread::ScopedJoinHandle;
 use std::time::Duration;
 use rustix::fs::FlockOperation;
 
@@ -58,26 +59,45 @@ pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
 
 /// The other hosts take the runtime only after it walked the spine here, so a runtime that breaks the core loop is rolled back on this host and reaches no second one; a promotion that found another running leaves its landing, the shipping and the lander to that one.
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
-    let (here, replayed) = update_following_lander(layout);
+    let walks = land_offload::settles_fleet_here();
+    let Followed { here, replayed, walked } = update_following_lander(layout, walks);
     if matches!(here, Ok(update::Flight::Joined)) {
         return Ok(());
     }
-    let elsewhere = match land_offload::settles_fleet_here() {
-        true => walk::ship_if_walked(walk::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ()),
+    let elsewhere = match walks {
+        true => walked.unwrap_or_else(|| walk_and_ship(layout)),
         false => Ok(()),
     };
     let lander = replayed.unwrap_or_else(|| follow_lander(layout));
     here.map(|_| ()).and(elsewhere).and(lander)
 }
 
-/// Each swap moves the lander link after it on a thread of its own, so the lander follows a runtime the moment it is live while the promotion builds its next pass; the result is the replays' verdict, or none when nothing was swapped.
-pub(super) fn update_following_lander(layout: &Layout) -> (Result<update::Flight, Failure>, Option<Result<(), Failure>>) {
+fn walk_and_ship(layout: &Layout) -> Result<(), Failure> {
+    walk::ship_if_walked(walk::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ())
+}
+
+pub(super) struct Followed {
+    pub here: Result<update::Flight, Failure>,
+    pub replayed: Option<Result<(), Failure>>,
+    pub walked: Option<Result<(), Failure>>,
+}
+
+/// Each swap moves the lander link after it on a thread of its own, so the lander follows a runtime the moment it is live while the promotion builds its next pass, and, given `walks`, walks the spine on that runtime on another and ships it once it passed: a promotion that swapped several runtimes in while origin/main kept moving walked only the last, so on 2026-11-10 whiterabbit promoted 8fa62d19, 5e483bd4, 120e03ae and 5f943553 with no canary verdict (north#1096). `replayed` and `walked` are none when nothing was swapped.
+pub(super) fn update_following_lander(layout: &Layout, walks: bool) -> Followed {
     std::thread::scope(|scope| {
-        let mut replays = Vec::new();
-        let here = update::update(layout, &mut || replays.push(scope.spawn(|| follow_lander(layout))));
-        let replayed = (!replays.is_empty()).then(|| replays.into_iter().map(|replay| replay.join().unwrap_or_else(|_| Err(failed(1, "lander link held: its replay panicked")))).fold(Ok(()), Result::and));
-        (here, replayed)
+        let (mut replays, mut walking) = (Vec::new(), Vec::new());
+        let here = update::update(layout, &mut || {
+            replays.push(scope.spawn(|| follow_lander(layout)));
+            if walks {
+                walking.push(scope.spawn(|| walk_and_ship(layout)));
+            }
+        });
+        Followed { here, replayed: joined(replays, "lander link held: its replay panicked"), walked: joined(walking, "the spine walk panicked") }
     })
+}
+
+fn joined(threads: Vec<ScopedJoinHandle<'_, Result<(), Failure>>>, panicked: &str) -> Option<Result<(), Failure>> {
+    (!threads.is_empty()).then(|| threads.into_iter().map(|thread| thread.join().unwrap_or_else(|_| Err(failed(1, panicked)))).fold(Ok(()), Result::and))
 }
 
 pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
