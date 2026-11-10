@@ -287,8 +287,8 @@ worker updates its own class's line when its lane lands.
   re-pairing the spans after it (north#1041). Anything else is no checkable promise, logged and
   never reported broken.
 - Replay: `cargo nextest run -p north-fleet promises` runs only the report's
-  `git ... merge-base --is-ancestor` command, and the n842-reuse report line that quotes the
-  shell's unmatched-quote error before its promise.
+  `git ... merge-base --is-ancestor` command, and n842-reuse's two report lines yield only their
+  promised `git ... log origin/main ... | rg -q` command, never the prose after `n842-reuse-plan`.
 - Status: in flight. n892-promise.
 
 ### 13. A health gate reads busyness as broken
