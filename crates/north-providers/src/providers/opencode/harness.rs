@@ -105,8 +105,10 @@ impl Harness for OpenCode {
         &[Effort::High, Effort::Max]
     }
 
-    fn environment(&self, _host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)> {
-        let mut variables = vec![("OPENCODE_CONFIG_CONTENT".to_owned(), config::content(route).to_string())];
+    fn environment(&self, host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)> {
+        let mut config = config::content(route);
+        config["shell"] = Value::String(host.scratch.join("shell").display().to_string());
+        let mut variables = vec![("OPENCODE_CONFIG_CONTENT".to_owned(), config.to_string())];
         variables.extend(key.map(|key| (config::KEY_ENV.to_owned(), key.to_owned())));
         variables
     }

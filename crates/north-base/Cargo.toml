@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 north-strategy-types = { path = "../north-strategy-types" }
 base64.workspace = true
+landlock = "0.4.7"
 percent-encoding.workspace = true
 regex.workspace = true
 ring.workspace = true

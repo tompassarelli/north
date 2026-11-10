@@ -4,17 +4,18 @@ use super::Context;
 use super::except::{Entries, beneath_except};
 use super::readable::personal_logins;
 use super::removable::{lane, project};
+use crate::foundation::check_lane;
 
 /// Home entries an agent confined to its lane still reads: the toolchains, git's own configuration and `.local`, of which only `bin`, `share/north` and the `lib/opencode` and `lib/pi` programs the DeepSeek harnesses run stay readable, the places the toolchain shims and those programs live, and the north runtimes directory wherever the host keeps it: `cargo` and `north` on `PATH` resolve through them, and a lane's tests and builds run only through those shims, which enter depbox (south#93).
 const TOOLCHAINS: [&str; 6] = [".cargo", ".rustup", ".bun", ".npm", ".gitconfig", ".local"];
 const SCRATCH_ENV: &str = "NORTH_SANDBOX_SCRATCH";
 
-/// Every file a command confined to its lane may read: all of them but the operator's logins, every other checkout, lane and project, the agent state under `~/.local` apart from the north runtimes, the rest of `~/.config`, and other sessions' scratch under `/tmp`, `/var/tmp` and the runtime directory. What stays readable is the lane, its project's `main` checkout (git's common directory), the toolchains, the north runtimes, and the system.
+/// Every file a command confined to its lane may read: all of them but the operator's logins, every other checkout, lane and project the command does not name, the agent state under `~/.local` apart from the north runtimes and safe-push's base trees, the rest of `~/.config`, and other sessions' scratch under `/tmp`, `/var/tmp` and the runtime directory. What stays readable is the lane the command runs in, the lanes its text names, the checker's done-when lane, its project's `main` checkout (git's common directory), the toolchains, the north runtimes, and the system.
 pub fn readable_in_lane(context: &Context) -> Vec<PathBuf> {
     beneath_except(Path::new("/"), &hidden(context), Entries::All)
 }
 
-pub(super) fn hidden(context: &Context) -> Vec<PathBuf> {
+pub fn hidden(context: &Context) -> Vec<PathBuf> {
     let home = &context.home;
     let code = home.join("code");
     let mut hidden = personal_logins(context);
@@ -41,7 +42,19 @@ pub(super) fn hidden(context: &Context) -> Vec<PathBuf> {
     if let Some(runtimes) = &context.runtimes {
         reveal(&mut hidden, runtimes);
     }
+    reveal(&mut hidden, &local.join("state/safe-push"));
+    reveal_lanes(&mut hidden, context, home);
     hidden
+}
+
+/// Keeps the checker's done-when lane and every lane the command names out of the hidden entries, since the fresh command domain grants a lane the session created after its long-lived domain was built.
+fn reveal_lanes(hidden: &mut Vec<PathBuf>, context: &Context, home: &Path) {
+    for named in &context.named_lanes {
+        reveal(hidden, named);
+    }
+    if let Some(project) = project(home, &context.cwd) {
+        reveal(hidden, &check_lane::of(&project));
+    }
 }
 
 /// Narrows the hidden entry that holds `kept` to its other entries at each level down to `kept`, so the north runtimes stay readable while the agent state beside them stays hidden.

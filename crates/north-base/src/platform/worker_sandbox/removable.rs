@@ -52,6 +52,7 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots.extend([".rustup", ".bun", ".npm"].map(|name| home.join(name)));
     let state = home.join(".local/state");
     roots.extend(beneath_except(&state, &[state.join("north/profiles"), state.join("north/claude-tokens")], Entries::Directories));
+    base_trees(&state);
     let lanes: Vec<PathBuf> = lane(home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()).collect();
     let projects = project(home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(lanes.iter().filter_map(|lane| lane.parent().and_then(Path::parent)).map(Path::to_path_buf));
     for project in projects {
@@ -68,8 +69,13 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
 
 /// A Landlock rule holds an inode, so the done-when lane must exist before the domain is built.
 fn check_lane(project: &Path) -> Option<PathBuf> {
-    let lane = north_base::foundation::check_lane::of(project);
+    let lane = crate::foundation::check_lane::of(project);
     (project.join("worktrees").is_dir() && std::fs::create_dir_all(&lane).is_ok()).then_some(lane)
+}
+
+/// Safe-push creates a base tree in this container after the domain is built, so the container must exist first for the fresh command domain to grant it, as the done-when lane does.
+fn base_trees(state: &Path) {
+    let _ = std::fs::create_dir_all(state.join("safe-push/base-trees"));
 }
 
 /// The project container `cwd` lies in: `~/code/PROJECT`.

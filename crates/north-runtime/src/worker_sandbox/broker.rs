@@ -46,7 +46,7 @@ fn socket() -> PathBuf {
     runtime().join(DIRECTORY).join(SOCKET)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets.
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a harness's shell command in a fresh lane-only domain, since a lane the session creates after its long-lived domain was built holds no rule there.
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -64,7 +64,7 @@ pub(super) fn confined(north: &Path, arguments: Vec<String>) -> Vec<String> {
 pub(super) fn permitted(arguments: &[String]) -> bool {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["depbox", "fetch" | "run", "--", program, ..] | [FLAG, "--built", "--", program, ..] => !program.is_empty(),
+        ["depbox", "fetch" | "run", "--", program, ..] | [FLAG, "--built" | "--lane", "--", program, ..] => !program.is_empty(),
         ["lane", "unlock" | "stray" | "remove" | "gc", ..] => true,
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
         _ => false,
