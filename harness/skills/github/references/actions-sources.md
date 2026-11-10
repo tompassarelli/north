@@ -1,9 +1,9 @@
 # GitHub Actions: sources
 
 Read when revising [GitHub Actions](actions.md) or when one of its numbers needs
-its evidence. GitHub docs fetched 2026-10-08. Each entry: link, date read,
-what we took. Tags in actions.md (for example [L1]) point here. GitHub's docs
-pages carry no revision date; re-fetch them when a plan or limit changes.
+its evidence. Each entry: link, date read, what we took. The limits were
+re-read 2026-11-10 and match. GitHub's docs pages carry no revision date;
+re-fetch them when a plan or limit changes.
 
 ## GitHub documentation
 
