@@ -425,7 +425,10 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
             NO_VERDICT_STATUS
         }
     };
-    advance(&mut ledger(root), &lease, Phase::Settling, &format!("the command exited with {exit_code}; its scope is being stopped"), None);
+    let mut leases = ledger(root);
+    if !leases.phase(&lease).ok().flatten().is_some_and(Phase::ended) {
+        advance(&mut leases, &lease, Phase::Settling, &format!("the command exited with {exit_code}; its scope is being stopped"), None);
+    }
     stop_scope(&unit);
     let _ = std::fs::remove_file(cache_server_socket(root, &lease));
     if scope_live(&lease) {
