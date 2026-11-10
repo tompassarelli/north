@@ -88,3 +88,126 @@ network's reach are in South (agents/decisions/infra/propagation-2026-11-10.md).
   (2 minutes for the runtime, 5 for a firn closure) are read from records instead of journals.
 - Once a host holds a new runtime, every long-lived north process on it moves onto it at its next
   safe point through one mechanism ([runtime follow](runtime-follow.md)).
+
+## Promotion cadence (north#1022, planned 2026-11-11)
+
+Propagation decides how fast one promoted runtime reaches every host. This section decides how often the settling
+host promotes one. The two had been fused: the event-driven rule (e068c4c057, 2026-11-10) promotes on each landing
+that changes a runtime input, so every landing was a fleet-wide deploy of the control plane.
+
+### What the event-driven rule cost
+
+Read from the settling host's pin journal (`runtime-pins.jsonl` as mirrored to gex45 at 2:58 AM +07 on 2026-11-11)
+for the 8 h 53 min it ran before the mirror, 3:59 PM to 12:52 AM +07, and from the follow journal and capacity
+ledgers the proxy and this plan read:
+
+- 197 landings changed a runtime input and 74 distinct runtimes were promoted, about 8 an hour. The follow journal
+  counted 32 `north runtime promoted:` lines in the 24 h to 4:45 AM, and 8 release builds ran on the laptop between
+  3:14 and 4:05 AM before builds moved off it (664250fd40).
+- Landing to live on the settling host: p50 241 s, p90 627 s, max 1,979 s over those 197 landings. The 2-minute
+  bar the rule was built for (goals.toml `ready-runtime-live-p90`) failed every hour of it: one flight at a time
+  cannot keep up with landings arriving every 2.7 minutes.
+- 10 promotions failed the walk on the settling host and were rolled back after 35 to 325 s. None reached a second
+  host. Two more on 2026-11-11, after the mirror, failed on the wording of the launch probe's answer, not on a
+  fault (455c0e5c and 12f6d9b6). Each one cost a release build, a walk and a delay for every landing queued behind
+  it.
+- The 5-minute landing-to-live page fired twice in ten minutes after the off-laptop builds went live: e3cf5bb8
+  waited 1,011 s and 04e79016 374 s, both queued behind one flight while 03da559f was pinned. With one promotion per
+  landing, the page fires on most landings and stops meaning anything.
+- Build-host time per promotion: 74 s on cpx62 (warm target) and 6 min 10 s on gex45 (6 free cores, cold). The
+  gex45 capacity ledger's one runtime build since then took 306.6 s with 10 cores reserved, cold, predicted 344.8 s.
+  At 8 promotions an hour that is 10 to 51 minutes of build-host time per hour. The build-ahead change
+  (18afcca179) adds one release build for every queued candidate on top of that.
+- Each promotion re-execs every long-lived north process on every host (11 landers, session hosts, watchdogs) and
+  makes one launch per provider for the canary.
+
+### Decision
+
+Promote on a cadence, with a fast path. This is item 1 of the strategy record, and its bars are Tom's 2026-11-10
+answer 2 (south agents/decisions/harness/throughput-strategy-2026-11-10.md): no spine-breaking promotion reaches a
+second host, rollback within 2 minutes, the running runtime at most a day old, and a fast path for red-main fixes.
+The event-driven rule and its 2-minute landing-to-live bar went past that answer, and nothing records Tom changing
+it. The north#1081 ask (propagation at the speed of the network) is about how fast one artifact moves, and the
+cadence keeps that: each promotion still goes live everywhere within the 2-minute propagation target.
+
+- **Slots.** The settling host promotes at fixed slots every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00
+  UTC (7 AM, 11 AM, 3 PM, 7 PM, 11 PM and 3 AM +07). At most 6 a day. The spacing lives in harness/defaults.toml, not
+  in a constant. A slot promotes origin/main's newest head that has a release artifact ready, and only if some commit
+  since the pin changes a runtime input. Otherwise the slot passes and the pin stays.
+- **Fast path.** A landing whose commit carries a `Live-fix: REASON` trailer is promoted at once. REASON names what
+  is broken: red main, or the running runtime itself (a lander that cannot land, a broken worker loop, a canary
+  that rolls back good runtimes). A fast-path promotion takes the next slot's place, so a day with at most one
+  fast path per slot interval stays at 6. This replaces the `Main-red:` trailer of 64f4e8ec6b, because a broken
+  lander (north#902) is the same emergency as red main and needs the same path. `north runtime status` prints the
+  fast-path count for the last 24 h, so overuse shows.
+- **One build per slot.** Ten minutes before each slot, the settling host asks the build host predicted to finish
+  soonest to build origin/main's head. At the slot it promotes the newest head whose artifact is ready. Build-ahead
+  for queued candidates (18afcca179) narrows to candidates that carry `Live-fix:`, the only landings whose
+  promotion waits on a build. That is about 6 builds a day plus fast paths, against about 200.
+- **A failed slot keeps the old pin.** The walk rolls the runtime back and quarantines it as today. The proxy is
+  alarmed with the failing probe, the next slot takes a newer head, and the fix can take the fast path. A rollback
+  now delays fixes by a whole slot instead of a quarter hour, so a probe that fails on wording (north#1022's
+  planted-token box) has to land before the cadence goes live.
+- **What waits.** The lander's call after each landing, and the follow timer, read the schedule. Between slots they
+  print `north runtime pinned: P stays live; H waits for the HH:MM slot or a Live-fix landing` and exit 0. One flight
+  at a time and the lock queue stay as they are.
+
+### What the page and the bars measure after the change
+
+- **The page measures due to live.** A promotion is due at its slot, or at the landing time of a fast-path landing.
+  The pin journal records a `due` event with sha, reason (slot or fast path) and time. The coordinator is paged when
+  a due promotion is not live on the settling host 5 minutes later. An ordinary landing waiting for its slot is on
+  schedule and pages nothing. A fast-path landing pages at 5 minutes, as every landing does today.
+- **Page volume.** At 5:52 AM +07 on 2026-11-11 the per-landing page tripped the proxy's page-flood ceiling with 4
+  pages in 10 minutes. One of them named the landing it paged about, 18afcca1, as the pinned runtime, which is a
+  separate false-page box. The coordinator can act on one page per stuck promotion. Under the cadence that is at
+  most one per due promotion: 6 slots plus the fast paths, about 7 a day, and never two in one slot interval unless
+  a fast path is itself stuck. Later due promotions that queue behind a stuck one join its episode, and the episode
+  is paged once, as `north runtime lag` pages once per episode (north#1081). More than one page in 10 minutes then
+  means the promotion machinery is broken, which is the one thing the page is for.
+- **The bars.** `ready-runtime-live-p90` becomes due to live p90 ≤ 2 min over 24 h, since one hour holds at most
+  one slot. The runtime-age bar returns (main's oldest unpromoted runtime-input landing ≤ 24 h). Breaks reaching a
+  second host (0) and rollback (≤ 2 min) stay. `north runtime status` prints `promotions in 24 h: N of at most 6`
+  again.
+
+### Cost to the boxes that wait on a live runtime
+
+| Box | Under the cadence | Change it needs |
+| --- | --- | --- |
+| north#1022 page (ticked) | stops firing on scheduled waits | the page reads `due`, not `landed` |
+| north#1022 no rebuild after landing | read at a slot, up to 4 h away | check gap is due to promoted < 2 min |
+| north#1022 build ahead | artifact-ready 0 s holds for fast-path landings only | check reads a fast-path landing |
+| north#1022 canary < 60 s, ship < 30 s p90 | about 6 samples a day; a 1 h window often has none | window becomes 24 h |
+| north#1022 stage durations on the scoreboard | unchanged, fewer samples | none |
+| north#1022 live launch probe (from north#1027) | waits for the next canary, up to 4 h | none |
+| north#1022 planted-token probe | now a prerequisite | lands before the cadence goes live |
+| north#1022 this box | `rg -c 'north runtime promoted:'` ≤ 6 after one day of slots | none |
+| north#1081 processes move within 60 s | read 2 min after a promotion, up to 4 h to the next one; 6 re-execs a day instead of about 200 | none |
+| north#1081 `north runtime lag` < 300 s | fails by design against origin/main (up to 4 h behind) | lag is measured against the settling host's pin; the code half in flight (north-1081-d2101) takes the pin as its reference |
+| north#1081 runtime landing to live p90 < 2 min | not met for ordinary landings (p50 about 2 h, p90 about 3.6 h) | becomes pin to live on every host p90 < 2 min; firn half unchanged |
+| north#902 lander fix within one landing round | an ordinary lander change waits up to 4 h | a lander fix carries `Live-fix:` and takes the fast path |
+
+The cost in latency: an ordinary landing is live a median of about 2 h after it lands, at most about 4 h. A fix
+that is not marked `Live-fix:` waits for its slot. In exchange: about 6 builds, walks, probe launch pairs and
+fleet-wide re-execs a day instead of about 200, rollbacks of good runtimes become rare and visible, and the
+5-minute page means something again.
+
+### Alternative: restate the bar
+
+Keep promoting per landing and write the measured number into the strategy record: about 200 promotions a day, a
+landing to live p90 of about 10 min, and a page at 5 min after each landing. Fixes arrive fastest (a median of
+about 4 min). The cost is everything listed above at full rate: the flight queue already misses its own 2-minute
+bar, 10 walk rollbacks in 9 h, 10 to 51 minutes of build-host time per hour plus a build per candidate, every
+long-lived process re-exec'd about 8 times an hour, and a page that fires on most landings. It also keeps the
+root shape the strategy record named as the largest source of fragility: the fleet runs on the code it is
+changing.
+
+### Builder choice
+
+`build_host::freest` picks the build host with the most free cores. On 2026-11-11 that chose gex45 (6 free, cold
+target, 6 min 10 s) over cpx62 (74 s warm). Free cores only predict a build's wall time when every host's target is
+equally warm. The choice should be the host predicted to finish soonest: its admission queue wait plus the capacity
+model's predicted wall seconds for `north cargo build` on that host and cache state. The capacity ledger already
+records `predictedWallSeconds` for each build, 344.8 s for the cold gex45 build above. This is filed as its own box
+on north#1022, checked by a test where a host with fewer free cores and a warm target is chosen over one with more
+free cores and a cold target.
