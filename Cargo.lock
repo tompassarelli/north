@@ -1708,12 +1708,14 @@ dependencies = [
 name = "north-providers"
 version = "0.1.0"
 dependencies = [
+ "landlock",
  "north-base",
  "north-calibration",
  "north-claude-stream",
  "north-fleet-supervisor",
  "north-graph",
  "north-pace",
+ "north-runtime",
  "north-threads",
  "regex",
  "rusqlite",

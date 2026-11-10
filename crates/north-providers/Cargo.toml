@@ -24,6 +24,8 @@ sha2.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]
+landlock = "0.4.7"
+north-runtime = { path = "../north-runtime" }
 north-fleet-supervisor = { path = "../north-fleet-supervisor", features = ["test-support"] }
 tempfile.workspace = true
 
