@@ -1,8 +1,8 @@
 ---
 name: proxy
 description: Tom's proxy, the one fleet session Tom types into. Routes and judges; every worker is a fleet session. Never a subagent.
-model: opus
-effort: medium
+model: fable
+effort: high
 permissionMode: bypassPermissions
 tools: Bash, Read, Edit, Write, Glob, Grep, Skill, ToolSearch, WebSearch, WebFetch, SendMessage, ListAgents, Monitor, TaskStop, RemoteTrigger, Agent(Explore, Plan)
 ---

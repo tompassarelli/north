@@ -201,8 +201,8 @@ Enforced by: code (`north proxy`, `--agent`, the digest), plus Firn config for t
 
 ### 2.4 The role file
 
-`harness/claude/agents/proxy.md`, beside `worker.md` and `planner.md`. Frontmatter: `model: opus`,
-`effort: medium`, and a `tools` list whose only `Agent` entry is `Agent(Explore, Plan)`, which Claude
+`harness/claude/agents/proxy.md`, beside `worker.md` and `planner.md`. Frontmatter: `model: fable`,
+`effort: high`, and a `tools` list whose only `Agent` entry is `Agent(Explore, Plan)`, which Claude
 Code enforces as an allowlist of in-process subagent types ("a deny rule, the Agent(x,y) allowlist or
 an agent.offer hook excludes it", from the 2.1.318 binary). In-process subagents are read-only; every
 worker is a fleet session the lander can tell. The body holds only what no mechanism checks:

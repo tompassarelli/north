@@ -16,6 +16,10 @@ use super::window_move;
 
 const USAGE: &str = "usage: north proxy [--interactive] | north proxy move [--to ACCOUNT] [--auto] [--dry-run]";
 const OPENING: &str = "[north: north proxy started this session as Tom's proxy]";
+const ROLE_FILE: &str = "harness/claude/agents/proxy.md";
+/// Why a launch names its model outside the tier routing: the proxy takes its model and effort from the role file, and
+/// the record `north fleet show proxy` prints comes from the launch request alone.
+const TIER_REASON: &str = "north#1048: the proxy runs the model and effort harness/claude/agents/proxy.md gives it";
 
 pub(in crate::cli) fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -65,10 +69,38 @@ fn launch(fleet: &Fleet) -> NorthResult<()> {
         backlog_line(&names, &rows, now_ms())
     };
     let main = home()?.join("code/north/main");
-    let main = main.to_string_lossy();
-    router::launch(fleet, &["--provider", "claude", "--role", "proxy", "--parent", "none", "--cwd", &main, "--take-over", &opening])
+    let words = launch_words(&main.to_string_lossy(), &opening, definition());
+    router::launch(fleet, &words.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// The words `north fleet launch` starts a fresh proxy with: the role file's model and effort, so the record
+/// `north fleet show proxy --json` prints names the model the session runs, which Claude Code otherwise takes
+/// from the agent definition alone and north's record never sees.
+fn launch_words(main: &str, opening: &str, (model, effort): (Option<String>, Option<String>)) -> Vec<String> {
+    let mut words: Vec<String> = ["--provider", "claude", "--role", "proxy", "--parent", "none", "--cwd", main].map(str::to_owned).to_vec();
+    words.extend(model.into_iter().flat_map(|model| ["--model".to_owned(), model, "--tier-reason".to_owned(), TIER_REASON.to_owned()]));
+    words.extend(effort.into_iter().flat_map(|effort| ["--effort".to_owned(), effort]));
+    words.extend(["--take-over".to_owned(), opening.to_owned()]);
+    words
+}
+
+/// The model and effort the proxy's role file names, read from the harness tree of the runtime running this command:
+/// the same two lines Claude Code reads as the session's agent definition.
+fn definition() -> (Option<String>, Option<String>) {
+    crate::platform::harness::harness_root().ok().and_then(|root| std::fs::read_to_string(root.join(ROLE_FILE)).ok()).map_or((None, None), |text| fields(&text))
+}
+
+/// The `model:` and `effort:` of a role file's frontmatter, absent when it names neither.
+fn fields(text: &str) -> (Option<String>, Option<String>) {
+    let head = text.strip_prefix("---\n").and_then(|rest| rest.split_once("\n---")).map_or("", |(head, _)| head);
+    let field = |name: &str| head.lines().filter_map(|line| line.split_once(':')).find(|(key, _)| *key == name).map(|(_, value)| value.trim().to_owned()).filter(|value| !value.is_empty());
+    (field("model"), field("effort"))
 }
 
 fn home() -> NorthResult<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| NorthError::Usage("no home directory".into()))
 }
+
+#[cfg(test)]
+#[path = "proxy_tests.rs"]
+mod tests;
