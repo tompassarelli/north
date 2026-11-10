@@ -14,14 +14,20 @@ const LOG_TAIL: usize = 8;
 const AGENTS_SYNC: &str = "agents sync";
 
 pub(super) fn swap(layout: &Layout, link: &Path) -> std::io::Result<()> {
-    if fs::read_link(layout.current()).is_ok_and(|current| current == link) {
+    relink(&layout.current(), link)
+}
+
+/// Points the symlink `at` at `link` in one rename, so a reader sees the old target or the new one and never neither.
+pub(super) fn relink(at: &Path, link: &Path) -> std::io::Result<()> {
+    if fs::read_link(at).is_ok_and(|now| now == link) {
         return Ok(());
     }
-    let staged = layout.state.join("current.tmp");
+    let mut staged = at.as_os_str().to_owned();
+    staged.push(".tmp");
+    let staged = std::path::PathBuf::from(staged);
     let _ = fs::remove_file(&staged);
     symlink(link, &staged)?;
-    fs::rename(&staged, layout.current())?;
-    Ok(())
+    fs::rename(&staged, at)
 }
 
 pub(super) fn sync(layout: &Layout, previous: Option<&Path>, target: &str, notify: &mut dyn FnMut(&str)) -> Result<String, Failure> {

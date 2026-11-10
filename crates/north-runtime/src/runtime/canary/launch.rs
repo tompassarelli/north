@@ -104,7 +104,12 @@ fn answer(north: &Path, state: &Path, name: &str, heading: Option<&str>) -> Resu
         match fleet(north, state, &["show", name, "--json"]) {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(session) => match answered(&session) {
-                    Some(reply) if !reply.trim().is_empty() => return carries(&reply, heading).map_err(|missing| failed(1, format!("{name} answered, but its first-turn context lacks the shared policy: asked for its heading, it replied {:?} where {missing:?} was expected", reply.trim()))),
+                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return carries(&reply, heading).map_err(|missing| failed(1, format!("{name} answered, but its first-turn context lacks the shared policy: asked for its heading, it replied {:?} where {missing:?} was expected", reply.trim()))),
+                    Some(Turn::Failed(error)) if at_usage_limit(&error) => {
+                        println!("north runtime canary probe: {name}'s account is at its usage limit ({error}), so the launch is not judged");
+                        return Ok(());
+                    }
+                    Some(Turn::Failed(error)) => return Err(failed(1, format!("{name}'s first turn failed: {error}"))),
                     _ => last = format!("status {}", session["status"].as_str().unwrap_or("unknown")),
                 },
                 Err(error) => last = format!("fleet show printed invalid JSON: {error}"),
@@ -120,8 +125,27 @@ pub(super) fn carries<'a>(reply: &str, heading: Option<&'a str>) -> Result<(), &
     heading.filter(|heading| !reply.contains(*heading)).map_or(Ok(()), Err)
 }
 
-fn answered(session: &Value) -> Option<String> {
+enum Turn {
+    Replied(String),
+    Failed(String),
+}
+
+fn answered(session: &Value) -> Option<Turn> {
     let entries = session["entries"].as_array()?;
-    let last = entries.iter().rev().find(|entry| matches!(entry["kind"].as_str(), Some("user" | "assistant")))?;
-    (last["kind"] == "assistant" && session["status"] != "working").then(|| last["text"].as_str().unwrap_or_default().to_owned())
+    if session["status"] == "working" {
+        return None;
+    }
+    let last = entries.iter().rev().find(|entry| matches!(entry["kind"].as_str(), Some("user" | "assistant" | "error")))?;
+    let text = last["text"].as_str().unwrap_or_default().to_owned();
+    match last["kind"].as_str() {
+        Some("assistant") => Some(Turn::Replied(text)),
+        Some("error") => Some(Turn::Failed(text)),
+        _ => None,
+    }
+}
+
+/// A turn the provider refused at the account's usage limit, as OpenCode Go's `GoUsageLimitError` 429 refused both OpenCode and Pi probes on 2026-11-10 at 6:18 PM, says nothing of the runtime, like a Claude account with no headroom.
+fn at_usage_limit(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.starts_with("429") || error.contains("usage limit")
 }

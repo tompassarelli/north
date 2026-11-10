@@ -189,6 +189,7 @@ impl Fixture {
             .env_remove("NORTH_RUNTIME_LINK")
             .env("XDG_STATE_HOME", &self.state)
             .env("NORTH_TEST_ROOT", &self.root)
+            .env("HOME", &self.root)
             .env("PATH", path)
             .env("LAND_TRACE", &self.trace)
             .env("NORTH_LAND_NORTH", self.trace.join("north"))

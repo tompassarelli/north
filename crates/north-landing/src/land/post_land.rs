@@ -83,7 +83,12 @@ pub struct Run {
 pub struct Hosts(Vec<String>);
 
 impl Hosts {
+    /// The host the after-landing run of `head` checks on, counted as taken until released; None runs it here, as for a repository outside home, which no build host keeps: on 2026-11-10 the runtime canary's scratch landing under /tmp offered its check to cpx62, cpx62b and gex45, each refused it with exit 75 and `land serve --once` retried it for ever.
     pub fn claim(&mut self, repo: &Path, head: &str) -> Option<String> {
+        if std::env::var_os("HOME").is_some_and(|home| !repo.starts_with(home)) {
+            println!("north land: the after-landing run of {head} runs its checks here, since no build host keeps {} outside home", repo.display());
+            return None;
+        }
         let taken = &mut self.0;
         let mut command = Command::new(follow::program());
         command.args(["capacity", "offload", "choose", "--any"]);
