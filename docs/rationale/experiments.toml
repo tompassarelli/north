@@ -626,3 +626,10 @@ min_n = 0
 after = ["2026-11-09", "2026-11-23"]
 review = "2026-11-25"
 owner = "tompassarelli/south#78"
+
+[[check]]
+id = "n873-context-pack-verdict"
+box = "Keep or revert: at the review, the settle rule keeps the pack only when it is cheaper per kept box with no lower kept share."
+command = "! rg -q 'id = \"context-pack\"' docs/rationale/experiments.toml && { ! north work brief pack crates/north-climb/src/candidate.rs >/dev/null 2>&1 || ! rg -q 'NO_PACK' crates/north-dispatch/src/dispatch/shares.rs; }"
+review = "2026-12-11"
+owner = "tompassarelli/north#873"
