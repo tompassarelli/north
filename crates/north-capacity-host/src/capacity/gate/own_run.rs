@@ -43,7 +43,11 @@ fn wait(command: &mut Command) -> std::io::Result<u8> {
 
 /// Runs `lease(program)` for `NAME ARGUMENTS` in a capacity lease; a clippy the land checks can reuse leases the shim instead of the real program, so the gate inside the lease waits for it and records it even when the lease is a broker this process becomes.
 pub fn leased(name: &str, arguments: &[String], (real, shim): (&str, &str), lease: impl FnOnce(&str) -> u8) -> u8 {
-    match OwnRun::of(name, arguments) {
+    with_lease(OwnRun::of(name, arguments), (real, shim), lease)
+}
+
+fn with_lease(own: Option<OwnRun>, (real, shim): (&str, &str), lease: impl FnOnce(&str) -> u8) -> u8 {
+    match own {
         Some(own) => own.settle(lease(shim)),
         None => lease(real),
     }
@@ -60,4 +64,37 @@ pub fn run(name: &str, arguments: &[String], command: &mut Command) -> u8 {
     };
     eprintln!("north capacity gate: {}: {error}", command.get_program().to_string_lossy());
     126
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    fn own(directory: &str) -> OwnRun {
+        OwnRun { directory: PathBuf::from(directory), tree: String::new(), key: String::new() }
+    }
+
+    #[test]
+    fn a_clippy_the_land_checks_can_reuse_leases_the_shim_whose_gate_inside_the_lease_records_its_exit() {
+        let leased = Cell::new(String::new());
+        let code = with_lease(Some(own("/nonexistent")), ("/real/cargo", "/shim/cargo"), |program| {
+            leased.set(program.to_owned());
+            9
+        });
+        assert_eq!(code, 9);
+        assert_eq!(leased.take(), "/shim/cargo");
+    }
+
+    #[test]
+    fn a_run_no_land_check_can_reuse_leases_the_real_program() {
+        let leased = Cell::new(String::new());
+        let code = with_lease(None, ("/real/cargo", "/shim/cargo"), |program| {
+            leased.set(program.to_owned());
+            4
+        });
+        assert_eq!(code, 4);
+        assert_eq!(leased.take(), "/real/cargo");
+    }
 }
