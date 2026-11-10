@@ -16,7 +16,7 @@ use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAnci
 use serde::{Deserialize, Serialize};
 
 use super::lane_grant::{self, Host};
-use super::{Context, FLAG, LANE, LANE_ONLY, MAKER, MARK, SESSION_SCOPE, SOCKETS_HIDDEN, removable};
+use super::{Context, FLAG, LANE_ONLY, MAKER, MARK, SESSION_SCOPE, SOCKETS_HIDDEN, removable};
 
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
@@ -280,9 +280,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }
-    if matches!(request.arguments.as_slice(), [flag, lane, ..] if flag == FLAG && lane == LANE) {
-        variables.extend(scope_procs(cgroup, &host.cgroups).map(|procs| (SESSION_SCOPE.to_owned(), procs.to_string_lossy().into_owned())));
-    }
+    variables.extend(lane_grant::scope_for(&request.arguments, cgroup, &host.cgroups));
     let child = Command::new(north)
         .args(confined(north, request.arguments.clone()))
         .current_dir(&request.directory)
@@ -295,12 +293,6 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .spawn()
         .map_err(|error| format!("{}: {error}", north.display()))?;
     wait(child, stream)
-}
-
-/// The `cgroup.procs` of the lane-only session scope that `cgroup` (the caller's `/proc/PID/cgroup`) names, in the cgroup filesystem at `root`. A `--lane` child the broker starts would otherwise run in the broker's own cgroup, so a `safe-push` or `task check` its command asks for would reach the broker from outside every session and be refused; it joins this scope first and keeps its session's grant (north#1068).
-pub(super) fn scope_procs(cgroup: Option<&str>, root: &Path) -> Option<PathBuf> {
-    let path = cgroup?.lines().find_map(|line| line.strip_prefix("0::"))?;
-    session_scope::lane_only_cgroup(path).then(|| root.join(path.trim_start_matches('/')).join("cgroup.procs"))
 }
 
 /// Runs a verb `lane_grant` grants a lane-only session in its own lane, with the broker's environment and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; a refusal is told to the client and logged.

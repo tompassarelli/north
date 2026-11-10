@@ -151,9 +151,7 @@ fn program(program: &[String], lift: bool) -> std::process::ExitCode {
 
 /// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable. The session's shell tool asks the outside broker for a fresh domain of this kind for each command, since a lane the session creates after its long-lived domain was built holds no rule there; a fresh domain, known by the lane-only marker already in its environment, keeps what the long-lived one kept plus the lanes created since (lane_session.rs). The broker must answer before the long-lived domain hides the sockets.
 fn in_lane(program: &[String]) -> std::process::ExitCode {
-    if let Some(procs) = std::env::var_os(SESSION_SCOPE) && let Err(error) = join_scope(Path::new(&procs)) {
-        eprintln!("north worker-sandbox: cannot join the session's scope through {} ({error}), so a safe-push or task check this command asks the broker for is refused", Path::new(&procs).display());
-    }
+    lane_grant::join_named_scope();
     broker::ensure();
     let mut context = Context::from_env(&program.join(" "));
     let kept = if std::env::var_os(LANE_ONLY).is_some() {
@@ -173,11 +171,6 @@ fn in_lane(program: &[String]) -> std::process::ExitCode {
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").env(LANE_ONLY, "1").env_remove(SESSION_SCOPE).envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
-}
-
-/// Moves this process, and the command it then runs, into the cgroup whose `cgroup.procs` is `procs`: the lane-only session scope the outside broker names for a `--lane` child it starts for that session (north#1068).
-pub(super) fn join_scope(procs: &Path) -> std::io::Result<()> {
-    std::fs::write(procs, "0")
 }
 
 /// Hides the sockets that start processes outside the domain, before the domain is applied: a kernel before Landlock ABI 9 cannot limit which Unix sockets a command connects through, and Landlock refuses mount(2), so a session that already runs inside a domain (one launched from a confined command) joins the namespaces the broker laid, and one that does not lays them itself. Whether they are hidden.
