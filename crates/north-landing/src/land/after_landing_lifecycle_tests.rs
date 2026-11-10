@@ -16,7 +16,7 @@ fn lander(path: &std::path::Path, pid: u32, gone: u32) -> Store {
 }
 
 #[test]
-fn an_illegal_move_of_a_red_main_episode_or_an_after_landing_run_leaves_its_record_unchanged() {
+fn a_retired_after_landing_run_may_be_announced_again_and_an_illegal_red_main_move_leaves_its_record_unchanged() {
     let directory = tempfile::tempdir().unwrap();
     let mut store = lander(&directory.path().join("ledger.db"), 10, 0);
     moved::<RedMain>(&mut store, "owner/repo", Main::Opened, "the after-landing run of abc is red").unwrap();
@@ -29,6 +29,8 @@ fn an_illegal_move_of_a_red_main_episode_or_an_after_landing_run_leaves_its_reco
     moved::<AfterLandingRun>(&mut store, "abc", Run::Running, "started").unwrap();
     moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
     assert!(moved::<AfterLandingRun>(&mut store, "abc", Run::Running, "a stale lander reruns a retired head").is_none());
+    let again = moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
+    assert_eq!(again.state, Run::Retired);
     assert_eq!(store.current::<AfterLandingRun>("abc").unwrap().unwrap().state, Run::Retired);
 }
 
