@@ -79,7 +79,7 @@ impl Lifecycle for Promoting {
 
 /// The core-loop probes run for a runtime on a host, by `HOST/SHA`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Canary {
+pub enum Canary {
     Judging,
     Passed,
     RolledBack,
@@ -109,7 +109,7 @@ impl Canary {
     }
 }
 
-pub(super) struct Canarying;
+pub struct Canarying;
 
 impl Lifecycle for Canarying {
     const NAME: &'static str = "runtime-canary";

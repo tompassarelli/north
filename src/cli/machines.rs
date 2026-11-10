@@ -159,7 +159,17 @@ const MACHINES: &[Machine] = &[
         use north_runtime::runtime::lifecycle::Promoting;
         explore::<Promoting>(&Promises { ends: &[], repeats: &[] })
     }) },
-    Machine { name: "runtime-canary", kind: "Canarying", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/canary"], explore: None },
+    Machine {
+        name: "runtime-canary",
+        kind: "Canarying",
+        source: RUNTIME,
+        guard: &[],
+        code: &["crates/north-runtime/src/runtime/canary"],
+        explore: Some(|| {
+            use north_runtime::runtime::lifecycle::{Canarying, Canary};
+            explore::<Canarying>(&Promises { ends: &[Canary::Passed, Canary::Stuck, Canary::Trusted], repeats: &[] })
+        }),
+    },
     Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, guard: &[], code: &[], explore: None },
     Machine { name: "threads-spool", kind: "SpooledWrite", source: "crates/north-threads/src/threads/client/spool.rs", guard: &[], code: &["crates/north-threads/src/threads/client"], explore: None },
     Machine { name: "offload-offer", kind: "OffloadOffer", source: "crates/north-capacity-host/src/capacity/host/offer_lifecycle.rs", guard: &[], code: &[], explore: None },
