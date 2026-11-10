@@ -19,6 +19,7 @@ use north_base::foundation::exit::NO_VERDICT;
 use north_runtime_follow::Follow;
 use options::{Options, lander_for, parse};
 
+mod ahead;
 mod alone;
 mod batch;
 mod handover;

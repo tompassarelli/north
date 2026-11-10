@@ -23,12 +23,14 @@ pub enum Event {
     Built { sha: String, host: String, at: i64, seconds: i64, binary: String },
     /// The coordinator was paged about a landing that waited past `LIVE_PAGE` for its promotion.
     Paged { sha: String, at: i64 },
+    /// How long a landing waited for its release runtime after the lander pushed: 0 s when the lander built the tree ahead while the lane queued.
+    ArtifactReady { sha: String, tree: String, seconds: i64, at: i64 },
 }
 
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } | Self::Paged { at, .. } | Self::ArtifactReady { at, .. } => *at,
         }
     }
 }

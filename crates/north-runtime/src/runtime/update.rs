@@ -36,6 +36,7 @@ const BUILD_FOR_PEER_LOCK: &str = "runtime-build.lock";
 const BUILD_FOR_PEER_WAIT: Duration = Duration::from_secs(30 * 60);
 
 pub(super) mod hold;
+mod ahead;
 mod build;
 mod preswap;
 mod shipped;
@@ -144,6 +145,28 @@ pub(super) fn build_for_peer(layout: &Layout, target: &str) -> Result<(), Failur
     let _building = named_lock_waiting(layout, BUILD_FOR_PEER_LOCK, remote::limit(BUILD_FOR_PEER_WAIT), "north runtime build")?;
     let _writing = writing(layout, target)?;
     build::build_for_peer(layout, &checkout, target, &layout.runtime(target))
+}
+
+/// `north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR]`: the lander's request for the release
+/// north a lane's candidate tree carries, kept where the promotion of that tree's landing finds it.
+pub(super) fn build_ahead(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
+    let mut tree = None;
+    let mut commit = None;
+    let mut checkout = std::env::current_dir().map_err(|error| failed(64, format!("current directory: {error}")))?;
+    let mut words = flags.iter();
+    while let Some(flag) = words.next() {
+        let value = words.next().cloned().ok_or_else(|| failed(64, format!("{flag} needs a value")))?;
+        match flag.as_str() {
+            "--tree" => tree = Some(value),
+            "--commit" => commit = Some(value),
+            "--checkout" => checkout = PathBuf::from(value),
+            other => return Err(failed(64, format!("unknown build-ahead flag {other}"))),
+        }
+    }
+    let (Some(tree), Some(commit)) = (tree, commit) else {
+        return Err(failed(64, "build-ahead needs --tree TREE --commit COMMIT"));
+    };
+    ahead::build(layout, &checkout, &tree, &commit)
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {
@@ -373,7 +396,7 @@ fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Fail
         return Ok(runtime);
     }
     let _writing = writing(layout, target)?;
-    if !usable(&runtime) && !reused(layout, checkout, target, &runtime) {
+    if !usable(&runtime) && !adopted(layout, checkout, target, &runtime) && !reused(layout, checkout, target, &runtime) {
         build(layout, checkout, target, &runtime)?;
     }
     Ok(runtime)
@@ -386,6 +409,11 @@ fn writing(layout: &Layout, target: &str) -> Result<File, Failure> {
 
 fn usable(runtime: &Path) -> bool {
     layout::usable(runtime, land_offload::settles_fleet_here())
+}
+
+/// Installs the release north built ahead for the landed commit's tree, when one is ready.
+fn adopted(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> bool {
+    ahead::ready_for(layout, checkout, target).is_some_and(|tree| ahead::adopt(layout, runtime, &tree, target))
 }
 
 fn reused(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> bool {

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::{ATTEMPTS, Round, alone, micros};
+use super::{ATTEMPTS, Round, ahead, alone, micros};
 use super::round::{Landing, Pushing};
 use crate::land::after;
 use crate::land::bisect;
@@ -126,6 +126,7 @@ impl Batching for Lander {
         };
         let alone = std::slice::from_ref(lane);
         let built = candidate::build(&self.worktree, &base, alone, queued, usize::MAX, logs)?;
+        ahead::candidate(self, &base, &built.head);
         let (included, _) = self.sort_picks(pass, &Attempt { base: &base, tickets: alone, built: &built })?;
         if let [entry] = included[..] && alone::check(self, entry, &built.head, &base, logs)? {
             pass.progressed = true;
@@ -137,6 +138,7 @@ impl Batching for Lander {
         self.heartbeat.enter(Step::Build);
         let building = std::time::Instant::now();
         let built = candidate::build(&self.worktree, base, tickets, queued, usize::MAX, logs)?;
+        ahead::candidate(self, base, &built.head);
         println!("north land: built candidate {} of {} lanes from {} queued in {:.1} s", built.head, built.included(), tickets.len(), building.elapsed().as_secs_f64());
         let attempt = Attempt { base, tickets, built: &built };
         let (included, undecided) = self.sort_picks(pass, &attempt)?;

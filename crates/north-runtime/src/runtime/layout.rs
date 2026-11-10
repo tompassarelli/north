@@ -28,6 +28,11 @@ impl Layout {
         self.state.join("runtimes")
     }
 
+    /// Release runtimes built ahead of the landing they belong to, keyed by the tree hash they were built from, so a promotion that finds its landing's tree here installs it instead of building.
+    pub fn artifacts(&self) -> PathBuf {
+        self.state.join("runtime-artifacts")
+    }
+
     pub fn current(&self) -> PathBuf {
         self.state.join("current")
     }
