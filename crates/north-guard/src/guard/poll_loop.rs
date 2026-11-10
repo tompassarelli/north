@@ -1,4 +1,7 @@
 use std::path::Path;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use super::poll_loop_measured::{self, MeasuredDuration};
 use crate::hook::{HookInput, Verdict};
@@ -8,6 +11,18 @@ const LIMIT_SECONDS: f64 = 60.0;
 const PREFIXES: &[&str] = &["exec", "command", "env", "nohup", "setsid", "nice", "ionice", "stdbuf", "time"];
 const KEYWORDS: &[&str] = &["do", "then", "else", "{", "(", "!"];
 
+static TASK_OUTPUT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/tmp/claude-[^\s'\x22;|&)]*/tasks/[^\s'\x22;|&)]*\.output").unwrap());
+static LOOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[\s;&|('\x22])(?:until|while|for)\s").unwrap());
+static SLEEP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[\s;&|('\x22])sleep\s").unwrap());
+
+pub(super) fn polls_task_output(command: &str) -> bool {
+    let text = shell::strip_heredocs(command);
+    TASK_OUTPUT.is_match(&text) && LOOP.is_match(&text) && SLEEP.is_match(&text)
+}
+
+const TASK_OUTPUT_REFUSAL: &str = "No. This call waits in a sleep or poll loop on a background task's output file, and the harness already wakes you when that task ends. \
+     End your turn and let its completion notification arrive; to watch a log meanwhile, use Monitor with an until-loop.";
+
 pub fn verdict(input: &HookInput) -> Verdict {
     if input.runs_in_background() {
         return Verdict::Allow;
@@ -15,6 +30,9 @@ pub fn verdict(input: &HookInput) -> Verdict {
     let Some(command) = input.command().and_then(|s| s.as_str()) else {
         return Verdict::Allow;
     };
+    if polls_task_output(command) {
+        return Verdict::Deny(TASK_OUTPUT_REFUSAL.to_owned());
+    }
     let bound = ["timeout", "timeout_ms"]
         .iter()
         .find_map(|field| input.tool_input[*field].as_f64())
