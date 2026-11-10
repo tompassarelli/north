@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{features_index, rationale_index};
+use super::{features_index, help_index, rationale_index};
 
-const USAGE: &str = "usage: north docs features-index|rationale-index [--check] [--root DIR]";
+const USAGE: &str = "usage: north docs features-index|help-index|rationale-index [--check] [--root DIR]";
 
 pub struct Index {
     pub command: &'static str,
@@ -13,7 +13,7 @@ pub struct Index {
     pub notes: fn(&Path) -> Result<Vec<String>, String>,
 }
 
-const INDEXES: [&Index; 2] = [&features_index::INDEX, &rationale_index::INDEX];
+const INDEXES: [&Index; 3] = [&features_index::INDEX, &help_index::INDEX, &rationale_index::INDEX];
 
 impl Index {
     pub fn generate(&self, root: &Path) -> Result<(), String> {
@@ -29,7 +29,7 @@ impl Index {
         let text = (self.render)(&root.join(self.source_dir))?;
         match fs::read_to_string(root.join(self.file)) {
             Ok(current) if current == text => Ok(()),
-            _ => Err(format!("{} is stale: run `north docs {}` and commit the result", self.file, self.command)),
+            _ => Err(format!("{} is stale: run `north docs {}`; the lander writes it at land time, so edit its per-unit sources instead of committing it", self.file, self.command)),
         }
     }
 

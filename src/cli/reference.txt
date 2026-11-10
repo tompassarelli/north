@@ -223,6 +223,7 @@ Commands:
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   docs features-index [--check] [--root DIR]    Regenerate docs/features.md from the one-file-per-feature tree under docs/features/, or with --check fail when it is stale
   docs rationale-index [--check] [--root DIR]   Regenerate docs/rationale/README.md, one line per note: title, link, first sentence; --check fails when it is stale
+  docs help-index [--check] [--root DIR]        Regenerate src/cli/help.txt from the one-file-per-command tree under src/cli/help/, or with --check fail when it is stale
   lane gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Delete landed lanes and origin branches, bundle closed-issue and ownerless lanes to ~/archive/lanes before reaping them, keep the rest and list them by issue (hourly and daily timers)
   ops strategy log check [--since 1h|30m|7d] | log retain [--days 14]  Parse every decision-log line (placement, admission and the lander's steps) back into its north-strategy-types record and report lines per kind, unparsed lines and decide_us; retain compresses closed hours with zstd and deletes days past 14
   ops strategy refusals [--since 1h]  Print the launches placement refused in the window, each counted by its last placement, as a rate per hour: the oracle of the launch-refusals-per-hour goal

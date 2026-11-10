@@ -1,0 +1,6 @@
+Run north COMMAND --help for its usage and contract. Run north --help-all
+for every command, including those run by timers, hooks and programs.
+
+Options:
+  -h, --help  Show this help
+      --help-all  Show every command with its contract

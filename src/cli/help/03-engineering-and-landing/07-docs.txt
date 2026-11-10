@@ -1,0 +1,2 @@
+docs
+Regenerate or check the docs indexes

@@ -2,6 +2,7 @@ pub mod credentials;
 pub mod citation_check;
 pub mod docs;
 pub mod features_index;
+pub mod help_index;
 pub mod incident_mine;
 pub mod defaults_measure;
 pub mod nexus_ram;

@@ -1,0 +1,2 @@
+task
+Record a verdict, or tick boxes whose check passes
