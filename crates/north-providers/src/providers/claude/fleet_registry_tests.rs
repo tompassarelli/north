@@ -355,7 +355,7 @@ fn a_session_relaunched_or_revived_mid_turn_is_handed_a_turn_that_carries_on_and
     let prompt = serde_json::json!({"type": "user", "session_id": "working", "uuid": "p1", "message": {"content": "split the crate"}});
     let tool = serde_json::json!({"type": "assistant", "session_id": "working", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "cargo check"}}]}});
     fs::write(fleet.root().join("working/g1/stream.jsonl"), format!("{prompt}\n{tool}\n")).unwrap();
-    let restart = |name: &str| {
+    let restart = |name: &str, _restart| {
         let stopped = fleet.record(name).unwrap();
         fleet.phases().unwrap().live(stopped.launch(), Some(std::process::id()), "restarted").unwrap();
         fleet.record(name)

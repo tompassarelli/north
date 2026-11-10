@@ -9,6 +9,8 @@ pub mod strays;
 pub mod registry;
 pub mod resume;
 #[cfg(test)]
+mod relaunch_tests;
+#[cfg(test)]
 mod session_lifecycle_tests;
 pub mod test_support;
 pub mod tick;

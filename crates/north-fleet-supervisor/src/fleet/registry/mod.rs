@@ -53,6 +53,7 @@ mod interactive;
 mod kept;
 mod lanes;
 mod relaunching;
+pub use relaunching::Restart;
 mod reopening;
 mod retiring;
 mod launching;

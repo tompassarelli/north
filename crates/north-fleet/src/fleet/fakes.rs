@@ -137,7 +137,7 @@ impl Runtime for Stream {
     }
 
     fn models(&self) -> &'static [&'static str] {
-        &[]
+        &["opus", "sonnet", "claude-opus-5-5", "claude-sonnet-5-5"]
     }
 
     fn roster(&self, _state_root: &Path, home: &Path, _policy: &Path) -> Roster {

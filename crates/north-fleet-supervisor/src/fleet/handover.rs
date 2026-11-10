@@ -184,7 +184,7 @@ fn session_of(record: &SessionRecord, standing: Standing, parked_since: Option<U
     }
 }
 
-fn family_of(model: Option<&str>) -> ModelFamily {
+pub(crate) fn family_of(model: Option<&str>) -> ModelFamily {
     let model = model.unwrap_or_default().to_ascii_lowercase();
     [("fable", ModelFamily::Fable), ("sonnet", ModelFamily::Sonnet), ("haiku", ModelFamily::Haiku)].into_iter().find(|(word, _)| model.contains(word)).map_or(ModelFamily::Opus, |(_, family)| family)
 }
