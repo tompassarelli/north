@@ -16,7 +16,7 @@ use selection_miss::rev_parse;
 mod responsible;
 mod selection_miss;
 
-pub const USAGE: &str = "usage: north land missed --since DATE [--until DATE] [--repo DIR] [--coverage FILE]
+pub const USAGE: &str = "usage: north land missed --since DATE_OR_SPAN [--until DATE] [--repo DIR] [--coverage FILE]
 lists each failing full run on main from two sources, the Cargo runs of GitHub Actions created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z) and the `north test coverage record` full run whose map (--coverage FILE, by default this host's map of the repository) was recorded in that window and names its failed tests, judged as a Cargo run on the map's commit; for each, its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the run on that commit's parent, which is listed as an environment failure and is no miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
 const SETTLED: f64 = 3600.0;
 
@@ -45,7 +45,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
-    let window = Window { since, until };
+    let window = Window { since: since_instant(&since, Timestamp::now()), until };
     let records = records_mirror::read("north land missed");
     if let Some(why) = refused(&records, &window.since, window.until.as_deref(), records_mirror::now()) {
         eprintln!("north land missed: {why}");
@@ -120,6 +120,20 @@ fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run
     }
     println!("{} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.source, short(&run.sha), tests.len(), verdict.selected.len(), short(&landing.base), short(&landing.head));
     Tally { judged: verdict.selected.len() + verdict.left_out.len(), missed: verdict.left_out.len(), unjudged: 0, environment: verdict.environment.len() }
+}
+
+fn since_instant(text: &str, now: Timestamp) -> String {
+    let Some((amount, unit)) = text.split_at_checked(text.len().saturating_sub(1)) else { return text.to_owned() };
+    let scale = match unit {
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
+        _ => return text.to_owned(),
+    };
+    match amount.parse::<i64>() {
+        Ok(count) if count > 0 => Timestamp::from_unix_seconds(now.unix_seconds() - count * scale).iso(),
+        _ => text.to_owned(),
+    }
 }
 
 fn short(sha: &str) -> &str {

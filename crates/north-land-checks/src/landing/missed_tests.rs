@@ -1,4 +1,5 @@
-use super::refused;
+use super::{refused, since_instant};
+use crate::foundation::clock::Timestamp;
 use crate::platform::records_mirror::{ROOT, Records, STAMP, Stamp};
 use std::fs;
 
@@ -41,4 +42,11 @@ fn a_full_run_failure_names_the_lane_whose_own_run_first_failed_the_test_not_a_l
     assert_eq!(responsible(&chain, &runs, &landed, test), Blame::Lane { lane: "ds-1033".into(), sha: "5f42fb5463".into() });
     landed.insert("5f42fb5463".to_owned(), vec!["ds-1033".to_owned(), "batched".to_owned()]);
     assert!(matches!(responsible(&chain, &runs, &landed, test), Blame::Unjudged(why) if why.contains("bisection")), "a batch gives no single lane without the lander's bisection");
+}
+
+#[test]
+fn a_relative_since_becomes_a_date_gh_can_filter_on() {
+    let now = Timestamp::parse_rfc3339("2026-11-10T15:00:00Z").unwrap();
+    assert_eq!(since_instant("24h", now), "2026-11-09T15:00:00Z");
+    assert_eq!(since_instant("2026-11-09T01:00:00Z", now), "2026-11-09T01:00:00Z");
 }
