@@ -124,13 +124,7 @@ impl Sandbox {
             box_.binds.push(directory);
         }
         for path in READS.iter().map(|path| home.join(path)).filter(|path| path.exists()) {
-            let real = resolved(&path);
-            box_.bind("--ro-bind", &path, &path);
-            if real != path {
-                box_.bind("--ro-bind", &real, &real);
-            }
-            box_.binds.push(real);
-            box_.binds.push(path);
+            box_.read(path);
         }
         let live = home.join(".local/state/north/current");
         if let Ok(target) = std::fs::read_link(&live) {
@@ -139,6 +133,16 @@ impl Sandbox {
             box_.binds.push(live);
         }
         Ok(box_)
+    }
+
+    /// Binds `path` read-only at its own place and, when a link leads elsewhere, at its resolved place too, so a program whose path resolves through the link is still there.
+    fn read(&mut self, path: PathBuf) {
+        let real = resolved(&path);
+        self.bind("--ro-bind", &path, &path);
+        if real != path {
+            self.bind("--ro-bind", &real, &real);
+        }
+        self.binds.extend([real, path]);
     }
 
     fn add(&mut self, words: &[&str]) {
