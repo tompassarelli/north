@@ -6,8 +6,9 @@ source = "https://opencode.ai/docs/go"
 repos = ["south"]
 
 # north fleet dispatch staffs DeepSeek on these hosts, which hold the opencode key, and keeps on Claude every box whose
-# issue title or box text matches one of claude_only: credentials, the worker sandbox and fleet locking (north#1020).
+# issue title or box text matches one of claude_only: credentials, the worker sandbox, fleet locking (north#1020) and a box
+# whose own text says a DeepSeek session cannot do it (north#1054).
 [dispatch]
 hosts = ["whiterabbit"]
 slot_cap = 4
-claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex']
+claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex', '\bA DeepSeek session cannot do\b']
