@@ -160,3 +160,9 @@ The 2026-11-08 samples above are history; `north hook stats` now reads the later
 - **privacy-judge: no post-fix refusal**, so no fresh false refusal was observed; the 33 refusals in the 7-day window all
   predate the fix. Replaying the 2026-11-08 sample through the current body selection leaves 0 false rows judged and the
   2 true rows whose command still shows its body refused.
+- **`other`: under the box's 5% line.** The remaining `other` rows the Progress recorded predate 918813acb
+  (2026-11-08T00:12Z), so they left the 48-hour window at 2026-11-10T05:00+07. `north task check --done-when --box
+  "Name the guards behind" --dry-run` at 2026-11-10T13:37Z ran the box's `north hook stats --since 48h | awk …` command
+  and it exited 0. The three guards the naming added keep their evidence: worktree-remove's 1/1 true sample, and none for
+  agent-cwd or question-box, which have refused nothing. worktree-remove's second refusal, the sandbox's blocked
+  `git worktree remove` under worktrees/, also carries its marker now, so it is filed under the guard instead of `other`.

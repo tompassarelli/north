@@ -54,7 +54,7 @@ pub const RULES: &[Rule] = &[
     rule("tripwire.push", Mechanical, &["raw 'git push'", "tripwire: rewrote a raw `git push`"], "repo-safety: publish only with safe-push, never a raw git push."),
     rule("tripwire.delete", TrueBlock, &["tripwire: whole-tree recursive delete", "recursive-delete target"], "repo-safety: never recursively delete a home, system, checkout or state tree."),
     rule("tripwire", TrueBlock, &["tripwire:"], "repo-safety: history, secrets and shared state stay behind safe-push and the lane tools."),
-    rule("worktree-remove", TrueBlock, &["still waits to land from"], "repo-safety: leave a lane whose land ticket is undecided; the lander or north lane gc removes it."),
+    rule("worktree-remove", TrueBlock, &["still waits to land from", "A worker sandbox cannot delete a directory in worktrees"], "repo-safety: leave a lane whose land ticket is undecided; the lander or north lane gc removes it."),
     rule("git-stash", TrueBlock, &["The stash is shared by every worktree"], "repo-safety: park work as a WIP commit in the lane, never git stash."),
     rule("masked-pipeline", Mechanical, &["masked-pipeline:"], "repo-safety: a check piped into a filter and chained into a publish runs under set -o pipefail."),
     rule("node-modules-write", TrueBlock, &["node-modules-write:"], "repo-safety: node_modules is hard-linked into Bun's cache; change the vendored source and re-pin."),
