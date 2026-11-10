@@ -53,3 +53,15 @@ fn a_lander_killed_mid_run_leaves_an_orphaned_run_that_health_reports_and_the_ne
     assert_eq!(misses(&next, "abc"), 1);
     assert!(next.faults(Timestamp::now()).unwrap().is_empty());
 }
+
+#[test]
+fn a_second_writer_may_announce_a_retired_head_again_so_the_table_promises_the_repeat() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = lander(&directory.path().join("ledger.db"), 10, 0);
+    moved::<AfterLandingRun>(&mut store, "abc", Run::Journaled, "landed on base").unwrap();
+    moved::<AfterLandingRun>(&mut store, "abc", Run::Running, "started").unwrap();
+    moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
+    let again = moved::<AfterLandingRun>(&mut store, "abc", Run::Retired, "verdict green").unwrap();
+    assert_eq!(again.state, Run::Retired);
+    assert_eq!(store.history("after-landing-run", "abc").unwrap().iter().filter(|logged| !logged.refused && logged.to == "retired").count(), 2);
+}

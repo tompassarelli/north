@@ -96,7 +96,7 @@ const MACHINES: &[Machine] = &[
         code: &["crates/north-landing/src/landing/after_landing", "crates/north-landing/src/land/sheriff.rs"],
         explore: Some(|| {
             use north_landing::land::after_landing_lifecycle::{AfterLandingRun, Run};
-            explore::<AfterLandingRun>(&Promises { ends: &[Run::Retired], repeats: &[Run::Journaled] })
+            explore::<AfterLandingRun>(&Promises { ends: &[Run::Retired], repeats: &[Run::Journaled, Run::Retired] })
         }),
     },
     Machine { name: "red-main", kind: "RedMain", source: AFTER_LANDING, guard: &[], code: &[], explore: Some(|| explore::<north_landing::land::after_landing_lifecycle::RedMain>(&Promises { ends: &[], repeats: &[] })) },

@@ -12,6 +12,7 @@ stateDiagram-v2
     journaled --> journaled
     journaled --> retired
     journaled --> running
+    retired --> retired
     running --> abandoned: holder gone
     running --> journaled
     running --> retired
@@ -31,7 +32,7 @@ stateDiagram-v2
 - Held by a process, and left when that process is gone: running, searching.
 - Dwell: journaled 2 h, running 4 h, unsettled 1 h, searching 2 h, abandoned 30 min.
 - Ends, which an instance never leaves: retired.
-- May be announced again: journaled.
+- May be announced again: journaled, retired.
 - Promises checked: every accepted move is logged and the log alone rebuilds the record; a held state is taken
   from a live holder only by a move the machine lets replace one; an end has no way out, no dwell and no
   holder; a repeat is accepted exactly where promised; every other situation can be left once nothing more

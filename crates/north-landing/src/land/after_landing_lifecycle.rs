@@ -50,11 +50,14 @@ impl Lifecycle for AfterLandingRun {
 
     fn legal(from: Option<Run>, to: Run) -> bool {
         use Run::{Abandoned, Journaled, Retired, Running, Searching, Unsettled};
-        match (from, to) {
-            (None, Journaled) | (Some(Journaled | Unsettled | Abandoned), Running) | (Some(Journaled | Running | Unsettled | Abandoned), Journaled) | (Some(Running), Unsettled | Searching) => true,
-            (Some(from), Retired) => from != Retired,
-            _ => false,
-        }
+        matches!(
+            (from, to),
+            (None, Journaled)
+                | (Some(Journaled | Unsettled | Abandoned), Running)
+                | (Some(Journaled | Running | Unsettled | Abandoned), Journaled)
+                | (Some(Running), Unsettled | Searching)
+                | (Some(_), Retired)
+        )
     }
 
     fn dwell(state: Run) -> Option<Duration> {
