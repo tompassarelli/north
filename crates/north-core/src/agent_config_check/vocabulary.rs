@@ -7,7 +7,7 @@ use crate::platform::git;
 const PATTERNS: [&str; 2] = [r"(^|[^A-Za-z0-9_-])socrates([^A-Za-z0-9_-]|$)", r"(^|[^A-Za-z0-9_-])workforce([^A-Za-z0-9_-]|$)"];
 
 /// Dated records and fixtures keep the names of their day; a new occurrence anywhere else is refused.
-const HISTORY: [&str; 4] = [":!docs/rationale/**", ":!harness/lib/fixtures/**", ":!agents/decisions/**", ":!agents/postmortems/**"];
+const HISTORY: [&str; 5] = [":!docs/rationale/**", ":!harness/lib/fixtures/**", ":!agents/decisions/**", ":!agents/postmortems/**", ":!agents/replay/**"];
 
 const EXCLUDED: [&str; 3] = [":!*.jsonl", ":!agents/replay/placements/*", ":(exclude,glob)**/agent_config_check/**"];
 
@@ -93,6 +93,8 @@ mod tests {
         }
         let history = repo(&[("docs/rationale/2026-10-12-socrates.md", "Socrates was the workforce.\n")]);
         assert!(clean(history.path()));
+        let replay = repo(&[("agents/replay/policy-pre-cut.md", "Socrates is Tom's agent organization.\n")]);
+        assert!(clean(replay.path()));
         let named = repo(&[("socrates-note.md", "nothing here.\n")]);
         assert!(!clean(named.path()));
         let login = repo(&[("code.rs", "const LOGIN: &str = \"socrates-agent[bot]\";\n")]);
