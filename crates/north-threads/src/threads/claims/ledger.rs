@@ -176,6 +176,37 @@ mod tests {
         (directory, db)
     }
 
+    /// The ledger `runs/fixtures/ledger.sql` holds: the older build's tables, before the ledger gained items, jobs and
+    /// the kinds an events row may carry.
+    const OLD_STATE: &str = include_str!("../runs/fixtures/ledger.sql");
+
+    #[test]
+    fn an_old_state_ledger_opens_writable_and_read_only_and_keeps_its_rows() {
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("threads.db");
+        let old = Connection::open(&path).unwrap();
+        old.execute_batch(OLD_STATE).unwrap();
+        old.execute_batch(
+            "INSERT INTO claims(item, owner, since) VALUES ('north#1022', 'north-1022-d0917', '2026-11-10T00:00:00Z');
+             INSERT INTO runs(agent, tier, category, ended, minutes, outcome) VALUES ('north-1022-d0917', 'worker', 'debugging-unknown-cause', '2026-11-10T00:00:00Z', 1, 'done');",
+        )
+        .unwrap();
+        drop(old);
+
+        schema::ensure(&path).unwrap();
+
+        let writable = open(&path, true).unwrap();
+        let owner: String = writable.query_row("SELECT owner FROM claims WHERE item = 'north#1022'", [], |row| row.get(0)).unwrap();
+        assert_eq!(owner, "north-1022-d0917", "the writable open keeps the claim the older build wrote");
+        let readonly = open(&path, false).unwrap();
+        let kept: (String, String) = readonly
+            .query_row("SELECT c.owner, r.outcome FROM claims c JOIN runs r ON r.agent = c.owner WHERE c.item = 'north#1022'", [], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap();
+        assert_eq!(kept, ("north-1022-d0917".to_owned(), "done".to_owned()), "the read-only open reads both rows the older build wrote");
+        let upgraded: i64 = readonly.query_row("SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'item_needs'", [], |row| row.get(0)).unwrap();
+        assert_eq!(upgraded, 1, "the writable open creates the table the older build lacked");
+    }
+
     /// On 2026-11-10 a coordinator launch with `--box "Pinned runtime"` and a dispatch launch holding `pinned-runtime-the-fleet-...` both worked north#1022's one box.
     #[test]
     fn a_box_named_by_its_leading_words_collides_with_the_slug_of_the_whole_box() {
