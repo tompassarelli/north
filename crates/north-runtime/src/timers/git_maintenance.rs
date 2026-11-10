@@ -33,7 +33,7 @@ pub fn run(_arguments: &[String]) -> u8 {
     let mut status = 0;
     for (name, repo) in repositories(&home().join("code")) {
         println!("git-maintenance-nightly: {}", repo.display());
-        match Command::new(north_base::platform::north_binary::north_binary()).args(maintenance_argv(&name, &repo)).status() {
+        match Command::new(north_base::platform::north_binary::north_binary()).env("GIT_NO_LAZY_FETCH", "1").args(maintenance_argv(&name, &repo)).status() {
             Ok(code) if code.success() => {}
             Ok(code) => {
                 eprintln!("git-maintenance-nightly: {} failed: {code}", repo.display());
