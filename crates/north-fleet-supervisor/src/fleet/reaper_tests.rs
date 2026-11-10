@@ -281,3 +281,32 @@ fn the_reaper_reads_job_leases_from_the_ticks_exchange_and_defers_a_session_whos
     assert!(reaped.lines().iter().any(|line| line.starts_with("deferred 1 sessions to the next tick: their job leases")), "{:?}", reaped.lines());
     assert!(fleet.session("unexchanged").is_ok() && fleet.session("held").is_ok());
 }
+
+// KEEP(bug): on 2026-11-10 at 3:20 PM 27 DeepSeek sessions whose lanes had landed and whose Done reports sat in the proxy's held digest kept their claims on seven issues until forgotten by hand; north#1054
+#[test]
+fn a_done_session_whose_lane_landed_gives_up_every_claim_and_leaves_the_fleet_in_one_reaper_tick() {
+    use crate::fleet::claims::{Claims, Held, Rows};
+    let (home, state) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (paper, claims) = (Arc::new(Paper::default()), Arc::new(Held::default()));
+    let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), paper.clone(), claims.clone()).unwrap().arming(|_| Ok(()));
+    let _lead = live(&fleet, "lead");
+    let name = "ds-1041-x";
+    reported(&fleet, name, Some("lead"), "Done: the box landed as 43191ff09a on origin/main.");
+    paper.claim_receipt(name, "held:1", now_ms()).unwrap();
+    claims.hold("north#1041@the box it worked", name, &BTreeSet::new()).unwrap();
+    claims.hold("north#1041@a box it claimed itself", name, &BTreeSet::new()).unwrap();
+    let stream = fleet.root.join(name).join("g1/stream.jsonl");
+    std::fs::File::options().write(true).open(stream).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_millis(now_ms() - 600_000)).unwrap();
+    let queue = state.path().join("north/land-queue/de2e0e8479546ba9");
+    std::fs::create_dir_all(&queue).unwrap();
+    let ticket = queue.join(format!("{}-n1041.json", (now_ms() - 12 * 60_000) * 1000));
+    std::fs::write(&ticket, json!({"session": name, "branch": "n1041", "queued_micros": (now_ms() - 12 * 60_000) * 1000}).to_string()).unwrap();
+    north_base::land_ticket::Records::of(&ticket).unwrap().moved(&ticket, north_base::land_ticket::Phase::Landed, "landed").unwrap();
+    let evidence = Sight { landed: BTreeSet::from(["43191ff09a".to_owned()]), lanes: north_base::land_ticket::lanes_by_session(&state.path().join("north/land-queue")).unwrap(), ..Sight::default() };
+
+    let reaped = reap_after(&fleet, &evidence, 24 * HOUR, now_ms(), true);
+
+    assert_eq!(retired(&reaped), [name], "{reaped:?}");
+    assert!(fleet.session(name).is_err(), "a retired session no longer stands parked beside the issue's next box");
+    assert_eq!(claims.holders(Rows::Owners(&BTreeSet::from([name.to_owned()]))).unwrap(), Vec::<(String, String)>::new());
+}

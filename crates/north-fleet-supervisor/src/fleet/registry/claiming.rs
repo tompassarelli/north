@@ -79,11 +79,11 @@ impl Fleet {
         Ok(released)
     }
 
-    /// Gives up every claim `name` holds in the ledger, the boxes it claimed itself as well as those its launch named, because a forgotten session leaves no directory for the exited sweep to find it by.
+    /// Gives up every claim `name` holds in the ledger, the boxes it claimed itself as well as those its launch named, because a forgotten or retired session leaves no directory for the exited sweep to find it by.
     pub(super) fn release_all_claims_of(&self, name: &str) -> NorthResult<()> {
         let owners = BTreeSet::from([name.to_owned()]);
         let swept = claims::release_exited(self.claims.as_ref(), &owners, Rows::Owners(&owners))?;
-        if swept.unreleased.is_empty() { Ok(()) } else { Err(NorthError::State(format!("{name} is forgotten but the threads ledger did not release all of its claims"))) }
+        if swept.unreleased.is_empty() { Ok(()) } else { Err(NorthError::State(format!("{name} ends but the threads ledger did not release all of its claims"))) }
     }
 
     /// The exited sessions whose claims no sweep has cleared yet, read from their session directories alone.

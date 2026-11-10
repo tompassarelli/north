@@ -54,7 +54,7 @@ impl ReceiptBook for Paper {
     }
 
     fn reported(&self, session: &str) -> NorthResult<bool> {
-        Ok(self.receipts.lock().unwrap().iter().any(|(owner, key)| owner == session && key.starts_with("turn:")))
+        Ok(self.receipts.lock().unwrap().iter().any(|(owner, key)| owner == session && (key.starts_with("turn:") || key.starts_with("held:"))))
     }
 
     fn last_receipt(&self, session: &str, prefix: &str) -> NorthResult<Option<String>> {

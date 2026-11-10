@@ -306,7 +306,7 @@ impl ReceiptBook for Ledger {
     }
 
     fn reported(&self, session: &str) -> NorthResult<bool> {
-        self.with(|conn| conn.query_row("SELECT EXISTS(SELECT 1 FROM receipts WHERE session = ?1 AND receipt LIKE 'turn:%')", params![session], |row| row.get(0)))
+        self.with(|conn| conn.query_row("SELECT EXISTS(SELECT 1 FROM receipts WHERE session = ?1 AND (receipt LIKE 'turn:%' OR receipt LIKE 'held:%'))", params![session], |row| row.get(0)))
     }
 
     fn last_receipt(&self, session: &str, prefix: &str) -> NorthResult<Option<String>> {

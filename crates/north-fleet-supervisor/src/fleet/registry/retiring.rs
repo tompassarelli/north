@@ -36,6 +36,7 @@ impl Fleet {
         fs::write(self.session_dir(name)?.join(NOTE), serde_json::to_vec_pretty(&note)?)?;
         let stop = last.and_then(|last| last.lines().rev().map(str::trim).find(|line| line.starts_with("Stop:")));
         let cause = stop.map_or_else(|| why.to_owned(), |stop| format!("{why}; {stop}"));
+        self.release_all_claims_of(name)?;
         let archived = self.archive(name, Halt::Retired, &cause)?;
         if !handed && let Err(error) = self.remote_lanes.free(&record) {
             eprintln!("north fleet: {}'s lane on {} is left for north lane gc: {}", record.name, record.machine.as_ref().map_or("its host", |machine| machine.name.as_str()), error.user_message());

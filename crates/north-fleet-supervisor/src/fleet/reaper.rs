@@ -102,7 +102,15 @@ pub fn verdict(seen: &Seen, stale: Duration) -> Verdict {
 }
 
 fn finishes(report: &str) -> bool {
-    opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split")) && STOP.is_match(report)
+    opens(report, "Done") || (opens(report, "Not done") || opens(report, "Split") || opens(report, "Blocked")) && STOP.is_match(report)
+}
+
+fn owes_landing(lanes: &[Lane], ended_ms: u64, done: bool) -> bool {
+    match landing(lanes, ended_ms) {
+        Landing::Waiting => true,
+        Landing::Decided => !done || lanes.iter().filter(|lane| lane.queued_ms() <= ended_ms).any(|lane| lane.since_ms().is_some_and(|since| since > ended_ms) && !lane.landed()),
+        Landing::Settled => false,
+    }
 }
 
 fn opens(report: &str, word: &str) -> bool {
@@ -194,7 +202,7 @@ pub fn reap_within(fleet: &Fleet, evidence: &dyn Evidence, stale: Duration, now_
             let live = if ended { fleet.live_hold(record, &records, &gated) } else { fleet.live_wait(record, &records, &gated, work == Some(Work::Detached)) };
             let entries = if live.is_some() { Vec::new() } else { fleet.follow_recent(&record.name).map(|follower| follower.transcript().entries.clone()).unwrap_or_default() };
             let report = final_report(&entries).map(|text| Report { text: text.to_owned(), taken: fleet.report_taken(record), unlanded: named_shas(text).into_iter().filter(|sha| !evidence.landed(&record.cwd, sha)).collect() });
-            let lane_holds = lanes.get(&record.name).is_some_and(|held| matches!(landing(held, ended_ms(record).unwrap_or(u64::MAX)), Landing::Waiting | Landing::Decided));
+            let lane_holds = lanes.get(&record.name).is_some_and(|held| owes_landing(held, ended_ms(record).unwrap_or(u64::MAX), report.as_ref().is_some_and(|report| opens(&report.text, "Done"))));
             let seen = Seen { status, quiet, report, live, background: work == Some(Work::Cli), ended, lane_holds };
             let verdict = verdict(&seen, stale);
             if let Some(label) = told(&verdict, status) {
