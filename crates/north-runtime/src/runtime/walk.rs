@@ -1,0 +1,67 @@
+use super::canary::{self, Verdict};
+use super::failure::Failure;
+use super::layout::{self, Layout};
+use super::lifecycle::{self, Canarying, Canary};
+use super::live::Swap;
+use super::pin::{Event, note, now};
+use super::probe::Shell;
+use crate::platform::host;
+use std::fs;
+
+pub(super) fn judged(layout: &Layout, host: &str, sha: &str, verdict: &Verdict, swaps: &[Swap]) {
+    let at = now();
+    let walker = host == host::name();
+    let event = match verdict {
+        Verdict::Passed if walker => Event::Walked { sha: sha.to_owned(), host: host.to_owned(), at },
+        Verdict::RolledBack => Event::RolledBack { sha: sha.to_owned(), host: host.to_owned(), at, seconds: at - live_since(swaps, sha).unwrap_or(at), walker },
+        _ => return,
+    };
+    note(layout, &event);
+}
+
+fn live_since(swaps: &[Swap], sha: &str) -> Option<i64> {
+    swaps.iter().rev().find(|swap| swap.runtime == sha).map(|swap| swap.at)
+}
+
+pub(super) fn walked_here(layout: &Layout) -> Result<String, String> {
+    let sha = layout.live_sha().ok_or("this host has no live runtime")?;
+    let name = host::name();
+    let shell = Shell::Here(name.clone());
+    let verdict = canary::check(layout, &name, &sha, &canary::Live { layout, host: &shell });
+    let swaps: Vec<Swap> = fs::read_to_string(layout.swaps()).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    judged(layout, &name, &sha, &verdict, &swaps);
+    walk_verdict(layout, &name, &sha, &verdict)
+}
+
+pub(super) fn walk_verdict(layout: &Layout, host: &str, sha: &str, verdict: &Verdict) -> Result<String, String> {
+    let state = lifecycle::state_of::<Canarying>(layout, &format!("{host}/{sha}")).ok().flatten();
+    match (verdict, state) {
+        (Verdict::Passed, _) | (_, Some(Canary::Passed | Canary::Trusted)) => Ok(sha.to_owned()),
+        (Verdict::RolledBack, _) => Err(format!("{} failed the spine walk on {host} and was rolled back", layout::short(sha))),
+        (Verdict::Unrun(why), _) => Err(format!("{} has not walked the spine on {host}: {why}", layout::short(sha))),
+        _ => Err(format!("{} has not passed the spine walk on {host}", layout::short(sha))),
+    }
+}
+
+/// The walk of the runtime live here after a probe judged `judged` (the sha and its verdict): a rollback leaves another runtime live, whose own canary state decides.
+pub(super) fn walk_of(layout: &Layout, host: &str, live: Option<&str>, judged: Option<(&str, &Verdict)>) -> Result<String, String> {
+    let live = live.ok_or("this host has no live runtime")?;
+    match judged {
+        Some((sha, verdict)) if sha == live => walk_verdict(layout, host, live, verdict),
+        _ => walk_verdict(layout, host, live, &Verdict::Skipped),
+    }
+}
+
+/// Ships the walked runtime to the other hosts, or nothing when it has not walked the spine here.
+pub(super) fn ship_if_walked<T>(walk: Result<String, String>, ship: impl FnOnce(&str) -> Result<T, Failure>) -> Result<Option<T>, Failure> {
+    match walk {
+        Ok(sha) => ship(&sha).map(Some),
+        Err(why) => {
+            println!("north runtime: not shipped to the other hosts: {why}");
+            Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

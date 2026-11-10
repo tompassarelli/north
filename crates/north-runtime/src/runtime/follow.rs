@@ -1,6 +1,6 @@
 use super::failure::{Failure, failed};
 use super::layout::{Layout, TREE};
-use super::{deploy, pin, update};
+use super::{deploy, update, walk};
 use crate::land_offload;
 use crate::platform::process;
 use std::fs::{self, OpenOptions};
@@ -60,7 +60,7 @@ pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
     let here = update::update_after_landing(layout);
     let elsewhere = match land_offload::settles_fleet_here() {
-        true => pin::ship_if_walked(pin::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ()),
+        true => walk::ship_if_walked(walk::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ()),
         false => Ok(()),
     };
     let lander = follow_lander(layout);

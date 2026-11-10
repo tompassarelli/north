@@ -1,10 +1,6 @@
-use super::canary::{self, Verdict};
-use super::failure::Failure;
 use super::layout::{self, Layout};
-use super::lifecycle::{self, Canarying, Canary};
-use super::live::Swap;
-use super::probe::Shell;
-use crate::platform::{host, process};
+use super::lifecycle::{self, Promoting, Promotion};
+use crate::platform::process;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -96,7 +92,7 @@ fn waiting_since(events: &[Event], end: i64) -> Option<i64> {
     })
 }
 
-/// `north runtime update` writes each promotion that went live to `runtime-promote.json`; the pin a host took before this journal existed is adopted once, so status and the bars date it.
+/// The promotion lifecycle dates each runtime that went live here; the pin a host took before this journal existed is adopted once, so status and the bars date it.
 fn adopt_recorded_promotion(layout: &Layout, live: Option<&str>, events: &mut Vec<Event>) {
     let Some(live) = live else { return };
     if events.iter().any(|event| matches!(event, Event::Promoted { sha, .. } if sha == live)) {
@@ -109,9 +105,8 @@ fn adopt_recorded_promotion(layout: &Layout, live: Option<&str>, events: &mut Ve
 }
 
 fn recorded_promotion(state: &Path, live: &str) -> Option<i64> {
-    let text = fs::read_to_string(state.join("runtime-promote.json")).ok()?;
-    let record: serde_json::Value = serde_json::from_str(&text).ok()?;
-    (record["sha"].as_str() == Some(live) && record["state"].as_str() == Some("live")).then(|| record["at"].as_i64()).flatten()
+    let layout = Layout { state: state.to_owned() };
+    lifecycle::record_of::<Promoting>(&layout, live).ok().flatten().filter(|record| record.state == Promotion::Live).map(|record| record.since.unix_seconds())
 }
 
 fn fixes_red_main(checkout: &Path, pinned: &str, main: &str) -> bool {
@@ -140,61 +135,6 @@ pub(super) fn note(layout: &Layout, event: &Event) {
 
 pub(super) fn promoted(layout: &Layout, sha: &str, reason: Reason) {
     note(layout, &Event::Promoted { sha: sha.to_owned(), at: now(), reason });
-}
-
-pub(super) fn judged(layout: &Layout, host: &str, sha: &str, verdict: &Verdict, swaps: &[Swap]) {
-    let at = now();
-    let walker = host == host::name();
-    let event = match verdict {
-        Verdict::Passed if walker => Event::Walked { sha: sha.to_owned(), host: host.to_owned(), at },
-        Verdict::RolledBack => Event::RolledBack { sha: sha.to_owned(), host: host.to_owned(), at, seconds: at - live_since(swaps, sha).unwrap_or(at), walker },
-        _ => return,
-    };
-    note(layout, &event);
-}
-
-fn live_since(swaps: &[Swap], sha: &str) -> Option<i64> {
-    swaps.iter().rev().find(|swap| swap.runtime == sha).map(|swap| swap.at)
-}
-
-pub(super) fn walked_here(layout: &Layout) -> Result<String, String> {
-    let sha = layout.live_sha().ok_or("this host has no live runtime")?;
-    let name = host::name();
-    let shell = Shell::Here(name.clone());
-    let verdict = canary::check(layout, &name, &sha, &canary::Live { layout, host: &shell });
-    let swaps: Vec<Swap> = fs::read_to_string(layout.swaps()).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
-    judged(layout, &name, &sha, &verdict, &swaps);
-    walk_verdict(layout, &name, &sha, &verdict)
-}
-
-pub(super) fn walk_verdict(layout: &Layout, host: &str, sha: &str, verdict: &Verdict) -> Result<String, String> {
-    let state = lifecycle::state_of::<Canarying>(layout, &format!("{host}/{sha}")).ok().flatten();
-    match (verdict, state) {
-        (Verdict::Passed, _) | (_, Some(Canary::Passed | Canary::Trusted)) => Ok(sha.to_owned()),
-        (Verdict::RolledBack, _) => Err(format!("{} failed the spine walk on {host} and was rolled back", layout::short(sha))),
-        (Verdict::Unrun(why), _) => Err(format!("{} has not walked the spine on {host}: {why}", layout::short(sha))),
-        _ => Err(format!("{} has not passed the spine walk on {host}", layout::short(sha))),
-    }
-}
-
-/// The walk of the runtime live here after a probe judged `judged` (the sha and its verdict): a rollback leaves another runtime live, whose own canary state decides.
-pub(super) fn walk_of(layout: &Layout, host: &str, live: Option<&str>, judged: Option<(&str, &Verdict)>) -> Result<String, String> {
-    let live = live.ok_or("this host has no live runtime")?;
-    match judged {
-        Some((sha, verdict)) if sha == live => walk_verdict(layout, host, live, verdict),
-        _ => walk_verdict(layout, host, live, &Verdict::Skipped),
-    }
-}
-
-/// Ships the walked runtime to the other hosts, or nothing when it has not walked the spine here.
-pub(super) fn ship_if_walked<T>(walk: Result<String, String>, ship: impl FnOnce(&str) -> Result<T, Failure>) -> Result<Option<T>, Failure> {
-    match walk {
-        Ok(sha) => ship(&sha).map(Some),
-        Err(why) => {
-            println!("north runtime: not shipped to the other hosts: {why}");
-            Ok(None)
-        }
-    }
 }
 
 pub fn status(state: &Path, live: Option<&str>) -> String {
@@ -237,6 +177,21 @@ pub struct Bars {
     pub runtime_age_hours: Option<f64>,
 }
 
+/// Each bar as its value and the sample it was read over, for the scoreboard.
+impl Bars {
+    pub fn breaks(&self) -> Option<(f64, usize)> {
+        self.breaks_reaching_second_host.map(|breaks| (breaks as f64, 1))
+    }
+
+    pub fn rollback(&self) -> Option<(f64, usize)> {
+        self.rollback_seconds.map(|seconds| (seconds, self.rollbacks))
+    }
+
+    pub fn age(&self) -> Option<(f64, usize)> {
+        self.runtime_age_hours.map(|hours| (hours, 1))
+    }
+}
+
 pub fn bars(events: &[Event], start: i64, end: i64) -> Bars {
     let inside = |at: i64| at >= start && at < end;
     let rollbacks: Vec<f64> = events.iter().filter_map(|event| match event {
@@ -254,7 +209,7 @@ pub fn bars(events: &[Event], start: i64, end: i64) -> Bars {
     }
 }
 
-fn now() -> i64 {
+pub(super) fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64)
 }
 

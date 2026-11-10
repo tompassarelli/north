@@ -132,6 +132,12 @@ pub struct Reading {
     pub sample: usize,
 }
 
+impl From<(f64, usize)> for Reading {
+    fn from((value, sample): (f64, usize)) -> Self {
+        Self { value, sample }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Standing {
     Pass,
@@ -317,6 +323,11 @@ impl Records {
         })
     }
 
+    /// The pinned runtime's bars, one fleet for every repository.
+    fn runtime(&self, window: Window) -> north_runtime::runtime::pin::Bars {
+        north_runtime::runtime::pin::bars(&self.pins, window.start, window.end)
+    }
+
     fn priority(&self, repo: &str, window: Window) -> Option<Reading> {
         let latest = self.priority.iter().filter(|entry| entry.repo == repo && window.holds(entry.at)).max_by_key(|entry| entry.at)?;
         Some(Reading { value: latest.count as f64, sample: 1 })
@@ -337,7 +348,9 @@ impl Records {
             Bar::LandingP90 => spread(&self.landings, 0.9),
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
-            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeAge => runtime(bar, &north_runtime::runtime::pin::bars(&self.pins, window.start, window.end)),
+            Bar::RuntimeBreaks => self.runtime(window).breaks().map(Reading::from),
+            Bar::RuntimeRollback => self.runtime(window).rollback().map(Reading::from),
+            Bar::RuntimeAge => self.runtime(window).age().map(Reading::from),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)
@@ -373,16 +386,6 @@ impl Records {
                 }
             }
         }
-    }
-}
-
-/// The pinned runtime's bars, one fleet for every repository: spine-breaking promotions that reached a second host, the slowest rollback after its swap, and how long main has waited for the pin.
-fn runtime(bar: Bar, pins: &north_runtime::runtime::pin::Bars) -> Option<Reading> {
-    match bar {
-        Bar::RuntimeBreaks => pins.breaks_reaching_second_host.map(|breaks| Reading { value: breaks as f64, sample: 1 }),
-        Bar::RuntimeRollback => pins.rollback_seconds.map(|seconds| Reading { value: seconds, sample: pins.rollbacks }),
-        Bar::RuntimeAge => pins.runtime_age_hours.map(|hours| Reading { value: hours, sample: 1 }),
-        _ => None,
     }
 }
 

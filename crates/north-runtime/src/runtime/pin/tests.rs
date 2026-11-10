@@ -1,10 +1,6 @@
-use super::super::canary::Verdict;
-use super::super::failure::failed;
 use super::super::layout::{self, Layout};
-use super::super::live::Swap;
-use super::{Bars, Due, Event, PER_DAY, Reason, bars, due, judged, read, ship_if_walked, status};
-use std::cell::Cell;
-use std::fs;
+use super::super::lifecycle::{self, Promoting, Promotion};
+use super::{Bars, Due, Event, PER_DAY, Reason, bars, due, status};
 use std::os::unix::fs::symlink;
 
 const PINNED: &str = "1111111111111111111111111111111111111111";
@@ -51,37 +47,6 @@ fn the_runtime_is_as_old_as_the_wait_since_main_first_moved_past_the_last_promot
 }
 
 #[test]
-fn a_rollback_is_journaled_with_its_seconds_live_and_whether_the_walking_host_took_it() {
-    let state = tempfile::tempdir().unwrap();
-    let layout = Layout { state: state.path().to_owned() };
-    let swaps = vec![Swap { runtime: PINNED.to_owned(), at: 10, estimated: false }, Swap { runtime: MAIN.to_owned(), at: super::now() - 90, estimated: false }];
-    judged(&layout, "tom@gex45", MAIN, &Verdict::RolledBack, &swaps);
-    judged(&layout, "tom@gex45", MAIN, &Verdict::Passed, &swaps);
-    judged(&layout, &crate::platform::host::name(), MAIN, &Verdict::Passed, &swaps);
-    let events = read(&layout.state);
-    assert_eq!(events.len(), 2, "a pass on another host is no walk: {events:?}");
-    match &events[0] {
-        Event::RolledBack { host, seconds, walker, .. } => assert!(host == "tom@gex45" && !*walker && (90..95).contains(seconds), "{events:?}"),
-        other => panic!("not a rollback: {other:?}"),
-    }
-    assert!(matches!(&events[1], Event::Walked { sha, .. } if sha == MAIN));
-}
-
-#[test]
-fn nothing_ships_to_another_host_until_the_runtime_walked_the_spine_here() {
-    let shipped = Cell::new(0);
-    let ship = |_: &str| {
-        shipped.set(shipped.get() + 1);
-        Ok(())
-    };
-    assert_eq!(ship_if_walked(Err("rolled back".to_owned()), ship).unwrap(), None);
-    assert_eq!(shipped.get(), 0);
-    assert_eq!(ship_if_walked(Ok(MAIN.to_owned()), ship).unwrap(), Some(()));
-    assert_eq!(shipped.get(), 1);
-    assert!(ship_if_walked(Ok(MAIN.to_owned()), |_| Err::<(), _>(failed(1, "unreachable"))).is_err());
-}
-
-#[test]
 fn status_names_the_pinned_runtime_when_it_was_promoted_and_whether_main_waits() {
     let state = tempfile::tempdir().unwrap();
     let layout = Layout { state: state.path().to_owned() };
@@ -93,7 +58,7 @@ fn status_names_the_pinned_runtime_when_it_was_promoted_and_whether_main_waits()
     let adopted = tempfile::tempdir().unwrap();
     let adopted_layout = Layout { state: adopted.path().to_owned() };
     symlink(layout::link(MAIN), adopted_layout.current()).unwrap();
-    fs::write(adopted.path().join("runtime-promote.json"), format!(r#"{{"sha":"{MAIN}","state":"live","at":3000}}"#)).unwrap();
+    lifecycle::move_to::<Promoting>(&adopted_layout, MAIN, Promotion::Live, "went live before the pin journal existed").unwrap();
     let shown = status(&adopted_layout.state, adopted_layout.live_sha().as_deref());
-    assert!(shown.contains("promoted at: 1970-01-01T00:50:00Z (unix 3000, recorded on this host)"), "{shown}");
+    assert!(shown.contains("recorded on this host)"), "{shown}");
 }

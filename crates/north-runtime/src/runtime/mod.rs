@@ -22,6 +22,7 @@ mod reuse;
 mod settle;
 mod store;
 mod update;
+mod walk;
 #[cfg(test)]
 pub(crate) use update::collect;
 

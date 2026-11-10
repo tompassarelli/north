@@ -6,6 +6,7 @@ use super::history::History;
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
 use super::pin;
+use super::walk;
 use super::probe::{self, Shell};
 use super::update;
 use crate::land_offload;
@@ -97,8 +98,8 @@ fn fleet_hosts() -> Vec<Shell> {
 fn walk_and_ship(layout: &Layout, hosts: &[Shell], checkout: &Path) -> probe::Facts {
     let (facts, judged) = probed(layout, &hosts[0]);
     let live = layout.live_sha();
-    let walk = pin::walk_of(layout, &facts.host, live.as_deref(), judged.as_ref().map(|(sha, verdict)| (sha.as_str(), verdict)));
-    let shipped = pin::ship_if_walked(walk, |here| {
+    let walk = walk::walk_of(layout, &facts.host, live.as_deref(), judged.as_ref().map(|(sha, verdict)| (sha.as_str(), verdict)));
+    let shipped = walk::ship_if_walked(walk, |here| {
         ship_behind(&hosts[1..], here, &layout.runtime(here), checkout);
         Ok(())
     });
@@ -131,7 +132,7 @@ fn probed(layout: &Layout, host: &Shell) -> (probe::Facts, Option<(String, Verdi
         return (facts, None);
     };
     let verdict = canary::check(layout, &facts.host, &runtime, &canary::Live { layout, host });
-    pin::judged(layout, &facts.host, &runtime, &verdict, &facts.swaps);
+    walk::judged(layout, &facts.host, &runtime, &verdict, &facts.swaps);
     let facts = if verdict == Verdict::RolledBack { probe::facts(host) } else { facts };
     (facts, Some((runtime, verdict)))
 }
