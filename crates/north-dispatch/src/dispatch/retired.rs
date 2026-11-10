@@ -2,7 +2,7 @@
 //! and a source path a landed commit deleted, which a worker would spend its first turns discovering.
 use super::hotspots;
 use super::issues::{Issue, IssueRef};
-use north_base::platform::cli_verbs::{self, Verbs};
+use north_cli_reference::Verbs;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The checks of origin/main, read once per run: its CLI reference and, per repository, the paths a landed commit deleted that its tree lacks.
@@ -29,7 +29,7 @@ impl Mainline {
 
     /// What the box `text` of an issue in `repo` names that main no longer has, for the hold's reason.
     fn retired(&self, repo: &str, text: &str) -> Option<String> {
-        let verb = self.verbs.as_ref().and_then(|verbs| cli_verbs::calls(text).iter().find_map(|call| verbs.lacks(call)));
+        let verb = self.verbs.as_ref().and_then(|verbs| north_cli_reference::calls(text).iter().find_map(|call| verbs.lacks(call)));
         verb.or_else(|| hotspots::named(text).into_iter().find(|path| self.gone.get(repo).is_some_and(|gone| gone.contains(path))))
     }
 }

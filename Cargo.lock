@@ -953,6 +953,7 @@ dependencies = [
  "north-capacity",
  "north-capacity-host",
  "north-check-environment",
+ "north-cli-reference",
  "north-code-health",
  "north-context-pack",
  "north-convo",
@@ -1119,6 +1120,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "north-cli-reference"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "north-code-health"
 version = "0.1.0"
 dependencies = [
@@ -1223,6 +1231,7 @@ dependencies = [
  "north-base",
  "north-calibration",
  "north-capacity-host",
+ "north-cli-reference",
  "north-fleet-store",
  "north-fleet-supervisor",
  "north-github-mirror",
@@ -1497,6 +1506,7 @@ name = "north-land-scans"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-cli-reference",
  "north-diff-gates",
  "north-github-mirror",
  "north-landing-gates",

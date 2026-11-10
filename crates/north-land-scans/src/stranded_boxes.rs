@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
 
-use north_base::platform::cli_verbs::{self, Verbs};
+use north_cli_reference::Verbs;
 use north_github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use regex::Regex;
 
@@ -19,7 +19,7 @@ struct Retired {
 
 impl Retired {
     fn read(directory: &Path, from: &str, head: &str) -> Self {
-        let reference = |revision: &str| git::text(directory, &["show", &format!("{revision}:{}", cli_verbs::REFERENCE)]).map(|text| Verbs::parse(&text));
+        let reference = |revision: &str| git::text(directory, &["show", &format!("{revision}:{}", north_cli_reference::REFERENCE)]).map(|text| Verbs::parse(&text));
         let deleted = git::text(directory, &["diff", "--name-only", "--no-renames", "--diff-filter=D", from, head, "--"]).unwrap_or_default();
         let mut paths = BTreeSet::new();
         for file in deleted.lines() {
@@ -39,7 +39,7 @@ impl Retired {
     }
 
     fn named_by(&self, text: &str) -> Option<String> {
-        let verb = self.verbs.as_ref().and_then(|(before, after)| cli_verbs::calls(text).iter().find_map(|call| after.lacks(call).filter(|_| before.lacks(call).is_none())));
+        let verb = self.verbs.as_ref().and_then(|(before, after)| north_cli_reference::calls(text).iter().find_map(|call| after.lacks(call).filter(|_| before.lacks(call).is_none())));
         verb.or_else(|| {
             text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '`' | '(' | ')' | '\'' | '"'))
                 .map(|word| word.trim_end_matches(['.', ';', ':']).trim_end_matches('/'))

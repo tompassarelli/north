@@ -1,5 +1,5 @@
 [[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
-may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground", "north-pacing", "north-graph-loops"]
+may_use = ["north-cli-reference", "north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground", "north-pacing", "north-graph-loops"]
 

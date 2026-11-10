@@ -1,4 +1,4 @@
-//! The `north` verbs the CLI reference lists, and the `north` calls a box's backticked check names.
+//! The `north` verbs the CLI reference lists, and the `north` calls a box's backticked check names; dispatch and the landing scans read both the same way.
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;

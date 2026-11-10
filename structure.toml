@@ -138,6 +138,10 @@ paths = ["crates/north-shared-config/src/**"]
 may_use = []
 
 [[crate_dag.crate]]
+name = "north-cli-reference"
+paths = ["crates/north-cli-reference/src/**"]
+may_use = []
+[[crate_dag.crate]]
 name = "north-base"
 paths = ["crates/north-base/src/**"]
 may_use = ["north-strategy-types", "north-shared-config"]
@@ -155,7 +159,7 @@ may_use = ["north-base", "north-diff-gates", "north-graph-loops", "north-mutants
 [[crate_dag.crate]]
 name = "north-land-scans"
 paths = ["crates/north-land-scans/src/**"]
-may_use = ["north-base", "north-diff-gates", "north-github-mirror", "north-landing-gates"]
+may_use = ["north-base", "north-cli-reference", "north-diff-gates", "north-github-mirror", "north-landing-gates"]
 
 [[crate_dag.crate]]
 name = "north-land-checks"
@@ -285,7 +289,7 @@ may_use = ["north-base", "north-graph"]
 [[crate_dag.crate]]
 name = "north-dispatch"
 paths = ["crates/north-dispatch/src/**"]
-may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground", "north-pacing", "north-graph-loops"]
+may_use = ["north-cli-reference", "north-capacity", "north-fleet-supervisor", "north-providers", "north-threads", "north-github-mirror", "north-graph-ground", "north-pacing", "north-graph-loops"]
 
 [[crate_dag.crate]]
 name = "north-pacing"

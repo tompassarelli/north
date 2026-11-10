@@ -12,6 +12,7 @@ doctest = false
 [dependencies]
 north-base = { path = "../north-base" }
 north-diff-gates = { path = "../north-diff-gates" }
+north-cli-reference = { path = "../north-cli-reference" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-landing-gates = { path = "../north-landing-gates" }
 regex.workspace = true
