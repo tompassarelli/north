@@ -1,3 +1,4 @@
+use super::unrunnable_box::{self, Filing};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -13,14 +14,16 @@ enum NewBody {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct IssueEdit {
+struct IssueWrite {
+    creates: bool,
     selectors: Vec<String>,
     repo: Option<String>,
     body: NewBody,
 }
 
-trait World {
+trait World: unrunnable_box::Log {
     fn current(&mut self, selector: &str, repo: Option<&str>) -> Option<String>;
+    fn repo(&mut self) -> Option<String>;
     fn stdin(&mut self) -> std::io::Result<Vec<u8>>;
 }
 
@@ -28,10 +31,13 @@ struct Live<'a> {
     command: &'a Command,
 }
 
-impl World for Live<'_> {
-    fn current(&mut self, selector: &str, repo: Option<&str>) -> Option<String> {
+impl Live<'_> {
+    fn gh(&self, arguments: &[&str]) -> Option<String> {
         let mut view = Command::new(self.command.get_program());
-        view.args(["issue", "view", selector, "--json", "body", "-q", ".body"]).args(repo.map(|repo| ["-R", repo]).into_iter().flatten()).stdin(Stdio::null());
+        view.args(arguments).stdin(Stdio::null());
+        if let Some(dir) = self.command.get_current_dir() {
+            view.current_dir(dir);
+        }
         for (name, value) in self.command.get_envs() {
             match value {
                 Some(value) => view.env(name, value),
@@ -41,6 +47,28 @@ impl World for Live<'_> {
         let out = view.output().ok().filter(|out| out.status.success())?;
         Some(String::from_utf8_lossy(&out.stdout).into_owned())
     }
+}
+
+impl unrunnable_box::Log for Live<'_> {
+    fn enforcing(&self) -> bool {
+        unrunnable_box::Live.enforcing()
+    }
+
+    fn record(&mut self, row: serde_json::Value) {
+        unrunnable_box::Live.record(row);
+    }
+}
+
+impl World for Live<'_> {
+    fn current(&mut self, selector: &str, repo: Option<&str>) -> Option<String> {
+        let mut arguments = vec!["issue", "view", selector, "--json", "body", "-q", ".body"];
+        arguments.extend(repo.map(|repo| ["-R", repo]).into_iter().flatten());
+        self.gh(&arguments)
+    }
+
+    fn repo(&mut self) -> Option<String> {
+        self.gh(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).map(|out| out.trim().to_owned())
+    }
 
     fn stdin(&mut self) -> std::io::Result<Vec<u8>> {
         let mut bytes = Vec::new();
@@ -49,13 +77,13 @@ impl World for Live<'_> {
     }
 }
 
-/// Run by `north gh-session` on every gh call, so the refusal holds for each provider and for a body file the same command wrote.
+/// Run by `north gh-session` on every gh call, so its refusals and the unrunnable-box gate hold for each provider and for a body file the same command wrote.
 pub fn screen(command: &mut Command) -> Result<(), String> {
     let arguments: Vec<String> = command.get_args().map(|word| word.to_string_lossy().into_owned()).collect();
-    let Some((kept, allowed, edit)) = parse(&arguments) else {
+    let Some((kept, allowed, write)) = parse(&arguments) else {
         return Ok(());
     };
-    let stdin = judge(&edit, allowed.as_deref(), &mut Live { command })?;
+    let stdin = judge(&write, allowed.as_deref(), &mut Live { command })?;
     let mut fresh = Command::new(command.get_program());
     fresh.args(kept);
     for (name, value) in command.get_envs() {
@@ -79,8 +107,8 @@ fn replay(bytes: &[u8]) -> std::io::Result<std::fs::File> {
     Ok(file)
 }
 
-fn judge(edit: &IssueEdit, allowed: Option<&str>, world: &mut impl World) -> Result<Option<Vec<u8>>, String> {
-    let (new, stdin) = match &edit.body {
+fn judge(write: &IssueWrite, allowed: Option<&str>, world: &mut impl World) -> Result<Option<Vec<u8>>, String> {
+    let (new, stdin) = match &write.body {
         NewBody::Text(text) => (text.clone(), None),
         NewBody::File(path) => (std::fs::read_to_string(path).unwrap_or_default(), None),
         NewBody::Stdin => {
@@ -88,21 +116,24 @@ fn judge(edit: &IssueEdit, allowed: Option<&str>, world: &mut impl World) -> Res
             (String::from_utf8_lossy(&bytes).into_owned(), Some(bytes))
         }
     };
-    if allowed.is_some() {
-        return Ok(stdin);
-    }
-    for selector in &edit.selectors {
-        let Some(old) = world.current(selector, edit.repo.as_deref()) else {
+    let mut held = Vec::new();
+    for selector in write.selectors.iter().filter(|_| !write.creates) {
+        let Some(old) = world.current(selector, write.repo.as_deref()) else {
             continue;
         };
-        if shrinks(&old, &new) {
+        if allowed.is_none() && shrinks(&old, &new) {
             return Err(refusal(selector, &old, &new));
         }
+        held.push((selector, old));
+    }
+    let filings: Vec<Filing> = if write.creates { vec![Filing { issue: None, held: None }] } else { held.iter().map(|(selector, old)| Filing { issue: Some(selector.as_str()), held: Some(old.as_str()) }).collect() };
+    if let Some(repo) = write.repo.clone().or_else(|| world.repo()).filter(|_| !filings.is_empty()) {
+        unrunnable_box::judge(&repo, &filings, &new, world)?;
     }
     Ok(stdin)
 }
 
-fn parse(arguments: &[String]) -> Option<(Vec<String>, Option<String>, IssueEdit)> {
+fn parse(arguments: &[String]) -> Option<(Vec<String>, Option<String>, IssueWrite)> {
     let mut kept = Vec::with_capacity(arguments.len());
     let mut allowed = None;
     let mut words = arguments.iter();
@@ -118,15 +149,15 @@ fn parse(arguments: &[String]) -> Option<(Vec<String>, Option<String>, IssueEdit
             kept.push(word.clone());
         }
     }
-    let edit = issue_edit(&kept)?;
-    Some((kept, allowed.filter(|reason| !reason.trim().is_empty()), edit))
+    let write = issue_write(&kept)?;
+    Some((kept, allowed.filter(|reason| !reason.trim().is_empty()), write))
 }
 
-fn issue_edit(arguments: &[String]) -> Option<IssueEdit> {
+fn issue_write(arguments: &[String]) -> Option<IssueWrite> {
     let [group, verb, rest @ ..] = arguments else {
         return None;
     };
-    if group != "issue" || verb != "edit" {
+    if group != "issue" || !matches!(verb.as_str(), "create" | "edit") {
         return None;
     }
     let (mut selectors, mut repo, mut body) = (Vec::new(), None, None);
@@ -139,7 +170,7 @@ fn issue_edit(arguments: &[String]) -> Option<IssueEdit> {
             Some(_) => {}
         }
     }
-    Some(IssueEdit { selectors, repo, body: body? })
+    Some(IssueWrite { creates: verb == "create", selectors, repo, body: body? })
 }
 
 fn body_file(file: String) -> NewBody {

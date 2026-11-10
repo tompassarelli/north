@@ -209,7 +209,6 @@ impl HookKind {
                 Guard("north-hook", crate::guard::generated_policy::evaluate),
                 Guard("north-hook", crate::guard::model_identity::evaluate),
                 Guard("north-hook", crate::guard::nix_activity::evaluate),
-                Guard("north-hook", crate::guard::unrunnable_box::evaluate),
             ],
             Self::Safety => &[Guard("", crate::guard::tripwire::check), Guard("north-hook", crate::guard::sops_decrypt::evaluate)],
             Self::PreEdit => &[

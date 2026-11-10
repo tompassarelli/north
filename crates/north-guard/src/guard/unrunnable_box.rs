@@ -1,9 +1,8 @@
 //! The unrunnable-box gate (north#872): an issue created or edited with a new unticked box that names no backticked `Done when:` command
-//! can only be ticked by its own worker. While harness/gates.toml has it in shadow, each such box is logged to
-//! `$XDG_STATE_HOME/north/gates/unrunnable-box.jsonl`; once it enforces, the filing is refused.
-use super::gh_write::{self, GhWrite};
-use super::issue_labels::gh;
-use crate::hook::{HookInput, Verdict};
+//! can only be ticked by its own worker. `north gh-session` judges the body each fleet `gh issue create` or `gh issue edit` sends when gh
+//! runs (`gh_screen`), so the gate holds for every model provider and for a body file the command wrote, which a shell hook reading the
+//! command text missed (north#1041). While harness/gates.toml has it in shadow, each such box is logged to
+//! `$XDG_STATE_HOME/north/gates/unrunnable-box.jsonl`; once it enforces, the gh call is refused.
 use regex::Regex;
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -19,31 +18,30 @@ static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[ \t>]*[-*][ \
 static RUNNABLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)Done when:[^`]*`[^`]+`").unwrap());
 static EXEMPT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bNeeds:|\bnot before\b").unwrap());
 
-pub(super) trait World {
-    fn repo(&mut self, named: Option<&str>) -> Option<String>;
-    fn current(&mut self, repo: &str, number: &str) -> Option<String>;
+/// One issue a gh call writes: the issue number an edit names, none for a create, and the body the issue holds before the edit.
+pub struct Filing<'a> {
+    pub issue: Option<&'a str>,
+    pub held: Option<&'a str>,
+}
+
+pub trait Log {
+    fn enforcing(&self) -> bool;
     fn record(&mut self, row: serde_json::Value);
 }
 
-struct Live {
-    cwd: Option<String>,
-    state: PathBuf,
-}
+pub struct Live;
 
-impl World for Live {
-    fn repo(&mut self, named: Option<&str>) -> Option<String> {
-        match named {
-            Some(repo) => Some(repo.to_owned()),
-            None => gh(self.cwd.as_deref(), &["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).map(|out| out.trim().to_owned()),
-        }
-    }
-
-    fn current(&mut self, repo: &str, number: &str) -> Option<String> {
-        gh(None, &["issue", "view", number, "-R", repo, "--json", "body", "-q", ".body"])
+impl Log for Live {
+    fn enforcing(&self) -> bool {
+        north_base::platform::harness::document("harness/gates.toml")["gate"][GATE]["mode"].as_str() == Some("enforce")
     }
 
     fn record(&mut self, row: serde_json::Value) {
-        let directory = self.state.join("north/gates");
+        let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+        let Some(state) = var("XDG_STATE_HOME").or_else(|| var("HOME").map(|home| home.join(".local/state"))) else {
+            return;
+        };
+        let directory = state.join("north/gates");
         let _ = std::fs::create_dir_all(&directory);
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(directory.join(format!("{GATE}.jsonl"))) {
             let _ = writeln!(file, "{row}");
@@ -51,17 +49,28 @@ impl World for Live {
     }
 }
 
-pub fn evaluate(input: &HookInput) -> Verdict {
-    let var = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
-    let Some(state) = var("XDG_STATE_HOME").or_else(|| var("HOME").map(|home| home.join(".local/state"))) else {
-        return Verdict::Allow;
-    };
-    let enforcing = north_base::platform::harness::document("harness/gates.toml")["gate"][GATE]["mode"].as_str() == Some("enforce");
-    let refused = judge(input, &mut Live { cwd: input.cwd().map(str::to_owned), state }, !enforcing);
-    if enforcing && !refused.is_empty() {
-        return Verdict::Deny(refusal(&refused));
+/// Logs each new unrunnable box of `body` in `repo` while the gate is in shadow, and refuses the gh call naming them once it enforces.
+pub fn judge(repo: &str, filings: &[Filing], body: &str, log: &mut impl Log) -> Result<(), String> {
+    if !repo.to_lowercase().starts_with(OWNER) {
+        return Ok(());
     }
-    Verdict::Allow
+    let enforcing = log.enforcing();
+    let session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
+    let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+    let mut refused = Vec::new();
+    for filing in filings {
+        let held: BTreeSet<String> = filing.held.unwrap_or_default().lines().filter_map(|line| UNTICKED.captures(line)).map(|found| identity(&found[1])).collect();
+        for text in unrunnable(body).into_iter().filter(|text| !held.contains(&identity(text))) {
+            if !enforcing {
+                log.record(serde_json::json!({"gate": GATE, "at": at, "would_refuse": true, "verb": if filing.issue.is_some() { "edit" } else { "create" }, "repo": repo, "issue": filing.issue, "session": session, "box": text}));
+            }
+            refused.push(text);
+        }
+    }
+    if enforcing && !refused.is_empty() {
+        return Err(refusal(&refused));
+    }
+    Ok(())
 }
 
 fn refusal(boxes: &[String]) -> String {
@@ -76,60 +85,16 @@ fn excerpt(text: &str) -> String {
     if head.len() < text.len() { format!("{head}...") } else { head }
 }
 
-/// The new unrunnable boxes of every issue the command files or edits, logged to the gate's jsonl when `log` is set.
-pub(super) fn judge(input: &HookInput, world: &mut impl World, log: bool) -> Vec<String> {
-    let mut refused = Vec::new();
-    if !input.is_shell() || !input.raw.windows(2).any(|bytes| bytes == b"gh") {
-        return refused;
-    }
-    let Some(text) = input.command() else {
-        return refused;
-    };
-    let session = std::env::var(crate::fleet::runtime::SESSION_ENV).unwrap_or_default();
-    for write in gh_write::writes(&text.lossy(), input.cwd()) {
-        let edited = write.edits.as_ref().filter(|(group, _)| group == "issue").map(|(_, number)| number.clone());
-        if !write.creates_issue && edited.is_none() {
-            continue;
-        }
-        let boxes = unrunnable(&body(&write));
-        if boxes.is_empty() {
-            continue;
-        }
-        let Some(repo) = world.repo(write.repo.as_deref()).filter(|repo| repo.to_lowercase().starts_with(OWNER)) else {
-            continue;
-        };
-        let held: BTreeSet<String> = match &edited {
-            Some(number) => match world.current(&repo, number) {
-                Some(current) => current.lines().filter_map(|line| UNTICKED.captures(line)).map(|found| identity(&found[1])).collect(),
-                None => continue,
-            },
-            None => BTreeSet::new(),
-        };
-        let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-        for (_, text) in boxes.into_iter().filter(|(_, text)| !held.contains(&identity(text))) {
-            if log {
-                world.record(serde_json::json!({"gate": GATE, "at": at, "would_refuse": true, "verb": if edited.is_some() { "edit" } else { "create" }, "repo": repo, "issue": edited, "session": session, "box": text}));
-            }
-            refused.push(text);
-        }
-    }
-    refused
-}
-
 /// What names a box across edits of its issue: its opening words, since an edit that adds a `Measured` line or an evidence note to a held box rewrites the rest.
 fn identity(text: &str) -> String {
     text.trim().chars().take(IDENTITY_CHARS).collect()
 }
 
-fn body(write: &GhWrite) -> String {
-    write.bodies.iter().filter(|text| write.title.as_deref() != Some(text.as_str())).map(String::as_str).collect::<Vec<_>>().join("\n")
-}
-
-/// Each unticked box of `body` naming no backticked `Done when:` command and not saying it waits on `Needs:` or a date, as its line and its text.
-pub(super) fn unrunnable(body: &str) -> Vec<(String, String)> {
+/// The text of each unticked box of `body` naming no backticked `Done when:` command and not saying it waits on `Needs:` or a date.
+fn unrunnable(body: &str) -> Vec<String> {
     body.lines()
-        .filter_map(|line| UNTICKED.captures(line).map(|found| (line.to_owned(), found[1].trim().to_owned())))
-        .filter(|(_, text)| !RUNNABLE.is_match(text) && !EXEMPT.is_match(text))
+        .filter_map(|line| UNTICKED.captures(line).map(|found| found[1].trim().to_owned()))
+        .filter(|text| !RUNNABLE.is_match(text) && !EXEMPT.is_match(text))
         .collect()
 }
 
