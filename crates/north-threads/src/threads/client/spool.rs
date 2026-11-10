@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::ops::ControlFlow;
@@ -6,7 +5,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use north_base::lifecycle::{Lifecycle, Moved, Record, Refusal, State, Store};
+use north_base::lifecycle::{Lifecycle, Moved, Refusal, State, Store};
 
 use super::process::{Input, detach, python_json};
 use super::{Client, Flush, SPOOL_FLUSH};
@@ -14,12 +13,12 @@ use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 use crate::threads::ingest_lock;
+use withheld::{WILL_NOT_RUN, exited};
+
+mod withheld;
 
 const NOT_EXECUTABLE_STATUS: i32 = 126;
 const COMMAND_NOT_FOUND_STATUS: i32 = 127;
-const WILL_NOT_RUN: &str = "the ledger host will not run `";
-/// How long the ledger host's refusal of a verb stands before one of the writes it withheld is sent again to ask.
-const PROBE_AFTER: Duration = Duration::from_secs(3600);
 
 /// Where a write spooled on a mirrored client stands on its way to the ledger host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,15 +97,6 @@ fn adopted_phase(name: &str) -> Option<Phase> {
     }
 }
 
-/// Whether a refusal was the ledger host declining to run the write, which a later host may not, rather than the ledger refusing the row; an exit 126 or 127 says the host could not run it.
-fn withheld_by_host(cause: &str) -> bool {
-    cause.starts_with(WILL_NOT_RUN) || [NOT_EXECUTABLE_STATUS, COMMAND_NOT_FOUND_STATUS].iter().any(|code| cause == exited(*code))
-}
-
-fn exited(code: i32) -> String {
-    format!("the ledger host exited {code}")
-}
-
 pub(super) struct Spool {
     store: Store,
     directory: PathBuf,
@@ -163,44 +153,7 @@ impl Spool {
     /// Marks `name` sent and queues every write of its `verb` the ledger host withheld, since the host runs it now; returns their names.
     pub(super) fn deliver(&mut self, name: &str, verb: Option<&str>, at: Timestamp) -> NorthResult<Vec<String>> {
         self.go(name, Phase::Sent, "the ledger host took it", at)?;
-        let Some(verb) = verb else { return Ok(Vec::new()) };
-        let mut resent = Vec::new();
-        for (_, record) in self.withheld()?.into_iter().filter(|(withheld, _)| withheld == verb) {
-            self.go(&record.instance, Phase::Queued, &format!("the ledger host ran `{verb}` again, so the write it withheld is sent again"), at)?;
-            resent.push(record.instance);
-        }
-        Ok(resent)
-    }
-
-    fn probe_withheld(&mut self, at: Timestamp) -> NorthResult<()> {
-        let mut verbs: BTreeMap<String, Vec<Record<Phase>>> = BTreeMap::new();
-        for (verb, record) in self.withheld()? {
-            verbs.entry(verb).or_default().push(record);
-        }
-        let stood = |record: &Record<Phase>| at.unix_millis() - record.since.unix_millis() >= PROBE_AFTER.as_millis() as i64;
-        for (verb, records) in verbs {
-            if !records.iter().all(stood) {
-                continue;
-            }
-            if let Some(oldest) = records.iter().map(|record| record.instance.as_str()).min() {
-                self.go(oldest, Phase::Queued, &format!("asking whether the ledger host runs `{verb}` now, an hour or more after it withheld it"), at)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// The refused argv writes the ledger host withheld whose files remain, each with its verb.
-    fn withheld(&self) -> NorthResult<Vec<(String, Record<Phase>)>> {
-        let mut found = Vec::new();
-        for record in self.store.instances::<SpooledWrite>()? {
-            if record.state != Phase::Refused || !record.instance.ends_with(".argv") || !withheld_by_host(&record.cause) {
-                continue;
-            }
-            let Ok(text) = fs::read_to_string(self.directory.join(&record.instance)) else { continue };
-            let Some(verb) = serde_json::from_str::<Vec<String>>(&text).ok().and_then(|argv| argv.into_iter().next()) else { continue };
-            found.push((verb, record));
-        }
-        Ok(found)
+        verb.map_or_else(|| Ok(Vec::new()), |verb| self.resend_withheld(verb, at))
     }
 
     pub(super) fn refuse(&mut self, name: &str, cause: &str, at: Timestamp) -> NorthResult<()> {
