@@ -73,6 +73,23 @@ impl Scratch {
     }
 }
 
+pub fn keep_ledger(root: &Path, stamp: u64) -> Result<PathBuf, String> {
+    let state = std::env::var_os("XDG_STATE_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
+        .ok_or("no state directory")?;
+    let kept = state.join("north/verify-north/failed").join(stamp.to_string());
+    fs::create_dir_all(&kept).map_err(|error| format!("{}: {error}", kept.display()))?;
+    for name in ["threads.db", "threads.db-wal", "threads.db-shm", "pushes.tsv"] {
+        let from = root.join(name);
+        if from.exists() {
+            fs::copy(&from, kept.join(name)).map_err(|error| format!("{}: {error}", from.display()))?;
+        }
+    }
+    Ok(kept)
+}
+
 pub fn removable(path: &Path) -> bool {
     path.parent() == Some(std::env::temp_dir().canonicalize().unwrap_or_else(|_| std::env::temp_dir()).as_path())
         && path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.len() > PREFIX.len() && name.starts_with(PREFIX))

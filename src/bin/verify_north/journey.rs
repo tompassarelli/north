@@ -61,6 +61,7 @@ pub fn walk(north: North, notes: Notes, plan: Plan) -> Option<&'static str> {
         let outcome = step(&mut journey);
         report::step(number, title, &outcome, started.elapsed());
         if outcome.is_err() {
+            journey.keep_evidence();
             STEPS[index + 1..].iter().for_each(|(number, title, _)| report::skipped(number, title));
             return Some(number);
         }
@@ -134,14 +135,23 @@ fn ledger_row(journey: &mut Journey) -> Result<String, String> {
     let ledger = scratch.root.join("threads.db");
     let recorded = journey.north.output_with(&["ledger", "worker", "--session", &conversation], &[("THREADS_DB", &ledger), ("LEDGER_REPOS", &scratch.main), ("NORTH_PUSH_LOG", &scratch.root.join("pushes.tsv"))], LEDGER_WAIT)?;
     let row = run_row(&ledger, &conversation)?;
-    let expected = ("done".to_owned(), 1, landed.clone());
-    if row.as_ref() != Some(&expected) {
-        return Err(format!("runs holds {row:?} for {conversation}; expected {expected:?}; `north ledger worker` said: {}", shorten(&recorded)));
+    let settled = row.as_ref().is_some_and(|(_, outcome, landed_count, _, sha)| outcome == "done" && *landed_count == 1 && sha.as_deref() == Some(landed.as_str()));
+    if !settled {
+        let found = row.map_or_else(|| "no row".to_owned(), |(role, outcome, count, ended, sha)| format!("role {role}, outcome {outcome}, landed {count}, ended {ended:?}, landed_sha {sha:?}"));
+        return Err(format!("runs holds {found} for {conversation}; expected outcome done, landed 1, landed_sha {landed}; `north ledger worker` said: {}", shorten(&recorded)));
     }
     Ok(format!("run {conversation} done, landed {}", short(&landed)))
 }
 
 impl Journey {
+    fn keep_evidence(&self) {
+        let Some(scratch) = &self.scratch else { return };
+        match scratch::keep_ledger(&scratch.root, self.plan.stamp) {
+            Ok(kept) => report::say(&format!("verify-north kept the scratch ledger in {}", kept.display())),
+            Err(problem) => report::say(&format!("verify-north could not keep the scratch ledger: {problem}")),
+        }
+    }
+
     fn scratch(&self) -> Result<&Scratch, String> {
         self.scratch.as_ref().ok_or_else(|| "no scratch repository".to_owned())
     }
@@ -174,10 +184,12 @@ impl Journey {
     }
 }
 
-fn run_row(ledger: &Path, conversation: &str) -> Result<Option<(String, i64, String)>, String> {
+type RunRow = (String, String, i64, Option<String>, Option<String>);
+
+fn run_row(ledger: &Path, conversation: &str) -> Result<Option<RunRow>, String> {
     let connection = rusqlite::Connection::open_with_flags(ledger, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| format!("{}: {error}", ledger.display()))?;
-    let mut statement = connection.prepare("SELECT outcome, landed, landed_sha FROM runs WHERE agent = ?1").map_err(|error| format!("{}: {error}", ledger.display()))?;
-    let mut rows = statement.query_map([conversation], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(|error| format!("{}: {error}", ledger.display()))?;
+    let mut statement = connection.prepare("SELECT role, outcome, landed, ended, landed_sha FROM runs WHERE agent = ?1").map_err(|error| format!("{}: {error}", ledger.display()))?;
+    let mut rows = statement.query_map([conversation], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))).map_err(|error| format!("{}: {error}", ledger.display()))?;
     rows.next().transpose().map_err(|error| format!("{}: {error}", ledger.display()))
 }
 
