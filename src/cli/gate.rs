@@ -149,7 +149,7 @@ fn digest(fleet: &Fleet, mark: bool) -> NorthResult<()> {
     let seen = std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/state/north/gate-digest/seen"));
     let since = seen.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| text.trim().parse().ok()).unwrap_or_else(|| now_ms().saturating_sub(FIRST_LOOK_MS));
     let now = now_ms();
-    print!("{}", decision_queue::digest(&fleet.digest(since)?.gates, since, now));
+    print!("{}", decision_queue::digest(&fleet.digest(since)?.gates, &fleet.gates_elsewhere()?, since, now));
     print!("{}", break_glass::digest_section(&break_glass::recorded(), since, now));
     if let Some(path) = seen.filter(|_| mark) {
         let _ = path.parent().map(std::fs::create_dir_all);
