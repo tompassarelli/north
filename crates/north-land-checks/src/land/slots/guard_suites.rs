@@ -133,7 +133,8 @@ impl Floor {
             name == module || name.starts_with(&format!("{module}::")) || name.contains(&format!("::{module}::"))
         });
         let case = self.cases.iter().any(|(_, test)| name == test || name.ends_with(&format!("::{test}")));
-        module || case
+        let integration = self.it.iter().any(|module| name == module || name.starts_with(&format!("{module}::")));
+        module || case || integration
     }
 
     pub fn entries(&self) -> BTreeSet<String> {

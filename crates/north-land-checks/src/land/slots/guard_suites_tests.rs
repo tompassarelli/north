@@ -38,6 +38,13 @@ fn a_lane_touching_a_guarded_path_runs_its_guard_suite() {
     assert!(fallback.arguments().contains("(binary_id(north-lander::it)&test(=land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane))"), "the crate fallback keeps the guard case too: {}", fallback.arguments());
     assert!(suites.floor(&["crates/north-ops/src/lib.rs".to_owned()]).is_empty(), "an unguarded path runs no suite");
 
+    let landed = suites.floor(&[".safe-push".to_owned()]);
+    assert_eq!(landed.names(), "landing machinery");
+    assert_eq!(suites.floor(&["harness/guard-suites.toml".to_owned()]).names(), "landing machinery", "a change to the table itself runs the tests that read it");
+    assert!(landed.selects("land_checks::north_land_check_refuses_a_lane_that_adds_a_reference_its_module_layers_forbid"), "a .safe-push lane holds the land_checks tests it embeds, so north land missed does not read the a84a8a9ca miss as left out");
+    let embedded = Selection::Tests(Tests::parse(r#"{"tests":["north-ops ops::report::tests::reads"],"known":1}"#).unwrap()).with_floor(landed);
+    assert!(embedded.arguments().contains("(binary_id(north::it)&test(/^(land_checks)::/))"), "a lane changing only .safe-push runs the land_checks it module: {}", embedded.arguments());
+
     let renamed = |from: &str, to: Option<&str>| vec![(from.to_owned(), to.map(str::to_owned))];
     assert!(suites.moved_out(&renamed("crates/north-runtime/src/worker_sandbox/readable.rs", Some("crates/north-runtime/src/worker_sandbox/paths/readable.rs")), &[]).is_empty(), "a move inside the suite's paths passes");
     assert_eq!(suites.moved_out(&renamed("crates/north-runtime/src/privacy/judge.rs", None), &["crates/north-core/src/judge.rs".to_owned()]).len(), 1, "deleting a guarded file while adding Rust outside the suite is refused");

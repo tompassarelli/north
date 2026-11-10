@@ -42,7 +42,7 @@ it = []
 
 [[suite]]
 name = "landing machinery"
-paths = ["crates/north-lander/", "crates/north-land-checks/", "crates/north-landing/", "crates/north-safe-push/", "crates/north-runtime-follow/"]
+paths = ["crates/north-lander/", "crates/north-land-checks/", "crates/north-landing/", "crates/north-safe-push/", "crates/north-runtime-follow/", ".safe-push", "harness/guard-suites.toml"]
 tests = ["north-lander", "north-land-checks", "north-safe-push"]
 cases = ["north-lander::it land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane"]
-it = []
+it = ["land_checks"]
