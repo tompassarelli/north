@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Read, Seek, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,9 +12,11 @@ use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 
 mod process;
+mod remote;
+mod snapshot_pull;
 pub mod spool;
 pub use process::shell_quote;
-use process::{Input, agent_event_checks, code_of, detach, execute, execute_capturing_stderr, has_usage, python_json};
+use process::{Input, agent_event_checks, detach, has_usage};
 
 const READS: [&str; 11] = [
     "job-runs", "show", "ready", "list", "holder", "unowned", "run-ids", "summary", "recommend", "calibrate", "opencode",
@@ -473,176 +474,6 @@ impl Client {
         }
         self.spool_argv(argv, unanswered(code))?;
         Ok(0)
-    }
-
-    fn refresh_after_answer(&self, dest: &str, argv: &[String], code: i32) -> NorthResult<()> {
-        let first = argv.first().map(String::as_str);
-        let has = |flag: &str| argv.iter().any(|arg| arg == flag);
-        let calibrate_write = first == Some("calibrate") && has("--write");
-        if code == 0 && calibrate_write && has("--goal-row") {
-            return Ok(());
-        }
-        if code == 0 && (first == Some("record-priors") || calibrate_write) {
-            return self.refresh_snapshot(dest, Duration::ZERO);
-        }
-        self.refresh_snapshot_later(dest, snapshot::SNAPSHOT_AGE);
-        Ok(())
-    }
-
-    fn stale_line(&self, dest: &str) -> NorthResult<String> {
-        let modified = fs::metadata(&self.snapshot)?.modified()?;
-        Ok(format!("STALE: ledger snapshot from {}; {dest} unreachable", Timestamp::from(modified).iso()))
-    }
-
-    fn refresh_snapshot(&self, dest: &str, within: Duration) -> NorthResult<()> {
-        let _ = snapshot::refresh(&self.pull_argv(dest), &self.snapshot, within, snapshot::PULL_TIMEOUT);
-        Ok(())
-    }
-
-    fn refresh_snapshot_later(&self, dest: &str, within: Duration) {
-        let Some(program) = &self.background else {
-            let _ = self.refresh_snapshot(dest, within);
-            return;
-        };
-        if !snapshot::take_turn(&self.snapshot, within).unwrap_or(false) {
-            return;
-        }
-        detach(program, &["snapshot-pull".as_ref(), "--force".as_ref(), "--snapshot".as_ref(), self.snapshot.as_os_str(), dest.as_ref()]);
-    }
-
-    fn pull_argv(&self, dest: &str) -> Vec<OsString> {
-        self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", "-o", crate::platform::ssh::OWN_CONNECTION, dest, snapshot::REMOTE_COMMAND])
-    }
-
-    fn snapshot_verb(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
-        if argv[0] == "snapshot-pages" {
-            let database = self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from);
-            return match snapshot::serve(&database, self.no_native_reason().is_some(), stdin, &mut io::stdout().lock()) {
-                Ok(()) => Ok(0),
-                Err(error) => {
-                    writeln!(err, "NorthThreads: snapshot pages failed: {error}")?;
-                    Ok(1)
-                }
-            };
-        }
-        let (mut force, mut path, mut dest) = (false, self.snapshot.clone(), None);
-        let mut rest = argv[1..].iter();
-        while let Some(arg) = rest.next() {
-            match arg.as_str() {
-                "--force" => force = true,
-                "--snapshot" => path = rest.next().map(PathBuf::from).ok_or_else(|| NorthError::Usage("--snapshot needs a path".into()))?,
-                _ if dest.is_none() && !arg.starts_with('-') => dest = Some(arg.clone()),
-                _ => return Err(NorthError::Usage("usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST".into())),
-            }
-        }
-        let dest = dest.ok_or_else(|| NorthError::Usage("usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST".into()))?;
-        match snapshot::refresh(&self.pull_argv(&dest), &path, if force { Duration::ZERO } else { snapshot::SNAPSHOT_AGE }, snapshot::PULL_TIMEOUT) {
-            Ok(_) => Ok(0),
-            Err(error) => {
-                writeln!(err, "NorthThreads: snapshot pull from {dest} failed: {error}")?;
-                Ok(1)
-            }
-        }
-    }
-
-    fn no_native_reason(&self) -> Option<&'static str> {
-        if self.var("THREADS_NO_NATIVE").is_some() {
-            return Some("THREADS_NO_NATIVE is set (agy)");
-        }
-        self.var("CLAUDE_CODE_REMOTE").is_some().then_some("CLAUDE_CODE_REMOTE is set (cloud worker)")
-    }
-
-    fn ssh(&self, dest: &str, args: &[String], input: Input, quiet: bool, err: &mut dyn Write) -> NorthResult<i32> {
-        let command = self.remote_command(args);
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
-        let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
-        let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
-        match execute(&argv, input, stdout, wait)? {
-            Some(status) => Ok(code_of(status)),
-            None => {
-                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok(TIMED_OUT_STATUS)
-            }
-        }
-    }
-
-    fn ssh_capturing(&self, dest: &str, args: &[String], input: Input, quiet: bool, err: &mut dyn Write) -> NorthResult<(i32, String)> {
-        let command = self.remote_command(args);
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
-        let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
-        let wait = if args.first().map(String::as_str) == Some("job-run") { self.record_wait } else { self.ssh_wait };
-        let (status, stderr) = execute_capturing_stderr(&argv, input, stdout, wait)?;
-        err.write_all(stderr.as_bytes())?;
-        match status {
-            Some(status) => Ok((code_of(status), stderr)),
-            None => {
-                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok((TIMED_OUT_STATUS, stderr))
-            }
-        }
-    }
-
-    fn remote_command(&self, args: &[String]) -> String {
-        let mut remote = Vec::new();
-        if let Some(actor) = self.var("THREADS_ACTOR") {
-            remote.push(format!("THREADS_ACTOR={actor}"));
-        }
-        if self.no_native_reason().is_some() {
-            remote.push("THREADS_NO_NATIVE=1".to_owned());
-        }
-        let first = args.first().map(String::as_str);
-        if matches!(first, Some("unowned" | "claim" | "list")) && let Some(owners) = self.fleet.live_owners() {
-            remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&owners.into_iter().collect::<Vec<_>>())));
-        }
-        if first == Some("queue") && args.get(1).map(String::as_str) == Some("follow") {
-            remote.push(format!("{FORWARDED}=1"));
-        }
-        if !remote.is_empty() {
-            remote.insert(0, "env".to_owned());
-        }
-        remote.extend(["north".to_owned(), "threads".to_owned()]);
-        remote.extend(args.iter().cloned());
-        remote.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ")
-    }
-
-    fn forward(&self, words: &[&str], input: &[u8], err: &mut dyn Write) -> NorthResult<Option<i32>> {
-        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
-            return Ok(None);
-        }
-        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
-        let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
-        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), SSH_TIMEOUT)? {
-            Some(status) => Ok(Some(code_of(status))),
-            None => {
-                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok(Some(TIMED_OUT_STATUS))
-            }
-        }
-    }
-
-    fn ask(&self, words: &[&str], input: &[u8]) -> NorthResult<Option<Vec<u8>>> {
-        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
-            return Ok(None);
-        }
-        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
-        let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
-        let mut output = tempfile::tempfile()?;
-        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::from(output.try_clone()?), SSH_TIMEOUT)? {
-            Some(status) if status.success() => {
-                let mut answer = Vec::new();
-                output.seek(io::SeekFrom::Start(0))?;
-                output.read_to_end(&mut answer)?;
-                Ok(Some(answer))
-            }
-            Some(status) => Err(NorthError::Refused(format!("{dest} answered exit {}", code_of(status)))),
-            None => Err(NorthError::Refused(format!("{dest} timed out; remote outcome unknown"))),
-        }
-    }
-
-    fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
-        crate::platform::ssh::argv(&self.ssh, &self.env, arguments)
     }
 }
 
