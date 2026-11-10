@@ -32,10 +32,12 @@ const PROMOTE_LOCK: &str = "runtime-promote.lock";
 pub(super) mod hold;
 mod build;
 mod preswap;
+mod shipped;
 mod sync;
 
 use build::{build, export_tree};
 use hold::Verdict;
+use shipped::{Shipped, shipped};
 use sync::{republish_if_unpublished, swap, sync};
 pub(super) use sync::alert_proxy;
 
@@ -105,29 +107,6 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
         Shipped::Promote => return advance(layout, &checkout, target, previous.as_deref()).map(|_| ()),
     }
     Ok(())
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Shipped {
-    Current,
-    Older(String),
-    Missing,
-    Promote,
-}
-
-/// The primary checkout only answers whether the shipped runtime is older than the live one; a checkout that cannot fetch, is dirty or lacks the shipped commit leaves that unknown and the shipped runtime is promoted, since the host that shipped it already ordered it.
-fn shipped(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Shipped {
-    if previous == Some(layout::link(target).as_path()) {
-        return Shipped::Current;
-    }
-    if let Err(failure) = fetch(checkout) {
-        println!("north runtime: {} cannot fetch ({}); judging the shipped {} without it", checkout.display(), failure.message, layout::short(target));
-    }
-    match previous.and_then(layout::linked_sha).filter(|current| ancestor(checkout, target, current)) {
-        Some(newer) => Shipped::Older(newer.to_owned()),
-        None if !usable(&layout.runtime(target)) => Shipped::Missing,
-        None => Shipped::Promote,
-    }
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {
