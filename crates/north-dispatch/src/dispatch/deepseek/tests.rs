@@ -130,6 +130,57 @@ fn active_workers_counts_claude_workers_alone() {
 }
 
 #[test]
+fn a_private_lane_opencode_launch_past_the_zero_retention_date_is_refused_and_a_public_one_admitted() {
+    use crate::fleet::model::{Account, LaunchRequest};
+    use crate::fleet::prompt::PromptMode;
+    use crate::fleet::runtime::{Opening, Runtime};
+    use north_providers::providers::opencode::harness::OPENCODE;
+    use north_providers::providers::opencode::route;
+    use north_providers::providers::opencode::{Deepseek, Visibility};
+    use std::sync::Arc;
+
+    let configured = crate::platform::harness::document("harness/opencode.toml")["go"]["zero_retention_until"]
+        .as_str()
+        .expect("harness/opencode.toml [go] zero_retention_until is a YYYY-MM-DD date");
+    let until = route::date(configured).unwrap();
+    let after = until.next_day().unwrap();
+
+    let home = tempfile::tempdir().unwrap();
+    let account = Account { provider: Deepseek::opencode().provider(), label: "go".into(), home: home.path().into(), token_file: Some(home.path().join("go.key")), api: None };
+    let request = LaunchRequest {
+        verification: false,
+        name: "worker".into(),
+        provider: Deepseek::opencode().provider(),
+        account: "go".into(),
+        cwd: home.path().into(),
+        model: None,
+        effort: None,
+        prompt: "Item: north#1\nBox: add a.txt".into(),
+        system_prompt: None,
+        foreground_cap_secs: None,
+        prompt_mode: PromptMode::North,
+        idle_exit_minutes: None,
+        parent: None,
+        task_ref: None,
+        claim_box: None,
+        placement: None,
+        machine: None,
+        capacity_need: None,
+        role: None,
+        resume: None,
+        compact_window: None,
+    };
+    let launch = |visibility: Visibility, today: time::Date| {
+        Deepseek::reading(&OPENCODE, Arc::new(move |_| visibility), Arc::new(move || today)).host(&account, &request, Opening::Fresh(Some("ses_x")), "")
+    };
+
+    let private = launch(Visibility::Private, after);
+    assert!(private.is_err_and(|error| error.user_message().contains("zero-retention agreement")), "a private lane after {configured} is refused");
+    assert!(launch(Visibility::Public, after).is_ok(), "a public lane runs on the free model, which the zero-retention agreement does not bind");
+    assert!(launch(Visibility::Private, until).is_ok(), "the agreement's last day still admits a private lane");
+}
+
+#[test]
 fn the_sonnet_reviewer_draws_medium_or_high_by_seed_and_records_it() {
     let drawn: BTreeSet<&str> = (0..40).map(|number| sampling::reviewer_effort(&format!("north-1020-d{number:04x}"))).collect();
     assert_eq!(drawn, BTreeSet::from(["medium", "high"]), "both efforts are drawn across sessions");
