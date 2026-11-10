@@ -80,3 +80,8 @@ fn scratch_under(shared: &Path, scratch: &[PathBuf]) -> Vec<PathBuf> {
 fn others(directory: &Path, kept: &[PathBuf]) -> Vec<PathBuf> {
     std::fs::read_dir(directory).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| !kept.contains(path)).collect()
 }
+
+/// Every file a command confined to its lane may open for writing: what it may remove (its lane, its git state, scratch, caches and build output) and the device files a shell writes to. The fleet's session records, cgroup control files and every other project's files stay unwritable.
+pub fn writable_in_lane(removable: &[PathBuf]) -> Vec<PathBuf> {
+    removable.iter().cloned().chain([PathBuf::from("/dev")]).collect()
+}

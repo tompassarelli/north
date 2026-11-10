@@ -36,7 +36,7 @@ fn a_confined_command_child() {
     let command = command.to_string_lossy().into_owned();
     let context = Context::from_env(&command);
     let roots = std::env::var_os(LOGINS_ONLY).is_none().then(|| removable(&context));
-    assert!(matches!(confine(roots.as_deref(), &readable(&context), Some(&executable(&context))), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    assert!(matches!(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), None), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let output = Command::new("bash").arg("-c").arg(&command).output().unwrap();
     assert!(output.status.success(), "{command}: {}", String::from_utf8_lossy(&output.stderr));
 }
@@ -354,4 +354,37 @@ fn a_draining_broker_holding_the_unit_name_does_not_stop_a_new_broker_from_start
     });
     assert!(std::os::unix::net::UnixStream::connect(&socket).is_ok(), "no broker listened after the unit name was refused; tried {:?}", tried.borrow());
     std::fs::remove_dir_all(&directory).unwrap();
+}
+
+const WRITE_HOME: &str = "NORTH_1068_WRITE_HOME";
+
+#[test]
+fn a_lane_only_write_child() {
+    let Some(home) = std::env::var_os(WRITE_HOME) else {
+        return;
+    };
+    let home = PathBuf::from(home);
+    let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None };
+    let roots = removable(&context);
+    let writable = super::lane_only::writable_in_lane(&roots);
+    assert!(matches!(confine(Some(&roots), &super::lane_only::readable_in_lane(&context, &[]), Some(&executable(&context)), Some(&writable)), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    let writes = |path: &str| std::fs::OpenOptions::new().write(true).open(home.join(path)).is_ok();
+    assert!(writes("code/alpha/worktrees/lane/file"), "a lane-only command cannot write its own lane");
+    for refused in [".local/state/north/fleet/sessions/s1.json", "sys/fs/cgroup/agent.slice/north-session-lane-s1.scope/cgroup.procs", "code/beta/main/file"] {
+        assert!(!writes(refused), "a lane-only command wrote {refused}");
+    }
+}
+
+#[test]
+fn a_lane_only_command_cannot_write_a_fleet_record_a_cgroup_procs_file_or_a_sibling_project() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("north-1068-write").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    for file in ["code/alpha/main/.git/HEAD", "code/alpha/worktrees/lane/file", ".local/state/north/fleet/sessions/s1.json", "sys/fs/cgroup/agent.slice/north-session-lane-s1.scope/cgroup.procs", "code/beta/main/file"] {
+        std::fs::create_dir_all(home.join(file).parent().unwrap()).unwrap();
+        std::fs::write(home.join(file), "x").unwrap();
+    }
+    let output = Command::new(std::env::current_exe().unwrap()).args(["--exact", "worker_sandbox::tests::a_lane_only_write_child", "--nocapture"]).env(WRITE_HOME, &home).output().unwrap();
+    assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
