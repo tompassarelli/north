@@ -432,6 +432,15 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
   (ICSE-SEIP 2019)**, https://arxiv.org/abs/1810.05286.
   Informed: learned selection rejected as a way to drop tests, since it trades misses for cost
   ([test-selection.md](rationale/test-selection.md), north#1039). Outcome: prior only.
+- <a id="flake-aware-culprit-finding"></a>**Henderson, Dorward, Nickell, Johnston and Kondareddy, Flake aware culprit
+  finding (ICST 2023)**, https://research.google/pubs/flake-aware-culprit-finding/.
+  Informed: a test's recorded flake rate ranks suspects and sets how many failing runs convict; full Bayesian search
+  rejected for batches of two or three suspects ([graph-blame.md](rationale/graph-blame.md), north#1039). Outcome:
+  prior only.
+- <a id="saferevert"></a>**Google, SafeRevert: when can breaking changes be automatically reverted? (ICST 2024)**,
+  https://hackthology.com/saferevert-when-can-breaking-changes-be-automatically-reverted.html.
+  Informed: a revert only on a confident culprit signal, here a fresh failing run of the suspect and a passing run of
+  its parent ([graph-blame.md](rationale/graph-blame.md), north#1039). Outcome: prior only.
 - <a id="starts"></a>**Legunsen, Hariri, Shi, Lu, Zhang and Marinov, An extensive study of static regression test
   selection in modern software evolution (FSE 2016)**, https://doi.org/10.1145/2950290.2950361.
   Informed: static dependency selection rejected for tests that spawn the north binary
