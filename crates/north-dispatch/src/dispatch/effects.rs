@@ -12,7 +12,7 @@ use crate::fleet::runtime::PROXY;
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::process::run_within;
 use serde_json::json;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
 use toml_edit::{DocumentMut, Item};
@@ -21,6 +21,7 @@ const LAUNCH_WAIT: Duration = Duration::from_secs(180);
 const PREDICT_WAIT: Duration = Duration::from_secs(30);
 const REPEAT_ALERT_S: f64 = 6.0 * 3600.0;
 const BOXLESS_EVERY_S: f64 = 24.0 * 3600.0;
+const SENDER: &str = "service:north-dispatch";
 pub const REVIVED: &str = "revived.json";
 
 /// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back, with the box
@@ -228,8 +229,17 @@ pub fn deliver(line: &str, alert: &mut dyn FnMut(&str) -> Result<(), String>, pa
 }
 
 pub fn page_proxy(line: &str) -> Result<(), String> {
+    fleet_send(&["fleet", "send", "--now", "--from", SENDER, PROXY, line])
+}
+
+/// Pages the proxy under the fleet store's condition `key`, which it delivers once per episode.
+pub fn page_condition(key: &str, line: &str) -> Result<(), String> {
+    fleet_send(&["fleet", "send", "--now", "--from", SENDER, "--key", key, PROXY, line])
+}
+
+fn fleet_send(arguments: &[&str]) -> Result<(), String> {
     let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
-    match run_within(&north, &["fleet", "send", "--now", "--from", "service:north-dispatch", crate::fleet::runtime::PROXY, line], Duration::from_secs(30)) {
+    match run_within(&north, arguments, Duration::from_secs(30)) {
         Some(output) if output.status.success() => Ok(()),
         Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
         None => Err("north fleet send did not return within 30 s".to_owned()),
@@ -282,16 +292,12 @@ pub(super) fn tell_tom_with(
     }
 }
 
-pub fn watch_failures(pages: &[record::FailurePage], at: f64, told: &mut BTreeMap<String, f64>, send: &mut dyn FnMut(&str) -> bool) -> bool {
+/// Pages the proxy about each launch failure cause under its condition key, which the fleet store delivers once per episode however many dispatch runs repeat it.
+pub fn watch_failures(pages: &[record::FailurePage], send: &mut dyn FnMut(&str, &str) -> bool) -> bool {
     let mut sent_all = true;
     for page in pages {
-        let key = north_base::foundation::cause::key(&page.cause);
-        if told.get(&key).is_some_and(|sent| at - sent < record::FAILURE_WINDOW_S) {
-            continue;
-        }
         let line = page.line();
-        if send(&line) {
-            told.insert(key, at);
+        if send(&page.condition(), &line) {
             println!("paged the proxy: {line}");
         } else {
             eprintln!("north fleet dispatch: could not page the proxy: {line}");
@@ -309,18 +315,7 @@ pub fn report_failures(records: &[Record], at: f64, dry_run: bool) -> bool {
         }
         return true;
     }
-    let path = record::directory().join("failure-pages.json");
-    let mut told: BTreeMap<String, f64> = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-    let sent = watch_failures(&pages, at, &mut told, &mut |line| page_proxy(line).is_ok());
-    if let Some(parent) = path.parent()
-        && let Err(error) = std::fs::create_dir_all(parent)
-    {
-        eprintln!("north fleet dispatch: {} not written: {error}", path.display());
-    }
-    if let Err(error) = std::fs::write(&path, serde_json::to_vec(&told).unwrap_or_default()) {
-        eprintln!("north fleet dispatch: {} not written: {error}", path.display());
-    }
-    sent
+    watch_failures(&pages, &mut |key, line| page_condition(key, line).is_ok())
 }
 
 /// The message that asks the triage lead to box the open issues that have none.

@@ -1,7 +1,6 @@
 use super::Outcome;
 use super::freeze::{frozen, step};
 use super::issues::IssueRef;
-use std::collections::BTreeMap;
 
 #[test]
 fn the_tripwire_freeze_of_2026_11_08_tells_the_proxy_once_on_the_first_dispatch_run_fifteen_minutes_in_naming_the_tripwire() {
@@ -54,18 +53,12 @@ fn the_tripwire_freeze_of_2026_11_08_tells_the_proxy_once_on_the_first_dispatch_
     assert_eq!(pages[0].cause, "error: launch refused: no capacity on nexus");
     assert!(pages[0].stderr.ends_with("north-1-d0101.log"), "{}", pages[0].stderr);
     assert!(pages[0].line().contains("first stderr:"));
-    let mut told = BTreeMap::new();
     let mut paged = Vec::new();
-    assert!(super::effects::watch_failures(&pages, start + 240.0, &mut told, &mut |line| {
-        paged.push(line.to_owned());
+    assert!(super::effects::watch_failures(&pages, &mut |key, line| {
+        paged.push((key.to_owned(), line.to_owned()));
         true
     }));
-    assert_eq!(paged, [pages[0].line()]);
-    assert!(super::effects::watch_failures(&pages, start + 300.0, &mut told, &mut |line| {
-        paged.push(line.to_owned());
-        true
-    }));
-    assert_eq!(paged.len(), 1, "one page per cause in ten minutes");
+    assert_eq!(paged, [(pages[0].condition(), pages[0].line())], "the cause pages under one condition key, which the fleet store delivers once per episode");
 
     let mut alerts = Vec::new();
     let delivery = super::effects::deliver("dispatch alert", &mut |_| Err("no token".to_owned()), &mut |line| {

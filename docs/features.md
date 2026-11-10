@@ -110,6 +110,7 @@ CPU offload: [`north capacity nexus`](nexus-run.md) sends an owned working tree 
 - Session host socket (north#1069): a session host listens on `$XDG_RUNTIME_DIR/north-session-hosts/<16 hex of the sha256 of its state directory>.sock`, so the path carries neither the session name nor the state root and stays inside a Unix socket path's 107 bytes for any name. [more](features/03-fleet-sessions/0047-session-host-socket-north-1069.md)
 - Spend-refused launches queue by priority (north#1073): `north fleet launch` keeps a launch placement refuses only on its account's spend in the host's launch queue under `~/.local/state/north/fleet/.launch-queue` instead of failing, prints `queued NAME`, and exits 0; the fleet tick retries the oldest first, urgent before normal, and starts it when a slot frees. [more](features/03-fleet-sessions/0047-spend-refused-launch-queues-by-priority-north-1073.md)
 - Dispatch places no box where its home paths are unreadable (north#1054): a box whose text names a path under the dispatching host's home goes only to that host (or the laptop queue), so it never spends a slot on a launch `north fleet launch` refuses; with no room there, the box is skipped for the round with the path named and the slot goes to the next ready box.
+- Page-flood backstop (north#1048): the fleet store's send path, which every service message passes, bounds what reaches the proxy. [more](features/03-fleet-sessions/0049-page-flood-backstop-north-1048.md)
 
 ## Landing and lanes
 

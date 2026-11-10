@@ -1,7 +1,7 @@
 pub mod checkout;
 pub mod cleanup;
 pub mod follow;
-pub use follow::send;
+pub use follow::{send, send_condition};
 pub mod gates;
 pub mod goals;
 pub mod owner;

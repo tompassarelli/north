@@ -1,6 +1,6 @@
 //! Which service alarms wake the proxy now, and which wait for `north fleet digest`: Tom's gates, a red
 //! main, a runtime rollback, a disk past its watermark, a security finding, a health alarm opening a
-//! cause, the north lander running too far behind main, and a land-watch page its follower check let through. A message from a session, Tom or a
+//! cause, and a land-watch page its follower check let through. A message from a session, Tom or a
 //! landing sender is not an alarm service and passes unchanged.
 use crate::sender::Sender;
 
@@ -14,7 +14,6 @@ pub fn wakes(sender: &Sender, text: &str) -> bool {
         "north-ops-flow" => red_main(&lower) || security(&lower) || disk(&lower),
         "north-runtime" => rollback(&lower),
         "north-capacity-watchdog" => disk(&lower),
-        "north-land" => text.starts_with(crate::fold::LANDER_BEHIND),
         _ => false,
     }
 }

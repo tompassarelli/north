@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const LIMIT: usize = 3;
-const WINDOW_MS: u64 = 6 * 60 * 60 * 1000;
 const ERROR_WORDS: [&str; 10] = ["error", "fail", "denied", "cannot", "unable", "broken", "panic", "fatal", "timed out", "timeout"];
 
 #[derive(Debug, PartialEq)]
@@ -16,12 +15,7 @@ pub(super) struct Failing {
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 pub(super) struct Told {
     #[serde(default)]
-    units: BTreeMap<String, BTreeMap<String, Notice>>,
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-struct Notice {
-    at_ms: u64,
+    units: BTreeSet<String>,
 }
 
 #[derive(Default)]
@@ -93,22 +87,20 @@ pub(super) fn verdict(failing: &[Failing]) -> Result<(), String> {
     Err(failing.iter().map(|one| format!("{} failed to start {} times in the last hour: {}", one.unit, one.count, one.cause)).collect::<Vec<_>>().join("; "))
 }
 
-fn shape(cause: &str) -> String {
-    north_base::foundation::cause::key(cause)
+fn condition(unit: &str) -> String {
+    format!("harness-unit-start:{unit}")
 }
 
-pub(super) fn announce(failing: &[Failing], told: &mut Told, now_ms: u64, send: &mut dyn FnMut(&str) -> bool) {
+/// Tells the proxy of each failing unit under its condition key on every check, which the fleet store delivers once per episode and again when the cause changes, and of each unit told failing that recovered, which ends the episode.
+pub(super) fn announce(failing: &[Failing], told: &mut Told, send: &mut dyn FnMut(&str, &str, bool) -> bool) {
     for one in failing {
-        let cause = shape(&one.cause);
-        let notices = told.units.entry(one.unit.clone()).or_default();
-        let news = notices.get(&cause).is_none_or(|notice| now_ms.saturating_sub(notice.at_ms) >= WINDOW_MS);
-        if news && send(&format!("harness unit {} failed to start {} times in the last hour: {}", one.unit, one.count, one.cause)) {
-            notices.insert(cause, Notice { at_ms: now_ms });
+        if send(&format!("harness unit {} failed to start {} times in the last hour: {}", one.unit, one.count, one.cause), &condition(&one.unit), false) {
+            told.units.insert(one.unit.clone());
         }
     }
-    let recovered: Vec<String> = told.units.keys().filter(|unit| !failing.iter().any(|one| &one.unit == *unit)).cloned().collect();
+    let recovered: Vec<String> = told.units.iter().filter(|unit| !failing.iter().any(|one| &one.unit == *unit)).cloned().collect();
     for unit in recovered {
-        if send(&format!("harness unit {unit} recovered: under {LIMIT} failed starts in the last hour")) {
+        if send(&format!("harness unit {unit} recovered: under {LIMIT} failed starts in the last hour"), &condition(&unit), true) {
             told.units.remove(&unit);
         }
     }
@@ -123,16 +115,21 @@ pub(super) fn journal() -> Result<String, String> {
     )
 }
 
-pub(super) fn tell_proxy(message: &str) -> bool {
-    super::command("north", &["fleet", "send", "--from", "service:north-health", "proxy", message], None, 20).is_ok()
+pub(super) fn tell_proxy(message: &str, key: &str, cleared: bool) -> bool {
+    let mut arguments = vec!["fleet", "send", "--from", "service:north-health", "--key", key];
+    if cleared {
+        arguments.push("--cleared");
+    }
+    arguments.extend(["proxy", message]);
+    super::command("north", &arguments, None, 20).is_ok()
 }
 
-pub(super) fn check(dry_run: bool, state_file: &std::path::Path, read: &dyn Fn() -> Result<String, String>, send: &mut dyn FnMut(&str) -> bool, now_ms: u64) -> Result<(), String> {
+pub(super) fn check(dry_run: bool, state_file: &std::path::Path, read: &dyn Fn() -> Result<String, String>, send: &mut dyn FnMut(&str, &str, bool) -> bool) -> Result<(), String> {
     let failing = scan(&read()?);
     if !dry_run {
         let mut told: Told = std::fs::read(state_file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
         if !failing.is_empty() || !told.units.is_empty() {
-            announce(&failing, &mut told, now_ms, send);
+            announce(&failing, &mut told, send);
             super::save(state_file, &told)?;
         }
     }

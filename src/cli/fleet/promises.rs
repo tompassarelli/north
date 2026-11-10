@@ -27,7 +27,15 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
     if let Err(error) = book.checked(&keys) {
         return vec![format!("{} due promises were left for the next tick: their check could not be recorded, so running them now could run them twice: {}", due.len(), error.user_message())];
     }
-    due.iter().map(|promise| check(promise, &|text| fleet.send_message(&Sender::fleet(), PROXY, text, Delivery::Now).map(drop).map_err(|error| error.user_message()))).collect()
+    due.iter().map(|promise| check(promise, &|text| tell_proxy(fleet, text))).collect()
+}
+
+fn tell_proxy(fleet: &Fleet, text: &str) -> Result<(), String> {
+    let from = Sender::fleet();
+    if let crate::fleet::registry::Sent::Flooded { line } = fleet.send_message(&from, PROXY, text, Delivery::Now).map_err(|error| error.user_message())? {
+        super::page_flood::record(&from, &line);
+    }
+    Ok(())
 }
 
 pub(super) fn due_ms(promise: &Promise, zone: &Zone) -> Option<u64> {

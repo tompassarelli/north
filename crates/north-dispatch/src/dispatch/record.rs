@@ -85,6 +85,11 @@ impl FailurePage {
     pub fn line(&self) -> String {
         format!("north fleet dispatch: {} launches failed in 10 min with the same cause: {}; first stderr: {}", self.count, self.cause, self.stderr)
     }
+
+    /// The fleet store's condition key for this cause, so every dispatch run that still sees it repeats one condition.
+    pub fn condition(&self) -> String {
+        format!("launch-failure:{}", north_base::foundation::cause::key(&self.cause))
+    }
 }
 
 pub fn failure_pages(records: &[Record], at: f64) -> Vec<FailurePage> {

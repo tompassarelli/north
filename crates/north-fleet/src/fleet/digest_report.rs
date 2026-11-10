@@ -76,9 +76,22 @@ pub fn render(facts: &Facts) -> String {
         let _ = writeln!(text, "  {stall}");
     }
     let _ = writeln!(text, "Held from waking their recipient: {}", facts.held.len());
-    for held in facts.held {
-        let _ = writeln!(text, "  {} ago to {} from {}: {}", span(facts.now_ms.saturating_sub(held.at_ms)), held.to, held.from, summarize(&held.text.replace('\n', " "), HELD_CHARS));
+    for (held, count) in repeats(facts.held) {
+        let times = if count > 1 { format!(", {count} times") } else { String::new() };
+        let _ = writeln!(text, "  {} ago to {} from {}{times}: {}", span(facts.now_ms.saturating_sub(held.at_ms)), held.to, held.from, summarize(&held.text.replace('\n', " "), HELD_CHARS));
     }
     text
+}
+
+fn repeats(held: &[Held]) -> Vec<(&Held, usize)> {
+    let mut folded: Vec<(&Held, usize, String)> = Vec::new();
+    for one in held {
+        let key = north_base::foundation::cause::key(one.text.lines().next().unwrap_or_default());
+        match folded.iter_mut().find(|(seen, _, seen_key)| seen.to == one.to && seen.from == one.from && *seen_key == key) {
+            Some((newest, count, _)) => (*newest, *count) = (one, *count + 1),
+            None => folded.push((one, 1, key)),
+        }
+    }
+    folded.into_iter().map(|(held, count, _)| (held, count)).collect()
 }
 

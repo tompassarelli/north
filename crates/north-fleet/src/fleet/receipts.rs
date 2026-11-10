@@ -351,7 +351,7 @@ mod tests {
 
         let home = tempfile::tempdir().unwrap();
         let service = |unit: &str| Sender::Service(unit.to_owned());
-        let alarm = |sender: &Sender, text: &str| admit(home.path(), sender, "proxy", text, 0);
+        let alarm = |sender: &Sender, text: &str| admit(home.path(), sender, "proxy", text, None, 0);
         assert_eq!(alarm(&Sender::Tom, "gate 7 is open: recommends 1"), Admit::Send, "Tom's gate passes");
         assert_eq!(alarm(&service("north-ops-flow"), "north ops watch: north: possible red main: Cargo"), Admit::Send);
         assert_eq!(alarm(&service("north-runtime"), "north runtime canary: the launch probe failed; nexus rolled back to 11111111"), Admit::Send);

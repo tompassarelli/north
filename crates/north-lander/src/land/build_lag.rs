@@ -1,16 +1,11 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use super::after;
 use super::candidate::git;
-use super::lander::state_home;
 use north_runtime_follow::runtime_of;
 
 pub const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
 pub const BEHIND_LIMIT: usize = 3;
-const PROXY: &str = "proxy";
-const ALARMED: &str = "lander-build-alarmed";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Lag {
@@ -61,31 +56,11 @@ pub fn measure(checkout: &Path, build: Option<&str>, main: &str) -> Lag {
     }
 }
 
-pub fn alarm_once(home: &Path, lag: &Lag, page: &dyn Fn(&str) -> bool) -> bool {
-    let build = match lag {
-        Lag::Behind { build, .. } if lag.over_limit() => build,
-        Lag::Unknown { .. } => return false,
-        _ => {
-            let _ = fs::remove_file(home.join(ALARMED));
-            return false;
-        }
-    };
-    let marked = fs::read_to_string(home.join(ALARMED)).unwrap_or_default();
-    if marked.lines().any(|alarmed| alarmed == build) {
-        return false;
-    }
-    let told = page(&format!("north land: {}; lanes are judged by lander code main has replaced, so read why north land promote holds the lander link", lag.note()));
-    if told {
-        let _ = fs::create_dir_all(home);
-        let _ = fs::write(home.join(ALARMED), format!("{marked}{build}\n"));
-    }
-    told
-}
-
 fn north_checkout() -> PathBuf {
     std::env::var_os("NORTH_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main"))
 }
 
+/// The lag note of the lander serving north, and none from a lander serving any other repository; the lander doctor's link-behind bound pages it.
 pub fn report(repo: &Path) -> Option<String> {
     let checkout = north_checkout();
     if !same_checkout(repo, &checkout) {
@@ -95,7 +70,6 @@ pub fn report(repo: &Path) -> Option<String> {
         Ok(main) => measure(&checkout, own_build(), main.trim()),
         Err(error) => own_build().map_or(Lag::Unpromoted, |build| Lag::Unknown { build: build.to_owned(), why: error }),
     };
-    alarm_once(&state_home().join("north"), &lag, &|text| after::send(PROXY, text));
     Some(lag.note())
 }
 

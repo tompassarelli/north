@@ -1,4 +1,5 @@
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::fold::{Admit, Condition, admit};
 use crate::fleet::model::{Delivery, Status};
 use crate::fleet::runtime::{PROXY, new_uuid, now_ms};
 use crate::fleet::sender::Sender;
@@ -14,6 +15,7 @@ pub enum Sent {
     Retired { heir: String },
     Unreached,
     Held,
+    Flooded { line: String },
 }
 
 impl Fleet {
@@ -33,10 +35,24 @@ impl Fleet {
     }
 
     pub fn send_message(&self, from: &Sender, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
+        self.send_condition(from, name, text, None, delivery)
+    }
+
+    /// Sends `text` as `send_message` does, naming the standing condition it reports so the store delivers it once per episode.
+    pub fn send_condition(&self, from: &Sender, name: &str, text: &str, condition: Option<&Condition>, delivery: Delivery) -> NorthResult<Sent> {
         let now = now_ms();
-        if crate::fleet::fold::admit(&self.root, from, name, text, now) == crate::fleet::fold::Admit::Hold {
-            crate::fleet::held::hold(&self.root, name, &from.to_string(), text, now);
-            return Ok(Sent::Held);
+        match admit(&self.root, from, name, text, condition, now) {
+            Admit::Send => {}
+            Admit::Drop => return Ok(Sent::Held),
+            Admit::Hold => {
+                crate::fleet::held::hold(&self.root, name, &from.to_string(), text, now);
+                return Ok(Sent::Held);
+            }
+            Admit::Flood(line) => {
+                crate::fleet::held::hold(&self.root, name, &from.to_string(), text, now);
+                self.deliver_message(from, name, &line, delivery)?;
+                return Ok(Sent::Flooded { line });
+            }
         }
         crate::fleet::alarms::record(&self.root, from, text, now);
         if matches!(from, Sender::Service(_)) && name == OWNER && !self.addressable(name) {
@@ -279,14 +295,14 @@ mod tests {
         assert_eq!(held.len(), 5, "{held:?}");
         assert!(held[0].contains("Landing in progress") && held[2].contains("cleared after 13 min") && held[3] == "health: ci: recovered" && held[4].contains("Done: landed be5886ab3b"), "{held:?}");
 
-        use crate::fleet::fold::{Admit, WINDOW_MS, admit};
+        use crate::fleet::fold::WINDOW_MS;
         let watchdog = Sender::Service("north-capacity-watchdog".into());
-        let alarm = |text: &str, at: u64| admit(home.path(), &watchdog, PROXY, text, at);
+        let alarm = |text: &str, at: u64| admit(home.path(), &watchdog, PROXY, text, None, at);
         assert_eq!(alarm("watchdog: host disk past its high watermark: 3.1 GiB free on /nix/store", 0), Admit::Send);
         assert_eq!(alarm("watchdog: host disk past its high watermark: 2.9 GiB free on /nix/store", 60_000), Admit::Hold, "north#909: one disk alarm re-sent with moved numbers");
         assert_eq!(alarm("watchdog: host disk past its high watermark: 2.1 GiB free on /nix/store", 60_000 + WINDOW_MS), Admit::Send, "a new window sends again");
         assert_eq!(alarm("watchdog: host overload, load 107.96 (4.5/core), cpu pressure 72.02% over 60 s.", 0), Admit::Hold, "an overload is not page-now and waits for the digest");
-        assert_eq!(admit(home.path(), &health, PROXY, "harness unit fleet-tick.service recovered: under 3 failed starts in the last hour", 0), Admit::Send, "one cleared line for a health unit");
+        assert_eq!(admit(home.path(), &health, PROXY, "harness unit fleet-tick.service recovered: under 3 failed starts in the last hour", None, 0), Admit::Send, "one cleared line for a health unit");
     }
 
     #[test]
@@ -295,8 +311,9 @@ mod tests {
         let fleet = fleet(home.path());
         let proxy = live(&fleet, PROXY);
         let lander = Sender::Service("north-land".into());
+        let behind = Condition { key: "lander-build-behind".into(), cleared: false };
         let line = |main: &str| format!("north land: the lander runs older build cb929a45e8, 4 lander changes behind main {main}, over the limit of 3; lanes are judged by lander code main has replaced, so read why north land promote holds the lander link");
-        let sent: Vec<Sent> = (0..10).map(|round| fleet.send_message(&lander, PROXY, &line(&format!("f9fb98f95{round}")), Delivery::Queued).unwrap()).collect();
+        let sent: Vec<Sent> = (0..10).map(|round| fleet.send_condition(&lander, PROXY, &line(&format!("f9fb98f95{round}")), Some(&behind), Delivery::Queued).unwrap()).collect();
 
         assert_eq!(sent.iter().filter(|sent| **sent == Sent::HandedIn).count(), 1, "{sent:?}");
         assert_eq!(proxy.frames.lock().unwrap().len(), 1);

@@ -95,7 +95,21 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 pub fn send(session: &str, message: &str) -> bool {
-    let Ok(mut child) = Command::new(program()).args(["fleet", "send", "--from", land_notice::SENDER, session, message]).stdin(Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn() else {
+    sent(Command::new(program()).args(["fleet", "send", "--from", land_notice::SENDER, session, message]))
+}
+
+/// Sends `message` under the fleet store's condition `key`, which delivers it once per episode; `cleared` ends the episode.
+pub fn send_condition(session: &str, key: &str, cleared: bool, message: &str) -> bool {
+    let mut command = Command::new(program());
+    command.args(["fleet", "send", "--from", land_notice::SENDER, "--key", key]);
+    if cleared {
+        command.arg("--cleared");
+    }
+    sent(command.args([session, message]))
+}
+
+fn sent(command: &mut Command) -> bool {
+    let Ok(mut child) = command.stdin(Stdio::null()).env_remove("NORTH_RUNTIME_LINK").spawn() else {
         return false;
     };
     child_within(&mut child, SEND_WAIT).ok().flatten().is_some_and(|status| status.success())
