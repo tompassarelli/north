@@ -12,7 +12,7 @@ fn the_query_reads_a_grounding_document_told_to_graph_db() {
         id: "landing".to_owned(),
         reference: "docs/landing-queue.md".to_owned(),
         title: "Landing queue".to_owned(),
-        text: "the landing queue waits for a probe".to_owned(),
+        text: "the landing test queue waits for a probe".to_owned(),
         at: 1.0,
         decays: false,
     };
@@ -26,5 +26,11 @@ fn the_query_reads_a_grounding_document_told_to_graph_db() {
     assert_eq!(index.docs().unwrap(), 1);
     let (hits, _) = search("landing queue probe", &mut index, 2.0, 8, 0.0).unwrap();
     assert_eq!(hits.first().map(|hit| hit.reference.as_str()), Some("docs/landing-queue.md"));
+    // `north graph ground query test` is the smoke check north#882 names: the positional word is the
+    // query, and an explicit one-word query is answered rather than silenced as a typed prompt is.
+    assert_eq!(query_text(&["query".to_owned(), "test".to_owned()]), "test");
+    assert_eq!(query_text(&["query".to_owned(), "--tier".to_owned(), "B".to_owned(), "landing queue".to_owned()]), "landing queue");
+    let text = compose::block_at(&path, "test", "A", 2.0, "").unwrap();
+    assert!(text.contains("docs/landing-queue.md"), "the one-word query answers from graph.db: {text:?}");
     assert!(!directory.path().join("index.db").exists(), "the query creates no separate grounding index");
 }

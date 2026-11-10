@@ -16,6 +16,7 @@ pub struct Shape {
     pub terms: usize,
     pub width: usize,
     pub brief: bool,
+    pub explicit: bool,
     pub seen: HashSet<String>,
     pub last_live: Option<String>,
     pub bound: Bound,
@@ -25,10 +26,10 @@ impl Shape {
         Self { limit: self.limit + room, ..self.clone() }
     }
     pub fn query() -> Self {
-        Shape { limit: LIMIT_CHARS, floor: 0.2, keep: 0.2, mentions: 1600, terms: 12, width: 80, brief: false, seen: HashSet::new(), last_live: None, bound: Bound::default() }
+        Shape { limit: LIMIT_CHARS, floor: 0.2, keep: 0.2, mentions: 1600, terms: 12, width: 80, brief: false, explicit: true, seen: HashSet::new(), last_live: None, bound: Bound::default() }
     }
     pub fn hook(seen: HashSet<String>, last_live: Option<String>, until: Option<Instant>) -> Self {
-        Shape { limit: HOOK_LIMIT_CHARS, floor: HOOK_FLOOR, keep: 0.2, mentions: 1600, terms: 6, width: 0, brief: true, seen, last_live, bound: Bound { terms: Some(HOOK_TERMS), until } }
+        Shape { limit: HOOK_LIMIT_CHARS, floor: HOOK_FLOOR, keep: 0.2, mentions: 1600, terms: 6, width: 0, brief: true, explicit: false, seen, last_live, bound: Bound { terms: Some(HOOK_TERMS), until } }
     }
 }
 #[derive(Default)]
@@ -372,20 +373,34 @@ pub(super) fn retrieve_db(
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     Ok((hits, words))
 }
+/// Whether a message is too short for the hook to ground: a typed one-word prompt is usually a command,
+/// so the hook stays silent. An explicit `north graph ground query` is a question the reader chose to
+/// ask, so it searches even when it is one word.
+fn too_short(shape: &Shape, message: &str, prior: &str, usage: bool, org: bool, graph_empty: bool) -> bool {
+    let count = store::terms(message).len();
+    !shape.explicit && count < 2 && (prior.is_empty() || count == 0) && !usage && !org && graph_empty
+}
 pub fn block(message: &str, tier: &str, now: f64, prior: &str) -> Result<String> {
-    Ok(shaped(message, tier, now, prior, &Shape::query())?.text)
+    block_at(&north_graph::default_path(), message, tier, now, prior)
+}
+/// `block` against one graph file, so a test can query a store it built instead of the host's.
+pub(crate) fn block_at(path: &Path, message: &str, tier: &str, now: f64, prior: &str) -> Result<String> {
+    Ok(shaped_at(path, message, tier, now, prior, &Shape::query())?.text)
 }
 pub fn shaped(message: &str, tier: &str, now: f64, prior: &str, shape: &Shape) -> Result<Rendered> {
+    shaped_at(&north_graph::default_path(), message, tier, now, prior, shape)
+}
+fn shaped_at(path: &Path, message: &str, tier: &str, now: f64, prior: &str, shape: &Shape) -> Result<Rendered> {
     let usage = live::usage(message);
     let org = live::org_query(message);
-    let graph = north_graph_ground::ground(message, shape.bound.until);
+    let wanted = north_graph_ground::seeds(message);
+    let graph = if wanted.is_empty() { Vec::new() } else { north_graph_ground::ground_with(path, &wanted, shape.bound.until) };
     let roomy = shape.with_room(graph.iter().map(|line| ulen(line) + 1).sum());
     let shape = &roomy;
-    let count = store::terms(message).len();
-    if count < 2 && (prior.is_empty() || count == 0) && !usage && !org && graph.is_empty() {
+    if too_short(shape, message, prior, usage, org, graph.is_empty()) {
         return Ok(Rendered::default());
     }
-    let mut db = Index::open().ok();
+    let mut db = Index::open_at(path).ok();
     let mut hits = Vec::new();
     let mut words = store::terms(message);
     let as_of = env::var("NORTH_GROUNDING_AS_OF")

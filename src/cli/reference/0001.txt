@@ -28,7 +28,7 @@
   code-health habits [--repo DIR]               Run the Rust habit checks
   code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold; --rev measures a fresh detached checkout of REF, --file keeps one rolling split issue per repo
   guard language                                PreToolUse language guard
-  graph ground query [--query TEXT] [--tier A|B] [--hook]  Retrieve existing infrastructure and history for a query
+  graph ground query [--query TEXT | TEXT] [--tier A|B] [--hook]  Retrieve existing infrastructure and history for a query
   graph ground refresh [--force] [--if-idle] [--source NAME]...  Refresh the grounding docs in the graph from their sources
   graph ground distill run [--since SINCE] [--no-refresh] [--if-idle] [--after-prompt]  Distill new corrections into grounding records
   graph ground distill status                      Show the distill state

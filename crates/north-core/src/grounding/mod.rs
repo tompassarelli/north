@@ -128,10 +128,32 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
     }
     run(args).map_err(|e| NorthError::Configuration(e.to_string()))
 }
+/// The text a query asks about: `--query TEXT`, else the words the command was given. `north graph
+/// ground query test` is the smoke check north#882 names, so a positional word is the query, not an
+/// ignored argument.
+pub(crate) fn query_text(args: &[String]) -> String {
+    if let Some(text) = flag(args, "--query").or_else(|| flag(args, "-q")) {
+        return text.to_owned();
+    }
+    let mut words: Vec<&str> = Vec::new();
+    let mut rest = args.iter().skip(usize::from(args.first().is_some_and(|word| word == "query")));
+    while let Some(word) = rest.next() {
+        match word.as_str() {
+            "--tier" | "--source" => {
+                rest.next();
+            }
+            "--hook" | "--force" | "--if-idle" => {}
+            word if word.starts_with('-') => {}
+            word => words.push(word),
+        }
+    }
+    words.join(" ")
+}
+
 fn run(args: &[String]) -> Result<i32> {
     if has(args, "--help") || has(args, "-h") {
         println!(
-            "usage: north graph ground query [--query TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | distill | score"
+            "usage: north graph ground query [--query TEXT | TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | distill | score"
         );
         return Ok(0);
     }
@@ -153,15 +175,13 @@ fn run(args: &[String]) -> Result<i32> {
         );
         return Ok(0);
     }
-    let query = flag(args, "--query")
-        .or_else(|| flag(args, "-q"))
-        .unwrap_or("");
+    let query = query_text(args);
     let now = Timestamp::now().unix_seconds_f64();
     let prior = env::var("NORTH_GROUNDING_PRIOR").unwrap_or_default();
     let text = if has(args, "--hook") {
-        hook::render(query, now, &prior, &mut hook::Session::default(), None)?
+        hook::render(&query, now, &prior, &mut hook::Session::default(), None)?
     } else {
-        render::block(query, flag(args, "--tier").unwrap_or("A"), now, &prior)?
+        render::block(&query, flag(args, "--tier").unwrap_or("A"), now, &prior)?
     };
     if !text.is_empty() {
         println!("{text}");
