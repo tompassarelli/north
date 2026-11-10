@@ -7,6 +7,7 @@ mod live;
 pub mod overlay;
 pub mod report;
 pub mod route;
+pub mod runs;
 mod screen;
 mod shared;
 pub mod turns;

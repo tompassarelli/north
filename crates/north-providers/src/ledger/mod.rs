@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -230,6 +231,14 @@ impl Ledger {
         self.with(|conn| {
             let mut statement = conn.prepare(&format!("SELECT {RUN_COLUMNS} FROM runs ORDER BY run_id"))?;
             statement.query_map([], run_from_row)?.collect()
+        })
+    }
+
+    /// Each session's first recorded prompt, the brief it was launched with.
+    pub fn first_prompts(&self) -> NorthResult<HashMap<String, String>> {
+        self.with(|conn| {
+            let mut statement = conn.prepare("SELECT session, prompt FROM runs WHERE prompt IS NOT NULL ORDER BY run_id DESC")?;
+            statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?.collect()
         })
     }
 

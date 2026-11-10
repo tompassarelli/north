@@ -11,7 +11,7 @@ use crate::providers::claude::runs::landing::{MainIndex, repositories};
 use crate::providers::claude::runs::telemetry::Prices;
 use crate::providers::claude::runs::{CATALOG, DEFAULTS};
 use crate::providers::ledger_rows::Shared;
-use crate::providers::{agy, claude, codex};
+use crate::providers::{agy, claude, codex, opencode};
 use crate::foundation::exit::TRANSPORT_FAILED_STATUS;
 
 const USAGE: &str = include_str!("usage.txt");
@@ -229,8 +229,29 @@ fn rows(options: &Options, ids: &Ids) -> Option<Rows> {
             unread = true;
         }
     }
+    if let Err(error) = deepseek_rows(&shared, &mut rows) {
+        eprintln!("north ledger worker: deepseek rows unread: {}", error.user_message());
+        unread = true;
+    }
     capacity_rows(&ids.capacity, &mut rows);
     Some(Rows { rows, unread, missed })
+}
+
+/// This host's DeepSeek sessions, from the turns its session hosts recorded, the review verdicts and the push log.
+fn deepseek_rows(shared: &Shared, rows: &mut Vec<u8>) -> crate::error::NorthResult<()> {
+    let ledger = crate::ledger::Ledger::open_default()?;
+    let (turns, prompts) = (ledger.runs()?, ledger.first_prompts()?);
+    let mut reviewed: HashMap<String, Vec<String>> = HashMap::new();
+    for verdict in crate::dispatch::deepseek::sampling::read(&crate::dispatch::launch_directory()) {
+        reviewed.entry(verdict.session).or_default().push(verdict.sha);
+    }
+    let nodes = crate::providers::ledger_rows::fleet_nodes();
+    let pushes = crate::fleet::landings::pushes(&crate::fleet::landings::push_log());
+    let sources = opencode::runs::Sources { turns: &turns, prompts: &prompts, nodes: nodes.as_deref(), pushes: &pushes, reviewed: &reviewed };
+    for row in opencode::runs::rows(shared, &sources, crate::providers::ledger_rows::cutoff(shared.since)?) {
+        writeln!(rows, "{row}")?;
+    }
+    Ok(())
 }
 
 /// This host's capacity admissions the ledger lacks: those at or after its newest recorded one, the ledger ignoring a repeat.
