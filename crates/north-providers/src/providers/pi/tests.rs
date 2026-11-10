@@ -1,19 +1,25 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::Value;
 use time::Date;
 
-use crate::fleet::model::{Account, EntryKind, LaunchRequest, Status, Transcript};
+use crate::fleet::fakes::Paper;
+use crate::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
+use crate::fleet::registry::Fleet;
+use crate::fleet::runtimes::Runtimes;
 use crate::fleet::runtime::{Opening, Runtime};
+use crate::fleet::sender::Sender;
 use crate::fleet::turns::{TurnExit, TurnSignal};
 
 use super::super::opencode::route::{self, Route, Visibility};
 use super::super::opencode::turns;
 use super::super::opencode::Deepseek;
 use super::PI;
+use super::windows::PiWindows;
 
 const FAKE: &str = r#"printf '%s\n' "$*" >> "$(dirname "$0")/args.txt"
 printf '%s %s\n' "$PI_CODING_AGENT_DIR" "$OPENCODE_API_KEY" >> "$(dirname "$0")/env.txt"
@@ -116,6 +122,40 @@ fn a_pi_worker_runs_a_brief_and_reports_through_the_fleet() {
     assert_eq!((tokens.input, tokens.output, tokens.cache_read, tokens.cache_write), (150, 17, 40, 2));
     assert!(signals.iter().any(|signal| matches!(signal, TurnSignal::Opened { model: Some(model), .. } if model == route::GO_MODEL)));
     a_limited_free_model_runs_the_turn_again_on_paid_go_flash();
+    a_pi_window_holds_the_proxy_name_and_counts_as_a_live_fleet_session();
+}
+
+fn a_pi_window_holds_the_proxy_name_and_counts_as_a_live_fleet_session() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join(".local/state/north");
+    let agent = home.path().join(".pi/agent");
+    let windows = state.join("pi-windows");
+    std::fs::create_dir_all(&windows).unwrap();
+    let pid = std::process::id();
+    let socket = PathBuf::from(format!("/tmp/north-pi-{pid}.sock"));
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::fs::write(
+        windows.join(format!("{pid}.json")),
+        serde_json::json!({"pid": pid, "conversation": "pi-window", "session_file": "/tmp/pi.jsonl", "socket": socket, "cwd": "/tmp", "started_ms": 1}).to_string(),
+    )
+    .unwrap();
+
+    let runtime = seeing(Visibility::Private).with_windows(Arc::new(PiWindows::at(state, agent.clone())));
+    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(runtime)]), Arc::new(Paper::default())).unwrap();
+    let record = fleet.adopt("proxy", "pi-window", "/tmp".into()).unwrap();
+
+    assert!(record.adopted());
+    assert_eq!(record.conversation.as_deref(), Some("pi-window"));
+    assert_eq!(fleet.status(&record), Status::Idle, "dispatch sees the Pi window as a live session");
+    assert!(fleet.listens("proxy").unwrap(), "a report to the proxy reaches the Pi window");
+    assert!(agent.join("extensions/north-fleet.ts").is_file(), "adopt installs the bridge the window loads");
+    assert_eq!(PiWindows::conversation_of(|name| (name == "PI_SESSION_ID").then(|| "pi-window".to_owned())).as_deref(), Some("pi-window"));
+
+    fleet.send_message(&Sender::Session("lead".into()), "proxy", "main is red", Delivery::Queued).unwrap();
+    let (mut report, _) = listener.accept().unwrap();
+    let mut text = String::new();
+    report.read_to_string(&mut text).unwrap();
+    assert!(text.contains("main is red"), "the report reaches the Pi window's socket: {text:?}");
 }
 
 fn a_limited_free_model_runs_the_turn_again_on_paid_go_flash() {

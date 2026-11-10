@@ -21,6 +21,7 @@ const WINDOW_CLOSE: Duration = Duration::from_secs(10);
 impl Fleet {
     pub fn adopt(&self, name: &str, conversation: &str, cwd: PathBuf) -> NorthResult<SessionRecord> {
         let (runtime, inbox) = self.window_of(conversation).ok_or_else(|| NorthError::State(format!("no live interactive window holds conversation {conversation}")))?;
+        runtime.adopt_window(conversation, &inbox)?;
         let session_dir = self.session_dir(name)?;
         let placement = format!("adopted window, process {}", inbox.pid);
         if let Ok(held) = self.record(name)

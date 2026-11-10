@@ -10,7 +10,7 @@ use crate::fleet::install;
 use crate::fleet::prompt::{PromptInputs, render, seed_orders};
 use crate::fleet::model::{Account, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, ROLE_ENV, Runtime, SESSION_ENV, new_uuid};
+use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, LiveWindow, Opening, ROLE_ENV, Runtime, SESSION_ENV, WindowInbox, new_uuid};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::platform::harness;
 
@@ -20,6 +20,7 @@ use super::overlay::Arm;
 use super::shared::{self, Shared};
 use super::turns::Phase;
 use super::lane::{self, Making};
+use crate::providers::pi::windows::PiWindows;
 use super::{accounts, live, screen};
 
 pub const PROVIDER: &str = "opencode";
@@ -35,6 +36,7 @@ pub struct Deepseek {
     today: Arc<Clock>,
     lanes: Arc<Making>,
     shared: Option<Shared>,
+    windows: Option<Arc<PiWindows>>,
 }
 
 impl Deepseek {
@@ -47,7 +49,7 @@ impl Deepseek {
     }
 
     pub fn reading(harness: &'static dyn Harness, visibility: Arc<Reading>, today: Arc<Clock>) -> Self {
-        Self { harness, visibility, today, lanes: Arc::new(|_, _| Err("this runtime was built without a lane maker".to_owned())), shared: None }
+        Self { harness, visibility, today, lanes: Arc::new(|_, _| Err("this runtime was built without a lane maker".to_owned())), shared: None, windows: (harness.provider() == crate::providers::pi::PROVIDER).then(|| Arc::new(PiWindows::live())) }
     }
 
     pub fn with_shared(self, shared: Shared) -> Self {
@@ -56,6 +58,11 @@ impl Deepseek {
 
     pub fn with_lanes(self, lanes: Arc<Making>) -> Self {
         Self { lanes, ..self }
+    }
+
+    /// Replaces how interactive windows are found and addressed, for a test or a host that keeps them elsewhere.
+    pub fn with_windows(self, windows: Arc<PiWindows>) -> Self {
+        Self { windows: Some(windows), ..self }
     }
 
     fn route(&self, request: &LaunchRequest, brief: &str) -> NorthResult<Route> {
@@ -161,6 +168,26 @@ impl Runtime for Deepseek {
 
     fn close(&self, _transcript: &Transcript) -> Vec<String> {
         Vec::new()
+    }
+
+    fn window_inbox(&self, accounts: &[Account], conversation: &str) -> Option<WindowInbox> {
+        self.windows.as_ref()?.window_inbox(accounts, conversation)
+    }
+
+    fn windows(&self, accounts: &[Account]) -> Vec<LiveWindow> {
+        self.windows.as_ref().map_or_else(Vec::new, |windows| windows.windows(accounts))
+    }
+
+    fn tell_window(&self, inbox: &WindowInbox, text: &str) -> NorthResult<()> {
+        self.windows.as_ref().map_or_else(|| Err(NorthError::Usage(format!("{} has no window inbox to deliver into", self.provider().label()))), |windows| windows.tell_window(inbox, text))
+    }
+
+    fn caller_conversation(&self) -> Option<String> {
+        self.windows.as_ref()?.caller_conversation()
+    }
+
+    fn adopt_window(&self, conversation: &str, inbox: &WindowInbox) -> NorthResult<()> {
+        self.windows.as_ref().map_or(Ok(()), |windows| windows.adopt_window(conversation, inbox))
     }
 
     fn observe(&self, frame: &Value, transcript: &mut Transcript) {

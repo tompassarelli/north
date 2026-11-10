@@ -102,6 +102,10 @@ pub trait Runtime: Send + Sync {
     fn tell_window(&self, _inbox: &WindowInbox, _text: &str) -> NorthResult<()> {
         Err(NorthError::Usage(format!("{} has no window inbox to deliver into", self.provider().label())))
     }
+    /// Prepares the window holding `conversation` to receive reports after `adopt` binds a name to it.
+    fn adopt_window(&self, _conversation: &str, _inbox: &WindowInbox) -> NorthResult<()> {
+        Ok(())
+    }
     /// A `sh` script that copies `conversation`'s transcript from `from`'s home into `to`'s, run where the session runs; `None` when the provider keeps nothing per account.
     fn carry_script(&self, _from: &Account, _to: &Account, _conversation: &str) -> Option<String> {
         None
