@@ -52,6 +52,7 @@ fn the_admin_reports_price_each_day_and_record_the_grants_left_over_norths_estim
     assert!(usage.1.iter().any(|(name, value)| name == "bucket_width" && value == "1h"), "{usage:?}");
     assert!(usage.1.iter().any(|(name, value)| name == "group_by[]" && value == "model"), "{usage:?}");
     assert!(usage.1.iter().any(|(name, value)| name == "starting_at" && value == "2026-11-06T00:00:00Z"), "the report starts at the earliest grant: {usage:?}");
+    assert!(usage.1.iter().any(|(name, value)| name == "limit" && value == "168"), "the provider refuses more than 168 hourly buckets: {usage:?}");
     let cost = seen.iter().find(|(path, _)| path == COST).expect("the cost report was not read");
     assert!(cost.1.iter().any(|(name, value)| name == "bucket_width" && value == "1d"), "{cost:?}");
 

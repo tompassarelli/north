@@ -26,6 +26,9 @@ const COST: &str = "/v1/organizations/cost_report";
 const ATTEMPT: Duration = Duration::from_secs(6);
 const DAYS_BACK: i64 = 31;
 const PAGES: usize = 40;
+/// The most hourly buckets the usage report answers in one page: the provider refuses `limit` over 168
+/// with `bucket_width=1h` (a week), so an older window is read in pages, not in one request.
+const USAGE_PAGE_HOURS: usize = 168;
 
 /// A report reader: the path and query it asks for, answered with the provider's JSON or why it could not read it.
 type Fetch<'a> = dyn Fn(&str, &[(&str, String)]) -> Result<Value, String> + 'a;
@@ -190,7 +193,7 @@ fn usage_days(fetch: &Fetch<'_>, start: &str, now: Timestamp, prices: &PriceTabl
         ("ending_at", now.iso()),
         ("bucket_width", "1h".to_owned()),
         ("group_by[]", "model".to_owned()),
-        ("limit", "1000".to_owned()),
+        ("limit", USAGE_PAGE_HOURS.to_string()),
     ];
     let mut usage = Usage { priced: BTreeMap::new(), unpriced: Vec::new() };
     for _ in 0..PAGES {
