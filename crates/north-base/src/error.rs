@@ -43,7 +43,7 @@ impl NorthError {
 impl fmt::Display for NorthError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Usage(message) | Self::Refused(message) | Self::Saturated(message) => formatter.write_str(message),
+            Self::Usage(message) | Self::Refused(message) | Self::Rejected(message) | Self::Saturated(message) => formatter.write_str(message),
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
             Self::Configuration(message) => {
@@ -52,7 +52,6 @@ impl fmt::Display for NorthError {
             Self::Protocol(message) => write!(formatter, "Codex protocol failed: {message}"),
             Self::State(message) => write!(formatter, "Incomplete North state: {message}"),
             Self::GateAnswered { id, answer, by } => write!(formatter, "gate {id} was already answered: {} by {by}", answer.split_whitespace().collect::<Vec<_>>().join(" ")),
-            Self::Rejected(message) => write!(formatter, "Codex rejected the request: {message}"),
         }
     }
 }

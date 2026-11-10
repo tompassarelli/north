@@ -220,7 +220,8 @@ mod tests {
         let id = laptop.open_gate(&asked).unwrap();
         std::fs::remove_dir_all(laptop.root.join("worker")).unwrap();
 
-        assert!(matches!(laptop.answer_gate(id, 2, None, Some("intruder"), None), Err(NorthError::Rejected(_))));
+        let refusal = laptop.answer_gate(id, 2, None, Some("intruder"), None).unwrap_err();
+        assert!(matches!(refusal, NorthError::Rejected(_)) && !refusal.to_string().contains("Codex"), "{refusal}");
         let closure = laptop.answer_gate(id, 2, None, None, None).unwrap();
 
         assert_eq!((closure.by, closure.answer.as_str()), (Answerer::Tom, "no"));
