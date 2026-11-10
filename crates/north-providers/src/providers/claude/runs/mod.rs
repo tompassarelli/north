@@ -291,6 +291,52 @@ fn entries(directory: &Path) -> Vec<PathBuf> {
     fs::read_dir(directory).map(|entries| entries.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect()).unwrap_or_default()
 }
 
+/// The usage of a run: its own transcript, plus the subagent transcripts beside it that record no run of their
+/// own, so an Explore or Plan subagent adds its spend to its parent instead of vanishing.
+fn usage_for_run(lines: &[Value], path: &Path, account: &str, prices: &Prices, own_row: &dyn Fn(&str) -> bool) -> Map<String, Value> {
+    let mut usage = telemetry::run_usage(lines, account, prices);
+    let mut samples = match usage.remove("usage_samples") {
+        Some(Value::Array(samples)) => samples,
+        _ => Vec::new(),
+    };
+    let mut unpriced = match usage.remove("unpriced_models") {
+        Some(Value::Array(models)) => models,
+        _ => Vec::new(),
+    };
+    for subagent in subagent_usages(path, account, prices, own_row) {
+        if let Some(Value::Array(found)) = subagent.get("usage_samples") {
+            samples.extend(found.iter().cloned());
+        }
+        if let Some(Value::Array(models)) = subagent.get("unpriced_models") {
+            unpriced.extend(models.iter().cloned());
+        }
+    }
+    usage.insert("usage_samples".into(), Value::Array(samples));
+    usage.insert("unpriced_models".into(), Value::Array(unpriced));
+    usage
+}
+
+fn subagent_usages(path: &Path, account: &str, prices: &Prices, own_row: &dyn Fn(&str) -> bool) -> Vec<Map<String, Value>> {
+    let mut usages = Vec::new();
+    for agent in entries(&path.with_extension("").join("subagents")) {
+        let name = agent.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        if !(name.starts_with("agent-") && name.ends_with(".jsonl") && agent.is_file()) {
+            continue;
+        }
+        let metadata: Option<Value> = fs::read_to_string(agent.with_extension("meta.json")).ok().and_then(|text| serde_json::from_str(&text).ok());
+        if metadata.as_ref().and_then(|metadata| metadata["agentType"].as_str()).is_some_and(|agent| agent.starts_with("worker")) {
+            continue;
+        }
+        if own_row(&transcript_id(&agent)) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&agent) else { continue };
+        let lines: Vec<Value> = text.lines().filter_map(|line| serde_json::from_str(line).ok()).filter(Value::is_object).collect();
+        usages.push(telemetry::run_usage(&lines, account, prices));
+    }
+    usages
+}
+
 fn hook_rows(path: &Path, out: &mut impl Write) -> NorthResult<()> {
     let Ok(text) = fs::read_to_string(path) else { return Ok(()) };
     let lines: Vec<Value> = text.lines().filter(|line| hook_events::mentions_hook(line)).filter_map(|line| serde_json::from_str(line).ok()).collect();
@@ -317,7 +363,7 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     };
     let text = fs::read_to_string(path).ok()?;
     let lines: Vec<Value> = text.lines().filter_map(|line| serde_json::from_str(line).ok()).filter(Value::is_object).collect();
-    let mut usage = telemetry::run_usage(&lines, &root.account, &ledger.prices);
+    let mut usage = usage_for_run(&lines, path, &root.account, &ledger.prices, &|id| ledger.sessions.contains_key(id));
     let mut effort = effort(ledger.policy.as_ref(), metadata.as_ref(), session.and_then(|session| session.effort.as_deref()), &usage);
     if effort.is_null() {
         effort = ledger.prices.effort(usage["model"].as_str());

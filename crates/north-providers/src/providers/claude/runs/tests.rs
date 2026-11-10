@@ -2,6 +2,7 @@
 use serde_json::{Value, json};
 
 use super::landing::{MainIndex, checks, settle};
+use super::telemetry::Prices;
 use crate::fleet::landings::Push;
 
 #[test]
@@ -55,6 +56,27 @@ fn a_lane_landed_in_a_batch_takes_its_own_commit_not_the_batch_tip_safe_push_log
     assert_eq!(landed, [own, other, batch.clone(), batch]);
 }
 
+
+#[test]
+fn a_subagent_transcript_adds_its_spend_to_its_parent_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path().join("session.jsonl");
+    let agents = directory.path().join("session/subagents");
+    std::fs::create_dir_all(&agents).unwrap();
+    let request = |id: &str, model: &str| {
+        json!({"type": "assistant", "requestId": id, "timestamp": "2026-11-06T12:00:00Z", "message": {"model": model, "usage": {"input_tokens": 1_000_000, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}}})
+    };
+    let parent_lines = vec![request("parent-request", "claude-sonnet-5-5")];
+    std::fs::write(agents.join("agent-explore.jsonl"), format!("{}\n", request("explore-request", "claude-haiku-5-5"))).unwrap();
+    std::fs::write(agents.join("agent-explore.meta.json"), json!({"agentType": "Explore"}).to_string()).unwrap();
+    let prices = Prices::parse(&super::CATALOG, &super::DEFAULTS);
+
+    let usage = super::usage_for_run(&parent_lines, &parent, "a", &prices, &|_| false);
+
+    let requests: Vec<&str> = usage["usage_samples"].as_array().unwrap().iter().filter_map(|sample| sample["request"].as_str()).collect();
+    assert_eq!(requests, ["parent-request", "explore-request"]);
+    assert!(usage["usage_samples"][1]["weight"].as_f64().is_some_and(|weight| weight > 0.0));
+}
 
 #[test]
 fn a_request_is_weighted_at_list_price_with_its_one_hour_and_five_minute_writes_split_from_cache_creation() {
