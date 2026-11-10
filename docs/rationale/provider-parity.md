@@ -10,6 +10,6 @@ The full list, guarantee by guarantee, names what a sandboxed worker of another 
 | codex-conduct | None: it binds Codex sessions alone. | none needed |
 | firn-system-policy | Its edit half. | north#1060 |
 | prompt-grounding | None for a fleet worker, which the launch grounds; a coordinator in a Pi window, whose prompts no bridge hands to north yet. | north#1041 |
-| north-hook | Its edit deciders for a worker, GitHub-write deciders, waiting rule and session-conduct deciders. Its command deciders refuse in `north --worker-sandbox` for every OpenCode and Pi worker command (crates/north-runtime/src/worker_sandbox/mod.rs), and a Pi window hands each bash, edit and write call to `north hook` through its north-fleet.ts bridge. | edit deciders: north#1060; GitHub writes: north#1056 and north#1037; waiting: north#1041, box "The waiting rule lives in the shared layer for every provider, Pi included" |
+| north-hook | Its edit deciders for a worker, GitHub-write deciders, waiting rule and session-conduct deciders. Its command deciders refuse in `north --worker-sandbox` for every OpenCode and Pi worker command (crates/north-runtime/src/worker_sandbox/hook_screen.rs), and a Pi window hands each bash, edit and write call to `north hook` through its north-fleet.ts bridge. | edit deciders: north#1060; GitHub writes: north#1056 and north#1037; waiting: north#1041, box "The waiting rule lives in the shared layer for every provider, Pi included" |
 
 Advice-only classes refuse nothing, so they carry no guarantee to move.
