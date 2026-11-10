@@ -24,6 +24,7 @@ mod reuse;
 mod settle;
 mod store;
 mod update;
+mod verdict;
 mod walk;
 mod watch;
 #[cfg(test)]

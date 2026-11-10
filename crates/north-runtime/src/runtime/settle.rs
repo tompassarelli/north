@@ -6,6 +6,7 @@ use super::history::History;
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
 use super::pin;
+use super::verdict;
 use super::walk;
 use super::watch;
 use super::follow;
@@ -58,7 +59,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let here = walk_and_ship(layout, &hosts, &checkout);
     for facts in std::iter::once(here).chain(hosts[1..].iter().map(|host| probed(layout, host).0)) {
         let problems = judged_problems(&facts, live, &mut growth);
-        println!("north runtime settle: {}: {}", facts.host, probe::verdict(&facts, &problems, landing.is_some()));
+        println!("north runtime settle: {}: {}", facts.host, verdict::verdict(&facts, &problems, landing.is_some()));
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
             let inherited = judging.map_or(&[][..], |landing| history.before(&facts.host, &landing.sha, |earlier| ancestor(&checkout, earlier, &landing.sha)));
