@@ -3,7 +3,9 @@ use std::path::Path;
 use toml_edit::DocumentMut;
 
 const RECORD: &str = "dispatch-tick";
+const RESIDENT: &str = "dispatch-resident";
 pub(super) const EVERY_SECS: f64 = 5.0 * 60.0;
+const FREED_AFTER_SECS: f64 = 20.0;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum Pass {
@@ -13,21 +15,33 @@ pub(super) enum Pass {
     Elsewhere(String),
 }
 
-pub(super) fn pass(host: &str, cfg: Option<&DocumentMut>, paused: Option<&str>, directory: &Path, now: f64, dispatch: impl FnOnce() -> u8) -> Pass {
+pub(super) fn pass(host: &str, cfg: Option<&DocumentMut>, paused: Option<&str>, directory: &Path, now: f64, resident: impl Fn() -> Option<i64>, dispatch: impl FnOnce() -> u8) -> Pass {
     if let Some(why) = elsewhere(host, cfg) {
         return Pass::Elsewhere(why);
     }
     if let Some(reason) = paused {
         return Pass::Paused(reason.to_owned());
     }
-    if last(directory).is_some_and(|last| now - last < EVERY_SECS) {
+    if last(directory).is_some_and(|last| now - last < EVERY_SECS && !freed(directory, now - last, &resident)) {
         return Pass::Recent;
     }
     let recorded = std::fs::create_dir_all(directory).and_then(|()| std::fs::write(directory.join(RECORD), format!("{now:.0}")));
     if let Err(error) = recorded {
         eprintln!("north fleet tick: dispatch run not recorded in {}: {error}", directory.display());
     }
-    Pass::Ran(dispatch())
+    let code = dispatch();
+    if let Some(count) = resident() {
+        let _ = std::fs::write(directory.join(RESIDENT), count.to_string());
+    }
+    Pass::Ran(code)
+}
+
+fn freed(directory: &Path, since: f64, resident: &impl Fn() -> Option<i64>) -> bool {
+    if since < FREED_AFTER_SECS {
+        return false;
+    }
+    let before: Option<i64> = std::fs::read_to_string(directory.join(RESIDENT)).ok().and_then(|text| text.trim().parse().ok());
+    matches!((before, resident()), (Some(before), Some(now)) if now < before)
 }
 
 fn elsewhere(host: &str, cfg: Option<&DocumentMut>) -> Option<String> {
