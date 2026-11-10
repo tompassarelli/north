@@ -45,7 +45,8 @@ impl Fleet {
     }
 
     pub fn relay_gate(&self, id: i64, number: usize, turn: &gates::TomTurn, relayer: &str) -> NorthResult<Closure> {
-        gates::relay_gate(self.ledger.as_ref(), id, number, turn, relayer, now_ms(), |session, text| self.answer_session(session, text))
+        let parent = self.gate(id)?.and_then(|gate| self.record(&gate.request.session).ok()?.parent);
+        gates::relay_gate(self.ledger.as_ref(), id, number, gates::Relay { turn, relayer, parent: parent.as_deref() }, now_ms(), |session, text| self.answer_session(session, text))
     }
 
     /// Closes, recorded as orphaned rather than answered, each open gate whose asking session no longer exists and for which `issue_closed` holds.

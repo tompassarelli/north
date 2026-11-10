@@ -244,11 +244,21 @@ pub struct TomTurn {
     pub text: String,
 }
 
-pub fn relay_gate(book: &dyn GateBook, id: i64, number: usize, turn: &TomTurn, relayer: &str, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+/// Tom's typed `turn` as `relayer` passes it on, with the `parent` of the gate's asking session, who answers a gate with a default.
+pub struct Relay<'a> {
+    pub turn: &'a TomTurn,
+    pub relayer: &'a str,
+    pub parent: Option<&'a str>,
+}
+
+/// Closes a gate put to Tom, one with no default or whose asking session has no `parent` to answer it, with the answer a
+/// session relays from his typed `turn`.
+pub fn relay_gate(book: &dyn GateBook, id: i64, number: usize, relay: Relay<'_>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    let Relay { turn, relayer, parent } = relay;
     let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
     let refuse = |why: String| Err(NorthError::Refused(format!("convo turn {} cannot close gate {id}: {why}", turn.id)));
-    if !gate.for_tom() {
-        return refuse("only a gate for Tom takes a relayed answer".into());
+    if let Some(parent) = parent.filter(|_| !gate.for_tom()) {
+        return refuse(format!("a gate with a default is put to its asking session's parent {parent}, who answers it directly"));
     }
     if turn.at_ms <= gate.opened_ms {
         return refuse("it was typed before the gate opened".into());

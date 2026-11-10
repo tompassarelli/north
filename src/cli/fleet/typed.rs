@@ -19,18 +19,37 @@ pub(in crate::cli) fn proxy_turn(fleet: &Fleet, caller: Option<&str>) -> Option<
     lineage::from_proxy(fleet, caller).then(|| typed_turn(fleet, caller?)).flatten()
 }
 
-/// The caller's current turn when Tom typed the message that opened it, read from the newest prompt in its transcript.
+/// The caller's current turn when Tom typed the message that opened it, read from the newest prompt in its own
+/// transcript: the conversation the calling process runs in, else the one its fleet record names, on any account.
 pub(super) fn typed_turn(fleet: &Fleet, caller: &str) -> Option<TypedTurn> {
     let record = fleet.sessions().ok()?.into_iter().find(|record| record.name == caller)?;
-    let conversation = record.conversation?;
+    let conversation = fleet.caller_conversation().or(record.conversation)?;
     let roster = fleet.roster();
-    let home = &roster.accounts.iter().find(|account| account.label == record.account)?.home;
-    let transcript = fs::read_dir(home.join("projects")).ok()?.flatten().map(|entry| entry.path().join(format!("{conversation}.jsonl"))).find(|path| path.is_file())?;
-    newest_prompt(&transcript).filter(|(text, _)| typed(text)).map(|(_, at_ms)| TypedTurn { conversation, at_ms })
+    let homes = roster.accounts.iter().filter(|account| account.label == record.account).chain(&roster.accounts).map(|account| &account.home);
+    let transcript = homes.filter_map(|home| fs::read_dir(home.join("projects")).ok()).flat_map(|entries| entries.flatten()).map(|entry| entry.path().join(format!("{conversation}.jsonl"))).find(|path| path.is_file())?;
+    typed_at(&transcript).map(|at_ms| TypedTurn { conversation, at_ms })
 }
 
-/// The text and time of the newest prompt in a transcript: a user row that is no tool result and no harness note.
-fn newest_prompt(transcript: &Path) -> Option<(String, u64)> {
+/// When Tom typed the newest prompt in a transcript, if he did.
+pub(in crate::cli) fn typed_at(transcript: &Path) -> Option<u64> {
+    newest_prompt(transcript).filter(Prompt::typed).map(|prompt| prompt.at_ms)
+}
+
+struct Prompt {
+    text: String,
+    at_ms: u64,
+    origin: Option<String>,
+}
+
+impl Prompt {
+    fn typed(&self) -> bool {
+        self.origin.as_deref().is_none_or(|origin| origin == "human") && typed(&self.text)
+    }
+}
+
+/// The newest prompt in a transcript: a user row, or a message queued while the session worked, that is no tool
+/// result, harness note or background task's notice.
+fn newest_prompt(transcript: &Path) -> Option<Prompt> {
     let mut file = File::open(transcript).ok()?;
     let length = file.metadata().ok()?.len();
     file.seek(SeekFrom::Start(length.saturating_sub(TAIL_BYTES))).ok()?;
@@ -39,19 +58,28 @@ fn newest_prompt(transcript: &Path) -> Option<(String, u64)> {
     String::from_utf8_lossy(&tail).lines().rev().filter_map(|line| serde_json::from_str::<Value>(line).ok()).find_map(|row| prompt(&row))
 }
 
-fn prompt(row: &Value) -> Option<(String, u64)> {
+fn prompt(row: &Value) -> Option<Prompt> {
     let flagged = |key: &str| row[key].as_bool() == Some(true);
-    if row["type"] != "user" || flagged("isMeta") || flagged("isCompactSummary") {
+    if flagged("isMeta") || flagged("isCompactSummary") {
         return None;
     }
-    let content = &row["message"]["content"];
+    let queued = &row["attachment"];
+    let (content, origin) = match row["type"].as_str()? {
+        "user" => (&row["message"]["content"], &row["origin"]),
+        "attachment" if queued["type"] == "queued_command" => (&queued["prompt"], if row["origin"].is_null() { &queued["origin"] } else { &row["origin"] }),
+        _ => return None,
+    };
+    let origin = origin["kind"].as_str().map(str::to_owned);
+    if origin.as_deref() == Some("task-notification") {
+        return None;
+    }
     let text = match content {
         Value::String(text) => text.clone(),
         Value::Array(blocks) => blocks.iter().find(|block| block["type"] == "text")?["text"].as_str()?.to_owned(),
         _ => return None,
     };
     let at = Timestamp::parse_rfc3339(row["timestamp"].as_str()?)?;
-    Some((text, (at.unix_seconds_f64() * 1000.0) as u64))
+    Some(Prompt { text, at_ms: (at.unix_seconds_f64() * 1000.0) as u64, origin })
 }
 
 /// Tom's words carry no sender: a session or service message starts `[from NAME]`, a gate answer `[gate ID]` and a

@@ -5,7 +5,8 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::tom_turn;
-use crate::fleet::gates::{GateBook, GateRequest, relay_gate};
+use crate::cli::fleet::typed_at;
+use crate::fleet::gates::{Authority, GateBook, GateRequest, Relay, TypedTurn, answer_gate, relay_gate};
 use crate::ledger::Ledger;
 
 const CONVERSATION: &str = "1f79cfb7-4cc6-4879-9916-81371e094167";
@@ -26,7 +27,8 @@ fn convo(dir: &Path, rows: &[Value]) -> std::path::PathBuf {
     for (number, row) in rows.iter().enumerate() {
         let id = 10_519_700 + number as i64;
         lines.push_str(&format!("{row}\n"));
-        db.execute("INSERT INTO body VALUES (?1, ?2)", (id, row["message"]["content"].as_str().unwrap())).unwrap();
+        let text = row["message"]["content"].as_str().or_else(|| row["attachment"]["prompt"].as_str()).unwrap();
+        db.execute("INSERT INTO body VALUES (?1, ?2)", (id, text)).unwrap();
         db.execute("INSERT INTO msg VALUES (?1, 1, ?2, ?3, 'user', NULL, ?1, 0)", (id, number as i64 + 1, row["timestamp"].as_str().unwrap())).unwrap();
     }
     fs::write(transcript, lines).unwrap();
@@ -67,11 +69,49 @@ fn a_proxy_window_relays_an_answer_tom_typed_hours_earlier_from_a_turn_a_fleet_m
     let turn = tom_turn(&index, home, CONVERSATION, opened_ms, 10_519_701).unwrap();
     assert_eq!(turn.text, "2. keep it local");
     let mut delivered = Vec::new();
-    let closure = relay_gate(&book, gate, 2, &turn, "proxy", opened_ms + 7 * 3_600_000, |session, text| {
+    let closure = relay_gate(&book, gate, 2, Relay { turn: &turn, relayer: "proxy", parent: None }, opened_ms + 7 * 3_600_000, |session, text| {
         delivered.push((session.to_owned(), text.to_owned()));
         Ok(())
     })
     .unwrap();
     assert_eq!(closure.by.label(), "tom");
     assert!(delivered[0].1.contains("Tom answered: keep it local\nrelayed by proxy from convo turn 10519701"), "{delivered:?}");
+}
+
+#[test]
+fn the_coordinator_window_closes_its_own_defaulted_gate_from_a_turn_tom_typed_after_it_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    let queued = |at: &str, text: &str| json!({"type": "attachment", "timestamp": at, "attachment": {"type": "queued_command", "prompt": text, "origin": {"kind": "human"}}});
+    let notice = json!({"type": "user", "origin": {"kind": "task-notification"}, "timestamp": "2026-11-09T17:06:00Z", "message": {"content": "<task-notification>\n<status>completed</status>\n</task-notification>"}});
+    let rows = [
+        typed("2026-11-09T16:50:00Z", "file the ladder question as a gate"),
+        delivered("2026-11-09T17:02:00Z", "[from north-1071-a] Done: dispatch alerts page"),
+        typed("2026-11-09T17:04:00Z", "1 on both"),
+        queued("2026-11-09T17:05:00Z", "and keep going"),
+        notice,
+    ];
+    let index = convo(dir.path(), &rows);
+    let opened_ms = 1_794_243_600_000;
+    let book = Ledger::open(&dir.path().join("ledger.db")).unwrap();
+    let ask = |question: &str| GateRequest { verification: false, issue: None, box_text: None, session: "proxy".into(), question: question.into(), options: vec!["keep the ladder".into(), "route to Fable".into()], recommend: 2, default: 2, default_after_ms: 8 * 3_600_000 };
+    let (direct, relayed) = (book.open_gate(&ask("Ladder?"), opened_ms).unwrap(), book.open_gate(&ask("Filter?"), opened_ms).unwrap());
+
+    let at_ms = typed_at(&dir.path().join(format!("{CONVERSATION}.jsonl"))).expect("Tom's queued message opens the window's current turn");
+    let typed = TypedTurn { conversation: CONVERSATION.into(), at_ms };
+    let closure = answer_gate(&book, direct, 1, None, Authority { caller: Some("proxy"), parent: None, typed: Some(&typed) }, opened_ms + 600_000, |session, _| {
+        assert_eq!(session, "proxy");
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(closure.by.label(), "tom");
+
+    let turn = tom_turn(&index, Path::new("/home/tom"), CONVERSATION, opened_ms, 10_519_702).unwrap();
+    let parent_refused = relay_gate(&book, relayed, 1, Relay { turn: &turn, relayer: "proxy", parent: Some("lead") }, opened_ms + 600_000, |_, _| panic!("a gate its asker's parent answers took a relay")).unwrap_err().user_message();
+    assert!(parent_refused.contains("parent lead"), "{parent_refused}");
+    let closure = relay_gate(&book, relayed, 1, Relay { turn: &turn, relayer: "proxy", parent: None }, opened_ms + 600_000, |_, text| {
+        assert!(text.contains("Tom answered: keep the ladder\nrelayed by proxy from convo turn 10519702"), "{text}");
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(closure.by.label(), "tom");
 }

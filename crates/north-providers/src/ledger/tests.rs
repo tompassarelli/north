@@ -41,7 +41,7 @@ fn run(session: &str, model: &str, input: u64, output: u64) -> RunRecord {
 
 #[test]
 fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strangers() {
-    use crate::fleet::gates::{Authority, TomTurn, TypedTurn, answer_gate, default_overdue, open, orphan, relay_gate};
+    use crate::fleet::gates::{Authority, Relay, TomTurn, TypedTurn, answer_gate, default_overdue, open, orphan, relay_gate};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     let legacy = super::SCHEMA.replace("answered_by TEXT,", "answered_by TEXT CHECK(answered_by IN ('tom','default')),").replace("verification INTEGER NOT NULL DEFAULT 0,\n  issue TEXT,\n  box_text TEXT\n", "verification INTEGER NOT NULL DEFAULT 0\n");
@@ -97,17 +97,17 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strange
     let turn = |id: i64, at_ms: u64, text: &str| TomTurn { id, at_ms, text: text.into() };
     let refusals = [(turn(7, 900, "2. keep it local"), 2, "before the gate opened"), (turn(8, 2_000, "1. encrypt it"), 2, "names option 1, not 2"), (turn(9, 2_000, "sounds fine"), 2, "names no single option")];
     for (evidence, number, why) in refusals {
-        let refused = relay_gate(&book, relayed, number, &evidence, "proxy", 3_000, |_, _| panic!("a refused relay delivered")).unwrap_err().user_message();
+        let refused = relay_gate(&book, relayed, number, Relay { turn: &evidence, relayer: "proxy", parent: None }, 3_000, |_, _| panic!("a refused relay delivered")).unwrap_err().user_message();
         assert!(refused.contains(why), "{refused}");
         assert!(book.gate(relayed).unwrap().unwrap().is_open());
     }
-    let closure = relay_gate(&book, relayed, 2, &turn(10, 2_000, "2. keep it local, thanks"), "proxy", 3_000, |_, text| {
+    let closure = relay_gate(&book, relayed, 2, Relay { turn: &turn(10, 2_000, "2. keep it local, thanks"), relayer: "proxy", parent: None }, 3_000, |_, text| {
         assert!(text.contains("Tom answered: keep it local\nrelayed by proxy from convo turn 10"));
         Ok(())
     }).unwrap();
     assert_eq!(closure.by, Answerer::Tom);
     let defaulted = book.open_gate(&request("proxy", 30_000), 1_000).unwrap();
-    assert!(relay_gate(&book, defaulted, 1, &turn(11, 2_000, "1"), "proxy", 3_000, |_, _| panic!("a gate with a default takes no relay")).is_err());
+    assert!(relay_gate(&book, defaulted, 1, Relay { turn: &turn(11, 2_000, "1"), relayer: "proxy", parent: Some("parent") }, 3_000, |_, _| panic!("a gate its asker's parent answers takes no relay")).is_err());
     let orphaned = book.open_gate(&ask, 1_000).unwrap();
     let closure = orphan(&book, orphaned, 4_000).unwrap();
     assert_eq!((closure.by.clone(), book.gate(orphaned).unwrap().unwrap().closure), (Answerer::Orphaned, Some(closure)));
