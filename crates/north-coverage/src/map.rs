@@ -26,6 +26,10 @@ pub struct Map {
     pub index: Index,
     #[serde(default)]
     pub failed: Vec<Test>,
+    /// Tests whose exec record the reads recorder could not finish, or whose instrumented child left no
+    /// profile: the map cannot prove them unaffected, so the selection clears them through the crate closure.
+    #[serde(default)]
+    pub unprofiled: Vec<Test>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

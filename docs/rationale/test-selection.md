@@ -98,7 +98,9 @@ A test runs before landing when any of these holds:
      rather than path (a hard-linked copy of north counts), left a profile written by that same process. A test the
      recorder cannot trace, such as the north-land-sandbox tests that ptrace cannot nest under, is unprofiled. An
      unprofiled test is cleared only through the crate closure, never through the map. 131 of the 146 `tests/it`
-     tests spawn north, and 5 modules clear the environment.
+     tests spawn north, and 5 modules clear the environment. The record marks these tests in the map's `unprofiled`
+     list, which the ingest and selection clear through the crate closure (n1039-map-reads records the list; the
+     reader lands with the selection box).
    - Every file the test reached is unchanged between M and the lane's head, except changes inside regions it did not
      reach. Diffing only BASE..HEAD is not enough: after M, a landed lane can make a reached function call a new one,
      and a later lane that edits only the new function would then prove the test unaffected.
@@ -177,8 +179,20 @@ cost sample below.
   bd4d7feae, without the reads recorder: 13 min 49 s wall from a cold instrumented target, of which the nextest run of
   1553 tests took 307 s (11 failed inside the land shell, their reach still recorded), then the span export and the
   `rust-analyzer scip` index; 7 GB of `target/coverage`, and an 18 MB map of 43251 functions, whose `north graph ingest coverage` told 764182 facts in 232 s at 1 GB peak.
-  Still open: telling the build hosts' graphs,
-  the lag line, the 10% unknown trigger and the reads recorder with per-process profiles.
+  Still open: telling the build hosts' graphs, the lag line and the 10% unknown trigger (n1039-map-hosts).
+- **Record as built (n1039-map-reads).** The instrumented nextest run installs its `test coverage exec` runner inside
+  `north land sandbox exec --record DIR --tree ROOT --exec-log`, so the reads recorder sees every `execve`; each
+  profile is named per process (`%p`). The runner writes every process's profile id beside the reach, and the sandbox
+  writes each unit's exec log (`pid`, the executable's device and inode, and any trace failure). The record marks a
+  test unprofiled when its exec log is missing or incomplete, or when a process that ran a workspace build (matched by
+  device and inode, so a hard-linked copy of north counts) is not among the pids that left a profile; the map's
+  `unprofiled` list names them. With the reads recorder, the full nextest run on whiterabbit on 2026-11-10 at
+  79583f0790 took 348.8 s of nextest wall time for 1560 tests (2 skipped, all passed); the note's earlier gex45 pass
+  ran 1553 tests in 307 s without the recorder. A `-p north-coverage` record (15 tests) took 102.9 s wall from a cold
+  instrumented target, the `north` build and the span export and index included. The full record's span export and
+  `rust-analyzer scip` index were not re-timed in this lane.
+  The run also keeps its failed tests as before: the nextest runner writes each test's outcome beside its reach, and the
+  map's `failed` list is what `north land missed` judges (landed in 83243d5f4).
 - **Gaps.** Until the map is fresh, rule 3 covers the tests the map does not know, and the M..HEAD condition
   covers the tests whose reached files changed since M, so with phase 2's full proof (below) a stale map
   costs test time but not safety. On 5f42fb5463's day, every unknown test would have run as a crate-closure test.
@@ -388,6 +402,11 @@ Each lane has a box on north#1039 with its Done when command:
   `selection-miss` incident and the `:guards` writer.
 - n1039-map: the record on the build hosts with reads and the unprofiled marking, the ingest into every host's graph
   with lag reporting, the cadence, and the record's measured cost added to this note.
+- Landed by n1039-map-reads: `north test coverage record` runs inside the reads recorder, names profiles per process,
+  writes each process's profile pid beside the reach and the recorder's exec log beside the unit, marks a test
+  `unprofiled` in the map when that log is missing or incomplete or a workspace build it ran left no profile, and adds
+  the cost above. The failed-test list this box needed already landed as 83243d5f4. What remains of n1039-map is
+  n1039-map-hosts.
 - n1039-proof: phase 2. The item-reference index recorded with the map, and rule 3's outside-function condition
   narrowed by the index, in shadow as `[gate.test-selection-proof]`, after n1039-map.
 - Landed by n1039-proof: `north test coverage record` runs `rust-analyzer scip` (from the dev shell) after the

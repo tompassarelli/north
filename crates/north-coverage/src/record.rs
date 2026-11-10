@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -75,13 +76,13 @@ fn record(arguments: &[String]) -> Result<Map, String> {
     let tools = tools()?;
     let work = Work { root: root.join(TARGET).join("map") };
     let _ = std::fs::remove_dir_all(&work.root);
-    for directory in [work.raw(), work.reach(), work.seed()] {
+    for directory in [work.raw(), work.reach(), work.seed(), work.pids(), work.units(), work.records()] {
         std::fs::create_dir_all(&directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
     }
     let commit = git(&root, &["rev-parse", "HEAD"])?;
-    let listing = nextest(&root, &tools, &work, &[&["list", "--message-format", "json"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat())?;
+    let listing = nextest(&root, &tools, &work, &[&["list", "--message-format", "json"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat(), false)?;
     let listing: Listing = serde_json::from_slice(&listing.stdout).map_err(|error| format!("cannot read nextest's listing: {error}"))?;
-    let ran = nextest(&root, &tools, &work, &[&["run", "--no-fail-fast"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat())?;
+    let ran = nextest(&root, &tools, &work, &[&["run", "--no-fail-fast"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat(), true)?;
     if !ran.status.success() {
         eprintln!("north test coverage record: some tests failed; their reach is still recorded, and the map names them for north land missed");
     }
@@ -91,8 +92,9 @@ fn record(arguments: &[String]) -> Result<Map, String> {
     objects.extend(executables(&root.join(TARGET).join("debug")));
     let spans = spans(&root, &tools, &work, &objects)?;
     let reached = read_reach(&work.reach())?;
+    let unprofiled = unprofiled_tests(&work, &binaries, &objects, &reached)?;
     let recorded = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    let mut map = assemble(commit, recorded, &binaries, &spans, &reached);
+    let mut map = assemble(commit, recorded, &binaries, &spans, &reached, &unprofiled);
     match crate::index::record(&root, &work.root, &map.functions) {
         Ok(index) => map.index = index,
         Err(why) => eprintln!("north test coverage record: no item-reference index, so a change outside every function selects its crate closure: {why}"),
@@ -124,10 +126,13 @@ fn git(root: &Path, arguments: &[&str]) -> Result<String, String> {
     command_text(Command::new("git").arg("-C").arg(root).args(arguments)).map(|text| text.trim().to_owned())
 }
 
-fn nextest(root: &Path, tools: &Path, work: &Work, arguments: &[&str]) -> Result<std::process::Output, String> {
+fn nextest(root: &Path, tools: &Path, work: &Work, arguments: &[&str], reads: bool) -> Result<std::process::Output, String> {
     let north = std::env::current_exe().map_err(|error| format!("cannot find this north: {error}"))?;
     let flags = format!("{} -C instrument-coverage", std::env::var("RUSTFLAGS").unwrap_or_default()).trim().to_owned();
-    let runner = format!("{} test coverage exec", north.display());
+    let runner = match reads {
+        true => format!("{} land sandbox exec --record {} --tree {} --exec-log -- {} test coverage exec", north.display(), work.records().display(), root.display(), north.display()),
+        false => format!("{} test coverage exec", north.display()),
+    };
     let mut command = Command::new("cargo");
     command.current_dir(root).args(["nextest"]).args(arguments).args(["--locked", "--offline"]);
     command.env("CARGO_TARGET_DIR", root.join(TARGET)).env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "llvm").env("RUSTFLAGS", flags);
@@ -173,25 +178,127 @@ fn span(root: &Path, function: ExportFunction) -> Option<(String, Span)> {
 }
 
 pub struct Reached {
+    pub key: String,
     pub binary: String,
     pub test: String,
     pub failed: bool,
     pub functions: Vec<String>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct Execution {
+    pub pid: u32,
+    pub device: u64,
+    pub inode: u64,
+    pub path: String,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Trace {
+    pub root: Option<u32>,
+    pub incomplete: Option<String>,
+    pub execs: Vec<Execution>,
+}
+
 fn read_reach(directory: &Path) -> Result<Vec<Reached>, String> {
     let mut reached = Vec::new();
     for entry in std::fs::read_dir(directory).map_err(|error| format!("cannot list {}: {error}", directory.display()))?.filter_map(Result::ok) {
+        let key = entry.file_name().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(entry.path()).map_err(|error| format!("cannot read {}: {error}", entry.path().display()))?;
         let mut lines = text.lines();
         let Some((binary, rest)) = lines.next().and_then(|header| header.split_once('\t')) else { continue };
         let (test, outcome) = rest.rsplit_once('\t').unwrap_or((rest, ""));
-        reached.push(Reached { binary: binary.to_owned(), test: test.to_owned(), failed: outcome == FAILED, functions: lines.map(str::to_owned).collect() });
+        reached.push(Reached { key, binary: binary.to_owned(), test: test.to_owned(), failed: outcome == FAILED, functions: lines.map(str::to_owned).collect() });
     }
     Ok(reached)
 }
 
-pub fn assemble(commit: String, recorded: u64, binaries: &HashMap<String, String>, spans: &HashMap<String, Span>, reached: &[Reached]) -> Map {
+/// The map each reach's coverage runner wrote to the reads recorder, by reach key.
+fn read_units(directory: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
+    let mut units = BTreeMap::new();
+    let Ok(entries) = std::fs::read_dir(directory) else { return Ok(units) };
+    for entry in entries.flatten() {
+        let key = entry.file_name().to_string_lossy().into_owned();
+        let path = std::fs::read_to_string(entry.path()).map_err(|error| format!("cannot read {}: {error}", entry.path().display()))?;
+        if !path.trim().is_empty() {
+            units.insert(key, PathBuf::from(path.trim()));
+        }
+    }
+    Ok(units)
+}
+
+fn read_pids(path: &Path) -> BTreeSet<u32> {
+    std::fs::read_to_string(path).map(|text| text.lines().filter_map(|line| line.trim().parse().ok()).collect()).unwrap_or_default()
+}
+
+fn read_trace(path: &Path) -> Result<Option<Trace>, String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+    };
+    let mut trace = Trace::default();
+    for line in text.lines() {
+        let mut fields = line.split('\t');
+        match fields.next() {
+            Some("root") => trace.root = fields.next().and_then(|value| value.parse().ok()),
+            Some("incomplete") => trace.incomplete = fields.next().map(str::to_owned),
+            Some("exec") => {
+                let (Some(pid), Some(device), Some(inode), Some(executable)) = (fields.next(), fields.next(), fields.next(), fields.next()) else { continue };
+                if let (Ok(pid), Ok(device), Ok(inode)) = (pid.parse(), device.parse(), inode.parse()) {
+                    trace.execs.push(Execution { pid, device, inode, path: executable.to_owned() });
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(Some(trace))
+}
+
+fn identities(objects: &[PathBuf]) -> BTreeSet<(u64, u64)> {
+    objects.iter().filter_map(|path| std::fs::metadata(path).ok()).map(|meta| (meta.dev(), meta.ino())).collect()
+}
+
+/// Why a test cannot be proven by the map, judged from the reads recorder's exec record: a trace it
+/// could not finish, or an instrumented build one of the test's processes ran without leaving a
+/// profile of its own. The workspace runner is the record's root process, and its exec is not a test.
+pub fn unprofiled(trace: Option<&Trace>, pids: &BTreeSet<u32>, builds: &BTreeSet<(u64, u64)>) -> Option<String> {
+    let Some(trace) = trace else { return Some("the reads recorder left no exec record".to_owned()) };
+    let Some(root) = trace.root else { return Some("the exec record names no root process".to_owned()) };
+    if let Some(reason) = &trace.incomplete {
+        return Some(reason.clone());
+    }
+    for exec in &trace.execs {
+        if exec.pid == root || exec.device == 0 || !builds.contains(&(exec.device, exec.inode)) {
+            continue;
+        }
+        if !pids.contains(&exec.pid) {
+            return Some(format!("process {} ran {} and left no profile", exec.pid, exec.path));
+        }
+    }
+    None
+}
+
+fn unprofiled_tests(work: &Work, binaries: &HashMap<String, String>, objects: &[PathBuf], reached: &[Reached]) -> Result<BTreeMap<Test, String>, String> {
+    let units = read_units(&work.units())?;
+    let builds = identities(objects);
+    let mut marked = BTreeMap::new();
+    for reach in reached {
+        let Some(binary) = binaries.get(&reach.binary) else { continue };
+        let trace = match units.get(&reach.key) {
+            Some(path) => read_trace(&PathBuf::from(format!("{}.exec", path.display())))?,
+            None => None,
+        };
+        let pids = read_pids(&work.pids().join(&reach.key));
+        if let Some(why) = unprofiled(trace.as_ref(), &pids, &builds) {
+            eprintln!("north test coverage record: {} {} is unprofiled: {why}", binary, reach.test);
+            marked.insert(Test { binary: binary.clone(), name: reach.test.clone() }, why);
+        }
+    }
+    Ok(marked)
+}
+
+pub fn assemble(commit: String, recorded: u64, binaries: &HashMap<String, String>, spans: &HashMap<String, Span>, reached: &[Reached], unprofiled_tests: &BTreeMap<Test, String>) -> Map {
     let mut by_span: BTreeMap<(&str, u32, u32), BTreeSet<u32>> = spans.values().map(|span| ((span.file.as_str(), span.start, span.end), BTreeSet::new())).collect();
     let mut tests: Vec<Test> = reached.iter().filter_map(|reach| Some(Test { binary: binaries.get(&reach.binary)?.clone(), name: reach.test.clone() })).collect();
     tests.sort();
@@ -208,7 +315,8 @@ pub fn assemble(commit: String, recorded: u64, binaries: &HashMap<String, String
     let mut failed: Vec<Test> = reached.iter().filter(|reach| reach.failed).filter_map(|reach| Some(Test { binary: binaries.get(&reach.binary)?.clone(), name: reach.test.clone() })).collect();
     failed.sort();
     failed.dedup();
-    Map { commit, recorded, tests, functions, index: Index::default(), failed }
+    let unprofiled = unprofiled_tests.keys().cloned().collect();
+    Map { commit, recorded, tests, functions, index: Index::default(), failed, unprofiled }
 }
 
 #[cfg(test)]

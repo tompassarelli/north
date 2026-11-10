@@ -107,12 +107,17 @@ fn resume(pid: Pid, signal: Option<Signal>) {
 fn observe(recorder: &mut Recorder, pid: Pid) {
     let call = match arch::registers(pid) {
         Ok(call) => call,
-        Err(reason) => return recorder.mark_unreusable(reason),
+        Err(reason) => return incomplete(recorder, reason),
     };
     let name = arch::name(call.number).unwrap_or("an unlisted call");
     if let Err(reason) = record(recorder, pid, name, &call) {
-        recorder.mark_unreusable(format!("recorder could not read {name} of process {pid}: {reason}"));
+        incomplete(recorder, format!("recorder could not read {name} of process {pid}: {reason}"));
     }
+}
+
+fn incomplete(recorder: &mut Recorder, reason: String) {
+    recorder.mark_unreusable(reason.clone());
+    recorder.mark_incomplete(reason);
 }
 
 fn record(recorder: &mut Recorder, pid: Pid, name: &str, call: &arch::Call) -> Result<(), String> {

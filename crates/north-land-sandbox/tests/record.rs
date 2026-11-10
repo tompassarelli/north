@@ -37,7 +37,7 @@ impl Scene {
 
     fn record_with(&self, sandbox: &mut Command, script: &str) -> Vec<Entry> {
         let file = self.root.path().join("recorded");
-        let output = sandbox.arg("--record").arg(&file).args(["--", "sh", "-c", script]).output().unwrap();
+        let output = sandbox.arg("--record").arg(&file).arg("--exec-log").args(["--", "sh", "-c", script]).output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         path_set::parse(&std::fs::read_to_string(file).unwrap()).unwrap()
     }
@@ -57,6 +57,10 @@ fn a_read_of_a_tree_file_yields_its_content() {
     let tree = scene.tree();
     let entries = scene.record(&format!("cat {}/a.txt", tree.display()));
     assert!(entries.contains(&entry(Kind::Content, "a.txt")), "{entries:?}");
+    let log = std::fs::read_to_string(scene.root.path().join("recorded.exec")).unwrap();
+    assert!(log.starts_with("root\t"), "{log}");
+    assert!(log.lines().any(|line| line.starts_with("exec\t") && line.contains("/sh")), "{log}");
+    assert!(!log.contains("incomplete\t"), "{log}");
 }
 
 #[test]

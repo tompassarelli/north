@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 
 pub const WORK_ENV: &str = "NORTH_COVERAGE_WORK";
 pub const TOOLS_ENV: &str = "NORTH_COVERAGE_TOOLS";
+/// The reads recorder that wraps this runner names the record it writes for the unit.
+pub const RECORD_ENV: &str = "NORTH_LAND_RECORD";
 pub const PASSED: &str = "passed";
 pub const FAILED: &str = "failed";
 
@@ -24,6 +26,21 @@ impl Work {
     pub fn seed(&self) -> PathBuf {
         self.root.join("seed")
     }
+
+    /// The profiles' process ids for each reach, so a test whose instrumented child wrote none can be named.
+    pub fn pids(&self) -> PathBuf {
+        self.root.join("pids")
+    }
+
+    /// The reads recorder's per-unit record for each reach, written by the wrapped runner.
+    pub fn units(&self) -> PathBuf {
+        self.root.join("units")
+    }
+
+    /// The path sets and exec logs the reads recorder writes for each nextest unit.
+    pub fn records(&self) -> PathBuf {
+        self.root.join("records")
+    }
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -39,8 +56,8 @@ pub fn run(arguments: &[String]) -> u8 {
     let test = exact_test(rest);
     let key = key(binary, test.unwrap_or("--list"));
     let profile = match test {
-        Some(_) => work.raw().join(format!("{key}-%4m.profraw")),
-        None => work.seed().join(format!("{key}-%4m.profraw")),
+        Some(_) => work.raw().join(format!("{key}-%p.profraw")),
+        None => work.seed().join(format!("{key}-%p.profraw")),
     };
     let status = Command::new(binary).args(rest).env("LLVM_PROFILE_FILE", &profile).status();
     let code = status.ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1));
@@ -82,6 +99,11 @@ fn reduce(work: &Work, tools: &Path, key: &str, binary: &str, test: &str, passed
         }
         names = executed(&String::from_utf8_lossy(&shown.stdout));
     }
+    let pids: Vec<String> = raws.iter().filter_map(|path| profile_pid(path, key)).map(|pid| pid.to_string()).collect();
+    std::fs::write(work.pids().join(key), pids.join("\n")).map_err(|error| format!("cannot write the processes of {test}: {error}"))?;
+    if let Some(record) = std::env::var_os(RECORD_ENV) {
+        std::fs::write(work.units().join(key), record.to_string_lossy().as_bytes()).map_err(|error| format!("cannot write the record of {test}: {error}"))?;
+    }
     for path in raws.iter().chain([&profdata]) {
         let _ = std::fs::remove_file(path);
     }
@@ -91,6 +113,12 @@ fn reduce(work: &Work, tools: &Path, key: &str, binary: &str, test: &str, passed
         text.push('\n');
     });
     std::fs::write(work.reach().join(key), text).map_err(|error| format!("cannot write the reach of {test}: {error}"))
+}
+
+/// The process id in a `%p` profile's name, `<key>-<pid>.profraw`.
+pub fn profile_pid(path: &Path, key: &str) -> Option<u32> {
+    let name = path.file_name()?.to_str()?;
+    name.strip_prefix(key)?.strip_prefix('-')?.strip_suffix(".profraw")?.parse().ok()
 }
 
 pub fn executed(shown: &str) -> Vec<String> {

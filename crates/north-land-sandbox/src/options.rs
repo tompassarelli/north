@@ -7,12 +7,13 @@ pub struct Options {
     pub tree: Option<PathBuf>,
     pub scratch: Option<PathBuf>,
     pub trace: bool,
+    pub exec_log: bool,
     pub command: Vec<String>,
 }
 
 impl Options {
     pub fn parse(arguments: &[String]) -> Result<Self, String> {
-        let mut options = Self { enforce: None, record: None, except: Vec::new(), tree: None, scratch: None, trace: false, command: Vec::new() };
+        let mut options = Self { enforce: None, record: None, except: Vec::new(), tree: None, scratch: None, trace: false, exec_log: false, command: Vec::new() };
         let mut rest = arguments.iter();
         while let Some(argument) = rest.next() {
             match argument.as_str() {
@@ -22,6 +23,7 @@ impl Options {
                 "--tree" => options.tree = Some(take(&mut rest, argument)?.into()),
                 "--scratch" => options.scratch = Some(take(&mut rest, argument)?.into()),
                 "--trace" => options.trace = true,
+                "--exec-log" => options.exec_log = true,
                 "--" => {
                     options.command = rest.cloned().collect();
                     break;
