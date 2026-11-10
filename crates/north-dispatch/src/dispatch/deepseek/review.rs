@@ -23,6 +23,7 @@ const QUEUED: &str = "deepseek-reviews.jsonl";
 const REQUEUE_S: f64 = 30.0 * 60.0;
 const GIT_WAIT: Duration = Duration::from_secs(60);
 const LANDING_LABEL: &str = "area:landing";
+const RESTING: [&str; 2] = ["idle", "parked"];
 /// The classes a reviewer rejects a DeepSeek commit for, each a mistake the lander saw from DeepSeek workers on 2026-11-09/10.
 pub const CLASSES: [(&str, &str); 9] = [
     ("test-passes-on-base", "an added test passes with the lane's non-test changes reverted"),
@@ -106,12 +107,12 @@ fn reported_done(report: &Value) -> bool {
     report["entries"].as_array().and_then(|entries| entries.iter().rev().find(|entry| entry["kind"] == "assistant")).and_then(|entry| entry["text"].as_str()).is_some_and(|text| text.trim_start().starts_with("Done:"))
 }
 
-/// The idle DeepSeek sessions in each host's listing whose last report starts `Done:`, with no review job queued.
+/// The DeepSeek sessions resting in each host's listing, idle or parked once their host rests, whose last report starts `Done:`, with no review job queued.
 pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[Record], issues: &[Issue], queued: &BTreeSet<String>) -> Vec<Done> {
     let mut found = Vec::new();
     for (host, listing) in lists {
         let Some(report) = reports.iter().find(|(name, _)| name == host).map(|(_, report)| report) else { continue };
-        for session in listing.as_array().into_iter().flatten().filter(|session| session["provider"] == PROVIDER && session["status"] == "idle") {
+        for session in listing.as_array().into_iter().flatten().filter(|session| session["provider"] == PROVIDER && RESTING.contains(&session["status"].as_str().unwrap_or_default())) {
             let name = session["name"].as_str().unwrap_or_default();
             if queued.contains(name) || !reported_done(&report[name]) {
                 continue;

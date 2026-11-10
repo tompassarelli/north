@@ -101,15 +101,16 @@ fn a_category_is_reviewed_in_full_until_ten_clean_then_one_in_five_while_a_defec
 
 fn an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_no_other_session_does() {
     let session = |name: &str, provider: &str, status: &str| json!({"name": name, "provider": provider, "status": status, "tasks": ["north#7"], "box": "the box"});
-    let lists = vec![("whiterabbit".to_owned(), json!([session("ds-done", "opencode", "idle"), session("ds-busy", "opencode", "working"), session("ds-stuck", "opencode", "idle"), session("cl-done", "claude", "idle"), session("ds-queued", "opencode", "idle")]))];
+    let lists = vec![("whiterabbit".to_owned(), json!([session("ds-done", "opencode", "idle"), session("ds-busy", "opencode", "working"), session("ds-stuck", "opencode", "idle"), session("cl-done", "claude", "idle"), session("ds-queued", "opencode", "idle"), session("ds-parked", "opencode", "parked")]))];
     let said = |text: &str| json!({"entries": [{"kind": "tool", "text": "Bash cargo test"}, {"kind": "assistant", "text": text}, {"kind": "turn_end", "text": "completed"}]});
-    let reports = vec![("whiterabbit".to_owned(), json!({"ds-done": said("Done: the box landed in the lane."), "ds-busy": said("Done: earlier"), "ds-stuck": said("Not done: tests fail.\nStop: reasoning"), "cl-done": said("Done: x"), "ds-queued": said("Done: y")}))];
+    let reports = vec![("whiterabbit".to_owned(), json!({"ds-done": said("Done: the box landed in the lane."), "ds-busy": said("Done: earlier"), "ds-stuck": said("Not done: tests fail.\nStop: reasoning"), "cl-done": said("Done: x"), "ds-queued": said("Done: y"), "ds-parked": said("Done: z")}))];
     let landing = issue("north", 7, "- [ ] the box", &["area:landing"]);
     let queued = BTreeSet::from(["ds-queued".to_owned()]);
 
     let found = review::done(&lists, &reports, &[], &[landing], &queued);
 
-    assert_eq!(found, [Done { name: "ds-done".into(), host: "whiterabbit".into(), item: IssueRef::new("north", 7), box_text: Some("the box".into()), category: "feature".into(), landing: true, oracle: Vec::new() }]);
+    let resting = |name: &str| Done { name: name.into(), host: "whiterabbit".into(), item: IssueRef::new("north", 7), box_text: Some("the box".into()), category: "feature".into(), landing: true, oracle: Vec::new() };
+    assert_eq!(found, [resting("ds-done"), resting("ds-parked")]);
     assert_eq!(review::job(&found[0]), ["fleet", "dispatch", "review", "ds-done", "--item", "north#7", "--category", "feature", "--box", "the box", "--landing"]);
 }
 
