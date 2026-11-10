@@ -142,7 +142,7 @@ fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>) -> Result
     let Some(listener) = bind(&socket, user)? else { return Ok(()) };
     let broker = Arc::new(broker);
     if let Some(limit) = idle {
-        broker.retire_when_idle(socket.clone(), limit);
+        crate::retire::when_idle(&broker, socket.clone(), limit);
     }
     eprintln!("north-broker: serving {}", socket.display());
     broker.serve(&listener);

@@ -3,7 +3,6 @@ use std::io::Read;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use north_base::foundation::clock::Timestamp;
@@ -62,21 +61,9 @@ impl Broker {
         Self { policy, minter, providers, state: Mutex::default(), slots: Mutex::default(), active: AtomicUsize::new(0), last: Mutex::new(Instant::now()) }
     }
 
-    /// Exits once it is idle past `limit` or its runtime was replaced, with no request in flight, so the next client
-    /// starts the broker on the runtime its link names.
-    pub fn retire_when_idle(self: &Arc<Self>, socket: PathBuf, limit: Duration) {
-        let watched = Arc::clone(self);
-        let mut runtime = north_runtime_follow::Follow::current();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(5));
-                let quiet = runtime.replaced().is_some() || watched.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).elapsed() > limit;
-                if quiet && watched.active.load(Ordering::SeqCst) == 0 {
-                    let _ = std::fs::remove_file(&socket);
-                    std::process::exit(0);
-                }
-            }
-        });
+    /// How long it has gone without a request, or None while one is in flight.
+    pub fn idle(&self) -> Option<Duration> {
+        (self.active.load(Ordering::SeqCst) == 0).then(|| self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).elapsed())
     }
 
     pub fn serve(self: &Arc<Self>, listener: &UnixListener) {
