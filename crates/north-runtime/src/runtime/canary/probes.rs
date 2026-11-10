@@ -4,6 +4,8 @@ const HUB: &str = "gex45";
 const SHELL_LIMIT: Duration = Duration::from_secs(45);
 const MINT_LIMIT: Duration = Duration::from_secs(90);
 const LAUNCH_LIMIT: Duration = Duration::from_secs(150);
+const VERIFY_NORTH_LIMIT: Duration = Duration::from_secs(600);
+const SCRATCH_LANDING_LIMIT: Duration = Duration::from_secs(240);
 const FETCH: &str = "for file in \"$HOME\"/code/*/main/.safe-push; do\n  [ -f \"$file\" ] || continue\n  git -C \"$(dirname \"$file\")\" ls-remote origin HEAD >/dev/null || { echo \"$file: fetch failed\" >&2; exit 1; }\ndone";
 pub(super) const PROVIDERS: [&str; 3] = ["claude", "opencode", "pi"];
 
@@ -55,8 +57,9 @@ fn probe(name: impl Into<String>, script: String, limit: Duration) -> Probe {
     Probe { name: name.into(), script, limit }
 }
 
-pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], launches: bool, landers: Option<&Landers>) -> CoreLoop {
-    let north = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}/north\"");
+pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], launches: bool, settles: bool, landers: Option<&Landers>) -> CoreLoop {
+    let runtime = format!("\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/runtimes/{sha}\"");
+    let north = format!("{runtime}/north");
     let mut probes = Vec::new();
     match (is_hub(host), launches) {
         (true, _) => probes.push(probe(format!("{HUB} fetches each landing repository with its credential"), FETCH.to_owned(), MINT_LIMIT)),
@@ -78,6 +81,10 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], launches: 
         }
         None => probes.push(probe("each repository's lander mints its push token", lander_tokens(&north), MINT_LIMIT)),
     }
+    if settles {
+        probes.push(probe("verify-north walks the spine on the promoted runtime", verify_north(&north, &runtime), VERIFY_NORTH_LIMIT));
+        probes.push(probe("one scratch landing lands on its origin", scratch_landing(&north), SCRATCH_LANDING_LIMIT));
+    }
     if is_hub(host) {
         return CoreLoop { probes, not_applicable };
     }
@@ -87,6 +94,86 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], launches: 
     }
     CoreLoop { probes, not_applicable }
 }
+
+/// The product verification of the judged runtime, run only when a Claude account can place its
+/// worker: no account is a probe that cannot judge the runtime, not one the runtime failed.
+fn verify_north(north: &str, runtime: &str) -> String {
+    VERIFY_NORTH.replace("__NORTH__", north).replace("__RUNTIME__", runtime)
+}
+
+const VERIFY_NORTH: &str = r#"set -euo pipefail
+north=__NORTH__
+brief=$(mktemp "${TMPDIR:-/tmp}/north-canary-verify.XXXXXX")
+trap 'rm -f "$brief"' EXIT
+printf 'Surface: shell\nNeeds: laptop\n' > "$brief"
+if ! "$north" config agents plan --place "$brief" | grep -q 'claude:'; then
+  echo 'no Claude account can place the verify-north worker here' >&2
+  exit 75
+fi
+__RUNTIME__/verify-north --north "$north"
+"#;
+
+/// A scratch repository whose lane queues one commit with the judged runtime and lands it through
+/// that runtime's `land serve`, so a runtime that cannot walk the landing half of the spine fails
+/// here instead of shipping to the other hosts.
+fn scratch_landing(north: &str) -> String {
+    SCRATCH_LANDING.replace("__NORTH__", north)
+}
+
+const SCRATCH_LANDING: &str = r#"set -euo pipefail
+north=__NORTH__
+root=$(mktemp -d "${TMPDIR:-/tmp}/north-canary-landing.XXXXXX")
+trap 'rm -rf "$root"' EXIT
+state="$root/state"
+mkdir -p "$state"
+export XDG_STATE_HOME="$state"
+export NORTH_TEST_ROOT="$state"
+export THREADS_DB="$state/threads.db"
+export NORTH_PUSH_LOG="$root/pushes.tsv"
+export NORTH_FLEET_TEST=1
+export GIT_CONFIG_GLOBAL="$root/gitconfig"
+export GIT_CONFIG_NOSYSTEM=1
+: > "$root/gitconfig"
+export PATH="$(dirname "$north"):$PATH"
+origin="$root/origin.git"
+main="$root/project/main"
+lane="$root/project/worktrees/canary-landing"
+mkdir -p "$main"
+git -C "$main" init -q -b main
+git -C "$main" config user.name canary
+git -C "$main" config user.email canary@example.invalid
+git -C "$main" config commit.gpgsign false
+printf 'the scratch repository the runtime canary lands into\n' > "$main/README.md"
+printf '[landing]\n\tqueue = lander\n\tlander-host = %s\n\tremote-hosts =\n[land]\n\tcheck = ** :: true\n' "$(hostname -s 2>/dev/null || hostname)" > "$main/.safe-push"
+git -C "$main" add .
+git -C "$main" commit -q -m 'Start the scratch repository'
+git clone -q --bare "$main" "$origin"
+git -C "$main" remote add origin "$origin"
+git -C "$main" fetch -q origin
+git -C "$main" worktree add -q -b canary-landing "$lane" origin/main
+base=$(git -C "$origin" rev-parse refs/heads/main)
+printf 'the canary change\n' > "$lane/canary.txt"
+git -C "$lane" add canary.txt
+git -C "$lane" commit -q -m 'Land the canary change'
+checker="$root/checker"
+printf '#!/bin/sh\nprintf "safe-push: verdict green\\n"\nexit 0\n' > "$checker"
+chmod +x "$checker"
+token="$root/token"
+printf '#!/bin/sh\nprintf "ghs_canary_landing\\n"\n' > "$token"
+chmod +x "$token"
+(cd "$lane" && "$north" safe-push --to main >/dev/null)
+(cd "$main" && "$north" land serve --once --repo "$main" --checker "$checker" --app-token "$token")
+landed=$(git -C "$origin" rev-parse refs/heads/main)
+if [ "$landed" = "$base" ]; then
+  echo "the scratch landing did not move origin main past $base" >&2
+  exit 1
+fi
+if ! git -C "$origin" show --format= --name-only "$landed" | grep -qx canary.txt; then
+  echo "origin main $landed does not change canary.txt" >&2
+  exit 1
+fi
+echo "landed $landed"
+"#;
 
 pub(super) fn launchable_script() -> String {
     let key = crate::providers::opencode::key_file(std::path::Path::new(".local/state/north"));

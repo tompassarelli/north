@@ -14,6 +14,7 @@ struct Fleet<'a> {
     failing: Option<(&'static str, Ran)>,
     launchable: Vec<String>,
     launches: bool,
+    settles: bool,
     landers: Option<probes::Landers>,
     probed: Mutex<Vec<String>>,
     alarms: Mutex<Vec<String>>,
@@ -46,6 +47,10 @@ impl Machine for Fleet<'_> {
         self.launches
     }
 
+    fn settles_fleet(&self, _host: &str) -> bool {
+        self.settles
+    }
+
     fn lander_repositories(&self) -> Option<probes::Landers> {
         self.landers.clone()
     }
@@ -73,7 +78,11 @@ impl Host {
     }
 
     fn fleet(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
-        Fleet { layout: &self.layout, failing, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), launches: true, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+        Fleet { layout: &self.layout, failing, launchable: super::probes::PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect(), launches: true, settles: false, landers: None, probed: Mutex::new(Vec::new()), alarms: Mutex::new(Vec::new()) }
+    }
+
+    fn settling(&self, failing: Option<(&'static str, Ran)>) -> Fleet<'_> {
+        Fleet { settles: true, ..self.fleet(failing) }
     }
 
     fn fleet_without(&self, provider: &str) -> Fleet<'_> {
@@ -196,7 +205,7 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
 
 #[test]
 fn a_host_with_a_provider_binary_but_no_launch_route_is_not_probed_for_it() {
-    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, None);
+    let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, false, None);
     assert_eq!(plan.not_applicable, ["opencode", "pi"]);
     assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode") && !probe.name.contains("pi")));
@@ -247,7 +256,7 @@ fn a_host_without_a_running_lander_skips_the_token_probe() {
     assert!(landers.served.is_empty(), "{landers:?}");
     assert_eq!(landers.unserved, [repo.join(".safe-push").to_string_lossy().into_owned()]);
 
-    let plan = probes::core_loop("nexus", PROMOTED, &[], true, Some(&landers));
+    let plan = probes::core_loop("nexus", PROMOTED, &[], true, false, Some(&landers));
     assert!(plan.probes.iter().all(|probe| !probe.name.contains("lander mints")), "{:?}", plan.probes.iter().map(|probe| &probe.name).collect::<Vec<_>>());
     assert!(plan.not_applicable.iter().any(|reason| reason.contains("no running lander serves")), "{:?}", plan.not_applicable);
 
@@ -286,4 +295,28 @@ fn a_launch_probe_fails_when_the_worker_cannot_quote_the_shared_policy_heading()
     assert_eq!(launch::carries("# Tom's policy", Some("Tom's policy")), Ok(()));
     assert_eq!(launch::carries("ok", Some("Tom's policy")), Err("Tom's policy"));
     assert_eq!(launch::carries("ok", None), Ok(()));
+}
+
+#[test]
+fn a_runtime_that_fails_verify_north_or_the_scratch_landing_is_not_shipped() {
+    for failing in ["verify-north", "scratch landing"] {
+        let host = Host::promoted();
+        let fleet = host.settling(Some((failing, exited(1, "the spine walk failed"))));
+        assert_eq!(check(&host.layout, "whiterabbit", PROMOTED, &fleet), Verdict::RolledBack, "{failing} did not roll the runtime back");
+        assert_eq!(host.current(), layout::link(PREVIOUS), "{failing} left the failed runtime live");
+        let walked = super::super::walk::walk_of(&host.layout, "whiterabbit", host.layout.live_sha().as_deref(), Some((PROMOTED, &Verdict::RolledBack)));
+        let shipped = std::cell::RefCell::new(Vec::new());
+        let _ = super::super::walk::ship_if_walked(walked, |sha| {
+            shipped.borrow_mut().push(sha.to_owned());
+            Ok(())
+        });
+        assert!(!shipped.borrow().iter().any(|sha| sha == PROMOTED), "{failing} failed yet {PROMOTED} shipped: {:?}", shipped.borrow());
+    }
+    let settling = probes::core_loop("whiterabbit", PROMOTED, &[], true, true, None);
+    let names: Vec<&str> = settling.probes.iter().map(|probe| probe.name.as_str()).collect();
+    assert!(names.iter().any(|name| name.contains("verify-north")), "{names:?}");
+    assert!(names.iter().any(|name| name.contains("scratch landing")), "{names:?}");
+    let elsewhere = probes::core_loop("nexus", PROMOTED, &[], true, false, None);
+    let names: Vec<&str> = elsewhere.probes.iter().map(|probe| probe.name.as_str()).collect();
+    assert!(names.iter().all(|name| !name.contains("verify-north") && !name.contains("scratch landing")), "{names:?}");
 }
