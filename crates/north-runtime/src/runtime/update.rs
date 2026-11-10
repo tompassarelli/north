@@ -96,20 +96,37 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
     }
     let _lock = lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha")?;
     let checkout = checkout();
-    fetch(&checkout)?;
     let previous = fs::read_link(layout.current()).ok();
-    if previous.as_deref() == Some(layout::link(target).as_path()) {
-        println!("north runtime current: {}", layout::short(target));
-        return Ok(());
+    match shipped(layout, &checkout, target, previous.as_deref()) {
+        Shipped::Current => println!("north runtime current: {}", layout::short(target)),
+        Shipped::Older(newer) => println!("north runtime: not moving {} back from {} to {}", host::name(), layout::short(&newer), layout::short(target)),
+        Shipped::Missing => return Err(failed(1, format!("{} was not shipped to this host; runtime unchanged", layout::short(target)))),
+        Shipped::Promote => return advance(layout, &checkout, target, previous.as_deref()).map(|_| ()),
     }
-    if let Some(newer) = previous.as_deref().and_then(layout::linked_sha).filter(|current| ancestor(&checkout, target, current)) {
-        println!("north runtime: not moving {} back from {} to {}", host::name(), layout::short(newer), layout::short(target));
-        return Ok(());
+    Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Shipped {
+    Current,
+    Older(String),
+    Missing,
+    Promote,
+}
+
+/// The primary checkout only answers whether the shipped runtime is older than the live one; a checkout that cannot fetch, is dirty or lacks the shipped commit leaves that unknown and the shipped runtime is promoted, since the host that shipped it already ordered it.
+fn shipped(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Shipped {
+    if previous == Some(layout::link(target).as_path()) {
+        return Shipped::Current;
     }
-    if !usable(&layout.runtime(target)) {
-        return Err(failed(1, format!("{} was not shipped to this host; runtime unchanged", layout::short(target))));
+    if let Err(failure) = fetch(checkout) {
+        println!("north runtime: {} cannot fetch ({}); judging the shipped {} without it", checkout.display(), failure.message, layout::short(target));
     }
-    advance(layout, &checkout, target, previous.as_deref()).map(|_| ())
+    match previous.and_then(layout::linked_sha).filter(|current| ancestor(checkout, target, current)) {
+        Some(newer) => Shipped::Older(newer.to_owned()),
+        None if !usable(&layout.runtime(target)) => Shipped::Missing,
+        None => Shipped::Promote,
+    }
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {
