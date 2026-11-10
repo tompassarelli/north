@@ -38,13 +38,17 @@ note governs performing a reset.
 
 - `north accounts` keeps showing each account's grants left and their expiry, so the
   fleet screen says when a reset is available.
-- When the coordinator's account reaches its Fable floor with a grant offered, the
-  grant stays for Tom to use in his own signed-in browser. North does not click it.
-- A future provider command or API, or Tom's explicit acceptance of the terms risk,
-  can add a performing path. That path logs one JSON line per attempt to
+- `north accounts reset [--dry-run]` checks the coordinator's account: it reads the
+  cached grants and the account's Fable meter, then appends one JSON line per check to
   `~/.local/state/north/usage/resets.jsonl` with the account, the time, the meter
-  before and the meter after, the grant counts before and after, the path, and the
-  outcome, so the box's check is met by an observation outside the model.
+  before and after, the grants, and an outcome (`below-floor`, `no-grant` or
+  `refused-terms`). It never clicks the page.
+- When the coordinator's account reaches its Fable floor with a grant offered, the
+  grant stays for Tom to use in his own signed-in browser.
+- A future provider command or API, or Tom's explicit acceptance of the terms risk,
+  can add a performing path. That path logs the same row with outcome `performed`, the
+  path, and the meter after the reset, so the box's check is met by an observation
+  outside the model.
 
 ## Decision
 

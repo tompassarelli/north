@@ -6,6 +6,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 
 use super::store::{self, Source};
+use super::reset::Outcome;
 use super::Places;
 use crate::foundation::clock::Timestamp;
 
@@ -200,7 +201,19 @@ fn the_table_shows_a_reported_fable_meter_even_when_it_has_no_reset_of_its_own()
         ["2026-10-28T11:50:00Z", "claude", "a", "window", "weekly_scoped/Fable", 3.0, 10080, null, null, "claude -p /usage"],
     ]);
     let orchestration = "[accounts.claude.profiles.a]\nhere = {}\n";
-    let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": orchestration}));
+    let web = serde_json::json!({
+        "accounts": {
+            "h": {
+                "account": "h",
+                "account_label": "a",
+                "read_at": "2026-10-28T11:00:00Z",
+                "valid_until": "2026-11-01T00:00:00Z",
+                "source": "claude.ai",
+                "resets": {"full": {"count": 1, "expires": "2026-11-02"}, "five_hour": {"count": 0, "expires": null}},
+            }
+        }
+    });
+    let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": orchestration, "web": web}));
     let latest = super::store::latest(&scratch.open()).unwrap();
     let fable = latest.iter().find(|row| row.text("name") == Some("weekly_scoped/Fable")).expect("the Fable row is read");
     assert_eq!(fable.text("resets_at"), Some("2026-11-03T00:00:00Z"), "the Fable meter takes the account's weekly reset");
@@ -208,6 +221,20 @@ fn the_table_shows_a_reported_fable_meter_even_when_it_has_no_reset_of_its_own()
     assert_eq!(code, 0, "{text}");
     assert!(text.contains("Opus 20%"), "{text}");
     assert!(text.contains("Fable 3%"), "{text}");
+    let offered = super::reset::offered(&scratch.places().state, "a", frozen()).unwrap().expect("the cached grant is read");
+    assert_eq!((offered.full, offered.five_hour, offered.expires.as_deref()), (1.0, 0.0, Some("2026-11-02")));
+    assert_eq!(super::reset::assess(99.0, Some(&offered)), Outcome::RefusedTerms);
+    assert_eq!(super::reset::assess(40.0, Some(&offered)), Outcome::BelowFloor);
+    assert_eq!(super::reset::assess(99.0, None), Outcome::NoGrant);
+    let log = scratch.dir.path().join("resets.jsonl");
+    super::reset::record(&log, "a", frozen(), 99.0, 99.0, Some(&offered), &Outcome::RefusedTerms).unwrap();
+    let line: Value = serde_json::from_str(fs::read_to_string(&log).unwrap().trim()).unwrap();
+    assert_eq!(line["account"], "a");
+    assert_eq!(line["at"], "2026-10-28T12:00:00Z");
+    assert_eq!(line["meter_before"], 99.0);
+    assert_eq!(line["meter_after"], 99.0);
+    assert_eq!(line["resets"]["full"], 1.0);
+    assert_eq!(line["outcome"], "refused-terms");
 }
 
 #[test]
