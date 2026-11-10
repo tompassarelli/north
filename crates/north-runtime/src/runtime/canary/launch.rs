@@ -1,7 +1,8 @@
 use super::super::failure::{DEFERRED, Failure, failed};
 use crate::platform::process;
-use north_providers::threads::{schema, verb::Failure as LedgerFailure};
+use north_providers::threads::{client, schema, verb::Failure as LedgerFailure};
 use crate::providers::opencode::Shared;
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -136,17 +137,80 @@ fn unrun(failure: Failure) -> Failure {
     failed(DEFERRED, format!("the launch never reached a worker, so the probe has no verdict: {}", failure.message))
 }
 
+/// The scratch root's ledger starts as the host's own store wrote it, so a probe opens the previous schema and
+/// the judged runtime has to widen it; a host with no readable store still gets a fresh ledger, as before.
 pub(super) fn scratch_root(scratch: &Path) -> Result<(PathBuf, PathBuf), Failure> {
+    let live = client::threads_database();
+    scratch_root_from(scratch, live.is_file().then_some(live.as_path()))
+}
+
+pub(super) fn scratch_root_from(scratch: &Path, previous: Option<&Path>) -> Result<(PathBuf, PathBuf), Failure> {
     let state = scratch.join("state");
     let cwd = scratch.join("work");
     std::fs::create_dir_all(&state).and_then(|()| std::fs::create_dir_all(&cwd)).map_err(|error| unrun(error.into()))?;
-    schema::ensure(&state.join("threads.db")).map_err(|failure| {
+    let ledger = state.join("threads.db");
+    match previous.map(|previous| seed(&ledger, previous)) {
+        Some(Ok(())) => {}
+        Some(Err(why)) => {
+            println!("north runtime canary probe: the scratch ledger starts fresh because the host's ledger could not be copied: {why}");
+            fresh(&ledger)?;
+        }
+        None => fresh(&ledger)?,
+    }
+    Ok((state, cwd))
+}
+
+fn fresh(ledger: &Path) -> Result<(), Failure> {
+    schema::ensure(ledger).map_err(|failure| {
         let why = match failure {
             LedgerFailure::Usage(why) | LedgerFailure::Refused(why) => why,
         };
         unrun(failed(1, format!("the scratch root's ledger, which north fleet opens and widens, could not be created: {why}")))
-    })?;
-    Ok((state, cwd))
+    })
+}
+
+/// Copies the store's schema, not its rows: a ledger holds fleet messages and runs that a probe has no business
+/// carrying into `/tmp`, and each old-state table gets one synthetic row so a widening or an added column keeps it.
+fn seed(ledger: &Path, previous: &Path) -> Result<(), String> {
+    let source = Connection::open_with_flags(previous, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|error| format!("{}: {error}", previous.display()))?;
+    source.busy_timeout(Duration::from_secs(2)).map_err(|error| error.to_string())?;
+    let schema: Vec<String> = source
+        .prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 WHEN 'trigger' THEN 2 ELSE 3 END, rowid")
+        .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect::<Result<Vec<String>, _>>())
+        .map_err(|error| format!("{}: {error}", previous.display()))?;
+    drop(source);
+
+    let mut db = Connection::open(ledger).map_err(|error| format!("{}: {error}", ledger.display()))?;
+    db.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(())).map_err(|error| error.to_string())?;
+    let tx = db.transaction().map_err(|error| error.to_string())?;
+    for statement in &schema {
+        tx.execute_batch(statement).map_err(|error| format!("{}: {error}", ledger.display()))?;
+    }
+    seed_rows(&tx);
+    tx.commit().map_err(|error| error.to_string())
+}
+
+/// One row in each table the fleet's first open widens, so a data copy or an added column has a row to keep; a
+/// table whose older shape refuses the row is still a valid old-state table, so its row is best effort.
+fn seed_rows(tx: &rusqlite::Transaction<'_>) {
+    let held = |table: &str| -> Vec<String> {
+        tx.prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+            .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect::<Result<Vec<String>, _>>())
+            .unwrap_or_default()
+    };
+    let events = held("events");
+    if events.iter().any(|column| column == "ts") && events.iter().any(|column| column == "kind") {
+        let data = if events.iter().any(|column| column == "data") { ", data" } else { "" };
+        let json = if data.is_empty() { "" } else { ", '{}'" };
+        let _ = tx.execute(&format!("INSERT INTO events(ts, kind{data}) VALUES (?1, ?2{json})"), rusqlite::params!["2026-01-01T00:00:00Z", "claim"]);
+    }
+    let sessions = held("fleet_sessions");
+    if ["name", "host", "status", "created", "updated"].iter().all(|column| sessions.iter().any(|held| held == column)) {
+        let _ = tx.execute(
+            "INSERT INTO fleet_sessions(name, host, status, created, updated) VALUES ('canary-seed', 'here', 'starting', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        );
+    }
 }
 
 fn fleet(scene: &Scene, words: &[&str]) -> Result<String, String> {

@@ -183,16 +183,44 @@ fn a_runtime_that_lacks_the_probe_subcommand_is_unrun_not_rolled_back() {
     assert!(fleet.alarms.lock().unwrap().is_empty());
 }
 
+/// The fleet registry's previous schema, as `crates/north-fleet-store/src/store/tests.rs` builds it: the events
+/// kinds before the fleet's own, and a fleet_sessions table before the display columns.
+const PREVIOUS_FLEET: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('claim','release','KICKOFF','ANSWER')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;
+CREATE INDEX events_item ON events(item, seq);
+CREATE TABLE fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL) STRICT;";
+
 #[test]
 fn the_launch_probes_scratch_root_carries_the_ledger_north_fleet_opens() {
     let scratch = tempfile::tempdir().unwrap();
 
-    let (state, cwd) = launch::scratch_root(scratch.path()).unwrap();
+    let (state, cwd) = launch::scratch_root_from(scratch.path(), None).unwrap();
 
     assert!(cwd.is_dir());
     let ledger = rusqlite::Connection::open_with_flags(state.join("threads.db"), rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
     let events: i64 = ledger.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'events'", [], |row| row.get(0)).unwrap();
     assert_eq!(events, 1);
+}
+
+#[test]
+fn the_launch_probes_scratch_root_starts_at_the_previous_schema_version() {
+    let previous = tempfile::tempdir().unwrap();
+    let source = previous.path().join("threads.db");
+    let live = rusqlite::Connection::open(&source).unwrap();
+    live.execute_batch(PREVIOUS_FLEET).unwrap();
+    live.execute("INSERT INTO events(ts, kind, data) VALUES ('2026-01-01T00:00:00Z', 'claim', '{}')", []).unwrap();
+    live.execute("INSERT INTO fleet_sessions(name, host, status, created, updated) VALUES ('old', 'here', 'starting', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')", []).unwrap();
+    drop(live);
+    let scratch = tempfile::tempdir().unwrap();
+
+    let (state, _) = launch::scratch_root_from(scratch.path(), Some(&source)).unwrap();
+
+    let ledger = rusqlite::Connection::open(state.join("threads.db")).unwrap();
+    let events: String = ledger.query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'events'", [], |row| row.get(0)).unwrap();
+    assert!(!events.contains("'MESSAGE'") && !events.contains("'SPEND'"), "the scratch ledger starts at the previous fleet schema, not the current one: {events}");
+    let rows: i64 = ledger.query_row("SELECT count(*) FROM events WHERE kind = 'claim' AND ts = '2026-01-01T00:00:00Z'", [], |row| row.get(0)).unwrap();
+    assert_eq!(rows, 1, "a previous-schema row is kept for the widened table");
+    let sessions: String = ledger.query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'fleet_sessions'", [], |row| row.get(0)).unwrap();
+    assert!(!sessions.contains("provider"), "the scratch fleet table starts before its display columns: {sessions}");
 }
 
 #[test]
