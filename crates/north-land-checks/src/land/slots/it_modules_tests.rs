@@ -217,13 +217,14 @@ fn a_lane_changing_only_harness_data_runs_the_tests_that_read_it() {
     assert!(selection.arguments().contains("(binary_id(north-fleet)&(test(=fleet::supervisor::tests::reads_defaults)))"), "the test that reads harness/defaults.toml runs: {}", selection.arguments());
     assert!(selection.packages().contains("north-fleet"), "the package of that test is built: {:?}", selection.packages());
 
-    let traced = super::super::graph_selection::Tests::parse(r#"{"tests":["north-a a::whole"],"added":[{"package":"north-a","name":"a::unknown"}],"known":2}"#).unwrap();
+    let traced = super::super::graph_selection::Tests::parse(r#"{"tests":["north-a a::whole","north-gone gone::test"],"added":[{"package":"north-a","name":"a::unknown"}],"known":2}"#).unwrap();
     let listed = BTreeMap::from([
         ("north-a".to_owned(), super::super::graph_selection::Listed { package: "north-a".to_owned(), tests: ["a::whole".to_owned(), "a::unknown".to_owned()].into() }),
         ("north-b::it".to_owned(), super::super::graph_selection::Listed { package: "north-b".to_owned(), tests: ["b::one".to_owned(), "b::two".to_owned()].into() }),
     ]);
     let collapsed = traced.with_listed(listed).unwrap().arguments();
     assert!(collapsed.contains("package(north-a)") && !collapsed.contains("a::whole"), "a wholly included package is one term, and the listing finds its unknown test: {collapsed}");
+    assert!(!collapsed.contains("north-gone"), "a binary the listing no longer has, such as a retired crate's, is not named: {collapsed}");
     assert!(!collapsed.contains("north-b"), "a package with no selected test is not run: {collapsed}");
     let many: Vec<String> = (0..8_000).map(|index| format!("north-a a::test_{index:05}")).collect();
     let answer = format!(r#"{{"tests":["{}"],"known":8000}}"#, many.join("\",\""));

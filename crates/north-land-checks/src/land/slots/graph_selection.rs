@@ -117,7 +117,7 @@ impl Tests {
             for (binary, test) in matches {
                 self.by_binary.entry(binary).or_default().insert(test);
             }
-            self.by_binary.retain(|_, names| !names.is_empty());
+            self.by_binary.retain(|binary, names| !names.is_empty() && listed.contains_key(binary));
             self.listed = listed;
         }
         (self.filter().len() <= FILTER_LIMIT).then_some(self)
