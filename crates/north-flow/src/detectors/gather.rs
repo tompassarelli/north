@@ -20,6 +20,8 @@ use crate::health::loops::{self, Declared, Origin};
 use crate::flow::{Host, Places};
 use crate::platform::sqlite::{self, Access};
 
+mod machines;
+
 const LANE_RECENT_S: f64 = 24.0 * 3600.0;
 const DISPATCH_RECENT_S: f64 = 2.0 * 3600.0;
 const LANDED_HISTORY: &str = "--since=30 days ago";
