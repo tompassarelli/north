@@ -98,6 +98,18 @@ fn arguments(pid: u32) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub fn follows(root: &Path) -> Vec<Process> {
+    every()
+        .into_iter()
+        .filter(|(pid, stat)| !stat.zombie && is_follow(&arguments(*pid), root))
+        .map(|(pid, stat)| Process { pid, start: stat.start })
+        .collect()
+}
+
+fn is_follow(words: &[String], root: &Path) -> bool {
+    words.windows(2).any(|pair| pair[0] == "land" && pair[1] == "follow") && words.windows(2).any(|pair| pair[0] == "--repo" && Path::new(&pair[1]).starts_with(root))
+}
+
 pub fn within(root: &Path) -> Vec<Process> {
     let marker = root.to_string_lossy();
     every()

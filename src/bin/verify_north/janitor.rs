@@ -55,11 +55,13 @@ pub fn serve() -> ExitCode {
 }
 
 fn sweep(manifest: &Manifest) -> Result<String, String> {
-    let children: Vec<Process> = manifest.children.iter().copied().collect();
-    for child in &children {
-        child.terminate();
+    let mut started: Vec<Process> = manifest.children.iter().copied().collect();
+    started.extend(manifest.scratch.as_deref().map(processes::follows).unwrap_or_default());
+    started.extend(processes::descendants(&started));
+    for process in &started {
+        process.terminate();
     }
-    settle(&children, CHILD_GRACE);
+    settle(&started, CHILD_GRACE);
     let mut watched: Vec<Process> = manifest.watched.iter().copied().collect();
     watched.extend(processes::descendants(&watched));
     let mut problems = forget_all(manifest);
@@ -113,3 +115,6 @@ fn remove(path: &Path, owned: bool) -> Option<String> {
     }
     fs::remove_dir_all(path).err().filter(|error| error.kind() != io::ErrorKind::NotFound).map(|error| format!("remove {}: {error}", path.display()))
 }
+
+#[cfg(test)]
+mod tests;
