@@ -512,6 +512,7 @@ pub fn standings(gate: &Value, roster: &Roster) -> BTreeMap<String, record::Stan
                 Standing::Listed(_) => record::Standing::Listed,
                 Standing::Duplicate(duplicate) => record::Standing::Duplicate(duplicate.to_string()),
                 Standing::Foreign(foreign) => record::Standing::Foreign(foreign.owners.clone()),
+                Standing::Refused(refused) => record::Standing::Refused(refused.text.clone()),
                 Standing::Spent(_) | Standing::Unknown => record::Standing::Unknown,
             };
             (name, standing)
@@ -525,6 +526,7 @@ fn standing_verdicts(gate: &Value, standings: &BTreeMap<String, record::Standing
         .map(|(name, control)| match standings.get(&name).unwrap_or(&record::Standing::Unknown) {
             record::Standing::Listed => verdict(&name, control, family),
             record::Standing::Duplicate(duplicate) => unavailable(&name, duplicate.clone()),
+            record::Standing::Refused(text) => unavailable(&name, format!("refused by its client: {text}")),
             record::Standing::Foreign(owners) => Verdict { owners: owners.clone(), ..verdict(&name, control, family) },
             record::Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })

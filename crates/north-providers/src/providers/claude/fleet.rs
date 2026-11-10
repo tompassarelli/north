@@ -8,7 +8,7 @@ use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName
 use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
-use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
+use crate::fleet::runtime::{ClientRefusal, HostSpec, Instructions, LiveWindow, Opening, Runtime, Seen, WindowInbox, new_uuid, summarize};
 use crate::fleet::install;
 use crate::fleet::link::quote;
 use crate::platform::attribution::{self, Cause, Harness};
@@ -175,7 +175,7 @@ impl Runtime for Claude {
         quota::account_quota(frame)
     }
 
-    fn credential_failure(&self, frame: &Value) -> Option<CredentialFailure> {
+    fn credential_failure(&self, frame: &Value) -> Option<ClientRefusal> {
         turns::credential_failure(frame)
     }
 

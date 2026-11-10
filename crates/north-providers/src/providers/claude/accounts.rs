@@ -7,7 +7,8 @@ use toml_edit::{DocumentMut, Item};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, ApiKey, ProviderName};
-use crate::fleet::roster::{Declared, Roster, Spent};
+use crate::fleet::refusals;
+use crate::fleet::roster::{Declared, Refused, Roster, Spent};
 use crate::fleet::runtime::labelled_homes;
 
 use super::api_pool::{self, Org};
@@ -70,7 +71,16 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .filter(|(label, _)| !found.iter().any(|(account, _)| &account.label == label))
         .filter_map(|(label, home)| Some((label.clone(), identity(home, &profiles.default_home)?)))
         .collect();
-    Roster { spent, ..Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() }) }
+    let roster = Roster { spent, ..Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() }) };
+    refused_aside(roster, &refusals::directory(state_root))
+}
+
+/// Moves each subscription account its client refused out of the accounts placement and launches may use, keeping the refusal text.
+fn refused_aside(mut roster: Roster, marks: &Path) -> Roster {
+    let (refused, usable): (Vec<Account>, Vec<Account>) = roster.accounts.into_iter().partition(|account| account.api.is_none() && refusals::held(marks, &account.label).is_some());
+    roster.accounts = usable;
+    roster.refused = refused.into_iter().filter_map(|account| Some(Refused { text: refusals::held(marks, &account.label)?, account })).collect();
+    roster
 }
 
 /// The pooled API account `label` launches on the entry whose credit expires soonest, and one pinned account `label:ORG` per entry, so a session can be relaunched on the key it ran on.

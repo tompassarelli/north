@@ -11,6 +11,7 @@ pub struct Roster {
     pub duplicates: Vec<Duplicate>,
     pub foreign: Vec<Foreign>,
     pub spent: Vec<Spent>,
+    pub refused: Vec<Refused>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +33,12 @@ pub struct Spent {
     pub orgs: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Refused {
+    pub account: Account,
+    pub text: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Declared {
     pub keepers: BTreeMap<String, String>,
@@ -44,6 +51,7 @@ pub enum Standing<'a> {
     Duplicate(&'a Duplicate),
     Foreign(&'a Foreign),
     Spent(&'a Spent),
+    Refused(&'a Refused),
     Unknown,
 }
 
@@ -88,11 +96,12 @@ impl Roster {
         self.duplicates.extend(other.duplicates);
         self.foreign.extend(other.foreign);
         self.spent.extend(other.spent);
+        self.refused.extend(other.refused);
         self
     }
 
     pub fn omitted(&self) -> impl Iterator<Item = String> + '_ {
-        self.duplicates.iter().map(ToString::to_string).chain(self.foreign.iter().map(ToString::to_string))
+        self.duplicates.iter().map(ToString::to_string).chain(self.foreign.iter().map(ToString::to_string)).chain(self.refused.iter().map(ToString::to_string))
     }
 
     pub fn standing(&self, provider: &ProviderName, label: &str) -> Standing<'_> {
@@ -106,6 +115,9 @@ impl Roster {
         if let Some(foreign) = self.foreign.iter().find(|foreign| matches(&foreign.account)) {
             return Standing::Foreign(foreign);
         }
+        if let Some(refused) = self.refused.iter().find(|refused| matches(&refused.account)) {
+            return Standing::Refused(refused);
+        }
         self.spent.iter().find(|spent| &spent.provider == provider && spent.label == label).map_or(Standing::Unknown, Standing::Spent)
     }
 
@@ -117,6 +129,7 @@ impl Roster {
             ))),
             Standing::Foreign(foreign) => Err(NorthError::Refused(format!("{foreign}; launch on {} or another --account", foreign.owners.join(" or ")))),
             Standing::Spent(spent) => Err(NorthError::Refused(spent.to_string())),
+            Standing::Refused(refused) => Err(NorthError::Refused(format!("{refused}; launch on another --account"))),
             Standing::Unknown => Err(NorthError::Usage(format!("no {} account named {label}", provider.label()))),
         }
     }
@@ -132,6 +145,12 @@ impl fmt::Display for Duplicate {
 impl fmt::Display for Spent {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "every API org is spent: {}", self.orgs.join(", "))
+    }
+}
+
+impl fmt::Display for Refused {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}:{} was refused by its client: {} (`north fleet accounts --probe` clears it once a probe passes)", self.account.provider.label(), self.account.label, self.text)
     }
 }
 

@@ -13,7 +13,8 @@ pub(super) fn run(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
         }
         ["--reading", account, usd] => reading(account, usd),
         ["--poll"] => poll(),
-        ["--probe"] => probe(),
+        ["--probe"] => probe(fleet),
+        ["--probe", label] => probe_client(fleet, label),
         [name] => super::router::session_verb(fleet, "accounts", name),
         _ => Err(super::usage::usage()),
     }
@@ -29,13 +30,46 @@ fn reading(account: &str, usd: &str) -> NorthResult<()> {
     Ok(())
 }
 
-/// Re-judges every held exhausted mark with one one-token probe per organization, clearing each that passes.
-fn probe() -> NorthResult<()> {
+/// Re-judges every held exhausted mark with one one-token probe per organization, and every account its client refused
+/// with one one-turn prompt through that client, clearing each that passes.
+fn probe(fleet: &Fleet) -> NorthResult<()> {
     let (home, state) = places();
     for line in crate::providers::claude::api_pool::rejudge(&policy(), &home, &state, &crate::platform::host::name(), crate::providers::claude::api_probe::probe) {
         println!("{line}");
     }
+    for refused in fleet.roster().refused {
+        println!("{}", judge(&state, &refused.account));
+    }
     Ok(())
+}
+
+/// Probes one Claude subscription account through its client, marking it refused or clearing its mark by what the client answered.
+fn probe_client(fleet: &Fleet, label: &str) -> NorthResult<()> {
+    let roster = fleet.roster();
+    let claude = crate::fleet::model::ProviderName::new("claude");
+    let account = match roster.standing(&claude, label) {
+        crate::fleet::roster::Standing::Refused(refused) => refused.account.clone(),
+        _ => roster.account(&claude, label)?,
+    };
+    if account.api.is_some() {
+        return Err(NorthError::Usage(format!("{label} is an api account; `north fleet accounts --probe` re-judges its exhausted marks")));
+    }
+    println!("{}", judge(&places().1, &account));
+    Ok(())
+}
+
+/// Marks `account` refused when its client refuses it and clears its mark when the client answers.
+fn judge(state: &std::path::Path, account: &crate::fleet::model::Account) -> String {
+    use crate::fleet::refusals;
+    use crate::providers::claude::client_probe::{Answer, probe};
+    let marks = refusals::directory(state);
+    let name = format!("{}:{}", account.provider.label(), account.label);
+    let written = match probe(account) {
+        Answer::Passed => refusals::clear(&marks, &account.label).map(|held| if held { format!("{name}: the client answered; its refusal mark is cleared") } else { format!("{name}: the client answered") }),
+        Answer::Refused(text) => refusals::mark(&marks, &account.label, "probe", &Timestamp::now().iso(), &text).map(|()| format!("{name}: refused by its client: {text}; marked unavailable")),
+        Answer::Failed(text) => Ok(format!("{name}: the probe did not pass, mark unchanged: {text}")),
+    };
+    written.unwrap_or_else(|error| format!("{name}: could not write its refusal mark: {error}"))
 }
 
 /// Reads each api organization's Admin reports now, records its provider reading and says what it read;

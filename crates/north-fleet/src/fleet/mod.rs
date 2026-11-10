@@ -18,6 +18,7 @@ pub mod prompt;
 pub mod rebooted;
 pub mod promises;
 pub mod receipts;
+pub mod refusals;
 pub mod records;
 pub mod link;
 pub mod remote;

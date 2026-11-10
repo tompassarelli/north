@@ -2,6 +2,7 @@ mod accounts;
 pub mod admin;
 pub mod api_probe;
 pub mod api_pool;
+pub mod client_probe;
 mod limit;
 pub mod runs;
 mod quota;

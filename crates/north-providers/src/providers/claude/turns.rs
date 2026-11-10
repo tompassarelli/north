@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::fleet::runtime::CredentialFailure;
+use crate::fleet::runtime::{ClientRefusal, CredentialFailure};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 
 pub(super) fn signals(frame: &Value) -> Vec<TurnSignal> {
@@ -58,17 +58,20 @@ fn call_signal(frame: &Value, conversation: &str) -> Option<TurnSignal> {
     Some(TurnSignal::Call { conversation: conversation.to_owned(), call: message["id"].as_str()?.to_owned(), tokens }).filter(|_| usage.is_object())
 }
 
-pub(super) fn credential_failure(frame: &Value) -> Option<CredentialFailure> {
+pub(super) fn credential_failure(frame: &Value) -> Option<ClientRefusal> {
     let text = match frame["type"].as_str() {
         Some("result") => frame["result"].as_str(),
         Some("assistant") => frame["message"]["content"][0]["text"].as_str(),
         _ => None,
     };
-    match text? {
-        text if text.starts_with("Not logged in") => Some(CredentialFailure::SignedOut),
-        text if text.contains("OAuth session expired") => Some(CredentialFailure::Expired),
-        _ => None,
-    }
+    let text = text?;
+    let failure = match text {
+        text if text.starts_with("Not logged in") => CredentialFailure::SignedOut,
+        text if text.contains("OAuth session expired") => CredentialFailure::Expired,
+        text if text.contains("disabled Claude subscription access") => CredentialFailure::Disabled,
+        _ => return None,
+    };
+    Some(ClientRefusal { failure, text: text.to_owned() })
 }
 
 fn has_user_message(frame: &Value) -> bool {

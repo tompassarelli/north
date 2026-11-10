@@ -116,6 +116,8 @@ pub enum Standing {
     Listed,
     Duplicate(String),
     Foreign(Vec<String>),
+    /// Its client refused it, with the refusal text.
+    Refused(String),
     Unknown,
 }
 

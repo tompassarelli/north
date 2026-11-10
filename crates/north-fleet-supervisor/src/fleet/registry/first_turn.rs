@@ -7,7 +7,8 @@ use serde_json::json;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::{Host, alive};
 use crate::fleet::model::{Account, SessionRecord};
-use crate::fleet::runtime::{CredentialFailure, Opening, new_uuid, now_ms};
+use crate::fleet::refusals;
+use crate::fleet::runtime::{ClientRefusal, CredentialFailure, Opening, new_uuid, now_ms};
 use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::turns::TurnSignal;
 
@@ -21,7 +22,7 @@ const CREDENTIAL_FAILURES: &str = ".credential-failures.jsonl";
 #[derive(Debug, Eq, PartialEq)]
 enum FirstTurn {
     Answered,
-    Failed(CredentialFailure),
+    Failed(ClientRefusal),
 }
 
 impl Fleet {
@@ -38,9 +39,10 @@ impl Fleet {
 
     fn answer_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str) -> NorthResult<()> {
         let FirstTurn::Failed(failure) = self.first_turn(record, prompt)? else { return Ok(()) };
-        self.note_credential_failure(record, failure)?;
-        if failure == CredentialFailure::Expired || self.host_in_use(record)? {
-            return Err(refusal(record, failure));
+        self.note_credential_failure(record, &failure)?;
+        if failure.failure != CredentialFailure::SignedOut || self.host_in_use(record)? {
+            self.mark_refused(record, account, &failure);
+            return Err(refusal(record, &failure));
         }
         Host::new(record.host_dir.clone()).terminate()?;
         record.conversation = self.runtime(record)?.assign_conversation()?;
@@ -49,8 +51,9 @@ impl Fleet {
         match self.first_turn(record, prompt)? {
             FirstTurn::Answered => Ok(()),
             FirstTurn::Failed(failure) => {
-                self.note_credential_failure(record, failure)?;
-                Err(refusal(record, failure))
+                self.note_credential_failure(record, &failure)?;
+                self.mark_refused(record, account, &failure);
+                Err(refusal(record, &failure))
             }
         }
     }
@@ -85,25 +88,38 @@ impl Fleet {
         }
     }
 
-    fn note_credential_failure(&self, record: &SessionRecord, failure: CredentialFailure) -> NorthResult<()> {
-        let failure = match failure {
+    fn note_credential_failure(&self, record: &SessionRecord, failure: &ClientRefusal) -> NorthResult<()> {
+        let failure = match failure.failure {
             CredentialFailure::SignedOut => "signed-out",
             CredentialFailure::Expired => "oauth-expired",
+            CredentialFailure::Disabled => "subscription-disabled",
         };
         let row = json!({"at_ms": now_ms(), "session": record.name, "provider": record.provider.label(), "account": record.account, "failure": failure});
         let mut log = OpenOptions::new().create(true).append(true).open(self.root.join(CREDENTIAL_FAILURES))?;
         writeln!(log, "{row}")?;
         Ok(())
     }
+
+    /// Keeps placement and launches off a subscription account its client refused, until a probe passes.
+    fn mark_refused(&self, record: &SessionRecord, account: &Account, failure: &ClientRefusal) {
+        if account.api.is_some() {
+            return;
+        }
+        let dir = refusals::directory(&super::home::state_dir(&self.home));
+        if let Err(error) = refusals::mark(&dir, &account.label, &record.name, &crate::foundation::clock::Timestamp::now().iso(), &failure.text) {
+            eprintln!("north fleet: could not mark {}:{} refused: {error}", record.provider.label(), account.label);
+        }
+    }
 }
 
-fn refusal(record: &SessionRecord, failure: CredentialFailure) -> NorthError {
+fn refusal(record: &SessionRecord, failure: &ClientRefusal) -> NorthError {
     let (name, account) = (&record.name, format!("{}:{}", record.provider.label(), record.account));
-    NorthError::Refused(match failure {
+    NorthError::Refused(match failure.failure {
         CredentialFailure::SignedOut => format!("{name} on {account} answered its first turn with 'Not logged in' after one restart"),
         CredentialFailure::Expired => format!(
             "{name} on {account} answered its first turn with 'OAuth session expired': {account}'s login on {} was revoked, most likely by a copy refreshing on another host; sign it in again here and keep it in this host's profiles only",
             crate::platform::host::name()
         ),
+        CredentialFailure::Disabled => format!("{name} on {account} answered its first turn with '{}'; {account} stays unavailable until `north fleet accounts --probe` passes on it", failure.text),
     })
 }

@@ -46,6 +46,15 @@ pub struct Instructions<'a> {
 pub enum CredentialFailure {
     SignedOut,
     Expired,
+    /// The account's organization turned off subscription access for the client.
+    Disabled,
+}
+
+/// A client's refusal to run on an account, with the text it answered.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientRefusal {
+    pub failure: CredentialFailure,
+    pub text: String,
 }
 
 pub struct WindowInbox {
@@ -129,7 +138,7 @@ pub trait Runtime: Send + Sync {
     fn question(&self, _frame: &Value) -> Option<Question> {
         None
     }
-    fn credential_failure(&self, _frame: &Value) -> Option<CredentialFailure> {
+    fn credential_failure(&self, _frame: &Value) -> Option<ClientRefusal> {
         None
     }
     fn caller_conversation(&self) -> Option<String> {

@@ -71,3 +71,24 @@ fn a_launch_on_the_api_pool_with_every_org_spent_is_refused_naming_each_org_and_
         other => panic!("a launch on a spent pool was not refused as spent: {other:?}"),
     }
 }
+
+#[test]
+fn an_account_its_client_refused_is_not_offered_and_its_launch_refused_with_the_refusal_until_cleared() {
+    let state = tempfile::tempdir().unwrap();
+    profile(state.path(), "b", "account-b");
+    profile(state.path(), "e", "account-e");
+    let claude = ProviderName::new("claude");
+    let marks = crate::fleet::refusals::directory(state.path());
+    let text = "Your organization has disabled Claude subscription access for Claude Code";
+    crate::fleet::refusals::mark(&marks, "b", "ds-landerE", "2026-11-10T01:20:00Z", text).unwrap();
+
+    let roster = discover(&claude, state.path(), &Profiles::default());
+
+    assert_eq!(labels(&roster).0, vec!["e"], "on 2026-11-10 claude:b was offered as available though its client refused it");
+    match roster.account(&claude, "b") {
+        Err(NorthError::Refused(why)) => assert!(why.contains(text), "{why}"),
+        other => panic!("launching the refused account was not refused: {other:?}"),
+    }
+    crate::fleet::refusals::clear(&marks, "b").unwrap();
+    assert_eq!(labels(&discover(&claude, state.path(), &Profiles::default())).0, vec!["b", "e"]);
+}
