@@ -25,6 +25,9 @@ impl Home {
         file(&home.join("code/p/pins/abc/file"));
         file(&home.join("code/p/worktrees/other/work.rs"));
         file(&home.join("code/north-data/profiles/claude-a/projects/run/transcript.jsonl"));
+        file(&home.join(".local/state/threads/threads.db"));
+        file(&home.join(".local/state/convo/index.db"));
+        file(&home.join("code/north-data/fleet/north-706/session.json"));
         file(&home.join(".local/state/btop.log"));
         std::os::unix::fs::symlink(home.join("code/north-data"), home.join(".local/state/north")).unwrap();
         let other = home.join("code/q/main");
@@ -55,7 +58,7 @@ impl Home {
 
     fn protected(&self) -> Vec<PathBuf> {
         let home = self.path();
-        ["Library/Application Support/App/cache.db", "code/p/pins/abc/file", "code/p/worktrees/other/work.rs", "code/p/main/src.rs", "code/q/main/.git/HEAD", ".local/state/north/profiles/claude-a/projects/run/transcript.jsonl"].iter().map(|relative| home.join(relative)).collect()
+        ["Library/Application Support/App/cache.db", "code/p/pins/abc/file", "code/p/worktrees/other/work.rs", "code/p/main/src.rs", "code/q/main/.git/HEAD", ".local/state/north/profiles/claude-a/projects/run/transcript.jsonl", ".local/state/threads/threads.db", ".local/state/convo/index.db", ".local/state/north/fleet/north-706/session.json"].iter().map(|relative| home.join(relative)).collect()
     }
 
     fn run(&self, command: &str, sandboxed: bool) -> Output {

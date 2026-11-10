@@ -51,7 +51,10 @@ impl Context {
     }
 }
 
-/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names, whose lock files, packs and maintenance files git renames from every checkout, scratch and caches, and agent state apart from the account profiles that hold transcripts and logins.
+/// The stores under `~/.local/state` no worker command may remove: the threads ledger every fleet decision is read from and the conversation index `north convo` searches, which hold the transcripts, the fleet's session records, and the account profiles and tokens that hold each provider's transcripts and logins.
+const PROTECTED_STATE: [&str; 5] = ["threads", "convo", "north/profiles", "north/claude-tokens", "north/fleet"];
+
+/// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names, whose lock files, packs and maintenance files git renames from every checkout, scratch and caches, and agent state apart from the transcript stores that hold transcripts and logins.
 pub fn removable(context: &Context) -> Vec<PathBuf> {
     let home = &context.home;
     let mut roots: Vec<PathBuf> = ["/tmp", "/var/tmp", "/dev/shm"].map(PathBuf::from).into();
@@ -62,7 +65,8 @@ pub fn removable(context: &Context) -> Vec<PathBuf> {
     roots.extend(context.cargo_target.clone().map(|target| if target.is_absolute() { target } else { context.cwd.join(target) }));
     roots.extend([".rustup", ".bun", ".npm"].map(|name| home.join(name)));
     let state = home.join(".local/state");
-    roots.extend(beneath_except(&state, &[state.join("north/profiles"), state.join("north/claude-tokens")], Entries::Directories));
+    let protected: Vec<PathBuf> = PROTECTED_STATE.iter().map(|store| state.join(store)).collect();
+    roots.extend(beneath_except(&state, &protected, Entries::Directories));
     let lanes: Vec<PathBuf> = lane(home, &context.cwd).into_iter().chain(context.named_lanes.iter().cloned()).collect();
     let projects = project(home, &context.cwd).into_iter().chain(context.named_projects.iter().cloned()).chain(lanes.iter().filter_map(|lane| lane.parent().and_then(Path::parent)).map(Path::to_path_buf));
     for project in projects {

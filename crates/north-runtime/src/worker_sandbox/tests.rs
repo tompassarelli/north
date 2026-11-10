@@ -252,6 +252,27 @@ fn a_lane_only_caller_without_its_marker_still_gets_lane_reads() {
 }
 
 #[test]
+fn a_worker_may_not_remove_the_transcript_stores_or_the_ledger_beside_its_scratch_north_1041() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let root = tempfile::Builder::new().prefix("north-1041-transcripts").tempdir_in(outside_tmp).unwrap();
+    let home = root.path().canonicalize().unwrap();
+    let state = home.join(".local/state");
+    let main = home.join("code/north/main");
+    for directory in [state.join("threads"), state.join("convo"), state.join("north/profiles"), state.join("north/fleet"), state.join("north/land"), main.clone()] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    let context = Context { home, cwd: main, uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None };
+    let roots = removable(&context);
+    for store in ["threads", "convo", "north/profiles", "north/fleet"] {
+        let store = state.join(store).canonicalize().unwrap();
+        assert!(!roots.iter().any(|root| store.starts_with(root) || root.starts_with(&store)), "a worker may remove the transcript store {}", store.display());
+    }
+    let scratch = state.join("north/land").canonicalize().unwrap();
+    assert!(roots.iter().any(|root| root == &scratch), "a worker may no longer remove its own lock files under {}", scratch.display());
+}
+
+#[test]
 fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
     let home = tempfile::tempdir().unwrap();
     let home = home.path().canonicalize().unwrap();
