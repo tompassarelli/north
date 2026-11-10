@@ -77,11 +77,7 @@ fn supervise(options: &Options) -> Result<u8, String> {
     let mut report = recorder.finish();
     report.entries.extend(own);
     if let Some(record) = &record {
-        std::fs::write(record, path_set::render(&report.entries)).map_err(|error| format!("record {}: {error}", record.display()))?;
-        if options.exec_log {
-            let path = PathBuf::from(format!("{}.exec", record.display()));
-            std::fs::write(&path, exec_log(root, &report)).map_err(|error| format!("exec log {}: {error}", path.display()))?;
-        }
+        write_record(record, options.exec_log, root, &report)?;
     }
     for path in &report.refused {
         eprintln!("sandbox refused read of {path}");
@@ -90,6 +86,15 @@ fn supervise(options: &Options) -> Result<u8, String> {
         code = 1;
     }
     Ok(code)
+}
+
+fn write_record(record: &Path, exec_log_too: bool, root: u32, report: &recorder::Report) -> Result<(), String> {
+    std::fs::write(record, path_set::render(&report.entries)).map_err(|error| format!("record {}: {error}", record.display()))?;
+    if exec_log_too {
+        let path = PathBuf::from(format!("{}.exec", record.display()));
+        std::fs::write(&path, exec_log(root, report)).map_err(|error| format!("exec log {}: {error}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn scratch_directory() -> Result<tempfile::TempDir, String> {
