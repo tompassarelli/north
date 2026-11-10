@@ -134,7 +134,8 @@ impl Issue {
                     Some(before) => Some(Hold::Behind(before)),
                     None => (wait.counts || MISSED.is_match(line)).then_some(Hold::Undated),
                 })
-                .or_else(|| live_reading(line).map(Hold::Live));
+                .or_else(|| live_reading(line).map(Hold::Live))
+                .or_else(|| crate::pacing::placement::needs::declared(line).is_some_and(|needs| needs.iter().any(|need| need == "tom")).then_some(Hold::Tom));
             above = Some(line);
             (line, hold)
         })
@@ -263,6 +264,7 @@ enum Hold<'a> {
     Behind(&'a str),
     Undated,
     Live(&'static str),
+    Tom,
 }
 
 impl fmt::Display for Hold<'_> {
@@ -273,6 +275,7 @@ impl fmt::Display for Hold<'_> {
                 write!(f, "the unticked box above it is done: `{named}`")
             }
             Self::Undated => write!(f, "it is stamped `(not before YYYY-MM-DDTHH:MMZ)`: it counts something with no date"),
+            Self::Tom => write!(f, "Tom answers it: its own `Needs: Tom` line hands it to him"),
             Self::Live(source) => write!(f, "it reads {source}, which a worker cannot take"),
         }
     }

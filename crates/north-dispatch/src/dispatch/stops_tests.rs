@@ -531,3 +531,20 @@ fn a_box_a_missed_check_reopened_climbs_one_rung_and_its_launch_record_names_the
     assert!(line.contains("\"signal\":\"reopened\""), "{line}");
     assert!(!serde_json::to_string(&launched).unwrap().contains("signal"), "a launch that did not climb records no signal");
 }
+
+/// north#956: north-956-d0754 was staffed on 2026-11-10 on a box whose own line reads `Needs: Tom` while the gate it names stayed closed as paused.
+#[test]
+fn a_box_whose_own_line_needs_tom_is_not_staffed_while_a_plain_box_beside_it_is() {
+    let at = crate::foundation::clock::Timestamp::parse_loose("2026-11-10T07:54Z").unwrap().unix_seconds_f64();
+    let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
+    let world = World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at };
+    let tom = "- [ ] Every transcript has a verified cold copy on the Storage Box. Needs: Tom (resuming the paused off-host push, gate 192)";
+    let plain = "- [ ] the cache keeps the newest row";
+
+    let both = issue("north", 956, &format!("{tom}\n{plain}"), &[]);
+    assert_eq!(both.takeable(at).collect::<Vec<_>>(), [plain]);
+    assert_eq!(
+        issues::readiness(&issue("north", 956, tom, &[]), &world),
+        Err("only open box waits until Tom answers it: its own `Needs: Tom` line hands it to him".into())
+    );
+}
