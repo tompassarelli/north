@@ -15,6 +15,12 @@ item = "cargo-fetched/*"
 reason = "one empty file per Cargo.lock fingerprint records that its crates were fetched on this host; the landing's crate fetch reads and writes the same files, and a missing one only costs one cargo fetch"
 
 [[implicit_state.allow]]
+shape = "presence-flag"
+path = "crates/north-lanes/src/lanes/orphan.rs"
+item = ".git"
+reason = "a lane directory git no longer registers is told apart from a clone by whether its .git is a file or a directory, which git itself writes; north keeps no state there"
+
+[[implicit_state.allow]]
 shape = "status-string"
 path = "crates/north-providers/src/providers/claude/window_inbox.rs"
 reason = "the status of a Claude Code window is read from the session file Claude Code writes, an external format with no north lifecycle behind it"
