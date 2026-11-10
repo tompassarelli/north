@@ -45,7 +45,7 @@ fn the_tripwire_fires_on_a_planted_burst_and_names_the_top_spender() {
     assert!(trip.line.contains("runaway"), "{}", trip.line);
     let view = View { at: NOW, accounts: vec![account("claude:c", 55.0, 50.0)], working: 0, trips: vec![trip], keyed: Vec::new(), operational: Vec::new(), drain: false };
     assert_eq!(view.admit(&rules(), "claude:c", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Tripwire));
-    let calm = [Sample { at: NOW - 14.0 * 60.0, used_pct: 20.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 45.0, resets_at: Some(NOW + HOUR) }];
+    let calm = [Sample { at: NOW - 14.0 * 60.0, used_pct: 20.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 25.0, resets_at: Some(NOW + HOUR) }];
     assert_eq!(tripwire::trip(&rules(), "claude:c", &calm, &[], 1.0, NOW), None);
 }
 

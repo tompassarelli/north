@@ -35,6 +35,8 @@ pub struct Trip {
     pub at: f64,
     #[serde(default)]
     pub priced: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<f64>,
 }
 
 impl Trip {
@@ -54,6 +56,13 @@ pub fn rise(samples: &[Sample], now: f64, minutes: f64) -> f64 {
         .filter(|sample| sample.at >= since && sample.at <= now && sample.resets_at == latest.resets_at)
         .min_by(|a, b| a.at.total_cmp(&b.at))
         .map_or(0.0, |first| (latest.used_pct - first.used_pct).max(0.0))
+}
+
+/// The five-hour percent the account reaches at its reset if the last `minutes` of burn continues; None without a reset to project to.
+pub fn projected(samples: &[Sample], now: f64, minutes: f64) -> Option<f64> {
+    let latest = samples.iter().filter(|sample| sample.at <= now).max_by(|a, b| a.at.total_cmp(&b.at))?;
+    let left = (latest.resets_at? - now).max(0.0);
+    Some(latest.used_pct + rise(samples, now, minutes) / (minutes * 60.0) * left)
 }
 
 /// Dollars a session settled in the last `minutes`: its latest total less its total at the span's
@@ -76,6 +85,8 @@ pub fn trip(rules: &Rules, account: &str, samples: &[Sample], spenders: &[Spende
     let points = |spender: &Spender, burst: Burst| spent(&spender.spent, now, burst.minutes) * points_per_usd;
     let rose = rise(samples, now, rules.fleet_trip.minutes);
     let fleet = (rose > rules.fleet_trip.points).then(|| format!("{account} five-hour window rose {rose:.0} points in {:.0} min, over the {:.0}-point tripwire", rules.fleet_trip.minutes, rules.fleet_trip.points));
+    let exhaust = projected(samples, now, rules.fleet_trip.minutes).filter(|reach| *reach >= 100.0).map(|reach| format!("{account} circuit breaker: its five-hour window rose {rose:.0} points in {:.0} min, which reaches {reach:.0}% before it resets", rules.fleet_trip.minutes));
+    let fleet = fleet.or(exhaust);
     let session = own.iter().map(|spender| (spender.session.as_str(), points(spender, rules.session_trip))).filter(|(_, spent)| *spent > rules.session_trip.points).max_by(|a, b| a.1.total_cmp(&b.1));
     let session = session.map(|(name, spent)| format!("{name} spent {spent:.0} points of {account}'s five-hour window in {:.0} min, over the {:.0}-point session tripwire at {points_per_usd:.3} points per dollar", rules.session_trip.minutes, rules.session_trip.points));
     let priced = fleet.is_none().then_some(points_per_usd);
@@ -84,7 +95,7 @@ pub fn trip(rules: &Rules, account: &str, samples: &[Sample], spenders: &[Spende
     top.sort_by(|a, b| b.1.total_cmp(&a.1));
     let named: Vec<String> = top.iter().take(3).map(|(name, spent)| format!("{name} {spent:.0}")).collect();
     let line = if named.is_empty() { why } else { format!("{why}; top spenders in points: {}", named.join(", ")) };
-    Some(Trip { account: account.to_owned(), line, at: now, priced })
+    Some(Trip { account: account.to_owned(), line, at: now, priced, closed_at: None })
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -113,6 +124,7 @@ impl Spenders {
 pub struct Judged {
     pub current: Vec<Trip>,
     pub new: Vec<Trip>,
+    pub closed: Vec<Trip>,
 }
 
 /// The trips in force: every confirmed trip, and each earlier trip within its burst's window (`Trip::holds`) that this tick did not confirm, unless
@@ -124,7 +136,13 @@ pub fn judge(previous: &[Trip], confirmed: Vec<Trip>, now: f64, rules: &Rules, p
     let kept: Vec<Trip> = live.into_iter().filter(|earlier| !confirmed.iter().any(|trip| trip.account == earlier.account) && !repriced(earlier)).cloned().collect();
     let mut current = confirmed;
     current.extend(kept);
-    Judged { current, new }
+    let mut closed: Vec<Trip> = Vec::new();
+    for earlier in previous.iter().filter(|trip| trip.closed_at.is_none()) {
+        if !current.iter().any(|trip| trip.account == earlier.account) && !closed.iter().any(|trip| trip.account == earlier.account) {
+            closed.push(Trip { closed_at: Some(now), ..earlier.clone() });
+        }
+    }
+    Judged { current, new, closed }
 }
 
 pub const SPENDERS: &str = "spend/spenders.json";

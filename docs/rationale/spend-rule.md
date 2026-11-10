@@ -29,9 +29,10 @@ fired: `spend reserve`, `operational reserve`, `spend floor`, `spend tripwire`, 
      minutes (readings that share one reset);
    - one session spent more than `spend_trip_session_points` of that window within `spend_trip_session_min`
      minutes.
+   - the circuit breaker: the rise of the last `spend_trip_fleet_min` minutes, held until the window resets, would take it to 100%.
 
    The proxy is told once per trip, with the top spenders. Running sessions continue. A trip lapses once no
-   tick confirms it within the longer of the two spans. Trip events go to `agents/spend/trips.jsonl` so a week
+   tick confirms it within the longer of the two spans. Trip events, and a `closed_at` row when a trip lapses, go to `agents/spend/trips.jsonl` so a week
    of them can tune the thresholds.
 3. **Operational floor.** Each subscription account keeps `spend_floor_week` (5) percent of its week and
    `spend_floor_five_hour` (10) percent of its five-hour window for the privacy judge, the lander and the
