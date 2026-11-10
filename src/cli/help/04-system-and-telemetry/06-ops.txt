@@ -1,2 +1,2 @@
 ops
-Watch, expectations, credentials, GitHub, strategy, climb, news
+Watch, expectations, credentials, GitHub, strategy, news

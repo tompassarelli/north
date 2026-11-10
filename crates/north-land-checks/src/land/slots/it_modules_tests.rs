@@ -16,10 +16,10 @@ fn selected(files: &[&str]) -> Selection {
 
 #[test]
 fn a_probe_through_src_and_four_crates_runs_only_the_tests_it_modules_their_crates_select() {
-    let probe = ["src/cli/worker_ledger/recalibrate.rs", "crates/north-calibration/src/threads/calibration/box_eta.rs", "crates/north-capacity-host/src/capacity/command.rs", "crates/north-climb/src/arms.rs", "crates/north-context-pack/src/cochange.rs"];
+    let probe = ["src/cli/worker_ledger/recalibrate.rs", "crates/north-calibration/src/threads/calibration/box_eta.rs", "crates/north-capacity-host/src/capacity/command.rs", "crates/north-context-pack/src/cochange.rs"];
     let plan = Plan::parse(&read(STRUCTURE)).unwrap();
     let table = Table::parse(&read(TABLE), &plan, &spawners(root())).unwrap();
-    let affected = plan.closure(["north", "north-calibration", "north-capacity-host", "north-climb", "north-context-pack"].map(str::to_owned).into());
+    let affected = plan.closure(["north", "north-calibration", "north-capacity-host", "north-context-pack"].map(str::to_owned).into());
     let expected: BTreeSet<String> = table.modules().filter(|module| !table.crates(module).unwrap().is_disjoint(&affected)).map(str::to_owned).collect();
     let selection = selected(&probe);
     assert_eq!(selection, Selection::Modules { modules: expected, units: Units::default(), floor: Floor::default() }, "the probe runs the modules crates.txt maps to its crates");

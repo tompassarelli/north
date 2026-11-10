@@ -953,7 +953,6 @@ dependencies = [
  "north-capacity",
  "north-capacity-host",
  "north-check-environment",
- "north-climb",
  "north-code-health",
  "north-context-pack",
  "north-convo",
@@ -1113,18 +1112,6 @@ name = "north-claude-stream"
 version = "0.1.0"
 dependencies = [
  "serde",
- "serde_json",
-]
-
-[[package]]
-name = "north-climb"
-version = "0.1.0"
-dependencies = [
- "north-base",
- "north-dispatch",
- "north-graph",
- "north-replay",
- "north-strategy-types",
  "serde_json",
 ]
 

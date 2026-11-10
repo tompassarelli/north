@@ -67,14 +67,6 @@ fn no_native_is_forced_whatever_the_caller_sends() {
 
 
 #[test]
-fn climb_dry_run_is_the_one_ops_climb_form_a_remote_host_may_ask() {
-    assert!(plan("north ops climb run --dry-run").is_ok());
-    for command in ["north ops climb run", "north ops climb", "north ops check", "north ops climb run --dry-run --since 7d"] {
-        assert!(matches!(plan(command), Err(Refusal::Verb(_))), "{command}");
-    }
-}
-
-#[test]
 fn nexus_reaches_a_worker_only_through_its_own_verb_set() {
     use super::{Grants, Job, Jobs, NEXUS_PEER, plan_for};
     struct NoJobs;

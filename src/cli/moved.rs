@@ -13,7 +13,6 @@ const MOVED: &[(&[&str], &str, &[&str])] = &[
     (&["orders"], "fleet orders", &[]),
     (&["report"], "fleet report", &[]),
     (&["context"], "config context", &[]),
-    (&["climb"], "ops climb", &[]),
     (&["release"], "land release", &[]),
     (&["repo", "audit"], "lane audit", &[]),
     (&["split"], "code-health split", &[]),

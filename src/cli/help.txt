@@ -36,7 +36,7 @@ System and telemetry:
   config                Skills and hooks, agent plan and usage, context, proxy calls
   runtime               Update, deploy or check the north and agent runtimes
   capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
-  ops                   Watch, expectations, credentials, GitHub, strategy, climb, news
+  ops                   Watch, expectations, credentials, GitHub, strategy, news
   help                  Show this help
 
 Run north COMMAND --help for its usage and contract. Run north --help-all
