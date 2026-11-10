@@ -125,3 +125,12 @@ fn a_host_with_a_dirty_main_checkout_still_promotes_the_shipped_runtime() {
     assert_eq!(super::shipped::shipped(&layout, &checkout, &shipped, Some(&current)), super::shipped::Shipped::Promote);
     assert_eq!(super::shipped::shipped(&layout, &checkout, &shas[0], Some(&current)), super::shipped::Shipped::Older(live), "a checkout that knows the order still refuses a step back");
 }
+
+#[test]
+fn a_waiting_promotion_whose_runtime_is_no_longer_current_leaves_instead_of_waiting_out_the_lock() {
+    let state = tempfile::tempdir().unwrap();
+    let layout = Layout { state: state.path().to_path_buf() };
+    let _holder = named_lock(&layout, PROMOTE_LOCK, FlockOperation::NonBlockingLockExclusive).unwrap().unwrap();
+    let left = named_lock_waiting_unless(&layout, PROMOTE_LOCK, Duration::from_secs(600), "north runtime promote", &mut || Some("runtimes/newer".to_owned())).unwrap_err();
+    assert_eq!(left.code, DEFERRED);
+}
