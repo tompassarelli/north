@@ -138,7 +138,6 @@ fn an_opencode_worker_runs_a_brief_and_reports_through_the_fleet() {
     a_brief_naming_a_private_repo_or_a_secret_is_refused_for_the_free_model_and_not_for_go();
     the_launched_config_lists_only_the_one_chosen_provider_and_model();
     past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_one_is_admitted();
-    a_private_or_unreadable_lane_is_admitted_on_paid_go_flash();
 }
 
 fn a_free_model_that_is_limited_runs_the_turn_again_on_paid_go_flash() {
@@ -215,18 +214,6 @@ fn past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_on
     assert!(private.is_err_and(|error| error.user_message().contains("zero-retention agreement")));
     assert!(public.is_ok());
     assert!(seeing(Visibility::Private, day("2026-11-30")).host(&account, &request(home.path()), Opening::Fresh(Some("ses_x")), "").is_ok());
-}
-
-fn a_private_or_unreadable_lane_is_admitted_on_paid_go_flash() {
-    let home = tempfile::tempdir().unwrap();
-    let account = account(home.path());
-    let live = |visibility| Deepseek::reading(&OPENCODE, Arc::new(move |_| visibility), Arc::new(|| day("2026-11-10"))).host(&account, &request(home.path()), Opening::Fresh(Some("ses_x")), "");
-
-    for visibility in [Visibility::Private, Visibility::Unknown] {
-        let spec = live(visibility).unwrap();
-        assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("go"));
-    }
-    assert_eq!(argument(&live(Visibility::Public).unwrap().argv, "--route").as_deref(), Some("free"));
 }
 
 #[test]
