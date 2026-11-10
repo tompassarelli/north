@@ -2,22 +2,31 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::runtime::Runtime;
 
-/// The one effort a Sonnet session runs at: the workers policy staffs Sonnet only at high. Dispatch
-/// reads it too, so a launch it builds carries the effort the launcher will admit.
-pub fn pinned(model: Option<&str>) -> Option<Effort> {
-    model.is_some_and(|model| model.to_lowercase().contains("sonnet")).then_some(Effort::High)
+fn sonnet(model: Option<&str>) -> bool {
+    model.is_some_and(|model| model.to_lowercase().contains("sonnet"))
 }
 
-/// The effort a launch records: none unless asked, high for Sonnet whatever the account's default,
-/// the session's seeded draw from a runtime's effort arms, and refused by a runtime that takes none,
-/// for Sonnet at any other effort, or outside a runtime's arms.
+fn sonnet_effort(effort: Effort) -> bool {
+    matches!(effort, Effort::Medium | Effort::High)
+}
+
+/// The effort the launcher admits for a Sonnet session: the one asked when it is medium or high, else
+/// high. Dispatch reads it too, so a launch it builds never carries an effort the launcher refuses.
+pub fn admitted(model: Option<&str>, asked: Option<Effort>) -> Option<Effort> {
+    sonnet(model).then(|| asked.filter(|effort| sonnet_effort(*effort)).unwrap_or(Effort::High))
+}
+
+/// The effort a launch records: none unless asked, high for Sonnet when none is asked, medium or high
+/// for Sonnet when asked, the session's seeded draw from a runtime's effort arms, and refused by a
+/// runtime that takes none, for Sonnet at any other effort, or outside a runtime's arms.
 pub fn taken(runtime: &dyn Runtime, model: Option<&str>, effort: Option<Effort>, seed: &str) -> NorthResult<Option<Effort>> {
     let arms = runtime.effort_arms();
-    match (effort, pinned(model)) {
+    match (effort, sonnet(model)) {
         (Some(_), _) if !runtime.takes_effort() => Err(NorthError::Usage(format!("{} sessions take no --effort; launch a claude session to set reasoning effort", runtime.provider().label()))),
-        (Some(asked), Some(only)) if asked != only => Err(NorthError::Usage(format!("{} runs only at {} effort, not {}; drop --effort or pass --effort {}", model.unwrap_or_default(), only.label(), asked.label(), only.label()))),
-        (Some(asked), None) if !arms.is_empty() && !arms.contains(&asked) => Err(NorthError::Usage(format!("{} runs only at {} effort, not {}; drop --effort", runtime.provider().label(), arms.iter().map(|effort| effort.label()).collect::<Vec<_>>().join(" or "), asked.label()))),
-        (_, Some(only)) if runtime.takes_effort() => Ok(Some(only)),
+        (Some(asked), true) if !sonnet_effort(asked) => Err(NorthError::Usage(format!("{} runs only at medium or high effort, not {}; drop --effort or pass --effort medium or high", model.unwrap_or_default(), asked.label()))),
+        (Some(asked), false) if !arms.is_empty() && !arms.contains(&asked) => Err(NorthError::Usage(format!("{} runs only at {} effort, not {}; drop --effort", runtime.provider().label(), arms.iter().map(|effort| effort.label()).collect::<Vec<_>>().join(" or "), asked.label()))),
+        (Some(asked), _) => Ok(Some(asked)),
+        (None, true) if runtime.takes_effort() => Ok(Some(Effort::High)),
         (None, _) if !arms.is_empty() => Ok(Some(drawn(seed, arms))),
         _ => Ok(effort),
     }
@@ -32,10 +41,11 @@ fn drawn(seed: &str, arms: &[Effort]) -> Effort {
 }
 
 /// The effort a revive records: the stored one unless a new one is given, which a running session refuses;
-/// a stored Sonnet effort other than high is restored to high.
+/// a stored Sonnet effort other than medium or high is restored to high.
 pub fn revived(record: &SessionRecord, runtime: &dyn Runtime, running: bool, effort: Option<Effort>) -> NorthResult<Option<Effort>> {
     match effort {
-        None => Ok(pinned(record.model.as_deref()).filter(|_| runtime.takes_effort()).or(record.effort)),
+        None if sonnet(record.model.as_deref()) => Ok(record.effort.filter(|effort| sonnet_effort(*effort)).or_else(|| runtime.takes_effort().then_some(Effort::High))),
+        None => Ok(record.effort),
         Some(_) if running => Err(NorthError::Usage(format!("{} is running; stop it before reviving it with --effort", record.name))),
         Some(_) => taken(runtime, record.model.as_deref(), effort, &record.name),
     }

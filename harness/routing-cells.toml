@@ -12,13 +12,8 @@ reason = "its token spend approaches Sonnet medium at a lower effort, which is s
 
 [[exclude]]
 model = "sonnet"
-effort = "medium"
-reason = "the workers policy staffs a Sonnet session only at high effort, so the launcher refuses every other Sonnet effort"
-
-[[exclude]]
-model = "sonnet"
 effort = "xhigh"
-reason = "the workers policy staffs a Sonnet session only at high effort, so the launcher refuses every other Sonnet effort"
+reason = "the workers policy staffs a Sonnet session at medium or high effort, so the launcher refuses xhigh"
 
 [[exclude]]
 model = "sonnet"

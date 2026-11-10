@@ -121,10 +121,8 @@ impl Route {
 
     pub fn model_effort(&self, cfg: &DocumentMut) -> Result<(String, String), String> {
         let (model, effort) = self.tier.model_effort(cfg)?;
-        // The launcher pins a Sonnet session to high whatever its cell, arm or tier table says, so a
-        // launch dispatch builds passes that effort instead of a medium one the launcher refuses.
-        let effort = match crate::fleet::registry::efforts::pinned(Some(&model)) {
-            Some(pinned) => pinned.label().to_owned(),
+        let effort = match crate::fleet::registry::efforts::admitted(Some(&model), self.effort.and_then(|effort| crate::fleet::effort::Effort::parse(effort.name()).ok())) {
+            Some(admitted) => admitted.label().to_owned(),
             None => self.effort.map_or(effort, |effort| effort.name().to_owned()),
         };
         Ok((model, effort))

@@ -50,6 +50,8 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
             );
         }
     }
+    assert!(crate::fleet::registry::efforts::taken(&Claude, Some("claude-sonnet-5-5"), Some(Effort::Medium), "seed").is_ok_and(|effort| effort == Some(Effort::Medium)));
+    assert!(crate::fleet::registry::efforts::taken(&Claude, Some("claude-sonnet-5-5"), Some(Effort::Xhigh), "seed").is_err(), "Sonnet xhigh stays excluded");
     let item = "north#7";
     let mut history = History::default();
     let first = route_for(item, &facet("review"), &history, &unread).unwrap();
@@ -100,9 +102,11 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     };
     assert_eq!(
         sonnet.invocation(&cfg).unwrap(),
-        ["--model", "claude-sonnet-5-5", "--effort", "high"],
-        "a Sonnet launch passes high, never the medium the launcher refuses"
+        ["--model", "claude-sonnet-5-5", "--effort", "medium"],
+        "a Sonnet launch passes the medium the launcher admits"
     );
+    let xhigh = super::tier::Route { effort: Some(super::tier::Effort::Xhigh), ..sonnet };
+    assert_eq!(xhigh.invocation(&cfg).unwrap(), ["--model", "claude-sonnet-5-5", "--effort", "high"], "a Sonnet launch never passes the xhigh the launcher refuses");
     let hand = |category: &str| {
         let brief = format!("Item: north#7\nCategory: {category}");
         start(&Ask { item: "north#7", brief: &brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, "", &cfg, &History::default(), &unread, &|_| super::grounds::Grounds::default())

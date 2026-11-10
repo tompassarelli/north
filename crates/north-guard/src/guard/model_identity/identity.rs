@@ -7,14 +7,16 @@ const PLACEHOLDER_WORDS: [&str; 21] = [
     "unobserved", "selected", "selection", "available", "best", "highest", "lowest", "fallback",
     "unspecified", "unknown", "pending", "selector",
 ];
-const ADMITTED: [&str; 15] = [
+const ADMITTED: [&str; 17] = [
     "claude-fable-5",
     "claude-fable-5-1",
+    "claude-fable-5-2",
     "claude-haiku-5-5",
     "claude-opus-4-8",
     "claude-opus-5",
     "claude-opus-5-5",
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
     "gpt-5",
     "gpt-6-astra",
     "gpt-6-luna",

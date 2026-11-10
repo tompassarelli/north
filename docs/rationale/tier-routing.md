@@ -28,9 +28,9 @@ arm with the lower spend per kept closed arm box. The count is stamped runs and 
 boxes on the tier, because a tier's unstamped work carries the earlier routing's selection bias: counting those runs
 settled every category on 31 Oct with the Opus arm at 8 to 11 runs, and pricing those boxes made Opus look 2.4 times
 dearer on feature than its own arm boxes show (Arm result, 2026-11-05). Sonnet
-runs only at high effort: a launch without an effort takes the account default, medium, so the session registry pins
-Sonnet to high and refuses any other effort, and dispatch's launch build passes that high effort so it never plans a
-launch the launcher refuses (north#1054).
+runs at medium or high effort: a launch without an effort takes the account default, medium, so the session registry
+pins Sonnet to high when none is asked and accepts an explicit medium; xhigh stays excluded, and max stays out for cost. Dispatch's launch build passes
+the effort the launcher admits, so it never plans a launch the launcher refuses (north#1054).
 
 `north tune` tells each settled category's route to the graph as writer `tune` once a day, and dispatch
 follows that cell, read through harness/graph-rules/effort.json, while the tick is under 36 h old (one missed daily tick plus slack); with no cell for the category or
@@ -156,8 +156,8 @@ cannot fill to 15, so it needs a longer window, a closed-box floor the spread su
   margin use that estimate. A posterior mean was chosen over a lower credible bound because the bound penalises every
   small tier toward failure, while the mean only pulls it toward its category.
 - A tier wins on cost only with 15 priced runs; cost is mean API $ per run divided by the shrunk success.
-- Escalation-only tiers (Opus high and xhigh) are printed but never picked, as the workers skill reserves them for a
-  second reasoning stop.
+- Escalation-only tiers (Opus high and xhigh) are printed but never picked, as the workers skill reserves them for the
+  reasoning failure that escalates a box.
 - When no tier passes and none has 15 priced runs, the pick is the workers skill's default for the category
   (mechanical on Haiku; known-cause bugs, tooling and features on sonnet-high; the rest on Opus medium), with that reason
   printed.

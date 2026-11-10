@@ -4,10 +4,10 @@ use super::cells;
 fn the_arm_table_keeps_a_reason_per_exclusion_and_arms_every_other_cell_but_low_and_max() {
     assert!(cells::exclusions().iter().all(|row| !row.reason.trim().is_empty() && (row.model.is_some() || row.effort.is_some())));
     let feature = cells::allowed("feature");
-    assert_eq!(feature.len(), 7, "{feature:?}");
+    assert_eq!(feature.len(), 8, "{feature:?}");
     assert!(!feature.iter().any(|cell| ["low", "max"].contains(&cell.effort)));
     assert!(cells::excluded("feature", "haiku", "max").is_some() && cells::excluded("feature", "sonnet", "max").is_some());
-    assert!(cells::excluded("feature", "sonnet", "medium").is_some() && cells::excluded("feature", "sonnet", "xhigh").is_some(), "a Sonnet session runs only at high effort");
+    assert!(cells::excluded("feature", "sonnet", "medium").is_none() && cells::excluded("feature", "sonnet", "xhigh").is_some(), "a Sonnet session runs at medium or high effort, never xhigh");
     assert_eq!(cells::allowed(""), feature);
     for category in ["planning", "review", "performance", "netcode-determinism", "debugging-unknown-cause"] {
         assert!(!cells::allowed(category).iter().any(|cell| cell.model == "haiku"), "{category}");
