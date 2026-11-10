@@ -159,7 +159,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
         return Err(failed(1, format!("{} never finished its promotion; nothing to roll back", layout::short(failed_sha))));
     }
     let Some(previous) = lifecycle::previous(layout, failed_sha, |sha| layout::has_programs(&layout.runtime(sha)))? else {
-        return Err(failed(1, format!("no previous runtime to roll {} back to", layout::short(failed_sha))));
+        return Err(failed(DEFERRED, format!("no previous runtime to roll {} back to; nothing to roll back", layout::short(failed_sha))));
     };
     swap(layout, &layout::link(&previous))?;
     live::note_swap(layout, &layout::link(&previous));

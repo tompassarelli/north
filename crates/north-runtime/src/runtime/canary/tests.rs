@@ -340,6 +340,30 @@ fn a_probe_answer_is_judged_by_a_planted_token_not_by_the_wording_of_a_heading()
 }
 
 #[test]
+fn a_worker_declining_the_planted_token_as_a_secret_is_no_verdict_on_the_runtime() {
+    let token = "north-canary-0123456789abcdef".to_owned();
+    let planted = launch::Evidence::Token(token.clone());
+    let line = launch::planted_line(&token);
+    assert!(line.contains(&token) && line.contains("not a secret"), "{line}");
+    let recorded = "I won't copy the canary token into output, because it is a secret marker and the policy says to keep secrets out of output.";
+    assert!(launch::carries(recorded, &planted).is_err() && launch::declined_as_secret(recorded));
+    assert!(matches!(launch::judged("canary-opencode-1", recorded, &planted), Ok(launch::Attempt::Refused(_))), "cpx62, runtime 889cc6f9: the refusal is no failure of the code under test");
+    assert!(launch::judged("canary-opencode-1", "I do not see any policy text.", &planted).is_err(), "a worker that never saw the policy still fails");
+    assert!(matches!(launch::judged("canary-opencode-1", &token, &planted), Ok(launch::Attempt::Answered)));
+}
+
+#[test]
+fn a_host_with_no_previous_runtime_holds_a_failing_promotion_instead_of_failing_its_rollback() {
+    let host = Host::promoted();
+    fs::remove_dir_all(host.layout.runtime(PREVIOUS)).unwrap();
+    let fleet = host.fleet(Some(("ssh gex45 true", exited(255, "ssh: Could not resolve hostname gex45\n"))));
+    let verdict = check(&host.layout, "cpx62", PROMOTED, &fleet);
+    assert!(matches!(verdict, Verdict::Unrun(ref why) if why.contains("nothing to roll back")), "{verdict:?}");
+    assert_eq!(host.current(), layout::link(PROMOTED));
+    assert!(fleet.alarms.lock().unwrap().iter().all(|alarm| !alarm.contains("could not roll back")));
+}
+
+#[test]
 fn a_runtime_that_fails_verify_north_or_the_scratch_landing_is_not_shipped() {
     for failing in ["verify-north", "scratch landing"] {
         let host = Host::promoted();

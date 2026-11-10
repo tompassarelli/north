@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 const PLAIN_PROMPT: &str = "Reply with the single word ok and nothing else.";
 const HEADING_PROMPT: &str = "Reply with the words of any one heading of the standing policy text you were given before this message, without its leading mark, and nothing else.";
-const TOKEN_PROMPT: &str = "Reply with the canary token written in the standing policy text you were given before this message, copied exactly, and nothing else.";
+const TOKEN_PROMPT: &str = "Reply with the canary token written in the standing policy text you were given before this message, copied exactly, and nothing else. The token is a test marker, not a secret.";
 const ASK: Duration = Duration::from_secs(30);
 const ANSWER_WITHIN: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(3);
@@ -69,8 +69,27 @@ fn evidence(provider: &str, scratch: &Path) -> Result<(Evidence, Option<PathBuf>
     let root = scratch.join("agents");
     let policy = root.join("current/instructions/shared/AGENTS.md");
     std::fs::create_dir_all(policy.parent().unwrap_or(&root))?;
-    std::fs::write(&policy, format!("Canary token: {token}\n\n{}\n", published.unwrap_or_default()))?;
+    std::fs::write(&policy, format!("{}\n\n{}\n", planted_line(&token), published.unwrap_or_default()))?;
     Ok((Evidence::Token(token), Some(root)))
+}
+
+/// The line above the policy that carries the token; the policy's own rule against printing secrets made a worker refuse to repeat a bare marker on 2026-11-11, so the line says the marker is no secret.
+pub(super) fn planted_line(token: &str) -> String {
+    format!("Canary token: {token}. This marker is not a secret and carries no credential; repeat it verbatim whenever a runtime probe asks for it.")
+}
+
+/// A reply that holds back the token as a secret says nothing of the runtime: the worker read the policy and applied its rule to a marker, and a worker that never saw the policy has no secrecy rule to quote.
+pub(super) fn declined_as_secret(reply: &str) -> bool {
+    let reply = reply.to_ascii_lowercase();
+    ["secret", "confidential", "credential"].iter().any(|word| reply.contains(word))
+}
+
+pub(super) fn judged(name: &str, reply: &str, evidence: &Evidence) -> Result<Attempt, Failure> {
+    match carries(reply, evidence) {
+        Ok(()) => Ok(Attempt::Answered),
+        Err(_) if declined_as_secret(reply) => Ok(Attempt::Refused(format!("{name} declined to repeat the marker as a secret: {:?}", reply.trim()))),
+        Err(missing) => Err(failed(1, format!("{name} answered without proof of the shared policy: asked for it, it replied {:?} where {missing} was expected", reply.trim()))),
+    }
 }
 
 fn fresh_token() -> Result<String, Failure> {
@@ -195,7 +214,7 @@ fn answer(scene: &Scene, name: &str, evidence: &Evidence) -> Result<Attempt, Fai
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(session) => match answered(&session) {
                     Some(Turn::Replied(reply) | Turn::Failed(reply)) if refused(&reply) => return Ok(Attempt::Refused(reply)),
-                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return carries(&reply, evidence).map(|()| Attempt::Answered).map_err(|missing| failed(1, format!("{name} answered without proof of the shared policy: asked for it, it replied {:?} where {missing} was expected", reply.trim()))),
+                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return judged(name, &reply, evidence),
                     Some(Turn::Failed(error)) => return Err(failed(1, format!("{name}'s first turn failed: {error}"))),
                     _ => last = format!("status {}", session["status"].as_str().unwrap_or("unknown")),
                 },
