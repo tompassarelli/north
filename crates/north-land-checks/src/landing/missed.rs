@@ -3,65 +3,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::Deserialize;
-
-use crate::foundation::check_log::{self, Failure};
 use crate::foundation::clock::Timestamp;
 use crate::land::slots::graph_selection::{SELECTED, Selected};
 use crate::land::slots::guard_suites::Suites;
 use crate::platform::records_mirror;
 
 mod base;
-mod coverage_record;
+mod full_runs;
+use full_runs::{Conclusion, Run, Window, failed_tests};
 pub use base::classify;
 use selection_miss::rev_parse;
 mod responsible;
 mod selection_miss;
 
-const USAGE: &str = "usage: north land missed --since DATE [--until DATE] [--repo DIR] [--coverage FILE]
+pub const USAGE: &str = "usage: north land missed --since DATE [--until DATE] [--repo DIR] [--coverage FILE]
 lists each failing full run on main from two sources, the Cargo runs of GitHub Actions created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z) and the `north test coverage record` full run whose map (--coverage FILE, by default this host's map of the repository) was recorded in that window and names its failed tests, judged as a Cargo run on the map's commit; for each, its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the run on that commit's parent, which is listed as an environment failure and is no miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
 const SETTLED: f64 = 3600.0;
-
-#[derive(Deserialize)]
-struct ActionsRun {
-    #[serde(rename = "databaseId")]
-    id: u64,
-    #[serde(rename = "headSha")]
-    sha: String,
-    conclusion: Conclusion,
-    #[serde(rename = "createdAt")]
-    created: String,
-}
-
-struct Run {
-    source: Source,
-    sha: String,
-    conclusion: Conclusion,
-    created: String,
-}
-
-enum Source {
-    Actions(u64),
-    Coverage(Vec<String>),
-}
-
-impl std::fmt::Display for Source {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Source::Actions(id) => write!(formatter, "run {id}"),
-            Source::Coverage(_) => formatter.write_str("the coverage record"),
-        }
-    }
-}
-
-#[derive(Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-enum Conclusion {
-    Success,
-    Failure,
-    #[serde(other)]
-    Other,
-}
 
 struct Landing {
     base: String,
@@ -69,22 +26,7 @@ struct Landing {
     selected: Selected,
 }
 
-struct Window {
-    since: String,
-    until: Option<String>,
-}
-
-impl Window {
-    fn created(&self) -> String {
-        self.until.as_ref().map_or_else(|| format!(">={}", self.since), |until| format!("{}..{until}", self.since))
-    }
-}
-
 pub fn run(arguments: &[String]) -> u8 {
-    if arguments.iter().any(|argument| argument == "--help" || argument == "-h") {
-        println!("{USAGE}");
-        return 0;
-    }
     let (mut since, mut until, mut repo, mut coverage) = (None, None, PathBuf::from("."), None);
     let mut rest = arguments.iter();
     while let Some(flag) = rest.next() {
@@ -111,23 +53,13 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let landings = landings(&records.home().join("north/land-queue"));
     let suites = Suites::read(&repo).ok();
-    let mut runs = match completed_runs(&repo, &window) {
+    let runs = match full_runs::gathered(&repo, &window, coverage) {
         Ok(runs) => runs,
         Err(why) => {
             eprintln!("north land missed: {why}");
             return 1;
         }
     };
-    let named = coverage.is_some();
-    let coverage = coverage.unwrap_or_else(|| coverage_record::default_path(&repo));
-    match coverage_record::run_in(&coverage, &window, named) {
-        Ok(record) => runs.extend(record),
-        Err(why) => {
-            eprintln!("north land missed: {why}");
-            return 1;
-        }
-    }
-    runs.sort_by(|left, right| left.created.cmp(&right.created));
     let mut outcomes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let (mut tally, mut failing) = (Tally::default(), Vec::new());
     for run in &runs {
@@ -165,13 +97,6 @@ impl Tally {
         self.missed += other.missed;
         self.unjudged += other.unjudged;
         self.environment += other.environment;
-    }
-}
-
-fn failed_tests(repo: &Path, source: &Source) -> Vec<String> {
-    match source {
-        Source::Actions(run) => log(repo, *run).map(|text| check_log::failures(&text).into_iter().filter_map(|failure| if let Failure::Cargo(name) = failure { Some(name) } else { None }).collect()).unwrap_or_default(),
-        Source::Coverage(tests) => tests.clone(),
     }
 }
 
@@ -238,15 +163,6 @@ fn holds(repo: &Path, landing: &Landing, sha: &str) -> bool {
     sha != landing.base && ancestor(repo, &landing.base, sha) && ancestor(repo, sha, &landing.head)
 }
 
-fn completed_runs(repo: &Path, window: &Window) -> Result<Vec<Run>, String> {
-    let output = Command::new("gh").args(["run", "list", "--branch", "main", "--workflow", "Cargo", "--status", "completed", "--limit", "1000", "--json", "databaseId,headSha,conclusion,createdAt", "--created", &window.created()]).current_dir(repo).stdin(Stdio::null()).output().map_err(|why| format!("gh run list: {why}"))?;
-    if !output.status.success() {
-        return Err(format!("gh run list: {}", String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    let runs: Vec<ActionsRun> = serde_json::from_slice(&output.stdout).map_err(|why| format!("gh run list: {why}"))?;
-    Ok(runs.into_iter().filter(|run| run.conclusion != Conclusion::Other).map(|run| Run { source: Source::Actions(run.id), sha: run.sha, conclusion: run.conclusion, created: run.created }).collect())
-}
-
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
     let output = Command::new("git").arg("-C").arg(repo).args(arguments).stderr(Stdio::null()).output();
     output.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).lines().filter(|line| !line.is_empty()).map(str::to_owned).collect()).unwrap_or_default()
@@ -254,10 +170,6 @@ fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
 
 fn changed(repo: &Path, parent: &str, sha: &str) -> Vec<String> {
     git_lines(repo, &["diff", "--name-only", "--no-renames", parent, sha])
-}
-fn log(repo: &Path, run: u64) -> Option<String> {
-    let output = Command::new("gh").args(["run", "view", &run.to_string(), "--log-failed"]).current_dir(repo).stdin(Stdio::null()).output().ok()?;
-    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 #[cfg(test)]

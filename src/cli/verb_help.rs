@@ -4,6 +4,7 @@
 use super::CLI_REFERENCE;
 use crate::capacity::WATCHDOG_USAGE;
 use crate::land::serve;
+use crate::landing::missed;
 use north_safe_push::entry;
 use crate::lanes::GC_USAGE;
 
@@ -18,10 +19,11 @@ const WRAPPERS: [&[&str]; 8] = [
     &["ssh-session"],
     &["threads"],
 ];
-const CONTRACTS: [(&[&str], &str); 6] = [
+const CONTRACTS: [(&[&str], &str); 7] = [
     (&["capacity", "watchdog"], WATCHDOG_USAGE),
     (&["cloud"], super::cloud::USAGE),
     (&["fleet"], super::fleet::usage::USAGE),
+    (&["land", "missed"], missed::USAGE),
     (&["land", "serve"], serve::USAGE),
     (&["lane", "gc"], GC_USAGE),
     (&["safe-push"], entry::USAGE),
