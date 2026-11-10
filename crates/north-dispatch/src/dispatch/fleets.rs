@@ -27,7 +27,7 @@ pub struct Session {
     pub claim_box: Option<String>,
     /// The machine it runs on, when the registry that launched it names one.
     pub machine: Option<String>,
-    /// Whether it is taking a turn now, which is what a host slot and the working target count; an idle session or a parked one waiting on a registered run holds its items and no slot.
+    /// Whether it is taking a turn now, which is what a host slot and the working target count; an idle or parked session holds its items and no slot.
     pub working: bool,
     /// The account it spends, `provider:label` for Claude and the provider otherwise.
     pub account: Option<String>,
@@ -47,10 +47,12 @@ pub fn named_items(name: &str) -> Vec<IssueRef> {
     found[2].split('-').filter_map(|number| number.trim_end_matches(|c: char| c.is_ascii_lowercase()).parse().ok()).map(|number| IssueRef::new(repo, number)).collect()
 }
 
-/// Whether a listed session holds its items: it runs, or it is parked on a run it registered a wait for.
+/// Whether a listed session holds its items: it runs, or it is parked without having ended, which
+/// keeps its claims, its lane and every issue it named until it is revived or retired. A parked
+/// session's host is gone, but a launch beside it duplicates its work (north#1054).
 fn holds(session: &Value) -> bool {
     let status = session["status"].as_str().unwrap_or_default();
-    HOLDING.contains(&status) || status == "parked" && session["waiting"].as_array().is_some_and(|runs| !runs.is_empty())
+    HOLDING.contains(&status) || status == "parked"
 }
 
 /// The pace-control account a listed session spends, as pace-control names it.
@@ -101,17 +103,10 @@ pub fn running_sessions(listing: &Value) -> Vec<Session> {
         .collect()
 }
 
-/// The names of fleet sessions that some listing shows and none shows running: their launches no
-/// longer hold their items.
+/// The names of fleet sessions that some listing shows and none shows holding its items: an exited
+/// session, whose launch and claims no longer hold.
 pub fn stopped_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
     names_outside(fleets, holds)
-}
-
-/// The names of fleet sessions that some listing shows and none shows running or parked: a claim
-/// they made holds nothing, while a parked owner's claim holds until it is stale, as `threads
-/// claim` refuses on it.
-pub fn exited_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
-    names_outside(fleets, |session| holds(session) || session["status"] == "parked")
 }
 
 fn names_outside(fleets: &[(String, Value)], holding: fn(&Value) -> bool) -> BTreeSet<String> {

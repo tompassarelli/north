@@ -171,10 +171,11 @@ impl Issue {
         super::facets::declared(self, "Workers").and_then(|count| count.split_whitespace().next()?.parse().ok()).filter(|count| *count > 0)
     }
 
-    /// The takeable boxes no worker in `held` has and none waits out its window over readings, as the text of each line without the checkbox.
+    /// The takeable boxes no worker in `held` has and none waits out its window over readings, as the text of each line without the checkbox; a box line written twice is one box, by slug.
     pub fn free_boxes<'a>(&'a self, held: &'a BTreeSet<String>, at: f64) -> impl Iterator<Item = &'a str> {
         let anchor = if self.landed > 0.0 { self.landed } else { self.touched };
-        self.takeable(at).filter(move |line| window_seconds(line).is_none_or(|window| anchor + window <= at)).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).filter(|text| crate::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug)))
+        let mut seen = BTreeSet::new();
+        self.takeable(at).filter(move |line| window_seconds(line).is_none_or(|window| anchor + window <= at)).map(|line| line.trim().trim_start_matches(['-', '*', ' ']).trim_start_matches("[ ]").trim()).filter(move |text| crate::threads::claims::box_slug(text).is_some_and(|slug| !held.contains(&slug) && seen.insert(slug)))
     }
 
     /// The needs the boxes `lines` declare with their own `Needs:` lines, and the lander host a check reads its records from;

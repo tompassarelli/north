@@ -38,6 +38,18 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     let challengers = routes.iter().filter(|route| route.cell_role == Some("challenger")).count();
     assert!(leaders > 0 && challengers > 0, "a category draws its leader and its challengers: {leaders} leaders, {challengers} challengers");
     assert_eq!(routes, draw("review"), "the draw is seeded by the item and its launch count");
+    use crate::fleet::model::Effort;
+    use north_providers::providers::claude::fleet::Claude;
+    for category in crate::router::brief::CATEGORIES {
+        for cell in super::cells::allowed(category) {
+            let effort = Effort::parse(cell.effort).expect("an effort word");
+            assert!(
+                crate::fleet::registry::efforts::taken(&Claude, Some(cell.model), Some(effort), "seed").is_ok(),
+                "{category}: dispatch may draw {} but the launcher refuses it",
+                cell.name()
+            );
+        }
+    }
     let item = "north#7";
     let mut history = History::default();
     let first = route_for(item, &facet("review"), &history, &unread).unwrap();

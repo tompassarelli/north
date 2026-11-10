@@ -386,7 +386,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let (elsewhere, mut holds) = fleets::tally(&sessions);
     let live: BTreeSet<String> = sessions.iter().map(|(session, _)| session.name.clone()).collect();
     let records = record::read(&record::directory());
-    let stopped_sessions = fleets::exited_names(&fleet_lists);
+    let stopped_sessions = fleets::stopped_names(&fleet_lists);
     holds.extend(claim_lists.iter().flat_map(|(host, listing)| claim_rows(listing, host, &stopped_sessions)));
     let mut box_holds = fleets::box_tally(&sessions);
     for (item, slug, why) in claim_lists.iter().flat_map(|(host, listing)| claim_box_rows(listing, host, &stopped_sessions)) {

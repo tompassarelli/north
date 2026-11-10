@@ -23,12 +23,17 @@ const REPEAT_ALERT_S: f64 = 6.0 * 3600.0;
 const BOXLESS_EVERY_S: f64 = 24.0 * 3600.0;
 pub const REVIVED: &str = "revived.json";
 
-/// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back.
+/// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back, with the box
+/// slug when the launch staffs one box so two boxes of an issue started in one minute take two names.
 pub fn session_name(launch: &Launch, at: f64) -> String {
     let short = if launch.item.repo == "makgora" { "sc" } else { launch.item.repo.as_str() };
     let clock = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset();
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
-    format!("{short}-{}-d{hhmm}", launch.item.number)
+    let name = format!("{short}-{}-d{hhmm}", launch.item.number);
+    match super::facets::declared_in(&launch.brief, "Box").and_then(crate::threads::claims::box_slug) {
+        Some(slug) => format!("{name}-{slug}"),
+        None => name,
+    }
 }
 
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or

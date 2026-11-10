@@ -1,13 +1,28 @@
 #[test]
-fn a_claim_by_a_parked_fleet_session_holds_its_item_as_threads_claim_refuses_on_it_while_its_launch_no_longer_does() {
+fn a_parked_fleet_session_holds_its_item_and_box_as_its_threads_claim_does_so_dispatch_staffs_none_beside_it() {
     let fleets = vec![("nexus".to_owned(), serde_json::json!([{"name": "north-112-d1230", "status": "parked"}, {"name": "north-88-d0131", "status": "exited"}]))];
     let listing = serde_json::json!([
         {"item": "north#112", "owner": "north-112-d1230", "standing": "live"},
         {"item": "north#88", "owner": "north-88-d0131", "standing": "live"},
     ]);
-    let held: Vec<String> = super::survey::claim_rows(&listing, "gex45", &super::fleets::exited_names(&fleets)).into_iter().map(|(item, _)| item.to_string()).collect();
+    let held: Vec<String> = super::survey::claim_rows(&listing, "gex45", &super::fleets::stopped_names(&fleets)).into_iter().map(|(item, _)| item.to_string()).collect();
     assert_eq!(held, ["north#112"]);
-    assert_eq!(super::fleets::stopped_names(&fleets).iter().map(String::as_str).collect::<Vec<_>>(), ["north-112-d1230", "north-88-d0131"]);
+    assert_eq!(super::fleets::stopped_names(&fleets).iter().map(String::as_str).collect::<Vec<_>>(), ["north-88-d0131"], "a parked session's launch still holds its item");
+
+    let listed = serde_json::json!([
+        {"name": "north-1036-d0225", "status": "parked", "tasks": ["north#1036"], "box": "a fleet session's build goes to the build host"},
+        {"name": "north-1041-d0225", "status": "parked", "tasks": ["north#1038", "north#1041"]},
+    ]);
+    let sessions: Vec<_> = super::fleets::running_sessions(&listed).into_iter().map(|session| (session, "nexus".to_owned())).collect();
+    let (_, holds) = super::fleets::tally(&sessions);
+    let boxes = super::fleets::box_tally(&sessions);
+    assert_eq!(holds.get(&super::IssueRef::new("north", 1041)).map(String::as_str), Some("fleet session north-1041-d0225 on nexus"), "a parked session's north fleet hold holds its issue: {holds:?}");
+    let slug = crate::threads::claims::box_slug("a fleet session's build goes to the build host").expect("a box slug");
+    assert!(boxes.get(&super::IssueRef::new("north", 1036)).is_some_and(|held| held.contains_key(&slug)), "{boxes:?}");
+    let (hosts, accounts) = super::tests::fleet();
+    let mut surveyed = super::tests::survey(vec![super::tests::issue("north", 1041, "- [ ] a\n- [ ] b", &[])], super::plan::Cloud::Unreachable(String::new()), hosts, accounts);
+    surveyed.holds = holds;
+    assert!(super::decide(&surveyed, "test").launches.is_empty(), "dispatch staffs no second worker beside a parked session");
 }
 
 #[test]

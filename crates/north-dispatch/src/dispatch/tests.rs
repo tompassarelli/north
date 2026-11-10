@@ -254,6 +254,11 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     assert!(full.skipped.iter().any(|(_, why)| why.contains("3 workers hold its boxes, which is its cap of 3")), "{:?}", full.skipped);
     assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &[])), [Some("a".to_owned()), Some("b".to_owned())], "an issue with no Workers: line gets one launch per free box, each brief's Done when that box and not the whole issue (north#706, north#835)");
     assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] b", &["a"])), [Some("b".to_owned())], "a held box holds only itself");
+    let parallel = decide(&surveyed("- [ ] a\n- [ ] b", &[]), "test");
+    let names: Vec<String> = parallel.launches.iter().map(|launch| super::effects::session_name(launch, 0.0)).collect();
+    assert_eq!(names.len(), 2, "{:?}", parallel.skipped);
+    assert_ne!(names[0], names[1], "two boxes of one issue launch under two names, or the launcher refuses the second");
+    assert_eq!(boxes(&surveyed("- [ ] a\n- [ ] a", &[])), [Some("a".to_owned())], "one box line written twice is still one box, so it is launched once");
 }
 
 /// north#835: on 2026-11-08 merging issues left 14 open boxes on north#719 and 28 on north#706, run one at a time; north-740-d1801 spent a first try on a box whose window over readings had not passed.
