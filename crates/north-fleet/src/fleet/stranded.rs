@@ -1,5 +1,5 @@
-//! A lane a stopped fleet session left holding unlanded work: the session's last report stopped for
-//! capacity or ended on a pending wait, and a worktree that report names holds commits not on
+//! A lane a stopped fleet session left holding unlanded work: the fleet parked the session or capacity admission
+//! still holds a build it started, or its last reply ended on a pending wait, and a worktree that report names holds commits not on
 //! origin/main or uncommitted changes. Dispatch revives such a session once its host frees, and
 //! `north ledger flow` lists it until then.
 use std::path::{Path, PathBuf};
@@ -10,14 +10,13 @@ use serde::{Deserialize, Serialize};
 
 use super::model::Machine;
 
-static CAPACITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bStop:\s*capacity\b").expect("capacity stop pattern"));
 static DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*Done:").expect("done pattern"));
 
 /// Why the session stopped short of landing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Stop {
-    /// Its report names `Stop: capacity`.
+    /// The fleet parked it until its account has usage again, or capacity admission still holds a build it started.
     Capacity,
     /// Its reply ended on a wait, with no final report (`wait::ended_on_a_wait`).
     Wait,
@@ -37,13 +36,13 @@ pub fn reported_done(report: &str) -> bool {
     DONE.is_match(report.trim_start())
 }
 
-/// The stop a reply names: `Stop: capacity`, else a reply that ended on a wait; a `Done:` report
-/// names neither.
-pub fn stop(report: &str) -> Option<Stop> {
+/// Why a session that stopped short of landing did: `capacity` when the fleet parked it or admission still holds its
+/// build, else a reply that ended on a wait; a `Done:` report names neither.
+pub fn stop(report: &str, capacity: bool) -> Option<Stop> {
     if reported_done(report) {
         return None;
     }
-    if CAPACITY.is_match(report) {
+    if capacity {
         return Some(Stop::Capacity);
     }
     super::wait::ended_on_a_wait(report).then_some(Stop::Wait)

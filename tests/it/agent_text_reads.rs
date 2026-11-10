@@ -98,7 +98,7 @@ fn a_planted_report_read_in_a_new_file_is_refused() {
 #[test]
 fn a_planted_report_read_in_a_listed_file_is_refused() {
     let mut files = workspace();
-    let path = "crates/north-providers/src/providers/claude/runs/outcome.rs";
+    let path = "crates/north-providers/src/providers/claude/runs/stop.rs";
     let text = files.get_mut(path).unwrap();
     text.insert_str(0, "fn planted(report: &str) -> bool { report.lines().any(|line| line.starts_with(\"Stop:\")) }\n");
     let refused = refusals(&files, &allowed());

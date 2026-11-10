@@ -83,8 +83,6 @@ pub struct Issue {
     pub needs: Vec<String>,
     /// The newest landing the body cites, as unix seconds, read by the survey for an issue with a windowed box; 0 when none.
     pub landed: f64,
-    /// The latest `Stop: wait until` a launch on one of its takeable boxes learned (`wait_stops`), as written and as unix seconds.
-    pub learned_wait: Option<(String, f64)>,
     /// The landings on origin/main citing it since its last report, read by the survey for an issue with a box due after landings.
     pub landings: usize,
 }
@@ -482,9 +480,6 @@ pub fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     }
     if let Some(label) = issue.labelled(&RUNNING_LABELS) {
         return Err(format!("held: labelled {label}"));
-    }
-    if let Some(until) = super::stops::waits_until(issue, world.at) {
-        return Err(format!("its last worker stopped to wait until {until}"));
     }
     if let Some(sentence) = issue.waiting() {
         return Err(format!("its newest report waits: {sentence}"));

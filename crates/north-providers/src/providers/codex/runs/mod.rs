@@ -176,7 +176,7 @@ fn row(shared: &Shared, walk: &Walk, role: Option<&'static str>) -> Option<Map<S
     row.insert("tokens".into(), json!(walk.tokens));
     row.insert("role".into(), json!(role));
     row.insert("telemetry_only".into(), json!(role.is_none()));
-    row.insert("outcome".into(), json!(rows::outcome(&walk.report)));
+    row.insert("outcome".into(), json!(rows::ENDED));
     row.insert("note".into(), Value::Null);
     row.insert("report".into(), json!(SPACE.replace_all(&head, " ")));
     row.insert("flaws".into(), FLAWS.captures(&walk.report).map_or(Value::Null, |found| json!(found[1].parse::<i64>().unwrap_or(0))));

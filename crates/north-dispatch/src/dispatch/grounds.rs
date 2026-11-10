@@ -4,7 +4,7 @@
 //! walk-forward `eta_pred` calibration and the budget never below the window's median closed box.
 use super::tier::{Route, Tier};
 use super::tuned::{Figure, Tuned};
-use crate::ledger::{self, ClosedReport, Figures, PriorReport, RunTime};
+use crate::ledger::{self, ClosedReport, Figures, PriorReport, RunEnd, RunTime};
 use crate::threads::calibration::scaled;
 use std::collections::BTreeMap;
 
@@ -24,6 +24,7 @@ pub struct Ledger {
     closed: Option<ClosedReport>,
     prior: BTreeMap<String, Vec<PriorReport>>,
     times: BTreeMap<String, RunTime>,
+    ends: BTreeMap<String, RunEnd>,
     tuned: Tuned,
     eta_scales: BTreeMap<Tier, EtaScale>,
 }
@@ -41,6 +42,7 @@ impl Ledger {
         let closed = ledger::closed_report(WINDOW).map_err(|error| notes.push(format!("north dash --closed --since {WINDOW} unread, so briefs keep the uncalibrated ETA and carry no budget: {error}"))).ok();
         let prior = ledger::prior_reports().map_err(|error| notes.push(format!("prior Not done reports unread, so briefs carry none: {error}"))).unwrap_or_default();
         let times = ledger::run_times().map_err(|error| notes.push(format!("run ETAs unread, so no run past twice its ETA climbs: {error}"))).unwrap_or_default();
+        let ends = ledger::run_ends().map_err(|error| notes.push(format!("run ends unread, so no run climbs on a not-done end: {error}"))).unwrap_or_default();
         let mut eta_scales = BTreeMap::new();
         for tier in [Tier::Haiku, Tier::Sonnet, Tier::Opus] {
             match ledger::eta_calibration(tier.key()) {
@@ -49,7 +51,7 @@ impl Ledger {
                 Err(error) => notes.push(format!("eta_pred calibration of {} unread, so its briefs keep the unscaled ETA: {error}", tier.key())),
             }
         }
-        Self { closed, prior, times, tuned: Tuned::current(), eta_scales }
+        Self { closed, prior, times, ends, tuned: Tuned::current(), eta_scales }
     }
 
     #[cfg(test)]
@@ -60,6 +62,11 @@ impl Ledger {
     /// The wall minutes and stated ETA the ledger holds for `session`'s run.
     pub fn time(&self, session: &str) -> Option<RunTime> {
         self.times.get(session).copied()
+    }
+
+    /// How the ledger settled `session`'s newest run.
+    pub fn end(&self, session: &str) -> Option<RunEnd> {
+        self.ends.get(session).copied()
     }
 
     #[cfg(test)]

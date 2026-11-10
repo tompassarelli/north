@@ -337,6 +337,35 @@ pub fn run_times_in(database: &std::path::Path) -> NorthResult<BTreeMap<String, 
         .collect())
 }
 
+/// How the ledger settled a fleet session's newest worker run: whether it ended not done, and whether a boundary of the
+/// harness or Tom recorded a cause for it, which hands the failure on rather than leaving it to the worker's rung.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RunEnd {
+    pub open: bool,
+    pub caused: bool,
+}
+
+/// Each fleet session's newest settled worker run end.
+pub fn run_ends() -> NorthResult<BTreeMap<String, RunEnd>> {
+    run_ends_in(&threads_database())
+}
+
+pub fn run_ends_in(database: &Path) -> NorthResult<BTreeMap<String, RunEnd>> {
+    let failed = |why: rusqlite::Error| NorthError::Configuration(format!("run ends in {}: {why}", database.display()));
+    let db = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
+    db.busy_timeout(Duration::from_secs(5)).map_err(failed)?;
+    let (outcome, cause) = (crate::threads::attribution::outcome_column(&db), crate::threads::attribution::recorded_column(&db));
+    let sql = format!("SELECT runs.fleet_name, {outcome}, {cause} FROM runs WHERE runs.role = 'worker' AND coalesce(runs.fleet_name, '') != '' AND runs.outcome NOT IN ('running', 'idle') ORDER BY runs.started");
+    let mut statement = db.prepare(&sql).map_err(failed)?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?))).map_err(failed)?;
+    let mut ends = BTreeMap::new();
+    for row in rows {
+        let (session, outcome, cause) = row.map_err(failed)?;
+        ends.insert(session, RunEnd { open: outcome.as_deref() == Some("not done"), caused: cause.is_some_and(|cause| cause != "worker") });
+    }
+    Ok(ends)
+}
+
 /// A worker's Not done or Stop report and when its run ended, as unix seconds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorReport {

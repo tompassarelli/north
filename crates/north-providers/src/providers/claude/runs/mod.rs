@@ -19,7 +19,7 @@ mod activity;
 pub mod cloud;
 mod hook_events;
 pub mod landing;
-pub mod outcome;
+pub mod stop;
 pub mod row;
 pub mod telemetry;
 

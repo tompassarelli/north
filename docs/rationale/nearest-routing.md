@@ -109,7 +109,8 @@ Every box starts on its pick. The dispatcher, not the proxy, relaunches it one r
 Opus high, Opus xhigh, Opus max) with the failed report attached as `Prior report:` when the run shows one named spin
 signal:
 
-- the worker reports `Not done:` with `Stop: reasoning`, having run out of approach (north#940);
+- the ledger settled the run not done (no landing, no gate it opened, no passing check of its item) and no boundary of
+  the harness recorded a cause for it, so the failure is the worker's on its rung (north#940, north#872);
 - verification failed twice in the same lane without the error count falling: the lander refused the lane twice running
   for its own failing checks, the second time with as many errors or more, and nothing of the session landed after
   (north#940). The landing's checks are the verification counted, because their refusal is the one record of a lane's
@@ -122,14 +123,14 @@ signal:
   carries none, and two identical refusals are still the box spinning on its rung (north#940);
 - a missed check reopened the box the run staffs, so the fix that ticked it did not hold (north#940); or
 - the run took twice the ETA its brief stated, as the lander's 18-minute candidate check left the box that waited on it
-  running far past its ETA on 2026-11-08 (north#940). It counts only when the report is `Not done:` and names none of
-  the stops below a worker hands on, since a wait on capacity or a host is no evidence about the rung.
+  running far past its ETA on 2026-11-08 (north#940). It counts only when the run settled not done with no harness
+  cause recorded, since a wait on capacity or a host is no evidence about the rung.
 
-`Stop: leash`, `Stop: landing`, `Stop: capacity` and `Stop: client` never escalate on their own word, as the escalation
-tiers already refuse them; the lane evidence above and an ETA overrun climb past them.
+No `Stop:` line climbs or holds a box: dispatch reads the settled end and the recorded cause, never the report
+(north#872); the lane evidence above climbs whatever the ledger holds.
 
-A harness cause never escalates; the existing stop holds (`Stop: decision`, `wait until`, `host`) keep the box where
-it is until the cause clears, and it relaunches on the same rung. Opus xhigh gets two tries: its first failure relaunches it on Opus xhigh, its second climbs to Opus max once. After a failed Opus max try the box waits as after `Stop: decision`: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus max.
+A harness cause never escalates; the records that hold a box (an open gate, its `(not before ...)` stamp, a need
+recorded with `north fleet need`) keep it where it is until the cause clears, and it relaunches on the same rung. Opus xhigh gets two tries: its first failure relaunches it on Opus xhigh, its second climbs to Opus max once. After a failed Opus max try the box waits for a decision: dispatch skips it until the issue gets a comment or body edit newer than the report, then relaunches it on Opus max.
 
 Built 2026-11-07: `dispatch::stops::nowhere` read both triggers from the session, `dispatch::stops::stop` pairs them with the launch record, which records the effort a launch overrode its tier with, and `dispatch::tier::Rung::LADDER` is the ladder. `dispatch::tier::History` counts the item's Opus xhigh launches, and `Rung::climbed` repeats xhigh until its second failure. A climb is no try toward the two a day that hand a box to the proxy, since the ladder's top bounds it.
 

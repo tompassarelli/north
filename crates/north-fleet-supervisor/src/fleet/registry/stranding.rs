@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use crate::error::NorthResult;
+use crate::fleet::builds;
 use crate::fleet::model::{EntryKind, Machine, SessionRecord, Status};
 use crate::fleet::resume::OPENERS;
 use crate::fleet::stranded::{self, Checkout, Lane, Lanes, Stop, Stranded, Worktree};
@@ -23,7 +24,7 @@ struct Stopped {
 }
 
 impl Fleet {
-    /// The stopped sessions whose last report stopped for capacity or on a pending wait and names a
+    /// The stopped sessions that stopped for capacity or on a pending wait and whose last report names a
     /// lane, each with that lane's standing, read in one pass per machine it lives on.
     pub fn stranded(&self, lanes: &dyn Lanes) -> NorthResult<Vec<Stranded>> {
         let stopped = self.stopped(lanes)?;
@@ -62,8 +63,8 @@ impl Fleet {
             .collect())
     }
 
-    /// The exited or parked sessions active in the last three days whose last report stops short
-    /// of landing, with the worktrees that report names.
+    /// The exited or parked sessions active in the last three days that stopped short of landing for capacity or on a
+    /// pending wait, with the worktrees their last report names.
     fn stopped(&self, lanes: &dyn Lanes) -> NorthResult<Vec<Stopped>> {
         let mut checkouts: BTreeMap<(Option<String>, PathBuf), Option<Checkout>> = BTreeMap::new();
         let mut found = Vec::new();
@@ -73,7 +74,8 @@ impl Fleet {
                 continue;
             }
             let Some((report, ended_ms)) = self.last_report(&record) else { continue };
-            let Some(stop) = stranded::stop(&report) else { continue };
+            let capacity = status == Status::Parked || !builds::held(&self.admission, &self.proc, &record.name).is_empty();
+            let Some(stop) = stranded::stop(&report, capacity) else { continue };
             let key = (machine_name(&record), record.cwd.clone());
             let Some(checkout) = checkouts.entry(key).or_insert_with(|| lanes.checkout(record.machine.as_ref(), &record.cwd)) else { continue };
             let trees: Vec<Worktree> = checkout.named(&report).into_iter().cloned().collect();

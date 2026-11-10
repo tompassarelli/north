@@ -294,7 +294,7 @@ fn a_running_worker_leaves_a_claim_its_lead_holds_on_the_issue_and_claims_only_w
 /// was recorded `unclear`, and carried on 17 minutes later: a run whose session opened a newer turn is idle, not a lost
 /// first try, until the session's next report decides it (north#706).
 #[test]
-fn an_unclear_run_whose_session_carries_on_reads_idle_until_its_next_report_decides_it() {
+fn a_not_done_run_whose_session_carries_on_reads_idle_until_its_next_report_decides_it() {
     let ledger = ledger();
     let run = |status: &str, backfill: bool, ended: &str, outcome: Option<&str>| {
         let mut row = json!({"id": "carried", "role": "worker", "status": status, "backfill": backfill, "tier": "sonnet", "started": "2026-10-28T08:00:00Z", "ended": ended, "actual_min": 30, "report": "My lane is still queued.", "brief": "Item: north#840\nCategory: feature\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n"});
@@ -305,10 +305,10 @@ fn an_unclear_run_whose_session_carries_on_reads_idle_until_its_next_report_deci
     };
     let outcome = || ledger.rows("SELECT outcome FROM runs WHERE agent = 'carried'");
     let read = |name: &str| vec![vec![Value::Text(name.to_owned())]];
-    ledger.ingest(&[run("finished", false, "2026-10-28T08:30:00Z", Some("unclear"))]);
-    assert_eq!(outcome(), read("unclear"));
+    ledger.ingest(&[run("finished", false, "2026-10-28T08:30:00Z", Some("not done"))]);
+    assert_eq!(outcome(), read("not done"));
     ledger.ingest(&[run("running", true, "2026-10-28T08:47:00Z", None)]);
     assert_eq!(outcome(), read("idle"));
-    ledger.ingest(&[run("finished", true, "2026-10-28T09:10:00Z", Some("done"))]);
-    assert_eq!(outcome(), read("done"));
+    ledger.ingest(&[run("finished", true, "2026-10-28T09:10:00Z", Some("not done"))]);
+    assert_eq!(outcome(), read("not done"), "the next finished turn decides it again");
 }

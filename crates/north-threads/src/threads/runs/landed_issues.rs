@@ -3,16 +3,11 @@
 //! only reads rows, so the caller's own north judges them and an outdated ledger host cannot answer in an old format.
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::sync::LazyLock;
 
-use regex::Regex;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use super::super::verb::{Args, Context, Failure, Outcome, open};
-
-static TICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|[^a-z])ticked\b|\[x\]").unwrap());
-static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(?:unticked|(?:not|n't|never|no)\b[^.;\n]{0,30}\bticked)\b").unwrap());
 
 /// One commit a fleet session put on main under an issue, with every conversation that session ran as.
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -23,10 +18,10 @@ pub struct Landing {
     pub conversations: Vec<String>,
 }
 
-/// A run counts as done and landed when it landed and reported done, or landed and reported `Not done:` with
-/// its own box ticked: a box worker's report judges the issue, which stays open while other boxes remain.
-pub fn done_and_landed(outcome: &str, report: &str, landed: bool) -> bool {
-    landed && (outcome == "done" || (outcome == "not done" && TICKED.is_match(report) && !UNTICKED.is_match(&report.to_lowercase().replace("not done", ""))))
+/// A run counts as done and landed when it landed and the ledger settled it done, from its landing rather than its
+/// report (`runs::settle`).
+pub fn done_and_landed(outcome: &str, landed: bool) -> bool {
+    landed && outcome == "done"
 }
 
 /// One recorded run of a conversation, as the ledger holds it.
@@ -34,7 +29,6 @@ pub fn done_and_landed(outcome: &str, report: &str, landed: bool) -> bool {
 pub struct Run {
     pub agent: String,
     pub outcome: String,
-    pub report: String,
     pub landed: bool,
 }
 
@@ -45,10 +39,10 @@ pub(super) fn landed_runs(argv: &[String], context: &Context, stdin: &mut dyn Re
     }
     let agents: Vec<String> = serde_json::from_reader(stdin).map_err(|error| Failure::Usage(format!("threads landed-runs reads a JSON array of agent ids on stdin: {error}")))?;
     let db = open(context.database, false)?;
-    let mut statement = db.prepare("SELECT agent, outcome, coalesce(report, ''), (coalesce(landed, 0) = 1 OR landed_sha IS NOT NULL) FROM runs WHERE agent = ?1")?;
+    let mut statement = db.prepare("SELECT agent, outcome, (coalesce(landed, 0) = 1 OR landed_sha IS NOT NULL) FROM runs WHERE agent = ?1")?;
     let mut runs = Vec::new();
     for agent in &agents {
-        let rows = statement.query_map(params![agent], |row| Ok(Run { agent: row.get(0)?, outcome: row.get(1)?, report: row.get(2)?, landed: row.get(3)? }))?;
+        let rows = statement.query_map(params![agent], |row| Ok(Run { agent: row.get(0)?, outcome: row.get(1)?, landed: row.get(2)? }))?;
         for row in rows {
             runs.push(row?);
         }
@@ -88,7 +82,7 @@ pub fn report(landings: &[Landing], runs: &[Run]) -> String {
 
 /// Why a session's runs hold no done-and-landed run, or nothing when one of them is.
 pub fn missed(runs: &[&Run]) -> Option<String> {
-    if runs.iter().any(|run| done_and_landed(&run.outcome, &run.report, run.landed)) {
+    if runs.iter().any(|run| done_and_landed(&run.outcome, run.landed)) {
         return None;
     }
     let outcomes = |landed: bool| {
@@ -100,8 +94,6 @@ pub fn missed(runs: &[&Run]) -> Option<String> {
         "no run row".to_owned()
     } else if !runs.iter().any(|run| run.landed) {
         format!("run landed=0, outcome {}", outcomes(false))
-    } else if runs.iter().any(|run| run.landed && run.outcome == "not done") {
-        "landed, Not done without its box ticked".to_owned()
     } else {
         format!("landed, outcome {}", outcomes(true))
     })

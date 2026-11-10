@@ -2,7 +2,7 @@ pub const ROLE_SQL: &str = "(CASE WHEN role <> 'worker' THEN role \
 WHEN category = 'review' THEN 'reviewer' \
 WHEN category = 'unknown' AND (lower(coalesce(brief_text, '')) LIKE '%category: review%' OR lower(coalesce(brief_text, '')) LIKE '%category:review%') THEN 'reviewer' \
 WHEN instr(lower(substr(coalesce(brief_text, ''), 1, 1500)), 'review') > 0 AND (instr(lower(substr(coalesce(brief_text, ''), 1, 1500)), 'read-only') > 0 OR instr(lower(substr(coalesce(brief_text, ''), 1, 1500)), 'do not edit') > 0) THEN 'reviewer' \
-WHEN category = 'unknown' AND outcome = 'done' AND minutes = 0 THEN 'judge' \
+WHEN category = 'unknown' AND outcome NOT IN ('idle', 'running') AND minutes = 0 THEN 'judge' \
 ELSE 'worker' END)";
 
 /// The characters of a brief the read-only review rule reads, as `ROLE_SQL` reads them with substr.
@@ -24,7 +24,7 @@ pub fn ingest_role(category: &str, brief: &str, outcome: &str, minutes: i64) -> 
     let declared = category == "unknown" && (lowered.contains("category: review") || lowered.contains("category:review"));
     if category == "review" || declared || read_only_review(brief) {
         "reviewer"
-    } else if category == "unknown" && outcome == "done" && minutes == 0 {
+    } else if category == "unknown" && !matches!(outcome, "idle" | "running") && minutes == 0 {
         "judge"
     } else {
         "worker"

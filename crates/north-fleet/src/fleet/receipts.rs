@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -19,15 +18,6 @@ const HEAD_LINES: usize = 3;
 const LINE_CHARS: usize = 300;
 const LAST_LINES: usize = 5;
 const MID_TASK_REVIVE_WINDOW_MS: u64 = 60 * 60 * 1000;
-const DECISION_REPLY_KEY: &str = "decision-reply";
-const DECISION_REPLY: &str = "North did not pass your report to your parent: it stops on a decision, and only an ask-once matter (cost, accounts, credentials or access, making something public, deleting valuable data, sending in Tom's name, outside code of unclear license, or a core-project direction call) waits for Tom. \
-Act on your recommendation, record it as a gate with a default, and continue the work: \
-`north gate open --session <your session> --question <question> --option <option> --option <option> --recommend N --default N --default-after D` \
-(D is 30s, 10m, 4h or 1d; it prints the gate id, and the default applies when nobody answers in time; a question about cost, accounts, credentials or access, making something public, deleting valuable data, or core direction and dependencies is refused with --default and --default-after: open it without them and it waits for Tom). \
-A report that stops on an ask-once gate names its id (`gate <id>`). If you report again unchanged, the report goes to your parent with a warning.";
-const DECISION_WARNING: &str = "[warning: this report stops on a decision that is not an ask-once matter; the child was told to act on its recommendation, and reported again]";
-static DECISION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:\A\W*Blocked:\s*decision\b|(?m:^\W*Stop:\s*decision\b))").expect("decision stop pattern"));
-static GATE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bgate\s*#?\s*(\d+)\b").expect("gate id pattern"));
 static NEXT_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^[\W_]*Next:[*_` \t]*(.*?)[ \t]*$").expect("next line pattern"));
 static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:(?:\b[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)?#\d+\b|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/\d+)").expect("issue pattern"));
 static NONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\A[*_`]*none\b").expect("none pattern"));
@@ -98,10 +88,6 @@ impl Report {
         }
     }
 
-    fn asks_a_decision(&self) -> bool {
-        self.exit == TurnExit::Completed && DECISION.is_match(self.reply.as_deref().unwrap_or_default().trim_start())
-    }
-
     fn key(&self) -> String {
         format!("turn:{}", self.turn)
     }
@@ -136,8 +122,8 @@ fn head(reply: &str) -> Vec<String> {
 }
 
 pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
-    let open: BTreeSet<i64> = gates.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && gate.request.session == report.child).map(|gate| gate.id).collect();
-    let facts = Facts::of(report.reply.as_deref().unwrap_or_default().trim(), report.landed.as_deref(), open, report.waiting);
+    let open: Vec<Gate> = gates.gates(u64::MAX)?.into_iter().filter(|gate| gate.is_open() && gate.request.session == report.child).collect();
+    let facts = Facts::of(report.reply.as_deref().unwrap_or_default().trim(), report.landed.as_deref(), open.iter().map(|gate| gate.id).collect(), report.waiting);
     let Some((notice, delivery)) = report.notice(lines, parent == PROXY) else { return Ok(false) };
     let told = (report.exit == TurnExit::Completed).then_some(facts);
     let pages = match (&told, parent == PROXY) {
@@ -156,17 +142,10 @@ pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dy
         }
         return Ok(false);
     }
-    let text = if report.asks_a_decision() {
-        match ask_once_gate_named(gates, report.reply.as_deref().unwrap_or_default())? {
-            Some(gate) => format!("{notice}\n{}", gate_line(&gate, now_ms)),
-            None if book.claim_receipt(&report.child, DECISION_REPLY_KEY, now_ms)? => {
-                courier.notify(&report.child, DECISION_REPLY.to_owned(), Delivery::Now);
-                return Ok(false);
-            }
-            None => format!("{notice}\n{DECISION_WARNING}"),
-        }
-    } else {
-        notice
+    let asked = open.iter().find(|gate| report.exit == TurnExit::Completed && ask_once::class(&gate.request.question, &gate.request.options).is_some());
+    let text = match asked {
+        Some(gate) => format!("{notice}\n{}", gate_line(gate, now_ms)),
+        None => notice,
     };
     let claimed = book.claim_receipt(&report.child, &report.key(), now_ms)?;
     if claimed {
@@ -176,15 +155,6 @@ pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dy
         }
     }
     Ok(claimed)
-}
-
-fn ask_once_gate_named(gates: &dyn GateBook, reply: &str) -> NorthResult<Option<Gate>> {
-    for id in GATE_ID.captures_iter(reply).filter_map(|found| found[1].parse::<i64>().ok()) {
-        if let Some(gate) = gates.gate(id)?.filter(|gate| gate.is_open() && ask_once::class(&gate.request.question, &gate.request.options).is_some()) {
-            return Ok(Some(gate));
-        }
-    }
-    Ok(None)
 }
 
 fn gate_line(gate: &Gate, now_ms: u64) -> String {
@@ -282,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn a_host_death_mid_task_revives_once_an_hour_then_tells_the_parent_once_and_a_decision_stop_reaches_it_only_through_an_ask_once_gate() {
+    fn a_host_death_mid_task_revives_once_an_hour_then_tells_the_parent_once_and_the_ask_once_gate_a_child_opened_reaches_it_beside_its_report() {
         let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
         let hour = MID_TASK_REVIVE_WINDOW_MS;
         let death = |child: &SessionRecord, mid_task, now| deliver_death(&book, &inbox, &HostDeath { child, host_pid: 41, mid_task, lines: &lines(2) }, now).unwrap();
@@ -297,20 +267,20 @@ mod tests {
         let posted = inbox.sent.into_inner().unwrap();
         assert_eq!(posted, [("boss".to_owned(), "[from kid · host 41 exited mid-task again within the hour of its revive] Last 2 transcript lines:\ntool: step 1 more\ntool: step 2 more".to_owned(), Delivery::Now)]);
         let (book, inbox) = (crate::fleet::fakes::Paper::default(), Inbox::default());
-        let gate = |question: &str, default: usize, default_after_ms: u64| GateRequest { verification: false, issue: None, box_text: None, session: "kid".into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default, default_after_ms };
-        let routine = book.open_gate(&gate("Which module name reads better?", 1, 60_000), 0).unwrap();
-        let spending = book.open_gate(&gate("May we turn on extra usage credits?", 0, 0), 0).unwrap();
-        let report = |turn, reply: &str| Report { child: "kid".into(), turn, exit: TurnExit::Completed, landed: None, reply: Some(reply.into()), waiting: false };
+        let gate = |session: &str, question: &str, default: usize, default_after_ms: u64| GateRequest { verification: false, issue: None, box_text: None, session: session.into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default, default_after_ms };
+        book.open_gate(&gate("pal", "Which module name reads better?", 1, 60_000), 0).unwrap();
+        let spending = book.open_gate(&gate("kid", "May we turn on extra usage credits?", 0, 0), 0).unwrap();
+        let report = |child: &str, turn, reply: &str| Report { child: child.into(), turn, exit: TurnExit::Completed, landed: None, reply: Some(reply.into()), waiting: false };
         let deliver = |report: &Report| deliver_report(&book, &book, &inbox, "boss", report, &[], 1).unwrap();
 
-        assert!(!deliver(&report(1, &format!("Blocked: decision\nStop: decision, gate {routine}"))), "a gate with a default is no ask-once matter");
-        assert!(deliver(&report(2, &format!("Blocked: decision\nStop: decision, gate {spending}"))));
+        assert!(deliver(&report("pal", 1, "Blocked: which module name reads better.\nStop: decision")));
+        assert!(deliver(&report("kid", 2, "Blocked: the run needs extra usage.")));
         let posted = inbox.sent.into_inner().unwrap();
         assert_eq!(posted.len(), 2);
-        assert_eq!((posted[0].0.as_str(), posted[0].2), ("kid", Delivery::Now));
-        assert!(posted[0].1.contains("Act on your recommendation, record it as a gate with a default, and continue"), "{}", posted[0].1);
+        assert_eq!(posted[0].0, "boss");
+        assert!(!posted[0].1.contains("[gate"), "a gate with a default is no ask-once matter, and a Stop: decision line opens none: {}", posted[0].1);
         assert_eq!(posted[1].0, "boss");
-        assert!(posted[1].1.contains(&format!("[gate {spending} is open")) && !posted[1].1.contains("[warning"), "{}", posted[1].1);
+        assert!(posted[1].1.contains(&format!("[gate {spending} is open")), "the ask-once gate the child opened reaches its parent, whatever its report names: {}", posted[1].1);
     }
 
     #[test]

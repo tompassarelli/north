@@ -10,6 +10,7 @@ pub mod landed_issues;
 mod record;
 pub use record::CLOUD_ORIGIN;
 pub(crate) mod row;
+mod settle;
 #[cfg(test)]
 mod tests;
 
@@ -145,6 +146,7 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
             Ingest { db: &tx, context, tally: &mut tally }.row(row)?;
         }
     }
+    settle::outcomes(&tx, context.now)?;
     tx.commit()?;
     super::claims::lifecycle::record(context.database, &tally.claims, context.now)?;
     let recorded = if readouts.is_empty() { 0 } else { costs::record(&mut db, &readouts, &mut tally.touched)? };

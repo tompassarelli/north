@@ -1,10 +1,7 @@
 //! The side a run's outcome belongs to, and the record a boundary of the harness writes for a session it touched.
 //! The lander, dispatch, capacity and the fleet write one `north cause record` row each; the
-//! ledger ingest prefers those rows over the phrases of a final report (north#706, docs/rationale/attribution.md).
+//! ledger reads those rows and never the phrases of a final report (north#706, docs/rationale/attribution.md).
 use std::process::{Command, Stdio};
-use std::sync::LazyLock;
-
-use regex::Regex;
 
 use super::north_binary::north_binary;
 
@@ -84,13 +81,6 @@ impl Cause {
             other => Harness::ALL.into_iter().find(|harness| harness.label() == other).map(Self::Harness),
         }
     }
-}
-
-static OPENER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(done|not done|split|blocked)\s*[:.]").expect("opener pattern"));
-
-/// Whether a final report starts with one of the standard openers, which a run parked after compaction lacks.
-pub fn has_opener(report: &str) -> bool {
-    OPENER.is_match(report)
 }
 
 /// Records, through `north cause record` in the background, that `source` decided `session`'s outcome belongs to `cause`.

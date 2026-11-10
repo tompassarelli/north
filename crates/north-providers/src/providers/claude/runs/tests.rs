@@ -152,6 +152,7 @@ fn a_reply_to_north_s_spend_nudge_that_ends_a_working_turn_scores_idle_gex45_n75
     let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
     let lines = vec![
         text("user", 52, "Item: north#757"),
+        json!({"type": "user", "timestamp": at(57), "sessionId": "s", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "u1", "content": "Command running in background with ID: bprov757."}]}}),
         text("assistant", 58, "The providers tests are running in the background."),
         text("user", 59, "[from service:north-budget@gex45] [north: budget] north#757 has spent $2.49 against E p50 $2.76, p90 $9.00, past half of p50 in under a quarter of the expected minutes; check your approach still fits the box's budget."),
         text("assistant", 59, "Spend is $2.49 against the $2.76 p50 and the approach still fits. The remaining work is the providers test result, clippy, commit and landing."),
@@ -172,7 +173,7 @@ fn a_turn_that_ends_while_its_background_command_runs_scores_idle_north_725_d035
     assert_eq!(transcript(&lines), "idle");
     lines.push(text("user", 58, "<task-notification><task-id>b2poll</task-id><status>completed</status></task-notification>"));
     lines.push(text("assistant", 59, "Reading the poll output next."));
-    assert_eq!(transcript(&lines), "unclear", "once its command has ended, a turn with no report is unclear again");
+    assert_eq!(transcript(&lines), "not done", "once its command has ended, the turn that ended on its own stands until the ledger settles it, and the wake-up that ran no tool does not replace it");
 }
 
 #[test]
@@ -204,18 +205,16 @@ fn a_report_written_while_its_own_job_run_still_runs_scores_idle_north_730_d0351
 fn a_turn_a_wait_wake_up_opened_keeps_the_split_reported_before_it_north_636_d1824() {
     let at = |n: u32| format!("2026-11-07T18:{n:02}:00Z");
     let text = |kind: &str, n: u32, text: &str| json!({"type": kind, "timestamp": at(n), "sessionId": "s", "message": {"role": kind, "model": "m", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 1, "output_tokens": 1}}});
-    let mut lines = vec![
+    let lines = vec![
         text("user", 25, "Item: north#636"),
         text("assistant", 26, "Split: I ticked one more Done-when box on north#636 with evidence. The other 17 open boxes are separate pieces of work, each already listed on north#636 for dispatch."),
         text("user", 27, "[from service:north-fleet] [north: the run you waited on is over] pid:117681@27250137 `north check privacy judge --text -`: ended. Read its output and continue to a final report."),
         text("assistant", 28, "Done: that notice is from the privacy check that ran when I edited the north#636 body, and the edit went through. The Split report stands."),
     ];
-    let outcome = |lines: &[serde_json::Value]| super::row::build(&super::row::Transcript { lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) }).unwrap()["outcome"].clone();
+    let outcome = |lines: &[serde_json::Value]| super::row::build(&super::row::Transcript { lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) }).unwrap();
 
-    assert_eq!(outcome(&lines), "split");
-    lines.push(text("user", 29, "[from proxy] Land the docs box too."));
-    lines.push(text("assistant", 30, "Done: landed 5f06e90dba on origin/main and ticked the docs box."));
-    assert_eq!(outcome(&lines), "done", "a turn a message opened still replaces the standing report");
+    assert_eq!(outcome(&lines)["outcome"], "not done", "the ledger settles a split from its records, not its opener");
+    assert!(outcome(&lines)["report"].as_str().unwrap().starts_with("Split:"), "the wake-up that ran no tool keeps the report before it");
 }
 
 #[test]
@@ -232,7 +231,9 @@ fn a_turn_a_landing_notice_opened_that_ticks_the_box_replaces_the_not_done_befor
     ];
     let transcript = super::row::Transcript { lines: &lines, id: "t", role: "worker", tier: "opus", since: "", backfill: false, now: crate::foundation::clock::Timestamp::from_unix_seconds(1_800_000_000) };
 
-    assert_eq!(super::row::build(&transcript).unwrap()["outcome"], "done");
+    let row = super::row::build(&transcript).unwrap();
+    assert_eq!(row["outcome"], "not done", "the ledger settles it done from its landing");
+    assert!(row["report"].as_str().unwrap().starts_with("Done: my box"), "the woken turn that did work replaces the Not done before it");
 }
 
 #[test]

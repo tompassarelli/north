@@ -4,24 +4,15 @@
 //! the two a day that hand a box to the proxy, and its box climbs one rung of `tier::Rung::LADDER`
 //! (docs/rationale/nearest-routing.md section 5).
 use super::stops;
-use crate::ledger::RunTime;
+use crate::ledger::{RunEnd, RunTime};
 use crate::platform::land_notice::Notice;
-use regex::Regex;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
-
-static NOT_DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\W*Not done:").expect("not done pattern"));
-static REASONING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*reasoning\b").expect("reasoning pattern"));
-/// The stops a worker hands on instead of owning, whose run says nothing about its rung however long it took.
-static HANDED_ON: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?mi)^\W*(?:Blocked:|Stop:\s*(?:decision|capacity|client|host|leash|wait\s+until)\b)").expect("handed on pattern")
-});
 
 /// The named signal that a box is spinning on its rung.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Signal {
-    /// The worker ran out of approach on its rung.
+    /// The run ended not done and no boundary of the harness recorded a cause for it, so it is the worker's on its rung.
     Reasoned,
     /// The lander refused the same lane twice with the same verdict since it last landed.
     LandRefusal,
@@ -50,13 +41,15 @@ pub struct Spin {
     pub evidence: String,
 }
 
-/// What dispatch knows about the box a run leaves open beyond the run's own report.
+/// What the records hold about the run and the box it leaves open.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Evidence {
     /// Whether a missed check reopened the box the run was staffed on.
     pub reopened: bool,
     /// The run's wall minutes and stated ETA, as the ledger recorded them.
     pub time: Option<RunTime>,
+    /// How the ledger settled the run's end, absent before the ledger holds it.
+    pub end: Option<RunEnd>,
 }
 
 /// Why the session in `north fleet show NAME --json` shows a spin signal, with the evidence behind it.
@@ -64,26 +57,24 @@ pub fn observed(session: &Value, evidence: &Evidence) -> Option<Spin> {
     if session["entries"].as_array().is_some_and(|entries| entries.iter().any(|entry| entry["kind"] == "refusal")) {
         return None;
     }
-    let report = stops::final_report(session)?;
+    stops::final_report(session)?;
     if let Some(refused) = refused_twice(session) {
         return Some(Spin { signal: Signal::LandRefusal, evidence: refused });
     }
-    judged(report, evidence)
+    judged(evidence)
 }
 
-/// The signals a report alone shows, for a retired session whose lander notices went with it.
-pub fn judged(report: &str, evidence: &Evidence) -> Option<Spin> {
-    if NOT_DONE.is_match(report) && REASONING.is_match(report) {
-        return Some(Spin { signal: Signal::Reasoned, evidence: "Not done with Stop: reasoning".into() });
-    }
-    if !NOT_DONE.is_match(report) || HANDED_ON.is_match(report) {
-        return None;
-    }
+/// The signals the ledger's records show for a run that ended not done with no harness cause recorded: a missed check
+/// that reopened its box, twice its stated ETA, else a worker that got nowhere on its rung.
+pub fn judged(evidence: &Evidence) -> Option<Spin> {
+    evidence.end.filter(|end| end.open && !end.caused)?;
     if evidence.reopened {
         return Some(Spin { signal: Signal::Reopened, evidence: "a missed check reopened its box".into() });
     }
-    let time = evidence.time.filter(|time| time.eta_min > 0 && time.minutes >= 2 * time.eta_min)?;
-    Some(Spin { signal: Signal::EtaOverrun, evidence: format!("took {} min against its {} min ETA", time.minutes, time.eta_min) })
+    if let Some(time) = evidence.time.filter(|time| time.eta_min > 0 && time.minutes >= 2 * time.eta_min) {
+        return Some(Spin { signal: Signal::EtaOverrun, evidence: format!("took {} min against its {} min ETA", time.minutes, time.eta_min) });
+    }
+    Some(Spin { signal: Signal::Reasoned, evidence: "ended not done with no harness cause recorded".into() })
 }
 
 /// The lane the lander refused twice running with the same verdict since it last landed, the second time with
@@ -129,8 +120,10 @@ mod tests {
         Notice::Refused { branch: "n940-verify".into(), head: "abc".into(), verdict: verdict.into(), errors }.text()
     }
 
+    const OPEN: Option<RunEnd> = Some(RunEnd { open: true, caused: false });
+
     fn time(minutes: u64, eta_min: u64) -> Evidence {
-        Evidence { reopened: false, time: Some(RunTime { minutes, eta_min }) }
+        Evidence { reopened: false, time: Some(RunTime { minutes, eta_min }), end: OPEN }
     }
 
     #[test]
@@ -155,23 +148,23 @@ mod tests {
 
     #[test]
     fn a_run_that_took_twice_the_eta_its_brief_stated_climbs_as_the_eighteen_minute_candidate_check_did() {
-        let landed = "Not done: the lander's check took longer than the box.\nStop: landing";
-        assert_eq!(observed(&session(landed), &time(36, 18)).map(|spin| spin.signal), Some(Signal::EtaOverrun));
-        assert_eq!(observed(&session(landed), &time(35, 18)), None, "under twice the ETA keeps the rung");
-        assert_eq!(observed(&session(landed), &time(36, 0)), None, "a run with no ETA keeps the rung");
-        assert_eq!(observed(&session("Done: landed abc123."), &time(36, 18)), None, "a done run that ran long is no spin");
-        for handed in ["Not done: the box waits on a decision.\nStop: decision (take three)", "Not done: still queued for capacity.\nStop: capacity", "Not done: the lease ran out.\nStop: leash", "Not done: the host died.\nStop: client", "Not done: it waits.\nStop: wait until 2026-11-09T09:00Z", "Blocked: the lane needs Tom."] {
-            assert_eq!(observed(&session(handed), &time(36, 18)), None, "{handed}");
-        }
+        let report = session("Not done: the lander's check took longer than the box.");
+        assert_eq!(observed(&report, &time(36, 18)).map(|spin| spin.signal), Some(Signal::EtaOverrun));
+        assert_eq!(observed(&report, &time(35, 18)).map(|spin| spin.signal), Some(Signal::Reasoned), "under twice the ETA it is the worker's not-done end");
     }
 
     #[test]
-    fn a_missed_check_that_reopened_the_box_climbs_and_a_worker_out_of_approach_still_climbs_on_its_own_word() {
-        let evidence = Evidence { reopened: true, time: Some(RunTime { minutes: 20, eta_min: 18 }) };
-        assert_eq!(observed(&session("Not done: the fix did not hold.\nStop: landing"), &evidence).map(|spin| spin.signal), Some(Signal::Reopened));
-        assert_eq!(observed(&session("Done: landed abc123."), &evidence), None, "a done run that leaves the box closed is no spin");
-        assert_eq!(observed(&session("Not done: both rewrites left it failing.\nStop: reasoning"), &evidence).map(|spin| spin.signal), Some(Signal::Reasoned));
-        assert_eq!(observed(&serde_json::json!({"entries": []}), &evidence), None, "a session with no report shows nothing");
+    fn the_climb_reads_the_settled_end_and_the_recorded_cause_and_never_the_report_north_872() {
+        let reasoning = session("Not done: both rewrites left it failing.\nStop: reasoning");
+        let at = |end: Option<RunEnd>| Evidence { end, ..time(20, 18) };
+        assert_eq!(observed(&reasoning, &at(OPEN)).map(|spin| spin.signal), Some(Signal::Reasoned));
+        assert_eq!(observed(&reasoning, &at(Some(RunEnd { open: false, caused: false }))), None, "a run whose lane landed is done whatever its report says");
+        assert_eq!(observed(&reasoning, &at(Some(RunEnd { open: true, caused: true }))), None, "a recorded harness or Tom cause hands the failure on");
+        assert_eq!(observed(&reasoning, &at(None)), None, "a run the ledger has not settled yet");
+        assert_eq!(observed(&session("Not done: it waits on Tom.\nStop: decision"), &at(OPEN)).map(|spin| spin.signal), Some(Signal::Reasoned), "a Stop: decision line with no gate is the worker's");
+        let reopened = Evidence { reopened: true, ..at(OPEN) };
+        assert_eq!(observed(&reasoning, &reopened).map(|spin| spin.signal), Some(Signal::Reopened));
+        assert_eq!(observed(&serde_json::json!({"entries": []}), &reopened), None, "a session with no report shows nothing");
         assert_eq!(Signal::Reasoned.key(), "reasoning");
         assert_eq!([Signal::LandRefusal.key(), Signal::Reopened.key(), Signal::EtaOverrun.key()], ["land-refusal", "reopened", "eta-overrun"]);
     }

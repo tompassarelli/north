@@ -11,7 +11,6 @@ use crate::foundation::clock::Timestamp;
 static HANDOFF: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:Your context is \d+k tokens, past the \d+k handoff point\.|You have run \d+ minutes\. Land anything that passes now)").unwrap()
 });
-static REPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:HANDOFF\s+\S+|(?:Not done|Done):)").unwrap());
 static REMINDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^<system-reminder>\s*").unwrap());
 static FILE_SKILL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"file-skill: editing .+? loads the (\S+) skill").unwrap());
 
@@ -229,20 +228,22 @@ pub fn idle_gap_misses(values: &[&Request]) -> usize {
     misses
 }
 
+/// Whether the session ended its turn within three requests of a handoff nudge: a request that called no tool.
 fn answered(records: &[Value], fire: usize) -> bool {
-    let mut turns: Vec<(Key, String)> = Vec::new();
+    let mut requests: Vec<(Key, bool)> = Vec::new();
     for (index, record) in records.iter().enumerate().skip(fire + 1) {
         if record["type"] != "assistant" {
             continue;
         }
         let key = request_key(record, index);
-        match turns.iter().position(|(seen, _)| *seen == key) {
-            Some(position) => turns[position].1.push_str(&record_text(record)),
-            None if turns.len() == 3 => break,
-            None => turns.push((key, record_text(record))),
+        let called = record["message"]["content"].as_array().is_some_and(|parts| parts.iter().any(|part| part["type"] == "tool_use"));
+        match requests.iter().position(|(seen, _)| *seen == key) {
+            Some(position) => requests[position].1 |= called,
+            None if requests.len() == 3 => break,
+            None => requests.push((key, called)),
         }
     }
-    turns.iter().any(|(_, text)| REPLY.is_match(text))
+    requests.iter().any(|(_, called)| !called)
 }
 
 pub(super) fn run_usage(records: &[Value], account: &str, prices: &Prices) -> Map<String, Value> {

@@ -1,11 +1,14 @@
 use super::issues::{self, Issue, IssueRef, World};
 use super::record;
 use super::spin::Evidence;
+use crate::ledger::RunEnd;
 use super::stops::Stop;
 use super::tier::{Effort, Tier};
 use crate::platform::land_notice::Notice;
 use super::tests::issue;
 use std::collections::{BTreeMap, BTreeSet};
+
+const NOT_DONE: Evidence = Evidence { reopened: false, time: None, end: Some(RunEnd { open: true, caused: false }) };
 
 #[test]
 fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_its_time_after_a_wait_off_the_host_after_a_host_stop_and_one_rung_up_after_a_reasoning_stop_or_a_lane_refused_twice_without_fewer_errors() {
@@ -20,27 +23,22 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
     let ran = launch("makgora#587", "sc-587-d0740", 10.0, true);
     let stop = super::stops::stop(&session("Not done: the two-take limit is reached.\nStop: decision (take three or drop the box)"), &ran, &Evidence::default());
-    assert_eq!(stop.decision, Some(1000.0));
+    assert_eq!(stop, Stop::default(), "a Stop: decision line holds nothing; the gate its session opens holds the issue (north#872)");
     assert_eq!(super::stops::stop(&session("Done: landed abc123."), &ran, &Evidence::default()), Stop::default());
-    assert_eq!(super::stops::stop(&session("Not done: no Stop: decision is needed here."), &ran, &Evidence::default()).decision, None, "only a line that begins with it counts");
 
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
     let world = World { open: &open, holds: &holds, box_holds: &BTreeMap::new(), box_tries: &BTreeMap::new(), live: &BTreeSet::new(), planned: &planned, backlog: None, at: 0.0 };
-    let box_at = |touched: f64| Issue { stop: stop.clone(), touched, ..issue("makgora", 587, "- [ ] a", &[]) };
-    assert_eq!(issues::readiness(&box_at(900.0), &world), Err("last worker stopped for a decision".into()));
-    assert_eq!(issues::readiness(&box_at(1000.0), &world), Err("last worker stopped for a decision".into()), "the worker's own comment lands at or before its report");
-    assert_eq!(issues::readiness(&box_at(1001.0), &world), Ok(()), "a newer comment or body edit launches it again");
-    assert_eq!(issues::readiness(&Issue { stop: Stop::default(), ..box_at(0.0) }, &world), Ok(()));
+    assert_eq!(issues::readiness(&Issue { stop, touched: 900.0, ..issue("makgora", 587, "- [ ] a", &[]) }, &world), Ok(()));
 
     let records = [launch("makgora#587", "sc-587-d0740", 10.0, true), launch("makgora#587", "sc-587-d0750", 20.0, true), launch("makgora#587", "sc-587-d0800", 30.0, false)];
     assert_eq!(super::stops::last_launches(&records)[&IssueRef::new("makgora", 587)].name, "sc-587-d0750", "a failed launch started no session");
 
     let world = |at: f64| World { at, ..world };
     let waiting = super::stops::stop(&session("Not done: box 3 counts timeouts over the 24 hours after the fix landed.\nStop: wait until 2026-11-06T23:10Z"), &ran, &Evidence::default());
-    assert_eq!(waiting.until, Some(("2026-11-06T23:10Z".to_owned(), 1_794_006_600.0)));
-    let held = Issue { stop: waiting, touched: 1_794_000_000.0, ..issue("north", 647, "- [ ] zero timeouts in the 24 hours after the fix", &[]) };
-    assert_eq!(issues::readiness(&held, &world(1_793_901_000.0)), Err("its last worker stopped to wait until 2026-11-06T23:10Z".into()), "a later comment does not lift a clock wait");
+    assert_eq!(waiting, Stop::default(), "a Stop: wait until line holds nothing; the box's own stamp does");
+    let held = Issue { stop: waiting, touched: 1_794_000_000.0, ..issue("north", 647, "- [ ] zero timeouts in the 24 hours after the fix (not before 2026-11-06T23:10Z)", &[]) };
+    assert!(issues::readiness(&held, &world(1_793_901_000.0)).is_err_and(|why| why.contains("2026-11-06T23:10Z")), "the stamped box waits");
     assert_eq!(issues::readiness(&held, &world(1_794_006_600.0)), Ok(()), "the box is ready again at that time");
 
     let needs = tempfile::tempdir().unwrap();
@@ -89,8 +87,6 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     assert_eq!(placed(630, "- [ ] `north ops check` on Nexus shows launch_failures within 5 over 6 h for a full day after both land. (not before 2026-11-07T00:00Z) The fixes landed as 8f2fde4c7 and 1eb741624 on 2026-11-05."), ["gex45", "ccx33", "whiterabbit"], "a box with no Needs: line is placed on every host, whatever its prose names (north#787)");
     let measured = issue("north", 706, "- [ ] over 24 h no run is attributed host-caused (not before 2026-11-08T00:00Z)\n- [ ] over 6 h no worker run's report names only a measurement that has not come due (not before 2026-11-08T00:00Z)\n- [ ] Clean-up: scaffolding removed.", &[]);
     assert_eq!(issues::readiness(&measured, &world(d0216)), Err("every open box waits, the first until 2026-11-08T00:00Z".into()), "north-706-d0216 was staffed while every box's measurement was not yet due");
-    let reported = Issue { stop: super::stops::stop(&session("Not done: every open box is a measurement whose window has not elapsed.\nStop: wait until 2026-11-08T00:00Z"), &ran, &Evidence::default()), ..issue("north", 706, "- [ ] over 24 h no run is attributed host-caused", &[]) };
-    assert_eq!(issues::readiness(&reported, &world(d0216)), Err("its last worker stopped to wait until 2026-11-08T00:00Z".into()));
     let gone = |state: &str, body: &str| super::survey::github::gone(&serde_json::json!({"state": state, "body": body}), None);
     assert_eq!(gone("CLOSED", "- [x] a").as_deref(), Some("closed on GitHub, though the mirror listed it open"), "north-736-d0226 launched on an issue closed minutes before, from a stale mirror");
     assert_eq!(gone("OPEN", "- [x] a\n- [x] b").as_deref(), Some("no unticked box on GitHub, though the mirror listed one"));
@@ -110,7 +106,7 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     );
 
     let on = |tier: &str, effort: Option<&str>| record::Record { name: "n705-d0900".into(), tier: Some(tier.into()), effort: effort.map(str::to_owned), ..launch("north#705", "", 10.0, true) };
-    let failed = |report: &str, ran: &record::Record| Issue { stop: super::stops::stop(&session(report), ran, &Evidence::default()), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
+    let failed = |report: &str, ran: &record::Record| Issue { stop: super::stops::stop(&session(report), ran, &NOT_DONE), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
     let climbed = |issue: &Issue| super::tier::route(issue, &super::tier::History::default(), &BTreeMap::new()).unwrap();
     let reasoning = "Not done: both parser rewrites left the round trip failing.\nStop: reasoning";
     let stuck = failed(reasoning, &on("sonnet-high", None));
@@ -119,13 +115,13 @@ serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-s
     let grounds = super::grounds::Grounds::default().carrying(stuck.stop.climb.as_ref().map(|climb| climb.report.as_str()));
     assert!(super::brief::brief(&stuck, "dispatch", &route, &grounds, None).contains("Prior report: Not done: both parser rewrites"), "the failed report rides along");
     assert_eq!(climbed(&failed(reasoning, &on("worker", Some("high")))).effort, Some(Effort::Xhigh));
-    for kind in ["leash", "landing", "capacity", "client"] {
-        assert_eq!(failed(&format!("Not done: the box is unfinished.\nStop: {kind}"), &on("sonnet-high", None)).stop.climb, None, "Stop: {kind} never escalates");
-    }
-    assert_eq!(failed("Done: landed abc123.\nStop: reasoning", &on("sonnet-high", None)).stop.climb, None, "only a Not done report climbs");
-    assert!(super::tries::unspent(&session(reasoning), &Evidence::default()).is_some(), "a climb is no try toward the two that hand the box to the proxy");
+    let ended = |end: RunEnd| super::stops::stop(&session(reasoning), &on("sonnet-high", None), &Evidence { end: Some(end), ..NOT_DONE }).climb;
+    assert_eq!(ended(RunEnd { open: true, caused: true }), None, "a run whose end a boundary of the harness caused never escalates, whatever its Stop: line says");
+    assert_eq!(ended(RunEnd { open: false, caused: false }), None, "only a run the ledger settled not done climbs");
+    assert_eq!(super::stops::stop(&session(reasoning), &on("sonnet-high", None), &Evidence::default()).climb, None, "a run the ledger has not settled climbs nothing");
+    assert!(super::tries::unspent(&session(reasoning), &NOT_DONE).is_some(), "a climb is no try toward the two that hand the box to the proxy");
     let safety = serde_json::json!({"entries": [{"kind": "refusal", "text": "safety refusal (cyber: claude-opus-5 -> claude-opus-4-8)"}, {"kind": "assistant", "text": reasoning}], "turns": [{"exit": "completed", "ended_ms": 1_000_000}]});
-    let refused = Issue { stop: super::stops::stop(&safety, &on("sonnet-high", None), &Evidence::default()), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
+    let refused = Issue { stop: super::stops::stop(&safety, &on("sonnet-high", None), &NOT_DONE), touched: 900.0, ..issue("north", 705, "- [ ] a", &[]) };
     assert_eq!(refused.stop.climb, None, "a safety refusal is a boundary row, not a reasoning failure that climbs");
     assert_eq!(climbed(&refused).signal, None, "a safety refusal relaunches on the same step or parks, and never escalates");
     let topped = failed(reasoning, &on("worker", Some("max")));
@@ -181,7 +177,7 @@ fn dispatch_retries_opus_xhigh_once_then_runs_opus_max_once_and_parks_the_box_af
         cell: None,
         cell_role: None,
     };
-    let failed = |ran: &record::Record| Issue { stop: super::stops::stop(&session, ran, &Evidence::default()), touched: 900.0, ..issue("north", 940, "- [ ] a", &[]) };
+    let failed = |ran: &record::Record| Issue { stop: super::stops::stop(&session, ran, &NOT_DONE), touched: 900.0, ..issue("north", 940, "- [ ] a", &[]) };
     let first = launched("n940-xhigh-1", "xhigh");
     let second = launched("n940-xhigh-2", "xhigh");
     let max = launched("n940-max", "max");
@@ -329,35 +325,10 @@ serves = ["laptop"]
 }
 
 #[test]
-fn north_722_waited_twice_on_one_stop_and_a_box_due_by_a_date_or_after_landings_is_held_beside_a_plain_one() {
+fn a_box_due_by_a_date_or_after_landings_is_held_beside_a_plain_one_north_722() {
     let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
-    let launch = |name: &str, started: &str| record::Record { at: at(started), item: "north#722".into(), host: "cpx62".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
-    let waited = serde_json::json!({
-        "entries": [{"kind": "assistant", "text": "Not done: the debt box reads after the landings.\nStop: wait until 2026-11-07T10:00Z"}],
-        "turns": [{"exit": "completed", "ended_ms": 1_000_000}]
-    });
-    let body = "- [ ] the after-landing debt is under 5 boxes";
-    let directory = tempfile::tempdir().unwrap();
     let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
     let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
-    let pass = |records: &[record::Record], readable: bool, now: &str| {
-        let mut boxes = [issue("north", 722, body, &[])];
-        let show = |_: &record::Record| if readable { Ok(waited.clone()) } else { Err::<serde_json::Value, String>("no session".into()) };
-        super::survey::stopped(records, &mut boxes, show, |_| None, &super::grounds::Ledger::default(), &mut Vec::new());
-        let launches = super::stops::last_launches(records);
-        super::wait_stops::learn(directory.path(), &boxes, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at(now)).unwrap();
-        let [mut issue] = boxes;
-        issue.learned_wait = super::wait_stops::holding(&super::wait_stops::read(directory.path()), &issue, at(now));
-        issues::readiness(&issue, &world(now))
-    };
-    let (first, second) = (launch("north-722-d0300", "2026-11-07T03:00Z"), launch("north-722-d0421", "2026-11-07T04:21Z"));
-    let held_until_ten = Err("its last worker stopped to wait until 2026-11-07T10:00Z".to_owned());
-    assert_eq!(pass(std::slice::from_ref(&first), true, "2026-11-07T03:30Z"), held_until_ten);
-    assert_eq!(pass(&[first.clone(), second.clone()], false, "2026-11-07T04:21Z"), held_until_ten, "the second launch's report is unread, and the wait the first learned still holds the box");
-    assert_eq!(pass(&[first, second], true, "2026-11-07T04:50Z"), held_until_ten);
-    assert_eq!(super::wait_stops::read(directory.path()).len(), 2, "one record per session that stopped on the wait");
-    assert_eq!(pass(&[], false, "2026-11-07T10:00Z"), Ok(()), "the box is ready once the wait has passed");
-
     let held = |body: &str, landings: usize| issues::readiness(&Issue { landings, ..issue("north", 706, body, &[]) }, &world("2026-11-07T04:50Z"));
     assert_eq!(held("- [ ] the debt is read by 2026-11-09", 0), Err("only open box waits until 2026-11-09".into()));
     assert_eq!(held("- [ ] the debt is read after the next 10 landings", 3), Err("only open box waits until 7 more landings cite it".into()));
@@ -407,15 +378,16 @@ fn the_relaunch_after_north_733s_recorded_laptop_need_follows_the_stopped_run_an
 
 #[test]
 fn a_laptop_launch_reads_its_stop_from_the_reports_the_laptop_mirrors_north_706() {
-    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
-    let reports = serde_json::json!({"wisp-188-d1646": {"entries": [{"kind": "assistant", "text": "Not done: the capture needs the laptop's client.\nStop: wait until 2026-11-08T03:00Z"}], "turns": [{"exit": "completed", "ended_ms": 5_000}]}});
+    let launch = record::Record { at: 1.0, item: "wisp#188".into(), host: "whiterabbit".into(), account: "claude:a".into(), name: "wisp-188-d1646".into(), cloud: false, launched: true, detail: String::new(), tier: Some("sonnet-high".into()), category: None, box_text: None, hand: false, signal: None, lift: None, effort_arm: None, effort: None, cell: None, cell_role: None };
+    let refused = serde_json::json!({"kind": "user", "text": format!("[from service:north-land@whiterabbit] {}\nlast lines of the log:", Notice::Refused { branch: "wisp-188".into(), head: "abc".into(), verdict: "the capture check failed".into(), errors: None }.text())});
+    let reports = serde_json::json!({"wisp-188-d1646": {"entries": [refused.clone(), refused, {"kind": "assistant", "text": "Not done: the capture still fails."}], "turns": [{"exit": "completed", "ended_ms": 5_000}]}});
     let mut boxes = [issue("wisp", 188, "- [ ] a", &[])];
     let mut notes = Vec::new();
 
     super::survey::stopped(std::slice::from_ref(&launch), &mut boxes, |launch| super::survey::shown(launch, Some("whiterabbit"), &reports), |_| None, &super::grounds::Ledger::default(), &mut notes);
 
     assert!(notes.is_empty(), "{notes:?}");
-    assert_eq!(boxes[0].stop.until.as_ref().map(|(written, _)| written.as_str()), Some("2026-11-08T03:00Z"), "dispatch noted wisp-188-d1646 report unread and could relaunch the box");
+    assert_eq!(boxes[0].stop.climb.as_ref().map(|climb| climb.report.as_str()), Some("Not done: the capture still fails."), "dispatch noted wisp-188-d1646 report unread and could relaunch the box");
     assert!(super::survey::shown(&launch, Some("whiterabbit"), &serde_json::Value::Null).is_err(), "a report the laptop has not mirrored stays unread");
 }
 
@@ -433,7 +405,7 @@ fn a_mirrored_session_keeps_what_dispatch_reads_and_reads_the_same_stop_as_the_w
     let kept = super::stops::entries_read(&entries);
     let read = serde_json::json!({"entries": kept.iter().map(|(kind, text)| serde_json::json!({"kind": kind, "text": text})).collect::<Vec<_>>(), "turns": [{"exit": "completed", "ended_ms": 5_000}]});
 
-    assert_eq!(kept.len(), 5, "{kept:?}: the three assistant messages, the first commit and the lander notice are what dispatch reads, and the 50 other tool calls are not, out of a 38 MB mirror");
+    assert_eq!(kept.len(), 4, "{kept:?}: the first and last assistant messages, the first commit and the lander notice are what dispatch reads, and the 50 other tool calls are not, out of a 38 MB mirror");
     assert_eq!(super::stops::stop(&read, &launch, &Evidence::default()), super::stops::stop(&whole, &launch, &Evidence::default()));
     assert_eq!(super::tries::unspent(&read, &Evidence::default()), super::tries::unspent(&whole, &Evidence::default()));
 }
@@ -496,12 +468,12 @@ fn spinning(report: &str, notices: &[String], evidence: &Evidence) -> Issue {
 fn the_eighteen_minute_candidate_check_climbs_the_box_one_rung_at_its_eta_overrun() {
     use super::spin::Signal;
     let report = "Not done: the lander's candidate check held the box past its window.\nStop: landing";
-    let over = Evidence { reopened: false, time: Some(crate::ledger::RunTime { minutes: 36, eta_min: 18 }) };
+    let over = Evidence { time: Some(crate::ledger::RunTime { minutes: 36, eta_min: 18 }), ..NOT_DONE };
     let route = super::tier::route(&spinning(report, &[], &over), &super::tier::History::default(), &BTreeMap::new()).unwrap();
     assert_eq!((route.tier, route.effort, route.signal), (Tier::Opus, Some(Effort::Medium), Some(Signal::EtaOverrun)), "{}", route.why);
     assert!(route.why.contains("escalates n940-d0900's took 36 min against its 18 min ETA from sonnet-high to worker at medium effort"), "{}", route.why);
-    let under = Evidence { reopened: false, time: Some(crate::ledger::RunTime { minutes: 35, eta_min: 18 }) };
-    assert_eq!(spinning(report, &[], &under).stop.climb, None, "under twice the ETA keeps the rung");
+    let under = Evidence { time: Some(crate::ledger::RunTime { minutes: 35, eta_min: 18 }), ..NOT_DONE };
+    assert_eq!(spinning(report, &[], &under).stop.climb.map(|climb| climb.signal), Some(Signal::Reasoned), "under twice the ETA it is no overrun, though the not-done end still climbs");
 }
 
 #[test]
@@ -521,7 +493,7 @@ fn a_box_a_missed_check_reopened_climbs_one_rung_and_its_launch_record_names_the
     assert!(missed.reopened(Some("the check passes")), "the box the launch staffs is the one that reopened");
     assert!(!missed.reopened(Some("another box")), "a miss on another box is no signal for this one");
     assert!(!issue("north", 940, "- [ ] a", &[]).reopened(None));
-    let reopened = Evidence { reopened: true, time: None };
+    let reopened = Evidence { reopened: true, ..NOT_DONE };
     let issue = spinning("Not done: the fix did not hold.\nStop: landing", &[], &reopened);
     assert_eq!(issue.stop.climb.as_ref().map(|climb| climb.signal), Some(Signal::Reopened));
     let route = super::tier::route(&issue, &super::tier::History::default(), &BTreeMap::new()).unwrap();

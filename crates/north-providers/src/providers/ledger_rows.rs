@@ -13,10 +13,6 @@ use crate::providers::claude::runs::telemetry::Prices;
 pub const RUNNING_SECONDS: f64 = 7200.0;
 
 static FIELDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:Item|Follows|Category|Arm|Spec|Scope|Surface|Verify|Lens):[^\n]+").unwrap());
-static NOT_DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(not|partly|mostly|half) done").unwrap());
-static SPLIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*split:").unwrap());
-static BLOCKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*blocked").unwrap());
-static DONE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*done\b").unwrap());
 
 pub struct Shared<'a> {
     pub session: &'a str,
@@ -42,22 +38,9 @@ pub fn stamp(text: &str) -> Option<f64> {
     Timestamp::parse(text).ok().or_else(|| Timestamp::parse_loose(text)).map(Timestamp::unix_seconds_f64)
 }
 
-pub fn outcome(report: &str) -> &'static str {
-    let head: String = report.chars().take(400).collect();
-    if head.contains("HANDOFF") {
-        "handoff"
-    } else if SPLIT.is_match(&head) {
-        "split"
-    } else if NOT_DONE.is_match(&head) {
-        "not done"
-    } else if BLOCKED.is_match(&head) {
-        "escalated"
-    } else if DONE.is_match(&head) {
-        "done"
-    } else {
-        "unclear"
-    }
-}
+/// The outcome a provider writes for a run that ended on its own: the ledger settles it from the landing, gate and
+/// check records (north-threads runs::settle), never from the report (docs/rationale/attribution.md).
+pub const ENDED: &str = "not done";
 
 pub fn fields(brief: &str) -> String {
     FIELDS.find_iter(brief).map(|found| found.as_str()).collect::<Vec<_>>().join("\n")

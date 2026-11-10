@@ -52,7 +52,7 @@ pub struct TurnWatch {
     finished: HashMap<String, bool>,
     rolled_over: bool,
     checkpoints: Checkpoints,
-    compacted: HashSet<String>,
+    compacted: HashMap<String, HashSet<String>>,
     unaccepted: Arc<SentPrompts>,
     lanes: Arc<dyn Lanes + Send + Sync>,
     scope: Arc<dyn Scope>,
@@ -187,7 +187,7 @@ impl TurnWatch {
             finished: HashMap::new(),
             rolled_over: false,
             checkpoints: Checkpoints::default(),
-            compacted: HashSet::new(),
+            compacted: HashMap::new(),
             unaccepted,
             lanes: Arc::new(NoLanes),
             scope: Arc::new(NoScope),
@@ -242,18 +242,21 @@ impl TurnWatch {
                 self.compacted.remove(conversation);
                 self.finished.insert(conversation.clone(), false);
             }
-            TurnSignal::Call { conversation, tokens, .. } => {
+            TurnSignal::Call { conversation, call, tokens } => {
                 self.rolled_over = false;
+                if let Some(calls) = self.compacted.get_mut(conversation) {
+                    calls.insert(call.clone());
+                }
                 self.checkpoint(conversation, tokens.context());
             }
             TurnSignal::Compacted { conversation, .. } => {
                 self.checkpoints.compacted(conversation);
-                self.compacted.insert(conversation.clone());
+                self.compacted.insert(conversation.clone(), HashSet::new());
             }
             TurnSignal::Ended { conversation, .. } => {
                 let Some(reply) = self.views.get(conversation).and_then(|view| view.reply.clone()).filter(|reply| !reply.trim().is_empty()) else { return };
-                if self.compacted.remove(conversation) && !attribution::has_opener(&reply) && let Some(record) = find_session(&self.root, &self.host_dir, conversation) {
-                    attribution::record(&record.name, "fleet", Cause::Harness(Harness::Compaction), "the turn compacted and ended without a Done, Not done, Split or Blocked opener");
+                if self.compacted.remove(conversation).is_some_and(|calls| calls.len() <= 1) && let Some(record) = find_session(&self.root, &self.host_dir, conversation) {
+                    attribution::record(&record.name, "fleet", Cause::Harness(Harness::Compaction), "the turn compacted and ended in the next request, doing no more work");
                 }
                 self.finished.insert(conversation.clone(), retires(&reply));
             }

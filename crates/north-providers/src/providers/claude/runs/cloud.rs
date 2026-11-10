@@ -2,7 +2,7 @@
 //! finished row `north cloud wait` writes when its turn ends, so a cloud run lands in the ledger like any other.
 use serde_json::{Value, json};
 
-use super::outcome;
+use super::stop;
 use super::row::{eta, prefix};
 use crate::foundation::clock::Timestamp;
 use crate::threads::runs::CLOUD_ORIGIN;
@@ -21,6 +21,6 @@ pub fn finished(session: &str, started: Timestamp, ended: Timestamp, report: &st
     json!({
         "id": session, "session": session, "status": "finished", "role": "worker", "tier": TIER, "provider": "claude",
         "started": started.iso(), "ended": ended.iso(), "actual_min": (ended.unix_seconds() - started.unix_seconds()).max(0).div_euclid(60),
-        "outcome": outcome::classify(report, false), "report": prefix(report, 600), "stop": outcome::stop_line(report),
+        "outcome": crate::providers::ledger_rows::ENDED, "report": prefix(report, 600), "stop": stop::line(report),
     })
 }

@@ -71,8 +71,6 @@ pub struct Survey {
     pub revived: BTreeMap<String, u64>,
     /// The box waits and ranks in the fact graph, absent when the graph could not be read.
     pub backlog: Option<north_graph_ground::Backlog>,
-    /// The dated stops this pass learned for the first time, which `execute` records as waits causes.
-    pub fresh_waits: Vec<super::wait_stops::Learned>,
     /// The DeepSeek sessions that reported Done, and the boxes and sessions dispatch read about DeepSeek.
     pub deepseek: super::deepseek::Seen,
     pub at: f64,
@@ -290,7 +288,7 @@ pub(super) fn stopped(records: &[record::Record], issues: &mut [Issue], show: im
     let launches = super::stops::last_launches(records);
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
         let Some(launch) = launches.get(&issue.reference()) else { continue };
-        let evidence = super::spin::Evidence { reopened: issue.reopened(launch.box_text.as_deref()), time: grounds.time(&launch.name) };
+        let evidence = super::spin::Evidence { reopened: issue.reopened(launch.box_text.as_deref()), time: grounds.time(&launch.name), end: grounds.end(&launch.name) };
         match show(launch) {
             Ok(session) => issue.stop = super::stops::stop(&session, launch, &evidence),
             Err(why) => match retired(&launch.name) {
@@ -307,7 +305,7 @@ pub(super) fn unspent(records: &[record::Record], at: f64, forgotten: &BTreeSet<
     let mut found = BTreeMap::new();
     for launch in record::contested(records, at) {
         let issue = IssueRef::parse(&launch.item).and_then(|item| issues.iter().find(|issue| issue.reference() == item));
-        let evidence = super::spin::Evidence { reopened: issue.is_some_and(|issue| issue.reopened(launch.box_text.as_deref())), time: grounds.time(&launch.name) };
+        let evidence = super::spin::Evidence { reopened: issue.is_some_and(|issue| issue.reopened(launch.box_text.as_deref())), time: grounds.time(&launch.name), end: grounds.end(&launch.name) };
         match report(launch) {
             Ok(session) => found.extend(super::tries::unspent(&session, &evidence).map(|why| (launch.name.clone(), why))),
             Err(_) if forgotten.contains(&launch.name) => {
@@ -431,15 +429,10 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     stopped(&records, &mut issues, |launch| shown(launch, laptop.as_deref(), &laptop_reports), crate::fleet::registry::retired_report_here, &grounds, &mut notes);
     let launches = super::stops::last_launches(&records);
     let learned = super::host_needs::read(&record::directory());
-    let (waits, fresh_waits) = super::wait_stops::learn(&record::directory(), &issues, |issue| launches.get(&issue.reference()).map(|launch| launch.name.clone()), at).unwrap_or_else(|why| {
-        notes.push(format!("wait-stops.jsonl unwritten, so this pass reads only the waits already in it: {why}"));
-        (super::wait_stops::read(&record::directory()), Vec::new())
-    });
     for issue in &mut issues {
         issue.needs = super::host_needs::of(issue, &learned, at);
         let reference = issue.reference();
         issue.stop.relay = launches.get(&reference).and_then(|launch| super::host_needs::relay(&learned, &reference.to_string(), &launch.name));
-        issue.learned_wait = super::wait_stops::holding(&waits, issue, at);
         if issue.windowed() {
             issue.landed = landings::landed_at(issue);
         }
@@ -458,7 +451,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     let deepseek = super::deepseek::Seen::read(&here, laptop.as_deref(), &fleet_lists, &laptop_reports, &records, &issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, fresh_waits, deepseek, at })
+    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, deepseek, at })
 }
 
 pub(super) mod github;

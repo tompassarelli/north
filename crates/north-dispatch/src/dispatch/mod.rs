@@ -65,7 +65,6 @@ pub mod waste;
 mod tries;
 mod work;
 mod wait;
-mod wait_stops;
 #[cfg(test)]
 mod backlog_tests;
 #[cfg(test)]
@@ -288,9 +287,6 @@ fn start(survey: &Survey, launch: &Launch, dry_run: bool, standing: fn() -> Opti
 
 /// Runs the revivals and every launch side by side, since each `north fleet launch` takes most of a minute and the plan already placed them, then prints their lines in plan order.
 fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
-    if !dry_run {
-        effects::record_waits(&survey.fresh_waits);
-    }
     let (revived, started) = std::thread::scope(|scope| {
         let revived = scope.spawn(|| revive(survey, &outcome.revival, dry_run, pause::standing));
         let started: Vec<_> = outcome.launches.iter().map(|launch| scope.spawn(move || start(survey, launch, dry_run, pause::standing))).collect();
