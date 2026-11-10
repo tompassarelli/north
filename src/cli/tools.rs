@@ -78,6 +78,7 @@ const DIRECT: &[(&str, Run)] = &[
     ("desktop", desktop),
     ("code-health", code_health),
     ("dash", super::dash::run),
+    ("infra", super::infra::run),
     ("depbox", |arguments| capacity::depbox::run(arguments, &capacity_host())),
 ];
 

@@ -33,6 +33,7 @@ mod remote_serve;
 #[cfg(test)]
 mod remote_serve_tests;
 mod dash;
+mod infra;
 pub(crate) mod scoreboard;
 mod send;
 mod strategy;

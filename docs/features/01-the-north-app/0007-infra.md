@@ -1,0 +1,1 @@
+- Infrastructure: `north infra [--json]` lists each paid resource with its cost and one total, reading the provider APIs the broker allows and the fleet's infrastructure manifest; `--json` carries the same rows and totals.

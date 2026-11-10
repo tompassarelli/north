@@ -11,7 +11,7 @@ use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, Ledger, WindowRun};
 use crate::usage::outlook::{AccountOutlook, Runway};
 
-mod billing;
+pub(crate) use crate::cli::infra::manifest as billing;
 mod dispatch;
 mod escalations;
 mod habits;

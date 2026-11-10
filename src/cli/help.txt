@@ -30,6 +30,7 @@ Engineering and landing:
 
 System and telemetry:
   health                Check harness invariants
+  infra                 Live paid resources with their monthly price and a total
   config                Skills and hooks, agent plan and usage, context, proxy calls
   runtime               Update, deploy or check the north and agent runtimes
   capacity              Leases, modes and watchdog; bounded, nexus and dev-shell runs
