@@ -984,7 +984,7 @@ consumers = ["crates/north-capacity/src/capacity/admission.rs"]
 [admit_settle_seconds]
 value = 30
 allowed = { min = 0, max = 604800 }
-unit = "seconds after a heavy build starts before another starts, three time constants of PSI some avg10, so the next reading includes the last build"
+unit = "seconds after a heavy build starts before another starts on a host that is no build host (a build host admits on pressure alone, north#1036), three time constants of PSI some avg10, so the next reading includes the last build"
 source = "measured: after 10 s the average has reached 63% of its final value, and four or five heavy builds started within 40 s of each other while the laptop sat at 51 to 77% (north-admit-v2 samples, 2026-10-31); three time constants reach 95% (Linux kernel documentation, references.md#kernel-psi)"
 fallback = "none: with no heavy lease younger than this the next ticket is free to start"
 consumers = ["crates/north-capacity/src/capacity/pressure_target.rs"]

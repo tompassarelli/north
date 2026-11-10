@@ -78,7 +78,7 @@ fn queued(queue: &[Value], open: bool, draining: &[Value], now: f64) -> Vec<Obj>
         .collect()
 }
 
-pub fn status(root: &Path) -> Obj {
+pub fn status(root: &Path, build_host: bool) -> Obj {
     let gpu = read_gpu(1);
     with_lock(root, || {
         let now = now_ms();
@@ -111,7 +111,7 @@ pub fn status(root: &Path) -> Obj {
             .put("committedBatchCpus", num(accounting.committed_batch_cpus))
             .put("committedNativeCpus", num(accounting.committed_native_cpus))
             .put("landCheckWaiting", super::state::land_check_waiting(root, now))
-            .put("heavySettlingSeconds", num(round2(heavy_settling_seconds(&active, now))))
+            .put("heavySettlingSeconds", num(if build_host { 0.0 } else { round2(heavy_settling_seconds(&active, now)) }))
             .put("holding", holding.iter().map(Obj::value).collect::<Vec<_>>())
             .put("queued", queued(&read_queue(root), super::priority::open(&active), &draining, now).iter().map(Obj::value).collect::<Vec<_>>())
             .put("unleasedHeavy", accounting.unleased)

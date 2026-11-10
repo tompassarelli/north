@@ -55,6 +55,8 @@ pub struct Snapshot {
     pub memory_available_mib: f64,
     pub cpu_some_avg10_basis_points: u32,
     pub protected_cpu_some_avg10_basis_points: u32,
+    #[serde(default)]
+    pub host_cpu_some_avg10_basis_points: Option<u32>,
     pub cpu_pressure_measured: bool,
     #[serde(rename = "leasedMemoryMiB")]
     pub leased_memory_mib: f64,

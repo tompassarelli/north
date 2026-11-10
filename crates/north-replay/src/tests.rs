@@ -33,6 +33,7 @@ fn reading(land_check_waiting: bool) -> admission::Snapshot {
         memory_available_mib: 70_000.0,
         cpu_some_avg10_basis_points: 0,
         protected_cpu_some_avg10_basis_points: 0,
+        host_cpu_some_avg10_basis_points: None,
         cpu_pressure_measured: false,
         leased_memory_mib: 0.0,
         leased_batch_cpus: 0.0,

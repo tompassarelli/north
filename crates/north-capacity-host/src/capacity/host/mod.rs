@@ -56,6 +56,8 @@ mod run;
 #[cfg(test)]
 mod lease_lifecycle_tests;
 #[cfg(test)]
+mod pressure_admission_tests;
+#[cfg(test)]
 mod run_tests;
 mod shape;
 mod sizing;
@@ -460,7 +462,7 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
     match operation {
         "mode" => mode(&root, argv),
         "status" if argv.len() == 1 => {
-            print_to(&status::status(&root), false);
+            print_to(&status::status(&root, (host.build_host)()), false);
             0
         }
         "status" => fail("status accepts no arguments", 2),

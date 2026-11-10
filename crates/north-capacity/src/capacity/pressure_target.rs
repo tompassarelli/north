@@ -1,7 +1,8 @@
 //! Heavy builds start while measured CPU pressure sits under the band's high mark; the batch slice is idle-weighted,
-//! so declared CPUs reserve nothing. One build starts per settle window, so the pressure read next includes the build
-//! started last, and the memory of a build still growing counts against what is available. The low mark is where the
-//! laptop tick thaws a batch slice it froze at the high mark.
+//! so declared CPUs reserve nothing. Off a build host one build starts per settle window, so the pressure read next
+//! includes the build started last; a build host waits on its whole host's pressure alone, as its offloaded jobs do.
+//! The memory of a build still growing counts against what is available. The low mark is where the laptop tick thaws
+//! a batch slice it froze at the high mark.
 use super::admission::{Class, Facts, Profile, Reason, default_mib};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -29,7 +30,7 @@ pub(super) fn deferred(facts: &Facts) -> Option<Reason> {
     }
     let pressure = f64::from(facts.cpu_some_avg10_basis_points);
     let host_over = host_pressure(facts).is_some_and(|host| f64::from(host) >= default_mib("offload_job_cpu_psi") * 100.0);
-    (pressure >= band(facts).high_basis_points || host_over || starting(facts)).then_some(Reason::DeferCpuPressure)
+    (pressure >= band(facts).high_basis_points || host_over || (host_pressure(facts).is_none() && starting(facts))).then_some(Reason::DeferCpuPressure)
 }
 
 fn age_seconds(facts: &Facts, created_at: f64) -> f64 {
