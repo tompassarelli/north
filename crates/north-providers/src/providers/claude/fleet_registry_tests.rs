@@ -215,8 +215,7 @@ fn a_revive_or_take_over_on_a_conversation_an_interactive_window_holds_starts_no
         role: Some(crate::fleet::model::Role::Proxy),
         resume: Some("window-a".into()),
         compact_window: None,
-        slots: Default::default(),
-    };
+            };
     let take_over = fleet.take_over(&request).unwrap_err().user_message();
 
     assert!(take_over.contains("interactive window"), "{take_over}");

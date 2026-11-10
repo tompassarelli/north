@@ -25,7 +25,7 @@ pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, Pull, Undec
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
 pub use registrar::{Registered, Registrar, Registration};
 pub use sent::delivered_by;
-pub use sessions::{Claim, SessionRow, Slots};
+pub use sessions::{Claim, SessionRow};
 pub use spool::{SPOOL_DIR, Spool, Spooled};
 pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
 
@@ -69,9 +69,9 @@ impl Store {
         tx.commit().map_err(sql)
     }
 
-    pub fn register(&mut self, row: &SessionRow, claim: Claim, slots: &Slots) -> NorthResult<()> {
+    pub fn register(&mut self, row: &SessionRow, claim: Claim) -> NorthResult<()> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
-        sessions::register(&tx, row, claim, slots)?;
+        sessions::register(&tx, row, claim)?;
         tx.commit().map_err(sql)
     }
 

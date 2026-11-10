@@ -51,8 +51,7 @@ fn request(cwd: &Path) -> LaunchRequest {
         role: None,
         resume: None,
         compact_window: None,
-        slots: Default::default(),
-    }
+            }
 }
 
 fn account(home: &Path) -> Account {

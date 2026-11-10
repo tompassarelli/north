@@ -11,7 +11,7 @@ use crate::fleet::prompt::PromptMode;
 use crate::fleet::records::write_record;
 use crate::fleet::host::{SOCKET, alive};
 use crate::fleet::runtime::{LiveWindow, PROXY, Runtime, WindowInbox, now_ms};
-use crate::fleet::store::{Claim, SessionRow, Slots};
+use crate::fleet::store::{Claim, SessionRow};
 
 use super::takeover::Predecessor;
 use super::Fleet;
@@ -57,12 +57,11 @@ impl Fleet {
             role: Some(role),
             resume: None,
             compact_window: None,
-            slots: Default::default(),
-        };
+                    };
         let mut record = SessionRecord::launched(&request, None, Some(conversation.to_owned()), false, now_ms());
         record.adopted_ms = Some(record.created_ms);
         let row = SessionRow { status: Status::Idle.label().to_owned(), ..self.table_row(&record, record.created_ms) };
-        self.registrar.register(&row, Claim::TakeOver, &Slots::default())?;
+        self.registrar.register(&row, Claim::TakeOver)?;
         self.succeed(name, Claim::TakeOver, |predecessor| {
             record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
             fs::create_dir_all(&session_dir)?;

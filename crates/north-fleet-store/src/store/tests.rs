@@ -90,40 +90,13 @@ fn a_stopped_session_still_receives_the_answer_to_its_open_gate_but_no_message()
 }
 
 #[test]
-fn a_registration_is_refused_for_a_live_name_or_past_its_machine_resident_cap() {
+fn a_registration_is_refused_for_a_live_name() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
-    let worker = |name: &str, host: &str, machine: Option<&str>| SessionRow { machine: machine.map(str::to_owned), ..session(name, host, "starting") };
-    let slots = |machine: &str, cap: usize| Slots { resident: Some((machine.to_owned(), cap)) };
-    for at in 0..6 {
-        store.register(&worker(&format!("north-{at}"), "nexus", Some("ccx33")), Claim::Fresh, &slots("ccx33", 6)).unwrap();
-    }
-    store.register(&session("proxy", "whiterabbit", "working"), Claim::Fresh, &Slots::default()).unwrap();
+    store.register(&session("north-0", "nexus", "starting"), Claim::Fresh).unwrap();
+    let Err(NorthError::Refused(held)) = store.register(&session("north-0", "whiterabbit", "starting"), Claim::Fresh) else { panic!("a live name was claimed twice") };
 
-    let Err(NorthError::Refused(resident)) = store.register(&worker("north-6", "whiterabbit", Some("ccx33")), Claim::Fresh, &slots("ccx33", 6)) else { panic!("a seventh session started on a machine whose resident cap is 6") };
-    for at in 6..12 {
-        store.register(&worker(&format!("north-{at}"), "whiterabbit", None), Claim::Fresh, &slots("whiterabbit", 7)).unwrap();
-    }
-    let Err(NorthError::Refused(held)) = store.register(&session("north-0", "whiterabbit", "starting"), Claim::Fresh, &Slots::default()) else { panic!("a live name was claimed twice") };
-
-    assert_eq!(resident, "resident cap: 6 sessions are starting or working on ccx33, its resident cap is 6");
     assert_eq!(held, "the session name north-0 is held fleet-wide by a starting session on nexus");
-}
-
-#[test]
-fn a_starting_row_past_the_launch_grace_counts_toward_no_cap() {
-    let (_directory, path) = ledger();
-    let mut store = Store::open(&path).unwrap();
-    let stale = Timestamp::from_unix_millis(i64::try_from(crate::runtime::now_ms() - 2 * LAUNCH_GRACE_MS).unwrap()).iso();
-    let slots = Slots { resident: Some(("gex45".to_owned(), 2)) };
-    for at in 0..3 {
-        let never = SessionRow { updated: stale.clone(), machine: Some("gex45".into()), ..session(&format!("north-1041-{at}"), "gex45", "starting") };
-        assert!(never.never_started(crate::runtime::now_ms()));
-        store.register(&never, Claim::Fresh, &Slots::default()).unwrap();
-    }
-    let launching = SessionRow { machine: Some("gex45".into()), ..session("north-1042", "whiterabbit", "starting") };
-    assert!(!launching.never_started(crate::runtime::now_ms()));
-    store.register(&launching, Claim::Fresh, &slots).unwrap();
 }
 
 #[test]

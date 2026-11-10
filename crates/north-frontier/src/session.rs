@@ -79,8 +79,7 @@ fn request(task: &Task, name: &str, tree: &Path, brief: &str) -> Result<LaunchRe
         role: Some(Role::Worker),
         resume: None,
         compact_window: None,
-        slots: Default::default(),
-    })
+            })
 }
 
 /// The dev shell's environment for the clone, the toolchain both arms build with.

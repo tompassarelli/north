@@ -250,7 +250,6 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     gated::admit(fleet, &mut request)?;
     (request.placement, request.capacity_need) = (placed.note, placed.need);
     request.machine = placed.machine.or(request.machine);
-    request.slots = placed.slots;
     let tasks = request.tasks();
     if let Err(error) = fleet.release_exited_claims_on(&tasks) {
         eprintln!("north fleet: {} launches with its holder check left to its claim, because the ledger did not say who holds {}: {}", request.name, tasks.join(" "), error.user_message());

@@ -220,8 +220,7 @@ mod launch_tests {
             role: None,
             resume: None,
             compact_window: None,
-            slots: Default::default(),
-        }
+                    }
     }
 
     /// On 2026-11-10 dispatch launches of north#1042 failed at start and the claim stayed with the dead launch.

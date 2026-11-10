@@ -68,7 +68,7 @@ impl Fleet {
         record.overlay = runtime.overlay(&request.name);
         record.account = account.recorded_label();
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
-        self.registrar.register(&row, claim, &request.slots)?;
+        self.registrar.register(&row, claim)?;
         self.succeed(&request.name, claim, |predecessor| {
             record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
             self.claim_before_start(request, &tasks, verification)?;

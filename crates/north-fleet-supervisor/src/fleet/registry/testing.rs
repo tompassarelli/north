@@ -6,12 +6,12 @@ use super::{Fleet, FleetBooks, Runtimes};
 use crate::error::NorthResult;
 use crate::fleet::claims::{Claims, Held};
 use crate::fleet::jobs::{HeldLeases, JobLeases};
-use crate::fleet::store::{Claim, Registrar, SessionRow, Slots};
+use crate::fleet::store::{Claim, Registrar, SessionRow};
 
 pub struct Unrecorded;
 
 impl Registrar for Unrecorded {
-    fn register(&self, _: &SessionRow, _: Claim, _: &Slots) -> NorthResult<()> {
+    fn register(&self, _: &SessionRow, _: Claim) -> NorthResult<()> {
         Ok(())
     }
 

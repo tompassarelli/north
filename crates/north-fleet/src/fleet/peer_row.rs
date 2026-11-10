@@ -119,7 +119,7 @@ pub fn admit_registration(registration: &Registration, peer: &str, ledger: &[Ses
     if !may_hold(ledger, peer, &row.name) {
         return Err(NorthError::Refused(format!("{peer} may not register or take over {}: another host holds it, or it is a new name that does not start with {peer}-", row.name)));
     }
-    Ok(Registration { row: SessionRow { created: iso(now_ms), ..row.clone() }, claim: registration.claim, slots: registration.slots.clone() })
+    Ok(Registration { row: SessionRow { created: iso(now_ms), ..row.clone() }, claim: registration.claim })
 }
 
 pub fn admit_wait_sessions<'a>(sessions: impl IntoIterator<Item = &'a str>, peer: &str, ledger: &[SessionRow]) -> NorthResult<()> {

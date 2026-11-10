@@ -193,7 +193,7 @@ Other readers:
 - South's orchestration `[pace.*]` tables and the firn unit that described pace enforcement: **deleted** and
   **reworded** in their own repositories.
 
-These are **not** usage gates and are **kept**: each host's `resident_cap` and saturation reading, the CPU
+These are **not** usage gates and are **kept**: each host's saturation reading, the CPU
 spawn gate, battery and playtest leases, the landing governor, and the cloud lane's session count. They bound
 machines and landing contention. They do not bound account spend.
 

@@ -61,8 +61,7 @@ pub enum Claim {
     TakeOver,
 }
 
-pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim, slots: &Slots) -> NorthResult<()> {
-    refuse_past(tx, row, slots)?;
+pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim) -> NorthResult<()> {
     let guard = match claim {
         Claim::Fresh => "fleet_sessions.status = ?6 OR fleet_sessions.host = excluded.host",
         Claim::TakeOver => "1",
@@ -73,27 +72,6 @@ pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim, slots: 
     let (host, status): (String, String) =
         tx.query_row("SELECT host, status FROM fleet_sessions WHERE name = ?1", [&row.name], |held| Ok((held.get(0)?, held.get(1)?))).map_err(sql)?;
     Err(NorthError::Refused(format!("the session name {} is held fleet-wide by a {status} session on {host}", row.name)))
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Slots {
-    pub resident: Option<(String, usize)>,
-}
-
-const ACTIVE: &str = "(status = 'working' OR (status = 'starting' AND updated >= ?3)) AND name != ?1";
-
-fn refuse_past(tx: &Transaction, row: &SessionRow, slots: &Slots) -> NorthResult<()> {
-    let launching_since = Timestamp::from_unix_millis(i64::try_from(crate::runtime::now_ms().saturating_sub(super::LAUNCH_GRACE_MS)).unwrap_or(i64::MAX)).iso();
-    let count = |filter: &str, value: &str| -> NorthResult<usize> {
-        tx.query_row(&format!("SELECT count(*) FROM fleet_sessions WHERE {ACTIVE} AND {filter}"), params![row.name, value, launching_since], |found| found.get::<_, i64>(0)).map(|found| usize::try_from(found).unwrap_or(usize::MAX)).map_err(sql)
-    };
-    if let Some((machine, cap)) = &slots.resident {
-        let resident = count("COALESCE(machine, host) = ?2", machine)?;
-        if resident >= *cap {
-            return Err(NorthError::Refused(format!("resident cap: {resident} sessions are starting or working on {machine}, its resident cap is {cap}")));
-        }
-    }
-    Ok(())
 }
 
 pub(super) fn publish(tx: &Transaction, rows: &[SessionRow], outranks: &[String]) -> NorthResult<Vec<String>> {

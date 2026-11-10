@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, LaunchRequest, Machine, Role};
 use crate::fleet::registry::Fleet;
-use crate::fleet::store::Slots;
 use crate::fleet::roster::Roster;
 use crate::dispatch::{cloud_autoland, cloud_branch};
 use crate::pacing::placement::case;
@@ -58,7 +57,6 @@ pub(super) struct Placed {
     pub note: Option<String>,
     pub machine: Option<Machine>,
     pub need: Option<String>,
-    pub slots: Slots,
     /// A model the decision overrides, such as the coordinator's Opus high when no account has Fable headroom.
     pub model: Option<String>,
     pub effort: Option<Effort>,
@@ -206,7 +204,7 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     } else {
         admits(&chosen).map_err(Refusal::Spend).and(placed)
     };
-    Ok(settled.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref())), ..placed } } else { placed }))
+    Ok(settled)
 }
 
 /// The placement `chosen` when the spend rule admits its account; otherwise the first other account the rule admits that placement also
@@ -231,12 +229,6 @@ fn with_room(
         }
     }
     Ok(Err(Refusal::Spend(refusals.join("; "))))
-}
-
-fn slots(fleet: &Fleet, machine: Option<&Machine>) -> Slots {
-    let machine = machine.map_or_else(|| fleet.host().to_owned(), |machine| machine.name.clone());
-    let cap = crate::pacing::placement::config().ok().and_then(|cfg| cfg.get("hosts")?.get(&machine)?.get("resident_cap")?.as_integer()).and_then(|cap| usize::try_from(cap).ok());
-    Slots { resident: cap.map(|cap| (machine, cap)) }
 }
 
 /// Runs live placement, prints one verdict line per account and machine when `report`, and returns where to run.
@@ -390,7 +382,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         }
         _ => (None, None),
     };
-    Ok(Placed { account: None, note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text), slots: Slots::default(), model, effort })
+    Ok(Placed { account: None, note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text), model, effort })
 }
 
 fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) -> String {
