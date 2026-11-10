@@ -1,12 +1,10 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
-use crate::map::{self, Test};
+use crate::map::Test;
 use crate::pick::Selection;
-use crate::run_selected::{MOST_BEFORE_PUSH, north, repository, selection_between};
+use crate::run_selected::{MOST_BEFORE_PUSH, selection_between};
 
 const USAGE: &str = "usage: north test coverage miss BASE HEAD --log FILE [--map FILE]";
 const FAILED: [&str; 6] = ["FAIL", "SIGSEGV", "SIGABRT", "SIGKILL", "TIMEOUT", "ABORT"];
@@ -107,13 +105,7 @@ fn usage() -> u8 {
 }
 
 fn start_refresh() -> Result<(), String> {
-    let log_path = map::path_for(&repository(Path::new("."))).with_extension("refresh.log");
-    if let Some(directory) = log_path.parent() {
-        fs::create_dir_all(directory).map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
-    }
-    let log = fs::OpenOptions::new().create(true).append(true).open(&log_path).map_err(|error| format!("cannot create {}: {error}", log_path.display()))?;
-    let errors = log.try_clone().map_err(|error| format!("{}: {error}", log_path.display()))?;
-    Command::new(north()).args(["test", "coverage", "refresh"]).stdin(Stdio::null()).stdout(log).stderr(errors).process_group(0).spawn().map(drop).map_err(|error| format!("north test coverage refresh: {error}"))
+    crate::cadence::start(Path::new("."), "a selection miss").map(drop)
 }
 
 #[cfg(test)]

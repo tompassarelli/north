@@ -4,6 +4,7 @@
 //! changed file where the map is older than that code, and none where the lane changes an input the map does not
 //! trace. The change graph reads the map to pick the nextest check's tests, and the full suite still runs after the
 //! push (north#944). Depends only on north-base; the lander reaches it through `north test coverage`.
+pub mod cadence;
 pub mod exec;
 pub mod hunks;
 pub mod index;
@@ -14,7 +15,7 @@ pub mod record;
 pub mod refresh;
 pub mod run_selected;
 
-const USAGE: &str = "usage: north test coverage select BASE HEAD [--map FILE]\n       north test coverage miss BASE HEAD --log FILE [--map FILE]\n       north test coverage record [NEXTEST-ARGUMENT...]\n       north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]\n       north test coverage exec BINARY [ARGUMENT...]";
+const USAGE: &str = "usage: north test coverage select BASE HEAD [--map FILE]\n       north test coverage miss BASE HEAD --log FILE [--map FILE]\n       north test coverage record [NEXTEST-ARGUMENT...]\n       north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION] | --start\n       north test coverage exec BINARY [ARGUMENT...]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {

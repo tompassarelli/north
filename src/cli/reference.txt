@@ -121,6 +121,7 @@ Commands:
   test coverage miss BASE HEAD --log FILE [--map FILE]  Name the after-push failures the selection missed and refresh the map
   test coverage record [NEXTEST-ARGUMENT...]    Record the test-to-function coverage map on a check host
   test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]  Refresh the coverage map on a check host
+  test coverage refresh --start                  Start a refresh in the background when the map is missing or a day old
   graph tell [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Record a fact in the triple graph
   graph retract [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Withdraw a fact from the triple graph
   graph show [--db PATH] [--json] T1            Show the facts about one term

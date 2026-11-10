@@ -10,6 +10,11 @@ const TIMEOUT: &str = "3600";
 const RECORD: &str = "CARGO_TARGET_DIR=target ./bin/land-shell --dev -- ./bin/head-north --code crates/north-coverage/ test coverage record";
 
 pub fn run(arguments: &[String]) -> u8 {
+    if let [flag] = arguments
+        && flag == "--start"
+    {
+        return crate::cadence::run_start();
+    }
     let mut host_name = None;
     let mut head = "origin/main".to_owned();
     let mut rest = arguments.iter();
@@ -24,7 +29,7 @@ pub fn run(arguments: &[String]) -> u8 {
                 }
             }
             _ => {
-                eprintln!("usage: north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]");
+                eprintln!("usage: north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION] | --start");
                 return 2;
             }
         }
@@ -68,7 +73,16 @@ fn refresh(host: &str, head: &str) -> Result<Map, String> {
     let status = child.wait().map_err(|error| format!("north capacity offload run: {error}"))?;
     let map = recorded.ok_or_else(|| format!("the record on {host} printed no map ({status})"))?;
     map.save(&map::path_for(&repository(root)))?;
+    ingest();
     Ok(map)
+}
+
+fn ingest() {
+    match Command::new(north()).args(["graph", "ingest", "coverage"]).stdout(Stdio::null()).status() {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!("north test coverage refresh: north graph ingest coverage exited {status}, so this host's graph keeps its older map"),
+        Err(error) => eprintln!("north test coverage refresh: north graph ingest coverage: {error}"),
+    }
 }
 
 struct Running(std::path::PathBuf);

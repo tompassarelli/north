@@ -159,6 +159,17 @@ commits of the cost sample below.
   line, as the build lag does (invariant 4).
 - **Cadence.** A refresh starts when the newest map is 24 hours old, when a selection miss is recorded, or when unknown
   tests pass 10% of the tests the lane's build lists. One refresh runs at a time per repository, as now.
+- **Cadence as built (n1039-map).** The lander's two-minute shadow tick, once idle, runs
+  `north test coverage refresh --start` in each Rust repository it serves. It starts a refresh when the map file is
+  missing or 24 hours old, as the transient user unit `north-coverage-refresh-REPO`, so the record outlives the tick's
+  oneshot unit and a second start fails while one runs; a recorded miss starts the same unit. The refresh offloads the
+  record to a build host, saves the map on the lander and runs `north graph ingest coverage` there, so
+  `north graph show coverage:north` names the map's commit on the lander. Measured cost on gex45 on 2026-11-10 at
+  bd4d7feae, without the reads recorder: 13 min 49 s wall from a cold instrumented target, of which the nextest run of
+  1553 tests took 307 s (11 failed inside the land shell, their reach still recorded), then the span export and the
+  `rust-analyzer scip` index; 7 GB of `target/coverage`, and an 18 MB map of 43251 functions, whose `north graph ingest coverage` told 764182 facts in 232 s at 1 GB peak.
+  Still open: telling the build hosts' graphs,
+  the lag line, the 10% unknown trigger and the reads recorder with per-process profiles.
 - **Gaps.** Until the map is fresh, rule 3 covers the tests the map does not know, and the M..HEAD condition
   covers the tests whose reached files changed since M, so with phase 2's full proof (below) a stale map
   costs test time but not safety. On 5f42fb5463's day, every unknown test would have run as a crate-closure test.

@@ -5,6 +5,7 @@ use std::process::Command;
 use super::after::follow::program;
 use super::{candidate, hold, lander, queue, repositories};
 
+mod coverage;
 mod main_run;
 mod pick;
 mod reuse;
@@ -79,6 +80,9 @@ pub fn tick(settings: &Settings) -> Result<Round, String> {
     let Some(work) = pick::first_with_work(tickets, &settings.host, |path, ticket| run::missing(settings, &worktree, &main, path, ticket, &logs)) else {
         if main_run::pending(&logs, &main) && let Some(lines) = main_run::record(settings, &worktree, &main, &logs) {
             return Ok(Round::RecordedMain { main, lines });
+        }
+        if let Some(line) = coverage::tend(settings) {
+            println!("north land shadow: {}: {line}", settings.repo.display());
         }
         return Ok(Round::Idle);
     };
