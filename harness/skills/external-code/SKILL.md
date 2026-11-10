@@ -2,8 +2,8 @@
 name: external-code
 description: >-
   Check license and attribution before copying, adapting, vendoring or referencing outside code.
-grounded: 2026-10-15
-written: 2026-10-15
+grounded: 2026-11-10
+written: 2026-11-10
 portable: true
 ---
 
