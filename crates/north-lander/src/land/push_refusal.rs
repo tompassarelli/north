@@ -59,9 +59,13 @@ mod tests {
         let archived = "remote: This repository was archived so it is read-only.\nfatal: unable to access 'https://github.com/o/wake.git/': The requested URL returned error: 403\n";
         assert_eq!(classify(archived), Refusal::Terminal("remote: This repository was archived so it is read-only.".to_owned()));
         assert_eq!(classify("remote: Permission to o/r.git denied to lander[bot].\n"), Refusal::Terminal("remote: Permission to o/r.git denied to lander[bot].".to_owned()));
-        assert_eq!(classify("remote: Permission to o/r.git denied to north-lander[bot].\n"), Refusal::Terminal("remote: Permission to o/r.git denied to north-lander[bot].".to_owned()));
         assert_eq!(classify("To origin\n ! [remote rejected] main -> main (pre-receive hook declined)\n"), Refusal::Retry("! [remote rejected] main -> main (pre-receive hook declined)".to_owned()));
         assert_eq!(classify(""), Refusal::Retry("git push failed without a message".to_owned()));
     }
 
+    #[test]
+    fn a_refusal_naming_the_north_lander_bot_is_terminal_like_the_old_lander_bot() {
+        let line = "remote: Permission to o/r.git denied to north-lander[bot].";
+        assert_eq!(classify(&format!("{line}\n")), Refusal::Terminal(line.to_owned()));
+    }
 }

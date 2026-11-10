@@ -168,7 +168,10 @@ fn the_probe_lines_parse_into_free_disk_held_slots_and_stale_registrations_and_t
     assert_eq!(*hands.applied.borrow(), vec![Remedy::RemoveQueue { queue: stray.clone() }]);
     assert_eq!(hands.incidents.borrow()[0].0, "lander-stray-queue");
     assert!(!stray.exists(), "the stray queue is removed");
+}
 
+#[test]
+fn a_repository_with_a_lander_unit_unreachable_by_the_installation_token_fails_the_doctor() {
     let unreachable = Facts { unreachable: vec!["tompassarelli/firn".to_owned()], ..Facts::default() };
     let missing = Fake::default();
     let text = render(&cure(&unreachable, &mut Book::default(), &missing, NOW));
