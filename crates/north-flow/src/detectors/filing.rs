@@ -15,11 +15,12 @@ const STATE: &str = "detectors.json";
 const LOCK: &str = "detectors.lock";
 
 /// What one detector finding did to its owning issue: filed its box, commented a repeated cause that an open box
-/// already covers, or left the issue alone.
+/// already covers, reopened a closed owner that its box must go on, or left the issue alone.
 #[derive(Debug, Eq, PartialEq)]
 enum Appended {
     Box,
     Commented,
+    Reopened,
     Skipped(&'static str),
 }
 
@@ -90,6 +91,16 @@ fn repeat_comment(finding: &Finding) -> String {
     )
 }
 
+fn reopen_comment(finding: &Finding) -> String {
+    format!(
+        "**{} reopened this issue.** {}\n\nThe issue was closed, so the box \"{}\" had no open owner to land on; the next detector tick files it here.\n\n(detector {})",
+        finding.detector.name(),
+        finding.detail,
+        finding.title,
+        finding.key
+    )
+}
+
 impl<'a> Filer<'a> {
     pub fn new(places: &'a Places, host: &'a dyn Host) -> Self {
         Self { places, host }
@@ -134,7 +145,9 @@ impl<'a> Filer<'a> {
     fn append(&self, finding: &Finding, slug: &str, number: &str) -> Result<Appended, String> {
         let issue = self.host.json(&["gh", "issue", "view", number, "-R", slug, "--json", "body,state"]).ok_or_else(|| format!("gh issue view {slug}#{number} did not answer"))?;
         if issue["state"].as_str() != Some("OPEN") {
-            return Ok(Appended::Skipped("the owning issue is not open"));
+            let comment = reopen_comment(finding);
+            self.host.run(&["gh", "issue", "reopen", number, "-R", slug, "--comment", &comment], None, None).ok_or_else(|| format!("gh issue reopen {slug}#{number} failed"))?;
+            return Ok(Appended::Reopened);
         }
         let body = issue["body"].as_str().unwrap_or_default();
         if body.contains(&format!("(detector {})", finding.key)) {
@@ -194,6 +207,7 @@ impl<'a> Filer<'a> {
             return Ok((false, format!("waiting: the last box on {} was filed {} ago and this subject now waits {} between boxes", finding.subject(), waits::describe(now - last), waits::describe(wait))));
         }
         match self.append(finding, &slug, &number) {
+            Ok(Appended::Reopened) => Ok((false, format!("reopened {owner}: its box is filed on the next tick"))),
             Ok(appended) => {
                 state.filed.insert(finding.key.clone(), Filed { at: now, issue: owner.to_owned() });
                 if let (Appended::Box, Some((wait_s, _))) = (&appended, wait) {
@@ -206,6 +220,7 @@ impl<'a> Filer<'a> {
                         format!("filed a box on {owner}")
                     }
                     Appended::Commented => format!("commented the repeated cause on {owner} instead of filing a second box"),
+                    Appended::Reopened => unreachable!("handled before the key is recorded"),
                     Appended::Skipped(why) => format!("not filed: {why}"),
                 };
                 Ok((appended == Appended::Box, note))

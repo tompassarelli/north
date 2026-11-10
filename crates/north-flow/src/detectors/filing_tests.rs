@@ -13,17 +13,24 @@ struct GitHub {
     body: RefCell<String>,
     edits: RefCell<Vec<String>>,
     comments: RefCell<Vec<String>>,
+    closed: std::cell::Cell<bool>,
+    reopens: RefCell<Vec<String>>,
 }
 
 impl Host for GitHub {
     fn output(&self, argv: &[&str], _: Option<&Path>, input: Option<&str>, _: Duration) -> Option<Output> {
         let answer = |text: String| Some(Output { status: ExitStatus::from_raw(0), stdout: text.into_bytes(), stderr: Vec::new() });
         match argv {
-            ["gh", "issue", "view", ..] => answer(serde_json::json!({ "body": self.body.borrow().clone(), "state": "OPEN" }).to_string()),
+            ["gh", "issue", "view", ..] => answer(serde_json::json!({ "body": self.body.borrow().clone(), "state": if self.closed.get() { "CLOSED" } else { "OPEN" } }).to_string()),
             ["gh", "issue", "edit", ..] => {
                 let text = input.unwrap_or_default().to_owned();
                 self.edits.borrow_mut().push(text.clone());
                 *self.body.borrow_mut() = text;
+                answer(String::new())
+            }
+            ["gh", "issue", "reopen", ..] => {
+                self.reopens.borrow_mut().push(argv.last().copied().unwrap_or_default().to_owned());
+                self.closed.set(false);
                 answer(String::new())
             }
             ["gh", "issue", "comment", ..] => {
@@ -86,19 +93,6 @@ fn a_repeated_cause_comments_on_the_open_box_instead_of_filing_a_second_one() {
     assert_eq!(github.edits.borrow().len(), 2);
 }
 
-#[test]
-fn a_different_cause_on_the_same_issue_still_files_its_box() {
-    let root = tempfile::tempdir().unwrap();
-    let places = places(root.path());
-    let github = GitHub::default();
-    let first = finding("machine-fix:pet:2026-W44", "Extend the pet machine model");
-    let second = finding("machine-refusal:pet:claim", "Model the claim move of pet");
-    let outcomes = Filer::new(&places, &github).file(&[first, second], 1.0).unwrap();
-    assert!(outcomes.iter().all(|outcome| outcome.filed));
-    assert_eq!(github.edits.borrow().len(), 2);
-    assert!(github.comments.borrow().is_empty());
-}
-
 fn tick_box(github: &GitHub, evidence: &str) {
     let ticked = github.body.borrow().replacen("- [ ]", "- [x]", 1) + evidence;
     *github.body.borrow_mut() = ticked;
@@ -122,4 +116,26 @@ fn a_subject_waits_twice_as_long_after_a_box_that_changed_nothing_and_returns_to
     *github.body.borrow_mut() = landed;
     let after_change = file("machine-fix:pet:W4", "Model pet a fourth time", 3.0 * WEEK + 2.0);
     assert!(after_change.filed, "a box that led to a change returns the wait to the floor: {}", after_change.note);
+}
+
+#[test]
+fn a_finding_whose_owner_is_closed_reopens_it_and_stays_unfiled_until_its_box_is_written() {
+    let root = tempfile::tempdir().unwrap();
+    let places = places(root.path());
+    let github = GitHub::default();
+    github.closed.set(true);
+    let first = finding("machine-fix:pet:2026-W44", "Extend the pet machine model");
+
+    let reopened = Filer::new(&places, &github).file(std::slice::from_ref(&first), 1.0).unwrap();
+    assert!(!reopened[0].filed);
+    assert!(reopened[0].note.contains("reopened north#777"), "{}", reopened[0].note);
+    assert_eq!(github.reopens.borrow().len(), 1);
+    assert!(github.reopens.borrow()[0].contains("machine-fix:pet:2026-W44"), "the comment names the finding");
+    assert!(github.edits.borrow().is_empty());
+    assert!(Filer::new(&places, &github).filed_keys().is_empty(), "the key is unfiled until the box is written");
+
+    let written = Filer::new(&places, &github).file(&[first], 2.0).unwrap();
+    assert!(written[0].filed, "{}", written[0].note);
+    assert_eq!(github.reopens.borrow().len(), 1);
+    assert!(Filer::new(&places, &github).filed_keys().contains("machine-fix:pet:2026-W44"));
 }
