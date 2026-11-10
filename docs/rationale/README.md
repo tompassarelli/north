@@ -67,6 +67,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Strategy kernel: north's decisions as pure functions over recorded inputs, checked by replay](strategy-kernel.md): Design of 2026-11-06 for north#643 box 1: the decision record (case file) for placement, admission and the lander, the decision log that writes it, the replay command, the line between kernel and strategy, the `no_std` landing gate, and the migration order.
 - [Subsystem ledger: what each north subsystem costs to repair against the decisions it feeds](subsystem-ledger.md): North's breadth has to show it is necessary (north#797).
 - [Targets rationale](targets.md): Cold-path reasoning behind numeric performance, time and size targets.
+- [Test selection: every test a change can reach runs before it lands](test-selection.md): On 2026-11-10 lane ds-1033 (5f42fb5463, north#1033) moved the worker sandbox's path policy from north-runtime into north-base across 16 files.
 - [Tier routing rationale](tier-routing.md): Cold-path reasoning behind which model tier a box starts on.
 - [Verdict reuse by recorded inputs: a test's pass carries to every tree where the files it read are the same](verdict-reuse.md): Plan of 2026-11-08 for the "Verdict reuse by recorded inputs" section of north#842.
 - [Wake paths: what wakes an agent turn, and what to cut](wake-paths.md): Measured 2026-11-04 over the 7 days 2026-10-28 to 2026-11-04 (UTC).

@@ -409,8 +409,26 @@ claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi)
   ([verdict-reuse.md](rationale/verdict-reuse.md)). Outcome: prior only.
 - <a id="ekstazi"></a>**Gligoric, Eloussi and Marinov, Practical regression test selection with dynamic file
   dependencies (ISSTA 2015)**, https://doi.org/10.1145/2771783.2771784.
-  Informed: per-test file dependencies as a safe and cheap reuse key ([verdict-reuse.md](rationale/verdict-reuse.md)).
+  Informed: per-test file dependencies as a safe and cheap reuse key ([verdict-reuse.md](rationale/verdict-reuse.md)), and
+  running every test with no recorded dependencies ([test-selection.md](rationale/test-selection.md)).
   Outcome: prior only.
+- <a id="tap-scale"></a>**Memon, Gao, Nguyen, Dhanda, Nickell, Siemborski and Micco, Taming Google-scale continuous
+  testing (ICSE-SEIP 2017)**, https://doi.org/10.1109/ICSE-SEIP.2017.16.
+  Informed: reverse-dependency selection over the build graph as the sound fallback and the cost ceiling
+  ([test-selection.md](rationale/test-selection.md), north#1039). Outcome: prior only.
+- <a id="test-impact-analysis"></a>**Microsoft, Test Impact Analysis** (Azure Pipelines),
+  https://learn.microsoft.com/en-us/azure/devops/pipelines/test/test-impact-analysis, and **Fowler, The rise of test
+  impact analysis**, https://martinfowler.com/articles/rise-test-impact-analysis.html, accessed 2026-11-10.
+  Informed: a per-test coverage map as the proof that a test is unaffected, not as the list of tests to run
+  ([test-selection.md](rationale/test-selection.md), north#1039). Outcome: prior only.
+- <a id="predictive-test-selection"></a>**Machalica, Samylkin, Porth and Chandra, Predictive test selection
+  (ICSE-SEIP 2019)**, https://arxiv.org/abs/1810.05286.
+  Informed: learned selection rejected as a way to drop tests, since it trades misses for cost
+  ([test-selection.md](rationale/test-selection.md), north#1039). Outcome: prior only.
+- <a id="starts"></a>**Legunsen, Hariri, Shi, Lu, Zhang and Marinov, An extensive study of static regression test
+  selection in modern software evolution (FSE 2016)**, https://doi.org/10.1145/2950290.2950361.
+  Informed: static dependency selection rejected for tests that spawn the north binary
+  ([test-selection.md](rationale/test-selection.md), north#1039). Outcome: prior only.
 - <a id="nextest"></a>**cargo-nextest: how it works** and **target runners**, https://nexte.st/docs/design/how-it-works/,
   https://nexte.st/docs/features/target-runners/.
   Informed: one process per test and the runner hook that records each test's reads

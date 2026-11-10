@@ -283,6 +283,24 @@ worker updates its own class's line when its lane lands.
 - Status: in flight. 0e4ef2f92f (construct-lead). Not yet covered: placement checking the
   account profile on the chosen host (an input declaration, as in class 10).
 
+### 15. A lane lands without the tests that guard its code
+
+- Incident: on 2026-11-10 ds-1033 (5f42fb5463) moved the worker sandbox's path policy into north-base. Its alone and
+  after-landing selections ran 4 tests. GitHub Actions then failed a worker_sandbox confinement test on that commit,
+  main stayed red, and the next landing's culprit search blamed the innocent 95afbfbca.
+- Root cause: selection ran only the tests its graph knew, and the failing test was added after the graph's last
+  recording, so nothing could select it. A graph answer also replaced the crate-graph module table, which would
+  have selected the test, and blame trusted a base whose own check had not run the failed test.
+- Invariants: alone before together (1) and no verdict is not a fail (2). A test the map cannot prove unaffected runs.
+- Mechanism: [test-selection.md](test-selection.md). Every test in the changed crates' closure runs unless the
+  coverage map proves it unaffected. Guard suites always run for the worker sandbox, the privacy gate and the landing
+  machinery. A full-run failure that the culprit's selection missed is a `selection-miss` incident that teaches the
+  edge, and blame probes the base with the exact failed tests.
+- Replay: `cargo nextest run -p north-land-checks -E 'test(/a_moved_module_selects_the_tests_that_reach_it/)'`
+  selects the failing test for 5f42fb5463 against its parent.
+- Status: in flight. North#1039's lanes n1039-select, n1039-guards, n1039-blame, n1039-miss, n1039-map, n1039-proof and
+  n1039-enforce.
+
 ## What stays only caught
 
 These are detected after the fact, not prevented, until the lanes above land:

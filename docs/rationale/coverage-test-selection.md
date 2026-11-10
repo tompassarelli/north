@@ -36,7 +36,7 @@ selection itself is retired (north#944).
   - A test the lane adds (`#[test]` and its function name, read from the added diff lines) is not
     in the map, so it runs by name in its package and target, and its failure after the push is
     not a miss. A map over 3 days old or a selection of over 400 tests also runs nothing.
-  - The full suite always runs after the push.
+  - The after-landing run is a selection too; only GitHub Actions' Cargo workflow runs the full suite, and [test-selection.md](test-selection.md) makes its failures judge selection.
 - Always run: the `land.after` lines in `.safe-push` name the tests that scan the whole tree rather
   than one module, so no coverage map can trace a change to them. The lander runs them after the
   landing, and their pass is cached by tree like clippy. Selection adds them to every

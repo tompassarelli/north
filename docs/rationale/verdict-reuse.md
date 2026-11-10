@@ -92,7 +92,7 @@ whether the assumption holds.
 
 **Why not coverage** ([coverage-test-selection.md](coverage-test-selection.md)): changing a constant or a
 type outside the executed functions changes the executed code without changing its source.
-Selection can accept that gap because the full suite still runs after the push. Reuse replaces the run,
+Selection can accept that gap because GitHub Actions' Cargo workflow runs the full suite after the push ([test-selection.md](test-selection.md)). Reuse replaces the run,
 so it needs the file-level key.
 
 **Why record rather than enforce a declared set:** enforcing a set recorded on an earlier run would fail
