@@ -57,3 +57,15 @@ fn a_lane_whose_change_main_already_carries_is_named_by_the_main_commit_carrying
     let decided = match &built.picks[0] { Pick::Decided(text) => text.clone(), _ => String::new() };
     assert_eq!(decided, format!("landed {carrier}"), "on 2026-11-08 model-catalog-argon, whose change da2941ea10 had already landed, was told it landed as bde3db9c68, the base it was checked against");
 }
+
+#[test]
+fn a_candidate_of_ten_lanes_runs_its_pick_time_gates_outside_the_serving_loop() {
+    let jobs: Vec<GateJob> = (0..10).map(|at| GateJob { name: format!("lane-{at}"), gating: Gating { picked_onto: String::new(), head: String::new() } }).collect();
+    let together = std::sync::Barrier::new(5);
+    let judged = gate_lanes_with(&jobs, 5, |job| {
+        together.wait();
+        if job.name == "lane-3" { Err("lane-3".to_owned()) } else { Ok(None) }
+    });
+    assert_eq!(judged.len(), 10);
+    assert_eq!(judged[3].as_ref().err().map(String::as_str), Some("lane-3"), "each verdict stays with its lane");
+}

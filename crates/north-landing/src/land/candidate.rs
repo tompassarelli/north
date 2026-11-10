@@ -268,16 +268,20 @@ fn gate_lane(worktree: &Path, job: &GateJob, logs: &Path) -> Gated {
 const GATE_THREADS: usize = 8;
 
 fn gate_lanes(worktree: &Path, jobs: &[GateJob], logs: &Path) -> Vec<Gated> {
+    gate_lanes_with(jobs, std::thread::available_parallelism().map_or(1, usize::from), |job| gate_lane(worktree, job, logs))
+}
+
+fn gate_lanes_with(jobs: &[GateJob], parallelism: usize, judge: impl Fn(&GateJob) -> Gated + Sync) -> Vec<Gated> {
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<Gated>>> = Mutex::new(jobs.iter().map(|_| None).collect());
-    let threads = jobs.len().min(GATE_THREADS).min(std::thread::available_parallelism().map_or(1, usize::from)).max(1);
+    let threads = jobs.len().min(GATE_THREADS).min(parallelism).max(1);
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
                 loop {
                     let at = next.fetch_add(1, Ordering::Relaxed);
                     let Some(job) = jobs.get(at) else { break };
-                    let judged = gate_lane(worktree, job, logs);
+                    let judged = judge(job);
                     results.lock().unwrap_or_else(PoisonError::into_inner)[at] = Some(judged);
                 }
             });
