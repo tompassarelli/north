@@ -42,6 +42,37 @@ fn a_full_run_failure_names_the_lane_whose_own_run_first_failed_the_test_not_a_l
     assert_eq!(responsible(&chain, &runs, &landed, test), Blame::Lane { lane: "ds-1033".into(), sha: "5f42fb5463".into() });
     landed.insert("5f42fb5463".to_owned(), vec!["ds-1033".to_owned(), "batched".to_owned()]);
     assert!(matches!(responsible(&chain, &runs, &landed, test), Blame::Unjudged(why) if why.contains("bisection")), "a batch gives no single lane without the lander's bisection");
+
+    use super::Landing;
+    use super::full_runs::{Conclusion, Run, Source};
+    use crate::land::slots::graph_selection::Selected;
+    let repository = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repository.path())
+            .args(arguments)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "test@example.com"]);
+    git(&["config", "user.name", "test"]);
+    git(&["commit", "--allow-empty", "-qm", "base"]);
+    let base = git(&["rev-parse", "HEAD"]);
+    git(&["commit", "--allow-empty", "-qm", "lane"]);
+    let lane = git(&["rev-parse", "HEAD"]);
+    git(&["commit", "--allow-empty", "-qm", "batch"]);
+    let batch = git(&["rev-parse", "HEAD"]);
+    let batch_landing = Landing { base: base.clone(), head: batch, selected: Selected::default() };
+    let lane_landing = Landing { base, head: lane.clone(), selected: Selected { tests: BTreeSet::from([test.to_owned()]), ..Selected::default() } };
+    let run = Run { source: Source::Actions(1), sha: lane, conclusion: Conclusion::Failure, created: "2026-11-09T00:38:39Z".into() };
+    let tally = super::after_landing(repository.path(), &[batch_landing, lane_landing], None, &run, &[test.to_owned()], None, &|_| false);
+    assert!(tally.left_out.is_empty(), "the lane's own landing held {} though the batch's narrowed selection did not: {:?}", test, tally.left_out);
 }
 
 #[test]

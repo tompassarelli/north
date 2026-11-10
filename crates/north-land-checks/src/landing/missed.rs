@@ -120,14 +120,17 @@ impl Tally {
 }
 
 fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String], on_base: Option<&[String]>, flaky: &dyn Fn(&str) -> bool) -> Tally {
-    let Some(landing) = landings.iter().find(|landing| holds(repo, landing, &run.sha)) else {
+    let holding: Vec<&Landing> = landings.iter().filter(|landing| holds(repo, landing, &run.sha)).collect();
+    let Some(named) = holding.iter().find(|landing| landing.head == run.sha).or_else(|| holding.first()).copied() else {
         println!("{} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.source, short(&run.sha), tests.len(), tests.join(", "));
         return Tally { unjudged: tests.len(), ..Tally::default() };
     };
-    let floor = suites.map(|suites| suites.floor(&changed(repo, &landing.base, &landing.head)));
+    let files: Vec<String> = holding.iter().flat_map(|landing| changed(repo, &landing.base, &landing.head)).collect::<BTreeSet<_>>().into_iter().collect();
+    let floor = suites.map(|suites| suites.floor(&files));
+    let selected = |name: &str| holding.iter().any(|landing| landing.selected.holds(name));
     let guards = |name: &str| floor.as_ref().is_some_and(|floor| floor.selects(name));
-    let verdict = classify(tests, on_base, flaky, |name| landing.selected.holds(name) || guards(name));
-    let guarded = verdict.selected.iter().filter(|name| !landing.selected.holds(name)).count();
+    let verdict = classify(tests, on_base, flaky, |name| selected(name) || guards(name));
+    let guarded = verdict.selected.iter().filter(|name| !selected(name)).count();
     let mut detail = String::new();
     if !verdict.left_out.is_empty() {
         detail.push_str(&format!("; left out: {}", verdict.left_out.join(", ")));
@@ -140,7 +143,7 @@ fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run
     if !verdict.environment.is_empty() {
         detail.push_str(&format!("; environment failures that also fail on the base: {}", verdict.environment.join(", ")));
     }
-    println!("{} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.source, short(&run.sha), tests.len(), verdict.selected.len(), short(&landing.base), short(&landing.head));
+    println!("{} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.source, short(&run.sha), tests.len(), verdict.selected.len(), short(&named.base), short(&named.head));
     let at = |names: Vec<String>| names.into_iter().map(|name| (name, short(&run.sha).to_owned())).collect();
     Tally { judged: verdict.selected.len() + verdict.left_out.len() + verdict.flaky.len(), left_out: at(verdict.left_out), flaky: at(verdict.flaky), unjudged: 0, environment: verdict.environment.len() }
 }
