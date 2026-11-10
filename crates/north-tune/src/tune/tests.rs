@@ -231,3 +231,27 @@ fn a_box_whose_first_run_is_haiku_charges_its_opus_runs_to_the_opus_cell() {
     assert_eq!(spend("haiku"), (1, price(&first)), "the haiku cell holds only the haiku run's cost");
     assert_eq!(week.closed, 1, "one box closed, not one per cell");
 }
+
+const RECORDED_OPUS_HIGH_DEBUGGING: [(f64, f64); 20] = [
+    (33.0, 74.0), (265.0, 69.0), (255.0, 69.0), (28.0, 74.0), (73.0, 74.0), (97.0, 69.0), (22.0, 72.0), (20.0, 72.0), (13.0, 72.0), (40.0, 69.0),
+    (42.0, 69.0), (9.0, 69.0), (79.0, 69.0), (56.0, 69.0), (84.0, 69.0), (21.0, 69.0), (10.0, 69.0), (26.0, 69.0), (246.0, 68.0), (5.0, 68.0),
+];
+
+fn estimated(pairs: &[(f64, f64)]) -> Vec<crate::ledger::EstimatedRun> {
+    let at = |(minutes, eta_min): &(f64, f64)| crate::ledger::EstimatedRun { tier: "opus-high".into(), category: "debugging-unknown-cause".into(), minutes: *minutes, eta_min: *eta_min, usd: 1.0, estimated_usd: None };
+    pairs.iter().map(at).collect()
+}
+
+#[test]
+fn an_eta_that_covers_the_quantile_it_targets_is_calibrated_though_the_median_run_sits_far_below_it() {
+    let cell = &super::estimates::calibrations(&estimated(&RECORDED_OPUS_HIGH_DEBUGGING))[0];
+    let (low, high) = super::estimates::CALIBRATED;
+    assert!(!(low..=high).contains(&cell.minutes.median), "the median ratio {} is the reading that filed the cell as drifted", cell.minutes.median);
+    assert!(!cell.drifted(), "the ETA covers its p{} of the recorded runs at {}x, so it holds", cell.minutes.percent, cell.minutes.covered);
+}
+
+#[test]
+fn an_eta_a_quarter_of_the_runs_that_cover_it_would_need_still_drifts() {
+    let short: Vec<(f64, f64)> = RECORDED_OPUS_HIGH_DEBUGGING.iter().map(|(minutes, eta)| (*minutes, eta / 4.0)).collect();
+    assert!(super::estimates::calibrations(&estimated(&short))[0].drifted());
+}

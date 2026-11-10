@@ -7,7 +7,7 @@
 //! today's beside the last earlier day's. It reads each landed plan issue's dividend from the same
 //! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
 //! DECAYED. It prints each tier and category's estimates against what the week's runs came to and
-//! keeps the cells whose median ratio drifted out of the calibrated band in a second rolling north
+//! keeps the cells whose ratio at the quantile their estimator covers drifted out of the calibrated band in a second rolling north
 //! issue behind the same gate as the rises. It scores each category's runs against the Budget stored at their launch
 //! (share over it, actual/E p50 and p90) and reads the budget cells' multiplier from that p90 once
 //! a category holds enough runs carrying one, and moves an ETA or budget cell at most 2x from its prior value per tick. It prints the share of the last day's finished runs
@@ -123,7 +123,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
     lines.extend(found_rises.iter().map(rises::Rise::line));
     let risen = keep(tracker, &mut breaches, rises::TITLE, rises::issue_body(&found_rises).as_deref(), &format!("`north tune` on {at}: no staffed cell's cost per closed box sits more than 25% above the week before."), dry_run, &mut lines);
     lines.extend(calibrations.iter().filter(|calibration| calibration.drifted()).map(estimates::Calibration::drift_line));
-    let drifted = keep(tracker, &mut breaches, estimates::TITLE, estimates::issue_body(&calibrations).as_deref(), &format!("`north tune` on {at}: every tier and category's median ratio of actual to estimate sits inside {}-{}x.", estimates::CALIBRATED.0, estimates::CALIBRATED.1), dry_run, &mut lines);
+    let drifted = keep(tracker, &mut breaches, estimates::TITLE, estimates::issue_body(&calibrations).as_deref(), &format!("`north tune` on {at}: every tier and category's covered ratio of actual to estimate sits inside {}-{}x.", estimates::CALIBRATED.0, estimates::CALIBRATED.1), dry_run, &mut lines);
     let open = tracker.open();
     lines.push(match &open {
         Ok(open) => format!("open north issues: {open}"),

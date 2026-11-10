@@ -6,6 +6,9 @@ use crate::ledger::closed::percentile;
 use crate::dispatch::BUDGET_TIMES;
 use std::collections::BTreeMap;
 
+/// The quantile of spend a Budget covers: its multiplier is the one that p90 sets.
+pub const BUDGET_COVERAGE: usize = 90;
+
 /// Runs carrying a stored Budget a category needs before its p90 sets the multiplier.
 pub const SCORED_MIN_RUNS: usize = 30;
 
@@ -46,7 +49,7 @@ pub fn scores(runs: &[EstimatedRun]) -> Vec<Score> {
                 n,
                 over: ratios.iter().filter(|ratio| **ratio > 1.0).count() as f64 / n as f64,
                 p50: percentile(&mut ratios, 50),
-                p90: percentile(&mut ratios, 90),
+                p90: percentile(&mut ratios, BUDGET_COVERAGE),
                 set_with: if spent > 0.0 { percentile(&mut budgets, 50) / spent } else { BUDGET_TIMES },
             }
         })
