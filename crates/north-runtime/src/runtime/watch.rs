@@ -19,6 +19,8 @@ const WATCH_S: i64 = 10 * 60;
 const PRIOR_S: i64 = 60 * 60;
 const LEAST: usize = 2;
 const SAMPLE: usize = 3;
+const RESTART_S: i64 = 60;
+const SCRATCH: &str = "vn-";
 
 static READING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d[\d.]*").expect("a reading pattern"));
 
@@ -32,16 +34,29 @@ pub(super) struct Window {
 }
 
 impl Window {
-    fn read(layout: &Layout, start: i64, end: i64) -> Self {
+    fn read(layout: &Layout, start: i64, end: i64, judged: i64) -> Self {
         let (start, end) = (Timestamp::from_unix_seconds(start), Timestamp::from_unix_seconds(end));
         let moves = |machine: &str, from: Option<&str>, to: &str| Store::open(&layout.ledger()).and_then(|store| store.moves_between(machine, from, to, start, end)).unwrap_or(0);
         Self {
             launches: moves("fleet-session", None, "live"),
             refusals: launch_refusals(&threads_ledger(layout), &start.iso(), &end.iso()),
-            host_exits: moves("fleet-session", Some("live"), "parked"),
+            host_exits: lasting_host_exits(&layout.ledger(), (start, end), Timestamp::from_unix_seconds(judged)),
             land_refusals: moves("land-ticket", None, "failed"),
         }
     }
+}
+
+/// The session hosts that stopped in `span` and stayed stopped: a host the supervisor started again within `RESTART_S` is a restart, as a promotion moving hosts onto the new runtime makes, and a `vn-*` session is the canary walk's own scratch host, so neither is an exit, and a stop younger than `RESTART_S` at `judged` is not yet known to be either.
+fn lasting_host_exits(ledger: &Path, (start, end): (Timestamp, Timestamp), judged: Timestamp) -> usize {
+    let Ok(db) = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return 0 };
+    db.query_row(
+        "SELECT count(*) FROM lifecycle_moves stop WHERE stop.machine = 'fleet-session' AND stop.from_state = 'live' AND stop.to_state = 'parked' AND stop.refused = 0 \
+         AND stop.at_ms >= ?1 AND stop.at_ms < ?2 AND stop.at_ms <= ?3 - ?4 AND substr(stop.instance, 1, length(?5)) <> ?5 \
+         AND NOT EXISTS (SELECT 1 FROM lifecycle_moves again WHERE again.machine = stop.machine AND again.instance = stop.instance AND again.to_state = 'live' AND again.refused = 0 AND again.move_id > stop.move_id AND again.at_ms <= stop.at_ms + ?4)",
+        rusqlite::params![start.unix_millis(), end.unix_millis(), judged.unix_millis(), RESTART_S * 1000, SCRATCH],
+        |row| row.get::<_, i64>(0),
+    )
+    .map_or(0, |count| usize::try_from(count).unwrap_or(0))
 }
 
 /// A refusal's cause: its reason with every reading blanked, so the gate refusing at load 10.19 and at 10.79 is one cause.
@@ -83,7 +98,7 @@ pub(super) fn watch(layout: &Layout) {
     if at - swapped > WATCH_S || trusted {
         return;
     }
-    let risen = risen(&Window::read(layout, swapped, at), &Window::read(layout, swapped - PRIOR_S, swapped), at - swapped);
+    let risen = risen(&Window::read(layout, swapped, at, at), &Window::read(layout, swapped - PRIOR_S, swapped, at), at - swapped);
     if risen.is_empty() {
         return;
     }
@@ -113,7 +128,46 @@ fn launch_refusals(ledger: &Path, start: &str, end: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Window, risen};
+    use super::{RESTART_S, Window, lasting_host_exits, risen};
+    use north_base::foundation::clock::Timestamp;
+    use north_base::lifecycle::{Lifecycle, State, Store};
+    use std::time::Duration;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Phase {
+        Live,
+        Parked,
+    }
+
+    impl State for Phase {
+        const ALL: &'static [Self] = &[Self::Live, Self::Parked];
+
+        fn name(self) -> &'static str {
+            match self {
+                Self::Live => "live",
+                Self::Parked => "parked",
+            }
+        }
+    }
+
+    struct Session;
+
+    impl Lifecycle for Session {
+        const NAME: &'static str = "fleet-session";
+        type State = Phase;
+
+        fn legal(_: Option<Phase>, _: Phase) -> bool {
+            true
+        }
+
+        fn dwell(_: Phase) -> Option<Duration> {
+            None
+        }
+
+        fn orphan(_: Phase) -> Option<Phase> {
+            None
+        }
+    }
 
     fn refused(reasons: &[&str]) -> Vec<String> {
         reasons.iter().map(|reason| (*reason).to_owned()).collect()
@@ -129,6 +183,33 @@ mod tests {
         let launching = Window { launches: 6, ..Window::default() };
         let broken = Window { launches: 1, refusals: refused(&["session host died at start: exit 101", "session host died at start: exit 101"]), land_refusals: 3, ..Window::default() };
         assert_eq!(risen(&broken, &launching, 600), ["launch failures", "land refusals"]);
+    }
+
+    #[test]
+    fn a_session_host_restarted_onto_the_new_runtime_is_not_an_exit_and_one_that_stays_down_is() {
+        let directory = tempfile::tempdir().unwrap();
+        let ledger = directory.path().join("ledger.db");
+        let mut store = Store::open(&ledger).unwrap();
+        let at = |seconds: i64| Timestamp::from_unix_seconds(1_800_000_000 + seconds);
+        let mut stops = |session: &str, stopped: i64, started_again: Option<i64>| {
+            store.transition::<Session>(session, Phase::Live, "launched", at(stopped - 100)).unwrap().unwrap();
+            store.transition::<Session>(session, Phase::Parked, "the holder is gone", at(stopped)).unwrap().unwrap();
+            if let Some(again) = started_again {
+                store.transition::<Session>(session, Phase::Live, "revived", at(again)).unwrap().unwrap();
+            }
+        };
+        stops("north-1@1", 200, Some(205));
+        stops("vn-2@1", 250, None);
+        stops("north-3@1", 300, None);
+        stops("north-4@1", 400, Some(400 + RESTART_S + 10));
+        stops("north-5@1", 590, None);
+        let span = (at(0), at(1000));
+
+        assert_eq!(lasting_host_exits(&ledger, span, at(600)), 2, "north-3 stayed down and north-4 came back too late; north-1 restarted, vn-2 is a scratch host, north-5 stopped too recently to tell");
+        assert_eq!(lasting_host_exits(&ledger, span, at(700)), 3, "north-5 is still down once the restart window has passed");
+        let lasting = |span| Window { host_exits: lasting_host_exits(&ledger, span, at(700)), ..Window::default() };
+        assert_eq!(risen(&lasting((at(0), at(260))), &Window::default(), 260), Vec::<&str>::new(), "a restart and a scratch host are no exits");
+        assert_eq!(risen(&lasting(span), &Window::default(), 1000), ["session-host exits"]);
     }
 
     #[test]
