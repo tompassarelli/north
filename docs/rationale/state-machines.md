@@ -396,3 +396,15 @@ formal-verification skills, TLA+, stateright and Kani, and the measured results,
   `refuse_requeue` is not consulted, as enqueue did not at `f1ff89dde`'s parent (`249dbce78`). Both pass on
   origin/main, where the claim and the withdrawal check gate admission, and `north check machines --root .` runs the
   same searches at every change.
+- **Gate fix `5aaff9ef71` (north#872), no promise of the model covers it.** A box-scoped gate stayed open after its
+  box was ticked and then held a launch on another box of the issue. The fix has three parts: the fleet command's
+  gate sweep closes an open `--box` gate whose box is ticked, by `ticked`; the launch gate matches a box gate against
+  the launch's `Box:` line as well as its `Item:` line; dispatch holds only the open boxes carrying a box gate's
+  text. The only part inside the `gate` table is `GatePhase::settled` mapping `Answerer::Ticked` to `Answered`, and
+  the table has no promise about who settled an instance, only about which moves are legal; with `Ticked` removed the
+  code does not compile, so no ordering of one instance differs. The other two parts decide which launches an open
+  gate refuses and which boxes dispatch holds, a relation between a gate and the issue body and the launch line that
+  lives outside the machine. The promise it needs is "an open gate holds exactly the launches whose line carries its
+  box text, and a gate whose box is ticked is not open after a sweep", over a gate instance plus an issue body; that
+  needs a second kind of instance in the scope, which the search does not have. `Hold::refuses` and `ticked_box` are
+  covered by `crates/north-core/src/gate_box_tests.rs`.
