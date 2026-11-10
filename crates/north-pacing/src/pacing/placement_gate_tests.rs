@@ -278,3 +278,13 @@ fn the_declared_operational_reserve_is_never_offered_to_a_worker() {
     assert!(line.contains("unavailable") && line.contains("reserve: operational callers only"), "{line}");
     assert_eq!(target(&decision), "claude:a");
 }
+
+/// Opened by north#872: on 2026-11-07 `north fleet accounts --plan` printed claude:b as "5h 0%" with no five-hour sample.
+#[test]
+fn an_account_with_no_five_hour_sample_prints_its_five_hour_window_as_unread() {
+    let week = json!([{"window": "week", "used_pct": 30.0, "resets_at": "2026-10-20T00:00:00Z"}]);
+    let line = gate::verdict("claude:b", &week, None).line;
+    assert_eq!(line, "claude:b available: 5h unread, week 30% (70% headroom)");
+    let read = gate::verdict("claude:b", &control((10.0, "2026-10-19T03:00:00Z"), 30.0), None).line;
+    assert_eq!(read, "claude:b available: 5h 10%, week 30% (70% headroom)");
+}

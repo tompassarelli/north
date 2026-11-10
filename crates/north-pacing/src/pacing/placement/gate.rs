@@ -238,9 +238,10 @@ fn headroom(windows: &[&Value]) -> f64 {
 }
 
 fn usage(windows: &[&Value]) -> String {
-    windows
-        .iter()
-        .filter_map(|w| Some(format!("{} {:.0}%", w["window"].as_str()?, w["used_pct"].as_f64()?)))
+    let unread = (!windows.iter().any(|w| w["window"] == "5h" && w["used_pct"].is_f64())).then(|| "5h unread".to_owned());
+    unread
+        .into_iter()
+        .chain(windows.iter().filter_map(|w| Some(format!("{} {:.0}%", w["window"].as_str()?, w["used_pct"].as_f64()?))))
         .collect::<Vec<_>>()
         .join(", ")
 }

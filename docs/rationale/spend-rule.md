@@ -64,11 +64,14 @@ grant, reservation or per-account `allowed_workers` beyond the operational floor
 requirement that a named account match placement's first pick.
 
 **Readings.** Spend reads the last sampled used percent of each account's five-hour and week windows from
-`usage-gate.json`. A window whose reset has passed reads 0. An account counts toward the pool only while a
+`usage-gate.json`. A week window whose reset has passed reads 0. A five-hour window with no reading since its reset is
+unread, not 0: the provider stops sending it (a setup token's 429 on a full week carries only the 7d headers, and
+accounts a and b got no 5h headers from 2026-10-31 while they worked), so spend stops nothing on it, the week
+reading decides, and `north fleet accounts --plan` prints `5h unread` (north#872). An account counts toward the pool only while a
 host is signed in to it and its reading is younger than `spend_reading_max_h`; an older or signed-out
 account adds nothing, so a dead account cannot hold the pool open. A stale reading still lets its account
 start work under the pool the fresh accounts give, because the provider's limit stops it when it runs out.
-An account with no reading at all starts nothing.
+An account with no week reading starts nothing.
 
 **Charges between readings.** A run charges each of its own placements against the pool. Starts by other
 spawners between two samples are not charged; the sampler reads every few minutes, so at most a few starts
@@ -94,7 +97,8 @@ five-hour reading from the last 30 minutes, beside the spend breaker, so each ho
 judged on that host. The fleet burst reads the table's five-hour readings, which every host shares. The
 session burst reads the spend so far of each session that host runs, which the tick records per session in
 `agents/spend/spenders.json`, priced in the account's five-hour points by the calibrated points per dollar
-(a session burst is not judged on an account with no calibrated rate). A rate row is an input the tripwire checks before it refuses on it: a row whose source lacks the current `rate method N` stamp (written before the method that measures it changed, or by a host still on the old binary) or one older than `spend_rate_max_h` hours prices nothing, so the session burst refuses nothing on that account, and the proxy is told once per stale row, kept in `agents/spend/stale-inputs.json` until a fresh row replaces it. On 2026-11-08 at 1:55 AM +07 the 1:15 AM pooled rate (3.53 points per dollar, measured before the 1:34 AM rate fix) froze every launch for over 20 minutes; the first row under the fixed method read 0.47 (north#838). Current trips go to
+(a session burst is not judged on an account with no calibrated rate, nor on one with no five-hour reading in
+the span, whose spend a rate pooled from other accounts would price in points it never reported). A rate row is an input the tripwire checks before it refuses on it: a row whose source lacks the current `rate method N` stamp (written before the method that measures it changed, or by a host still on the old binary) or one older than `spend_rate_max_h` hours prices nothing, so the session burst refuses nothing on that account, and the proxy is told once per stale row, kept in `agents/spend/stale-inputs.json` until a fresh row replaces it. On 2026-11-08 at 1:55 AM +07 the 1:15 AM pooled rate (3.53 points per dollar, measured before the 1:34 AM rate fix) froze every launch for over 20 minutes; the first row under the fixed method read 0.47 (north#838). Current trips go to
 `agents/spend/trips.json` there, where dispatch, fleet launch and the spawn hook on that host read them, and
 each new one is appended to `agents/spend/trips.jsonl`. Only the host that holds the proxy tells it, so a
 fleet burst every host sees reaches the proxy once. `north spend [--json]` prints the view.

@@ -122,7 +122,7 @@ fn accounts_from(rows: &[&Row], now: Timestamp) -> Result<Map<String, Value>, St
         }
     }
     for (key, read_at) in newest {
-        roll_over_expired(&mut accounts[&key], py::parse(read_at)?)?;
+        drop_expired(&mut accounts[&key], py::parse(read_at)?)?;
     }
     Ok(accounts)
 }
@@ -131,15 +131,23 @@ fn key_of(provider: &str, accounts: usize, row: &Row) -> String {
     if accounts == 1 { provider.to_owned() } else { format!("{provider}:{}", row.text("account").unwrap_or("None")) }
 }
 
-/// A window whose reset the account's newest reading postdates has rolled over, and a provider that reports no
-/// reading for a window it has not opened leaves its last row behind: the window reads 0% used as of that reading.
-fn roll_over_expired(account: &mut Value, read_at: Timestamp) -> Result<(), String> {
-    let stamp = py::second(read_at);
-    for window in account["windows"].as_object_mut().into_iter().flat_map(Map::values_mut) {
+/// A window whose reset the account's newest reading postdates, with no reading of its own since, is unread: the
+/// provider stopped reporting it (a setup token's response omits the 5h headers once the week is rejected, and
+/// omitted them on accounts a and b from 2026-10-31 while they worked), so it leaves the account's windows rather
+/// than reading 0% used.
+fn drop_expired(account: &mut Value, read_at: Timestamp) -> Result<(), String> {
+    let mut expired = Vec::new();
+    for (name, window) in account["windows"].as_object().into_iter().flatten() {
         let reset = py::parse(window["resets_at"].as_str().unwrap_or_default())?;
         if reset.unix_nanos() <= read_at.unix_nanos() && window["as_of"].as_str().is_some_and(|as_of| py::parse(as_of).is_ok_and(|as_of| as_of.unix_nanos() < reset.unix_nanos())) {
-            window["headroom"] = json!(100.0);
-            window["as_of"] = json!(stamp);
+            expired.push(name.clone());
+        }
+    }
+    for name in expired {
+        for kind in ["windows", "resets"] {
+            if let Some(map) = account[kind].as_object_mut() {
+                map.remove(&name);
+            }
         }
     }
     Ok(())

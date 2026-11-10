@@ -149,21 +149,23 @@ fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_
     assert_eq!(expected["claude"]["success"], serde_json::json!({"claude:haiku|tooling": 60}));
 }
 
+/// Opened by north#872: on 2026-11-07 the setup-token responses of accounts a and b had carried no 5h headers
+/// since 2026-10-31, and the rolled-over 5h window read 0% used as of each new week reading.
 #[test]
-fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_reads_zero_used_as_of_that_reading() {
-    let window = |reading_ts: &str| {
+fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_is_unread_not_zero_used() {
+    let windows = |reading_ts: &str| {
         let rows = serde_json::json!([
             ["2026-10-28T09:00:00Z", "claude", "a", "window", "session", 30.0, 300, "2026-10-28T10:00:00Z", null, "headers"],
             [reading_ts, "claude", "a", "window", "weekly_all", 80.0, 10080, "2026-11-03T00:00:00Z", null, "headers"],
         ]);
         let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": include_str!("../router/fixtures/policy/orchestration.toml")}));
         let gate = super::gate::write(&scratch.open(), &["claude"], &scratch.places(), frozen()).unwrap();
-        gate["claude"]["windows"]["claude:a"].as_array().unwrap().iter().find(|w| w["window"] == "5h").unwrap().clone()
+        gate["claude"]["windows"]["claude:a"].as_array().unwrap().iter().map(|w| (w["window"].as_str().unwrap().to_owned(), w["used_pct"].as_f64())).collect::<Vec<_>>()
     };
-    let rolled = window("2026-10-28T11:59:00Z");
-    assert_eq!((rolled["used_pct"].as_f64(), rolled["as_of"].as_str(), rolled["age_s"].as_f64()), (Some(0.0), Some("2026-10-28T11:59:00Z"), Some(60.0)), "{rolled}");
-    let unseen = window("2026-10-28T09:30:00Z");
-    assert_eq!((unseen["used_pct"].as_f64(), unseen["as_of"].as_str()), (Some(30.0), Some("2026-10-28T09:00:00Z")), "{unseen}");
+    let rolled = windows("2026-10-28T11:59:00Z");
+    assert!(!rolled.iter().any(|(name, _)| name == "5h") && rolled.iter().any(|(name, _)| name == "week"), "{rolled:?}");
+    let unseen = windows("2026-10-28T09:30:00Z");
+    assert!(unseen.contains(&("5h".to_owned(), Some(30.0))), "{unseen:?}");
 }
 
 /// Opened by north#1065: a subscription account whose provider cache carries no scoped Fable row still needs

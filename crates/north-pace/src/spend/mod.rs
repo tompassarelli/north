@@ -79,10 +79,11 @@ impl Account {
     }
 
     fn limit(&self, at: f64) -> Option<Refusal> {
-        let (Some(five_hour), Some(week)) = (self.five_hour, self.week) else {
-            return Some(Refusal { rule: Rule::Unread, line: format!("{} has no five-hour and week usage reading", self.name) });
-        };
-        [("five-hour", five_hour), ("week", week)].into_iter().find(|(_, window)| window.used(at) >= 100.0).map(|(kind, _)| Refusal { rule: Rule::ProviderLimit, line: format!("{} is at its provider's {kind} limit", self.name) })
+        if self.week.is_none() {
+            return Some(Refusal { rule: Rule::Unread, line: format!("{} has no week usage reading", self.name) });
+        }
+        let full = |window: Option<Window>| window.is_some_and(|window| window.used(at) >= 100.0);
+        [("five-hour", self.five_hour), ("week", self.week)].into_iter().find(|(_, window)| full(*window)).map(|(kind, _)| Refusal { rule: Rule::ProviderLimit, line: format!("{} is at its provider's {kind} limit", self.name) })
     }
 }
 

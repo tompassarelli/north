@@ -38,7 +38,7 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
     if let Err(why) = write_json(&agents.join(SPENDERS), &spenders) {
         lines.push(format!("the spend tripwire's session spend was not kept, so the next tick measures sessions from then: {why}"));
     }
-    let accounts: std::collections::BTreeSet<&str> = samples.iter().map(|(account, _)| account.as_str()).chain(spenders.sessions.iter().map(|spender| spender.account.as_str())).collect();
+    let accounts: std::collections::BTreeSet<&str> = samples.iter().map(|(account, _)| account.as_str()).collect();
     let keyed = crate::platform::orchestration::read().map(|cfg| crate::spend::keyed(&cfg)).unwrap_or_default();
     let judged_accounts: Vec<&str> = accounts.into_iter().filter(|account| !keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')))).collect();
     let priced: Vec<(&str, Result<f64, String>)> = judged_accounts.iter().map(|account| (*account, points_per_usd(&db, account, now_ms))).collect();
