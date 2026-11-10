@@ -360,6 +360,16 @@ fn a_worker_declining_the_planted_token_as_a_secret_is_no_verdict_on_the_runtime
 }
 
 #[test]
+fn a_probe_still_working_at_its_deadline_is_no_verdict() {
+    let name = "canary-opencode-1";
+    assert!(matches!(launch::at_deadline(name, true, "status working"), Ok(launch::Attempt::Busy(_))), "03da559f at laptop load 150: a worker still working has not judged the runtime");
+    let busy = launch::judge("opencode", &[None], |_, _| launch::at_deadline(name, true, "status working"));
+    assert!(busy.is_ok(), "no verdict means the probe exits 0 and the canary rolls nothing back: {busy:?}");
+    let exited = launch::judge("opencode", &[None], |_, _| launch::at_deadline(name, false, "status exited"));
+    assert!(exited.is_err(), "a worker that stopped without answering still fails the runtime");
+}
+
+#[test]
 fn a_host_with_no_previous_runtime_holds_a_failing_promotion_instead_of_failing_its_rollback() {
     let host = Host::promoted();
     fs::remove_dir_all(host.layout.runtime(PREVIOUS)).unwrap();

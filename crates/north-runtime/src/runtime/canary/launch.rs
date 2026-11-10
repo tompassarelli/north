@@ -103,17 +103,19 @@ fn fresh_token() -> Result<String, Failure> {
 pub(super) enum Attempt {
     Answered,
     Refused(String),
+    Busy(String),
 }
 
-/// Runs the probe on each account in turn until one answers its first turn. A provider that refuses the account itself (a usage limit, a signed-out login, a billing refusal) says nothing of the runtime, so the next account takes the probe, and with none left the probe is not judged rather than failed.
+/// Runs the probe on each account in turn until one answers its first turn. A provider that refuses the account itself (a usage limit, a signed-out login, a billing refusal) says nothing of the runtime, and neither does a worker still working at the deadline (runtime 03da559f was rolled back on 2026-11-11 at laptop load 150 for that), so the next account takes the probe, and with none left the probe is not judged rather than failed.
 pub(super) fn judge(provider: &str, accounts: &[Option<String>], mut attempt: impl FnMut(Option<&str>, usize) -> Result<Attempt, Failure>) -> Result<(), Failure> {
     for (round, account) in accounts.iter().enumerate() {
         match attempt(account.as_deref(), round + 1)? {
             Attempt::Answered => return Ok(()),
             Attempt::Refused(why) => println!("north runtime canary probe: {provider}{} refused the first turn ({why})", account.as_deref().map_or(String::new(), |account| format!(" on claude:{account}"))),
+            Attempt::Busy(why) => println!("north runtime canary probe: {provider}{} was still working at its deadline ({why})", account.as_deref().map_or(String::new(), |account| format!(" on claude:{account}"))),
         }
     }
-    println!("north runtime canary probe: every {provider} account refused the first turn, so the launch is not judged");
+    println!("north runtime canary probe: no {provider} account answered or failed its first turn, so the launch is not judged");
     Ok(())
 }
 
@@ -211,6 +213,7 @@ fn placed_account(listing: &str) -> Option<String> {
 fn answer(scene: &Scene, name: &str, evidence: &Evidence) -> Result<Attempt, Failure> {
     let started = Instant::now();
     let mut last = "no transcript yet".to_owned();
+    let mut working = false;
     while started.elapsed() < ANSWER_WITHIN {
         match fleet(scene, &["show", name, "--json"]) {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
@@ -218,7 +221,10 @@ fn answer(scene: &Scene, name: &str, evidence: &Evidence) -> Result<Attempt, Fai
                     Some(Turn::Replied(reply) | Turn::Failed(reply)) if refused(&reply) => return Ok(Attempt::Refused(reply)),
                     Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return judged(name, &reply, evidence),
                     Some(Turn::Failed(error)) => return Err(failed(1, format!("{name}'s first turn failed: {error}"))),
-                    _ => last = format!("status {}", session["status"].as_str().unwrap_or("unknown")),
+                    _ => {
+                        working = session["status"] == "working";
+                        last = format!("status {}", session["status"].as_str().unwrap_or("unknown"));
+                    }
                 },
                 Err(error) => last = format!("fleet show printed invalid JSON: {error}"),
             },
@@ -226,7 +232,13 @@ fn answer(scene: &Scene, name: &str, evidence: &Evidence) -> Result<Attempt, Fai
         }
         std::thread::sleep(POLL);
     }
-    Err(failed(1, format!("{name} gave no answer within {}s: {last}", ANSWER_WITHIN.as_secs())))
+    at_deadline(name, working, &last)
+}
+
+/// A worker still working when the deadline passes has not judged the runtime, because a saturated host starves a healthy one; only a session that stopped without an answer, or never showed, fails it.
+pub(super) fn at_deadline(name: &str, working: bool, last: &str) -> Result<Attempt, Failure> {
+    let why = format!("{name} gave no answer within {}s: {last}", ANSWER_WITHIN.as_secs());
+    if working { Ok(Attempt::Busy(why)) } else { Err(failed(1, why)) }
 }
 
 pub(super) fn carries(reply: &str, evidence: &Evidence) -> Result<(), String> {
