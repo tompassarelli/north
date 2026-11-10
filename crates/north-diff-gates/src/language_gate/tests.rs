@@ -182,3 +182,21 @@ fn language_gate_reference_cases_cap_shell_glue_at_80_code_lines() {
     }
 }
 
+
+/// On 2026-11-10 a command that set `W` to a passergames worktree and wrote `$W/shots.ts` was refused as a new script under north's
+/// main checkout, because the gate read `$W` as a literal directory under the cwd (north#1041).
+#[test]
+fn a_redirect_into_a_variable_the_same_command_assigns_is_judged_where_it_points() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    let (north, games) = (home.join("code/north/main"), home.join("code/games/main"));
+    for repo in [&north, &games] {
+        fs::create_dir_all(repo).unwrap();
+        git(repo, &["init", "-q"]).unwrap();
+    }
+    write_list(&north, &[]);
+    let decide = |command: String| guard_decision(json!({"tool_name":"Bash","tool_input":{"command":command}}).to_string().as_bytes(), home, &north, false).unwrap();
+    let worktree = games.join("worktrees/shots");
+    assert!(decide(format!("W={}; mkdir -p $W && sed s/a/b/ /tmp/in.ts > $W/shots.ts", worktree.display())).is_none());
+    assert!(decide(format!("W={}; echo > ${{W}}/tool.py", worktree.display())).is_some());
+}

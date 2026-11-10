@@ -4117,31 +4117,6 @@ label = "true"
 
 
 [[sample]]
-rule = "worktree-remove"
-window = "2026-11-01 to 2026-11-08"
-drawn = "every one of 1 distinct refused call (gex45 transcripts)"
-
-[[sample.row]]
-command = "cd ~/code/north/main && gh issue comment 838 -R tompassarelli/north --body \"Proxy-routing box: the hook landed as 2aa785df4 (\\`git merge-base --is-anc"
-label = "true"
-
-
-[[sample]]
-rule = "issue-filing"
-window = "2026-11-07 22:37 UTC to 2026-11-08, after 22f4b4c5c9"
-narrowed = "2026-11-08 north#706: a body file the same command builds by redirection is judged by its printf and echo text and the files it reads; 2 of the 4 refusals were such bodies"
-drawn = "the 2 of 4 distinct refused calls (gex45 transcripts) the guard still refuses with this change"
-
-[[sample.row]]
-command = "gh issue create -R tompassarelli/north --title \"canary.sh fails locally for a land-kind canary whose check must build north\" --label bug --label prior"
-label = "true"
-
-[[sample.row]]
-command = "cd /home/tom/code/north/main && gh issue create -R tompassarelli/north --label bug --label area:landing --label priority:next --title \"Revert guard fl"
-label = "true"
-
-
-[[sample]]
 rule = "tripwire"
 window = "2026-11-01 to 2026-11-08"
 narrowed = "2026-11-08 north#706: set -e makes a failed cd end the command, and a clone under /tmp is the session's own scratch"
@@ -4700,3 +4675,222 @@ narrowed = "2026-11-10 north#1041: one refusal, true: a public issue comment nam
 [[sample.row]]
 command = "gh issue comment 973 -R tompassarelli/north --body \"Applied 2026-11-09 by the proxy from the operator's login ... [private client project names withheld]\""
 label = "true"
+[[sample]]
+rule = "unrunnable-box"
+window = "2026-11-08 15:20 UTC to 2026-11-10 15:20 UTC"
+drawn = "every one of the 16 refused calls (whiterabbit and gex45 transcripts), all from the Bash-hook gate before 5807e54891"
+narrowed = "2026-11-10 north#1041: 12 of 16 refusals were false because the Bash hook read the command text, where an escaped \\` in a double-quoted body or a printf into a body file hid a backticked Done when command; 5807e54891 moved the gate into north gh-session, which judges the body gh receives, and keeps it in shadow. Replayed with the gate's three patterns over each body as the shell hands it to gh: the 12 false rows name a command in every box, and the 4 true rows still hold a box with no Done when command"
+
+[[sample.row]]
+command = "cd /home/tom; s=/tmp/claude-1000/-home-tom/66a3739d-95e6-4957-a541-99d5613175eb/scratchpad; gh issue view 91 -R tompassarelli/south --json body -q .bo"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom; s=/tmp/claude-1000/-home-tom/66a3739d-95e6-4957-a541-99d5613175eb/scratchpad; gh issue view 91 -R tompassarelli/south --json body -q .bo"
+label = "false"
+
+[[sample.row]]
+command = "cd /home/tom; s=/tmp/claude-1000/-home-tom/66a3739d-95e6-4957-a541-99d5613175eb/scratchpad; gh issue view 91 -R tompassarelli/south --json body -q .bo"
+label = "false"
+
+[[sample.row]]
+command = "gh issue create --repo tompassarelli/north --title \"No land check runs north-lander's tests/it, so neither the alone pass nor the narrowed after-landi"
+label = "true"
+
+[[sample.row]]
+command = "gh issue create --repo tompassarelli/south --label enhancement --label priority:later --title \"[private-repo title and body withheld]\""
+label = "true"
+
+[[sample.row]]
+command = "gh issue create --repo tompassarelli/south --label enhancement --label priority:later --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "gh issue create --repo tompassarelli/south --label enhancement --label priority:now --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "gh issue create --repo tompassarelli/south --label enhancement --label priority:now --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/south --label bug --label priority:now --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/south --label bug --label priority:now --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/south --label bug --label priority:now --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/south --label bug --label priority:now --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/south --label enhancement --label priority:now --title \"[private-repo title and body withheld]\""
+label = "true"
+
+[[sample.row]]
+command = "gh issue create -R tompassarelli/south --label enhancement --label priority:now --title \"[private-repo title and body withheld]\""
+label = "false"
+
+[[sample.row]]
+command = "n=$(systemctl --user --failed --no-legend | rg -c . || echo 0); echo \"failed now: $n\"; gh issue create -R tompassarelli/south --label enhancement --la"
+label = "false"
+
+[[sample.row]]
+command = "n=$(systemctl --user --failed --no-legend | rg -c . || echo 0); echo \"failed now: $n\"; gh issue create -R tompassarelli/south --label enhancement --la"
+label = "false"
+
+[[sample]]
+rule = "issue-shrink"
+window = "2026-11-08 15:20 UTC to 2026-11-10 15:20 UTC"
+drawn = "every one of the 2 refused calls (gex45 transcripts)"
+narrowed = "2026-11-10 north#1041: the false row judged a body file a python script in the same command had not yet written; eeb2456b43 leaves an unread body file to north gh-session, which judges it when gh runs. The true row restored an issue's earlier body without --allow-shrink and passed on the retry that named it"
+
+[[sample.row]]
+command = "gh issue edit 1085 -R tompassarelli/north --body-file /tmp/n1085-body.md 2>&1 | tail -1; echo \"edit exit=$?\"; gh issue view 1085 -R tompassarelli/nort"
+label = "true"
+
+[[sample.row]]
+command = "python3 -I /tmp/tick963.py && diff /tmp/b963.md /tmp/b963.new.md | cut -c1-200; [ -s /tmp/b963.new.md ] && gh issue edit 963 --body-file /tmp/b963.new"
+label = "false"
+
+[[sample]]
+rule = "language"
+window = "2026-11-08 15:20 UTC to 2026-11-10 15:20 UTC"
+drawn = "every one of the 1 refused call (whiterabbit transcripts)"
+narrowed = "2026-11-10 north#1041: the gate read `$W/shots.ts` as a directory named $W under north's main checkout, though the same command set W to a passergames worktree whose language list allows TypeScript; a variable the command assigns is now expanded before a redirect, touch, tee, cp, mv or cd target is judged"
+
+[[sample.row]]
+command = "W=/home/tom/code/passergames/worktrees/north-1050-before; mkdir -p $W/shots && sed \"s#/tmp/pg1050-shots/#$W/shots/#; s#/tmp/pg1050-chrome-#$W/chrome-#"
+label = "false"
+
+[[sample]]
+rule = "worktree-remove"
+window = "2026-11-08 15:20 UTC to 2026-11-10 15:20 UTC"
+drawn = "every 3rd of 88 distinct refused calls sorted by command text (whiterabbit and gex45 transcripts), the sandbox refusal 6576998c44 names; each would have unregistered a lane the worker sandbox cannot delete, leaving its directory behind"
+
+[[sample.row]]
+command = "b=north-1099-d1435-landing-logs-written-after-the-fix-contain-no-su && git -C /home/tom/code/north/worktrees/$b status --short && git worktree remove "
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/nixos-config/main && git diff origin/main n977-shell-prefix --quiet -- modules/ && git worktree remove ../worktrees/n977-shell-prefi"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main && git worktree remove /home/tom/code/north/worktrees/spend-cap-4 && git branch -D spend-cap-4 | tail -1; s=/tmp/claude-1"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/main; git worktree remove /home/tom/code/north/worktrees/n1039-miss && git branch -D n1039-miss 2>&1 | tail -1; rm -r /tmp/n10"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees && git -C /home/tom/code/north/worktrees/n1081-verdict-own worktree remove /home/tom/code/north/worktrees/n1081-sett"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/north/worktrees/n956-replay && rm -rf homes scr && cd /home/tom/code/north/main && git worktree remove /home/tom/code/north/worktree"
+label = "true"
+
+[[sample.row]]
+command = "cd /home/tom/code/south/worktrees/credential-reach-94/agents && rm XX2blB2h XX71gDlv XXc6JEJe XXGqiUxO XXoLNe4l XXSHBVid && cd /home/tom/code/north/ma"
+label = "true"
+
+[[sample.row]]
+command = "cd /tmp && python3 -I - <<'EOF' 2>&1 | tail -2\nimport re\nL=open('/tmp/b1012.md').read().split('\\n')\nfor i,l in enumerate(L):\n    if l.startswith('- [ "
+label = "true"
+
+[[sample.row]]
+command = "gh issue comment 956 -R tompassarelli/north --body 'Evidence for the box \"A worker session can exec scripts in a lane it created after it started\": th"
+label = "true"
+
+[[sample.row]]
+command = "gh issue view 1014 -R tompassarelli/north --json body -q .body > /tmp/n1014-body.md 2>/dev/null; sed -i 's/^- \\[ \\] /- [x] /' /tmp/n1014-body.md && gh"
+label = "true"
+
+[[sample.row]]
+command = "gh issue view 987 --json body -q .body > /tmp/n987-body.md && sed -i 's/^- \\[ \\] Run against the current state.*/&\\n  Evidence: landed 5c396c47a; `nor"
+label = "true"
+
+[[sample.row]]
+command = "git -C /home/tom/code/north/main worktree remove --force /home/tom/code/north/worktrees/broker-review-94 && echo north-scratch-removed; git -C /home/t"
+label = "true"
+
+[[sample.row]]
+command = "git -C /home/tom/code/north/worktrees/n1033-redo status --short | head -3; git worktree remove /home/tom/code/north/worktrees/n1033-redo && git branch"
+label = "true"
+
+[[sample.row]]
+command = "git fetch -q origin && git merge-base --is-ancestor af064b6596 origin/main && echo on-main; gh run list -R tompassarelli/north --branch main -L 4 --js"
+label = "true"
+
+[[sample.row]]
+command = "git fetch -q origin main && git merge-base --is-ancestor 9b6c142f05629b3efe0392db789404b711429fc8 origin/main; echo ancestor=$?; git show origin/main:"
+label = "true"
+
+[[sample.row]]
+command = "git merge -q --ff-only origin/main; git worktree remove /home/tom/code/north/worktrees/red-main-reach && git branch -D red-main-reach -q; git push -q "
+label = "true"
+
+[[sample.row]]
+command = "git worktree add -q /home/tom/code/north/worktrees/spend-cap-3 -b spend-cap-3 origin/main && cd /home/tom/code/north/worktrees/spend-cap-3 && perl -0p"
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove --force /home/tom/code/north/worktrees/chr-testvalue-1109 && git worktree list | grep -c chr-testvalue; pgrep -af \"chr-canary\" | h"
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove --force /home/tom/code/north/worktrees/north-1025-verify-north-holds && git branch -D claude/north-1025-verify-north-holds 2>&1 | "
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove ../worktrees/n872-pin-retire-dirty-first && git branch -D n872-pin-retire-dirty-first 2>&1 | tail -1; git ls-remote origin refs/he"
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove /home/tom/code/north/worktrees/n1039-select-rest-d0946 2>&1 | tail -2; git branch -D n1039-select-rest-d0946 2>&1 | tail -1; rm -f"
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove /home/tom/code/north/worktrees/n1077-handovers-posted 2>&1 | tail -1; git branch -D n1077-handovers-posted 2>&1 | tail -1; rm -f /"
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove /home/tom/code/north/worktrees/n892-wall-time-land 2>&1 | tail -1; git branch -D n892-wall-time-land 2>&1 | tail -1"
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove /home/tom/code/north/worktrees/reserve-first-1076 2>&1 | tail -1; git branch -d reserve-first-1076 2>&1 | tail -1"
+label = "true"
+
+[[sample.row]]
+command = "git worktree remove /home/tom/code/north/worktrees/sheriff-fresh-979 2>&1 | tail -1; git branch -d sheriff-fresh-979 2>&1 | tail -1; git branch -r --c"
+label = "true"
+
+[[sample.row]]
+command = "ls -ld /home/tom/code/north/worktrees/n892-replay-main /home/tom/code/north/worktrees/n892-replay-main/tests/it; git worktree remove --force /home/tom"
+label = "true"
+
+[[sample.row]]
+command = "north lane reap --dry-run 2>&1 | rg \"ds-1027|ds-n873|ds-n889\" | head -5 | cut -c1-200; git worktree remove --force /home/tom/code/north/worktrees/ds-n"
+label = "true"
+
+[[sample.row]]
+command = "rm -f -- /tmp/n956/key.txt /home/tom/.cache/n956/key.txt; rm -rf -- /home/tom/.cache/n956/restore; ls /home/tom/.cache/n956 /tmp/n956; cd /home/tom/co"
+label = "true"
+
+[[sample.row]]
+command = "sed -i 's/^- \\[ \\] \\(\\*\\*Review the effect-development skill\\.\\*\\*.*\\)$/- [x] \\1 Evidence: landed 2c7ea2944 on origin\\/main (git merge-base --is-ances"
+label = "true"
+
+[[sample.row]]
+command = "timeout 25 north fleet accounts --plan 2>&1 | head -8 | cut -c1-200; echo; git worktree remove /home/tom/code/north/worktrees/reserve-1076 2>&1 | tail"
+label = "true"
+

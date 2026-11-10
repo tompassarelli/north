@@ -172,6 +172,11 @@ mod tests {
             ("No. A worker sandbox cannot delete a directory in worktrees/, so `git worktree remove` there unregisters x.", "worktree-remove"),
             ("This session's cwd is the lane worktree x, and an in-process worker inherits it.", "agent-cwd"),
             ("BLOCKED (question-box): a question box stops the proxy's whole session until Tom answers.", "question-box"),
+            ("unrunnable-box: a new unticked box must name a command that `north task check --done-when` can run.", "unrunnable-box"),
+            ("No. This edit replaces x#1's 734-character body with 353 characters, which blanks or drops most of it.", "issue-shrink"),
+            ("/x/shots.ts: new Python or Script file is forbidden; write it in Rust under src/ or as a north subcommand", "language"),
+            ("This Bash command would run `git worktree remove` inside the externally-consumed pin north/pins/x (/x).", "launch-critical"),
+            ("BLOCKED: unseen unit operand teardown refused — its operand comes from `$VAR`", "session-kill"),
         ] {
             assert_eq!(classify(refusal), rule, "{refusal:?} is not filed as {rule}");
         }

@@ -166,3 +166,20 @@ The 2026-11-08 samples above are history; `north hook stats` now reads the later
   and it exited 0. The three guards the naming added keep their evidence: worktree-remove's 1/1 true sample, and none for
   agent-cwd or question-box, which have refused nothing. worktree-remove's second refusal, the sandbox's blocked
   `git worktree remove` under worktrees/, also carries its marker now, so it is filed under the guard instead of `other`.
+- **`other` on 2026-11-10: 147 refusals still unnamed in the 48-hour window.** The ledger rows are classified when a
+  host ingests a transcript, so the sandbox's `git worktree remove` refusal stayed `other` (about 88 distinct calls)
+  until its marker landed, and five more refusal texts matched no rule. Read from the whiterabbit and gex45 transcripts
+  (109 of the 147 calls; the rest ran on hosts whose transcripts were not read):
+  - worktree-remove, sandbox refusal: 30/30 true in a 1-in-3 sample; each call would have unregistered a lane the
+    sandbox cannot delete.
+  - unrunnable-box (new rule): 12/16 false, all from the Bash-hook gate 5807e54891 replaced. The hook read the command
+    text, so an escaped backtick in a double-quoted body, or a box a `printf` appended to a body file, hid a
+    backticked `Done when:` command. north gh-session now judges the body gh receives, in shadow.
+  - issue-shrink (new rule): 1/2 false. The false row judged a body file that a script in the same command had not
+    written yet; eeb2456b43 leaves an unread file to the gh-time check. The true row restored an earlier body
+    without `--allow-shrink`.
+  - language (new rule): 1/1 false. The gate read `$W/shots.ts` as a directory named `$W` under north's main checkout,
+    though the same command set `W` to a passergames worktree; it now expands a variable the command assigns before it
+    judges a write target.
+  - The externally-consumed-pin refusal is now filed under launch-critical (1, true), and the unseen-unit-operand teardown
+    under session-kill (1).

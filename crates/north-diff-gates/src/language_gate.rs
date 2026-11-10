@@ -1,7 +1,7 @@
 use crate::shell::{ShellToken, operator_tokens, strip_heredocs};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
@@ -590,13 +590,42 @@ fn changed_directory(dir: &Path, operands: &[&str]) -> Option<PathBuf> {
     }
 }
 
+fn is_name(name: &str) -> bool {
+    name.chars().next().is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
+        && name.chars().all(|part| part == '_' || part.is_ascii_alphanumeric())
+}
+
+fn expanded(word: &str, assigned: &HashMap<String, String>) -> String {
+    let mut out = String::with_capacity(word.len());
+    let mut rest = word;
+    while let Some(at) = rest.find('$') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let (name, used) = match after.strip_prefix('{').and_then(|inner| inner.split_once('}')) {
+            Some((name, _)) => (name, name.len() + 2),
+            None => {
+                let end = after.find(|part: char| part != '_' && !part.is_ascii_alphanumeric()).unwrap_or(after.len());
+                (&after[..end], end)
+            }
+        };
+        match assigned.get(name) {
+            Some(value) if is_name(name) => out.push_str(value),
+            _ => out.push_str(&rest[at..at + 1 + used]),
+        }
+        rest = &after[used..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
     let command = strip_heredocs(command);
     let tokens = operator_tokens(&command)?;
     let mut targets = Vec::new();
     let mut dir = cwd.to_path_buf();
     let mut scopes = Vec::new();
-    let mut words = Vec::new();
+    let mut owned: Vec<String> = Vec::new();
+    let mut assigned: HashMap<String, String> = HashMap::new();
     let mut redirect: Option<&str> = None;
     for token in tokens
         .iter()
@@ -605,21 +634,25 @@ fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
         match token {
             ShellToken::Word(word) if redirect.is_some() => {
                 if matches!(redirect, Some(">" | ">>")) {
-                    targets.push((anchored(&dir, word), Vec::new()));
+                    targets.push((anchored(&dir, &expanded(word, &assigned)), Vec::new()));
                 }
                 redirect = None;
             }
-            ShellToken::Word(word) => words.push(word.as_str()),
+            ShellToken::Word(word) => owned.push(expanded(word, &assigned)),
             ShellToken::Operator(operator)
                 if matches!(
                     operator.as_str(),
                     ";" | "&&" | "||" | "|" | "\n" | "(" | ")" | "&"
                 ) =>
             {
+                let words: Vec<&str> = owned.iter().map(String::as_str).collect();
                 let start = words
                     .iter()
                     .position(|word| !word.contains('='))
                     .unwrap_or(words.len());
+                if start == words.len() {
+                    assigned.extend(words.iter().filter_map(|word| word.split_once('=')).filter(|(name, _)| is_name(name)).map(|(name, value)| (name.to_owned(), value.to_owned())));
+                }
                 if let Some(name) = words
                     .get(start)
                     .and_then(|word| Path::new(word).file_name())
@@ -691,7 +724,7 @@ fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
                     }
                     _ => {}
                 }
-                words.clear();
+                owned.clear();
                 redirect = None;
             }
             ShellToken::Operator(operator)
