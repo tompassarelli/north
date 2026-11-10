@@ -16,7 +16,7 @@ mod arrival;
 mod report;
 
 pub use report::run;
-use arrival::arrive;
+use arrival::move_first;
 
 const USAGE: &str = "usage: north land promote [--dry-run] [--shadow-minutes N] [--repo DIR]... [--checker PROGRAM]";
 pub const REFUSED: &str = "lander-refused";
@@ -241,56 +241,113 @@ fn replay_recorded(binary: &Path, held: &Held, repository: &Repository, checker:
 
 enum Outcome {
     Settled(String),
-    Swap { link: PathBuf, target: PathBuf },
-    Unreached { candidate: String, reason: String },
-    Retry { candidate: String, reason: String },
+    Moved(String),
+    MovedUnjudged { candidate: String, reason: String },
+    Rolled { candidate: String, held: String, reason: String },
+}
+
+fn name(target: &Path) -> String {
+    target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 fn promote(options: &Options) -> Result<Outcome, String> {
     let runtime = Runtime::from_env();
     let target = fs::read_link(runtime.current()).map_err(|error| format!("{}: {error}", runtime.current().display()))?;
-    if fs::read_link(runtime.lander()).ok().as_deref() == Some(target.as_path()) {
-        return Ok(Outcome::Settled(format!("the lander already runs {}", target.display())));
-    }
-    if fs::read_to_string(runtime.home.join(REFUSED)).is_ok_and(|refused| Path::new(refused.trim()) == target) {
-        return Ok(Outcome::Settled(format!("the lander doctor rolled the lander back from {}; it stays off the lander until current moves on", target.display())));
+    if let Some(settled) = already_settled(&runtime, &target) {
+        return Ok(Outcome::Settled(settled));
     }
     let binary = runtime.binary(&target);
     if !binary.is_file() {
         return Err(format!("candidate {} has no {}", target.display(), binary.display()));
     }
-    println!("north land promote: candidate {} replays recorded rounds with {}", target.display(), binary.display());
     let repositories: Vec<Repository> = options.repos.iter().map(|repo| Repository::open(repo)).collect::<Result<_, _>>()?;
     let held_target = fs::read_link(runtime.lander()).ok();
     let held_binary = held_target.as_deref().map(|held| runtime.binary(held)).filter(|binary| binary.is_file());
     let fixes = held_target.as_deref().is_some_and(|held| repositories.iter().all(|repository| only_fixes(&repository.checkout, held, &target)));
     let held = Held { binary: held_binary.as_deref(), only_fixes: fixes };
+    // Land first: the link moves as soon as current has its canary behind it, and the replay and shadow judge it after.
+    if let Some(result) = move_first(options, &runtime, &repositories, &target)? {
+        return Ok(Outcome::Settled(result));
+    }
+    println!("north land promote: candidate {} replays recorded rounds with {} after the link moved", target.display(), binary.display());
     let (mut divergences, mut unreached) = (Vec::new(), Vec::new());
     let mut replayed = 0;
     for repository in &repositories {
         replayed += replay_recorded(&binary, &held, repository, &options.checker, &mut divergences, &mut unreached);
     }
-    if divergences.is_empty() && !unreached.is_empty() {
-        if replayed < MATCHED_PAST_UNREACHED {
-            let candidate = target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-            return Ok(Outcome::Unreached { candidate, reason: unreached.join("; ") });
-        }
-        println!("north land promote: {} round(s) reached no verdict beside {replayed} that matched and none that diverged; reported, not held on: {}", unreached.len(), unreached.join("; "));
+    if let Some(outcome) = unreached_only(replayed, divergences.is_empty(), &unreached, &target) {
+        return Ok(outcome);
     }
     if !divergences.is_empty() {
-        let replay = |binary: &Path, divergence: &Divergence| run_replay(binary, &divergence.checkout, &divergence.base, &options.checker, &divergence.tickets).map(|replayed| replayed.verdict);
-        let sha = target.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        let source = repositories.iter().find(|repository| output(&repository.checkout, &["cat-file", "-e", &format!("{sha}^{{commit}}")]).is_ok_and(|output| output.status.success())).unwrap_or(&repositories[0]);
-        let runtimes = divergence::Runtimes { home: &runtime.home, source: &source.checkout, queue: &source.queue, held: held_target.as_deref(), candidate: &target, dry_run: options.dry_run, replay: &replay };
-        match divergence::judge(&runtimes, &divergences)? {
-            divergence::Judged::Follows(judged) => println!("north land promote: {judged}"),
-            divergence::Judged::Retry(reason) => return Ok(Outcome::Retry { candidate: sha, reason }),
+        if let Some(outcome) = judge_diverged(options, &runtime, &repositories, held_target.as_deref(), &target, &divergences)? {
+            return Ok(outcome);
         }
         replayed += divergences.len();
     }
     if replayed == 0 {
-        return Err("no recorded round could be replayed".to_owned());
+        return Ok(Outcome::MovedUnjudged { candidate: name(&target), reason: "no recorded round could be replayed".to_owned() });
     }
-    arrive(options, &runtime, &repositories, &binary, target, replayed)
+    let shadowed = match shadow(&binary, &repositories, &options.checker, options.shadow_minutes) {
+        Ok(shadowed) => shadowed,
+        Err(reason) => return roll_back(options, &runtime, held_target.as_deref(), &target, format!("the shadow lander refused it: {reason}")),
+    };
+    println!("north land promote: shadow: {shadowed}");
+    let _ = fs::remove_file(runtime.home.join(REFUSED));
+    let verb = if options.dry_run { "would point at" } else { "now points at" };
+    Ok(Outcome::Moved(format!("the lander link {verb} {}; {replayed} recorded round(s) replayed and the shadow passed ({shadowed})", target.display())))
+}
+
+/// Rounds that reached no verdict and none that diverged: fewer than `MATCHED_PAST_UNREACHED` matches leave the link unjudged, more only report them.
+fn unreached_only(replayed: usize, undiverged: bool, unreached: &[String], target: &Path) -> Option<Outcome> {
+    if !undiverged || unreached.is_empty() {
+        return None;
+    }
+    if replayed < MATCHED_PAST_UNREACHED {
+        return Some(Outcome::MovedUnjudged { candidate: name(target), reason: unreached.join("; ") });
+    }
+    println!("north land promote: {} round(s) reached no verdict beside {replayed} that matched and none that diverged; reported, not held on: {}", unreached.len(), unreached.join("; "));
+    None
+}
+
+fn already_settled(runtime: &Runtime, target: &Path) -> Option<String> {
+    let unjudged = link_hold::unreached_of(&runtime.home).is_some_and(|unreached| unreached.candidate == name(target));
+    if !unjudged && fs::read_link(runtime.lander()).ok().as_deref() == Some(target) {
+        return Some(format!("the lander already runs {}", target.display()));
+    }
+    fs::read_to_string(runtime.home.join(REFUSED)).is_ok_and(|refused| Path::new(refused.trim()) == target).then(|| format!("the lander was rolled back from {}; it stays off the lander until current moves on", target.display()))
+}
+
+/// Judges the diverging rounds against the held runtime; `None` means the candidate follows, `Some` is the outcome that ends the promotion.
+fn judge_diverged(options: &Options, runtime: &Runtime, repositories: &[Repository], held: Option<&Path>, target: &Path, divergences: &[Divergence]) -> Result<Option<Outcome>, String> {
+    let replay = |binary: &Path, divergence: &Divergence| run_replay(binary, &divergence.checkout, &divergence.base, &options.checker, &divergence.tickets).map(|replayed| replayed.verdict);
+    let sha = name(target);
+    let source = repositories.iter().find(|repository| output(&repository.checkout, &["cat-file", "-e", &format!("{sha}^{{commit}}")]).is_ok_and(|output| output.status.success())).unwrap_or(&repositories[0]);
+    let runtimes = divergence::Runtimes { home: &runtime.home, source: &source.checkout, queue: &source.queue, held, candidate: target, dry_run: options.dry_run, replay: &replay };
+    match divergence::judge(&runtimes, divergences) {
+        Ok(divergence::Judged::Follows(judged)) => {
+            println!("north land promote: {judged}");
+            Ok(None)
+        }
+        Ok(divergence::Judged::Retry(reason)) => Ok(Some(Outcome::MovedUnjudged { candidate: sha, reason })),
+        Ok(divergence::Judged::Refused(reason)) | Err(reason) => roll_back(options, runtime, held, target, reason).map(Some),
+    }
+}
+
+/// Moves the link back to the runtime it held before this promotion, so a runtime whose own replay diverged from the recorded verdict no longer runs the lander, and names it refused until current moves on, as the doctor's rollback does.
+fn roll_back(options: &Options, runtime: &Runtime, held: Option<&Path>, candidate: &Path, reason: String) -> Result<Outcome, String> {
+    if options.dry_run {
+        let held = held.map_or_else(|| "no held runtime".to_owned(), |held| held.display().to_string());
+        return Ok(Outcome::Rolled { candidate: name(candidate), held, reason });
+    }
+    let Some(held) = held else {
+        return Ok(Outcome::MovedUnjudged { candidate: name(candidate), reason: format!("{reason}; no held runtime to move the link back to") });
+    };
+    let refused = runtime.home.join(REFUSED);
+    fs::write(&refused, format!("{}\n", candidate.display())).map_err(|error| format!("{}: {error}", refused.display()))?;
+    if fs::read_link(runtime.lander()).ok().as_deref() == Some(candidate) {
+        swap(&runtime.lander(), held).map_err(|error| format!("{}: {error}", runtime.lander().display()))?;
+    }
+    println!("north land promote: the lander link is back at {}", held.display());
+    Ok(Outcome::Rolled { candidate: name(candidate), held: held.display().to_string(), reason })
 }
 

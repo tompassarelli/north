@@ -59,3 +59,21 @@ counts a repeated transient as an error, so a candidate that breaks the check en
 every lane is held there. The lander doctor retries a no-verdict promotion through
 `north runtime promote` and pages the proxy at the third in a row
 (docs/rationale/lander-doctor.md).
+
+## The link moves first (2026-11-10, north#902)
+
+`north land promote` used to replay and shadow before it moved the lander link, so the link waited out
+8 recorded rounds plus the shadow on every promotion. Measured over one hour on 2026-11-10,
+the link read 4 landings behind 5 times and then 14 landings and 27 minutes behind while 35 landings
+an hour reached main; every round in `runtime-follow.log` lines 272204 to 272211 failed on both the
+candidate and the held runtime ("the held runtime replays it the same way"), so that hour held nothing
+back and cost two replays per round. Land-first applies to the link as it does to a lane: the link moves
+to the runtime `current` names as soon as that runtime's canary passed, and the replay and shadow judge it
+afterwards. A divergence the held runtime does not share moves the link back to the held runtime and names
+the candidate in `lander-refused`, so promote leaves it off until current moves on; the doctor's rollback
+writes the same record. A replay that reaches no verdict leaves the link on the candidate and exits 75 for
+the next promotion, since it says nothing about it; a repeated shadow error rolls the link back and
+refuses the candidate. The canary gate lives in `north runtime promote`: the settling host follows the
+link from the spine walk once it passed, and a host that takes a shipped runtime follows at its swap,
+since that runtime only arrives after its canary passed on the settling host.
+

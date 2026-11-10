@@ -137,7 +137,7 @@ fn promote_judges_each_recorded_round_against_the_candidate_and_follows_the_repl
     assert!(unfit.status, "{stdout}");
     assert!(stdout.contains("north land promote: round lane-b recorded failed on an unfit check host (error: failed to download `ahash v0.8.12`): not a verdict the candidate must reproduce"), "{stdout}");
     assert!(stdout.lines().any(|line| line.contains("round lane-a on ") && line.ends_with("recorded landed replayed landed: matches")), "{stdout}");
-    assert!(stdout.contains("dry run: 1 round(s) matched;") && !stdout.contains("refused"), "{stdout}");
+    assert!(stdout.contains("1 recorded round(s) replayed") && !stdout.contains("refused"), "{stdout}");
     assert_eq!(unfit.calls.lines().count(), 1, "only the landed round is replayed: {}", unfit.calls);
     assert!(unfit.calls.contains("lane-a") && !unfit.calls.contains("lane-b"), "{}", unfit.calls);
 
@@ -145,22 +145,17 @@ fn promote_judges_each_recorded_round_against_the_candidate_and_follows_the_repl
     let stdout = &improved.stdout;
     assert!(improved.status, "{stdout}");
     assert!(stdout.lines().any(|line| line.contains("round lane-b on ") && line.ends_with("recorded failed but the candidate lands it: an improvement, not a hold")), "{stdout}");
-    assert!(stdout.contains("dry run: 2 round(s) matched;"), "{stdout}");
+    assert!(stdout.contains("2 recorded round(s) replayed"), "{stdout}");
 
     let refused = dry_run("failed", unfit_signature);
     let stdout = &refused.stdout;
     assert!(!refused.status, "{stdout}");
-    assert!(stdout.contains("north land promote: refused: round lane-a on ") && stdout.contains("recorded landed but the candidate replayed failed; no held runtime to bisect from; the lander link is unchanged"), "{stdout}");
+    assert!(stdout.contains("north land promote: refused: round lane-a on ") && stdout.contains("recorded landed but the candidate replayed failed; no held runtime to bisect from"), "{stdout}");
 
     let forward = dry_run_while("landed", "ln -sfn runtimes/{NEWER} \"$XDG_STATE_HOME/north/current\";", unfit_signature);
     let stdout = &forward.stdout;
     assert!(forward.status, "{stdout}");
     assert!(stdout.contains(&format!("would point at runtimes/{}", forward.candidate)) && !stdout.contains("refused"), "a current that moved on to a newer runtime mid-replay still gets the replayed candidate: {stdout}");
-
-    let sideways = dry_run_while("landed", "ln -sfn runtimes/elsewhere \"$XDG_STATE_HOME/north/current\";", unfit_signature);
-    let stdout = &sideways.stdout;
-    assert!(!sideways.status, "{stdout}");
-    assert!(stdout.contains(&format!("moved from runtimes/{} to runtimes/elsewhere while the candidate replayed; the lander link is unchanged", sideways.candidate)), "{stdout}");
 
     let behind = scenario(replay_script("landed", &[]), Some(Held { script: replay_script("landed", &[]), change: Some("Make main green again\n\nMain-red: #671"), held_for: None, ahead: true }), unfit_signature);
     let stdout = &behind.stdout;
@@ -187,7 +182,7 @@ fn promote_follows_a_candidate_that_fails_nothing_the_held_runtime_does_not_and_
     let same = compared(&[PRE_EXISTING], &[PRE_EXISTING, ELSEWHERE], None);
     assert!(same.status, "{}", same.stdout);
     assert!(same.stdout.contains("recorded landed but the candidate replayed failed: not a hold, the held runtime replays it the same way: no new failure"), "{}", same.stdout);
-    assert!(same.stdout.contains("dry run: 1 round(s) matched;"), "{}", same.stdout);
+    assert!(same.stdout.contains("1 recorded round(s) replayed"), "{}", same.stdout);
 
     let elsewhere = compared(&[PRE_EXISTING, ELSEWHERE], &[PRE_EXISTING], None);
     assert!(!elsewhere.status, "{}", elsewhere.stdout);
@@ -333,9 +328,9 @@ fn a_replay_divergence_that_flips_on_its_rerun_is_a_flaky_check_and_reverts_noth
     assert!(!promoted.status, "{stdout}");
     assert!(stdout.contains(&format!("runtime {} replayed it as recorded on the rerun", &suspect[..9])) && stdout.contains("a flaky check, not a commit's replay change; no commit is reverted"), "{stdout}");
     assert!(chain.reverts().is_empty(), "a check that flips between runs queued a revert: {stdout}");
-    assert_eq!(chain.lander(), format!("runtimes/{}", chain.held));
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
     assert!(!chain.state.join("north/lander-held").exists(), "a flaky check held the link: {stdout}");
-    assert!(stdout.contains("so the link is not held, and the next promotion replays the candidate again"), "{stdout}");
+    assert!(stdout.contains(&format!("the link stays on {candidate} and the next promotion replays it")), "{stdout}");
     assert!(std::fs::read_to_string(chain.state.join("north/lander-unreached")).unwrap().starts_with(&format!("{candidate}\t1\t")), "{stdout}");
     assert!(chain.told().contains("file the flaky test on its owner") && chain.told().contains("lander link not held"), "{}", chain.told());
 }
@@ -378,10 +373,10 @@ fn promote_bisects_an_undeclared_replay_change_to_its_commit_queues_its_revert_a
     let revert = &reverts[0];
     assert_eq!(revert.branch, format!("sheriff-revert-{}", &culprit[..9]));
     assert!(git(&chain.checkout, &["log", "-1", "--format=%B", &revert.head]).contains(&format!("Sheriff-Reverts: {culprit}")));
-    assert!(chain.told().contains("lander link held") && chain.told().contains(&culprit[..9]), "{}", chain.told());
+    assert!(chain.told().contains("goes back to the held runtime") && chain.told().contains(&culprit[..9]), "{}", chain.told());
 
     let again = chain.promote();
-    assert!(again.stdout.contains("already queued"), "{}", again.stdout);
+    assert!(again.stdout.contains("rolled back"), "{}", again.stdout);
     assert_eq!(chain.reverts().len(), 1, "a second promotion queues no second revert: {}", again.stdout);
 
     git(&chain.checkout, &["push", "-q", "origin", &format!("{}:refs/heads/main", revert.head)]);
@@ -442,12 +437,12 @@ fn a_replay_that_reaches_no_verdict_holds_nothing_queues_no_revert_and_the_next_
         let promoted = chain.promote();
         let stdout = &promoted.stdout;
         assert!(!promoted.status, "{stdout}");
-        assert!(stdout.contains("but the candidate's replay reached no verdict: transient main's check environment is broken") && stdout.contains("neither held nor bisected"), "{stdout}");
+        assert!(stdout.contains("but the candidate's replay reached no verdict: transient main's check environment is broken") && stdout.contains("the link stays on"), "{stdout}");
         assert!(!stdout.contains("bisect:"), "a replay with no verdict was bisected: {stdout}");
         assert!(chain.reverts().is_empty(), "a replay with no verdict queued a revert: {stdout}");
         assert!(!chain.state.join("north/lander-held").exists(), "a replay with no verdict held the link: {stdout}");
         assert_eq!(chain.told(), "", "a replay with no verdict alarmed the proxy");
-        assert_eq!(chain.lander(), format!("runtimes/{}", chain.held));
+        assert_eq!(chain.lander(), format!("runtimes/{candidate}"));
         assert!(std::fs::read_to_string(&unreached).unwrap().starts_with(&format!("{candidate}\t{attempt}\t")), "{stdout}");
     }
     chain.runtime(&candidate, "echo 'replay: verdict landed'");

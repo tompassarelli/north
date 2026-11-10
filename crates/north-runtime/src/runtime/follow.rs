@@ -60,7 +60,7 @@ pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
 /// The other hosts take the runtime only after it walked the spine here, so a runtime that breaks the core loop is rolled back on this host and reaches no second one; a promotion that found another running leaves its landing, the shipping and the lander to that one.
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
     let walks = land_offload::settles_fleet_here();
-    let Followed { here, replayed, walked } = update_following_lander(layout, walks);
+    let Followed { here, replayed, walked } = update_following_lander(layout, walks, true);
     if matches!(here, Ok(update::Flight::Joined)) {
         return Ok(());
     }
@@ -68,12 +68,27 @@ pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
         true => walked.unwrap_or_else(|| walk_and_ship(layout)),
         false => Ok(()),
     };
-    let lander = replayed.unwrap_or_else(|| follow_lander(layout));
+    // The settling host follows from walk_and_ship once its canary passed, so the link moves after the canary and before the replay that judges it.
+    let lander = match (walks, replayed) {
+        (true, _) => Ok(()),
+        (false, Some(result)) => result,
+        (false, None) => follow_lander(layout),
+    };
     here.map(|_| ()).and(elsewhere).and(lander)
 }
 
 fn walk_and_ship(layout: &Layout) -> Result<(), Failure> {
-    walk::ship_if_walked(walk::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ())
+    let walked = walk::walked_here(layout);
+    let follow = walked.is_ok();
+    std::thread::scope(|scope| {
+        let following = follow.then(|| scope.spawn(|| follow_lander(layout)));
+        let shipped = walk::ship_if_walked(walked, |_| deploy::deploy_live(layout)).map(|_| ());
+        let followed = following.map(|handle| handle.join().unwrap_or_else(|_| Err(failed(1, "the lander link follow panicked"))));
+        match followed {
+            Some(result) => shipped.and(result),
+            None => shipped,
+        }
+    })
 }
 
 pub(super) struct Followed {
@@ -82,14 +97,15 @@ pub(super) struct Followed {
     pub walked: Option<Result<(), Failure>>,
 }
 
-/// Each swap moves the lander link after it on a thread of its own, so the lander follows a runtime the moment it is live while the promotion builds its next pass, and, given `walks`, walks the spine on that runtime on another and ships it once it passed: a promotion that swapped several runtimes in while origin/main kept moving walked only the last, so on 2026-11-10 whiterabbit promoted 8fa62d19, 5e483bd4, 120e03ae and 5f943553 with no canary verdict (north#1096). `replayed` and `walked` are none when nothing was swapped.
-pub(super) fn update_following_lander(layout: &Layout, walks: bool) -> Followed {
+/// Each swap moves the lander link after it once the runtime's canary passed (`walks`, on the settling host) or at once elsewhere, where the runtime only arrives after its canary passed on the settling host; `follow` starts the link on a host that does not walk here, since `north runtime settle` walks and follows from its own `walk_and_ship`. The walk runs on a thread of its own, so the lander follows a runtime the moment its canary passes while the promotion builds its next pass, and, given `walks`, ships it once it passed: a promotion that swapped several runtimes in while origin/main kept moving walked only the last, so on 2026-11-10 whiterabbit promoted 8fa62d19, 5e483bd4, 120e03ae and 5f943553 with no canary verdict (north#1096). `replayed` and `walked` are none when nothing was swapped.
+pub(super) fn update_following_lander(layout: &Layout, walks: bool, follow: bool) -> Followed {
     std::thread::scope(|scope| {
         let (mut replays, mut walking) = (Vec::new(), Vec::new());
         let here = update::update(layout, &mut || {
-            replays.push(scope.spawn(|| follow_lander(layout)));
             if walks {
                 walking.push(scope.spawn(|| walk_and_ship(layout)));
+            } else if follow {
+                replays.push(scope.spawn(|| follow_lander(layout)));
             }
         });
         Followed { here, replayed: joined(replays, "lander link held: its replay panicked"), walked: joined(walking, "the spine walk panicked") }

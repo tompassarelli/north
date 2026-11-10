@@ -48,11 +48,11 @@ fn served() -> Fixture {
 
 fn replaying(failing: &[&str], verdict: &str) -> String {
     let lines: String = failing.iter().map(|test| format!("echo 'replay: failure cargo {test}'; ")).collect();
-    format!("#!/usr/bin/env bash\nif [ \"$1 $2\" = \"land replay\" ]; then {lines}echo 'replay: verdict {verdict}'; exit 0; fi\nexec {} \"$@\"\n", env!("CARGO_BIN_EXE_north"))
+    format!("#!/usr/bin/env bash\nif [ \"$1 $2\" = \"land replay\" ]; then {lines}readlink \"$XDG_STATE_HOME/north/lander\" > \"$LAND_TRACE/seen-link\"; echo 'replay: verdict {verdict}'; exit 0; fi\nexec {} \"$@\"\n", env!("CARGO_BIN_EXE_north"))
 }
 
 #[test]
-fn promote_refuses_a_candidate_with_a_new_failure_and_keeps_the_lander_link_but_follows_one_with_none() {
+fn promote_moves_the_link_before_its_replay_and_rolls_back_with_lander_refused_when_the_candidate_diverged() {
     let fixture = served();
     let good = runtime(&fixture, "good", None);
     point(&fixture, "lander", &good);
@@ -61,9 +61,11 @@ fn promote_refuses_a_candidate_with_a_new_failure_and_keeps_the_lander_link_but_
     point(&fixture, "current", &drifted);
     let (output, stdout) = promote(&fixture, &[]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(stdout.contains("refused: round lane-") && stdout.contains("but the candidate replayed failed drifted judgement") && stdout.contains("the held runtime replayed landed") && stdout.contains("the lander link is unchanged"), "{stdout}");
+    assert_eq!(fs::read_to_string(fixture.trace.join("seen-link")).unwrap().trim(), "runtimes/drifted", "the lander link moves before the replay that judges it");
+    assert!(stdout.contains("refused: round lane-") && stdout.contains("but the candidate replayed failed drifted judgement") && stdout.contains("the held runtime replayed landed") && stdout.contains("the lander link is back at"), "{stdout}");
     assert!(!stdout.contains("shadow:"), "a replay mismatch refuses before the shadow");
     assert_eq!(lander_link(&fixture), Some(good));
+    assert_eq!(fs::read_to_string(fixture.state.join("north/lander-refused")).unwrap(), "runtimes/drifted\n");
     assert_eq!(fixture.read("systemctl"), "");
 
     let held = runtime(&fixture, "held", Some(&replaying(&["old_red"], "failed old red")));
@@ -72,6 +74,7 @@ fn promote_refuses_a_candidate_with_a_new_failure_and_keeps_the_lander_link_but_
     point(&fixture, "current", &same);
     let (output, stdout) = promote(&fixture, &[]);
     assert_eq!(output.status.code(), Some(0), "{stdout}");
+    assert_eq!(fs::read_to_string(fixture.trace.join("seen-link")).unwrap().trim(), "runtimes/same", "the candidate's link is live during its replay");
     assert!(stdout.contains("not a hold, the held runtime replays it the same way: no new failure"), "{stdout}");
     assert_eq!(lander_link(&fixture), Some(same));
 }

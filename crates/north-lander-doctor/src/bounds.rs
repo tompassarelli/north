@@ -337,7 +337,7 @@ fn judge_link(link: &LinkFacts) -> Vec<Finding> {
     let behind = match &link.behind {
         None => Finding::healthy(Bound::Behind, subject, "on current".to_owned()),
         Some(behind) if behind.landings.is_none_or(|landings| landings <= BEHIND_LANDINGS) && behind.secs <= BEHIND_SECS => Finding::healthy(Bound::Behind, subject, behind.to_string()),
-        Some(behind) if rolled_back => Finding::over(Bound::Behind, subject, behind.to_string(), wait("rolled back", format!("the doctor rolled the lander back from {}; north land promote refuses it until current moves on", link.current))),
+        Some(behind) if rolled_back => Finding::over(Bound::Behind, subject, behind.to_string(), wait("rolled back", format!("the lander was rolled back from {}; north land promote refuses it until current moves on", link.current))),
         Some(behind) => {
             let text = format!("north land doctor: the lander link runs {}, {behind} behind current {}, so landings since are not live on the lander: {}", link.lander, link.current, behind.reason);
             Finding::over(Bound::Behind, subject, behind.to_string(), known("behind current", Remedy::Page(text)))

@@ -103,6 +103,7 @@ fn tell(runtimes: &Runtimes, text: &str) {
 pub enum Judged {
     Follows(String),
     Retry(String),
+    Refused(String),
 }
 
 pub fn judge(runtimes: &Runtimes, divergences: &[Divergence]) -> Result<Judged, String> {
@@ -121,6 +122,7 @@ pub fn judge(runtimes: &Runtimes, divergences: &[Divergence]) -> Result<Judged, 
                 flaky += 1;
             }
             retry @ Judged::Retry(_) => return Ok(retry),
+            refused @ Judged::Refused(_) => return Ok(refused),
         }
     }
     let lines: Vec<String> = known
@@ -184,8 +186,8 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
         At::NoVerdict(why) => return halted(runtimes, divergence, &why),
         At::Diverges(true) if divergence.adds_failures => {
             let reason = format!("{}; the held runtime {} fails the round too, but the candidate adds failures it does not have, so a bisect by verdict cannot name the commit that added them", divergence.named(), short(held));
-            tell(runtimes, &format!("north land promote: lander link held: {reason}"));
-            return Err(reason);
+            tell(runtimes, &format!("north land promote: the lander link goes back to the held runtime: {reason}"));
+            return Ok(Judged::Refused(reason));
         }
         At::Diverges(true) | At::Unreplayable => {
             let reason = format!("{}; the held runtime {} does not reproduce the recorded verdict either, so no commit between the runtimes caused it and holding the link gains nothing: the check is flaky or its environment broke for this round; file the flaky test on its owner", divergence.named(), short(held));
@@ -218,8 +220,8 @@ fn bisected(runtimes: &Runtimes, divergence: &Divergence, held: &str, commits: &
     }
     let queued: Vec<String> = suspects.iter().map(|commit| revert(runtimes, divergence, commit, &found).unwrap_or_else(|error| format!("revert of {} not queued: {error}", short(commit)))).collect();
     let reason = format!("{found}; {}", queued.join("; "));
-    tell(runtimes, &format!("north land promote: lander link held: {reason}; the link follows once the revert lands, or the commit declares {TRAILER} land.{} <reason>", divergence.kind()));
-    Err(reason)
+    tell(runtimes, &format!("north land promote: the lander link goes back to the held runtime: {reason}; it follows once the revert lands, or the commit declares {TRAILER} land.{} <reason>", divergence.kind()));
+    Ok(Judged::Refused(reason))
 }
 
 fn unconfirmed(runtimes: &Runtimes, divergence: &Divergence, commits: &[String], bad: &Point, good: &Point, candidate: &Point) -> Option<Result<Judged, String>> {
@@ -244,8 +246,8 @@ fn unconfirmed(runtimes: &Runtimes, divergence: &Divergence, commits: &[String],
 
 fn halted(runtimes: &Runtimes, divergence: &Divergence, why: &str) -> Result<Judged, String> {
     let reason = format!("{}; {why}, so the check environment decides nothing and no commit is bisected or reverted", divergence.named());
-    tell(runtimes, &format!("north land promote: lander link held: {reason}"));
-    Err(reason)
+    println!("north land promote: the lander link follows {}: {reason}; the next promotion replays it", short(&sha(runtimes.candidate)));
+    Ok(Judged::Retry(reason))
 }
 
 fn suspects(checkout: &Path, range: &[String]) -> Vec<String> {

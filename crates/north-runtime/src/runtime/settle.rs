@@ -89,14 +89,11 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     }
 }
 
-/// Brings this host to the pinned runtime, moves the lander link after each swap, and watches a fresh swap for rising failures.
+/// Brings this host to the pinned runtime, then walks its canary and follows the lander link from `walk_and_ship` when it passed, and watches a fresh swap for rising failures.
 fn promote_here(layout: &Layout) {
-    let follow::Followed { here: updated, replayed, .. } = follow::update_following_lander(layout, false);
+    let follow::Followed { here: updated, .. } = follow::update_following_lander(layout, false, false);
     if let Err(failure) = updated {
         eprintln!("north runtime settle: {}: {}", host::name(), failure.message);
-    }
-    if let Some(Err(failure)) = replayed {
-        eprintln!("north runtime settle: {}", failure.message);
     }
     watch::watch(layout);
 }
@@ -107,14 +104,26 @@ fn fleet_hosts() -> Vec<Shell> {
     hosts
 }
 
-/// Probes this host first, so its canary walks the spine on the live runtime, and ships that runtime to the hosts behind it only when it passed.
+/// Probes this host first, so its canary walks the spine on the live runtime, and ships that runtime to the hosts behind it only when it passed; the lander link follows the runtime as soon as that canary passed, while the ship runs.
 fn walk_and_ship(layout: &Layout, hosts: &[Shell], checkout: &Path) -> probe::Facts {
     let (facts, judged) = probed(layout, &hosts[0]);
     let live = layout.live_sha();
     let walk = walk::walk_of(layout, &facts.host, live.as_deref(), judged.as_ref().map(|(sha, verdict)| (sha.as_str(), verdict)));
-    let shipped = walk::ship_if_walked(walk, |here| {
-        ship_behind(&hosts[1..], here, &layout.runtime(here), checkout);
-        Ok(())
+    let follow = walk.is_ok();
+    let shipped = std::thread::scope(|scope| {
+        let following = follow.then(|| scope.spawn(|| follow::follow_lander(layout)));
+        let shipped = walk::ship_if_walked(walk, |here| {
+            ship_behind(&hosts[1..], here, &layout.runtime(here), checkout);
+            Ok(())
+        });
+        if let Some(handle) = following {
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(failure)) => eprintln!("north runtime settle: {}", failure.message),
+                Err(_) => eprintln!("north runtime settle: the lander link follow panicked"),
+            }
+        }
+        shipped
     });
     if let Err(failure) = shipped {
         eprintln!("north runtime settle: {}", failure.message);
