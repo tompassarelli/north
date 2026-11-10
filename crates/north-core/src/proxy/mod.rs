@@ -8,7 +8,7 @@ mod streak;
 pub use calls::{Kind, VerbKinds, classify};
 pub use readout::{Readout, read, render, render_read_streaks, streaks};
 pub use shape::shape;
-pub use streak::{Call, Streak, read_streaks};
+pub use streak::{Call, Message, Streak, is_look, read_streaks};
 
 const USAGE: &str = "usage: north config proxy calls TRANSCRIPT | north config proxy role";
 pub const READ_STREAK_LIMIT: &str = "proxy_read_streak";

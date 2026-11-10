@@ -75,7 +75,8 @@ fn read_streak(transcript: &str, hook: &serde_json::Value) -> guard::host::ReadS
     let input = hook.get("tool_input").unwrap_or(&serde_json::Value::Null);
     let call = crate::proxy::Call { id: text("tool_use_id"), tool: text("tool_name"), input };
     let streak = crate::proxy::read_streaks(transcript, &super::verbs::VERB_KINDS, Some(call)).pop().unwrap_or_default();
-    guard::host::ReadStreak { calls: streak.calls(), shapes: streak.top_shapes(3), subject: streak.subject }
+    let message = guard::host::MessageReads { looks: streak.message.looks, source: streak.message.source, remote: streak.message.remote, looking: crate::proxy::is_look(text("tool_name"), input, &super::verbs::VERB_KINDS) };
+    guard::host::ReadStreak { calls: streak.calls(), shapes: streak.top_shapes(3), subject: streak.subject, message }
 }
 
 #[cfg(test)]

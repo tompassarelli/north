@@ -281,6 +281,14 @@ the calls read and the brief to write instead. Other work calls, such as bookkee
 nor reset. `north config proxy calls TRANSCRIPT` prints the same streaks per turn, which is how the
 limit is replayed against a transcript.
 
+The streak resets on a send, so a proxy that interleaves one every few reads never trips it
+(north#1106, 2026-11-11: about 50 reads over two messages, the guard fired once). The same hook also
+counts looks per message from Tom, which a launch, send or gate does not refill: past
+`proxy_look_budget` it stops the turn, and past `proxy_reach_budget` for reads of repository source
+and of other hosts over ssh it does the same. The role guard also refuses builds and tests in any
+runner (cargo, bun, npm, make, go, pytest, nix build) and shell writes into a repository (redirect,
+tee, patch, git apply) from the proxy.
+
 Enforced by: hook for the streak, the landing denial and the exemptions; types for verb kinds;
 metric with an alarm for recurring work. "Predictable answer" stays text; the streak bounds what
 misjudging it costs.

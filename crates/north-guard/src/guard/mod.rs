@@ -49,6 +49,7 @@ mod agent_cwd_tests;
 pub mod worker_tier;
 pub mod spawn_capacity;
 pub mod proxy_role;
+mod proxy_replay_tests;
 mod proxy_role_tests;
 mod spawn_capacity_tests;
 pub mod code_health_edit;

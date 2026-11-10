@@ -82,3 +82,45 @@ fn a_proxy_turn_reading_past_the_limit_on_one_subject_is_stopped_with_its_brief(
 fn turn_tail(commands: &[&str], first: usize) -> Vec<String> {
     commands.iter().enumerate().flat_map(|(at, command)| [bash(&format!("t{}", first + at), command), result(&format!("t{}", first + at))]).collect()
 }
+
+#[test]
+fn sends_between_reads_do_not_refill_one_messages_looks() {
+    let budgets = crate::guard::proxy_role::Budgets { looks: 25, reach: 8 };
+    let question = "why is the laptop at load 87?";
+    let mut lines = vec![prompt(question)];
+    for at in 0..26 {
+        lines.push(bash(&format!("r{at}"), &format!("uptime # {at}")));
+        lines.push(result(&format!("r{at}")));
+        if at % 5 == 4 {
+            lines.push(json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": format!("m{at}"), "name": "SendMessage", "input": {"to": "w", "message": "go"}}]}}).to_string());
+        }
+    }
+    let judge = |lines: &[String], last: &Value| crate::guard::proxy_role::budget_verdict(&super::read_streak(&lines.join("\n"), last), &budgets);
+    assert_eq!(judge(&lines[..lines.len() - 2], &hook("r24", "uptime # 24")), Verdict::Allow, "the 25th look runs");
+    assert!(matches!(judge(&lines, &hook("r25", "uptime # 25")), Verdict::Deny(reason) if reason.contains("26 read-only calls")), "the 26th look is stopped");
+    let mut next = lines.clone();
+    next.push(prompt("and the cost table?"));
+    assert_eq!(judge(&next, &hook("r26", "uptime")), Verdict::Allow, "Tom's next message refills the budget");
+
+    let ssh: Vec<String> = std::iter::once(prompt(question)).chain((0..9).flat_map(|at| [bash(&format!("s{at}"), &format!("ssh host{at} uptime")), result(&format!("s{at}"))])).collect();
+    assert!(matches!(judge(&ssh, &hook("s9", "ssh host9 uptime")), Verdict::Deny(reason) if reason.contains("ssh (10)")), "ten ssh reads exceed the reach budget of eight");
+    let source = vec![prompt(question), bash("a", "rg -n pace ~/code/north/main/crates/north-pace"), result("a")];
+    assert_eq!(judge(&source, &hook("b", "rg -n lanes ~/code/north/main/crates/north-lanes")), Verdict::Allow, "two source reads are inside the budget");
+}
+
+#[test]
+fn the_recorded_load_trace_is_counted_as_its_fixture_says() {
+    let trace: Value = serde_json::from_str(include_str!("../../crates/north-guard/src/guard/fixtures/proxy_load_trace_2026_11_11.json")).unwrap();
+    for message in trace["messages"].as_array().unwrap() {
+        let mut lines = vec![prompt("a question from Tom")];
+        for (at, call) in message["calls"].as_array().unwrap().iter().enumerate() {
+            let command = call["command"].as_str().unwrap();
+            let reads = super::read_streak(&lines.join("\n"), &hook(&format!("c{at}"), command)).message;
+            let counted = (reads.looks as u64, reads.source as u64, reads.remote as u64, reads.looking);
+            let recorded = (call["looks"].as_u64().unwrap(), call["source"].as_u64().unwrap(), call["remote"].as_u64().unwrap(), call["looking"].as_bool().unwrap());
+            assert_eq!(counted, recorded, "{command}");
+            lines.push(bash(&format!("c{at}"), command));
+            lines.push(result(&format!("c{at}")));
+        }
+    }
+}

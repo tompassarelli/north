@@ -1764,6 +1764,22 @@ source = "tom: the coordinator holds itself to an explicit, harness-enforced sta
 fallback = "an unreadable table leaves the proxy-role guard allowing the call, and `north config proxy role` exits 1 naming the fault"
 consumers = ["crates/north-guard/src/guard/proxy_table.rs"]
 
+[proxy_look_budget]
+value = 25
+allowed = { min = 5, max = 500 }
+unit = "read-only tool calls (diagnosis, status checks, landing logs) a proxy may make for one message from Tom before the PostToolUse hook stops the turn and names the brief to write; a launch, send or gate does not refill it, only Tom's next message does"
+source = "proxy: on 2026-11-11 between 4:04 and 4:35 AM +07 the proxy made about 50 read-only calls over two of Tom's messages and the streak limit stopped only the second, because an issue edit, a send and a launch each reset its count; the 2026-11-05 day's streaks ran median 5 and 90th percentile 18 (docs/rationale/proxy-role.md section 1), so 25 for a whole message lets a normal one run and stops that trace within its first message (north#1106, 2026-11-11)"
+fallback = "none"
+consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
+
+[proxy_reach_budget]
+value = 8
+allowed = { min = 1, max = 500 }
+unit = "of one message's look calls, how many may read a repository's source or another host over ssh before the PostToolUse hook stops the turn and names the brief to write"
+source = "proxy: the 2026-11-11 trace read process tables on five hosts, journals and source in crates/north-lanes and crates/north-pace to trace one cause, and reading source or a host to find a cause is a worker's work; 8 is under a third of the look budget, enough to choose where work goes (north#1106, 2026-11-11)"
+fallback = "none"
+consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
+
 [graph_retired_writers]
 value = ["decision-log"]
 allowed = { min_len = 0 }

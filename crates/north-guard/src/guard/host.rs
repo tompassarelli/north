@@ -9,11 +9,20 @@ pub type RecordedDecisions = fn(&str, f64) -> Vec<String>;
 pub type AccountHome = fn(&str, &str) -> Option<PathBuf>;
 pub type ReadStreakOf = fn(&str, &Value) -> ReadStreak;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MessageReads {
+    pub looks: usize,
+    pub source: usize,
+    pub remote: usize,
+    pub looking: bool,
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ReadStreak {
     pub calls: usize,
     pub subject: String,
     pub shapes: Vec<(String, usize)>,
+    pub message: MessageReads,
 }
 
 #[derive(Clone, Copy)]

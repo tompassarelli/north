@@ -1,6 +1,7 @@
 #![cfg(test)]
 
-use super::proxy_role::{ClaudeStart, Registered, World, decide, lane_changes};
+use super::host::{MessageReads, ReadStreak};
+use super::proxy_role::{Budgets, ClaudeStart, Registered, World, budget_verdict, decide, lane_changes, streak_verdict};
 use crate::hook_input::{HookInput, Verdict};
 use serde_json::{Value, json};
 
@@ -199,4 +200,57 @@ fn a_lane_behind_origin_main_lists_only_the_files_it_changed() {
     git(&["add", "-A"]);
     git(&["commit", "-qm", "lane"]);
     assert_eq!(lane_changes(dir), Some(vec!["docs/spend-rule.md".to_owned()]), "committed");
+}
+
+fn reads(looks: usize, source: usize, remote: usize, looking: bool) -> ReadStreak {
+    ReadStreak { calls: 3, subject: "why is the laptop at load 87?".into(), shapes: vec![("ps".into(), 3)], message: MessageReads { looks, source, remote, looking } }
+}
+
+const BUDGETS: Budgets = Budgets { looks: 25, reach: 8 };
+
+#[test]
+fn a_proxy_that_interleaves_sends_still_runs_out_of_looks() {
+    let interleaved = reads(26, 0, 0, true);
+    assert_eq!(streak_verdict(&interleaved, 15), Verdict::Allow, "sends keep resetting the streak, so the streak limit alone never fires");
+    let Verdict::Deny(reason) = budget_verdict(&interleaved, &BUDGETS) else { panic!("the 26th look of one message went on") };
+    assert!(reason.contains("26 read-only calls") && reason.contains("proxy_look_budget") && reason.contains("only Tom's next message does") && reason.contains("north work brief new") && reason.contains("north fleet launch"), "{reason}");
+    assert_eq!(budget_verdict(&reads(25, 0, 0, true), &BUDGETS), Verdict::Allow, "the budget itself still runs");
+    assert_eq!(budget_verdict(&reads(26, 0, 0, false), &BUDGETS), Verdict::Allow, "the launch that hands the work off is not a look");
+
+    let Verdict::Deny(reason) = budget_verdict(&reads(12, 6, 3, true), &BUDGETS) else { panic!("nine reads of source and other hosts went on") };
+    assert!(reason.contains("proxy_reach_budget") && reason.contains("source (6)") && reason.contains("ssh (3)"), "{reason}");
+    assert_eq!(budget_verdict(&reads(12, 5, 3, true), &BUDGETS), Verdict::Allow, "eight reads of source and hosts still run");
+}
+
+#[test]
+fn the_proxy_cannot_build_test_or_edit_a_repository() {
+    let refused = [
+        "bun test",
+        "bun run build",
+        "npm test",
+        "pnpm run build",
+        "yarn build",
+        "make all",
+        "just check",
+        "pytest -q",
+        "go test ./...",
+        "nix build .#north",
+        "nix flake check",
+        "cargo run -p north-guard",
+        "echo x > ~/code/north/main/README.md",
+        "printf x >> /home/tom/code/south/main/agents/x.md",
+        "cat notes | tee ~/code/north/main/docs/x.md",
+        "git apply /tmp/fix.diff",
+        "patch -p1 < /tmp/fix.diff",
+        "ssh gex45 'cd ~/code/north/main && bun test'",
+    ];
+    for command in refused {
+        assert!(denied(&proxy(), &bash(command)), "{command}");
+        assert_eq!(decide(&worker(), &bash(command)), Verdict::Allow, "a worker may run {command}");
+    }
+    let open = ["bun run script.ts", "npm view left-pad", "nix develop -c true", "sed -n 1,20p crates/north-guard/src/lib.rs", "echo x > /tmp/note", "echo x 2>&1 | cat", "git apply --check /tmp/fix.diff", "go version", "north fleet list"];
+    for command in open {
+        let verdict = decide(&proxy(), &bash(command));
+        assert_eq!(verdict, Verdict::Allow, "{command}");
+    }
 }

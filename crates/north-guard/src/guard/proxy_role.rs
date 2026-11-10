@@ -10,9 +10,15 @@ use std::path::PathBuf;
 const UNIT: &str = "proxy-role-guard";
 const STREAK_UNIT: &str = "proxy-read-streak";
 const STREAK_LIMIT: &str = "proxy_read_streak";
+const BUDGET_UNIT: &str = "proxy-look-budget";
+const LOOK_BUDGET: &str = "proxy_look_budget";
+const REACH_BUDGET: &str = "proxy_reach_budget";
 const TAIL_BYTES: u64 = 8 * 1024 * 1024;
 const SUBAGENTS: [&str; 2] = ["Explore", "Plan"];
-const CARGO_BUILDS: [&str; 8] = ["build", "b", "test", "t", "clippy", "check", "c", "nextest"];
+const CARGO_BUILDS: [&str; 11] = ["build", "b", "test", "t", "clippy", "check", "c", "nextest", "run", "bench", "doc"];
+const SCRIPT_RUNNERS: [&str; 4] = ["bun", "npm", "pnpm", "yarn"];
+const SCRIPT_BUILDS: [&str; 5] = ["test", "build", "check", "lint", "typecheck"];
+const MAKERS: [&str; 5] = ["make", "just", "pytest", "tsc", "ninja"];
 const CARGO_VALUED: &[&str] = &["-C", "-Z", "--color", "--config", "--manifest-path"];
 const GIT_VALUED: &[&str] = &["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"];
 const WRAPPERS: [&str; 6] = ["bash", "sh", "zsh", "north", "nix", "ssh"];
@@ -312,7 +318,17 @@ fn command_action(words: &[&str], depth: usize, lane_ok: bool) -> Option<String>
     }
     let words = words.get(at..)?;
     let head = basename(words.first()?);
+    if redirects_into_repository(words) {
+        return Some("write a repository file with a shell redirect".to_owned());
+    }
     match head {
+        "tee" if words.iter().any(|word| in_repository(word)) => Some("write a repository file with tee".to_owned()),
+        "patch" => Some("apply a patch".to_owned()),
+        "git" if subcommand(&words[1..], GIT_VALUED) == Some("apply") && !words.contains(&"--check") => Some("apply a patch".to_owned()),
+        _ if MAKERS.contains(&head) => Some(format!("run {head}")),
+        "go" if matches!(subcommand(&words[1..], &[]), Some("build" | "test" | "vet")) => Some("run go build or test".to_owned()),
+        "nix" if matches!(subcommand(&words[1..], &[]), Some("build")) || words.windows(2).any(|pair| pair == ["flake", "check"]) => Some("run a nix build or check".to_owned()),
+        _ if SCRIPT_RUNNERS.contains(&head) && script_builds(&words[1..]) => Some(format!("run {head} build or test")),
         "safe-push" => (!lane_ok).then(|| LAND_ACTION.to_owned()),
         "git" => (!lane_ok && subcommand(&words[1..], GIT_VALUED) == Some("commit") && !words.contains(&"--dry-run")).then(|| COMMIT_ACTION.to_owned()),
         "cargo" => subcommand(&words[1..], CARGO_VALUED).filter(|verb| CARGO_BUILDS.contains(verb)).map(|verb| format!("run cargo {verb}")),
@@ -344,6 +360,29 @@ fn subcommand<'a>(words: &[&'a str], valued: &[&str]) -> Option<&'a str> {
     None
 }
 
+fn in_repository(word: &str) -> bool {
+    word.contains("/code/")
+}
+
+fn redirects_into_repository(words: &[&str]) -> bool {
+    words.iter().enumerate().any(|(at, word)| {
+        let Some(target) = word.trim_start_matches(|c: char| c.is_ascii_digit()).strip_prefix('>') else { return false };
+        let target = target.trim_start_matches('>');
+        if target.starts_with('&') {
+            return false;
+        }
+        in_repository(if target.is_empty() { words.get(at + 1).copied().unwrap_or_default() } else { target })
+    })
+}
+
+fn script_builds(words: &[&str]) -> bool {
+    let word = match subcommand(words, &[]) {
+        Some("run" | "x") => words.iter().skip_while(|word| !matches!(**word, "run" | "x")).nth(1).copied(),
+        word => word,
+    };
+    word.is_some_and(|word| SCRIPT_BUILDS.contains(&word) || word.starts_with("build"))
+}
+
 fn wrapped(words: &[&str]) -> bool {
     let Some(at) = words.iter().position(|word| !is_assignment(word)) else { return false };
     let head = basename(words[at]);
@@ -356,7 +395,41 @@ pub fn evaluate_streak(input: &HookInput) -> Verdict {
     }
     let Some(transcript) = input.data["transcript_path"].as_str().and_then(transcript_tail) else { return Verdict::Allow };
     let Ok(hook) = serde_json::from_slice::<serde_json::Value>(&input.raw) else { return Verdict::Allow };
-    host::read_streak(&transcript, &hook).map_or(Verdict::Allow, |streak| streak_verdict(&streak, streak_limit()))
+    host::read_streak(&transcript, &hook).map_or(Verdict::Allow, |streak| match budget_verdict(&streak, &budgets()) {
+        Verdict::Allow => streak_verdict(&streak, streak_limit()),
+        stopped => stopped,
+    })
+}
+
+pub struct Budgets {
+    pub looks: usize,
+    pub reach: usize,
+}
+
+pub fn budgets() -> Budgets {
+    let number = |name| north_base::platform::harness::default_number(name) as usize;
+    Budgets { looks: number(LOOK_BUDGET), reach: number(REACH_BUDGET) }
+}
+
+pub fn budget_verdict(streak: &ReadStreak, budgets: &Budgets) -> Verdict {
+    let message = streak.message;
+    if !message.looking {
+        return Verdict::Allow;
+    }
+    let reach = message.source + message.remote;
+    let (spent, budget, name, what) = if message.looks > budgets.looks {
+        (message.looks, budgets.looks, LOOK_BUDGET, "read-only calls".to_owned())
+    } else if reach > budgets.reach {
+        (reach, budgets.reach, REACH_BUDGET, format!("reads of repository source ({}) or of other hosts over ssh ({})", message.source, message.remote))
+    } else {
+        return Verdict::Allow;
+    };
+    let subject = if streak.subject.is_empty() { "this message" } else { streak.subject.as_str() };
+    let read: Vec<String> = streak.shapes.iter().map(|(shape, calls)| format!("`{shape}` x{calls}")).collect();
+    Verdict::Deny(format!(
+        "STOPPED ({BUDGET_UNIT}): this message from Tom has had {spent} {what} on \"{subject}\", over the budget of {budget} ({name} in harness/defaults.toml); a launch, send or gate does not refill it, only Tom's next message does. The proxy routes and judges, so finding this cause is a worker's: write the brief with `north work brief new --category debugging-unknown-cause`, its `Item:` line naming \"{subject}\" and what these calls read ({}), staff it with `north fleet launch`, and judge the report.",
+        read.join(", "),
+    ))
 }
 
 pub fn streak_limit() -> usize {

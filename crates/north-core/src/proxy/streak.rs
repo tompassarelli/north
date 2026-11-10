@@ -2,15 +2,23 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde_json::Value;
 
-use super::calls::{Kind, VerbKinds, classify};
+use super::calls::{Kind, Reach, VerbKinds, classify, reach};
 use super::shape::shape;
 
 const SUBJECT_CHARS: usize = 100;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Message {
+    pub looks: usize,
+    pub source: usize,
+    pub remote: usize,
+}
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Streak {
     pub subject: String,
     pub shapes: Vec<String>,
+    pub message: Message,
 }
 
 impl Streak {
@@ -34,6 +42,10 @@ pub fn reads_only(kind: Kind) -> bool {
     matches!(kind, Kind::Diagnosis | Kind::Status | Kind::LandingLogs)
 }
 
+pub fn is_look(tool: &str, input: &Value, verbs: &VerbKinds) -> bool {
+    reads_only(classify(tool, input, verbs))
+}
+
 pub fn ends_streak(kind: Kind) -> bool {
     matches!(kind, Kind::Delegate | Kind::ChildMessage | Kind::TomFacing | Kind::Brief)
 }
@@ -54,7 +66,7 @@ pub fn read_streaks(jsonl: &str, verbs: &VerbKinds, last: Option<Call>) -> Vec<S
         match entry.get("type").and_then(Value::as_str) {
             Some("user") => {
                 if let Some(subject) = prompt(&entry) {
-                    streaks.push(Streak { subject, shapes: Vec::new() });
+                    streaks.push(Streak { subject, ..Streak::default() });
                 }
             }
             Some("assistant") => {
@@ -82,10 +94,16 @@ fn record(streaks: &mut Vec<Streak>, tool: &str, input: &Value, verbs: &VerbKind
     let kind = classify(tool, input, verbs);
     let open = streaks.last_mut().expect("a streak is always open");
     if ends_streak(kind) {
-        let subject = open.subject.clone();
-        streaks.push(Streak { subject, shapes: Vec::new() });
+        let (subject, message) = (open.subject.clone(), open.message);
+        streaks.push(Streak { subject, shapes: Vec::new(), message });
     } else if reads_only(kind) {
         open.shapes.push(shape(tool, input));
+        open.message.looks += 1;
+        match reach(tool, input) {
+            Some(Reach::Source) => open.message.source += 1,
+            Some(Reach::Remote) => open.message.remote += 1,
+            None => {}
+        }
     }
 }
 

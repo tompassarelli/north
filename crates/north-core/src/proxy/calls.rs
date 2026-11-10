@@ -94,6 +94,39 @@ pub fn classify(tool: &str, input: &Value, verbs: &VerbKinds) -> Kind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Reach {
+    Source,
+    Remote,
+}
+
+const SOURCE_READERS: &[&str] = &["rg", "grep", "cat", "sed", "head", "tail", "bat", "less", "fd", "find", "awk", "wc", "tree", "ls"];
+const SOURCE_SUFFIXES: &[&str] = &[".rs", ".ts", ".toml", ".nix", ".lua", ".wurst"];
+
+pub fn reach(tool: &str, input: &Value) -> Option<Reach> {
+    let text = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or_default();
+    match tool {
+        "Read" | "Grep" | "Glob" => in_repository(&[text("file_path"), text("path")]).then_some(Reach::Source),
+        "Bash" => {
+            let stages = shell::stages(text("command"));
+            if stages.iter().any(|stage| stage.program == "ssh") {
+                return Some(Reach::Remote);
+            }
+            stages.iter().any(source_stage).then_some(Reach::Source)
+        }
+        _ => None,
+    }
+}
+
+fn source_stage(stage: &Stage) -> bool {
+    let reads = SOURCE_READERS.contains(&stage.program.as_str()) || (stage.program == "git" && stage.args.iter().any(|arg| matches!(arg.as_str(), "log" | "show" | "diff" | "grep" | "blame")));
+    reads && in_repository(&stage.args.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+fn in_repository(words: &[&str]) -> bool {
+    words.iter().any(|word| word.contains("/code/") || SOURCE_SUFFIXES.iter().any(|suffix| word.ends_with(suffix)))
+}
+
 pub fn command(text: &str, verbs: &VerbKinds) -> Kind {
     let whole = whole_text(text);
     let stages = shell::stages(text);
