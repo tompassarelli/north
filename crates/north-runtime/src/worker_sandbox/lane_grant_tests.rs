@@ -180,7 +180,7 @@ fn lane_only_client() {
 }
 
 #[test]
-fn a_safe_push_from_the_brokered_lane_child_of_an_opencode_shell_command_is_granted() {
+fn a_lane_only_opencode_worker_reaches_the_brokers_granted_path_without_moving_its_cgroup() {
     let fixture = Fixture::new();
     let scope = fixture.host.cgroups.join(cgroup().trim_start_matches("0::/").trim_end());
     std::fs::create_dir_all(&scope).unwrap();
@@ -194,6 +194,8 @@ fn a_safe_push_from_the_brokered_lane_child_of_an_opencode_shell_command_is_gran
     let landed = fixture.ask_from(&child, &["safe-push", "--to", "main"], &fixture.lane);
     assert_eq!(landed.code, 0, "the brokered child's nested safe-push is granted: {}", landed.stderr);
     assert_eq!(fixture.ran().last().unwrap(), &format!("{}|safe-push --to main|{NAME}", fixture.lane.display()));
+    let ticked = fixture.ask_from(&child, &["task", "check", "--done-when", "--box", "a box"], &fixture.lane);
+    assert_eq!(ticked.code, 0, "the brokered child's nested task check is granted: {}", ticked.stderr);
 }
 
 #[test]
