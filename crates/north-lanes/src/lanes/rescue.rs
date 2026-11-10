@@ -194,6 +194,7 @@ impl Rescue {
                 return Err(failed(format!("lane rescue: cannot relocate nested worktree {}: {} already exists; main is UNTOUCHED", nested.path(), target.display())));
             }
         }
+        require_removable(main_dir, changes)?;
         fs::create_dir_all(container.join("worktrees")).map_err(|error| failed(error.to_string()))?;
         git_checked(main_dir, &["worktree", "add", "-q", "-b", branch, &rescue_dir.to_string_lossy(), "HEAD"]).map_err(failed)?;
         if !changes.diff.is_empty() && !(self.apply_diff)(rescue_dir, &changes.diff) {
@@ -256,6 +257,24 @@ impl Rescue {
         }
         fs::rename(from, &target).map_err(|error| format!("{error} (archiving to {})", target.display()))
     }
+}
+
+/// The paths of `changes` that exist in main and cannot be renamed within their directory and back, which is what removing or replacing them needs: a Landlock domain that lets a command create a file in main but refuses its unlink fails here, so the rescue stops before it copies anything.
+fn require_removable(main_dir: &Path, changes: &Changes) -> Result<(), Vec<String>> {
+    let nested = changes.nested.iter().map(Nested::path);
+    let paths = changes.tracked.iter().map(String::as_str).chain(changes.untracked.iter().map(String::as_str)).chain(nested);
+    let stuck: Vec<String> = paths.filter(|path| fs::symlink_metadata(main_dir.join(path)).is_ok() && !renames_in_place(&main_dir.join(path))).map(|path| format!("  {path}")).collect();
+    if stuck.is_empty() {
+        return Ok(());
+    }
+    let mut lines = vec!["lane rescue: this process cannot remove these paths from main, so a rescue lane could not leave main clean; no rescue lane was created; main is UNTOUCHED".to_string()];
+    lines.extend(stuck);
+    Err(lines)
+}
+
+fn renames_in_place(path: &Path) -> bool {
+    let probe = path.with_file_name(format!(".north-rescue-probe-{}", std::process::id()));
+    fs::rename(path, &probe).is_ok() && fs::rename(&probe, path).is_ok()
 }
 
 fn discard(main_dir: &Path, rescue_dir: &Path, branch: &str) {

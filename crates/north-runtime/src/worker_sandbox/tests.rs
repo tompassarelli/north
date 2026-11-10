@@ -439,3 +439,47 @@ fn merge_tree_leaves_main_clean() {
     super::sweep::clear(&super::sweep::places(&context));
     assert_eq!(status(), "", "main is not clean after the command's sweep");
 }
+
+const RESCUE_MAIN: &str = "NORTH_1068_RESCUE_MAIN";
+
+#[test]
+fn a_confined_lane_rescue_child() {
+    let Some(main) = std::env::var_os(RESCUE_MAIN) else {
+        return;
+    };
+    let context = Context::from_env("north lane rescue");
+    let roots = removable(&context);
+    assert!(matches!(confine(Some(&roots), &readable(&context), Some(&executable(&context)), None), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    let _ = north_lanes::lanes::wt_rescue(&[main.to_string_lossy().into_owned()]);
+}
+
+#[test]
+fn lane_rescue_leaves_main_clean() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("north-1068-lane-rescue").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    let main = home.join("code/alpha/main");
+    std::fs::create_dir_all(home.join("code/alpha/worktrees")).unwrap();
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    std::fs::write(main.join("tracked.txt"), "base\n").unwrap();
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-q", "-m", "base"]);
+    std::fs::write(main.join("tracked.txt"), "changed\n").unwrap();
+    std::fs::write(main.join(".merge_file_abc123"), "left by git\n").unwrap();
+
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::a_confined_lane_rescue_child", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", &home)
+        .env(RESCUE_MAIN, &main)
+        .current_dir(&main)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let rescued = std::fs::read_dir(home.join("code/alpha/worktrees")).unwrap().flatten().filter(|lane| lane.file_name().to_string_lossy().starts_with("rescue-")).count();
+    let status = String::from_utf8(Command::new("git").arg("-C").arg(&main).args(["status", "--porcelain"]).output().unwrap().stdout).unwrap();
+    assert!(status.is_empty() || rescued == 0, "main is dirty ({status:?}) and a rescue lane was left: {}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+}
