@@ -5,12 +5,6 @@
 # entry the code no longer reaches; north#791 replaces each verdict read with its mechanical source and removes the
 # entry (docs/rationale/attribution.md).
 
-[[read]]
-file = "crates/north-dispatch/src/dispatch/issues.rs"
-lines = 10
-kind = "verdict"
-all_patterns = true
-
 # The relay drops a turn report whose own Stop: line says it waits on a landing or a clock (north#909): the words can only
 # silence a message to the parent, never move a bar, a class or a score, and the queued ticket and registered wait it also reads are mechanical.
 [[read]]

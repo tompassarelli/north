@@ -24,13 +24,11 @@ pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
         body: node["body"].as_str().unwrap_or_default().into(),
         labels: node["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| label["name"].as_str().map(str::to_owned)).collect(),
         open_blockers,
-        report: comments.last().and_then(|comment| comment["body"].as_str()).unwrap_or_default().into(),
         comments,
         touched: touched(node),
         created: node["createdAt"].as_str().and_then(crate::foundation::clock::rfc3339_seconds).unwrap_or(0.0),
         stop: Default::default(),
         needs: Vec::new(),
-        landed: 0.0,
         landings: 0,
     })
 }

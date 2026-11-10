@@ -433,9 +433,6 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         issue.needs = super::host_needs::of(issue, &learned, at);
         let reference = issue.reference();
         issue.stop.relay = launches.get(&reference).and_then(|launch| super::host_needs::relay(&learned, &reference.to_string(), &launch.name));
-        if issue.windowed() {
-            issue.landed = landings::landed_at(issue);
-        }
         if issue.counts_landings() {
             issue.landings = landings::since(issue);
         }

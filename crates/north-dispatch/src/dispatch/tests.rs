@@ -272,13 +272,13 @@ fn an_issue_that_allows_three_workers_staffs_its_free_boxes_up_to_the_cap_and_on
     assert_eq!(names.len(), 1, "a run never collides with a name it just created: {names:?}");
 }
 
-/// north#835: on 2026-11-08 merging issues left 14 open boxes on north#719 and 28 on north#706, run one at a time; north-740-d1801 spent a first try on a box whose window over readings had not passed.
+/// north#835: on 2026-11-08 merging issues left 14 open boxes on north#719 and 28 on north#706, run one at a time; north-740-d1801 spent a first try on a box whose window over readings had not passed, which its `(not before ...)` stamp now holds.
 #[test]
 fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_windowed_box_wait() {
     let (_, accounts) = fleet();
     let hosts = vec![host("gex45", 24, Ok(0))];
     let first = "the claims replay in `crates/north-fleet/src/fleet/claims.rs` passes";
-    let body = format!("- [ ] {first}\n- [ ] holds in crates/north-dispatch/src/dispatch/hotspots.rs\n- [ ] harness/skills/workers/SKILL.md says so\n- [ ] the ready list in `crates/north-dispatch/src/dispatch` names each box\n- [ ] Over 3 h no launch is refused");
+    let body = format!("- [ ] {first}\n- [ ] holds in crates/north-dispatch/src/dispatch/hotspots.rs\n- [ ] harness/skills/workers/SKILL.md says so\n- [ ] the ready list in `crates/north-dispatch/src/dispatch` names each box\n- [ ] Over 3 h no launch is refused (not before 2099-01-01T00:00Z)");
     let surveyed = |tried: &[&str]| {
         let mut survey = survey(vec![issue("north", 835, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
         survey.box_tries.insert(super::issues::IssueRef::new("north", 835), tried.iter().filter_map(|text| Some((crate::threads::claims::box_slug(text)?, "tried twice".to_owned()))).collect());
@@ -286,7 +286,7 @@ fn independent_boxes_launch_side_by_side_while_an_overlapping_a_tried_and_a_wind
     };
     let boxes = |outcome: &super::Outcome| outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect::<Vec<_>>();
     let outcome = surveyed(&[]);
-    assert_eq!(boxes(&outcome), [first, "holds in crates/north-dispatch/src/dispatch/hotspots.rs", "harness/skills/workers/SKILL.md says so"], "the windowed box waits out its 3 h");
+    assert_eq!(boxes(&outcome), [first, "holds in crates/north-dispatch/src/dispatch/hotspots.rs", "harness/skills/workers/SKILL.md says so"], "the box stamped with a later date waits for it");
     let held: Vec<&String> = outcome.skipped.iter().map(|(_, why)| why).collect();
     assert!(held.len() == 1 && held[0].contains("box `the ready list") && held[0].contains("both name crates/north-dispatch/src/dispatch"), "{held:?}");
     let tried = surveyed(&[first]);

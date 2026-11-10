@@ -40,6 +40,8 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
     let held = Issue { stop: waiting, touched: 1_794_000_000.0, ..issue("north", 647, "- [ ] zero timeouts in the 24 hours after the fix (not before 2026-11-06T23:10Z)", &[]) };
     assert!(issues::readiness(&held, &world(1_793_901_000.0)).is_err_and(|why| why.contains("2026-11-06T23:10Z")), "the stamped box waits");
     assert_eq!(issues::readiness(&held, &world(1_794_006_600.0)), Ok(()), "the box is ready again at that time");
+    let unstamped = Issue { touched: 1_794_000_000.0, ..issue("north", 903, "- [ ] Enforce after review: a reviewer reads 24 h or 20 of the shadow rows\n- [ ] Keep-or-revert, read 7 days after it enforces, over 24 h of rows", &[]) };
+    assert_eq!(issues::readiness(&unstamped, &world(1_794_000_060.0)), Ok(()), "a wait only its prose names holds nothing; its stamp or a registered wait does (north#872)");
 
     let needs = tempfile::tempdir().unwrap();
     let mut moved = issue("north", 636, "- [ ] the window moves to the account with headroom", &[]);
@@ -272,24 +274,6 @@ serves = ["laptop"]
 }
 
 #[test]
-fn north_751_at_12_02_pm_is_held_until_its_1_h_cell_can_be_read_an_hour_after_the_newest_landing_it_cites() {
-    let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
-    let body = "- [x] Sessions the proxy names and places itself pass the same box-needs placement, fixed by 745f9b42a\n- [x] A run ending on the API's \"Credit balance is too low\" counts as capacity, fixed by 3a3a29687\n- [ ] the 10 min and 1 h cells reach 1% or less, quoted with their n; the capacity losses left are sessions stopped while their own build waited in admission, worked on in north#772";
-    let held = Issue { landed: at("2026-11-07T04:45Z"), touched: at("2026-11-07T05:03Z"), ..issue("north", 751, body, &[]) };
-    let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
-    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
-    assert_eq!(held.cited_shas(), ["745f9b42a", "3a3a29687"]);
-    assert_eq!(
-        issues::readiness(&held, &world("2026-11-07T05:02Z")),
-        Err("no open box can be read before 2026-11-07T05:45Z: each names a window over readings, counted from the newest landing it cites or its last report".into()),
-        "05:45Z is 12:45 PM on the laptop"
-    );
-    assert_eq!(issues::readiness(&held, &world("2026-11-07T05:45Z")), Ok(()), "the box is takeable once the window has turned over");
-    let unwindowed = Issue { landed: held.landed, ..issue("north", 752, "- [ ] the cache keeps the newest row", &[]) };
-    assert_eq!(issues::readiness(&unwindowed, &world("2026-11-07T05:02Z")), Ok(()), "a box that names no window is not held");
-}
-
-#[test]
 fn a_hand_launch_for_north_757s_session_lifecycle_box_is_not_placed_on_the_ccx33_stop_another_box_learned_while_a_launch_with_no_box_line_reads_every_open_box() {
     let sessions_box = "- [ ] **1. Fleet session lifecycle and retirement** (score 348) Files: crates/north-fleet/src/fleet/model.rs. Done when: `cargo nextest run -p north-fleet --lib -E 'test(/session_lifecycle/)'` passes";
     let leases_box = "- [ ] **9. Capacity leases** (score 82) Files: crates/north-capacity-host/src/capacity/host/state.rs. Done when: `cargo nextest run -p north-capacity-host --lib -E 'test(/lease_lifecycle/)'` passes";
@@ -408,52 +392,6 @@ fn a_mirrored_session_keeps_what_dispatch_reads_and_reads_the_same_stop_as_the_w
     assert_eq!(kept.len(), 4, "{kept:?}: the first and last assistant messages, the first commit and the lander notice are what dispatch reads, and the 50 other tool calls are not, out of a 38 MB mirror");
     assert_eq!(super::stops::stop(&read, &launch, &Evidence::default()), super::stops::stop(&whole, &launch, &Evidence::default()));
     assert_eq!(super::tries::unspent(&read, &Evidence::default()), super::tries::unspent(&whole, &Evidence::default()));
-}
-
-/// north#903: on 2026-11-07 and 08 four first tries were lost to boxes staffed before they could be done: their wait counted from a box above that was still unticked, or from a count with no date.
-#[test]
-fn a_box_whose_wait_counts_from_an_unticked_box_above_or_from_an_undated_count_is_not_staffed_while_a_plain_box_beside_it_is() {
-    let at = |written: &str| crate::foundation::clock::Timestamp::parse_loose(written).unwrap().unix_seconds_f64();
-    let (open, holds, planned, live, no_boxes) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new(), BTreeSet::new(), BTreeMap::new());
-    let world = |written: &str| World { open: &open, holds: &holds, box_holds: &no_boxes, box_tries: &no_boxes, live: &live, planned: &planned, backlog: None, at: at(written) };
-    let ticked = "- [x] A verb lands and its test passes, fixed by 2d663c0f2e";
-    let plain = "- [ ] the cache keeps the newest row";
-    let enforce_865 = "- [ ] After 24 h or 20 decisions in shadow, a sample of 20 of its reports reads at most 2 false, recorded in harness/gates.toml's review table, and it enforces.";
-    let revert_865 = "- [ ] Keep-or-revert, read 7 days after it enforces: the Rust commits of those 7 days add comment lines net of those they remove at no more than 2 lines per 100 commits (13 per 100 from 2026-11-06 to 08). Otherwise revert the rule.";
-    let enforce_872 = "- [ ] Enforce after review: a reviewer reads 24 h or 20 of the shadow rows, fixes any false refusal and records `[gate.unrunnable-box.review]`. Done when: `rg -q mode harness/gates.toml`.";
-    let shadow_872 = "- [ ] Shadow: the issue-filing hook logs each new unticked box that names no runnable command. Done when: `rg -q unrunnable-box harness/gates.toml`.";
-    let report_877 = "- [ ] After 30 landed per arm, `north test frontier ab-report` writes into docs/rationale/frontier.md, per arm, the median assignment-to-landed time.";
-    let assign_877 = "- [ ] A verb picks open boxes with a runnable Done when and assigns each by a recorded seeded coin flip to an arm.";
-    let journal_637 = "- [ ] `journalctl --user -u fleet-tick.service` on the laptop shows no start timeout for a day after it lands. Check missed on 2026-11-07, printed \"38\", expected \"0\" <!-- check n637-day-without-timeouts@2026-11-07 missed -->";
-    let landed = at("2026-11-05T23:02Z");
-    let takeable = |number: u64, body: &str, now: &str| {
-        let candidate = Issue { landed, touched: landed, ..issue("north", number, body, &[]) };
-        candidate.takeable(at(now)).map(|line| line.trim().chars().take(24).collect::<String>()).collect::<Vec<_>>()
-    };
-    let head = |line: &str| line.chars().take(24).collect::<String>();
-
-    let launch_865 = format!("{ticked}\n{enforce_865}\n{revert_865}\n{plain}");
-    assert_eq!(takeable(865, &launch_865, "2026-11-07T23:26Z"), [head(plain)], "north-865-d2326 was staffed on the keep-or-revert box while the enforce box above it was unticked");
-    let launch_872 = format!("{ticked}\n{shadow_872}\n{enforce_872}\n{plain}");
-    assert_eq!(takeable(872, &launch_872, "2026-11-08T00:09Z"), [head(shadow_872), head(plain)], "north-872-d0006 was staffed on the enforce box while the shadow box above it had not landed");
-    let launch_877 = format!("{ticked}\n{assign_877}\n{report_877}\n{plain}");
-    assert_eq!(takeable(877, &launch_877, "2026-11-08T01:13Z"), [head(assign_877), head(plain)], "north-877-d0111 was staffed on the report box while the assign-and-record box above it had not landed");
-    let launch_637 = format!("{ticked}\n{journal_637}\n{plain}");
-    assert_eq!(takeable(637, &launch_637, "2026-11-07T18:29Z"), [head(plain)], "north-637-d1828 was staffed on a box reopened by a missed check the same day");
-
-    assert_eq!(issues::readiness(&Issue { landed, ..issue("north", 872, &format!("{ticked}\n{shadow_872}\n{enforce_872}"), &[]) }, &world("2026-11-08T00:09Z")), Ok(()), "the shadow box is staffable");
-    let waiting = |body: &str| issues::readiness(&Issue { landed, ..issue("north", 903, body, &[]) }, &world("2026-11-08T00:09Z"));
-    assert_eq!(
-        waiting(&format!("{ticked}\n{enforce_865}\n{revert_865}")),
-        Err("every open box waits, the first until it is stamped `(not before YYYY-MM-DDTHH:MMZ)`: it counts something with no date".into())
-    );
-    assert_eq!(waiting(&format!("{ticked}\n{journal_637}")), Err("only open box waits until it is stamped `(not before YYYY-MM-DDTHH:MMZ)`: it counts something with no date".into()));
-    let stamped = "- [ ] Keep-or-revert, read 7 days after it enforces (not before 2026-11-16T00:00Z): the commits add no more comments";
-    let behind = waiting(&format!("{ticked}\n{stamped}\n{revert_865}")).unwrap_err();
-    assert!(behind.contains("the unticked box above it is done: `Keep-or-revert, read 7 days after it enforces (not before"), "{behind}");
-
-    assert_eq!(takeable(865, &format!("{enforce_865}\n{stamped}"), "2026-11-16T00:00Z"), [head(stamped)], "a box stamped with its own date is read from that date, as before");
-    assert_eq!(takeable(865, "- [ ] the cache keeps the newest row, read over 6 h\n- [ ] the debt is read after the next 10 landings", "2026-11-16T00:00Z"), [head(plain)], "a window over readings is not a wait on the box above");
 }
 
 fn spinning(report: &str, notices: &[String], evidence: &Evidence) -> Issue {
