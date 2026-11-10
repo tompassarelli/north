@@ -13,7 +13,7 @@ use super::target_subvolume;
 const USAGE: &str = "usage: north lane seed [DIR]";
 const HASH_LEN: usize = 16;
 const BUILD_LOCKS: [&str; 2] = [".cargo-lock", ".cargo-build-lock"];
-pub(super) const STAGING_PREFIX: &str = "target.seeding-";
+const STAGING_PREFIX: &str = "target.seeding-";
 const DEAD_SEED_AGE: Duration = Duration::from_secs(3600);
 
 pub struct DeadSeed {
@@ -21,17 +21,17 @@ pub struct DeadSeed {
     pub bytes: u64,
 }
 
-pub(super) struct Staging {
-    pub(super) path: PathBuf,
+struct Staging {
+    path: PathBuf,
     kept: bool,
 }
 
 impl Staging {
-    pub(super) fn new(path: PathBuf) -> Self {
+    fn new(path: PathBuf) -> Self {
         Self { path, kept: false }
     }
 
-    pub(super) fn keep(mut self) {
+    fn keep(mut self) {
         self.kept = true;
     }
 }
@@ -65,7 +65,7 @@ fn seed_or_build_cold(here: &Path) -> u8 {
         Ok(None) => {}
         Err(error) => eprintln!("lane seed: {error}; this checkout builds without a seed"),
     }
-    if let Err(error) = target_subvolume::fresh_target(here) {
+    if let Err(error) = fresh_target(here) {
         eprintln!("lane seed: {error}; this checkout's build output goes into home snapshots");
     }
     0
@@ -111,6 +111,21 @@ pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {
     }
     staging.keep();
     Ok(Some(from))
+}
+
+fn fresh_target(here: &Path) -> io::Result<()> {
+    let Some(workspace) = workspace_root(here) else { return Ok(()) };
+    let target = workspace.join("target");
+    if target.exists() || !target_subvolume::on_btrfs(&workspace) {
+        return Ok(());
+    }
+    let staging = Staging::new(workspace.join(format!("{STAGING_PREFIX}{}", std::process::id())));
+    target_subvolume::target_dir(&staging.path)?;
+    fs::write(staging.path.join("CACHEDIR.TAG"), target_subvolume::CACHEDIR_TAG)?;
+    if fs::rename(&staging.path, &target).is_ok() {
+        staging.keep();
+    }
+    Ok(())
 }
 
 pub fn reclaim_dead_seeds(code: &Path, proc_root: &Path, now: SystemTime, dry_run: bool) -> Vec<DeadSeed> {
@@ -186,7 +201,7 @@ fn siblings(checkout: &Path) -> Vec<PathBuf> {
     std::iter::once(container.join("main")).chain(lanes).filter(|sibling| sibling != checkout).collect()
 }
 
-pub(super) fn workspace_root(here: &Path) -> Option<PathBuf> {
+fn workspace_root(here: &Path) -> Option<PathBuf> {
     let mut first = None;
     for dir in here.ancestors() {
         let Some(manifest) = fs::read_to_string(dir.join("Cargo.toml")).ok().and_then(|text| text.parse::<DocumentMut>().ok()) else { continue };
