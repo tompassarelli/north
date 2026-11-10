@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git")
@@ -53,15 +53,18 @@ fn a_lane_with_a_recorded_rejection_is_bundled_and_reaped_and_a_half_removed_one
     fs::create_dir_all(&records).unwrap();
     fs::write(records.join("rejected"), "test-passes-on-base (review of ds-1)\n").unwrap();
 
+    let now = fs::metadata(&records).unwrap().modified().unwrap() + Duration::from_secs(3600);
     let project = archive.join("proj");
     fs::create_dir_all(&project).unwrap();
     let (stale, fresh) = (project.join("old.bundle.lock"), project.join("new.bundle.lock"));
-    fs::write(&fresh, "").unwrap();
-    fs::write(&stale, "").unwrap();
-    File::options().write(true).open(&stale).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000 - 2 * 3600)).unwrap();
+    for (lock, age) in [(&fresh, 600), (&stale, 2 * 3600)] {
+        fs::write(lock, "").unwrap();
+        File::options().write(true).open(lock).unwrap().set_modified(now - Duration::from_secs(age)).unwrap();
+    }
 
     let arguments: Vec<String> = ["--repo", "proj", "--idle-hours", "0", "--root", home.join("code").to_str().unwrap(), "--state", root.join("unlanded.txt").to_str().unwrap(), "--archive", archive.to_str().unwrap()].map(str::to_owned).to_vec();
-    assert_eq!(north_lanes::lanes::lane_gc_in(&home, Some(Vec::new()), &arguments), 0);
+    let inputs = north_lanes::lanes::LaneGcInputs { fleet: Some(Vec::new()), now_ms: i64::try_from(now.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap(), stale: root.join("stale.json") };
+    assert_eq!(north_lanes::lanes::lane_gc_in(&home, inputs, &arguments), 0);
 
     assert!(!rejected.exists(), "the rejected lane is reaped");
     assert!(git(&main, &["branch", "--list", "rejected"]).is_empty());

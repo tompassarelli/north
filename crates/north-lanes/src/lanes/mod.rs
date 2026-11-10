@@ -27,7 +27,7 @@ mod test_git;
 mod verdict;
 
 pub use exec::{changed_locks, run as lane_exec};
-pub use gc::{repo as repo_verb, run as lane_gc, run_in as lane_gc_in};
+pub use gc::{Inputs as LaneGcInputs, repo as repo_verb, run as lane_gc, run_in as lane_gc_in};
 pub use hardcoded_paths::run as hardcoded_paths;
 pub use home_move::run as home_move;
 pub use layout_check::{exempt as layout_exempt, run as layout_check};

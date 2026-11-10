@@ -183,13 +183,21 @@ fn containers(root: &Path, only: &[String]) -> std::io::Result<Vec<PathBuf>> {
         .collect())
 }
 
+pub struct Inputs {
+    pub fleet: Option<Vec<Value>>,
+    pub now_ms: i64,
+    pub stale: PathBuf,
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let _ = std::env::set_current_dir(&home);
-    run_in(&home, None, arguments)
+    let stale = std::env::var_os("LANE_GC_STALE_FILE").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/stale.json"), PathBuf::from);
+    run_in(&home, Inputs { fleet: None, now_ms: now_ms(), stale }, arguments)
 }
 
-pub fn run_in(home: &Path, fleet: Option<Vec<Value>>, arguments: &[String]) -> u8 {
+pub fn run_in(home: &Path, inputs: Inputs, arguments: &[String]) -> u8 {
+    let Inputs { fleet, now_ms, stale: stale_path } = inputs;
     let home = home.to_path_buf();
     let options = match parse(arguments, &home) {
         Parsed::Sweep(options) => options,
@@ -202,8 +210,6 @@ pub fn run_in(home: &Path, fleet: Option<Vec<Value>>, arguments: &[String]) -> u
             return 1;
         }
     };
-    let now_ms = now_ms();
-    let stale_path = std::env::var_os("LANE_GC_STALE_FILE").filter(|value| !value.is_empty()).map_or_else(|| home.join(".local/state/agents/lane-gc/stale.json"), PathBuf::from);
     let mut stale = StaleReport::load(&stale_path);
     stale.notices = Vec::new();
     stale.at = Timestamp::from_unix_millis(now_ms).iso_millis();
