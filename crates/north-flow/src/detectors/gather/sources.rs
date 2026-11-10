@@ -60,37 +60,33 @@ impl Gatherer<'_> {
         Ok(Moved { count, head: self.source_git(&clone, &["rev-parse", "--short", "refs/watch/head"])? })
     }
 
+    fn source_read(&self, source: &Source, saved: &mut BTreeMap<String, Read>, now: f64) -> Option<Moved> {
+        let wait = default_number("detector_followed_source_read_minutes") * 60.0;
+        if let Some(read) = saved.get(&source.id).filter(|read| now - read.at < wait && read.last_commit == source.last_commit) {
+            return Some(Moved { count: read.count, head: read.head.clone() });
+        }
+        let moved = self.source_moved(source).inspect_err(|why| eprintln!("detectors: followed source {}: {why}", source.id)).ok()?;
+        if self.profiling {
+            saved.insert(source.id.clone(), Read { at: now, last_commit: source.last_commit.clone(), count: moved.count, head: moved.head.clone() });
+        }
+        Some(moved)
+    }
+
+    fn save_source_reads(&self, path: &Path, saved: &BTreeMap<String, Read>) {
+        let _ = fs::create_dir_all(self.places.flow());
+        if let Err(error) = serde_json::to_string(saved).map_err(std::io::Error::other).and_then(|text| write_atomic(path, &text)) {
+            eprintln!("detectors: could not record the followed-source readings: {error}");
+        }
+    }
+
     pub fn followed_sources(&self, now: f64) -> Facts {
         let owner = Some(default_text("detector_followed_source_owner"));
         let Ok(text) = fs::read_to_string(self.places.checkout(SOURCE_REPO).join(WATCH_TOML)) else { return Facts { owner, readings: Vec::new() } };
-        let wait = default_number("detector_followed_source_read_minutes") * 60.0;
         let path = self.places.flow().join(READINGS);
         let mut saved: BTreeMap<String, Read> = fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
-        let mut readings = Vec::new();
-        for source in followed_source::sources(&text) {
-            let fresh = saved.get(&source.id).filter(|read| now - read.at < wait && read.last_commit == source.last_commit);
-            let moved = match fresh {
-                Some(read) => Moved { count: read.count, head: read.head.clone() },
-                None => match self.source_moved(&source) {
-                    Ok(moved) => {
-                        if self.profiling {
-                            saved.insert(source.id.clone(), Read { at: now, last_commit: source.last_commit.clone(), count: moved.count, head: moved.head.clone() });
-                        }
-                        moved
-                    }
-                    Err(why) => {
-                        eprintln!("detectors: followed source {}: {why}", source.id);
-                        continue;
-                    }
-                },
-            };
-            readings.push(Reading { source, moved });
-        }
+        let readings = followed_source::sources(&text).into_iter().filter_map(|source| Some(Reading { moved: self.source_read(&source, &mut saved, now)?, source })).collect();
         if self.profiling {
-            let _ = fs::create_dir_all(self.places.flow());
-            if let Err(error) = serde_json::to_string(&saved).map_err(std::io::Error::other).and_then(|text| write_atomic(&path, &text)) {
-                eprintln!("detectors: could not record the followed-source readings: {error}");
-            }
+            self.save_source_reads(&path, &saved);
         }
         Facts { owner, readings }
     }
