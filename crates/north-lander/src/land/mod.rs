@@ -15,6 +15,7 @@ pub mod replay;
 pub mod serve;
 pub mod shadow;
 pub mod status;
+pub mod unit_start;
 pub mod urgent;
 pub mod watch;
 pub mod watchdog;

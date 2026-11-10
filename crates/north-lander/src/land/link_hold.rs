@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::SystemTime;
 
 use north_runtime_follow::LANDER_ROLLBACK;
 
@@ -10,6 +11,7 @@ pub const CLASS: &str = "lander-held";
 const FILE: &str = "lander-held";
 const UNREACHED: &str = "lander-unreached";
 const ALARM_AFTER_SECONDS: u64 = 15 * 60;
+pub const RETRY_AFTER_QUIET_SECONDS: u64 = 15 * 60;
 const PROXY: &str = "proxy";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +32,12 @@ fn render(hold: Hold) -> String {
 pub fn extend(previous: Option<Hold>, now: u64) -> (Hold, bool) {
     let hold = previous.unwrap_or(Hold { since: now });
     (hold, now.saturating_sub(hold.since) >= ALARM_AFTER_SECONDS)
+}
+
+/// Whether a runtime held off the lander since `held_since` is due its retry: the lander landed nothing, and the hold has stood, for `RETRY_AFTER_QUIET_SECONDS` before `now`.
+pub fn quiet(held_since: SystemTime, landed: impl IntoIterator<Item = SystemTime>, now: SystemTime) -> bool {
+    let last = landed.into_iter().fold(held_since, SystemTime::max);
+    now.duration_since(last).is_ok_and(|quiet| quiet.as_secs() >= RETRY_AFTER_QUIET_SECONDS)
 }
 
 fn path(home: &Path) -> PathBuf {

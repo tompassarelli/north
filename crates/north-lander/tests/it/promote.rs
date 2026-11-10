@@ -285,6 +285,7 @@ impl Chain {
             .env("NORTH_TEST_ROOT", self.root.path())
             .env("HOME", self.root.path())
             .env("NORTH_LAND_NORTH", &fleet)
+            .env("PATH", format!("{}:{}", self.root.path().join("bin").display(), std::env::var("PATH").unwrap_or_default()))
             .env("GIT_CONFIG_GLOBAL", self.root.path().join("gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .stdin(Stdio::null())
@@ -525,4 +526,49 @@ fn a_rollback_never_points_the_lander_at_a_pruned_runtime() {
     assert!(!promoted.status, "{stdout}");
     assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{stdout}");
     assert!(stdout.contains("is no longer on disk, so the lander link stays on the runtime it runs now"), "{stdout}");
+}
+
+fn long_ago(path: &Path) {
+    std::fs::File::options().write(true).open(path).unwrap().set_modified(std::time::UNIX_EPOCH).unwrap();
+}
+
+#[test]
+fn a_lander_that_cannot_start_pages_once_and_a_held_runtime_is_retried_after_15_quiet_minutes() {
+    let chain = Chain::new();
+    let candidate = chain.commit("docs/three.md", "Document a third thing");
+    chain.runtime(&candidate, "echo 'replay: verdict landed'");
+    chain.current(&candidate);
+    let refused = chain.state.join("north/lander-refused");
+    std::fs::write(&refused, format!("runtimes/{candidate}\n")).unwrap();
+    let systemctl = |restarts: u32| {
+        let bin = chain.root.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        north_base::foundation::shim::write_executable(&bin.join("systemctl"), format!("#!/bin/sh\nprintf 'ActiveState=activating\\nNRestarts={restarts}\\n'\n"));
+        north_base::foundation::shim::write_executable(&bin.join("journalctl"), "#!/bin/sh\necho \"Unable to locate executable '/lander/tree/bin/north': No such file or directory\"\n");
+    };
+    let paged = || chain.told().lines().filter(|call| call.contains("--key lander-unit-start:")).map(str::to_owned).collect::<Vec<_>>();
+
+    systemctl(2);
+    let twice = chain.promote();
+    assert!(twice.status && twice.stdout.contains("stays off the lander until current moves on or the lander has landed nothing for 15 minutes"), "{}", twice.stdout);
+    assert_eq!(paged(), Vec::<String>::new(), "two failed starts page no one");
+
+    systemctl(3);
+    let thrice = chain.promote();
+    assert!(thrice.status, "{}", thrice.stdout);
+    let pages = paged();
+    assert_eq!(pages.len(), 2, "{pages:?}");
+    assert!(pages.iter().any(|call| call.contains(" proxy ")) && pages.iter().any(|call| call.contains(" land-lead ")), "{pages:?}");
+    assert!(pages.iter().all(|call| call.contains("failed to start 3 times") && call.contains("Unable to locate executable '/lander/tree/bin/north'")), "{pages:?}");
+    assert_eq!(pages[0].split(" proxy ").next(), pages[1].split(" land-lead ").next(), "both pages name one condition, which the fleet store delivers once");
+
+    assert_eq!(chain.lander(), format!("runtimes/{}", chain.held), "{}", thrice.stdout);
+    long_ago(&refused);
+    for entry in std::fs::read_dir(chain.queue.join("done")).unwrap() {
+        long_ago(&entry.unwrap().path());
+    }
+    let retried = chain.promote();
+    assert!(retried.status, "{}", retried.stdout);
+    assert_eq!(chain.lander(), format!("runtimes/{candidate}"), "{}", retried.stdout);
+    assert!(!refused.exists(), "a judged candidate that follows is no longer held off");
 }

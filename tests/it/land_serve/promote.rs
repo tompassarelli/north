@@ -66,7 +66,7 @@ fn promote_moves_the_link_before_its_replay_and_rolls_back_with_lander_refused_w
     assert!(!stdout.contains("shadow:"), "a replay mismatch refuses before the shadow");
     assert_eq!(lander_link(&fixture), Some(good));
     assert_eq!(fs::read_to_string(fixture.state.join("north/lander-refused")).unwrap(), "runtimes/drifted\n");
-    assert_eq!(fixture.read("systemctl"), "");
+    assert!(fixture.read("systemctl").lines().all(|call| call.starts_with("--user show ")), "a rollback only reads the units, it restarts none: {}", fixture.read("systemctl"));
 
     let held = runtime(&fixture, "held", Some(&replaying(&["old_red"], "failed old red")));
     let same = runtime(&fixture, "same", Some(&replaying(&["old_red"], "failed old red")));

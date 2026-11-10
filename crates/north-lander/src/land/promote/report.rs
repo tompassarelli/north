@@ -1,4 +1,5 @@
-use super::{NO_VERDICT, Outcome, Runtime, USAGE, link_hold, parse, promote, telemetry};
+use super::{NO_VERDICT, Outcome, Runtime, USAGE, link_hold, parse, promote, served_units, telemetry};
+use crate::land::unit_start;
 use std::fs;
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -11,6 +12,9 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let runtime = Runtime::from_env();
+    if !options.dry_run {
+        unit_start::page(&runtime.home, &served_units(&options.repos));
+    }
     match promote(&options) {
         Ok(Outcome::Moved(result)) => {
             println!("north land promote: {result}");

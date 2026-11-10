@@ -61,7 +61,7 @@ fn treat(finding: Finding, book: &mut Book, hands: &dyn Hands, now: u64) -> Trea
                     continue;
                 };
                 match book.last_remedy(&key, class).map(|at| now.saturating_sub(at)) {
-                    Some(waited) if matches!(remedy, Remedy::Page(_)) && waited >= REPAGE_SECS => outcomes.push(apply(&finding, remedy, class, book, hands, now)),
+                    Some(waited) if matches!(remedy, Remedy::Page(_) | Remedy::Promote) && waited >= REPAGE_SECS => outcomes.push(apply(&finding, remedy, class, book, hands, now)),
                     Some(waited) if waited < PATIENCE_SECS || matches!(remedy, Remedy::Alarm(_) | Remedy::Page(_) | Remedy::Promote) => outcomes.push(format!("waiting: applied \"{remedy}\" {} ago", minutes(waited))),
                     Some(waited) => outcomes.push(page(&finding, &format!("\"{remedy}\" did not clear it {} after it was applied", minutes(waited)), book, hands, now)),
                     None => outcomes.push(apply(&finding, remedy, class, book, hands, now)),
@@ -208,6 +208,10 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let facts = examine(now);
+    if !dry_run {
+        let units: BTreeSet<String> = facts.queues.iter().map(|queue| queue.unit.clone()).collect();
+        north_lander::land::unit_start::page(&state_home().join("north"), &units.into_iter().collect::<Vec<_>>());
+    }
     let treated = if dry_run { cure(&facts, &mut book.clone(), &DryRun, now) } else { cure(&facts, &mut book, &hands::Host, now) };
     for line in render(&treated).lines() {
         println!("north land doctor: {line}");

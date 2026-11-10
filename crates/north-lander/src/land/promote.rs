@@ -100,6 +100,33 @@ impl Repository {
     }
 }
 
+/// The lander units that serve `repos` on this host.
+fn served_units(repos: &[PathBuf]) -> Vec<String> {
+    let mut units: Vec<String> = repos.iter().filter_map(|repo| repositories::checkout(repo).ok()).map(|checkout| north_base::platform::land_queue::serving_unit(&checkout).unwrap_or_else(|| north_base::platform::land_queue::lander_unit(&checkout))).collect();
+    units.sort();
+    units.dedup();
+    units
+}
+
+fn modified(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|metadata| metadata.modified()).ok()
+}
+
+/// When the queue in `done` last landed a lane: its newest ticket whose verdict is `landed`.
+fn last_landed(done: &Path) -> Option<SystemTime> {
+    let mut tickets: Vec<(SystemTime, PathBuf)> = fs::read_dir(done).ok()?.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).filter_map(|path| Some((modified(&path)?, path))).collect();
+    tickets.sort_by(|left, right| right.cmp(left));
+    tickets.into_iter().find(|(_, path)| queue::read(path).is_ok_and(|ticket| ticket.verdict.is_some_and(|verdict| verdict.starts_with("landed ")))).map(|(at, _)| at)
+}
+
+/// Whether a runtime held off the lander is due its retry: only a landing moves current, and a held lander lands nothing, so the hold ends when no queue on this host has landed a lane for `link_hold::RETRY_AFTER_QUIET_SECONDS` since the hold began.
+fn retry_due(runtime: &Runtime) -> bool {
+    let Some(held_since) = modified(&runtime.home.join(REFUSED)) else { return false };
+    let Ok(queues) = fs::read_dir(runtime.home.join("land-queue")) else { return false };
+    let landed = queues.filter_map(Result::ok).filter_map(|queue| last_landed(&queue.path().join("done")));
+    link_hold::quiet(held_since, landed, SystemTime::now())
+}
+
 struct Lane {
     path: PathBuf,
     branch: String,
@@ -315,7 +342,8 @@ fn already_settled(runtime: &Runtime, target: &Path) -> Option<String> {
     if !unjudged && fs::read_link(runtime.lander()).ok().as_deref() == Some(target) {
         return Some(format!("the lander already runs {}", target.display()));
     }
-    fs::read_to_string(runtime.home.join(REFUSED)).is_ok_and(|refused| Path::new(refused.trim()) == target).then(|| format!("the lander was rolled back from {}; it stays off the lander until current moves on", target.display()))
+    let refused = fs::read_to_string(runtime.home.join(REFUSED)).is_ok_and(|refused| Path::new(refused.trim()) == target);
+    (refused && !retry_due(runtime)).then(|| format!("the lander was rolled back from {}; it stays off the lander until current moves on or the lander has landed nothing for {} minutes", target.display(), link_hold::RETRY_AFTER_QUIET_SECONDS / 60))
 }
 
 /// Judges the diverging rounds against the held runtime; `None` means the candidate follows, `Some` is the outcome that ends the promotion.
