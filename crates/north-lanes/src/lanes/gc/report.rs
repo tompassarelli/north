@@ -117,7 +117,7 @@ impl Gc {
         }
         let c = &self.counts;
         println!(
-            "lane gc{}: retired {} worktrees, {} local branches, {} origin branches; bundled {} lanes to the archive before reaping them; kept {} ({} unlanded); dropped {} build targets ({}); pruned {} branch configs",
+            "lane gc{}: retired {} worktrees, {} local branches, {} origin branches; bundled {} lanes to the archive before reaping them; kept {} ({} unlanded); dropped {} build targets ({}); pruned {} branch configs; dropped {} lane upstreams",
             if self.options.dry_run { " (dry run)" } else { "" },
             c.retired_worktrees,
             c.deleted_branches,
@@ -127,7 +127,8 @@ impl Gc {
             c.unlanded,
             c.dropped_targets,
             super::targets::gib(c.dropped_bytes),
-            c.pruned_branch_configs
+            c.pruned_branch_configs,
+            c.dropped_upstreams
         );
     }
 }

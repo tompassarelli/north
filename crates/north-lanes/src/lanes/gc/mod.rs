@@ -70,6 +70,7 @@ pub(super) struct Counts {
     dropped_bytes: u64,
     archived: usize,
     pruned_branch_configs: usize,
+    dropped_upstreams: usize,
 }
 
 pub(super) struct Gc {
