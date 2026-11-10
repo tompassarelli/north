@@ -19,9 +19,9 @@ Commands below use placeholders; resolve the exact project and slug first.
 north lane new --issue REPO#N ~/code/<project>/worktrees/SLUG
 ```
 
-The verb branches SLUG from origin/main and records the issue in git config
-(`branch.SLUG.north-issue`), so lane gc keeps the lane while that issue is open
-and lists it there.
+The verb branches SLUG from origin/main without tracking it, so concurrent lanes
+write no shared git config, and records the issue in `.git/north/lane-issues/SLUG`
+so lane gc keeps the lane while that issue is open and lists it there.
 
 Edit, check, and explicitly stage each intended path in the lane, then commit.
 Let pre-commit finish before running `safe-push --to main` separately.

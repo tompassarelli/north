@@ -7,10 +7,11 @@ const USAGE: &str = "usage: north lane new --issue REPO#N [--from REF] LANE
 
 Creates the lane LANE, a directory named by its absolute path directly under a project's
 worktrees/ (~/code/<project>/worktrees/SLUG), on a new branch SLUG from REF (default
-origin/main, else main), and records the issue it serves as git config
-branch.SLUG.north-issue in the project's repository. REPO#N names the issue (north#995);
-#N names one in the project's own origin repository. lane gc reads that record first to
-decide the lane's fate by its issue's state and lists the lane under it while it is open.";
+origin/main, else main), and records the issue it serves under the project repository's
+.git/north/lane-issues/SLUG. The branch does not track REF, so concurrent lanes never write
+the repository's shared git config. REPO#N names the issue (north#995); #N names one in the
+project's own origin repository. lane gc reads that record first to decide the lane's fate
+by its issue's state and lists the lane under it while it is open.";
 
 struct Request {
     issue: String,
@@ -85,7 +86,7 @@ pub fn create(lane: &Path, issue: &str, from: Option<&str>) -> Result<String, St
     }
     let item = qualified(&main, issue)?;
     let base = from.map(str::to_owned).or_else(|| ["origin/main", "main"].into_iter().find(|base| git_ok(&main, &["rev-parse", "-q", "--verify", base])).map(str::to_owned)).ok_or("no origin/main or main to start from")?;
-    git_checked(&main, &["worktree", "add", "-q", "-b", slug, &lane.to_string_lossy(), &base])?;
+    git_checked(&main, &["worktree", "add", "-q", "--no-track", "-b", slug, &lane.to_string_lossy(), &base])?;
     lane_issue::record(&main, slug, &item)?;
     Ok(item)
 }

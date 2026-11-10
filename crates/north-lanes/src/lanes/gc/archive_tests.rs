@@ -16,6 +16,9 @@ fn a_closed_issue_lane_is_bundled_then_reaped_after_its_window() {
     git_in(&path, &["commit", "-qm", "work (proj#7)"]);
     fs::write(path.join("notes.txt"), "uncommitted notes\n").unwrap();
     let tip = git_in(&path, &["rev-parse", "HEAD"]);
+    let record = main.join(".git/north/lane-issues/old");
+    fs::create_dir_all(record.parent().unwrap()).unwrap();
+    fs::write(&record, "proj#7\n").unwrap();
 
     assert_eq!(window_hours(&[IssueState::Open]), None, "an open issue keeps its lane");
     assert_eq!(window_hours(&[IssueState::Closed, IssueState::Unknown]), None);
@@ -32,6 +35,7 @@ fn a_closed_issue_lane_is_bundled_then_reaped_after_its_window() {
     git_in(&main, &["bundle", "verify", "-q", bundle.to_str().unwrap()]);
     assert!(!path.exists(), "the lane is reaped once its bundle verifies");
     assert!(git_in(&main, &["branch", "--list", "old"]).is_empty());
+    assert!(!record.exists(), "the issue record goes with its branch");
     assert!(fs::read_to_string(archive_root.join("proj/index.tsv")).unwrap().contains("proj#7"));
 
     let restored = root.join("restored");

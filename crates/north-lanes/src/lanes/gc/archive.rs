@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use super::super::lane_issue;
 use super::evidence::IssueState;
 use super::exec::{git, git_with, LIMIT};
 use north_base::foundation::clock::Timestamp;
@@ -114,6 +115,9 @@ pub(super) fn archive(lane: &Lane, root: &Path, now_ms: i64) -> Result<PathBuf, 
     }
     if !lane.branch.is_empty() && !git(lane.main, &["update-ref", "-d", &format!("refs/heads/{}", lane.branch), lane.tip]).ok {
         return Err(format!("bundled to {}, but the branch {} moved", file.display(), lane.branch));
+    }
+    if !lane.branch.is_empty() {
+        lane_issue::forget(lane.main, lane.branch);
     }
     Ok(file)
 }

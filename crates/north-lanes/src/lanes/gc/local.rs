@@ -6,6 +6,7 @@ use super::Gc;
 use super::archive::{self, window_hours};
 use super::evidence::{IssueState, LaneFacts, Landed, committed, committed_each, lane_class, landed, landed_each, lane_issues, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
+use super::super::lane_issue;
 use super::super::live_process::any_inside;
 use super::super::reap::irreplaceable_ignored;
 use super::super::repo::is_lander_tree;
@@ -187,7 +188,14 @@ impl Gc {
     }
 
     fn delete_branch(&self, main: &Path, branch: &str, tip: &str) -> bool {
-        self.options.dry_run || git(main, &["update-ref", "-d", &format!("refs/heads/{branch}"), tip]).ok
+        if self.options.dry_run {
+            return true;
+        }
+        let deleted = git(main, &["update-ref", "-d", &format!("refs/heads/{branch}"), tip]).ok;
+        if deleted {
+            lane_issue::forget(main, branch);
+        }
+        deleted
     }
 
     fn sweep_worktree(&mut self, sweep: &mut Container, fields: &BTreeMap<String, String>, live: &[PathBuf]) -> Result<(), String> {
