@@ -653,10 +653,15 @@ pub fn probed(cfg: &DocumentMut, fleet_load: &BTreeMap<String, i64>) -> Vec<Mach
     super::hosts::probed_machines(machines(cfg), fleet_load)
 }
 
+/// A declared reserve account as a placement verdict: listed in the plan whatever its credit or exhausted mark, and never offered to a worker.
+pub fn reserve_verdict(account: &str, why: String) -> Verdict {
+    unavailable(account, why)
+}
+
 /// An API grant as a placement verdict, ranked by its deadline beside the plan accounts.
 pub fn grant_verdict(source: &north_strategy_types::placement::GrantSource, reserved: Option<String>) -> Verdict {
     if let Some(why) = reserved {
-        return unavailable(&source.account, why);
+        return reserve_verdict(&source.account, why);
     }
     let rank = Rank::grant(source.deadline_h, source.urgent);
     Verdict { account: source.account.clone(), available: true, exhausted: false, headroom: source.left_usd, rank, line: format!("{} available: {}", source.account, source.line), owners: Vec::new() }
