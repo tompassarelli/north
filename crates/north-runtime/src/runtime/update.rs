@@ -37,6 +37,7 @@ const BUILD_FOR_PEER_WAIT: Duration = Duration::from_secs(30 * 60);
 
 pub(super) mod hold;
 mod ahead;
+pub(super) use ahead::run as build_ahead;
 mod build;
 mod preswap;
 mod shipped;
@@ -145,28 +146,6 @@ pub(super) fn build_for_peer(layout: &Layout, target: &str) -> Result<(), Failur
     let _building = named_lock_waiting(layout, BUILD_FOR_PEER_LOCK, remote::limit(BUILD_FOR_PEER_WAIT), "north runtime build")?;
     let _writing = writing(layout, target)?;
     build::build_for_peer(layout, &checkout, target, &layout.runtime(target))
-}
-
-/// `north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR]`: the lander's request for the release
-/// north a lane's candidate tree carries, kept where the promotion of that tree's landing finds it.
-pub(super) fn build_ahead(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
-    let mut tree = None;
-    let mut commit = None;
-    let mut checkout = std::env::current_dir().map_err(|error| failed(64, format!("current directory: {error}")))?;
-    let mut words = flags.iter();
-    while let Some(flag) = words.next() {
-        let value = words.next().cloned().ok_or_else(|| failed(64, format!("{flag} needs a value")))?;
-        match flag.as_str() {
-            "--tree" => tree = Some(value),
-            "--commit" => commit = Some(value),
-            "--checkout" => checkout = PathBuf::from(value),
-            other => return Err(failed(64, format!("unknown build-ahead flag {other}"))),
-        }
-    }
-    let (Some(tree), Some(commit)) = (tree, commit) else {
-        return Err(failed(64, "build-ahead needs --tree TREE --commit COMMIT"));
-    };
-    ahead::build(layout, &checkout, &tree, &commit)
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {

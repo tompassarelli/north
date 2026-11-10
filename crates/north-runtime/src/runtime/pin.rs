@@ -24,6 +24,7 @@ pub enum Event {
     /// The coordinator was paged about a landing that waited past `LIVE_PAGE` for its promotion.
     Paged { sha: String, at: i64 },
     /// How long a landing waited for its release runtime after the lander pushed: 0 s when the lander built the tree ahead while the lane queued.
+    #[serde(rename = "artifact-ready")]
     ArtifactReady { sha: String, tree: String, seconds: i64, at: i64 },
 }
 

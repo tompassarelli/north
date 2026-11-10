@@ -67,6 +67,28 @@ fn install(artifact: &Path, runtime: &Path, target: &str) -> bool {
     fs::write(runtime.join(BUILT_HERE), layout::short(target)).is_ok()
 }
 
+/// `north runtime build-ahead --tree TREE --commit COMMIT [--checkout DIR]`: the lander's request for the release
+/// north a lane's candidate tree carries, kept where the promotion of that tree's landing finds it.
+pub(in crate::runtime) fn run(layout: &Layout, flags: &[String]) -> Result<(), Failure> {
+    let mut tree = None;
+    let mut commit = None;
+    let mut checkout = std::env::current_dir().map_err(|error| failed(64, format!("current directory: {error}")))?;
+    let mut words = flags.iter();
+    while let Some(flag) = words.next() {
+        let value = words.next().cloned().ok_or_else(|| failed(64, format!("{flag} needs a value")))?;
+        match flag.as_str() {
+            "--tree" => tree = Some(value),
+            "--commit" => commit = Some(value),
+            "--checkout" => checkout = PathBuf::from(value),
+            other => return Err(failed(64, format!("unknown build-ahead flag {other}"))),
+        }
+    }
+    let (Some(tree), Some(commit)) = (tree, commit) else {
+        return Err(failed(64, "build-ahead needs --tree TREE --commit COMMIT"));
+    };
+    build(layout, &checkout, &tree, &commit)
+}
+
 /// Builds the release north for `tree` from `commit` in `checkout` and keeps it as the promotion's artifact; a tree
 /// another build already fills, or one ready already, costs nothing.
 pub(super) fn build(layout: &Layout, checkout: &Path, tree: &str, commit: &str) -> Result<(), Failure> {
@@ -205,6 +227,8 @@ mod tests {
         assert!(super::adopt(&layout, &runtime, &tree, &"a".repeat(40)));
         assert!(layout::has_programs(&runtime) && runtime.join(BUILT_HERE).is_file(), "the promotion installs the artifact as a whole runtime");
         assert!(pin::read(&layout.state).iter().any(|event| matches!(event, Event::ArtifactReady { sha, seconds: 0, .. } if sha == &"a".repeat(40))), "the promotion journals artifact-ready at 0 s");
+        let journal = fs::read_to_string(layout.state.join(pin::JOURNAL)).unwrap();
+        assert!(journal.contains("\"event\":\"artifact-ready\"") && journal.contains("\"seconds\":0"), "the ledger line is the one the box's jq reads");
         assert_eq!(layout::built_from_own_commit(&runtime), Ok(()), "the artifact's install is stamped for the landed commit");
         assert!(!super::adopt(&layout, &layout.runtime(&"b".repeat(40)), &"c".repeat(40), &"b".repeat(40)), "a tree with no artifact builds as before");
     }
