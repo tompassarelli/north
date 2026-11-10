@@ -7,10 +7,13 @@ use super::effects::Host;
 use super::build_offload;
 use super::build_host_command;
 use super::depbox_mode::Mode;
+use own_run::OwnRun;
 use crate::nix_command::{self, Inner};
 use crate::shell;
 use north_base::foundation::exit::NO_VERDICT;
 use north_base::platform::attribution::{self, Cause, Harness};
+
+mod own_run;
 
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
@@ -51,7 +54,7 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
             let executed = executed(&process, std::env::var(EXECUTED).ok().as_deref());
             let Some(real) = real_program(program, &name, rest, &executed) else {
                 if !(host.lease_builds)() && agent_compile(&words(program, rest)) && !in_lease() && let Some(class) = class_of(&words(program, rest), 0) {
-                    return leased(class, &name, rest, host);
+                    return recorded(class, &name, &name, rest, host);
                 }
                 let command: Vec<String> = std::iter::once(name.clone()).chain(rest.iter().cloned()).collect();
                 if let Some(words) = super::dev_shell::project(&north_base::platform::north_binary::north_binary().to_string_lossy(), &command) {
@@ -64,19 +67,39 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
                 return NO_VERDICT;
             };
             let Some(class) = lease_class(&words(program, rest), host) else {
-                let sized = std::env::var("CARGO_BUILD_JOBS").ok().filter(|_| in_lease()).and_then(|jobs| nix_command::sized(&words(program, rest), &jobs));
-                let rest = sized.as_deref().map_or(rest, |words| &words[1..]);
-                let error = std::process::Command::new(&real).arg0(&name).args(rest).env(EXECUTED, executed_value(&process, &executed, &real, rest)).exec();
-                eprintln!("north capacity gate: {}: {error}", real.display());
-                return 126;
+                return unleased(&real, &name, rest, (&process, &executed), OwnRun::of(&name, rest));
             };
-            leased(class, &real.to_string_lossy(), rest, host)
+            recorded(class, &real.to_string_lossy(), &name, rest, host)
         }
         _ => {
             eprintln!("usage: north capacity gate [--class] PROGRAM [ARG...]");
             2
         }
     }
+}
+
+/// Runs `program` in a lease of `class`, recording a clippy pass the land checks can reuse.
+fn recorded(class: Class, program: &str, name: &str, rest: &[String], host: &Host) -> u8 {
+    let own = OwnRun::of(name, rest);
+    let code = leased(class, program, rest, host);
+    own.map_or(code, |own| own.settle(code))
+}
+
+/// Becomes the real program outside a new lease, or waits for it when its exit is a verdict to record.
+fn unleased(real: &Path, name: &str, rest: &[String], (process, executed): (&str, &[String]), own: Option<OwnRun>) -> u8 {
+    let sized = std::env::var("CARGO_BUILD_JOBS").ok().filter(|_| in_lease()).and_then(|jobs| nix_command::sized(&words(name, rest), &jobs));
+    let rest = sized.as_deref().map_or(rest, |words| &words[1..]);
+    let mut command = std::process::Command::new(real);
+    command.arg0(name).args(rest).env(EXECUTED, executed_value(process, executed, real, rest));
+    let error = match own {
+        Some(own) => match own_run::wait(&mut command) {
+            Ok(code) => return own.settle(code),
+            Err(error) => error,
+        },
+        None => command.exec(),
+    };
+    eprintln!("north capacity gate: {}: {error}", real.display());
+    126
 }
 
 /// Holds `program` for a capacity lease of `class`, which sends a fleet session's compile to a build host.

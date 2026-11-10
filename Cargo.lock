@@ -1086,6 +1086,7 @@ dependencies = [
  "north-fleet",
  "north-graph-loops",
  "north-threads",
+ "north-tree-verdict",
  "proptest",
  "regex",
  "rusqlite",
@@ -1484,6 +1485,7 @@ dependencies = [
  "north-base",
  "north-diff-gates",
  "north-landing-gates",
+ "north-tree-verdict",
  "regex",
  "rustix 0.38.44",
  "serde",
@@ -1841,6 +1843,13 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml_edit",
+]
+
+[[package]]
+name = "north-tree-verdict"
+version = "0.1.0"
+dependencies = [
+ "sha2",
 ]
 
 [[package]]
