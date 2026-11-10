@@ -1,5 +1,5 @@
 [[crate_dag.crate]]
 name = "north-ops"
 paths = ["crates/*/src/ops.rs", "crates/*/src/ops/**", "crates/*/src/health.rs", "crates/*/src/health/**"]
-may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes", "north-registries"]
+may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes", "north-registries", "north-runtime-follow"]
 

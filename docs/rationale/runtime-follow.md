@@ -35,11 +35,20 @@ moves even while busy, so it moves within a minute of the flip.
 - **capacity watchdog sampler, worker-sandbox broker, offload taker**: these already exited when `current` moved. They
   now ask `Follow`, which replaces `north_binary::superseded`. The broker hands new requests to a successor at once.
   The taker still waits until the runs it serves have ended.
+- **brokers**: an on-demand `gh-broker` or user credential broker exits at its next moment with no call open, as it
+  does after idling, and the next client starts the new runtime's. The resident `gh-broker` finishes its open calls and
+  exits, and its unit, which always restarts, starts it on the link.
 - **timers**: every north timer unit runs `current/tree/bin/north` as a oneshot, so each tick starts on the runtime
   current names.
-- **session hosts**: not moved yet. A session host holds its provider's pipes, the socket clients write frames to, the
-  queue of frames not yet written and the frame watcher's turn state. Moving one without dropping its session means
-  handing all of that to the new image, or splitting the host. That choice is open on north#1081.
+- **session hosts** (`north session-host`): re-exec in place, so the session they hold survives the move. Every 2 s
+  the host asks `replaced`. On a move it stops taking clients and resting, gives clients already connected `DEFER` to
+  finish, writes the frames still queued to the provider, and stops reading the provider's output at a line boundary,
+  leaving anything unread in the pipe. It then writes its frame counter, idle
+  time and the turn watch's state (open turns, replies read so far, quiet children, checkpoints and unaccepted prompts) to
+  `handover.json` in its state directory. It passes the provider's three pipes and its listening socket over a socket pair
+  that becomes its standard input, the one descriptor the new image can claim without unsafe code, and re-execs with
+  `--adopt`. The provider stays its child under the same pid and never notices. Clients that connect meanwhile wait in
+  the socket's backlog for the new image. If the exec fails, the host serves again on its old runtime and says why.
 
 ## Seeing it
 

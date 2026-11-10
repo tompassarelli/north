@@ -4,13 +4,12 @@ mod broker;
 mod calls;
 mod budget;
 mod http;
+mod lifetime;
 mod quota;
 mod server;
 mod upstream;
 
-use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -48,7 +47,6 @@ Each call is logged to calls.log beside the socket as: unix time, caller (the fl
 the caller's systemd unit), served from, status, method, target, token (app for a GitHub App
 installation token, personal for any other, none when the call carries none).";
 
-const IDLE_EXIT: Duration = Duration::from_secs(30 * 60);
 const TAKE_OVER_LIMIT: Duration = Duration::from_secs(30);
 const DRAIN_LIMIT: Duration = Duration::from_secs(60);
 
@@ -93,7 +91,7 @@ fn serve(resident: bool) -> u8 {
         }
         notify_ready();
     }
-    watch(&place, Arc::clone(&activity), resident);
+    lifetime::watch(&place, Arc::clone(&activity), resident);
     drain_on_sigterm(place.socket(), Arc::clone(&activity));
     server::serve(&listener, &broker, &activity, &Arc::new(calls::CallLog::at(place.calls(), place.quota())), &Arc::new(app_reads::AppReads::from_host()));
     if !activity.finish_open_calls(DRAIN_LIMIT) {
@@ -132,37 +130,6 @@ fn take_over(place: &Place) -> Option<std::fs::File> {
     };
     let _ = std::fs::remove_file(place.resident_wanted());
     lock
-}
-
-fn watch(place: &Place, watched: Arc<server::Activity>, resident: bool) {
-    let (socket, wanted) = (place.socket(), place.resident_wanted());
-    let bound = inode(&socket);
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(Duration::from_secs(1));
-            let superseded = inode(&socket) != bound;
-            if resident {
-                if superseded {
-                    eprintln!("north gh-broker: {} is no longer this broker's socket; exiting so the service binds it again", socket.display());
-                    std::process::exit(1);
-                }
-                continue;
-            }
-            let Some(idle) = watched.idle_for() else {
-                continue;
-            };
-            if superseded || wanted.exists() || idle >= IDLE_EXIT {
-                if !superseded {
-                    let _ = std::fs::remove_file(&socket);
-                }
-                std::process::exit(0);
-            }
-        }
-    });
-}
-
-fn inode(path: &Path) -> Option<(u64, u64)> {
-    std::fs::symlink_metadata(path).ok().map(|meta| (meta.dev(), meta.ino()))
 }
 
 fn notify_ready() {
