@@ -35,18 +35,7 @@ pub(super) fn mentioning(roots: &[PathBuf], needle: &Regex, scope: &Scope) -> Re
                 continue;
             }
             let path = root.join(&candidate.relative);
-            let mentioned = match &candidate.blob {
-                Some(blob) => match verdicts.get(blob) {
-                    Some(known) => *known,
-                    None => {
-                        let found = mentions(&path, needle, scope)?;
-                        verdicts.insert(blob.clone(), found);
-                        found
-                    }
-                },
-                None => mentions(&path, needle, scope)?,
-            };
-            if mentioned {
+            if mentioned(&path, candidate.blob.as_deref(), &mut verdicts, needle, scope)? {
                 hits.push(path);
             }
         }
@@ -133,4 +122,16 @@ fn regular_blob(stage: &str) -> Option<String> {
     let mode = fields.next()?;
     let blob = fields.next()?;
     mode.starts_with("100").then(|| blob.to_owned())
+}
+
+fn mentioned(path: &Path, blob: Option<&str>, verdicts: &mut HashMap<String, bool>, needle: &Regex, scope: &Scope) -> Result<bool, String> {
+    let Some(blob) = blob else {
+        return mentions(path, needle, scope);
+    };
+    if let Some(known) = verdicts.get(blob) {
+        return Ok(*known);
+    }
+    let found = mentions(path, needle, scope)?;
+    verdicts.insert(blob.to_owned(), found);
+    Ok(found)
 }
