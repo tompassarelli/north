@@ -207,7 +207,7 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     if let Some(was) = was {
         lifecycle::confirm_current(layout, was)?;
         let host = host::name();
-        if layout.live_sha().as_deref() == Some(was) && judge_outgoing(layout, &host, was, &canary::Live { layout, host: &Shell::Here(host.clone()) }) {
+        if land_offload::settles_fleet_here() && layout.live_sha().as_deref() == Some(was) && judge_outgoing(layout, &host, was, &canary::Live { layout, host: &Shell::Here(host.clone()) }) {
             return Ok(Pass::Settled);
         }
     }
@@ -235,7 +235,7 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     Ok(Pass::Promoted)
 }
 
-/// Judges the runtime a promotion is about to replace when no canary has: it is the rollback target should the next one fail. A rollback leaves another runtime live, so the promotion waits for the next pass.
+/// Judges the runtime a promotion on the walking host is about to replace when no canary has, as when its own walk died or ran no probes: it is the rollback target should the next one fail. A rollback leaves another runtime live, so the promotion waits for the next pass.
 pub(super) fn judge_outgoing(layout: &Layout, host: &str, was: &str, machine: &impl canary::Machine) -> bool {
     canary::check(layout, host, was, machine) == canary::Verdict::RolledBack
 }
