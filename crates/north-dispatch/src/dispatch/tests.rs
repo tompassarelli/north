@@ -84,6 +84,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
     let open = issues.iter().map(Issue::reference).collect();
     Survey {
         here: "nexus".into(),
+        home: Some("/home/tom".into()),
         cfg: CONFIG.parse().unwrap(),
         projects: super::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap(),
         hosts,

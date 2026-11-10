@@ -1,0 +1,1 @@
+- Dispatch places no box where its home paths are unreadable (north#1054): a box whose text names a path under the dispatching host's home goes only to that host (or the laptop queue), so it never spends a slot on a launch `north fleet launch` refuses; with no room there, the box is skipped for the round with the path named and the slot goes to the next ready box.

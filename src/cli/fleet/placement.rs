@@ -86,27 +86,13 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
     Ok(format!("{file}\n{prompt}"))
 }
 
-/// Every absolute path the prompt names under `home`, with a leading `~/` expanded: a file the
-/// launching host can read and a session placed on another machine cannot.
-pub(super) fn home_paths(prompt: &str, home: &Path) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = Vec::new();
-    for word in prompt.split_whitespace() {
-        let word = word.trim_matches(|c: char| "\"'`(<[{)]}>,;:.".contains(c));
-        let path = word.strip_prefix("~/").map_or_else(|| PathBuf::from(word), |rest| home.join(rest));
-        if path != home && path.starts_with(home) && !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
-    paths
-}
-
 /// Why a launch placed on another machine may not start: its prompt names a path under the
 /// launching host's home, which only that host can read. The refusal names each path so the launch
 /// can inline the text or pass it with `--system-prompt`, which the launch reads here.
 pub(super) fn home_path_refusal(request: &LaunchRequest, machine: Option<&Machine>) -> Option<String> {
     let machine = machine.filter(|machine| machine.name != crate::platform::host::name())?;
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    let paths = home_paths(&request.prompt, Path::new(&home));
+    let paths = crate::platform::home_paths::home_paths(&request.prompt, Path::new(&home));
     (!paths.is_empty()).then(|| {
         let named: Vec<String> = paths.iter().map(|path| path.display().to_string()).collect();
         format!(

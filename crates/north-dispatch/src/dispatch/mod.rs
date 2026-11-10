@@ -69,6 +69,8 @@ mod wait_stops;
 #[cfg(test)]
 mod backlog_tests;
 #[cfg(test)]
+mod home_path_tests;
+#[cfg(test)]
 mod cells_tests;
 #[cfg(test)]
 mod claim_tests;
@@ -131,15 +133,18 @@ fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects, backlog: Opti
 fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
     let order: Vec<String> = survey.cfg.get("placement").and_then(|rules| rules.get("order")).and_then(toml_edit::Item::as_array).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
     let class = wait::class(brief);
+    let unreadable = survey.home.as_deref().map(|home| crate::platform::home_paths::home_paths(brief, home)).unwrap_or_default();
     let mut ranked: Vec<(f64, usize, Candidate)> = survey
         .hosts
         .iter()
         .map(|host| {
             let waits = host.measure.as_ref().map_or(Ok(0.0), |measure| wait::wait(class, measure));
+            let apart = host.name != survey.here && survey.laptop.as_deref() != Some(host.name.as_str());
             let refusal = match (host.free(), gate::lacks(&survey.cfg, &host.name, brief), &waits) {
                 (Err(why), _, _) => Some(format!("takes nothing: {why}")),
                 (_, Some(need), _) => Some(format!("does not serve {need}")),
                 (_, _, Err(why)) => Some(why.clone()),
+                _ if apart && !unreadable.is_empty() => Some(format!("cannot read {}, under {}'s home", unreadable.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", "), survey.here)),
                 _ => None,
             };
             let position = order.iter().position(|name| *name == host.name).unwrap_or(order.len());
