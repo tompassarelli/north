@@ -112,6 +112,8 @@ pub struct Pools {
     /// The workers this run has started, which the spend rule's reserve counts.
     placed: Placed,
     cloud: i64,
+    /// The opencode workers this run has started, which count against their own slot cap.
+    deepseek: usize,
 }
 
 impl Pools {
@@ -123,6 +125,7 @@ impl Pools {
             charged: BTreeMap::new(),
             placed: Placed::default(),
             cloud: 0,
+            deepseek: 0,
         }
     }
 
@@ -134,6 +137,14 @@ impl Pools {
         let free = self.cloud > 0;
         self.cloud -= i64::from(free);
         free
+    }
+
+    pub fn deepseek_placed(&self) -> usize {
+        self.deepseek
+    }
+
+    pub fn take_deepseek(&mut self) {
+        self.deepseek += 1;
     }
 
     fn serves(&self, host: &str, account: &str) -> bool {

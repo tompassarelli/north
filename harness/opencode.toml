@@ -9,4 +9,5 @@ repos = ["south"]
 # issue title or box text matches one of claude_only: credentials, the worker sandbox and fleet locking (north#1020).
 [dispatch]
 hosts = ["whiterabbit"]
+slot_cap = 4
 claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex']

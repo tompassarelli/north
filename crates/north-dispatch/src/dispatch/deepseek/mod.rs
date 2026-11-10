@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use toml_edit::{DocumentMut, Item};
 
+pub mod cap;
 pub mod review;
 pub mod sampling;
 #[cfg(test)]
@@ -28,6 +29,8 @@ pub struct Settings {
     pub hosts: Vec<String>,
     /// Subjects whose boxes stay on Claude, matched against the issue title and the box.
     pub claude_only: ClaudeOnly,
+    /// How many opencode workers run at once, apart from the Claude workers.
+    pub slot_cap: usize,
 }
 
 impl Settings {
@@ -41,6 +44,7 @@ impl Settings {
         Self {
             hosts: strings(dispatch.and_then(|table| table.get("hosts"))),
             claude_only: ClaudeOnly::parse(document),
+            slot_cap: dispatch.and_then(|table| table.get("slot_cap")).and_then(Item::as_integer).map_or(0, |cap| cap.max(0) as usize),
         }
     }
 }
@@ -51,6 +55,8 @@ pub struct Seen {
     pub settings: Settings,
     pub tried: BTreeSet<String>,
     pub done: Vec<review::Done>,
+    /// The opencode sessions running on every host now.
+    pub running: usize,
 }
 
 /// One box of one item, as `tried` keys it.
@@ -103,7 +109,8 @@ impl Seen {
         }
         let queued = review::queued(&super::record::directory(), at);
         let done = review::done(fleet_lists, &reports, records, issues, &queued);
-        Self { tried: tried(records), done, settings }
+        let names: BTreeSet<String> = fleet_lists.iter().flat_map(|(_, listing)| super::fleets::running_sessions(listing)).filter(|session| session.account.as_deref() == Some(PROVIDER)).map(|session| session.name).collect();
+        Self { tried: tried(records), done, running: names.len(), settings }
     }
 
     /// Places `ready` on DeepSeek when it takes the box, else on Claude through `claude`.
@@ -127,9 +134,11 @@ impl Seen {
 
     /// Places `ready` on the first DeepSeek host that serves the box and has a free slot, taking that slot, or says why none takes it.
     pub fn place(&self, ready: &Ready, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
+        cap::admit(self.running + pools.deepseek_placed(), self.settings.slot_cap)?;
         let serves = |host: &str| candidates.iter().any(|candidate| candidate.host == host && candidate.refusal.is_none());
         let host = self.settings.hosts.iter().find(|host| serves(host) && pools.host(host) > 0).ok_or_else(|| format!("no DeepSeek host ({}) serves this box with a free slot", self.settings.hosts.join(", ")))?;
         pools.take_slot(host);
+        pools.take_deepseek();
         let route = super::tier::Route { effort: None, effort_arm: false, signal: None, ..ready.route.clone() };
         let local = Some(format!("north fleet dispatch: DeepSeek takes this box on {host}, the host that holds the opencode key (north#1020)"));
         Ok(Launch { item: ready.item.clone(), host: host.clone(), account: ACCOUNT.into(), brief: format!("{}\n\n{LANE_ONLY_ORDER}", ready.brief), route, cloud: false, local })

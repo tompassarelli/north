@@ -161,6 +161,12 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     }
     if request.provider.label() != "claude" {
         let host = request.machine.as_ref().map_or_else(|| fleet.host().to_owned(), |machine| machine.name.clone());
+        if request.provider.label() == crate::dispatch::deepseek::PROVIDER {
+            let running = crate::dispatch::deepseek::cap::running(fleet.sessions()?.iter().filter(|record| fleet.running(record)).map(|record| record.provider.label()));
+            if let Err(why) = crate::dispatch::deepseek::cap::admit(running, crate::dispatch::deepseek::Settings::read().slot_cap) {
+                return Ok(Err(Refusal::Saturated(why)));
+            }
+        }
         return Ok(harness_host(&host, crate::pacing::placement::saturation_reading(&host).ok().as_ref()));
     }
     let text = crate::pacing::placement::needs::with_needs(&gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref()), needs);

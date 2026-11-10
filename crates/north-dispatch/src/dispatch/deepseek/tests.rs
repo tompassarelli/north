@@ -11,7 +11,7 @@ use serde_json::json;
 use std::collections::BTreeSet;
 
 fn settings() -> Settings {
-    let document: toml_edit::DocumentMut = "[dispatch]\nhosts = [\"whiterabbit\"]\nclaude_only = ['\\bsandbox', '\\block(s|ed|ing)?\\b']\n".parse().unwrap();
+    let document: toml_edit::DocumentMut = "[dispatch]\nhosts = [\"whiterabbit\"]\nslot_cap = 4\nclaude_only = ['\\bsandbox', '\\block(s|ed|ing)?\\b']\n".parse().unwrap();
     Settings::parse(&document)
 }
 
@@ -31,7 +31,7 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
         issue("north", 6, "- [ ] a third column", &[]),
     ];
     let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
-    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), done: Vec::new() };
+    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), done: Vec::new(), running: 0 };
 
     let outcome = decide(&planned, "test");
 
