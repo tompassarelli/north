@@ -12,18 +12,18 @@ use crate::land::slots::guard_suites::Suites;
 use crate::platform::records_mirror;
 
 mod base;
+mod coverage_record;
 pub use base::classify;
 use selection_miss::rev_parse;
 mod responsible;
 mod selection_miss;
 
-
-const USAGE: &str = "usage: north land missed --since DATE [--until DATE] [--repo DIR]
-lists each failing Cargo run on main created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z), its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the run on that commit's parent, which is listed as an environment failure and is no miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
+const USAGE: &str = "usage: north land missed --since DATE [--until DATE] [--repo DIR] [--coverage FILE]
+lists each failing full run on main from two sources, the Cargo runs of GitHub Actions created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z) and the `north test coverage record` full run whose map (--coverage FILE, by default this host's map of the repository) was recorded in that window and names its failed tests, judged as a Cargo run on the map's commit; for each, its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the run on that commit's parent, which is listed as an environment failure and is no miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
 const SETTLED: f64 = 3600.0;
 
 #[derive(Deserialize)]
-struct Run {
+struct ActionsRun {
     #[serde(rename = "databaseId")]
     id: u64,
     #[serde(rename = "headSha")]
@@ -31,6 +31,27 @@ struct Run {
     conclusion: Conclusion,
     #[serde(rename = "createdAt")]
     created: String,
+}
+
+struct Run {
+    source: Source,
+    sha: String,
+    conclusion: Conclusion,
+    created: String,
+}
+
+enum Source {
+    Actions(u64),
+    Coverage(Vec<String>),
+}
+
+impl std::fmt::Display for Source {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Source::Actions(id) => write!(formatter, "run {id}"),
+            Source::Coverage(_) => formatter.write_str("the coverage record"),
+        }
+    }
 }
 
 #[derive(Deserialize, PartialEq, Eq)]
@@ -60,10 +81,15 @@ impl Window {
 }
 
 pub fn run(arguments: &[String]) -> u8 {
-    let (mut since, mut until, mut repo) = (None, None, PathBuf::from("."));
+    if arguments.iter().any(|argument| argument == "--help" || argument == "-h") {
+        println!("{USAGE}");
+        return 0;
+    }
+    let (mut since, mut until, mut repo, mut coverage) = (None, None, PathBuf::from("."), None);
     let mut rest = arguments.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
+            ("--coverage", Some(value)) => coverage = Some(PathBuf::from(value)),
             ("--since", Some(value)) => since = Some(value.clone()),
             ("--until", Some(value)) => until = Some(value.clone()),
             ("--repo", Some(value)) => repo = PathBuf::from(value),
@@ -92,6 +118,15 @@ pub fn run(arguments: &[String]) -> u8 {
             return 1;
         }
     };
+    let named = coverage.is_some();
+    let coverage = coverage.unwrap_or_else(|| coverage_record::default_path(&repo));
+    match coverage_record::run_in(&coverage, &window, named) {
+        Ok(record) => runs.extend(record),
+        Err(why) => {
+            eprintln!("north land missed: {why}");
+            return 1;
+        }
+    }
     runs.sort_by(|left, right| left.created.cmp(&right.created));
     let mut outcomes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let (mut tally, mut failing) = (Tally::default(), Vec::new());
@@ -100,11 +135,11 @@ pub fn run(arguments: &[String]) -> u8 {
             outcomes.entry(run.sha.clone()).or_default();
             continue;
         }
-        let tests = failed_tests(&repo, run.id);
+        let tests = failed_tests(&repo, &run.source);
         outcomes.entry(run.sha.clone()).or_default().extend(tests.iter().cloned());
         failing.push((run, tests.clone()));
         if tests.is_empty() {
-            println!("run {} at {}: its log names no failed test", run.id, short(&run.sha));
+            println!("{} at {}: its log names no failed test", run.source, short(&run.sha));
             continue;
         }
         let on_base = rev_parse(&repo, &format!("{}^", run.sha)).and_then(|parent| outcomes.get(&parent)).map(|failed| failed.iter().cloned().collect::<Vec<_>>());
@@ -112,7 +147,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let failing_count = failing.len();
     selection_miss::name_lanes(&repo, &runs, failing, &outcomes, &landings, &records.home().join("safe-push/post-land.tsv"));
-    println!("north land missed: {failing_count} failing Cargo runs on main since {}; of {} failed tests in a range with a recorded selection, {} were left out of it; {} more also fail on their base commit and are environment failures; {} failed in a range with none", window.since, tally.judged, tally.missed, tally.environment, tally.unjudged);
+    println!("north land missed: {failing_count} failing full runs on main since {}; of {} failed tests in a range with a recorded selection, {} were left out of it; {} more also fail on their base commit and are environment failures; {} failed in a range with none", window.since, tally.judged, tally.missed, tally.environment, tally.unjudged);
     u8::from(tally.missed > 0)
 }
 
@@ -133,13 +168,16 @@ impl Tally {
     }
 }
 
-fn failed_tests(repo: &Path, run: u64) -> Vec<String> {
-    log(repo, run).map(|text| check_log::failures(&text).into_iter().filter_map(|failure| if let Failure::Cargo(name) = failure { Some(name) } else { None }).collect()).unwrap_or_default()
+fn failed_tests(repo: &Path, source: &Source) -> Vec<String> {
+    match source {
+        Source::Actions(run) => log(repo, *run).map(|text| check_log::failures(&text).into_iter().filter_map(|failure| if let Failure::Cargo(name) = failure { Some(name) } else { None }).collect()).unwrap_or_default(),
+        Source::Coverage(tests) => tests.clone(),
+    }
 }
 
 fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String], on_base: Option<&[String]>) -> Tally {
     let Some(landing) = landings.iter().find(|landing| holds(repo, landing, &run.sha)) else {
-        println!("run {} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.id, short(&run.sha), tests.len(), tests.join(", "));
+        println!("{} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.source, short(&run.sha), tests.len(), tests.join(", "));
         return Tally { unjudged: tests.len(), ..Tally::default() };
     };
     let floor = suites.map(|suites| suites.floor(&changed(repo, &landing.base, &landing.head)));
@@ -155,7 +193,7 @@ fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run
     if !verdict.environment.is_empty() {
         detail.push_str(&format!("; environment failures that also fail on the base: {}", verdict.environment.join(", ")));
     }
-    println!("run {} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.id, short(&run.sha), tests.len(), verdict.selected.len(), short(&landing.base), short(&landing.head));
+    println!("{} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.source, short(&run.sha), tests.len(), verdict.selected.len(), short(&landing.base), short(&landing.head));
     Tally { judged: verdict.selected.len() + verdict.left_out.len(), missed: verdict.left_out.len(), unjudged: 0, environment: verdict.environment.len() }
 }
 
@@ -205,8 +243,8 @@ fn completed_runs(repo: &Path, window: &Window) -> Result<Vec<Run>, String> {
     if !output.status.success() {
         return Err(format!("gh run list: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
-    let runs: Vec<Run> = serde_json::from_slice(&output.stdout).map_err(|why| format!("gh run list: {why}"))?;
-    Ok(runs.into_iter().filter(|run| run.conclusion != Conclusion::Other).collect())
+    let runs: Vec<ActionsRun> = serde_json::from_slice(&output.stdout).map_err(|why| format!("gh run list: {why}"))?;
+    Ok(runs.into_iter().filter(|run| run.conclusion != Conclusion::Other).map(|run| Run { source: Source::Actions(run.id), sha: run.sha, conclusion: run.conclusion, created: run.created }).collect())
 }
 
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {

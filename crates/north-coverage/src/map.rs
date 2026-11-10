@@ -24,6 +24,8 @@ pub struct Map {
     pub functions: Vec<Function>,
     #[serde(default)]
     pub index: Index,
+    #[serde(default)]
+    pub failed: Vec<Test>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 
 pub const WORK_ENV: &str = "NORTH_COVERAGE_WORK";
 pub const TOOLS_ENV: &str = "NORTH_COVERAGE_TOOLS";
+pub const PASSED: &str = "passed";
+pub const FAILED: &str = "failed";
 
 pub struct Work {
     pub root: PathBuf,
@@ -43,7 +45,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let status = Command::new(binary).args(rest).env("LLVM_PROFILE_FILE", &profile).status();
     let code = status.ok().and_then(|status| status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1));
     if let Some(test) = test
-        && let Err(why) = reduce(&work, Path::new(&tools), &key, binary, test)
+        && let Err(why) = reduce(&work, Path::new(&tools), &key, binary, test, code == 0)
     {
         eprintln!("north test coverage exec: {why}");
         return code.max(1);
@@ -60,7 +62,7 @@ fn key(binary: &str, test: &str) -> String {
     digest.iter().take(10).map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn reduce(work: &Work, tools: &Path, key: &str, binary: &str, test: &str) -> Result<(), String> {
+fn reduce(work: &Work, tools: &Path, key: &str, binary: &str, test: &str, passed: bool) -> Result<(), String> {
     let raws: Vec<PathBuf> = std::fs::read_dir(work.raw())
         .map_err(|error| format!("cannot list {}: {error}", work.raw().display()))?
         .filter_map(Result::ok)
@@ -83,7 +85,7 @@ fn reduce(work: &Work, tools: &Path, key: &str, binary: &str, test: &str) -> Res
     for path in raws.iter().chain([&profdata]) {
         let _ = std::fs::remove_file(path);
     }
-    let mut text = format!("{binary}\t{test}\n");
+    let mut text = format!("{binary}\t{test}\t{}\n", if passed { PASSED } else { FAILED });
     names.iter().for_each(|name| {
         text.push_str(name);
         text.push('\n');

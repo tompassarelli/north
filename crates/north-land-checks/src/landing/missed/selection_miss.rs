@@ -17,7 +17,7 @@ pub fn name_lanes(repo: &Path, runs: &[Run], failing: Vec<(&Run, Vec<String>)>, 
     let mut tellers = Tellers { north: north(), repo, nodes: None };
     for (run, tests) in failing {
         let Some(green) = runs.iter().rev().find(|earlier| earlier.created < run.created && earlier.conclusion == Conclusion::Success && ancestor(repo, &earlier.sha, &run.sha)) else {
-            println!("run {} at {}: no Cargo run in the window passed before it, so no lane is named", run.id, short(&run.sha));
+            println!("{} at {}: no full run in the window passed before it, so no lane is named", run.source, short(&run.sha));
             continue;
         };
         let chain = first_parents(repo, &green.sha, &run.sha);

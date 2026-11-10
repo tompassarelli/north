@@ -195,7 +195,9 @@ commits of the cost sample below.
   selection it reads is the `selected` record whose range is exactly that lane's landing (its parent to its commit),
   which the after-landing check computes from the lane's own diff, or reuses from its alone check. `--until` judges a
   settled window from a mirror stamped at least an hour after it, so the 2026-11-10 replay runs off the lander host.
-  Failures of `north test coverage record` are not read yet: the record does not keep its failed tests (n1039-map).
+  The `north test coverage record` full run is a second source (n1039-miss-coverage): the coverage runner writes each
+  test's outcome beside its reach, the map keeps the failed tests, and a map recorded in the window (`--coverage
+  FILE`, by default the host's map of the repository) is judged as a Cargo run on the map's commit, failed or green.
   The `:guards` edge names the map's `test:BINARY::NAME` node when the graph holds exactly one, else `test:NAME`, since
   the Actions log names a test without its binary; the rule 2 reader matches both forms.
 - **Record.** `north ledger incident record --key selection-miss:LANE:TEST --class selection-miss --noticed-by lander

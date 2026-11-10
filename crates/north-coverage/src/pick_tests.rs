@@ -14,6 +14,7 @@ fn map() -> Map {
         tests: vec![test("a"), test("b"), test("c"), test("d")],
         functions: vec![function("src/x.rs", 1, 10, &[0, 1]), function("src/x.rs", 4, 6, &[1]), function("src/x.rs", 20, 30, &[2]), function("src/y.rs", 1, 5, &[3])],
         index: Index::default(),
+        failed: Vec::new(),
     }
 }
 

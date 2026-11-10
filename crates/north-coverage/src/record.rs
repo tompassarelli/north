@@ -4,7 +4,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use crate::exec::{TOOLS_ENV, WORK_ENV, Work};
+use crate::exec::{FAILED, TOOLS_ENV, WORK_ENV, Work};
 use crate::map::{Function, Index, Map, Test};
 
 pub const MAP_LINE: &str = "north-coverage-map ";
@@ -83,7 +83,7 @@ fn record(arguments: &[String]) -> Result<Map, String> {
     let listing: Listing = serde_json::from_slice(&listing.stdout).map_err(|error| format!("cannot read nextest's listing: {error}"))?;
     let ran = nextest(&root, &tools, &work, &[&["run", "--no-fail-fast"][..], &suite.iter().map(String::as_str).collect::<Vec<_>>()].concat())?;
     if !ran.status.success() {
-        eprintln!("north test coverage record: some tests failed; their reach is still recorded");
+        eprintln!("north test coverage record: some tests failed; their reach is still recorded, and the map names them for north land missed");
     }
     let listed = listing.binaries.values().map(|binary| binary.testcases.len()).sum::<usize>();
     let binaries: HashMap<String, String> = listing.binaries.into_values().map(|binary| (binary.path, binary.id)).collect();
@@ -175,6 +175,7 @@ fn span(root: &Path, function: ExportFunction) -> Option<(String, Span)> {
 pub struct Reached {
     pub binary: String,
     pub test: String,
+    pub failed: bool,
     pub functions: Vec<String>,
 }
 
@@ -183,8 +184,9 @@ fn read_reach(directory: &Path) -> Result<Vec<Reached>, String> {
     for entry in std::fs::read_dir(directory).map_err(|error| format!("cannot list {}: {error}", directory.display()))?.filter_map(Result::ok) {
         let text = std::fs::read_to_string(entry.path()).map_err(|error| format!("cannot read {}: {error}", entry.path().display()))?;
         let mut lines = text.lines();
-        let Some((binary, test)) = lines.next().and_then(|header| header.split_once('\t')) else { continue };
-        reached.push(Reached { binary: binary.to_owned(), test: test.to_owned(), functions: lines.map(str::to_owned).collect() });
+        let Some((binary, rest)) = lines.next().and_then(|header| header.split_once('\t')) else { continue };
+        let (test, outcome) = rest.rsplit_once('\t').unwrap_or((rest, ""));
+        reached.push(Reached { binary: binary.to_owned(), test: test.to_owned(), failed: outcome == FAILED, functions: lines.map(str::to_owned).collect() });
     }
     Ok(reached)
 }
@@ -203,7 +205,10 @@ pub fn assemble(commit: String, recorded: u64, binaries: &HashMap<String, String
         }
     }
     let functions = by_span.into_iter().map(|((file, start, end), reached_by)| Function { file: file.to_owned(), start, end, reached_by: reached_by.into_iter().collect() }).collect();
-    Map { commit, recorded, tests, functions, index: Index::default() }
+    let mut failed: Vec<Test> = reached.iter().filter(|reach| reach.failed).filter_map(|reach| Some(Test { binary: binaries.get(&reach.binary)?.clone(), name: reach.test.clone() })).collect();
+    failed.sort();
+    failed.dedup();
+    Map { commit, recorded, tests, functions, index: Index::default(), failed }
 }
 
 #[cfg(test)]
