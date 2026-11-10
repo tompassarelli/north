@@ -275,13 +275,7 @@ constants = [
 [[loop]]
 name = "machine-review"
 decision = "which lifecycle machine gets a review box and how long it waits for the next: one whose code an incident fix changed, or whose move the lifecycle store refused, after a wait per machine that doubles when its last box closed with nothing changed and returns to a week when that box led to a change or the signal is a refused move"
-sites = [
-  "crates/north-flow/src/detectors/machine_fix.rs",
-  "crates/north-flow/src/detectors/machine_refusal.rs",
-  "crates/north-flow/src/detectors/filing.rs",
-  "crates/north-flow/src/detectors/waits.rs",
-  "src/cli/machines/history.rs",
-]
+sites = ["crates/north-flow/src/detectors/machine_fix.rs", "crates/north-flow/src/detectors/machine_refusal.rs", "crates/north-flow/src/detectors/filing.rs", "crates/north-flow/src/detectors/waits.rs", "src/cli/machines/history.rs"]
 signal = "per machine, whether the last review box was ticked and named a commit: the filer reads the owning issue's box line and keeps each subject's newest box and wait in agents/flow/detectors.json"
 updated_by = "north ledger flow detect, run every 5 minutes by agents-flow-stall.timer; the filer writes each subject's wait when it files a box"
 cadence_hours = 24
