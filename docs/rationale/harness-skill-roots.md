@@ -30,3 +30,13 @@ What the review found that the assessment missed:
 - One lane each in makgora, wisp, south and nixos-config repoints the old paths (effect-kit in CI, pre-push and landing checks; policy text and the privacy deny-list).
 
 The portable property survives as frontmatter: a skill marked `portable: true` must stay free of home paths, product names, hooks and provider metadata, and `north check harness tree-policy` enforces it with the portable-skill-check canary. The `projectPackage` catalog path, whose only user was this package, is gone, and so are `north config check`'s package form and catalog.json. A scratch `agents sync` against the new catalog published the same skills, skill contents, instructions and active hooks as before; only the two package modules left the active list.
+
+## One source for every provider (north#1041)
+
+Claude and Codex read the published generation (`~/.local/state/north/agents/current`) through their home directories. OpenCode and Pi workers run in a confined scratch home with the generation hidden, so until 2026-11-10 they saw only the north prompt, the DeepSeek overlay and the repository's own AGENTS.md.
+
+`Deepseek::host` (crates/north-providers/src/providers/opencode/fleet.rs) now reads the same generation for every Go-route worker of either harness: the `instructions/shared/AGENTS.md` text joins the first-turn context before the overlay, and `skills/shared` is copied under the harness's scratch skills directory (`config/opencode/skills` for OpenCode, `agent/skills` for Pi), where its native skill discovery finds it. The free route gets neither, because it may train on its prompts and the shared text is Tom's private policy; its rules come from the repository's AGENTS.md and the overlay.
+
+`north runtime probe launch claude|opencode|pi`, which the runtime canary runs per host, launches a `--test` worker and asks it for the first heading line of the policy it was given; the probe fails unless the reply holds the heading of the published `instructions/shared/AGENTS.md`, so a provider whose first turn lacks the shared text fails the canary and rolls the deploy back.
+
+agy is no fleet provider (no `north fleet launch --provider agy`, no runtime to carry text), so it has no first turn to project into; its guard layers are those named in harness/policy-owners.toml.

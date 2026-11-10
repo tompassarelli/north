@@ -5,7 +5,7 @@ const SHELL_LIMIT: Duration = Duration::from_secs(45);
 const MINT_LIMIT: Duration = Duration::from_secs(90);
 const LAUNCH_LIMIT: Duration = Duration::from_secs(150);
 const FETCH: &str = "for file in \"$HOME\"/code/*/main/.safe-push; do\n  [ -f \"$file\" ] || continue\n  git -C \"$(dirname \"$file\")\" ls-remote origin HEAD >/dev/null || { echo \"$file: fetch failed\" >&2; exit 1; }\ndone";
-pub(super) const PROVIDERS: [&str; 2] = ["claude", "opencode"];
+pub(super) const PROVIDERS: [&str; 3] = ["claude", "opencode", "pi"];
 
 pub(in crate::runtime) struct Probe {
     pub(super) name: String,
@@ -91,7 +91,7 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], launches: 
 pub(super) fn launchable_script() -> String {
     let key = crate::providers::opencode::key_file(std::path::Path::new(".local/state/north"));
     format!(
-        "for provider in {}; do\n  if [ \"$provider\" = opencode ] && [ ! -f \"$HOME/{}\" ]; then continue; fi\n  if [ -x \"$HOME/.local/lib/$provider/current/bin/$provider\" ] || [ -f \"$HOME/.local/bin/$provider\" ] || command -v \"$provider\" >/dev/null 2>&1; then printf '%s\\n' \"$provider\"; fi\ndone\ntrue\n",
+        "for provider in {}; do\n  if [ \"$provider\" != claude ] && [ ! -f \"$HOME/{}\" ]; then continue; fi\n  if [ -x \"$HOME/.local/lib/$provider/current/bin/$provider\" ] || [ -f \"$HOME/.local/bin/$provider\" ] || command -v \"$provider\" >/dev/null 2>&1; then printf '%s\\n' \"$provider\"; fi\ndone\ntrue\n",
         PROVIDERS.join(" "),
         key.display()
     )

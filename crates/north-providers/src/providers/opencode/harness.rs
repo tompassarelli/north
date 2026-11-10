@@ -56,6 +56,9 @@ pub trait Harness: Send + Sync {
     /// The transcript entries a passed-through event adds.
     fn entries(&self, event: &Value) -> Vec<(EntryKind, String)>;
 
+    /// Where under its scratch directory it discovers skills.
+    fn skills(&self) -> &'static str;
+
     /// The settings file that holds how many of its workers may run at once.
     fn settings(&self) -> &'static str;
 
@@ -134,6 +137,10 @@ impl Harness for OpenCode {
             Some("error") => vec![(EntryKind::Error, event["error"]["message"].as_str().unwrap_or("error").to_owned())],
             _ => Vec::new(),
         }
+    }
+
+    fn skills(&self) -> &'static str {
+        "config/opencode/skills"
     }
 
     fn settings(&self) -> &'static str {

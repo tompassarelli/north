@@ -101,7 +101,7 @@ fn a_promotion_that_breaks_a_core_loop_probe_is_rolled_back_with_an_alarm_naming
     let host = Host::promoted();
     let fleet = host.fleet(Some(("ssh gex45 true", exited(255, "ssh: Could not resolve hostname gex45\n"))));
     assert_eq!(check(&host.layout, "nexus", PROMOTED, &fleet), Verdict::RolledBack);
-    assert_eq!(fleet.probed.lock().unwrap().len(), 4);
+    assert_eq!(fleet.probed.lock().unwrap().len(), 5);
     assert_eq!(host.current(), layout::link(PREVIOUS));
     assert_eq!(lifecycle::state_of::<Promoting>(&host.layout, PROMOTED).unwrap(), Some(Promotion::RolledBack));
     let alarms = fleet.alarms.lock().unwrap();
@@ -197,9 +197,9 @@ fn a_host_whose_lander_uses_the_host_token_passes_the_token_probe() {
 #[test]
 fn a_host_with_a_provider_binary_but_no_launch_route_is_not_probed_for_it() {
     let plan = probes::core_loop("nexus", PROMOTED, &["claude".to_owned()], true, None);
-    assert_eq!(plan.not_applicable, ["opencode"]);
+    assert_eq!(plan.not_applicable, ["opencode", "pi"]);
     assert!(plan.probes.iter().any(|probe| probe.name.contains("claude")));
-    assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode")));
+    assert!(plan.probes.iter().all(|probe| !probe.name.contains("opencode") && !probe.name.contains("pi")));
 
     let home = tempfile::tempdir().unwrap();
     let bin = home.path().join(".local/bin");
@@ -279,4 +279,11 @@ fn a_host_that_launches_no_sessions_is_not_probed_for_a_worker_shell_reaching_th
     let probed = fleet.probed.lock().unwrap();
     assert!(probed.iter().all(|name| !name.contains("ssh gex45")), "{probed:?}");
     assert!(probed.iter().any(|name| name.contains("claude")), "{probed:?}");
+}
+
+#[test]
+fn a_launch_probe_fails_when_the_worker_cannot_quote_the_shared_policy_heading() {
+    assert_eq!(launch::carries("# Tom's policy", Some("Tom's policy")), Ok(()));
+    assert_eq!(launch::carries("ok", Some("Tom's policy")), Err("Tom's policy"));
+    assert_eq!(launch::carries("ok", None), Ok(()));
 }

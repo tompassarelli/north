@@ -53,6 +53,10 @@ impl Harness for Pi {
         events::entries(event)
     }
 
+    fn skills(&self) -> &'static str {
+        "agent/skills"
+    }
+
     fn settings(&self) -> &'static str {
         "harness/pi.toml"
     }

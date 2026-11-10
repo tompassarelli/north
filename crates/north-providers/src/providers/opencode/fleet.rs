@@ -17,6 +17,7 @@ use crate::platform::harness;
 use super::route::{self, MODELS, Route, Visibility};
 use super::harness::{Harness, OPENCODE};
 use super::overlay::Arm;
+use super::shared::Shared;
 use super::turns::Phase;
 use super::lane::{self, Making};
 use super::{accounts, live, screen};
@@ -33,6 +34,7 @@ pub struct Deepseek {
     visibility: Arc<Reading>,
     today: Arc<Clock>,
     lanes: Arc<Making>,
+    shared: Option<Shared>,
 }
 
 impl Deepseek {
@@ -41,11 +43,15 @@ impl Deepseek {
     }
 
     pub fn live(harness: &'static dyn Harness) -> Self {
-        Self::reading(harness, Arc::new(live::lane_visibility), Arc::new(route::today))
+        Self { shared: Shared::published(), ..Self::reading(harness, Arc::new(live::lane_visibility), Arc::new(route::today)) }
     }
 
     pub fn reading(harness: &'static dyn Harness, visibility: Arc<Reading>, today: Arc<Clock>) -> Self {
-        Self { harness, visibility, today, lanes: Arc::new(|_, _| Err("this runtime was built without a lane maker".to_owned())) }
+        Self { harness, visibility, today, lanes: Arc::new(|_, _| Err("this runtime was built without a lane maker".to_owned())), shared: None }
+    }
+
+    pub fn with_shared(self, shared: Shared) -> Self {
+        Self { shared: Some(shared), ..self }
     }
 
     pub fn with_lanes(self, lanes: Arc<Making>) -> Self {
@@ -111,6 +117,13 @@ impl Runtime for Deepseek {
         let delivered = match route {
             Route::Free => render(&PromptInputs { session: &request.name, role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
             Route::Go => instructions.to_owned(),
+        };
+        let delivered = match (route, &self.shared) {
+            (Route::Go, Some(shared)) => {
+                shared.project_skills(&scratch(self.harness, &request.name).join(self.harness.skills()))?;
+                shared.policy().map_or(delivered.clone(), |policy| format!("{delivered}\n\n{policy}"))
+            }
+            _ => delivered,
         };
         let delivered = Arm::of(&request.name).brief(&delivered);
         let mut argv = vec![north_base::platform::north_binary::north_binary().display().to_string(), self.harness.host_verb().into()];

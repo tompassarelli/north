@@ -27,7 +27,7 @@ pub(crate) use update::collect;
 use crate::land_offload;
 use std::path::Path;
 
-const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude or opencode) answers a tiny prompt, then is forgotten; exit 0 when it answered; the canary runs it on each host
+const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
 covers [--head REV] [--code PATH,...]
 
 update [--sha SHA]     bring this host's current runtime to origin/main (or SHA): pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health fails; an agents sync failure keeps the code, alerts the proxy and retries each tick
