@@ -30,9 +30,10 @@ pub(super) fn pass(host: &str, cfg: Option<&DocumentMut>, paused: Option<&str>, 
         eprintln!("north fleet tick: dispatch run not recorded in {}: {error}", directory.display());
     }
     let code = dispatch();
-    if let Some(count) = resident() {
-        let _ = std::fs::write(directory.join(RESIDENT), count.to_string());
-    }
+    let _ = match resident() {
+        Some(count) => std::fs::write(directory.join(RESIDENT), count.to_string()),
+        None => std::fs::remove_file(directory.join(RESIDENT)),
+    };
     Pass::Ran(code)
 }
 
