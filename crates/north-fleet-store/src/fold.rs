@@ -4,7 +4,7 @@
 //! the clearing opening the cause again. A cause is the alarm's first sentence with its numbers and
 //! commit-shaped tokens blanked, after the ops watch's `still, N min:` prefix, so a re-sent alarm whose load, age or count moved is
 //! the same cause. The key blanks a fresh runtime sha and canary session id as well as the numbers, so
-//! an alarm re-sent after those moved still folds. Only the alarm services fold, and only the page-now
+//! an alarm re-sent after those moved still folds. The lander's one lag-behind-main page folds the same way, whichever lander process sends it. Only the alarm services fold, and only the page-now
 //! classes in `page.rs` reach the proxy; every other message passes.
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,6 +17,7 @@ pub const WINDOW_MS: u64 = 30 * 60 * 1000;
 const ALARMS: [&str; 6] = ["north-health", "north-land-watch", "north-ops-flow", "north-capacity-watchdog", "north-lease-reaper", "north-runtime"];
 const LANDER: &str = "north-land";
 const LANDER_WATCHDOG: &str = "north land watchdog:";
+pub const LANDER_BEHIND: &str = "north land: the lander runs older build ";
 const OPS_WATCH: &str = "north ops watch: ";
 const STILL: &str = "still, ";
 const CLEARED: &str = "cleared after ";
@@ -77,7 +78,7 @@ pub fn clears(text: &str) -> bool {
 fn alarm_unit<'a>(sender: &'a Sender, text: &str) -> Option<&'a str> {
     let Sender::Service(unit) = sender else { return None };
     let unit = unit.split('@').next().unwrap_or(unit);
-    (ALARMS.contains(&unit) || unit == LANDER && text.starts_with(LANDER_WATCHDOG)).then_some(unit)
+    (ALARMS.contains(&unit) || unit == LANDER && (text.starts_with(LANDER_WATCHDOG) || text.starts_with(LANDER_BEHIND))).then_some(unit)
 }
 
 fn cause(text: &str) -> Cause {

@@ -290,6 +290,19 @@ mod tests {
     }
 
     #[test]
+    fn one_lander_behind_main_line_sent_ten_times_for_one_unchanged_link_reaches_the_proxy_once() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let proxy = live(&fleet, PROXY);
+        let lander = Sender::Service("north-land".into());
+        let line = |main: &str| format!("north land: the lander runs older build cb929a45e8, 4 lander changes behind main {main}, over the limit of 3; lanes are judged by lander code main has replaced, so read why north land promote holds the lander link");
+        let sent: Vec<Sent> = (0..10).map(|round| fleet.send_message(&lander, PROXY, &line(&format!("f9fb98f95{round}")), Delivery::Queued).unwrap()).collect();
+
+        assert_eq!(sent.iter().filter(|sent| **sent == Sent::HandedIn).count(), 1, "{sent:?}");
+        assert_eq!(proxy.frames.lock().unwrap().len(), 1);
+    }
+
+    #[test]
     fn an_alarm_re_sent_with_a_fresh_runtime_sha_or_canary_waits_in_the_digest() {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path());

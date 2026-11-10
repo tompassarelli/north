@@ -187,8 +187,9 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::W
     let mut watch = Watch::resume(lander);
     let mut shown = String::new();
     loop {
-        let note = super::build_lag::report();
-        if note != shown {
+        if let Some(note) = super::build_lag::report(&lander.repo)
+            && note != shown
+        {
             println!("north land: {note}");
             shown = note;
         }

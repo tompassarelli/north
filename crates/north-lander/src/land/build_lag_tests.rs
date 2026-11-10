@@ -40,5 +40,9 @@ fn a_lander_more_than_the_limit_of_lander_changes_behind_main_names_its_build_an
     assert!(alarm_once(&home, &lag, &page));
     assert!(!alarm_once(&home, &lag, &page));
     assert_eq!(pages.borrow().len(), 1);
+    assert!(!alarm_once(&home, &Lag::Current { build: build.clone() }, &page));
+    assert!(alarm_once(&home, &lag, &page), "a lag that cleared and passed the limit again pages again");
+    assert_eq!(pages.borrow().len(), 2);
+    assert_eq!(report(&dir.path().join("south")), None, "only the lander serving north reports north lander lag");
     assert_eq!(build_of(Path::new(&format!("/s/north/runtimes/{build}/tree/bin/north"))), Some(build));
 }

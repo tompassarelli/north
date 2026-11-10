@@ -69,8 +69,15 @@ pub fn measure(checkout: &Path, build: Option<&str>, main: &str) -> Lag {
 }
 
 pub fn alarm_once(home: &Path, lag: &Lag, page: &dyn Fn(&str) -> bool) -> bool {
-    let Lag::Behind { build, .. } = lag else { return false };
-    if !lag.over_limit() || fs::read_to_string(home.join(ALARMED)).is_ok_and(|alarmed| alarmed.trim() == build) {
+    let build = match lag {
+        Lag::Behind { build, .. } if lag.over_limit() => build,
+        Lag::Unknown { .. } => return false,
+        _ => {
+            let _ = fs::remove_file(home.join(ALARMED));
+            return false;
+        }
+    };
+    if fs::read_to_string(home.join(ALARMED)).is_ok_and(|alarmed| alarmed.trim() == build) {
         return false;
     }
     let told = page(&format!("north land: {}; lanes are judged by lander code main has replaced, so read why north land promote holds the lander link", lag.note()));
@@ -85,14 +92,21 @@ fn north_checkout() -> PathBuf {
     std::env::var_os("NORTH_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main"))
 }
 
-pub fn report() -> String {
+pub fn report(repo: &Path) -> Option<String> {
     let checkout = north_checkout();
+    if !same_checkout(repo, &checkout) {
+        return None;
+    }
     let lag = match git(&checkout, &["rev-parse", "--verify", "origin/main^{commit}"]) {
         Ok(main) => measure(&checkout, own_build(), main.trim()),
         Err(error) => own_build().map_or(Lag::Unpromoted, |build| Lag::Unknown { build: build.to_owned(), why: error }),
     };
     alarm_once(&state_home().join("north"), &lag, &|text| after::send(PROXY, text));
-    lag.note()
+    Some(lag.note())
+}
+
+fn same_checkout(repo: &Path, north: &Path) -> bool {
+    matches!((repo.canonicalize(), north.canonicalize()), (Ok(repo), Ok(north)) if repo == north)
 }
 
 #[cfg(test)]
