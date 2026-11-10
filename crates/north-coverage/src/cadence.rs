@@ -60,6 +60,14 @@ pub fn start(root: &Path, reason: &str) -> Result<String, String> {
     }
 }
 
+pub fn ingest() {
+    match Command::new(north()).args(["graph", "ingest", "coverage"]).stdout(Stdio::null()).status() {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!("north test coverage refresh: north graph ingest coverage exited {status}, so this host's graph keeps its older map"),
+        Err(error) => eprintln!("north test coverage refresh: north graph ingest coverage: {error}"),
+    }
+}
+
 fn log_path(repository: &str) -> PathBuf {
     map::path_for(repository).with_extension("refresh.log")
 }

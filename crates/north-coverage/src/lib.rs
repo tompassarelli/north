@@ -22,6 +22,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some((verb, rest)) if verb == "select" => run_selected::select(rest),
         Some((verb, rest)) if verb == "miss" => miss::run(rest),
         Some((verb, rest)) if verb == "record" => record::run(rest),
+        Some((verb, rest)) if verb == "refresh" && rest == ["--start"] => cadence::run_start(),
         Some((verb, rest)) if verb == "refresh" => refresh::run(rest),
         Some((verb, rest)) if verb == "exec" => exec::run(rest),
         _ => {
