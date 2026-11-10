@@ -57,16 +57,16 @@ fn the_admin_reports_price_each_day_and_record_the_grants_left_over_norths_estim
     assert!(cost.1.iter().any(|(name, value)| name == "bucket_width" && value == "1d"), "{cost:?}");
 
     let line = &lines[0];
-    assert!(line.contains("reads $280.00 left from the Admin API"), "{line}");
-    assert!(line.contains("spend $120.00 of $400.00 granted"), "{line}");
+    assert!(line.contains("reads $300.00 left from the Admin API"), "{line}");
+    assert!(line.contains("spend $100.00 of $400.00 granted"), "{line}");
     assert!(line.contains("usage priced $42.00"), "{line}");
     assert!(line.contains("cost report $100.00 on 1 posted day (+78.00)"), "{line}");
     assert!(line.contains("unpriced claude-haiku-4-5-20251001"), "{line}");
     assert!(!line.contains(KEY), "the key reached the poll's output: {line}");
 
     let reading = get(&directory(&state), "g").expect("no provider reading was recorded");
-    assert_eq!((reading.usd, reading.source), (280.0, Source::Provider));
+    assert_eq!((reading.usd, reading.source), (300.0, Source::Provider));
     let org_sources = sources(&standing(&dir.path().join("orchestration.toml"), &state, now));
     let gmail = org_sources.iter().find(|source| source.credit.name == "gmail").unwrap();
-    assert!(gmail.line(AT).contains("$280.00 left (provider reading 2026-11-10T05:00Z, estimate $400.00)"), "{}", gmail.line(AT));
+    assert!(gmail.line(AT).contains("$300.00 left (provider reading 2026-11-10T05:00Z, estimate $400.00)"), "{}", gmail.line(AT));
 }

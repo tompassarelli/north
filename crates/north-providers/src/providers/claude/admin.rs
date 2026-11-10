@@ -1,7 +1,7 @@
 //! The organization's own account of what its API work spent: one hourly usage report priced by model, and
 //! the daily cost report the provider posts a day later, read with an Admin key this host holds. The
-//! difference between the two is logged, and the grants in `claude-accounts.toml` minus that spend become the
-//! organization's provider reading, which outranks north's list-price estimate.
+//! difference between the two is logged, and the grants in `claude-accounts.toml` minus the cost report's
+//! posted spend become the organization's provider reading, which outranks north's list-price estimate.
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -153,7 +153,7 @@ fn poll_org(
         Ok(days) => days,
         Err(error) => return vec![format!("api:{} cost report unread: {error}", org.name)],
     };
-    let (spends, spend_usd) = every_day(&usage.priced, &cost);
+    let (spends, spend_usd) = posted_spend(&cost);
     let left = left_of(&grants, &spends, &today);
     let reading = north_pace::credit::readings::Reading { usd: left, at: now.unix_seconds(), source: north_pace::credit::readings::Source::Provider };
     let wrote = north_pace::credit::readings::record(&north_pace::credit::readings::directory(state), &org.id, &reading).unwrap_or(false);
@@ -275,10 +275,10 @@ fn amount_cents(amount: Option<Value>) -> Result<f64, String> {
     }
 }
 
-/// Each day's spend in dollars: the cost report when it posted that day, else the priced usage report.
-fn every_day(priced: &BTreeMap<String, f64>, cost: &BTreeMap<String, f64>) -> (Vec<(String, f64)>, f64) {
-    let days: std::collections::BTreeSet<&String> = priced.keys().chain(cost.keys()).collect();
-    let spends: Vec<(String, f64)> = days.into_iter().map(|day| (day.clone(), cost.get(day).or_else(|| priced.get(day)).copied().unwrap_or_default())).collect();
+/// Each day's spend in dollars as the provider's cost report posts it: a day the report has not posted is not
+/// charged, because north's priced usage is an estimate and the reading must be the provider's figure.
+fn posted_spend(cost: &BTreeMap<String, f64>) -> (Vec<(String, f64)>, f64) {
+    let spends: Vec<(String, f64)> = cost.iter().map(|(day, usd)| (day.clone(), *usd)).collect();
     let total = spends.iter().map(|(_, usd)| *usd).sum();
     (spends, total)
 }
