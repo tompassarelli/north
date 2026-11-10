@@ -273,6 +273,20 @@ constants = [
 ]
 
 [[loop]]
+name = "machine-review"
+decision = "which lifecycle machine gets a review box: one whose code an incident fix changed, or whose move the lifecycle store refused, at most one a week per machine"
+sites = ["crates/north-flow/src/detectors/machine_fix.rs", "crates/north-flow/src/detectors/machine_refusal.rs", "src/cli/machines/history.rs"]
+updated_by = "the machine code paths in src/cli/machines.rs by hand; a modelled machine's fix count restarts when its chart changes"
+cadence_hours = 168
+owner = "north#1059 The filer learns a wait per detector and subject from yield"
+
+constants = [
+  "src/cli/machines.rs::FIX_DAYS",
+  "src/cli/machines/history.rs::WEEK",
+  "crates/north-flow/src/detectors/machine_refusal.rs::WEEK_MS",
+]
+
+[[loop]]
 name = "slow-test"
 decision = "which test is profiled on a build host and gets a box on its owning issue because it ran over the line in each of its newest land check runs"
 sites = ["crates/north-flow/src/detectors/slow_test.rs"]

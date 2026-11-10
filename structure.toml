@@ -173,6 +173,11 @@ paths = ["crates/north-check-environment/src/**"]
 may_use = ["north-base"]
 
 [[crate_dag.crate]]
+name = "north-machine-model"
+paths = ["crates/north-machine-model/src/**"]
+may_use = ["north-base"]
+
+[[crate_dag.crate]]
 name = "north-land-sandbox"
 paths = ["crates/north-land-sandbox/src/**"]
 may_use = ["north-base"]
@@ -503,6 +508,12 @@ responsibility = "Explicit state machines: one typed state per instance, one rec
 may_use = ["foundation", "platform.host"]
 
 [[module]]
+name = "machine_model"
+paths = ["crates/north-machine-model/src/**"]
+responsibility = "Model checking of lifecycle machines: every ordering of a stated scope played through the real lifecycle store against each machine's own table, the promises judged on the store's log, and the state chart drawn from the moves the store accepted."
+may_use = ["foundation", "lifecycle"]
+
+[[module]]
 name = "land_ticket"
 paths = ["crates/north-base/src/land_ticket.rs"]
 responsibility = "A land ticket's phase as one lifecycle record on the lander's host, which the lander writes and the doctor, the fleet and the flow reports read."
@@ -789,7 +800,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "climb", "context_pack", "graph_loops", "graph_change", "broker"]
+may_use = ["strategy_types", "nix_upkeep", "tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "foundation", "crate-roots", "proxy", "split", "landing.safe_push.entry", "github_mirror", "graph", "graph_ingest", "replay", "graph_ground", "goals", "lander-doctor", "mutants", "frontier", "lifecycle", "platform", "platform.github", "platform.process", "coverage", "climb", "context_pack", "graph_loops", "graph_change", "broker", "fleet_store", "land_ticket", "machine_model"]
 
 [[module]]
 name = "verify"

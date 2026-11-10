@@ -4,12 +4,15 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
 use north_base::land_ticket::{self, Phase};
+use north_base::lifecycle::Store;
 use serde_json::Value;
 
 use super::correction;
 use super::crate_headroom;
 use super::disk;
 use super::filing::Filer;
+use super::machine_fix;
+use super::machine_refusal;
 use super::plan::{self, Doc, IssueBox, Landed};
 use super::refusal::{self, Refusal};
 use super::signal::{self, Signal};
@@ -29,6 +32,8 @@ const PLAN_REPO: &str = "north";
 const REFUSAL_DOC: &str = "landing-train";
 const DISK_DOC: &str = "capacity-scheduler";
 const CRATE_DOC: &str = "crate-split";
+const MACHINE_DOC: &str = "state-machines";
+const MACHINE_LEDGER: &str = "north/ledger.db";
 const OWNER_PREFIX: &str = "Owner: ";
 const RUN_HISTORY: usize = 30;
 const PROFILES_PER_PASS: usize = 1;
@@ -252,6 +257,21 @@ impl<'a> Gatherer<'a> {
         let owner = fs::read_to_string(checkout.join(format!("docs/rationale/{CRATE_DOC}.md"))).ok().and_then(|text| owner_line(&text));
         let report = self.host.run(&["north", "code-health", "crate-lines", "--repo", &checkout.to_string_lossy()], None, None).unwrap_or_default();
         crate_headroom::Facts { owner, crates: crate_headroom::census(&report) }
+    }
+
+    fn machine_owner(&self) -> Option<String> {
+        fs::read_to_string(self.checkout().join(format!("docs/rationale/{MACHINE_DOC}.md"))).ok().and_then(|text| owner_line(&text))
+    }
+
+    pub fn machine_fixes(&self) -> machine_fix::Facts {
+        let report = self.host.run(&["north", "check", "machines", "--fixes", "--root", &self.checkout().to_string_lossy()], None, None).unwrap_or_default();
+        machine_fix::Facts { owner: self.machine_owner(), fixed: machine_fix::census(&report) }
+    }
+
+    pub fn machine_refusals(&self) -> machine_refusal::Facts {
+        let ledger = &self.places.state.join(MACHINE_LEDGER);
+        let faults = if ledger.exists() { Store::open(ledger).and_then(|store| store.faults(crate::foundation::clock::Timestamp::now())).unwrap_or_default() } else { Vec::new() };
+        machine_refusal::Facts { owner: self.machine_owner(), faults }
     }
 
     pub fn refusals(&self, now: f64, window_s: f64) -> refusal::Facts {
