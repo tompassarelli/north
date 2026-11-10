@@ -26,3 +26,13 @@ fn a_box_naming_a_file_under_this_hosts_home_is_skipped_on_a_remote_host_and_the
     placed.sort();
     assert_eq!(placed, ["north#722 on nexus", "north#723 on gex45"], "a box that names a home file runs where it is readable: {:?}", both.skipped);
 }
+
+/// On 2026-11-10 at 6:38 PM a dry run left over a dozen ready boxes unplaced because their text named /home/tom/code/north/main, which cpx62 holds as every fleet host does.
+#[test]
+fn a_box_naming_a_primary_checkout_places_on_a_remote_fleet_host() {
+    let accounts = vec![account("claude:a", &["cpx62"])];
+    let named = issue("north", 1020, "- [ ] read /home/tom/code/north/main/docs/rationale/dispatch-spread.md and fix it", &[]);
+    let round = decide(&survey(vec![named], Cloud::Closed("no credit".into()), vec![host("cpx62", 1, Ok(0))], accounts), "test");
+    let launched: Vec<String> = round.launches.iter().map(|launch| format!("{} on {}", launch.item, launch.host)).collect();
+    assert_eq!(launched, ["north#1020 on cpx62"], "{:?}", round.skipped);
+}
