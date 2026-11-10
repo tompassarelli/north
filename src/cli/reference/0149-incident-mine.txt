@@ -1,0 +1,1 @@
+  incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks

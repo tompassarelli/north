@@ -1,0 +1,5 @@
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "src/bin/verify_north/notes.rs"
+reason = "One driver stdin pipe written from the observer threads of verify-north."
+

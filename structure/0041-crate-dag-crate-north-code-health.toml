@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-code-health"
+paths = ["crates/north-code-health/src/**"]
+may_use = ["north-base", "north-graph-loops", "north-implicit-state", "north-registries"]
+

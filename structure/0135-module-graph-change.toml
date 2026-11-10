@@ -1,0 +1,6 @@
+[[module]]
+name = "graph_change"
+paths = ["crates/north-graph-change/src/**"]
+responsibility = "The change queries the lander asks of the fact graph: the tests a lane's diff can affect, which lanes share a test, and which lanes a failure points at."
+may_use = ["coverage", "crate-roots", "foundation", "graph", "lifecycle"]
+

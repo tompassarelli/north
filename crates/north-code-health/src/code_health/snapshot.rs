@@ -61,13 +61,15 @@ impl Snapshot {
         output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into())
     }
 
-    pub(super) fn load(&mut self, paths: &[String]) -> Result<(), String> {
-        let want: Vec<&String> = paths.iter().filter(|path| self.has(path) && !self.texts.contains_key(*path)).collect();
+    /// The texts of `paths` in one `git cat-file --batch`, so a registry of hundreds of small files
+    /// costs one process rather than one each.
+    pub(super) fn batch_texts(&self, paths: &[String]) -> Result<Vec<String>, String> {
+        let want: Vec<&String> = paths.iter().filter(|path| self.blobs.contains_key(*path)).collect();
         if want.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
-        let mut child = Command::new("git").arg("-C").arg(&self.repo).args(["cat-file", "--batch"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("git cat-file: {error}"))?;
         let input: String = want.iter().map(|path| format!("{}\n", self.blobs[*path])).collect();
+        let mut child = Command::new("git").arg("-C").arg(&self.repo).args(["cat-file", "--batch"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("git cat-file: {error}"))?;
         let mut stdin = child.stdin.take().ok_or("git cat-file: no stdin")?;
         let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
         let output = child.wait_with_output().map_err(|error| format!("git cat-file: {error}"))?;
@@ -77,14 +79,22 @@ impl Snapshot {
         }
         let buffer = output.stdout;
         let mut at = 0;
-        for path in want {
+        let mut texts = Vec::with_capacity(want.len());
+        for _ in want {
             let newline = buffer[at..].iter().position(|&byte| byte == b'\n').map_or(buffer.len(), |offset| at + offset);
             let header = String::from_utf8_lossy(&buffer[at..newline]);
             let size: usize = header.split(' ').nth(2).and_then(|size| size.parse().ok()).unwrap_or(0);
             let end = (newline + 1 + size).min(buffer.len());
-            self.texts.insert(path.clone(), String::from_utf8_lossy(&buffer[newline + 1..end]).into());
+            texts.push(String::from_utf8_lossy(&buffer[newline + 1..end]).into_owned());
             at = end + 1;
         }
+        Ok(texts)
+    }
+
+    pub(super) fn load(&mut self, paths: &[String]) -> Result<(), String> {
+        let want: Vec<String> = paths.iter().filter(|path| self.has(path) && !self.texts.contains_key(*path)).cloned().collect();
+        let texts = self.batch_texts(&want)?;
+        self.texts.extend(want.into_iter().zip(texts).map(|(path, text)| (path, text.into())));
         Ok(())
     }
 }

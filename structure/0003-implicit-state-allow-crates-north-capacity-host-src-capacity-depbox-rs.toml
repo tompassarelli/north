@@ -1,0 +1,6 @@
+[[implicit_state.allow]]
+shape = "presence-flag"
+path = "crates/north-capacity-host/src/capacity/depbox.rs"
+item = "cargo-fetched/*"
+reason = "one empty file per Cargo.lock fingerprint records that its crates were fetched on this host; the landing's crate fetch reads and writes the same files, and a missing one only costs one cargo fetch"
+

@@ -495,7 +495,7 @@ Each box is about one lane.
 The laptop lander's `done/` records for 2026-10-31 to 2026-11-06 hold 2,225 decisions and 349
 conflict verdicts over 344 distinct heads. The most-conflicted files across the week were:
 
-- `docs/features.md`: 95, a set file listed beside a real conflict (alone in only 5).
+- `docs/features/`: 95, a set file listed beside a real conflict (alone in only 5).
 - `crates/north-landing/src/land/mod.rs`: 36, from the usage line and match arms that later moved
   into the `commands.rs` set table.
 - `tests/it/land_serve.rs` and `tests/it/land_enqueue.rs`: 21 and 14, since split into directories.

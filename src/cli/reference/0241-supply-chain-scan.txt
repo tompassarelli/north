@@ -1,0 +1,1 @@
+  supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)

@@ -1,0 +1,1 @@
+  config agents on ID                           Turn one skill or hook on

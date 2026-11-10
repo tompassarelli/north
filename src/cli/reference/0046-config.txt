@@ -1,0 +1,1 @@
+  config agents status [--json]                 List the managed skills and hooks with their state

@@ -1,0 +1,6 @@
+[[module]]
+name = "claude_stream"
+paths = ["crates/north-claude-stream/src/**"]
+responsibility = "Claude Code's stream-json wire format: the user-message and interrupt encoders and the decoder for its event stream."
+may_use = []
+

@@ -1,0 +1,6 @@
+[[module]]
+name = "registries"
+paths = ["crates/north-registries/src/**", "build.rs"]
+responsibility = "Read a generated registry's per-unit source tree and render the registry the build and the lander write."
+may_use = ["crate-roots"]
+

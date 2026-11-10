@@ -1,0 +1,1 @@
+  defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults

@@ -1,0 +1,1 @@
+  capacity host status                          Show the host's capacity leases and pressure

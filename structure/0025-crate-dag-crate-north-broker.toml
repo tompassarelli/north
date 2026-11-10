@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-broker"
+paths = ["crates/north-broker/src/**"]
+may_use = ["north-base"]
+

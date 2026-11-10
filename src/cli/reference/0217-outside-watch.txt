@@ -1,0 +1,1 @@
+  outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read

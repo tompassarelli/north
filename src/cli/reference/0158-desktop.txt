@@ -1,0 +1,1 @@
+  desktop private control RUN_DIRECTORY VNC_ACTION...  Send VNC actions to a private desktop

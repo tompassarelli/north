@@ -1,0 +1,1 @@
+  capacity watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]  Compare running units, timers and sockets with the host's expected-at-rest set

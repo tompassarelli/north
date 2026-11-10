@@ -1,0 +1,6 @@
+[[rust_habits.ambient_inputs]]
+input = "clock"
+allowlist = "ambient-test-clocks.tsv"
+fixtures = []
+fixture = "take time as a value from an injected clock and order events by waiting on them (a channel, a barrier, a file the code under test writes); a wait that only bounds a test that would otherwise hang goes through north_base::platform::wait::until"
+

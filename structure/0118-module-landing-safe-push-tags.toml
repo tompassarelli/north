@@ -1,0 +1,6 @@
+[[module]]
+name = "landing.safe_push.tags"
+paths = ["crates/north-safe-push/src/tags/**"]
+responsibility = "The one release-tag rule, --tag, --delete-tag and north land release."
+may_use = ["foundation", "landing.safe_push.gates", "landing.safe_push.report", "landing.safe_push.request", "landing.safe_push.session", "landing.safe_push.shell", "lifecycle"]
+

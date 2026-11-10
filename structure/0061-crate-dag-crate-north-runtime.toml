@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-runtime"
+paths = ["crates/north-runtime/src/**"]
+may_use = ["north-capacity-host", "north-dispatch", "north-lanes", "north-providers", "north-runtime-follow"]
+

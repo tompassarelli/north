@@ -1,0 +1,1 @@
+  infra [--json]                                 List each live paid resource with its monthly price and a total

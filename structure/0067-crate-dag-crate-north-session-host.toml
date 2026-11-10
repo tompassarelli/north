@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-session-host"
+paths = ["crates/north-session-host/src/**"]
+may_use = ["north-base"]
+

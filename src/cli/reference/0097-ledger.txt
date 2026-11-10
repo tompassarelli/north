@@ -1,0 +1,1 @@
+  ledger opencode [--since 7d]                  Per week and DeepSeek model: boxes attempted, landed Done, checked, escalated to Claude and its cost, Go window share and limit wait, against the ledger's Sonnet rate

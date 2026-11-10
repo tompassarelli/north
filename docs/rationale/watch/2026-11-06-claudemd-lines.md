@@ -154,7 +154,7 @@ instructions, and no text was copied.
   failure class (`harness/nix/cards.toml`), each measured by an `incident_rows_per_week` experiment, and
   domain skills carry the rest.
 - **A repo map of every file with a one-line description** (a thread line). The feature index
-  (`docs/features.md`) and the architecture doc (`docs/architecture.md`) name what each part does. A per-file map
+  (the features index) and the architecture doc (`docs/architecture.md`) name what each part does. A per-file map
   would be a second source that drifts, which is the failure the docs-path scans exist to catch.
 - **Plain names, no coined terms or bare numbers** (thread lines). Tom's report rules name every issue, gate or
   commit in plain words with its number trailing (south `agents/rules.toml`). The quality-bar standing order covers

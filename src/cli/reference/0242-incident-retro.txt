@@ -1,0 +1,1 @@
+  incident-retro [--dry-run]                    Mine the last 7 days with incident-mine, sample every fifth candidate and launch one Haiku session that appends the kept rows to south agents/incidents.jsonl and files each recurring mode with no enforcer as a rules.toml [[candidate]] (weekly timer)

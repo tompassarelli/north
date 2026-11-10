@@ -1,0 +1,1 @@
+  desktop private clipboard RUN_DIRECTORY MIME_TYPE < DATA  Set a private desktop's clipboard

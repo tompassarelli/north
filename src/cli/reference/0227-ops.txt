@@ -1,0 +1,1 @@
+  ops strategy log check [--since 1h|30m|7d] | log retain [--days 14]  Parse every decision-log line (placement, admission and the lander's steps) back into its north-strategy-types record and report lines per kind, unparsed lines and decide_us; retain compresses closed hours with zstd and deletes days past 14

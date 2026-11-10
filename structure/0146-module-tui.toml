@@ -1,0 +1,6 @@
+[[module]]
+name = "tui"
+paths = ["crates/north-tui/src/lib.rs", "crates/north-tui/src/tui/**"]
+responsibility = "Fleet terminal screen, input, transcript and digest views."
+may_use = ["fleet", "ledger", "providers", "catalog", "domain", "foundation", "crate-roots", "lifecycle", "platform"]
+

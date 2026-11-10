@@ -1,0 +1,1 @@
+  merge-driver set [--config FILE] BASE OURS THEIRS PATH  Git merge driver: merge the order-insensitive unique-entry lists named in harness/merge-sets.toml, refusing duplicates and remove-versus-edit; leave its regenerated files conflicted

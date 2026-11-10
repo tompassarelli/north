@@ -1,0 +1,1 @@
+  nix gc [--dry-run] [--max-freed SIZE]          Root every promoted runtime, live worktree dev shell and rustup wrapper store path, then collect the store

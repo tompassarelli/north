@@ -1,0 +1,1 @@
+  capacity admission < FACTS.json               Decide one machine-capacity admission

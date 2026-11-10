@@ -1,0 +1,1 @@
+  fleet orders list                             List Tom's standing orders, rendered into every fleet launch and revive

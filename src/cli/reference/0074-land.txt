@@ -1,0 +1,1 @@
+  land gate-stats [--since 7d|48h]                 Each land gate's refusals in the window, the worker time to the lane's next ticket, lanes that later landed unchanged, after-landing gate failures and enqueue refusals, and any gate proposed for deletion

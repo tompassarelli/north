@@ -1,0 +1,1 @@
+  desktop-idle-state idle|active                Record whether Tom's desktop is idle

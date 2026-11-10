@@ -1,0 +1,1 @@
+  land scan dep-gate BASE..HEAD                 Run the dependency gate on an outgoing range

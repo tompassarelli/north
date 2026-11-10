@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-lanes"
+paths = ["crates/north-lanes/src/**"]
+may_use = ["north-base", "north-git-locks", "north-github-mirror"]
+

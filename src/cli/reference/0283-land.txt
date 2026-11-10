@@ -1,0 +1,1 @@
+  land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault

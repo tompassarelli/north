@@ -1,0 +1,6 @@
+[[module]]
+name = "context_pack"
+paths = ["crates/north-context-pack/src/**"]
+responsibility = "The context pack a brief may carry: for each file a box names, its public items, its module and what it may use, the files that change with it, and the tests that reach it."
+may_use = ["code_health", "coverage", "crate-roots", "graph_ground"]
+

@@ -10,6 +10,7 @@ publish = false
 doctest = false
 
 [dependencies]
+north-registries = { path = "../north-registries" }
 north-base = { path = "../north-base" }
 north-graph-loops = { path = "../north-graph-loops" }
 north-implicit-state = { path = "../north-implicit-state" }

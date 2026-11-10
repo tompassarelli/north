@@ -1,0 +1,1 @@
+  resident-cap gate claude|codex [ARG...]       Refuse a launch over this host's resident session cap, exiting 3 with the Hold line

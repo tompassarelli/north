@@ -1,0 +1,6 @@
+[[module]]
+name = "cites"
+paths = ["crates/north-base/src/cites.rs"]
+responsibility = "The repository paths the feedback-loop doc and the learning-loop registry cite, checked against any tree."
+may_use = []
+

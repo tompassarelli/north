@@ -1,0 +1,1 @@
+  work brief new --category CATEGORY [--item REPO#N]   Print a worker brief skeleton carrying every line the brief guard requires for that category, with the fact graph neighborhood of the item when given

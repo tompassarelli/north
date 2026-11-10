@@ -1,0 +1,1 @@
+  runtime opencode [VERSION]                 Install a checksum-verified OpenCode runtime from the newest stable anomalyco/opencode release and select it

@@ -1,0 +1,6 @@
+[[module]]
+name = "graph_loops"
+paths = ["crates/north-graph-loops/src/**"]
+responsibility = "The learning loops' facts in the fact graph: each writer's learned values and tick told in one transaction, and the rule readers every decision site reads them back through."
+may_use = ["crate-roots", "graph", "platform.harness"]
+

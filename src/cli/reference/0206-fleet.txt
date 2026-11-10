@@ -1,0 +1,1 @@
+  fleet laptop open                             Open the laptop for placement on the ledger host

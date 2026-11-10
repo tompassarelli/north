@@ -1,0 +1,1 @@
+  ledger incident report [--days N] [--since EPOCH --until EPOCH]  Read incidents by class, detector-first rate and recurrences

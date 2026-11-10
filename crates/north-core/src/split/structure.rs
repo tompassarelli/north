@@ -56,7 +56,65 @@ fn visit(modules: &Modules, node: &str, stack: &mut Vec<String>, done: &mut BTre
 }
 
 fn read(plan: &Plan) -> Option<String> {
+    let source = plan.root.join("structure");
+    if source.is_dir() {
+        return north_registries::structure(&source).ok();
+    }
     fs::read_to_string(plan.root.join("structure.toml")).ok()
+}
+
+/// The `[[module]]` tables of a structure text, by module name, as the whole table each one holds.
+fn module_tables(text: &str) -> BTreeMap<String, String> {
+    let mut tables = BTreeMap::new();
+    let mut block = String::new();
+    for line in text.lines() {
+        if line.starts_with('[') && !block.is_empty() {
+            if let Some(name) = module_name(&block) {
+                tables.insert(name, block.trim_end().to_owned());
+            }
+            block.clear();
+        }
+        block.push_str(line);
+        block.push('\n');
+    }
+    if let Some(name) = module_name(&block) {
+        tables.insert(name, block.trim_end().to_owned());
+    }
+    tables
+}
+
+/// The name of a per-unit file's module, when the file holds a `[[module]]` table.
+fn module_name(block: &str) -> Option<String> {
+    if block.lines().next()? != "[[module]]" {
+        return None;
+    }
+    block.lines().find_map(|line| line.strip_prefix("name = \"")?.strip_suffix('"')).map(str::to_owned)
+}
+
+/// Writes the structure back where the repo keeps it: one module table per file under `structure/`
+/// and the generated `structure.toml` beside it, or the file alone in a repo with no per-unit tree.
+fn write(plan: &Plan, text: &str) -> Result<(), String> {
+    let source = plan.root.join("structure");
+    if !source.is_dir() {
+        return fs::write(plan.root.join("structure.toml"), text).map_err(|error| error.to_string());
+    }
+    let tables = module_tables(text);
+    for entry in fs::read_dir(&source).map_err(|error| format!("{}: {error}", source.display()))?.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|extension| extension != "toml") {
+            continue;
+        }
+        let Ok(body) = fs::read_to_string(&path) else { continue };
+        let Some(name) = module_name(&body) else { continue };
+        if let Some(table) = tables.get(&name)
+            && body.trim_end() != table
+        {
+            let trailing = &body[body.trim_end().len()..];
+            fs::write(&path, format!("{table}{trailing}")).map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+    }
+    let rendered = north_registries::structure(&source)?;
+    fs::write(plan.root.join("structure.toml"), rendered).map_err(|error| error.to_string())
 }
 
 fn owner(modules: &Modules, file: &str) -> Option<String> {
@@ -97,7 +155,7 @@ pub fn cover(plan: &Plan, pending: &[Module], owners: &[Option<String>]) -> Resu
     if let Some(found) = cycle(&after) {
         return Err(format!("structure.toml: may_use cycle {}", found.join(" -> ")));
     }
-    fs::write(plan.root.join("structure.toml"), text).map_err(|error| error.to_string())
+    write(plan, &text)
 }
 
 fn add_path(text: &str, module: &str, pattern: &str, front: bool) -> Result<String, String> {

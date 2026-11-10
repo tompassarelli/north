@@ -1,0 +1,1 @@
+  lane squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main

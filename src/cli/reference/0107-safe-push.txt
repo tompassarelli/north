@@ -1,0 +1,1 @@
+  safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag other than v* (branches land through safe-push --to)

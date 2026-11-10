@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-threads/src/threads/runs/record.rs"
+reason = "the run status is a field of the hook payload and the outcome the text column of the runs table, both external formats read once per record"
+

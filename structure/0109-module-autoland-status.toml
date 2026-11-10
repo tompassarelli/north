@@ -1,0 +1,6 @@
+[[module]]
+name = "autoland_status"
+paths = ["crates/north-base/src/autoland_status.rs", "crates/north-base/src/autoland_status/**"]
+responsibility = "Autoland run evidence and lane holds read by landing and the guards."
+may_use = ["foundation", "platform.github", "platform.process"]
+

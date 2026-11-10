@@ -979,6 +979,7 @@ dependencies = [
  "north-mutants",
  "north-ops",
  "north-providers",
+ "north-registries",
  "north-replay",
  "north-runtime",
  "north-safe-push",
@@ -1123,6 +1124,7 @@ dependencies = [
  "north-base",
  "north-graph-loops",
  "north-implicit-state",
+ "north-registries",
  "regex",
  "serde",
  "serde_json",
@@ -1174,6 +1176,7 @@ dependencies = [
  "north-graph-ground",
  "north-graph-loops",
  "north-pace",
+ "north-registries",
  "north-threads",
  "regex",
  "rusqlite",
@@ -1651,6 +1654,7 @@ dependencies = [
  "north-lanes",
  "north-pace",
  "north-providers",
+ "north-registries",
  "north-strategy-types",
  "north-threads",
  "pbkdf2",
@@ -1738,6 +1742,13 @@ name = "north-publish"
 version = "0.1.0"
 dependencies = [
  "rustix 0.38.44",
+]
+
+[[package]]
+name = "north-registries"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

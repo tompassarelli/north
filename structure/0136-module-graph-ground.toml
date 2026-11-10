@@ -1,0 +1,6 @@
+[[module]]
+name = "graph_ground"
+paths = ["crates/north-graph-ground/src/**"]
+responsibility = "Reading the fact graph around the issues and files a message names, as the lines the prompt hook and a brief show."
+may_use = ["crate-roots", "foundation", "graph", "lifecycle"]
+

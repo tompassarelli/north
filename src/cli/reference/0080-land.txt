@@ -1,0 +1,1 @@
+  land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD  Before landing, refuse a lane whose added tests kill none of its cargo-mutants mutants

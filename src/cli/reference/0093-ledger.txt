@@ -1,0 +1,1 @@
+  ledger incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]  Record a failure the moment it happens

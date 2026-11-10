@@ -1,0 +1,6 @@
+[[module]]
+name = "nix_upkeep"
+paths = ["crates/north-core/src/nix_gc/**", "crates/north-core/src/doctor_nix/**"]
+responsibility = "Nix store upkeep: the gc roots for what the hosts still run, and the doctor's checks of the Nix footguns a host would hit."
+may_use = ["foundation", "crate-roots", "lifecycle", "platform.git"]
+

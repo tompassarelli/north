@@ -1,0 +1,5 @@
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-fleet-supervisor/src/fleet/registry/start_lock.rs"
+reason = "A thread's held start locks, so a take-over holding a name's lock across archiving the old session and starting the new one shares it with the stop and first-turn delivery nested inside, instead of flocking the same file again and waiting on itself; the guard cannot be passed down the archive, halt, prompt and wake chain between them (north#1017)."
+

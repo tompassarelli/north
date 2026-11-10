@@ -1,0 +1,1 @@
+  check citations [--root DIR] [--list]         Fail on a doc, skill or hook that cites a north subcommand the CLI does not define

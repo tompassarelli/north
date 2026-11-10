@@ -1,0 +1,1 @@
+  code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew

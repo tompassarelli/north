@@ -1,0 +1,1 @@
+  capacity host admit-job                       Exit 0 when this host starts another offloaded job now, else print why and exit 75

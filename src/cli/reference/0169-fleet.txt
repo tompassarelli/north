@@ -1,0 +1,1 @@
+  fleet digest [--since DURATION]  Retired view: the digest prints as `north work --since DURATION`

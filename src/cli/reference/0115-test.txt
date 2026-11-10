@@ -1,0 +1,1 @@
+  test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]  Refresh the coverage map on a check host

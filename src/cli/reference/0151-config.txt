@@ -1,0 +1,1 @@
+  config context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks

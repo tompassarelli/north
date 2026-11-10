@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-flow/src/tempo/mod.rs"
+reason = "the verdict is the text column of a queue record, counted once per reading for the failed-interaction tally and never held as state (north#722)"
+

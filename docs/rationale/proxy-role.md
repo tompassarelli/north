@@ -413,7 +413,7 @@ come early because they remove the most proxy calls per minute of work.
 ## 5. Boxes, in landing order
 
 Each box lands through `north land enqueue` (or safe-push in South and Firn), adds the
-`docs/features.md` entry the features-index check requires for any verb it adds, and is done only when
+features entry the features-index check requires for any verb it adds, and is done only when
 its sha is an ancestor of the repository's `origin/main`. Prose in `docs/harness.md` and the workers
 skill waits for D1, so 19 boxes do not all edit two hot files. Boxes whose Needs have landed run in
 parallel. Repository is north unless named; "laptop" marks a box gex45 cannot land, because it has no
@@ -582,6 +582,6 @@ Rejected or changed:
 - The standing-order line count as the corrections signal: the proxy writes those lines, so it would
   grade its own work. The outcome loop's count from the grounding ledger is used once it lands.
 - Moving every docs line into one closing box: a box that adds a verb still adds its
-  `docs/features.md` entry, because the features-index check requires it in the same landing.
+  features entry, because the features-index check requires it in the same landing.
 - Committing the measured transcript as P2's fixture: it holds Tom's messages and north is public, so
   P2 commits a synthetic truth table and reproduces section 1 on the laptop.

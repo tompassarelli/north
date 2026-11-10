@@ -6,22 +6,7 @@
 # kind = "line-inserts": where git's text merge conflicts only because both sides insert lines at one point, and every inserted line matches `pattern`, the lines of both sides are kept, ours first or in byte order when each side's lines are sorted; two lines with one identity (the pattern's first group, else the whole line) conflict. Any other conflicting hunk stays a conflict.
 # kind = "table-inserts": as "line-inserts", for inserted whole TOML tables whose `[[header]]` is one of `tables`; only tables whose order no reader depends on belong here, so first-match tables such as [[module]] and [[crate_dag.crate]] never do.
 # On one path, "toml-array", "line-inserts" and "table-inserts" entries combine: the arrays merge as sets and the text around them by the insert rules.
-# kind = "regenerate": a generated file; the driver leaves it conflicted and `north merge-driver continue` runs `command` on the merged sources, stages it and continues the rebase or cherry-pick. Before its checks the landing candidate also reruns `command` after a lane that changes a path under `sources` without the generated file, and folds the result into that lane, so the file is written at land time and never enters a worker's diff; `north land enqueue` does not write it, and `north land scan generated-registry` refuses a lane that commits it. `generator` lists the paths of the code that writes it: every regeneration runs `./bin/head-north --code GENERATOR`, which uses the running north when it covers that code and builds the tree's own otherwise; a lane behind one that changes a generator in the same candidate and touches that rule's sources or file waits for the next candidate. A kind this north does not know is skipped, and git merges its file as text.
-
-[[set]]
-path = "structure.toml"
-kind = "toml-array"
-key = "may_use"
-
-[[set]]
-path = "structure.toml"
-kind = "toml-array"
-key = "paths"
-
-[[set]]
-path = "structure.toml"
-kind = "table-inserts"
-tables = ["implicit_state.allow", "rust_habits.allow", "registered"]
+# kind = "regenerate": a generated file; the driver leaves it conflicted and `north merge-driver continue` runs `command` on the merged sources, stages it and continues the rebase or cherry-pick. Before its checks the landing candidate also reruns `command` after a lane that changes a path under `sources` without the generated file, and folds the result into that lane, so the file is written at land time and never enters a worker's diff; `north land enqueue` does not write it, and `north land scan generated-registry` refuses a lane that commits it. The build script also writes `src/cli/reference.txt`, `src/cli/verbs.rs` and `structure.toml` from their per-unit trees before the crate compiles, so a lane's own build and checks read the fresh registry without committing it. `generator` lists the paths of the code that writes it: every regeneration runs `./bin/head-north --code GENERATOR`, which uses the running north when it covers that code and builds the tree's own otherwise; a lane behind one that changes a generator in the same candidate and touches that rule's sources or file waits for the next candidate. A kind this north does not know is skipped, and git merges its file as text.
 
 [[set]]
 path = "Cargo.toml"
@@ -44,22 +29,8 @@ kind = "line-inserts"
 pattern = '^(?:pub )?mod ([a-z0-9_]+);$'
 
 [[set]]
-path = "src/cli/verbs.rs"
-kind = "block"
-start = "pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&["
-end = "]);"
-sorted = true
-
-[[set]]
 path = "harness/machine-bound-tests"
 kind = "lines"
-
-[[set]]
-path = "docs/features.md"
-kind = "regenerate"
-command = "north docs features-index"
-sources = ["docs/features/"]
-generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/features_index/"]
 
 [[set]]
 path = "src/cli/help.txt"
@@ -73,7 +44,21 @@ path = "src/cli/reference.txt"
 kind = "regenerate"
 command = "north docs reference-index"
 sources = ["src/cli/reference/"]
-generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/reference_index/"]
+generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/reference_index/", "crates/north-registries/src/"]
+
+[[set]]
+path = "src/cli/verbs.rs"
+kind = "regenerate"
+command = "north docs verbs-index"
+sources = ["src/cli/verbs/"]
+generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/verbs_index/", "crates/north-registries/src/"]
+
+[[set]]
+path = "structure.toml"
+kind = "regenerate"
+command = "north docs structure-index"
+sources = ["structure/"]
+generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/structure_index/", "crates/north-registries/src/"]
 
 [[set]]
 path = "docs/rationale/README.md"

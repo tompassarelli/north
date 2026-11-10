@@ -1,0 +1,5 @@
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-lander/src/land/serve/round.rs"
+reason = "Probing carries the probe round's methods on Lander, which north-landing defines; an inherent impl outside its crate is E0116 (north#840)."
+

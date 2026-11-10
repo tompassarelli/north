@@ -1,0 +1,6 @@
+[[module]]
+name = "js-survivors"
+paths = ["lib/automation-chrome/**", "harness/skills/effect-development/scripts/**"]
+responsibility = "Playwright automation and the Effect kit, which run inside the JavaScript tools they drive."
+may_use = []
+

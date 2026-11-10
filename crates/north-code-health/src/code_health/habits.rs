@@ -241,7 +241,7 @@ fn listed(root: &Path) -> Result<Vec<String>, String> {
 }
 
 fn found(root: &Path, edited: Option<&str>) -> Result<Vec<Finding>, String> {
-    let Ok(config) = std::fs::read_to_string(root.join("structure.toml")) else {
+    let Some(config) = super::config::structure_text(root) else {
         return Ok(Vec::new());
     };
     let Some(mut habits) = Habits::parse(&config)? else {
@@ -272,7 +272,7 @@ fn at_rev(root: &Path, rev: &str, path: &str) -> Result<String, String> {
 }
 
 pub fn grown(root: &Path, rev: &str) -> Result<Vec<String>, String> {
-    let Ok(config) = std::fs::read_to_string(root.join("structure.toml")) else {
+    let Some(config) = super::config::structure_text(root) else {
         return Ok(Vec::new());
     };
     let Some(mut habits) = Habits::parse(&config)? else {
@@ -321,7 +321,7 @@ fn sources_at(root: &Path, rev: &str) -> Result<Vec<(String, String)>, String> {
 }
 
 fn found_at(root: &Path, rev: &str) -> Result<Vec<Finding>, String> {
-    let Ok(config) = std::fs::read_to_string(root.join("structure.toml")) else {
+    let Some(config) = super::config::structure_text(root) else {
         return Ok(Vec::new());
     };
     let Some(mut habits) = Habits::parse(&config)? else {

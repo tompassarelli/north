@@ -1,0 +1,1 @@
+  desktop private reap [--dry-run]              Stop private desktops whose owner is gone

@@ -1,0 +1,1 @@
+  config agents off ID                          Turn one skill or hook off

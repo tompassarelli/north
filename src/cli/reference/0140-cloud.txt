@@ -1,0 +1,1 @@
+  cloud send SESSION_ID FILE                    Post FILE as a user message to a session

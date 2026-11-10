@@ -15,12 +15,6 @@ item = "cargo-fetched/*"
 reason = "one empty file per Cargo.lock fingerprint records that its crates were fetched on this host; the landing's crate fetch reads and writes the same files, and a missing one only costs one cargo fetch"
 
 [[implicit_state.allow]]
-shape = "presence-flag"
-path = "crates/north-lanes/src/lanes/orphan.rs"
-item = ".git"
-reason = "a lane directory git no longer registers is told apart from a clone by whether its .git is a file or a directory, which git itself writes; north keeps no state there"
-
-[[implicit_state.allow]]
 shape = "status-string"
 path = "crates/north-providers/src/providers/claude/window_inbox.rs"
 reason = "the status of a Claude Code window is read from the session file Claude Code writes, an external format with no north lifecycle behind it"
@@ -216,7 +210,7 @@ may_use = ["north-base"]
 [[crate_dag.crate]]
 name = "north-code-health"
 paths = ["crates/north-code-health/src/**"]
-may_use = ["north-base", "north-graph-loops", "north-implicit-state"]
+may_use = ["north-base", "north-graph-loops", "north-implicit-state", "north-registries"]
 
 [[crate_dag.crate]]
 name = "north-lanes"
@@ -326,7 +320,7 @@ may_use = ["north-base", "north-fleet", "north-threads"]
 [[crate_dag.crate]]
 name = "north-ops"
 paths = ["crates/*/src/ops.rs", "crates/*/src/ops/**", "crates/*/src/health.rs", "crates/*/src/health/**"]
-may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes"]
+may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes", "north-registries"]
 
 [[crate_dag.crate]]
 name = "north-pace"
@@ -376,7 +370,7 @@ may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration",
 [[crate_dag.crate]]
 name = "north-core"
 paths = ["crates/north-core/src/**"]
-may_use = ["north-claude-stream", "north-fleet-supervisor", "north-git-locks", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-git-locks", "north-graph", "north-graph-ground", "north-graph-loops", "north-threads", "north-registries"]
 
 [[crate_dag.crate]]
 name = "north-flow"
@@ -766,7 +760,7 @@ may_use = ["crate-roots", "graph", "platform.harness"]
 name = "ops"
 paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**", "crates/north-dispatch/src/dispatch/**", "crates/north-dispatch/src/lib.rs", "crates/north-runtime/src/offload_cache/**", "crates/north-runtime/src/privacy/**", "crates/north-health/src/health.rs", "crates/north-health/src/health/**", "crates/north-convo/src/context_audit/**", "crates/north-convo/src/convo/**", "crates/north-convo/src/lib.rs", "crates/north-convo/src/policy_replay/**", "crates/north-flow/src/agents/**", "crates/north-flow/src/detectors/**", "crates/north-flow/src/experiments/**", "crates/north-flow/src/flow/**", "crates/north-flow/src/lib.rs", "crates/north-flow/src/tempo/**", "crates/north-flow/src/tool_mine/**", "crates/north-pacing/src/laptop/**", "crates/north-pacing/src/lib.rs", "crates/north-pacing/src/pacing/**", "crates/north-pacing/src/resident_cap/**", "crates/north-tune/src/lib.rs", "crates/north-tune/src/loops/**", "crates/north-tune/src/tune/**", "crates/north-runtime/src/worker_sandbox/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow"]
+may_use = ["strategy_types", "ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "foundation", "crate-roots", "providers", "github_mirror", "verdict_cache", "graph_ground", "lifecycle", "land_ticket", "cites", "build_inputs", "platform.harness", "platform.process", "platform.records", "platform", "platform.github", "platform.host", "graph_loops", "lanes", "runtime_follow", "registries"]
 
 [[module]]
 name = "usage"
@@ -778,13 +772,13 @@ may_use = ["domain", "foundation", "crate-roots", "lifecycle", "platform.harness
 name = "code_health"
 paths = ["crates/north-code-health/src/**"]
 responsibility = "The code-health report, gate, edit check and review signal over structure.toml, their import resolution and function metrics; the Rust habit checks; the hourly review tick."
-may_use = ["foundation", "crate-roots", "implicit_state", "lifecycle", "platform.git", "platform.records", "platform.harness", "graph_loops"]
+may_use = ["foundation", "crate-roots", "implicit_state", "lifecycle", "platform.git", "platform.records", "platform.harness", "graph_loops", "registries"]
 
 [[module]]
 name = "split"
 paths = ["crates/north-core/src/split/**"]
 responsibility = "north code-health split move-module: moves modules out of one workspace crate into a sibling crate, byte-identical, with its manifest, re-exports and structure entry."
-may_use = ["crate-roots", "foundation", "lifecycle"]
+may_use = ["crate-roots", "foundation", "lifecycle", "registries"]
 
 [[module]]
 name = "build_time"
@@ -1138,3 +1132,14 @@ rule = "single-impl-trait"
 path = "crates/north-goals/src/history.rs"
 item = "Store"
 reason = "Port for the concern history: keeps north-goals, which the landing's after-checks also run, free of north-threads and SQLite; the root crate wires the threads ledger behind it."
+
+[[module]]
+name = "registries"
+paths = ["crates/north-registries/src/**", "build.rs"]
+responsibility = "Read a generated registry's per-unit source tree and render the registry the build and the lander write."
+may_use = ["crate-roots"]
+
+[[crate_dag.crate]]
+name = "north-registries"
+paths = ["crates/north-registries/src/**"]
+may_use = []

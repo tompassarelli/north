@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-lander/src/land/serve/batch.rs"
+reason = "the pick's verdict is the lander's report line, parsed here once to decide whether the lane's cleanup report runs, and never held as state (north#722)"
+

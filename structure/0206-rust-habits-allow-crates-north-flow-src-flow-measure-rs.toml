@@ -1,0 +1,5 @@
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-flow/src/flow/measure.rs"
+reason = "Lazy claim and stranded caches behind a &self Env shared by every measure; candidate for &mut self."
+

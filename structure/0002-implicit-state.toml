@@ -1,0 +1,4 @@
+[implicit_state]
+owners = ["crates/north-base/src/lifecycle.rs", "crates/north-base/src/lifecycle/"]
+typed = "north_base::lifecycle (one Lifecycle enum per state, written only through lifecycle::Store)"
+

@@ -1,0 +1,1 @@
+  capacity watchdog sample [--once] [--interval SECONDS]  Every 30 s append host load, pressure and top processes to samples.jsonl, log unleased overload and step each sample

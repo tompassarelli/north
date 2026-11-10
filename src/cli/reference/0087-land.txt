@@ -1,0 +1,1 @@
+  land scan secrets RANGE                       Run betterleaks over a range

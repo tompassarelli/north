@@ -1,0 +1,6 @@
+[[module]]
+name = "graph"
+paths = ["crates/north-graph/src/**"]
+responsibility = "The fact graph: interned Atom and Triple terms, assertion occurrences with their writers and withdrawals over SQLite, the five verbs, and the Datalog engine behind ask."
+may_use = ["crate-roots", "lifecycle"]
+

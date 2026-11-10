@@ -1,0 +1,6 @@
+[[module]]
+name = "lifecycle"
+paths = ["crates/north-base/src/lifecycle.rs", "crates/north-base/src/lifecycle/**"]
+responsibility = "Explicit state machines: one typed state per instance, one record in a store, every move through one transition that refuses an illegal move and logs its cause, and the stuck judge health reads."
+may_use = ["foundation", "platform.host"]
+

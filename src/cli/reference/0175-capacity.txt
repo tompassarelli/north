@@ -1,0 +1,1 @@
+  capacity seat-idle-hint [--seconds N]         Set logind IdleHint from Wayland input idle, which ignores idle inhibitors

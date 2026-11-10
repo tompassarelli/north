@@ -7,6 +7,7 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
+north-registries = { path = "../north-registries" }
 north-base = { path = "../north-base" }
 north-lanes = { path = "../north-lanes" }
 north-capacity-host = { path = "../north-capacity-host" }

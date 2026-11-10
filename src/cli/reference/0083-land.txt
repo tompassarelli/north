@@ -1,0 +1,1 @@
+  land scan gate-shadow BASE..HEAD              Refuse a gate in harness/gates.toml switched to enforce without a recorded shadow review

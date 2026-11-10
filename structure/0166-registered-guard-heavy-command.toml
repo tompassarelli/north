@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.heavy_command"
+path = "crates/north-guard/src/guard/heavy_command.rs"
+

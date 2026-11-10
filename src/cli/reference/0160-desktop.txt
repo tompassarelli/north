@@ -1,0 +1,1 @@
+  desktop private capture RUN_DIRECTORY ABSOLUTE_PNG_PATH  Screenshot a private desktop

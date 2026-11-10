@@ -1,0 +1,1 @@
+  docs features-index [--check] [--root DIR]    Regenerate docs/features.md from the one-file-per-feature tree under docs/features/, or with --check fail when it is stale

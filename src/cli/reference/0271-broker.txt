@@ -1,0 +1,1 @@
+  broker inspect [--json]                          Print the repositories and permissions the broker granted the token on stdin

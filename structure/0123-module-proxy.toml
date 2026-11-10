@@ -1,0 +1,6 @@
+[[module]]
+name = "proxy"
+paths = ["crates/north-core/src/proxy/**"]
+responsibility = "Classify the proxy's tool calls by kind from the verb table the CLI declares, and read them out of a transcript."
+may_use = ["crate-roots", "foundation", "shell", "lifecycle"]
+

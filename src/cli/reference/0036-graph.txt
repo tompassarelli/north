@@ -1,0 +1,1 @@
+  graph ground score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]  Score grounding retrieval against an eval set

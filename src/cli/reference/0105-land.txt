@@ -1,0 +1,1 @@
+  land tests [--jobs N] [--cases json] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure

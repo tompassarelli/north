@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-fleet-supervisor/src/fleet/strays.rs"
+reason = "the status is the text column of a session-table row, read once per sweep and never held as state (north#722)"
+

@@ -1,0 +1,1 @@
+  config agents stale [--json]                  List managed skills and hooks out of date with their source

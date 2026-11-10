@@ -1,0 +1,1 @@
+    ("hardcoded-repo-path-check", Diagnosis),

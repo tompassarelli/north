@@ -1,0 +1,1 @@
+  capacity host release ...                     Release a capacity lease

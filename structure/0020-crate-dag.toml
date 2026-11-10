@@ -1,0 +1,3 @@
+[crate_dag]
+re_exports = ["crates/*/src/lib.rs"]
+

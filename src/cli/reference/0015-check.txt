@@ -1,0 +1,1 @@
+  check provenance check BASE HEAD              List each new gating bar, hook or policy line with no Provenance record

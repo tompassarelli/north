@@ -1,0 +1,7 @@
+[[build_time]]
+workspace = "."
+leaf = "crates/north-code-health/src/code_health/source.rs"
+hub = "crates/north-base/src/foundation/mod.rs"
+test_no_run_seconds = 10
+contention_ceiling = 0.5
+

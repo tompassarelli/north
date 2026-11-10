@@ -51,7 +51,7 @@ Read in three rings and stop at the first one that answers:
 - [src/](src/) and [crates/](crates/): the `north` fleet runtime, terminal screen, landing gates and
   authorized host effects; [docs/architecture.md](docs/architecture.md) maps the owning boundaries.
 - [bin/](bin/): every harness command (`agents`, `threads`, `safe-push` and more);
-  [docs/features.md](docs/features.md) says what each one is for.
+  [docs/features/](docs/features/) says what each one is for.
 - [harness/](harness/): hooks, skills, defaults and policy owners;
   [docs/harness.md](docs/harness.md) follows them end to end, and
   [harness/SKILL-ARCHITECTURE.md](harness/SKILL-ARCHITECTURE.md) says how skills are laid out.
@@ -62,7 +62,7 @@ Read in three rings and stop at the first one that answers:
 - [docs/harness.md](docs/harness.md): install, staffing, policy and landing, end to end.
 - [docs/terms.md](docs/terms.md): the four layer terms.
 - [docs/architecture.md](docs/architecture.md): the `north` app's owning boundaries.
-- [docs/features.md](docs/features.md): what each command does.
+- [docs/features/](docs/features/): what each command does.
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
 - [docs/nexus-run.md](docs/nexus-run.md): running a CPU job on Nexus from an owned worktree.

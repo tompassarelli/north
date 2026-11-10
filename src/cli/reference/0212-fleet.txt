@@ -1,0 +1,1 @@
+  fleet laptop observe SAMPLE                   Record an idle and battery sample from the laptop

@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.resource_safe_search"
+path = "crates/north-guard/src/guard/resource_safe_search.rs"
+

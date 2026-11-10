@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-providers"
+paths = ["crates/*/src/providers.rs", "crates/*/src/providers/**", "crates/*/src/codex.rs", "crates/*/src/codex/**", "crates/*/src/ledger.rs", "crates/*/src/ledger/**"]
+may_use = ["north-claude-stream", "north-fleet-supervisor", "north-calibration", "north-graph"]
+

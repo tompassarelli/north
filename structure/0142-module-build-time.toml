@@ -1,0 +1,6 @@
+[[module]]
+name = "build_time"
+paths = ["crates/north-core/src/build_time/**"]
+responsibility = "Measured Rust edit-to-result times per workspace, their ledger and the 10 s leaf-edit cap."
+may_use = ["foundation", "crate-roots", "lifecycle"]
+

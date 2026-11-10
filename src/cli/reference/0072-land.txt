@@ -1,0 +1,1 @@
+  land withdraw TICKET --reason TEXT [--repo DIR]  Move a queued ticket out of the landing queue, tell its session why and record the incident

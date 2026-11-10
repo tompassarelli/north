@@ -377,7 +377,7 @@ fn split_entry(entry: &str) -> (&str, &str) {
 }
 
 fn features_check() -> String {
-    let entry = safe_push_entries("land.check").into_iter().find(|entry| entry.contains(" --no-build docs features-index --check")).expect("the features-index check runs before the push without a build");
+    let entry = safe_push_entries("land.check").into_iter().find(|entry| entry.contains(" --no-build docs features-index")).expect("the features-index check runs before the push without a build");
     split_entry(&entry).1.to_owned()
 }
 
@@ -425,13 +425,14 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
     let section = fixture.repo.join("docs/features/core");
     fs::create_dir_all(&section).unwrap();
     fs::write(fixture.repo.join("docs/features/_header.md"), "# Features\n").unwrap();
+    fs::write(fixture.repo.join(".gitignore"), "/docs/features.md\n").unwrap();
     fs::write(section.join("_title.md"), "## Core\n").unwrap();
     fs::write(section.join("small.md"), "- A short entry.\n").unwrap();
     let clean = render_features(&fixture, "features");
 
     let output = head_north(&fixture, &command, false);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
-    assert!(fixture.trace().contains("live docs features-index --check"), "the covering live runtime did not run the checker: {}", fixture.trace());
+    assert!(fixture.trace().contains("live docs features-index"), "the covering live runtime did not run the checker: {}", fixture.trace());
 
     fs::write(section.join("long.md"), format!("- {}\n", "x".repeat(1_300))).unwrap();
     let over = render_features(&fixture, "a long entry");
@@ -442,7 +443,7 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
     fs::write(fixture.path("trace"), "").unwrap();
     let landed = fixture.command_between(&clean, &over).output().unwrap();
     assert_eq!(landed.status.code(), Some(0), "the covering live runtime refused an entry only its body made long: {}", text(&landed));
-    assert!(fixture.trace().contains("live docs features-index --check"), "{}", fixture.trace());
+    assert!(fixture.trace().contains("live docs features-index"), "{}", fixture.trace());
 
     north_from_the_tree(&fixture);
     fs::write(fixture.path("trace"), "").unwrap();
@@ -450,7 +451,7 @@ fn a_features_entry_over_1200_characters_lands_and_its_check_runs_even_on_a_runt
     assert_eq!(landed.status.code(), Some(0), "a lane whose checker is newer than the live runtime failed its check before the push: {}", text(&landed));
     assert!(text(&landed).contains("the live runtime does not cover the checker code of 1 land check(s)"), "{}", text(&landed));
     let trace = fixture.trace();
-    assert!(trace.contains("tree docs features-index --check") && !trace.contains("live docs features-index"), "the check did not run on north built from the lane's tree: {trace}");
+    assert!(trace.contains("tree docs features-index") && !trace.contains("live docs features-index"), "the check did not run on north built from the lane's tree: {trace}");
     assert!(!trace.contains("unleased"), "a check ran on a runtime it held no lease on: {trace}");
 }
 

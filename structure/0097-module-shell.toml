@@ -1,0 +1,6 @@
+[[module]]
+name = "shell"
+paths = ["crates/north-base/src/shell/**", "crates/north-base/src/shellcmd.rs", "crates/north-base/src/nix_command.rs"]
+responsibility = "One shell lexer and segmenter, the programs a command starts in command position, and one Nix command reader, for every guard and gate."
+may_use = ["foundation"]
+

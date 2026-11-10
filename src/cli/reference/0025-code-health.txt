@@ -1,0 +1,1 @@
+  code-health check [--repo DIR] [--config FILE] [--rev REV] [--json]  Measure one dirty file against structure.toml

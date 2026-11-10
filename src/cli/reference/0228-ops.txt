@@ -1,0 +1,1 @@
+  ops strategy refusals [--since 1h]  Print the launches placement refused in the window, each counted by its last placement, as a rate per hour: the oracle of the launch-refusals-per-hour goal

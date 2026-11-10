@@ -1,0 +1,6 @@
+[[module]]
+name = "learn"
+paths = ["crates/north-core/src/learn/**"]
+responsibility = "Replay, tuning, measurement and backtests over recorded outcomes."
+may_use = ["threads", "domain", "foundation", "crate-roots", "lifecycle"]
+

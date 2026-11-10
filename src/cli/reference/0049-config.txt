@@ -1,0 +1,1 @@
+  config agents path ID                         Print where one skill or hook lives

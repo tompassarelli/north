@@ -1,0 +1,1 @@
+  merge-driver continue [--config FILE]         Finish a rebase or cherry-pick stopped only on regenerated files: run each generator on the merged sources, stage and continue

@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{features_index, help_index, rationale_index, reference_index};
+use super::{features_index, help_index, rationale_index, reference_index, structure_index, verbs_index};
 
-const USAGE: &str = "usage: north docs features-index|help-index|rationale-index|reference-index [--check] [--root DIR]";
+const USAGE: &str = "usage: north docs features-index|help-index|rationale-index|reference-index|structure-index|verbs-index [--check] [--root DIR]";
 
 pub struct Index {
     pub command: &'static str,
@@ -13,7 +13,7 @@ pub struct Index {
     pub notes: fn(&Path) -> Result<Vec<String>, String>,
 }
 
-const INDEXES: [&Index; 4] = [&features_index::INDEX, &help_index::INDEX, &rationale_index::INDEX, &reference_index::INDEX];
+const INDEXES: [&Index; 6] = [&features_index::INDEX, &help_index::INDEX, &rationale_index::INDEX, &reference_index::INDEX, &structure_index::INDEX, &verbs_index::INDEX];
 
 impl Index {
     pub fn generate(&self, root: &Path) -> Result<(), String> {

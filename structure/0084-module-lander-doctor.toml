@@ -1,0 +1,6 @@
+[[module]]
+name = "lander-doctor"
+paths = ["crates/north-lander-doctor/src/**"]
+responsibility = "The lander doctor: each lander health bound read live, the known remedy for each stuck state, the last lander build that landed a batch green and the rollback to it, and one proxy page per unknown state."
+may_use = ["crate-roots", "foundation", "landing", "lifecycle", "land_ticket", "platform.records", "platform.git", "platform.harness", "graph_loops"]
+

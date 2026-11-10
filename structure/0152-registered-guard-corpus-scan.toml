@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.corpus_scan"
+path = "crates/north-guard/src/guard/corpus_scan.rs"
+

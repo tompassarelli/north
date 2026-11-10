@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "src/cli/scoreboard/chain.rs"
+reason = "the outcome is the text column the ledger's runs table stores, read here as rows and never held as state (north#722)"
+

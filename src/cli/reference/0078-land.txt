@@ -1,0 +1,1 @@
+  land scan test-admission BASE..HEAD           Refuse an added test that claims an unlisted contract category or, over the verification budget, deletes fewer tests than it adds

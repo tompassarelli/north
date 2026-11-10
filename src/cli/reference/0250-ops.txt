@@ -1,0 +1,1 @@
+  ops github budget                              Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log

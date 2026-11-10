@@ -1,0 +1,6 @@
+[[module]]
+name = "platform.github"
+paths = ["crates/north-base/src/platform/github*.rs", "crates/north-base/src/platform/gh_*.rs", "crates/north-base/src/platform/git_credential*.rs", "crates/north-base/src/platform/rolling_issue.rs"]
+responsibility = "The GitHub adapter: gh sessions, the broker route and pool, the app token, git credentials, quota and the rolling issue."
+may_use = ["strategy_types", "foundation", "platform.process", "platform", "platform.records"]
+

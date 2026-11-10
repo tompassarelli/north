@@ -1,0 +1,1 @@
+  home move [--dry-run] PLAN.tsv                 Apply a move plan at the top of home outside the worker sandbox: one rename per row, logged to moves.tsv, never copying or deleting

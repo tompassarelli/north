@@ -1,0 +1,1 @@
+  watch-review [--dry-run]                      Launch one fleet review session per due followed source in south agents/watch.toml (30 days since the last review with new commits, or 10 new commits), tell the proxy when a launch fails or is held (daily timer)

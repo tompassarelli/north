@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.native_item"
+path = "crates/north-guard/src/guard/native_item.rs"
+

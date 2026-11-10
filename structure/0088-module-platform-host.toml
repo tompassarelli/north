@@ -1,0 +1,6 @@
+[[module]]
+name = "platform.host"
+paths = ["crates/north-base/src/platform/host.rs"]
+responsibility = "This host: its name, boot time and load."
+may_use = ["foundation"]
+

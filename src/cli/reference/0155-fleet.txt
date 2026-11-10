@@ -1,0 +1,1 @@
+  fleet                                         Open the fleet screen; north fleet --help lists each verb

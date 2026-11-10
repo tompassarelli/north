@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.modern_search"
+path = "crates/north-guard/src/guard/modern_search.rs"
+

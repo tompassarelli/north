@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use north_base::cites;
+use north_landing_gates::landing::merge_set::{self, Kind};
 
 use super::doc_paths::{Tree, broken_links, missing_paths};
 use super::{Range, git};
@@ -80,7 +81,21 @@ fn pointing_at_nothing(revision: &Revision, documents: &BTreeMap<String, String>
 }
 
 fn listing(directory: &Path, revision: &str) -> Option<Tree> {
-    git::text(directory, &["ls-tree", "-r", "--name-only", revision]).map(|names| Tree::new(&names))
+    let mut tree = Tree::new(&git::text(directory, &["ls-tree", "-r", "--name-only", revision])?);
+    for rule in merge_set::read_rules(&directory.join(merge_set::DEFAULT_CONFIG)).unwrap_or_default() {
+        if matches!(rule.kind, Kind::Regenerate { .. }) {
+            tree.files.insert(rule.path);
+        }
+    }
+    if let Some(ignore) = git::text(directory, &["show", &format!("{revision}:.gitignore")]) {
+        for line in ignore.lines().map(str::trim) {
+            let concrete = !line.is_empty() && !line.starts_with('#') && !line.starts_with('!') && !line.contains('*') && !line.contains('?') && !line.contains('[') && !line.ends_with('/');
+            if concrete {
+                tree.files.insert(line.trim_start_matches('/').to_owned());
+            }
+        }
+    }
+    Some(tree)
 }
 
 pub fn scan(directory: &Path, range: &str, out: &mut impl Write) -> u8 {

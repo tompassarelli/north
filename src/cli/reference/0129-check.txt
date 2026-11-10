@@ -1,0 +1,1 @@
+  check harness tree-policy [--tree DIR]  Check one north tree's skills against the byte and playbook limits, and each portable: true skill's files against host-specific paths, names and provider directories, with no other checkout or live state; the land check for harness/

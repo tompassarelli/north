@@ -1,0 +1,4 @@
+[[registered]]
+id = "hook.language_guard"
+path = "crates/north-diff-gates/src/language_gate.rs"
+

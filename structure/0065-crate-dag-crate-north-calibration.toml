@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-calibration"
+paths = ["crates/north-calibration/src/**"]
+may_use = ["north-threads"]
+

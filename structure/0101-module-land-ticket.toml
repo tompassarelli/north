@@ -1,0 +1,6 @@
+[[module]]
+name = "land_ticket"
+paths = ["crates/north-base/src/land_ticket.rs"]
+responsibility = "A land ticket's phase as one lifecycle record on the lander's host, which the lander writes and the doctor, the fleet and the flow reports read."
+may_use = ["foundation", "lifecycle"]
+

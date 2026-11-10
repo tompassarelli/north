@@ -1,0 +1,1 @@
+  lane layout                                   List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>

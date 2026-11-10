@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-claude-stream"
+paths = ["crates/north-claude-stream/src/**"]
+may_use = []
+

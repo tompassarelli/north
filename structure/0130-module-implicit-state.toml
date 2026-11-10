@@ -1,0 +1,6 @@
+[[module]]
+name = "implicit_state"
+paths = ["crates/north-implicit-state/src/**"]
+responsibility = "The implicit-state shapes: ast-grep rules that find state kept outside a typed lifecycle, their exceptions in structure.toml, the occurrences a change adds and the repository listing."
+may_use = ["crate-roots", "lifecycle", "platform.git"]
+

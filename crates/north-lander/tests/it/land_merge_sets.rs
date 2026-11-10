@@ -39,8 +39,20 @@ paths = ["crates/north-a/src/**"]
 may_use = []
 "#;
 
+/// The per-unit tree `structure.toml` is generated from, one table per file.
+const STRUCTURE_FILES: &[(&str, &str)] = &[
+    ("structure/0001-implicit-state.toml", "[implicit_state]\nowners = [\"crates/north-base/src/lifecycle.rs\"]\n"),
+    ("structure/0002-allow-a.toml", "[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"crates/north-a/src/a.rs\"\nreason = \"an external format\"\n"),
+    ("structure/0003-module-a.toml", "[[module]]\nname = \"a\"\npaths = [\"crates/north-a/src/**\"]\nmay_use = []\n"),
+];
+
 const MAIN: &str = "mod cli;\nmod run;\n\nfn main() {}\n";
-const INDEX: &str = "cd \"$(git rev-parse --show-toplevel)\" && ls docs/features | sed 's/^/- /' > docs/features.md\n";
+const INDEX: &str = r#"cd "$(git rev-parse --show-toplevel)"
+case "$*" in
+  *structure-index*) { for file in structure/*.toml; do cat "$file"; printf '\n'; done; } > structure.toml ;;
+  *) ls docs/features | sed 's/^/- /' > docs/features.md ;;
+esac
+"#;
 
 fn run(directory: &Path, arguments: &[&str]) -> String {
     git(directory, arguments).unwrap_or_else(|error| panic!("{error}"))
@@ -65,7 +77,10 @@ fn main_repo(root: &Path) -> std::path::PathBuf {
     run(root, &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
     write(&main, ".gitattributes", include_str!("../../../../.gitattributes"));
     write(&main, "harness/merge-sets.toml", &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness/merge-sets.toml")).unwrap());
-    for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n"), ("docs/features.md", "- a.md\n")] {
+    for (path, text) in [("Cargo.toml", CARGO), ("structure.toml", STRUCTURE), ("src/main.rs", MAIN), ("docs/features/a.md", "# a\n")] {
+        write(&main, path, text);
+    }
+    for (path, text) in STRUCTURE_FILES {
         write(&main, path, text);
     }
     fs::create_dir_all(main.join("bin")).unwrap();
@@ -94,10 +109,9 @@ fn adds_everything(root: &Path, name: &str) {
         text.replace(r#""crates/north-b"]"#, &format!(r#""crates/north-b", "{krate}"]"#))
             .replace("north-b = { path = \"crates/north-b\" }\n", &format!("north-b = {{ path = \"crates/north-b\" }}\nnorth-{name} = {{ path = \"{krate}\" }}\n"))
     });
-    edit(root, "structure.toml", |text| text.replace("\n[[module]]", &format!("\n[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"{krate}/src/{name}.rs\"\nreason = \"an external format\"\n\n[[module]]")));
+    write(root, &format!("structure/9000-allow-{name}.toml"), &format!("[[implicit_state.allow]]\nshape = \"status-string\"\npath = \"{krate}/src/{name}.rs\"\nreason = \"an external format\"\n"));
     edit(root, "src/main.rs", |text| text.replace("mod run;\n", &format!("mod run;\nmod {name};\n")));
     write(root, &format!("docs/features/{name}.md"), &format!("# {name}\n"));
-    edit(root, "docs/features.md", |text| format!("{text}- {name}.md\n"));
 }
 
 fn scenario(home: &Path) {
@@ -124,7 +138,6 @@ fn scenario(home: &Path) {
     assert!(cargo.contains(r#"members = ["crates/north-a", "crates/north-b", "crates/north-x", "crates/north-y"]"#) && cargo.contains("north-x = { path = \"crates/north-x\" }\nnorth-y = { path = \"crates/north-y\" }\n"), "{cargo}");
     assert_eq!(show("structure.toml").matches("[[implicit_state.allow]]").count(), 3, "{}", show("structure.toml"));
     assert_eq!(show("src/main.rs"), "mod cli;\nmod run;\nmod x;\nmod y;\n\nfn main() {}", "a line that is not a mod line still conflicts");
-    assert_eq!(show("docs/features.md"), "- a.md\n- x.md\n- y.md");
 }
 
 #[test]

@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "phase-suffix"
+path = "crates/north-threads/src/threads/runs/hook_rules.rs"
+reason = "the dotted names are guard rule ids in a classification table, labels for refusal text and never a lifecycle phase"
+

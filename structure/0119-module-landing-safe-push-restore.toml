@@ -1,0 +1,6 @@
+[[module]]
+name = "landing.safe_push.restore"
+paths = ["crates/north-safe-push/src/restore.rs"]
+responsibility = "--restore: the pure source decision for a reaped branch, then its push."
+may_use = ["foundation", "landing.safe_push.shell", "lifecycle"]
+

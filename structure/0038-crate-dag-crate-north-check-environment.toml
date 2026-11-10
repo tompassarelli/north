@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-check-environment"
+paths = ["crates/north-check-environment/src/**"]
+may_use = ["north-base"]
+

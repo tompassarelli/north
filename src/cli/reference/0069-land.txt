@@ -1,0 +1,1 @@
+  land serve [--once] [--repo DIR] [--checker PROGRAM]  Land the queued lanes of this origin: one candidate, checked once by safe-push --check-candidate, pushed to main by lease

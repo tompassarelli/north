@@ -1,0 +1,1 @@
+  capacity mode extend                          Extend the playtest lease

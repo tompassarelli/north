@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-base/src/platform/land_notice.rs"
+reason = "the verdict is a line parsed from the lander's report text, an external format"
+

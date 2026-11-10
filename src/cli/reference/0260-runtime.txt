@@ -1,0 +1,1 @@
+  runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant

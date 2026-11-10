@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-landing-gates"
+paths = ["crates/north-landing-gates/src/**"]
+may_use = ["north-base", "north-diff-gates", "north-graph-loops", "north-mutants"]
+

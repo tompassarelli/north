@@ -1,0 +1,5 @@
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-session-host/src/session_host.rs"
+reason = "Activity, the prompt counter and the frame watcher are shared between the stdin writer and stdout reader threads of one session."
+

@@ -1,0 +1,1 @@
+  fleet report                                        Retired view: `north work` prints the report

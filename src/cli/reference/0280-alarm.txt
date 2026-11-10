@@ -1,0 +1,1 @@
+  alarm stats [--since 7d|48h]                  Print each alarm source's alerts and false share

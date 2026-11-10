@@ -1,0 +1,1 @@
+  docs rationale-index [--check] [--root DIR]   Regenerate docs/rationale/README.md, one line per note: title, link, first sentence; --check fails when it is stale

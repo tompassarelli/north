@@ -1,0 +1,1 @@
+  convo [-x] [-a] [-r ROLE] [-t NAME] [-p NAME] [-s ID] [--provider claude|codex|corpus]  Search past agent transcripts and the Tom corpus; corpus appends typed messages to it

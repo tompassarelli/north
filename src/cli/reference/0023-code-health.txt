@@ -1,0 +1,1 @@
+  code-health report [--repo DIR] [--config FILE] [--rev REV] [--json]  Report the full structure.toml debt

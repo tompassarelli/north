@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-pace"
+paths = ["crates/*/src/pace.rs", "crates/*/src/pace/**", "crates/*/src/spend/**", "crates/*/src/router.rs", "crates/*/src/router/**", "crates/*/src/usage.rs", "crates/*/src/usage/**"]
+may_use = ["north-base"]
+

@@ -1,0 +1,1 @@
+  broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]...  Print a scoped one-hour GitHub App installation token

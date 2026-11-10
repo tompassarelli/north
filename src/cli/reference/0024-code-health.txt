@@ -1,0 +1,1 @@
+  code-health gate [--repo DIR] [--config FILE] [--rev REV] [--json]  Report the structure.toml debt new between two commits

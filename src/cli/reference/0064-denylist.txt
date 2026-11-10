@@ -1,0 +1,1 @@
+  denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms

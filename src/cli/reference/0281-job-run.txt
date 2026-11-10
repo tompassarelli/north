@@ -1,0 +1,1 @@
+  job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...  Run a scheduled job and record its result

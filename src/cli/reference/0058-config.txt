@@ -1,0 +1,1 @@
+  config agents routines list [--crons FILE|-]  List the operator routines

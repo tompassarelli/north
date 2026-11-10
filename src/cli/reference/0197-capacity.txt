@@ -1,0 +1,1 @@
+  capacity host session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]  Hold a capacity lease for an interactive session (see the machine-capacity skill)

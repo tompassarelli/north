@@ -1,0 +1,1 @@
+  remote-serve audit --peer HOST [--log FILE] [--keys FILE]  Count a peer's logged calls and refusals and print its key's days to expiry-time from authorized_keys

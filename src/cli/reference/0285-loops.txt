@@ -1,0 +1,1 @@
+  loops check [--role ledger|lander|here]       Check the declared control loops and their scores

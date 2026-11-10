@@ -1,0 +1,1 @@
+  graph retract [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Withdraw a fact from the triple graph

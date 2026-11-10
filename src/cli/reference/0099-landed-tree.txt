@@ -1,0 +1,1 @@
+  landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines

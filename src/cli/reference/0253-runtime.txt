@@ -1,0 +1,1 @@
+  runtime pi [VERSION]                       Install a checksum-verified Pi runtime from the newest stable earendil-works/pi release and select it

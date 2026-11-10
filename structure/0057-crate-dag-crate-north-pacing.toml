@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-pacing"
+paths = ["crates/north-pacing/src/**"]
+may_use = ["north-capacity", "north-fleet-supervisor", "north-providers", "north-threads"]
+

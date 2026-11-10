@@ -1,0 +1,1 @@
+  config agents live-refs [--dropped-by-catalog]  List live references to managed skills and hooks

@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-replay"
+paths = ["crates/north-replay/src/**"]
+may_use = ["north-base", "north-capacity", "north-dispatch", "north-landing"]
+

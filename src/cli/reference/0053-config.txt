@@ -1,0 +1,1 @@
+  config agents check-hook-paths --claude FILE --codex FILE --provider-hooks DIR  Check that every registered hook path resolves

@@ -1,0 +1,1 @@
+  remote-serve --peer HOST [--repos REPO,...] [--log FILE]  The ssh forced command for a peer key: run SSH_ORIGINAL_COMMAND only if the allowlist and the peer's guards admit it, exit 126 on a refusal, and log one row per call

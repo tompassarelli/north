@@ -614,7 +614,7 @@ be a Rust input.
 
 The lander's refused conflicts over the 24 h before 1:41 PM on 2026-11-05 were:
 
-- `docs/features.md` 31, regenerated from `docs/features/` since 5295dff75 at 6:00 AM, so most of those
+- the features index 31, regenerated from `docs/features/` since 5295dff75 at 6:00 AM, so most of those
   predate the fix;
 - `crates/north-landing/src/land/mod.rs` 28;
 - `tests/it/land_serve.rs` 18;

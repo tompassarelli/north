@@ -1,0 +1,1 @@
+  health [--dry-run] [--json]                    Readiness bars, goals and harness invariants

@@ -1,0 +1,6 @@
+[[module]]
+name = "build_inputs"
+paths = ["crates/north-base/src/build_inputs.rs", "crates/north-base/src/run_time_data.rs", "crates/north-base/src/run_time_data/**"]
+responsibility = "Which repository files a build reads: the root build files and the run-time data the binary embeds."
+may_use = ["foundation", "platform.git", "platform.harness"]
+

@@ -1,0 +1,1 @@
+  graph ask [--db PATH] [--json] (QUERY_JSON | --file PATH | -)  Run a Datalog query over the graph

@@ -1,0 +1,1 @@
+  runtime claude [VERSION]                      Install a checksum-verified Claude runtime, probe it and select it

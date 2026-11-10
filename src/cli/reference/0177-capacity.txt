@@ -1,0 +1,1 @@
+  capacity mode tick                            Re-evaluate the laptop mode

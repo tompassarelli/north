@@ -1,0 +1,1 @@
+  land scan tool-removal BASE..HEAD             Refuse a removed bin tool that callers still name

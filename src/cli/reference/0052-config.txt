@@ -1,0 +1,1 @@
+  config agents sync                            Sync the managed skills and hooks into place

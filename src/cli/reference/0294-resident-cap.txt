@@ -1,0 +1,1 @@
+  resident-cap status                           Print this host's live session count and cap

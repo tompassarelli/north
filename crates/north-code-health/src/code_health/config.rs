@@ -205,20 +205,50 @@ fn read_override(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+/// The structure text at a snapshot: rendered from its `structure/` tables when it has that tree,
+/// else the generated `structure.toml` the commit holds.
+fn structure_of(snapshot: &Snapshot) -> Option<String> {
+    let mut paths: Vec<String> = snapshot.paths().iter().filter(|path| path.starts_with("structure/") && path.ends_with(".toml")).cloned().collect();
+    paths.sort();
+    let tables = snapshot.batch_texts(&paths).ok()?;
+    north_registries::structure_parts(tables.iter().map(String::as_str)).or_else(|| snapshot.text("structure.toml").map(|text| text.to_string()))
+}
+
+/// The structure text at a rev, for a reader that does not hold a snapshot: rendered from its
+/// `structure/` tables when it has that tree, else the `structure.toml` the commit holds.
+pub(super) fn structure_at(repo: &Path, rev: &str) -> Result<Option<String>, String> {
+    let snapshot = Snapshot::new(repo, rev)?;
+    Ok(structure_of(&snapshot))
+}
+
+/// The structure text in a worktree: rendered from its `structure/` tables when it has that tree,
+/// else the `structure.toml` it holds.
+pub(super) fn structure_text(repo: &Path) -> Option<String> {
+    let source = repo.join("structure");
+    if source.is_dir()
+        && let Ok(text) = north_registries::structure(&source)
+    {
+        return Some(text);
+    }
+    std::fs::read_to_string(repo.join("structure.toml")).ok()
+}
+
 pub(super) fn at_rev(snapshot: &Snapshot, override_path: Option<&Path>) -> Result<Config, String> {
     let listing = snapshot.has(".safe-push").then(|| git_ok(&snapshot.repo, &["config", "--blob", &format!("{}:.safe-push", snapshot.rev), "--null", "--list"])).flatten();
     let declarations = safe_push_declarations(listing);
     match override_path {
         Some(path) => parse(Some(&read_override(path)?), declarations),
-        None => parse(snapshot.text("structure.toml").as_deref(), declarations),
+        None => parse(structure_of(snapshot).as_deref(), declarations),
     }
 }
 
 pub(super) fn in_worktree(repo: &Path, override_path: Option<&Path>) -> Result<Config, String> {
     let safe_push = repo.join(".safe-push");
     let listing = safe_push.exists().then(|| git_ok(repo, &["config", "--file", &safe_push.to_string_lossy(), "--null", "--list"])).flatten();
-    let file = override_path.map_or_else(|| repo.join("structure.toml"), Path::to_path_buf);
-    let text = if file.exists() { Some(read_override(&file)?) } else { None };
+    let text = match override_path {
+        Some(path) => Some(read_override(path)?),
+        None => structure_text(repo),
+    };
     parse(text.as_deref(), safe_push_declarations(listing))
 }
 

@@ -1,0 +1,1 @@
+  private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks

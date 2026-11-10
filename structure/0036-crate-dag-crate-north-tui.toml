@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-tui"
+paths = ["crates/north-tui/src/**"]
+may_use = ["north-providers"]
+

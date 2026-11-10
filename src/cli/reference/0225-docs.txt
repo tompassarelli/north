@@ -1,0 +1,1 @@
+  docs help-index [--check] [--root DIR]        Regenerate src/cli/help.txt from the one-file-per-command tree under src/cli/help/, or with --check fail when it is stale

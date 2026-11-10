@@ -1,0 +1,1 @@
+  lane stray PATH...                               Remove an untracked file this session's own tool call created, named in its transcript before the file was born

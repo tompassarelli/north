@@ -1,0 +1,1 @@
+  graph tell [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Record a fact in the triple graph

@@ -1,0 +1,1 @@
+  lane reap [--all] [--dry-run]                    Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it

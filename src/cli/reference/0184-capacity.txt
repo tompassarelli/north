@@ -1,0 +1,1 @@
+  capacity game-reserve on [--auto]|off|playing|status Reserve CPUs for Tom's game (Warcraft III or a Wisp native window), moving Warcraft III only once it has run 60 s; the playtest lease (capacity mode hold) turns it on and off

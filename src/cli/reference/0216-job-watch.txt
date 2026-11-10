@@ -1,0 +1,1 @@
+  job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers

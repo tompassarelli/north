@@ -1,0 +1,1 @@
+  ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers

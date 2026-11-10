@@ -1,0 +1,1 @@
+  graph show [--db PATH] [--json] T1            Show the facts about one term

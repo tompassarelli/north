@@ -1,0 +1,6 @@
+[[module]]
+name = "platform.git"
+paths = ["crates/north-base/src/platform/git.rs", "crates/north-base/src/platform/store_refs.rs", "crates/north-base/src/platform/push_ledger.rs", "crates/north-base/src/platform/records_mirror*.rs", "crates/north-base/src/platform/cargo_metadata*.rs", "crates/north-base/src/platform/ast_grep.rs", "crates/north-base/src/platform/betterleaks.rs"]
+responsibility = "The git adapter and the repository tools run over a tree: refs, the push ledger, the records mirror, cargo metadata, ast-grep and betterleaks."
+may_use = ["strategy_types", "foundation", "platform.process", "platform.host"]
+

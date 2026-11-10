@@ -1,0 +1,1 @@
+  outside-watch status                          Show the last run and its log line

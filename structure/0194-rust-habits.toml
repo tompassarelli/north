@@ -1,0 +1,3 @@
+[rust_habits]
+checks = ["shared-mutability", "single-impl-trait", "ambient-test-input"]
+

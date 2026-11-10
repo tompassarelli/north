@@ -1,0 +1,1 @@
+  lane exec [--lane CHECKOUT] [--] PROGRAM [ARGS...]  Run a lane's own build output (target/, node_modules/) outside depbox, which an agent's worker sandbox refuses by path, when the lane's lock files equal origin/main's, else inside depbox

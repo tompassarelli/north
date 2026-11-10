@@ -1,0 +1,1 @@
+  capacity host run [--class CLASS] [--owner OWNER] [--timeout-seconds N] [--cpus N] [--memory-gib N] [--wait-seconds N] [--priority tom-ask] -- COMMAND...  Run one command inside a machine-capacity lease and scope

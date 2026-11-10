@@ -1,0 +1,1 @@
+  accounts reset [--dry-run]                     Check the coordinator's usage reset grant against its Fable meter and log the outcome to ~/.local/state/north/usage/resets.jsonl; it never clicks the reset (docs/rationale/usage-resets.md)

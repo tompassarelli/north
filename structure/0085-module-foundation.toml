@@ -1,0 +1,6 @@
+[[module]]
+name = "foundation"
+paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs", "crates/north-base/src/test_inputs.rs", "crates/north-base/src/agents_sync.rs"]
+responsibility = "Error type, clock port and time values, identifiers."
+may_use = []
+

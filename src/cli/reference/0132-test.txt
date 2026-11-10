@@ -1,0 +1,1 @@
+  test mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease

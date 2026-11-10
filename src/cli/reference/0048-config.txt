@@ -1,0 +1,1 @@
+  config agents inspect ID [--json]             Show one skill or hook

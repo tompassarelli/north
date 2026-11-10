@@ -1,0 +1,1 @@
+  graph ready [--query ready|held]              List the ready boxes of the backlog in rank order, or each held box's blocking edge

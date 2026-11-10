@@ -1,0 +1,1 @@
+  lane unlock [CHECKOUT...]                        Remove the git lock files in a checkout's git directory that no process holds and that are older than 60 s

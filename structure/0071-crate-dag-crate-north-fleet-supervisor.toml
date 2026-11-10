@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-fleet-supervisor"
+paths = ["crates/north-fleet-supervisor/src/**"]
+may_use = ["north-fleet", "north-resume", "north-session-host", "north-graph-loops", "north-runtime-follow"]
+

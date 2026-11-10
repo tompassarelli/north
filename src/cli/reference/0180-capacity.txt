@@ -1,0 +1,1 @@
+  capacity mode release                         Release the playtest lease

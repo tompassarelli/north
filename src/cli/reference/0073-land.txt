@@ -1,0 +1,1 @@
+  land clear-withdrawal TICKET --reason TEXT [--repo DIR]  Let the withdrawn ticket's session queue the same head again; enqueue refuses it until then or a changed head

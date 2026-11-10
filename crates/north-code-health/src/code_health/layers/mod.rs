@@ -79,11 +79,11 @@ impl<'a> Revision<'a> {
 }
 
 fn verdict(repo: &Path, base: &str, head: &str) -> Result<(Vec<String>, u8), String> {
-    let Some(structure) = show(repo, head, "structure.toml")? else {
+    let Some(structure) = super::config::structure_at(repo, head)? else {
         return Ok((vec!["layers: no structure.toml at HEAD; nothing to check".to_owned()], 0));
     };
     let head_rules = Rules::parse(&structure)?;
-    let base_rules = match show(repo, base, "structure.toml")? {
+    let base_rules = match super::config::structure_at(repo, base)? {
         Some(text) => Rules::parse(&text).unwrap_or_default().or(&head_rules),
         None => head_rules.clone(),
     };

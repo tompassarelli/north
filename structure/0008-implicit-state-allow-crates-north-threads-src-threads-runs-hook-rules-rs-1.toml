@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "phase-suffix"
+path = "crates/north-threads/src/threads/runs/hook_rules.rs"
+reason = "privacy-judge.pending is the name of one refusal rule in the guard table, a dotted rule name and not a phase"
+

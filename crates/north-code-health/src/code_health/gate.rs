@@ -11,12 +11,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 pub(super) const FIX_CYCLE: &str = "move the import behind an interface the other file already owns, or merge the two files";
-pub(super) const FIX_LAYER: &str = "move the import behind the allowed module's interface, or change may_use/paths in structure.toml in this change";
-const FIX_FILE: &str = "split it along a responsibility boundary when that lowers the complexity it holds, or raise thresholds.file_lines in structure.toml in this change";
-const FIX_FUNCTION: &str = "split the function, or raise thresholds.function_lines/function_complexity in structure.toml in this change";
+pub(super) const FIX_LAYER: &str = "move the import behind the allowed module's interface, or change may_use/paths in structure.toml in this change (a repo that generates it takes the entry under structure/)";
+const FIX_FILE: &str = "split it along a responsibility boundary when that lowers the complexity it holds, or raise thresholds.file_lines in structure.toml in this change (a repo that generates it takes the entry under structure/)";
+const FIX_FUNCTION: &str = "split the function, or raise thresholds.function_lines/function_complexity in structure.toml in this change (a repo that generates it takes the entry under structure/)";
 const FIX_HOTSPOT: &str = "split complexity out of this hotspot, or add 'Code-health-allow: hotspot <path> — <reason>'";
-const FIX_GENERATED: &str = "restore the producer, or remove the [[generated]] claim in structure.toml";
-pub(super) const UNMAPPED: &str = "new hand source file in no module — add it to a [[module]] paths glob in structure.toml, or move it under one";
+const FIX_GENERATED: &str = "restore the producer, or remove the [[generated]] claim in structure.toml (a repo that generates it takes the entry under structure/)";
+pub(super) const UNMAPPED: &str = "new hand source file in no module — add it to a [[module]] paths glob in structure.toml (a repo that generates it takes the entry under structure/), or move it under one";
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(super) struct Violation {

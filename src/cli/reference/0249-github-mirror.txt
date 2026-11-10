@@ -1,0 +1,1 @@
+  github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)

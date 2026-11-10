@@ -1,0 +1,6 @@
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-fleet/src/fleet/books.rs"
+item = "WatchBooks"
+reason = "Trait alias bundling the RunSink, Books, ReceiptBook and GateBook ports through a blanket impl; each port has its own test double."
+

@@ -1,0 +1,1 @@
+  config agents plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]  Run the agent plan: score, place, credit or quote launches

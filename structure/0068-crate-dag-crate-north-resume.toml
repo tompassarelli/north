@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-resume"
+paths = ["crates/north-resume/src/**"]
+may_use = ["north-base"]
+

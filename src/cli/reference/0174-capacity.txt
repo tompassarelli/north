@@ -1,0 +1,1 @@
+  capacity laptop-auto [--dry-run]              Stop agent game load while Tom's declared gaming hold is on, reap orphaned scopes

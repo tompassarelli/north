@@ -1,0 +1,5 @@
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-fleet-supervisor/src/fleet/registry/fixtures.rs"
+reason = "Test fixture, doc(hidden) and public since 895bb0e6f so north-tui's tests reach it; a fake session's frames are shared between its reader thread and the test."
+

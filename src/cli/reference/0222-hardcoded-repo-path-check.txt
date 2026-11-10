@@ -1,0 +1,1 @@
+  hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv

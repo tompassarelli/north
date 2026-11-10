@@ -1,0 +1,1 @@
+  work brief pack [--issue REF]... PATH...   Print, in at most 3,000 characters, each path's public items with lines, its structure.toml module and what it may use, the files that changed with it most in 90 days with any revert within 48 h, and the nextest filter for the tests that reach it

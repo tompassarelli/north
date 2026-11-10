@@ -1,0 +1,1 @@
+  land release VERSION [--notes FILE]                 From a clean main at origin, create and push the annotated tag vVERSION and its GitHub release; a rerun finishes a partial release

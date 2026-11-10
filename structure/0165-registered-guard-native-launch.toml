@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.native_launch"
+path = "crates/north-guard/src/guard/native_launch.rs"
+

@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-safe-push"
+paths = ["crates/north-safe-push/src/**"]
+may_use = ["north-base", "north-lander", "north-landing"]
+

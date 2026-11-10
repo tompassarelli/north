@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.codex_conduct"
+path = "crates/north-guard/src/guard/codex_conduct.rs"
+

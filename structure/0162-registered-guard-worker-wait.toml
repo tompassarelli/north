@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.worker_wait"
+path = "crates/north-guard/src/guard/worker_wait.rs"
+

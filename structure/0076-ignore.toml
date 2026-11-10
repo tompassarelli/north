@@ -1,0 +1,3 @@
+[ignore]
+paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "crates/north-pace/src/router/fixtures/**"]
+

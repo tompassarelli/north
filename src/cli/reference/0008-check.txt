@@ -1,0 +1,1 @@
+  check experiments [--root DIR]                Check that every review rule and footgun card has an experiment registry entry

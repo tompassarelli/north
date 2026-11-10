@@ -1,0 +1,1 @@
+  nix explain <nix subcommand | class>           Print a Nix footgun card, then the option sections of this host's `nix <cmd> --help` it names

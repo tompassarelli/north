@@ -88,7 +88,7 @@ Independent boxes first; each runs alone in its own lane. Times are budgets.
 ### B1. `north lane seed` skips `incremental/` (candidate 1)
 
 Category: performance. Spec: measured. Scope: single-module. Surface: rust. Verify: local-test. Files: the
-`north lane seed` command under `crates/north-core/src/`, `docs/features.md` (Lane target seed).
+`north lane seed` command under `crates/north-core/src/`, the features index (Lane target seed).
 
 Done when:
 - In a fresh lane after `north lane seed`, `test -e target/debug/incremental && fd -d1 . target/debug/incremental`
@@ -160,7 +160,7 @@ Now the other hosts start copying and promoting the moment the laptop swaps (`aw
 ### B3. Turn on incremental for runtime builds (candidate 2, if B2's on-row is at least 30% below off)
 
 Category: performance. Spec: measured. Scope: single-module. Surface: rust. Verify: local-test. Files:
-`crates/north-runtime/src/runtime/update.rs` (and the stable path or remap B2 chose), `docs/features.md`.
+`crates/north-runtime/src/runtime/update.rs` (and the stable path or remap B2 chose), the features index.
 
 Done when:
 - `rg -n 'INCREMENTAL' crates/north-runtime/src/runtime/update.rs` prints the line on the build command.

@@ -1,0 +1,1 @@
+  dep-gate BASE HEAD                            Check dependency changes before landing

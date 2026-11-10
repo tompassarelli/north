@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-fleet"
+paths = ["crates/north-fleet/src/**"]
+may_use = ["north-claude-stream", "north-fleet-store", "north-pace", "north-resume", "north-session-host"]
+

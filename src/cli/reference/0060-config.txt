@@ -1,0 +1,1 @@
+  config agents routines pointer NAME [--crons FILE|-]  Print the pointer to one operator routine

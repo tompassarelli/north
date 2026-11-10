@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-tune/src/loops/red_main.rs"
+reason = "the run status and conclusion are fields of the GitHub workflow-runs response, an external format with no north lifecycle behind it"
+

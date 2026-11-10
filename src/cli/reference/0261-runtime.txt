@@ -1,0 +1,1 @@
+  runtime health                                Check that the running binary is the current runtime with its programs and tree

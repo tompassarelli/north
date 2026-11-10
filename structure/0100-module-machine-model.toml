@@ -1,0 +1,6 @@
+[[module]]
+name = "machine_model"
+paths = ["crates/north-machine-model/src/**"]
+responsibility = "Model checking of lifecycle machines: every ordering of a stated scope played through the real lifecycle store against each machine's own table, the promises judged on the store's log, and the state chart drawn from the moves the store accepted."
+may_use = ["foundation", "lifecycle"]
+

@@ -1,0 +1,6 @@
+[[module]]
+name = "landing.safe_push.mode"
+paths = ["crates/north-safe-push/src/mode.rs"]
+responsibility = "A Request and the repository facts to the mode safe-push runs; pure."
+may_use = ["foundation", "landing.safe_push.request", "lifecycle"]
+

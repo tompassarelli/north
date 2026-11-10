@@ -1,0 +1,7 @@
+[[module]]
+name = "ts-legacy"
+thresholds = { file_lines = 1400 }
+paths = ["harness/**/*.ts", "bin/**/*.ts"]
+responsibility = "TypeScript awaiting a Rust port; may not grow."
+may_use = []
+

@@ -1,0 +1,4 @@
+[[crate_dag.crate]]
+name = "north-registries"
+paths = ["crates/north-registries/src/**"]
+may_use = []

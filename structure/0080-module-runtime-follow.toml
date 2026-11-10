@@ -1,0 +1,6 @@
+[[module]]
+name = "runtime_follow"
+paths = ["crates/north-runtime-follow/src/**"]
+responsibility = "How a long-lived north process moves onto the runtime its link promotes: whether the link names another runtime than the one it runs, and the re-exec onto it."
+may_use = []
+

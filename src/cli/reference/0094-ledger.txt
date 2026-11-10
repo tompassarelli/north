@@ -1,0 +1,1 @@
+  ledger incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]  Record the guard that closes a failure class

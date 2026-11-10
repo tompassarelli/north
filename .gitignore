@@ -3,3 +3,6 @@ __pycache__/
 
 /lib/automation-chrome/node_modules/
 /lib/automation-chrome/evidence/
+
+# The features index is written at build and land time from docs/features/, never tracked.
+/docs/features.md

@@ -1,0 +1,1 @@
+  desktop warcraft close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes

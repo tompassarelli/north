@@ -1,0 +1,1 @@
+  land scan doc-links BASE..HEAD                Refuse a README, AGENTS or docs reference the lane leaves pointing at nothing

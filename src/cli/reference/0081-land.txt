@@ -1,0 +1,1 @@
+  land scan docs-owners BASE..HEAD              Refuse a plan, port, migration or order doc whose owners are all closed or that names no owner or a missing path

@@ -1,0 +1,1 @@
+  task [landed REF SHA | check REF -- CMD... | check [--dry-run] (--body-file FILE | REPO#N | --repo R)]   Record a verdict north observed itself, or tick issue boxes whose Observe: command exits 0

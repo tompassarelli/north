@@ -5,13 +5,13 @@ Owner: north#523
 Tom asked on 2026-11-04 for north docs that resist rot, disclose detail progressively and help
 agents find the right fact without reading the whole tree. This note is the target layout and the
 boxes that reach it. It builds on two lanes in flight that day: the features index (one file per
-feature under `docs/features/`, with `docs/features.md` generated from them and checked at landing)
+feature under `docs/features/`, with the features index generated from them and checked at landing)
 and the landing-train merge driver (`north merge-driver set`, docs/rationale/landing-train.md
 step 9b).
 
 ## What was measured
 
-- `docs/features.md` held 92 entries on 143 lines; 27 entries were over 1,000 characters and 14 over
+- the features index held 92 entries on 143 lines; 27 entries were over 1,000 characters and 14 over
   2,000, the longest 6,622. Every feature lane edited the same lines, and rebase conflicts there
   refused several landings on 2026-11-04. It changed in 15 commits from 2026-11-01 to 2026-11-04,
   `docs/feedback-loop.md` in 13.
@@ -60,7 +60,7 @@ An agent reads in three rings and stops at the first that answers.
 | Land checks | `.safe-push` | name the check; `safe-push --help` is the contract |
 | Module boundaries | `structure.toml`, then `architecture.md` for the picture | link the path |
 | What a feature is for | one file per feature under `docs/features/<NN-section>/` | be one short paragraph; detail goes to `--help` |
-| Feature index | `docs/features.md`, generated | never be edited by hand |
+| Feature index | written from `docs/features/` | never be edited by hand |
 | How parts fit | concept docs under `docs/` | link owners; no numbers |
 | Procedures | skills under `harness/skills/` | link the skill |
 | Why, with dates and measurements | `docs/rationale/<topic>.md` | quote numbers as measured on a date |
@@ -122,7 +122,7 @@ Existence is judged against `git ls-files`, not the disk, so an untracked local 
 here and fails on another host. Skills are scanned for links but not backticked paths, because a
 skill names files in other repositories (makgora, wisp) that look like north paths.
 `docs/rationale/` is not scanned; `docs/references/` is scanned for links only; `docs/features/`
-is not scanned because its links are written relative to the generated `docs/features.md`, which
+is not scanned because its links are written relative to the generated features index, which
 is.
 
 ## Boxes
@@ -172,7 +172,7 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    characters, with no exemption list. Done when: it exits 0 on main and exits 1 naming the file on
    a scratch copy with one 1,300-character entry.
    Landed design: the cap counts characters, not bytes, and only `--check` enforces it, so the
-   merge driver can still regenerate `docs/features.md` mid-rebase; the entries that grew past it
+   merge driver can still regenerate the features index mid-rebase; the entries that grew past it
    after 3a to 3c landed were cut in the same lane.
    Replaced on 2026-11-07 (north#729): the whole-entry cap refused whichever lane crossed it (21
    lander refusals in the week to 2026-11-07, and 8a94c7153 reached main past it). The index now
@@ -189,7 +189,7 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    `north check citations --root .` exits 0; a unit test naming `[no_such_default]` exits 1.
 6. **Regenerated indexes never conflict (35 min).** Add a `regenerate` kind to the merge driver
    (`harness/merge-sets.toml`, `merge_set.rs`) that resolves a conflicted generated file by running
-   its generator on the merged sources, register `docs/features.md` with it in `.gitattributes`, and
+   its generator on the merged sources, register the generated index with it in `.gitattributes`, and
    add `north docs rationale-index` writing `docs/rationale/README.md` (one line per note: title, link,
    first sentence) with `--check` as a land check, registered the same way. Done when: in a scratch
    repository, rebasing a lane that adds a feature file onto a main that added the neighbouring one

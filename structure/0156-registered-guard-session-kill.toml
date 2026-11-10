@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.session_kill"
+path = "crates/north-guard/src/guard/session_kill.rs"
+

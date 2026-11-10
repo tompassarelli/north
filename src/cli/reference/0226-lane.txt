@@ -1,0 +1,1 @@
+  lane gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Delete landed lanes and origin branches, bundle closed-issue and ownerless lanes to ~/archive/lanes before reaping them, keep the rest and list them by issue (hourly and daily timers)

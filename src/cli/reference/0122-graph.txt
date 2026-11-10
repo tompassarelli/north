@@ -1,0 +1,1 @@
+  graph ingest [SOURCE...]                      Ingest facts from their sources

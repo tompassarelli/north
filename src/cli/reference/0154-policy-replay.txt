@@ -1,0 +1,1 @@
+  policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop

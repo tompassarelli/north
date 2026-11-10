@@ -1,0 +1,1 @@
+  cloud collect EVENTS.jsonl OUT.mbox           Decode a saved handback to an mbox

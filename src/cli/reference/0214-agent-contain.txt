@@ -1,0 +1,1 @@
+  agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers

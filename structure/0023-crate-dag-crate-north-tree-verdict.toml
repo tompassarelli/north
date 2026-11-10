@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-tree-verdict"
+paths = ["crates/north-tree-verdict/src/**"]
+may_use = []
+

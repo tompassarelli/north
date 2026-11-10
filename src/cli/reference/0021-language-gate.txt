@@ -1,0 +1,1 @@
+  language-gate --repo DIR --base REV --head REV  Check language policy

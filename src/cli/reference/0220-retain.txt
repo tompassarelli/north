@@ -1,0 +1,1 @@
+  retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Mak'gora evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry

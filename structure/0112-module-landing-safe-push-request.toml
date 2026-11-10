@@ -1,0 +1,6 @@
+[[module]]
+name = "landing.safe_push.request"
+paths = ["crates/north-safe-push/src/request.rs", "crates/north-safe-push/src/request/**"]
+responsibility = "safe-push argv to a typed Request or a usage refusal; pure."
+may_use = ["foundation", "lifecycle"]
+

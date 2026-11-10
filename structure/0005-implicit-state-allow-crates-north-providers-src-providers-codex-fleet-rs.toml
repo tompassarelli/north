@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-providers/src/providers/codex/fleet.rs"
+reason = "the turn status is a field of the Codex app-server event stream, an external format with no north lifecycle behind it; a failed turn is counted once as a provider error and never held as state"
+

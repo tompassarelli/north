@@ -1,0 +1,1 @@
+  ledger tempo [--repo NAME] [--window MINUTES] [--json] [--record]   How fast lanes reach main through the lander: landed, queued->main and first commit->main p50 and p90, refused alone, queued now; --record writes the last hour and day to the ledger (hourly timer)

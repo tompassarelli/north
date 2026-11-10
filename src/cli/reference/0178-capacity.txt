@@ -1,0 +1,1 @@
+  capacity mode hold [--minutes N] [PHRASE]     Start or extend a playtest lease

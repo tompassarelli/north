@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-land-watch"
+paths = ["crates/north-land-watch/src/**"]
+may_use = ["north-base", "north-land-scans", "north-landing-gates"]
+

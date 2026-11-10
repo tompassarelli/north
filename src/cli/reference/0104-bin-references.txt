@@ -1,0 +1,1 @@
+  bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry or removes a north subcommand or flag a deployed nixos-config or south unit, this host's user units or a call north's own Rust code builds still run

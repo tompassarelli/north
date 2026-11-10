@@ -1,0 +1,1 @@
+  fleet dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot

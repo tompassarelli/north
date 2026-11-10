@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-shared-config"
+paths = ["crates/north-shared-config/src/**"]
+may_use = []
+

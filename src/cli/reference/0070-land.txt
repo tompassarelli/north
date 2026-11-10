@@ -1,0 +1,1 @@
+  land status TICKET [--repo DIR]               Read a ticket's place in the landing queue and the reason the lander last deferred, refused or withdrew it, from the records mirror on a host that is not the lander's

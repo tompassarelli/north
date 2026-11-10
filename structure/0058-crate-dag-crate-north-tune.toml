@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-tune"
+paths = ["crates/north-tune/src/**"]
+may_use = ["north-dispatch", "north-graph-loops"]
+

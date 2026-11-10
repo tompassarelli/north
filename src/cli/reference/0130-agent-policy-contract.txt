@@ -1,0 +1,1 @@
+  agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring

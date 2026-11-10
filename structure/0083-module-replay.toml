@@ -1,0 +1,6 @@
+[[module]]
+name = "replay"
+paths = ["crates/north-replay/src/**"]
+responsibility = "Strategy replay: the logged decision cases decided again by the linked code, their outcome counts beside the logged ones, and the declared invariants checked over the replayed decisions."
+may_use = ["capacity", "crate-roots", "foundation", "landing", "ops", "strategy_types", "lifecycle", "platform.records", "platform.git", "platform.harness"]
+

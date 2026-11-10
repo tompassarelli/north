@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-providers/src/providers/claude/runs/row.rs"
+reason = "the outcome is the text a run row stores in the runs table, ranked here as it is read and never held as state"
+

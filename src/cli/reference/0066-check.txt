@@ -1,0 +1,1 @@
+  check privacy judge --text FILE|- [--kinds FILE]       Judge a text for the private kinds listed in south: prints one kind and quoted span per finding (exit 1), exits 2 when the judge cannot run

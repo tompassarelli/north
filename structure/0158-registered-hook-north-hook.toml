@@ -1,0 +1,4 @@
+[[registered]]
+id = "hook.north_hook"
+path = "src/cli/hook_verb.rs"
+

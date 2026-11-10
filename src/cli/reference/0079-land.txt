@@ -1,0 +1,1 @@
+  land scan test-admission run BASE..HEAD       After the push, refuse an added Rust test that passes on base with the lane's non-test changes reverted

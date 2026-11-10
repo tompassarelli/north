@@ -1,0 +1,1 @@
+  pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar

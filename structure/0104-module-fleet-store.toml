@@ -1,0 +1,6 @@
+[[module]]
+name = "fleet_store"
+paths = ["crates/north-fleet-store/src/**"]
+responsibility = "The fleet's durable rows and their exchange: the sessions, messages, waits and gates in the SQLite store, the spool and ssh exchange between hosts, gate requests and their lifecycle, and the sender, status and delivery words they carry."
+may_use = ["crate-roots", "domain", "foundation", "lifecycle", "platform.harness", "platform.process"]
+

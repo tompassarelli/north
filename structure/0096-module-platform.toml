@@ -1,0 +1,6 @@
+[[module]]
+name = "platform"
+paths = ["crates/north-base/src/platform/**"]
+responsibility = "The platform root and the small pure helpers beside the adapters: clean-up headings, Follows: lines, trials and the twister."
+may_use = ["strategy_types", "foundation", "platform.git", "crate-roots"]
+

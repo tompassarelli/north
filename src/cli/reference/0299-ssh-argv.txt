@@ -1,0 +1,1 @@
+  ssh-argv SSH-ARGS...                          Print the attributed ssh argv, NUL separated

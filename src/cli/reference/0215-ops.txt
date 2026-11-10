@@ -1,0 +1,1 @@
+  ops watch --once [--quiet]                    Run the landing and GitHub probes, raise their alerts to the proxy and the lane lead (--quiet prints none), then run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert

@@ -1,0 +1,1 @@
+  check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers

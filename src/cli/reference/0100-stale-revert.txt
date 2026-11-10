@@ -1,0 +1,1 @@
+  stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added

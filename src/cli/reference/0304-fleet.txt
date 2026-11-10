@@ -1,0 +1,1 @@
+  fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`

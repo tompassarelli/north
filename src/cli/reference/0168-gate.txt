@@ -1,0 +1,1 @@
+  gate [open --session S --question Q --option O... --recommend N [--default N --default-after D] [--issue OWNER/REPO#N [--box TEXT]] | answer ID N [--note TEXT] | list [--json] | digest [--peek]]  Open or answer a decision gate; digest prints the for-Tom gates still open and the defaults applied since the last look

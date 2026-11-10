@@ -1,0 +1,4 @@
+[[registered]]
+id = "guard.clipboard"
+path = "crates/north-guard/src/guard/clipboard.rs"
+

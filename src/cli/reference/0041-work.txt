@@ -1,0 +1,1 @@
+  work claim REPO#N [--by NAME] [--eta MINUTES]  Claim a work item

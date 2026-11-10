@@ -1,0 +1,5 @@
+[[implicit_state.allow]]
+shape = "status-string"
+path = "crates/north-land-scans/src/withdrawal.rs"
+reason = "the verdict is the text a queue record stores for a decided ticket; the withdrawn-by prefix is read once per refusal from that stored record and never held as state (north#722)"
+

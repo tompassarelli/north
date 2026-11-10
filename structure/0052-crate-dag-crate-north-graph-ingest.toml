@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-graph-ingest"
+paths = ["crates/north-graph-ingest/src/**"]
+may_use = ["north-base", "north-coverage", "north-fleet", "north-github-mirror", "north-graph", "north-threads"]
+

@@ -1,0 +1,1 @@
+  nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap

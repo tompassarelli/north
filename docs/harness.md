@@ -4,7 +4,7 @@ This document follows the harness end to end: how it is installed, where its pol
 worker is staffed and how a change lands. It names each step and links to the file that owns it, so
 values and flags are read there, not here: a command's `--help` for its flags,
 [harness/defaults.toml](../harness/defaults.toml) for every tuned number, [.safe-push](../.safe-push)
-for land checks and [features.md](features.md) for what each command is for. The words follow
+for land checks and [features/](features/) for what each command is for. The words follow
 [terms.md](terms.md).
 
 North is the harness layer. The fleet is a flat set of sessions coordinated by
@@ -41,7 +41,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
 4. Each host promotes landings itself: a timer runs `north runtime update`, `north runtime deploy`
    carries a build to the other declared hosts, and safe-push starts `north runtime follow` after a
    landing on north's main. The "Runtime promotion" entry in
-   [features.md](features.md#machines-capacity-and-scheduled-jobs) gives the order, the fallbacks
+   [features/08-machines-capacity-and-scheduled-jobs/](features/08-machines-capacity-and-scheduled-jobs/) gives the order, the fallbacks
    and the schedule.
 
 5. `agents sync` publishes policy. It fast-forwards the south and north main checkouts, runs the
@@ -60,7 +60,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    under that name until each host's Firn profile stops registering it.
 
 7. South registers a north-owned guard by its id; sync, `check-owners` and the policy checks resolve
-   it through the `[[registered]]` entry for that id in north's [structure.toml](../structure.toml),
+   it through the `[[registered]]` entry for that id in north's [structure/](../structure/) tree (the lander writes `structure.toml` from it),
    so moving the guard file edits that `path` and nothing in South.
 
 To try only the `north` app, follow the [README](../README.md#try-it); it needs neither South nor
@@ -105,7 +105,7 @@ one way to reach agents:
 
 A policy change lands like any other change. `agents sync` refuses to publish policy that fails its
 gate, including a measured drop in replay conformance against `south:agents/operating-point.toml`;
-the "Policy regression gate" entry in [features.md](features.md#policy-measurement) gives the rules.
+the "Policy regression gate" entry in [features/06-policy-measurement/](features/06-policy-measurement/) gives the rules.
 
 Each hook names the runtime gap it fills and is deleted when Claude Code closes that gap; the audit
 of every installed Claude hook entry is [rationale/hooks-and-runtime.md](rationale/hooks-and-runtime.md).
@@ -136,7 +136,7 @@ holds the tier table. In order:
    prompt and records the parent link. Before anything starts it runs the placement gate, and a
    Claude launch that holds an issue starts on the tier its brief earns, so leave the model and
    effort to it. The "Placement gate" and "Launch tier" entries in
-   [features.md](features.md#fleet-sessions) and `north fleet launch --help` give the verdicts and
+   [features/03-fleet-sessions/](features/03-fleet-sessions/) and `north fleet launch --help` give the verdicts and
    the recorded overrides.
 
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
@@ -158,7 +158,7 @@ completion.
 Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land with
 `safe-push --to main` (the north binary entered through its `safe-push` link, [crates/north-safe-push](../crates/north-safe-push); `safe-push --help` is the full contract;
 the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). The "Landing and
-lanes" entries in [features.md](features.md#landing-and-lanes) describe each gate. In outline:
+lanes" entries in [features/04-landing-and-lanes/](features/04-landing-and-lanes/) describe each gate. In outline:
 
 1. `safe-push --to main` asks its route decision, which refuses any host that is neither
    `landing.lander-host`, nor an ssh host of the fleet's `[hosts]`, nor in `landing.remote-hosts`, and any `landing.queue` other than the

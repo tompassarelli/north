@@ -1,0 +1,5 @@
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-threads/src/threads/board/issues.rs"
+reason = "rusqlite needs &mut Connection for transactions while Board hands out &self reads."
+

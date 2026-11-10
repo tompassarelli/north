@@ -1,0 +1,1 @@
+  config agents busy                            Exit 0 while an agent session is working

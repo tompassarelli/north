@@ -1,0 +1,5 @@
+[crate_lines]
+default = 25000
+hub = 10000
+hub_dependents = 3
+

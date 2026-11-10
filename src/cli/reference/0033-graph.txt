@@ -1,0 +1,1 @@
+  graph ground distill run [--since SINCE] [--no-refresh] [--if-idle] [--after-prompt]  Distill new corrections into grounding records

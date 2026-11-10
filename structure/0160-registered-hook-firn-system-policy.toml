@@ -1,0 +1,4 @@
+[[registered]]
+id = "hook.firn_system_policy"
+path = "crates/north-guard/src/guard/firn_system_policy.rs"
+

@@ -1,0 +1,1 @@
+  ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per new failure on each open "main is red" issue

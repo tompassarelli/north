@@ -1,0 +1,1 @@
+  test coverage record [NEXTEST-ARGUMENT...]    Record the test-to-function coverage map on a check host

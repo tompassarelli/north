@@ -1,0 +1,1 @@
+  check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock

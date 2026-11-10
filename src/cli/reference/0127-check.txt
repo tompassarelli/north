@@ -1,0 +1,1 @@
+  check harness [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary

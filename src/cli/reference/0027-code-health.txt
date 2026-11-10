@@ -1,0 +1,1 @@
+  code-health review-done [--repo DIR] [--config FILE] [--rev REV] [--json]  Record a structure review

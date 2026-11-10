@@ -1,0 +1,6 @@
+[[module]]
+name = "strategy_types"
+paths = ["crates/north-strategy-types/src/**"]
+responsibility = "The decision records the kernel writes and strategies read: one Case and one Decision per decision kind."
+may_use = []
+

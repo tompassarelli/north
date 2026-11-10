@@ -1,0 +1,1 @@
+  fleet laptop close                            Close the laptop to placement

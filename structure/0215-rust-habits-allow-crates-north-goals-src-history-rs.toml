@@ -1,0 +1,6 @@
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-goals/src/history.rs"
+item = "Store"
+reason = "Port for the concern history: keeps north-goals, which the landing's after-checks also run, free of north-threads and SQLite; the root crate wires the threads ledger behind it."
+

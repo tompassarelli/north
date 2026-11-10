@@ -1,0 +1,1 @@
+  contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract

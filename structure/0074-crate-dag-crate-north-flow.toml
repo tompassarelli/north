@@ -1,0 +1,5 @@
+[[crate_dag.crate]]
+name = "north-flow"
+paths = ["crates/north-flow/src/**"]
+may_use = ["north-base", "north-capacity-host", "north-dispatch", "north-fleet", "north-graph-loops", "north-ops", "north-pace", "north-providers", "north-threads"]
+

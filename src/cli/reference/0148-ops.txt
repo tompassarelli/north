@@ -1,0 +1,1 @@
+  ops check [--dry-run | --synthetic]           Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat

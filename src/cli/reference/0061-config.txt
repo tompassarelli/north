@@ -1,0 +1,1 @@
+  config check guides [--refresh] [--guides DIR]  List the vendored agent-policy guides and fail when one is over 90 days old; --refresh re-fetches them at their upstream head

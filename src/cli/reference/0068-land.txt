@@ -1,0 +1,1 @@
+  land abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin

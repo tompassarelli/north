@@ -1,0 +1,1 @@
+  graph validate [--db PATH] [--guards DIR] [--shadow]  Validate the graph against its guards

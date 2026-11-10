@@ -1,0 +1,1 @@
+  code-health habits [--repo DIR]               Run the Rust habit checks

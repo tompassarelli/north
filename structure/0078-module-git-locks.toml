@@ -1,0 +1,6 @@
+[[module]]
+name = "git_locks"
+paths = ["crates/north-git-locks/src/**"]
+responsibility = "Stale git lock files: the one removal an agent may make in a primary checkout's git directory."
+may_use = []
+

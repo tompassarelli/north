@@ -1,0 +1,1 @@
+  graph ground refresh [--force] [--if-idle] [--source NAME]...  Refresh the grounding docs in the graph from their sources
