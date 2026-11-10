@@ -1,6 +1,6 @@
 //! A fleet session's own `cargo clippy` through the gate, recorded by the clean tree it passed on so the land checks running the same clippy on that tree reuse it (north#902).
 
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -36,7 +36,28 @@ impl OwnRun {
 }
 
 /// Runs `command` to its end so its exit can be recorded, where the gate would otherwise become it.
-pub fn wait(command: &mut Command) -> std::io::Result<u8> {
+fn wait(command: &mut Command) -> std::io::Result<u8> {
     let status = command.status()?;
     Ok(u8::try_from(status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0))).unwrap_or(u8::MAX))
+}
+
+/// Runs `lease(program)` for `NAME ARGUMENTS` in a capacity lease; a clippy the land checks can reuse leases the shim instead of the real program, so the gate inside the lease waits for it and records it even when the lease is a broker this process becomes.
+pub fn leased(name: &str, arguments: &[String], (real, shim): (&str, &str), lease: impl FnOnce(&str) -> u8) -> u8 {
+    match OwnRun::of(name, arguments) {
+        Some(own) => own.settle(lease(shim)),
+        None => lease(real),
+    }
+}
+
+/// Becomes `command` outside a lease, or waits for it when its exit is a verdict to record.
+pub fn run(name: &str, arguments: &[String], command: &mut Command) -> u8 {
+    let error = match OwnRun::of(name, arguments) {
+        Some(own) => match wait(command) {
+            Ok(code) => return own.settle(code),
+            Err(error) => error,
+        },
+        None => command.exec(),
+    };
+    eprintln!("north capacity gate: {}: {error}", command.get_program().to_string_lossy());
+    126
 }

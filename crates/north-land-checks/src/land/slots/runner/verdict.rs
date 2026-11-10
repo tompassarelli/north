@@ -14,6 +14,7 @@ use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category};
 
 const LOCAL: &str = "local";
+const OWN_RUN: &str = " from a fleet session's own run on this tree";
 
 struct Inputs {
     root: PathBuf,
@@ -73,34 +74,18 @@ impl Shared {
         let inputs = Inputs::of(self);
         let land = keys(&inputs, commands, Inputs::key).await;
         let own = keys(&inputs, commands, Inputs::own_run_key).await;
-        let wanted: Vec<&str> = land.values().chain(own.values()).map(String::as_str).collect();
-        let found = if wanted.is_empty() {
-            BTreeMap::new()
-        } else {
-            match north(&self.root, &verdict_key::hit_arguments(&wanted)).await {
-                Some(output) if output.status.success() => verdict_key::hits(&String::from_utf8_lossy(&output.stdout)),
-                _ => {
-                    say("safe-push: the verdict cache could not be read, so every land check runs");
-                    BTreeMap::new()
-                }
-            }
-        };
-        let hit = |map: &BTreeMap<String, String>, command: &String| map.get(command).and_then(|key| found.get(key).map(|hit| (key.clone(), hit)));
+        let found = self.hits(&land.values().chain(own.values()).map(String::as_str).collect::<Vec<_>>()).await;
+        let hit = |map: &BTreeMap<String, String>, command: &String, source: &'static str| map.get(command).and_then(|key| found.get(key).map(|hit| (key.clone(), hit, source)));
         let mut pending = Vec::new();
         let mut reused = Vec::new();
         let mut credited = Vec::new();
         for command in commands {
-            let (key, (host, pass), own_run) = match (hit(&land, command), hit(&own, command)) {
-                (Some((key, found)), _) => (key, found, false),
-                (None, Some((key, found))) => (key, found, true),
-                (None, None) => {
-                    pending.push(command.clone());
-                    continue;
-                }
+            let Some((key, (host, pass), source)) = hit(&land, command, "").or_else(|| hit(&own, command, OWN_RUN)) else {
+                pending.push(command.clone());
+                continue;
             };
-            let source = if own_run { " from a fleet session's own run on this tree" } else { "" };
             say(&format!("safe-push: {}{source}", verdict_cache::reused_line(command, &key, host, pass)));
-            if own_run {
+            if source == OWN_RUN {
                 credited.push(command.clone());
             }
             reused.push((command.clone(), key));
@@ -109,6 +94,19 @@ impl Shared {
             self.cache_record(0, &credited).await;
         }
         (pending, reused)
+    }
+
+    async fn hits(&self, wanted: &[&str]) -> BTreeMap<String, (String, verdict_cache::Pass)> {
+        if wanted.is_empty() {
+            return BTreeMap::new();
+        }
+        match north(&self.root, &verdict_key::hit_arguments(wanted)).await {
+            Some(output) if output.status.success() => verdict_key::hits(&String::from_utf8_lossy(&output.stdout)),
+            _ => {
+                say("safe-push: the verdict cache could not be read, so every land check runs");
+                BTreeMap::new()
+            }
+        }
     }
 
     pub(super) async fn cache_record_as(&self, status: i32, commands: &[String], class: Option<&str>) {
