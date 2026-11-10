@@ -397,3 +397,45 @@ fn a_brokered_safe_push_queues_in_its_caller_s_state_home_and_every_other_reques
     assert_eq!(state(super::broker::request_homes(&words("depbox run -- cargo check"), Some(OPEN_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
     assert_eq!(state(super::broker::request_homes(&words("safe-push --to main"), Some(LANE_SCOPE), &sent, own())), ["/home/a/.local/state", "/home/a"]);
 }
+
+#[test]
+fn merge_tree_leaves_main_clean() {
+    let outside_tmp = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    std::fs::create_dir_all(&outside_tmp).unwrap();
+    let scratch = tempfile::Builder::new().prefix("north-1068-merge-tree").tempdir_in(outside_tmp).unwrap();
+    let home = scratch.path().canonicalize().unwrap();
+    let main = home.join("code/alpha/main");
+    std::fs::create_dir_all(home.join("code/alpha/worktrees")).unwrap();
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["config", "merge.keep.driver", "true"]);
+    std::fs::write(main.join(".gitattributes"), "features.md merge=keep\n").unwrap();
+    std::fs::write(main.join("features.md"), "base\n").unwrap();
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-q", "-m", "base"]);
+    git(&main, &["checkout", "-q", "-b", "side"]);
+    std::fs::write(main.join("features.md"), "side\n").unwrap();
+    git(&main, &["commit", "-q", "-am", "side"]);
+    git(&main, &["checkout", "-q", "main"]);
+    std::fs::write(main.join("features.md"), "main\n").unwrap();
+    git(&main, &["commit", "-q", "-am", "main"]);
+
+    let command = "git merge-tree --write-tree main side";
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::a_confined_command_child", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", &home)
+        .env(COMMAND, command)
+        .current_dir(&main)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let status = || String::from_utf8(Command::new("git").arg("-C").arg(&main).args(["status", "--porcelain"]).output().unwrap().stdout).unwrap();
+    assert!(status().contains(".merge_file_"), "the domain no longer leaves git's temporaries, so the wrapper's sweep guards nothing: {}", status());
+    let mut context = Context::from_env(command);
+    context.home = home;
+    context.cwd = main.clone();
+    super::sweep::clear(&super::sweep::places(&context));
+    assert_eq!(status(), "", "main is not clean after the command's sweep");
+}

@@ -11,6 +11,7 @@ mod readable;
 mod removable;
 mod hook_screen;
 mod sockets;
+mod sweep;
 
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt;
@@ -32,6 +33,7 @@ const OUTSIDE: &str = "--outside";
 const BROKER: &str = "--broker";
 const MAKER: &str = "--make-namespaces";
 const BUILT: &str = "--built";
+const SWEPT: &str = "NORTH_WORKER_SWEEP_PARENT";
 const LANE: &str = "--lane";
 const PROGRAM: &str = "--program";
 const HAND_OFF: &str = "--hand-off";
@@ -135,14 +137,17 @@ fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
     if let Some(refused) = hook_screen::refusal(command, screen) {
         return refused;
     }
-    broker::ensure();
     let context = Context::from_env(command);
     let confined = confines_worker();
+    if confined && std::env::var_os(SWEPT).is_none() {
+        return sweep::around(command, &context, SWEPT);
+    }
+    broker::ensure();
     let hidden = confined && hide_sockets(&context);
     let roots = confined.then(|| removable(&context));
     report(confine(roots.as_deref(), &readable(&context), Some(&executable(&context)), None));
     let shell = std::env::var_os("SHELL").filter(|shell| !shell.is_empty()).unwrap_or_else(|| OsString::from("bash"));
-    let error = Command::new(shell).arg("-c").arg(command).envs(git_credential::session_env()).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
+    let error = Command::new(shell).arg("-c").arg(command).envs(git_credential::session_env()).env_remove(SWEPT).env(MARK, "1").envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {error}");
     std::process::ExitCode::from(126)
 }
