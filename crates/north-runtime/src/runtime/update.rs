@@ -1,3 +1,4 @@
+use super::canary;
 use super::bounded;
 use super::host_facts;
 use super::failure::{DEFERRED, Failure, code, failed};
@@ -7,6 +8,7 @@ use super::live;
 use super::peers;
 use super::pin;
 use super::pull;
+use super::probe::Shell;
 use super::remote;
 use super::reuse;
 use super::store;
@@ -204,6 +206,10 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     let was = previous.and_then(layout::linked_sha);
     if let Some(was) = was {
         lifecycle::confirm_current(layout, was)?;
+        let host = host::name();
+        if layout.live_sha().as_deref() == Some(was) && judge_outgoing(layout, &host, was, &canary::Live { layout, host: &Shell::Here(host.clone()) }) {
+            return Ok(Pass::Settled);
+        }
     }
     let verdict = hold::verdict(layout, target, usable(&layout.runtime(target)))?;
     if let Some(notice) = verdict.notice(short, was.unwrap_or("none")) {
@@ -227,6 +233,11 @@ fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Pat
     host_facts::record_after_promotion(layout, target);
     collect(layout, target, previous).map_err(|error| failed(1, format!("collecting old runtimes: {error}")))?;
     Ok(Pass::Promoted)
+}
+
+/// Judges the runtime a promotion is about to replace when no canary has: it is the rollback target should the next one fail. A rollback leaves another runtime live, so the promotion waits for the next pass.
+pub(super) fn judge_outgoing(layout: &Layout, host: &str, was: &str, machine: &impl canary::Machine) -> bool {
+    canary::check(layout, host, was, machine) == canary::Verdict::RolledBack
 }
 
 fn catch_up(layout: &Layout, checkout: &Path, main: &str, previous: Option<&Path>) -> Result<Option<Pass>, Failure> {
