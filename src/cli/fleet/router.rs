@@ -115,7 +115,8 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["need", rest @ ..] => need::run(rest),
         ["drain", rest @ ..] => drain::run(rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
-        ["hold", task] => hold(&fleet, task),
+        ["hold", task] => hold(&fleet, task, false),
+        ["hold", "--release", task] => hold(&fleet, task, true),
         ["accounts", flags @ ..] => accounts::run(&fleet, flags),
         ["digest", ..] => {
             eprintln!("north fleet digest moved to `north work --since DURATION`; it prints the same landed, in-flight, gate, stall and held sections");
@@ -165,9 +166,9 @@ pub(super) fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult
 }
 
 
-fn hold(fleet: &Fleet, task: &str) -> NorthResult<()> {
+fn hold(fleet: &Fleet, task: &str, release: bool) -> NorthResult<()> {
     let session = std::env::var(SESSION_ENV).ok().filter(|name| !name.is_empty()).ok_or_else(|| NorthError::Usage(format!("north fleet hold REPO#N: ${SESSION_ENV} is unset, so no session holds it")))?;
-    fleet.hold_task(&session, task)
+    if release { fleet.release_task(&session, task) } else { fleet.hold_task(&session, task) }
 }
 
 fn controlled(fleet: &Fleet, verb: ControlVerb, name: &str) -> NorthResult<()> {
