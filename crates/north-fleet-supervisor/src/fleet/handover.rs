@@ -1,7 +1,7 @@
 //! A session is taken over onto another source when `usage::decide::assess` says so: a worker with
 //! unlanded work once its source is out or paused, a proxy or lead before its source runs out. A worker
 //! resumes its own conversation there; one that never started a conversation gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
-//! A session on an API organization stays out: `api_pool::move_spent` moves it only on the provider's own low-credit refusal, never on north's credit estimate.
+//! A session on an API organization moves only to another API organization, never to a subscription account; with none open it stays, and `api_pool::move_spent` acts on the provider's own refusal.
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod proxy;
@@ -92,6 +92,8 @@ pub fn hand_over(
             let _ = fleet.set_all_out_announced(false);
         }
     }
+    let pools: BTreeSet<String> = fleet.accounts().into_iter().filter(|account| account.api.is_some()).filter_map(|account| account.label.split(':').next().map(str::to_owned)).collect();
+    let on_api = |label: &str| label.split_once(':').is_some_and(|(pool, _)| pools.contains(pool));
     let mut moving = BTreeSet::new();
     for (name, action) in assessed.actions {
         let Some(record) = records.iter().find(|record| record.name == name.0) else { continue };
@@ -106,6 +108,10 @@ pub fn hand_over(
                 continue;
             }
         };
+        if on_api(&record.account) && !on_api(&to.0) {
+            done.lines.push(format!("{}: stays on account {}: a session on an API organization moves only to another one, not to {}", record.name, record.account, to.0));
+            continue;
+        }
         if record.role() == Role::Proxy {
             moving.insert(record.name.as_str());
             done.lines.extend(proxy::advance(fleet, record, &to.0, family, take_over, now_ms));
@@ -140,13 +146,11 @@ pub fn hand_over(
 fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {
     let waits = fleet.waits();
     let parked = |name: &str| waits.of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
-    let pools: BTreeSet<String> = fleet.accounts().into_iter().filter(|account| account.api.is_some()).filter_map(|account| account.label.split(':').next().map(str::to_owned)).collect();
-    let on_api = |record: &SessionRecord| record.account.split_once(':').is_some_and(|(pool, _)| pools.contains(pool));
     fleet
         .sessions()
         .unwrap_or_default()
         .into_iter()
-        .filter(|record| record.provider.label() == "claude" && !record.verification && !on_api(record))
+        .filter(|record| record.provider.label() == "claude" && !record.verification)
         .filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::IdleExited)))
         .filter(|record| if record.adopted() { fleet.running(record) } else { recent(record) && (fleet.running(record) || parked(&record.name)) })
         .collect()
