@@ -1,4 +1,7 @@
+use std::fs::File;
 use std::path::{Path, PathBuf};
+
+use rustix::fs::{FlockOperation, flock};
 
 use super::lane_issue;
 use super::repo::{git_checked, git_ok, git_out, is_lander_tree};
@@ -86,7 +89,18 @@ pub fn create(lane: &Path, issue: &str, from: Option<&str>) -> Result<String, St
     }
     let item = qualified(&main, issue)?;
     let base = from.map(str::to_owned).or_else(|| ["origin/main", "main"].into_iter().find(|base| git_ok(&main, &["rev-parse", "-q", "--verify", base])).map(str::to_owned)).ok_or("no origin/main or main to start from")?;
-    git_checked(&main, &["worktree", "add", "-q", "--no-track", "-b", slug, &lane.to_string_lossy(), &base])?;
+    {
+        let _serial = serialized(&main)?;
+        git_checked(&main, &["worktree", "add", "-q", "--no-track", "-b", slug, &lane.to_string_lossy(), &base])?;
+    }
     lane_issue::record(&main, slug, &item)?;
     Ok(item)
+}
+
+fn serialized(main: &Path) -> Result<File, String> {
+    let dir = main.join(".git/north");
+    std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let file = File::create(dir.join("lane-new.lock")).map_err(|error| format!("cannot open the lane creation lock: {error}"))?;
+    flock(&file, FlockOperation::LockExclusive).map_err(|error| format!("cannot take the lane creation lock: {error}"))?;
+    Ok(file)
 }
