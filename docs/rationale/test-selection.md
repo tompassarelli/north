@@ -174,9 +174,19 @@ commits of the cost sample below.
   the lander bisects that range on the failed tests alone, by exact name. The responsible lane is the first whose tip
   turns red where its parent passes. If that lane's pre-landing selection did not hold the failed test, that is a
   miss.
+- **Judging as built (n1039-miss).** Until the lander bisects, `north land missed` names the lane from Actions alone:
+  among the first-parent commits after the last passing Cargo run, the suspects run from the last commit whose own
+  run passed (or did not fail the test) to the first whose run failed it, and the lane is named only when those
+  suspects carry exactly one lane in the lander's `post-land.tsv`; a batch waits for the bisection. The stored
+  selection it reads is the `selected` record whose range is exactly that lane's landing (its parent to its commit),
+  which the after-landing check computes from the lane's own diff, or reuses from its alone check. `--until` judges a
+  settled window from a mirror stamped at least an hour after it, so the 2026-11-10 replay runs off the lander host.
+  Failures of `north test coverage record` are not read yet: the record does not keep its failed tests (n1039-map).
+  The `:guards` edge names the map's `test:BINARY::NAME` node when the graph holds exactly one, else `test:NAME`, since
+  the Actions log names a test without its binary; the rule 2 reader matches both forms.
 - **Record.** `north ledger incident record --key selection-miss:LANE:TEST --class selection-miss --noticed-by lander
   --repo north --subject LANE --detail "TEST; FILES"` records the lane, the test and the lane's changed files, and
-  `north ledger flow` lists the incident. When the guard lands,
+  `north ledger incident report` on the ledger host lists the incident. When the guard lands,
   `north ledger incident guard --class selection-miss --guard SHA --landed-at EPOCH --issue north#1039` names it, so
   `recurred_after_guard` counts the misses after this design lands. Its weekly reading is the miss rate this design
   is judged by.
