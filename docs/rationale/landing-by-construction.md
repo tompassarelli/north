@@ -122,15 +122,16 @@ worker updates its own class's line when its lane lands.
 - Invariants: no verdict is not a fail (2), and read the source of truth by revision (4).
 - Mechanism: promote moves the link on matches plus transients and holds only on a divergence or
   zero matches. Its replays run on build hosts, and the doctor pages the proxy when the link lags
-  more than 3 landings or 15 minutes (n842-promote). Every lander round line names the build the
-  lander runs, read from its own executable, and its count of lander-input commits behind
-  origin/main, with the hold reason. Past 3 behind it pages the proxy once per build, which also
-  catches a stale current (north-892-d0221).
+  more than 3 landings or 15 minutes (n842-promote). The lander names the build it runs, read from
+  its own executable, and its count of lander-input commits behind origin/main whenever that note
+  changes at the start of a serve round and on every candidate line; past 3 behind it pages the
+  proxy once per build, which also catches a stale current (north-892-d0221).
 - Replay: `cargo nextest run -p north-lander -p north-lander-doctor`. Matches plus one transient
-  round move the link, and a divergence still holds it. The 8:00 to 9:06 AM window prints
-  `3efa5a3d, N lander changes behind main, held: REASON` on every round.
-- Status: in flight. n842-promote (b2f53919ed queued) and north-892-d0221 (n892-lander-build,
-  2a616914fc queued).
+  round move the link, and a divergence still holds it. The build_lag replay names a build 4
+  lander changes behind main as over the limit of 3 and pages the proxy once per build:
+  `a_lander_more_than_the_limit_of_lander_changes_behind_main_names_its_build_and_pages_the_proxy_once`.
+- Status: enforced. n842-promote landed as cd2922adad and north-892-d0221 as
+  1bc7787e31af64a04159f42190d62fc111fafb82, both ancestors of origin/main.
 
 ### 4. A withdrawn lane keeps poisoning a round, and two culprits defeat bisection
 
