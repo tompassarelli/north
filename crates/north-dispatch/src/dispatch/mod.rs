@@ -354,21 +354,23 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
         println!("{line}");
     }
     let now = placement::now();
-    let mut alerts_failed = false;
     let frozen = freeze::frozen(&outcome, &failures, &freeze::guards(&survey));
-    if let Some(basis) = &frozen
-        && let Err(why) = effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, now)
-    {
+    let told = match &frozen {
+        Some(basis) => effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, now),
+        None => Ok(()),
+    };
+    if let Err(why) = &told {
         eprintln!("north fleet dispatch: {why}");
-        alerts_failed = true;
     }
-    if !effects::report_failures(&record::read(&record::directory()), now, dry_run) {
-        alerts_failed = true;
-    }
-    if !freeze::watch(&survey.here, frozen, dry_run, now) {
-        alerts_failed = true;
-    }
-    if alerts_failed { 1 } else { 0 }
+    let reported = effects::report_failures(&record::read(&record::directory()), now, dry_run);
+    let watched = freeze::watch(&survey.here, frozen, dry_run, now);
+    exit(told, reported, watched)
+}
+
+/// The run's exit code: 1 when any of its alert sinks failed, so the fleet tick and the unit's log
+/// see a lost alert as a failed dispatch run rather than a successful one (north#1071).
+fn exit(told: Result<(), String>, reported: bool, watched: bool) -> u8 {
+    u8::from(told.is_err() || !reported || !watched)
 }
 
 /// `north cloud launch REPO SLUG BRIEF [--item REPO#N]`: starts the brief in the cloud lane, registers

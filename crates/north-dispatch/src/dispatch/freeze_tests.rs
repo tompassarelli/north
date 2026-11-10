@@ -76,3 +76,22 @@ fn the_tripwire_freeze_of_2026_11_08_tells_the_proxy_once_on_the_first_dispatch_
     assert_eq!(alerts, ["dispatch alert"]);
     assert!(super::effects::deliver("dispatch alert", &mut |_| Err("no token".to_owned()), &mut |_| Err("no proxy".to_owned())).is_err());
 }
+
+#[test]
+fn a_failed_nexus_alert_pages_the_proxy_and_still_makes_the_dispatch_run_exit_non_zero() {
+    let line = format!("north fleet dispatch on whiterabbit: the failed alert sink of test {} is a page", std::process::id());
+    let mut pages = Vec::new();
+    let told = super::effects::tell_tom_with(&line, false, 1_700_000_000.0, &mut |_| Err("exited 1".to_owned()), &mut |paged| {
+        pages.push(paged.to_owned());
+        Ok(())
+    }, &mut |_, _| {});
+    assert_eq!(pages, std::slice::from_ref(&line), "a failed nexus-alert is itself a page carrying the whole line");
+    assert!(told.is_err(), "a delivered page still returns Err, so the run does not look successful");
+    assert_eq!(super::exit(told, true, true), 1, "a dispatch run whose alert sink failed exits non-zero");
+    assert_eq!(super::exit(Ok(()), true, true), 0, "a run whose alerts all went out exits zero");
+    assert_eq!(super::exit(Ok(()), false, true), 1, "a failed launch page fails the run");
+    assert_eq!(super::exit(Ok(()), true, false), 1, "a failed freeze page fails the run");
+    let both = super::effects::tell_tom_with(&line, false, 1_700_000_000.0, &mut |_| Err("no token".to_owned()), &mut |_| Err("no proxy".to_owned()), &mut |_, _| {});
+    let why = both.expect_err("both sinks failed, so telling Tom failed");
+    assert!(why.contains("no token") && why.contains("no proxy"), "{why}");
+}

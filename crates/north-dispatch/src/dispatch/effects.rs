@@ -238,6 +238,26 @@ pub fn page_proxy(line: &str) -> Result<(), String> {
 
 /// Sends `line` through nexus-alert unless the same line went out in the last six hours, and pages the proxy when nexus-alert fails.
 pub fn tell_tom(line: &str, dry_run: bool, at: f64) -> Result<(), String> {
+    let mut alert = |line: &str| match run_within("nexus-alert", &["normal", line, "north fleet dispatch"], Duration::from_secs(30)) {
+        Some(output) if output.status.success() => Ok(()),
+        Some(output) => Err(format!("exited {}", output.status)),
+        None => Err("did not return within 30 s".to_owned()),
+    };
+    let mut page = |line: &str| page_proxy(line);
+    let mut written = |line: &str, at: f64| remember("alert.json", &json!({"text": line, "at": at}));
+    tell_tom_with(line, dry_run, at, &mut alert, &mut page, &mut written)
+}
+
+/// `tell_tom` with its sinks and its record passed in: a failed alert is itself a page, and either
+/// sink failing still returns `Err`, so the dispatch run exits non-zero even when the proxy page goes out.
+pub(super) fn tell_tom_with(
+    line: &str,
+    dry_run: bool,
+    at: f64,
+    alert: &mut dyn FnMut(&str) -> Result<(), String>,
+    page: &mut dyn FnMut(&str) -> Result<(), String>,
+    written: &mut dyn FnMut(&str, f64),
+) -> Result<(), String> {
     let last = placement::pace_state("dispatch/alert.json");
     if last["text"] == line && last["at"].as_f64().is_some_and(|sent| at - sent < REPEAT_ALERT_S) {
         println!("alert already sent: {line}");
@@ -247,21 +267,15 @@ pub fn tell_tom(line: &str, dry_run: bool, at: f64) -> Result<(), String> {
         println!("would alert: {line}");
         return Ok(());
     }
-    let mut alert = |line: &str| match run_within("nexus-alert", &["normal", line, "north fleet dispatch"], Duration::from_secs(30)) {
-        Some(output) if output.status.success() => Ok(()),
-        Some(output) => Err(format!("exited {}", output.status)),
-        None => Err("did not return within 30 s".to_owned()),
-    };
-    let mut page = |line: &str| page_proxy(line);
-    match deliver(line, &mut alert, &mut page) {
+    match deliver(line, alert, page) {
         Ok(Delivery::Alert) => {
             println!("alerted: {line}");
-            remember("alert.json", &json!({"text": line, "at": at}));
+            written(line, at);
             Ok(())
         }
         Ok(Delivery::Page) => {
             println!("paged the proxy: {line}");
-            remember("alert.json", &json!({"text": line, "at": at}));
+            written(line, at);
             Err(format!("nexus-alert failed; paged the proxy instead: {line}"))
         }
         Err(why) => Err(format!("{why}; the line was: {line}")),
