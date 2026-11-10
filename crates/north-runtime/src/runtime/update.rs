@@ -27,7 +27,6 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 const PASSES: usize = 5;
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
-const WANTED: &str = "runtime-promote.wanted";
 
 pub(super) mod hold;
 mod build;
@@ -51,15 +50,12 @@ pub(super) enum Flight {
 }
 
 pub(super) fn update(layout: &Layout) -> Result<Flight, Failure> {
-    let flown = flight(layout, follow_main);
-    if matches!(flown, Ok(Flight::Joined)) && land_offload::settles_fleet_here() {
-        note_landing(layout);
-    }
+    let flown = flight(layout);
     host_facts::record_if_stale(layout);
     flown
 }
 
-/// A caller that left its landing to the running promotion still dates it, so landing to live counts from the landing, not from when the holder reached it.
+/// A caller that waits for the running promotion still dates its landing, so landing to live counts from the landing, not from when the lock came free.
 fn note_landing(layout: &Layout) {
     let checkout = checkout();
     if let Ok(main) = main_commit(&checkout) {
@@ -67,26 +63,19 @@ fn note_landing(layout: &Layout) {
     }
 }
 
-/// One promotion runs per host: every caller marks one wanted, and the caller holding the update lock follows origin/main again while a mark is left, so a landing during a build is promoted next at the newest head, and a caller that finds the lock held leaves its landing to the holder.
-pub(super) fn flight(layout: &Layout, mut run: impl FnMut(&Layout) -> Result<(), Failure>) -> Result<Flight, Failure> {
-    let wanted = layout.state.join(WANTED);
-    fs::create_dir_all(&layout.state)?;
-    fs::write(&wanted, "")?;
-    let (mut flew, mut last) = (false, Ok(()));
-    loop {
-        let Some(lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
-            if !flew {
-                println!("north runtime: a promotion is running here and takes origin/main's newest head when its pass ends");
-            }
-            return last.map(|()| if flew { Flight::Flew } else { Flight::Joined });
-        };
-        flew = true;
-        while fs::remove_file(&wanted).is_ok() {
-            last = run(layout);
-        }
-        drop(lock);
-        if !wanted.exists() {
-            return last.map(|()| Flight::Flew);
+/// One promotion runs per host: a caller that finds one running dates its landing and waits for the update lock, then follows origin/main at its newest head, which costs one fetch when the holder already promoted it; a caller still waiting after `PINNED_LOCK_WAIT` leaves its landing to the next tick.
+fn flight(layout: &Layout) -> Result<Flight, Failure> {
+    if let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? {
+        return follow_main(layout).map(|()| Flight::Flew);
+    }
+    if land_offload::settles_fleet_here() {
+        note_landing(layout);
+    }
+    match lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime promote") {
+        Ok(_lock) => follow_main(layout).map(|()| Flight::Flew),
+        Err(held) => {
+            println!("north runtime: {}; the next tick takes origin/main's newest head", held.message);
+            Ok(Flight::Joined)
         }
     }
 }
@@ -139,7 +128,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     live::note_swap(layout, &layout::link(&previous));
     lifecycle::move_to::<Promoting>(layout, failed_sha, Promotion::RolledBack, "rolled back on this host after promotion")?;
     lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
-    super::canary::trust(layout, &host::name(), &previous, layout::short(failed_sha));
+    lifecycle::trust(layout, &host::name(), &previous, layout::short(failed_sha));
     println!("north runtime rolled back to {previous}");
     Ok(previous)
 }

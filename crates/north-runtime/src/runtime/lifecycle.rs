@@ -2,7 +2,7 @@
 //! through `north_base::lifecycle`: a runtime's journey to `current` and back, the core-loop probes that judge it on a
 //! host, and the one judgement settle makes of each landing.
 use super::failure::{Failure, failed};
-use super::layout::Layout;
+use super::layout::{self, Layout};
 use north_base::foundation::clock::Timestamp;
 use north_base::lifecycle::{Lifecycle, Record, Refusal, State, Store};
 use std::time::Duration;
@@ -223,4 +223,15 @@ pub(super) fn went_live(layout: &Layout, target: &str, replaced: Option<&str>) -
         move_to::<Promoting>(layout, replaced, Promotion::Superseded, &format!("replaced by {}", super::layout::short(target)))?;
     }
     Ok(())
+}
+
+/// The runtime a host rolled back to after `failed` failed is trusted there and never judged again.
+pub(super) fn trust(layout: &Layout, host: &str, previous: &str, failed: &str) {
+    let instance = format!("{host}/{previous}");
+    if !layout::is_sha(previous) || state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
+        return;
+    }
+    if let Err(failure) = move_to::<Canarying>(layout, &instance, Canary::Trusted, &format!("the rollback target after {failed} failed; trusted, not re-judged")) {
+        eprintln!("north runtime canary: {host}: {}: {}", layout::short(previous), failure.message);
+    }
 }

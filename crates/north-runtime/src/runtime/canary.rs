@@ -98,7 +98,7 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
     match machine.roll_back(sha) {
         Rollback::To(previous) => {
             finish(Canary::RolledBack, &failure);
-            trust(layout, host, &previous, short);
+            lifecycle::trust(layout, host, &previous, short);
             machine.alarm(&format!("north runtime canary: {failure}; {host} rolled back to {} and quarantines {short} until a newer landing", layout::short(&previous)));
             Verdict::RolledBack
         }
@@ -141,16 +141,6 @@ fn host_fault(host: &str, short: &str, machine: &impl Machine, faults: &[String]
     println!("north runtime canary: {host}: {short} not judged: {why}");
     finish(Canary::Unjudged, &why);
     Verdict::Unrun(why)
-}
-
-pub(super) fn trust(layout: &Layout, host: &str, previous: &str, failed: &str) {
-    let instance = format!("{host}/{previous}");
-    if !layout::is_sha(previous) || lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
-        return;
-    }
-    if let Err(failure) = lifecycle::move_to::<Canarying>(layout, &instance, Canary::Trusted, &format!("the rollback target after {failed} failed; trusted, not re-judged")) {
-        eprintln!("north runtime canary: {host}: {}: {}", layout::short(previous), failure.message);
-    }
 }
 
 pub(super) fn tail(log: &str) -> String {
