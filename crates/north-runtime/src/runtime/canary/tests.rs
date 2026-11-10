@@ -74,6 +74,7 @@ impl Host {
         symlink(layout::link(PROMOTED), layout.current()).unwrap();
         lifecycle::move_to::<Promoting>(&layout, PREVIOUS, Promotion::Superseded, "replaced by the promoted runtime").unwrap();
         lifecycle::move_to::<Promoting>(&layout, PROMOTED, Promotion::Live, "passed its health check and agents sync").unwrap();
+        lifecycle::move_to::<Canarying>(&layout, &format!("nexus/{PREVIOUS}"), Canary::Passed, "all core-loop probes exited 0").unwrap();
         Self { _dir: dir, layout }
     }
 
@@ -328,4 +329,20 @@ fn a_launching_host_whose_sessions_reach_no_other_host_is_not_probed_for_a_worke
     assert!(probes::sessions_reach_hub(&config, "whiterabbit"));
     assert!(probes::sessions_reach_hub(&config, "nexus"));
     assert!(!probes::sessions_reach_hub(&config, "cpx62b"));
+}
+
+#[test]
+fn a_rollback_lands_only_on_a_runtime_whose_canary_passed() {
+    const UNJUDGED: &str = "2222222222222222222222222222222222222222";
+    const FAILING: &str = "3333333333333333333333333333333333333333";
+    let host = Host::promoted();
+    for sha in [UNJUDGED, FAILING] {
+        fs::create_dir_all(host.layout.runtime(sha)).unwrap();
+        for program in layout::PROGRAMS {
+            fs::write(host.layout.runtime(sha).join(program), "").unwrap();
+        }
+    }
+    lifecycle::move_to::<Promoting>(&host.layout, UNJUDGED, Promotion::Superseded, "replaced").unwrap();
+    let target = lifecycle::previous(&host.layout, FAILING, |sha| layout::has_programs(&host.layout.runtime(sha))).unwrap();
+    assert_eq!(target.as_deref(), Some(PREVIOUS), "on 2026-11-10 a rollback landed on an unjudged runtime and the regression window began there");
 }
