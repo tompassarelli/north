@@ -52,32 +52,50 @@ impl Client {
 
     pub(super) fn snapshot_verb(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
         if argv[0] == "snapshot-pages" {
-            let database = self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from);
-            return match snapshot::serve(&database, self.no_native_reason().is_some(), stdin, &mut io::stdout().lock()) {
-                Ok(()) => Ok(0),
-                Err(error) => {
-                    writeln!(err, "NorthThreads: snapshot pages failed: {error}")?;
-                    Ok(1)
-                }
-            };
+            return self.snapshot_pages(stdin, err);
         }
-        let (mut force, mut path, mut dest) = (false, self.snapshot.clone(), None);
-        let mut rest = argv[1..].iter();
+        let pull = SnapshotPull::parse(&argv[1..], self.snapshot.clone())?;
+        match snapshot::refresh(&self.pull_argv(&pull.dest), &pull.path, if pull.force { Duration::ZERO } else { snapshot::SNAPSHOT_AGE }, snapshot::PULL_TIMEOUT) {
+            Ok(_) => Ok(0),
+            Err(error) => {
+                writeln!(err, "NorthThreads: snapshot pull from {} failed: {error}", pull.dest)?;
+                Ok(1)
+            }
+        }
+    }
+
+    fn snapshot_pages(&self, stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
+        let database = self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from);
+        match snapshot::serve(&database, self.no_native_reason().is_some(), stdin, &mut io::stdout().lock()) {
+            Ok(()) => Ok(0),
+            Err(error) => {
+                writeln!(err, "NorthThreads: snapshot pages failed: {error}")?;
+                Ok(1)
+            }
+        }
+    }
+}
+
+struct SnapshotPull {
+    force: bool,
+    path: PathBuf,
+    dest: String,
+}
+
+impl SnapshotPull {
+    fn parse(args: &[String], default_path: PathBuf) -> NorthResult<Self> {
+        const USAGE: &str = "usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST";
+        let (mut force, mut path, mut dest) = (false, default_path, None);
+        let mut rest = args.iter();
         while let Some(arg) = rest.next() {
             match arg.as_str() {
                 "--force" => force = true,
                 "--snapshot" => path = rest.next().map(PathBuf::from).ok_or_else(|| NorthError::Usage("--snapshot needs a path".into()))?,
                 _ if dest.is_none() && !arg.starts_with('-') => dest = Some(arg.clone()),
-                _ => return Err(NorthError::Usage("usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST".into())),
+                _ => return Err(NorthError::Usage(USAGE.into())),
             }
         }
-        let dest = dest.ok_or_else(|| NorthError::Usage("usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST".into()))?;
-        match snapshot::refresh(&self.pull_argv(&dest), &path, if force { Duration::ZERO } else { snapshot::SNAPSHOT_AGE }, snapshot::PULL_TIMEOUT) {
-            Ok(_) => Ok(0),
-            Err(error) => {
-                writeln!(err, "NorthThreads: snapshot pull from {dest} failed: {error}")?;
-                Ok(1)
-            }
-        }
+        let dest = dest.ok_or_else(|| NorthError::Usage(USAGE.into()))?;
+        Ok(Self { force, path, dest })
     }
 }
