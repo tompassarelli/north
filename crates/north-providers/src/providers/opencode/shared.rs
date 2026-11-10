@@ -1,6 +1,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use super::route::Route;
+
 const POLICY: &str = "instructions/shared/AGENTS.md";
 const SKILLS: &str = "skills/shared";
 
@@ -36,6 +38,13 @@ impl Shared {
         }
         Ok(())
     }
+}
+
+/// The first-turn text of a worker on `route`: `delivered` with the shared policy after it, and the shared skills projected under `skills`; the free route gets neither, because it may train on its prompts and the shared text is private.
+pub fn deliver(shared: Option<&Shared>, route: Route, delivered: String, skills: &Path) -> io::Result<String> {
+    let Some(shared) = shared.filter(|_| route == Route::Go) else { return Ok(delivered) };
+    shared.project_skills(skills)?;
+    Ok(shared.policy().map_or(delivered.clone(), |policy| format!("{delivered}\n\n{policy}")))
 }
 
 fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
