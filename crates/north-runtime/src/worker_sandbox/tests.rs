@@ -8,6 +8,7 @@ use super::{Context, confine, executable, readable, removable};
 const COMMAND: &str = "NORTH_706_LOCKS_COMMAND";
 const LOGINS_ONLY: &str = "NORTH_977_LOGINS_ONLY";
 const HAND_OFF_TARGET: &str = "NORTH_975_HAND_OFF_TARGET";
+const OUTSIDE_MARKER: &str = "NORTH_CAPACITY_LOOP_MARKER";
 
 fn git(directory: &Path, arguments: &[&str]) {
     let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"]).args(arguments).output().unwrap();
@@ -296,4 +297,29 @@ fn namespaces_laid_before_a_nixos_activation_moved_ssh_config_are_not_reused_nor
     let after = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/zhf1-etc-ssh-ssh_config")) };
     assert!(!before.serves(&after));
     assert!(before.serves(&Laid { hidden: vec![socket], ssh_config: before.ssh_config.clone() }));
+}
+
+#[test]
+fn an_outside_child() {
+    let Some(marker) = std::env::var_os(OUTSIDE_MARKER) else {
+        return;
+    };
+    let _ = super::outside("/bin/sh", &["-c".to_owned(), format!("touch {}", marker.to_string_lossy())]);
+    std::process::exit(126);
+}
+
+#[test]
+fn hidden_sockets_without_the_mark_never_run_an_outside_command_in_place() {
+    let scratch = tempfile::tempdir().unwrap();
+    let marker = scratch.path().join("ran-in-place");
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "worker_sandbox::tests::an_outside_child", "--nocapture"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("XDG_RUNTIME_DIR", scratch.path())
+        .env(super::SOCKETS_HIDDEN, "1")
+        .env(OUTSIDE_MARKER, &marker)
+        .output()
+        .unwrap();
+    assert!(!marker.exists(), "--outside ran its command in place under hidden sockets, so `capacity host run` exec'd itself in a loop at a full core: {}", String::from_utf8_lossy(&output.stderr));
 }

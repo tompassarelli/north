@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use north_base::verdict_cache::path_set::{self, Kind};
@@ -46,9 +46,10 @@ pub fn read(places: &Places) -> Result<Sourced, String> {
     if let Some((_, probe)) = probe {
         facts.tell(WRITER, text("reads:north"), "reads-commit", text(probe));
     }
+    let found = set_paths(&places.verdict_cache, &newest.values().map(|unit| unit.set).collect());
     let mut unfound = 0;
     for ((binary, name), unit) in &newest {
-        let Some(body) = set_body(&places.verdict_cache, unit.set) else {
+        let Some(body) = found.get(unit.set).and_then(|path| std::fs::read_to_string(path).ok()) else {
             unfound += 1;
             continue;
         };
@@ -72,11 +73,15 @@ pub fn read(places: &Places) -> Result<Sourced, String> {
     Ok(facts.finish_noted())
 }
 
-fn set_body(verdict_cache: &Path, id: &str) -> Option<String> {
-    if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
+/// Where each wanted path set lies, found in one pass over the cache: a set's id is its content's hash, so any weak key's copy serves, and listing the whole cache once per test made one ingest take minutes of system time.
+fn set_paths(verdict_cache: &Path, wanted: &BTreeSet<&str>) -> HashMap<String, PathBuf> {
+    let mut found = HashMap::new();
+    for weak in std::fs::read_dir(verdict_cache.join("v2")).into_iter().flatten().flatten() {
+        for set in std::fs::read_dir(weak.path().join("sets")).into_iter().flatten().flatten() {
+            if let Some(id) = set.file_name().to_str().filter(|id| wanted.contains(id)) {
+                found.entry(id.to_owned()).or_insert_with(|| set.path());
+            }
+        }
     }
-    let mut weak: Vec<PathBuf> = std::fs::read_dir(verdict_cache.join("v2")).ok()?.flatten().map(|entry| entry.path()).collect();
-    weak.sort();
-    weak.iter().find_map(|dir| std::fs::read_to_string(dir.join("sets").join(id)).ok())
+    found
 }

@@ -83,9 +83,9 @@ pub fn run(arguments: &[String]) -> std::process::ExitCode {
     }
 }
 
-/// Runs `north WORDS` outside the worker's Landlock domain, through the broker that a fixed set of verbs may ask (broker.rs), for a tool that must build its own mount namespace (Landlock refuses mount(2) inside a domain, so bubblewrap cannot start there); run unsandboxed, it just execs `north WORDS`. The tool's own namespace then confines what it may write.
+/// Runs `north WORDS` outside the worker's Landlock domain, through the broker that a fixed set of verbs may ask (broker.rs), for a tool that must build its own mount namespace (Landlock refuses mount(2) inside a domain, so bubblewrap cannot start there); run with neither the sandbox mark nor hidden sockets, it just execs `north WORDS`. The tool's own namespace then confines what it may write.
 fn outside(north: &str, words: &[String]) -> std::process::ExitCode {
-    if std::env::var_os(MARK).is_none() {
+    if std::env::var_os(MARK).is_none() && std::env::var_os(SOCKETS_HIDDEN).is_none() {
         let error = Command::new(north).args(words).exec();
         eprintln!("north worker-sandbox: {north}: {error}");
         return std::process::ExitCode::from(126);
