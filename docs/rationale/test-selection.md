@@ -168,6 +168,11 @@ cost sample below.
 - **Ingest.** Each record is told to every host's graph with its commit. The lander host and both build hosts must
   hold the same `coverage:north` commit. A host whose graph is older than the map reports so on the lander's round
   line, as the build lag does (invariant 4).
+- **Ingest as built (n1039-map-hosts).** A refresh saves the map on the host that ran it, ingests it into that host's
+  graph, then sends the same file over ssh to every build host the fleet's orchestration names and to the lander
+  `.safe-push` names, where `north graph ingest coverage` tells it. A host that cannot be reached keeps its older map
+  and the refresh logs the warning. The lander's round line compares its own `coverage:REPO` commit with each build
+  host's and names every host that holds a different one, or no map at all, checked every five minutes.
 - **Cadence.** A refresh starts when the newest map is 24 hours old, when a selection miss is recorded, or when unknown
   tests pass 10% of the tests the lane's build lists. One refresh runs at a time per repository, as now.
 - **Cadence as built (n1039-map).** The lander's two-minute shadow tick, once idle, runs
@@ -179,7 +184,9 @@ cost sample below.
   bd4d7feae, without the reads recorder: 13 min 49 s wall from a cold instrumented target, of which the nextest run of
   1553 tests took 307 s (11 failed inside the land shell, their reach still recorded), then the span export and the
   `rust-analyzer scip` index; 7 GB of `target/coverage`, and an 18 MB map of 43251 functions, whose `north graph ingest coverage` told 764182 facts in 232 s at 1 GB peak.
-  Still open: telling the build hosts' graphs, the lag line and the 10% unknown trigger (n1039-map-hosts).
+  A lane's selection starts the same unit when more than a tenth of the tests its build lists are unknown to the map,
+  passing `--unknown N --listed M` to `north test coverage refresh --start`, which owns the tenth. The ingest and lag
+  line are as built under Ingest.
 - **Record as built (n1039-map-reads).** The instrumented nextest run installs its `test coverage exec` runner inside
   `north land sandbox exec --record DIR --tree ROOT --exec-log`, so the reads recorder sees every `execve`; each
   profile is named per process (`%p`). The runner writes every process's profile id beside the reach, and the sandbox

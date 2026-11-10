@@ -46,6 +46,15 @@ pub fn ssh_hosts(cfg: &DocumentMut) -> Vec<String> {
     hosts.filter(|(_, host)| host.get("ssh").and_then(Item::as_str).is_some()).map(|(name, _)| name.to_owned()).collect()
 }
 
+/// The `[hosts.NAME]` tables that take other hosts' builds (`offload_builds = true`), with the ssh destination each names.
+pub fn build_hosts(cfg: &DocumentMut) -> Vec<(String, String)> {
+    let hosts = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter());
+    hosts
+        .filter(|(_, host)| host.get("offload_builds").and_then(Item::as_bool) == Some(true))
+        .filter_map(|(name, host)| Some((name.to_owned(), host.get("ssh")?.as_str()?.to_owned())))
+        .collect()
+}
+
 /// Every repo of a project with `paused = true`, its `repos` and `dispatch_repos` both.
 pub fn set_aside_repos(cfg: &DocumentMut) -> Vec<String> {
     let listed = |item: Option<&Item>| item.and_then(Item::as_array).into_iter().flatten().filter_map(|value| value.as_str().map(str::to_owned)).collect::<Vec<_>>();

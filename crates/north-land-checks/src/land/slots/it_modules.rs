@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use regex::Regex;
 use toml_edit::{DocumentMut, Item};
@@ -243,7 +244,33 @@ pub fn selection_asking_with(program: &Path, root: &Path, base: &str, head: &str
         }
         None => select(&read(STRUCTURE)?, &read(TABLE)?, &spawners(root), &files)?,
     };
-    Ok(selection.with_units(units).with_floor(floor))
+    let selection = selection.with_units(units).with_floor(floor);
+    if let Selection::Tests(tests) = &selection
+        && let Some((unknown, listed)) = tests.unknown_share()
+        && unknown > 0
+    {
+        start_refresh(program, root, unknown, listed);
+    }
+    Ok(selection)
+}
+
+/// Start a refresh when more than a tenth of the tests this lane's build lists are unknown to the
+/// map, which [`north test coverage refresh --start`] decides and starts once per repository. The
+/// call is quiet when the share is under the tenth.
+fn start_refresh(program: &Path, root: &Path, unknown: usize, listed: usize) {
+    let (unknown, listed) = (unknown.to_string(), listed.to_string());
+    let output = Command::new(program).args(["test", "coverage", "refresh", "--start", "--unknown", &unknown, "--listed", &listed]).current_dir(root).stdin(Stdio::null()).output();
+    match output {
+        Ok(output) if output.status.success() => {
+            let said = String::from_utf8_lossy(&output.stdout);
+            let said = said.trim();
+            if !said.is_empty() {
+                eprintln!("safe-push: {said}");
+            }
+        }
+        Ok(output) => eprintln!("safe-push: north test coverage refresh --start failed: {}", String::from_utf8_lossy(&output.stderr).trim()),
+        Err(error) => eprintln!("safe-push: north test coverage refresh --start: {error}"),
+    }
 }
 
 fn units(table: &str, plan: &Plan) -> Result<Units, String> {

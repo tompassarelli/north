@@ -232,7 +232,9 @@ fn a_lane_changing_only_harness_data_runs_the_tests_that_read_it() {
         ("north-a".to_owned(), super::super::graph_selection::Listed { package: "north-a".to_owned(), tests: ["a::whole".to_owned(), "a::unknown".to_owned()].into() }),
         ("north-b::it".to_owned(), super::super::graph_selection::Listed { package: "north-b".to_owned(), tests: ["b::one".to_owned(), "b::two".to_owned()].into() }),
     ]);
-    let collapsed = traced.with_listed(listed).unwrap().arguments();
+    let collapsed_tests = traced.with_listed(listed).unwrap();
+    assert_eq!(collapsed_tests.unknown_share(), Some((1, 4)), "one unknown test of the four the build lists, which is over the tenth that starts a refresh");
+    let collapsed = collapsed_tests.arguments();
     assert!(collapsed.contains("package(north-a)") && !collapsed.contains("a::whole"), "a wholly included package is one term, and the listing finds its unknown test: {collapsed}");
     assert!(!collapsed.contains("north-gone"), "a binary the listing no longer has, such as a retired crate's, is not named: {collapsed}");
     assert!(!collapsed.contains("north-b"), "a package with no selected test is not run: {collapsed}");

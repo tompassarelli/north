@@ -93,6 +93,7 @@ pub struct Tests {
     known: usize,
     carried: usize,
     listed: BTreeMap<String, Listed>,
+    unknown: usize,
     since: BTreeSet<String>,
 }
 
@@ -105,7 +106,7 @@ impl Tests {
             by_binary.entry(binary.to_owned()).or_default().insert(name.to_owned());
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new(), since: answer.since.into_iter().collect() };
+        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new(), unknown: 0, since: answer.since.into_iter().collect() };
         (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests)
     }
 
@@ -124,12 +125,20 @@ impl Tests {
                 })
             })
             .collect();
+        self.unknown = matches.len();
         for (binary, test) in matches {
             self.by_binary.entry(binary).or_default().insert(test);
         }
         self.by_binary.retain(|binary, names| !names.is_empty() && listed.contains_key(binary));
         self.listed = listed;
         (self.filter().len() <= FILTER_LIMIT).then_some(self)
+    }
+
+    /// The unknown tests this listing holds and the total it lists, for the cadence that starts a
+    /// refresh once more than a tenth of a lane's build is unknown. `None` when the build lists no test.
+    pub fn unknown_share(&self) -> Option<(usize, usize)> {
+        let listed: usize = self.listed.values().map(|suite| suite.tests.len()).sum();
+        (listed > 0).then_some((self.unknown, listed))
     }
 
     pub fn with_modules(self, modules: BTreeSet<String>) -> Self {

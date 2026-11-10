@@ -14,15 +14,12 @@ fn landings_that_follow_each_other_on_main_wait_as_one_run_of_the_newest_head() 
     assert_eq!((next.base.as_str(), next.head.as_str()), ("a", "d"));
     assert!(["b", "c", "d"].iter().all(|head| next.covers(head)));
     assert!(pending.next(0.0).is_none());
-}
 
-#[test]
-fn a_landing_on_a_base_the_waiting_run_does_not_end_at_waits_as_its_own_run() {
-    let mut pending = Pending::default();
-    pending.add(batch("a", "b"));
-    pending.add(batch("x", "y"));
-    assert_eq!(pending.next(0.0).map(|batch| batch.head), Some("b".to_owned()));
-    assert_eq!(pending.next(0.0).map(|batch| batch.base), Some("x".to_owned()));
+    let mut separate = Pending::default();
+    separate.add(batch("a", "b"));
+    separate.add(batch("x", "y"));
+    assert_eq!(separate.next(0.0).map(|batch| batch.head), Some("b".to_owned()));
+    assert_eq!(separate.next(0.0).map(|batch| batch.base), Some("x".to_owned()), "a landing on a base the waiting run does not end at waits as its own run");
 }
 
 #[test]

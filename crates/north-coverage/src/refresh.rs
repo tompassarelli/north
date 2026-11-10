@@ -24,7 +24,7 @@ pub fn run(arguments: &[String]) -> u8 {
                 }
             }
             _ => {
-                eprintln!("usage: north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION] | --start");
+                eprintln!("usage: north test coverage refresh [--repo NAME] [--host NAME] [--head REVISION] | --start [--unknown N --listed M]");
                 return 2;
             }
         }
@@ -67,8 +67,10 @@ fn refresh(host: &str, head: &str) -> Result<Map, String> {
     }
     let status = child.wait().map_err(|error| format!("north capacity offload run: {error}"))?;
     let map = recorded.ok_or_else(|| format!("the record on {host} printed no map ({status})"))?;
-    map.save(&map::path_for(&repository(root)))?;
-    crate::cadence::ingest();
+    let repository = repository(root);
+    let path = map::path_for(&repository);
+    map.save(&path)?;
+    crate::cadence::ingest(root, &path, &repository);
     Ok(map)
 }
 

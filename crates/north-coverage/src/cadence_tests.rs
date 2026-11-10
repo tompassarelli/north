@@ -9,4 +9,8 @@ fn a_missing_or_day_old_map_is_due_for_a_refresh_and_a_fresh_one_is_not() {
     let written = std::fs::metadata(&path).unwrap().modified().unwrap();
     assert_eq!(due(&path, written + Duration::from_secs(3600)), None);
     assert_eq!(due(&path, written + STALE_AFTER + Duration::from_secs(3600)).as_deref(), Some("the map is 25 h old"));
+    assert_eq!(unknown_reason(0, 0), None, "a build that lists no test starts no refresh");
+    assert_eq!(unknown_reason(1, 10), None, "exactly the share does not pass it");
+    let reason = unknown_reason(2, 10).unwrap();
+    assert!(reason.contains("2 of the 10") && reason.contains("over 10%"), "{reason}");
 }

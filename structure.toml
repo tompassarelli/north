@@ -718,7 +718,7 @@ may_use = ["crate-roots", "lifecycle", "platform.git"]
 name = "coverage"
 paths = ["crates/north-coverage/src/**"]
 responsibility = "The map from each Rust test to the functions it executes, recorded on a check host, and the tests that reach a change."
-may_use = ["crate-roots", "foundation", "lifecycle", "build_inputs", "platform.host"]
+may_use = ["crate-roots", "foundation", "lifecycle", "build_inputs", "platform.host", "platform.harness", "platform.process"]
 
 [[module]]
 name = "context_pack"

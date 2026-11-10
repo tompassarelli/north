@@ -137,12 +137,19 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::W
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
     let mut shown: Option<super::build_lag::Lag> = None;
+    let mut map_lag = super::map_lag::Watch::default();
+    let mut shown_map = None;
     loop {
         if let Some(lag) = super::build_lag::report(&lander.repo)
             && shown.as_ref().is_none_or(|shown| !shown.same_episode(&lag))
         {
             println!("north land: {}", lag.note());
             shown = Some(lag);
+        }
+        if let Some(note) = map_lag.line(&lander.repo).filter(|note| shown_map.as_deref() != Some(note.as_str()))
+        {
+            println!("north land: {note}");
+            shown_map = Some(note);
         }
         if retire.load(Ordering::Relaxed) {
             return handover::hand_over(lander, &watch);
