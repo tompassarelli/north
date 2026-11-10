@@ -45,6 +45,7 @@ pub enum Edit {
     Append { text: String },
     Tick { box_text: String },
     Land { box_text: String, sha: String },
+    Untick { box_text: String, sha: String },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -84,6 +85,7 @@ impl Edit {
                 landing::Tick::AlreadyTicked => Change::Already,
                 refused => Change::Refused(refused.to_string()),
             },
+            Edit::Untick { box_text, sha } => untick(body, box_text, sha),
         }
     }
 }
@@ -124,6 +126,43 @@ fn tick(body: &str, box_text: &str) -> Change {
         [] if lines.iter().any(|line| ticked(line).is_some_and(|text| text.contains(wanted))) => Change::Already,
         [] => Change::Refused(format!("no unticked box contains {wanted:?}")),
         _ => Change::Refused(format!("{} unticked boxes contain {wanted:?}", open.len())),
+    }
+}
+
+fn open_box(line: &str) -> String {
+    let opened = line.replacen("[x]", "[ ]", 1);
+    if opened == line { line.replacen("[X]", "[ ]", 1) } else { opened }
+}
+
+fn untick(body: &str, box_text: &str, sha: &str) -> Change {
+    let wanted = box_text.trim();
+    if wanted.is_empty() {
+        return Change::Refused("the box text is empty".to_owned());
+    }
+    let short = &sha[..sha.len().min(12)];
+    let evidence = format!("(landed {short})");
+    let lines: Vec<&str> = body.split_inclusive('\n').collect();
+    let found: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| ticked(line).is_some_and(|text| text.contains(wanted) && text.contains(&evidence)))
+        .map(|(index, _)| index)
+        .collect();
+    match found.as_slice() {
+        [index] => {
+            let mut edited = String::with_capacity(body.len());
+            for (position, line) in lines.iter().enumerate() {
+                if position == *index {
+                    edited.push_str(&open_box(line).replacen(&format!(" {evidence}"), "", 1));
+                } else {
+                    edited.push_str(line);
+                }
+            }
+            Change::Applied(edited)
+        }
+        [] if lines.iter().any(|line| ticked(line).is_some_and(|text| text.contains(wanted))) => Change::Already,
+        [] => Change::Refused(format!("no ticked box contains {wanted:?} with {evidence}")),
+        _ => Change::Refused(format!("{} ticked boxes contain {wanted:?} with {evidence}", found.len())),
     }
 }
 

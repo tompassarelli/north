@@ -21,6 +21,36 @@ fn an_issue_closes_only_when_every_box_is_ticked_and_a_landed_box_naming_its_own
 }
 
 #[test]
+fn a_sheriff_revert_of_a_landing_that_ticked_a_box_leaves_the_box_unticked_with_no_landed_stamp() {
+    let body = "## Done when\n- [x] Fix the box. Evidence: `true` passed. (landed 1a2b3c4d5e6f)\n- [ ] Another box.\n";
+    let change = Edit::Untick { box_text: "Fix the box".into(), sha: "1a2b3c4d5e6f7".into() }.apply(body);
+    assert_eq!(change, crate::issue_body::Change::Applied("## Done when\n- [ ] Fix the box. Evidence: `true` passed.\n- [ ] Another box.\n".into()));
+}
+
+#[test]
+fn a_sheriff_revert_plan_reads_the_boxes_of_the_landing_it_reverts() {
+    let directory = tempfile::tempdir().unwrap();
+    let run = |arguments: &[&str]| {
+        let output = Command::new("git").arg("-C").arg(directory.path()).args(["-c", "user.name=a", "-c", "user.email=a@b"]).args(arguments).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    run(&["init", "-q"]);
+    std::fs::write(directory.path().join("a"), "a").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-q", "-m", "base"]);
+    std::fs::write(directory.path().join("b"), "b").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-q", "-m", "Land the box (north#872)\n\nItem: north#872\nBox: Fix the box"]);
+    let landed = run(&["rev-parse", "HEAD"]);
+    std::fs::write(directory.path().join("c"), "c").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-q", "-m", &format!("Revert the box\n\nSheriff-Reverts: {landed}")]);
+
+    assert_eq!(reverts(directory.path(), "HEAD~2", "HEAD").unwrap(), [Reverted { issue: Issue::parse("north#872").unwrap(), box_text: "Fix the box".into(), sha: landed }]);
+}
+
+#[test]
 fn an_issue_whose_ticked_box_carries_no_passing_oracle_run_stays_open_as_north_766_should_have() {
     let n766 = "## Done when\n\n- [x] Children a lead staffs with `--task north#757` start and leave the lead holding north#757. Test `children_a_lead_staffs_on_boxes_of_its_own_issue_start_and_leave_the_lead_holding_it` replays gex45-n757-gates; landed as c72a68a36 on origin/main.\n";
     assert!(!closable(n766));

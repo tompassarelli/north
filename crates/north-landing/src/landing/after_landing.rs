@@ -162,6 +162,7 @@ fn tick_boxes(args: &Args) -> Vec<String> {
     };
     let queue = crate::land::queue::directory(&crate::land::lander::state_home(), &origin);
     let mut lines = crate::land::after::tick::queue(&queue, &main, &args.base, &args.head);
+    lines.extend(crate::land::after::tick::revert_queue(&queue, &main, &args.base, &args.head));
     lines.push(drained(&crate::issue_body::directory(&queue)));
     lines
 }

@@ -210,6 +210,47 @@ pub fn landed(repo: &Path, base: &str, head: &str) -> Result<Vec<Landed>, String
     Ok(found)
 }
 
+/// A box a sheriff revert names in the landing it reverts.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Reverted {
+    pub issue: Issue,
+    pub box_text: String,
+    pub sha: String,
+}
+
+pub fn reverts(repo: &Path, base: &str, head: &str) -> Result<Vec<Reverted>, String> {
+    let mut found = Vec::new();
+    for (_, message) in commits(repo, base, head)? {
+        for sha in message.lines().filter_map(|line| line.strip_prefix("Sheriff-Reverts:")).map(str::trim).filter(|sha| !sha.is_empty()) {
+            let output = Command::new("git").arg("-C").arg(repo).args(["log", "-1", "--format=%B", sha]).output().map_err(|error| format!("git log {sha}: {error}"))?;
+            if !output.status.success() {
+                return Err(format!("git log {sha}: {}", String::from_utf8_lossy(&output.stderr).trim()));
+            }
+            for trailer in trailers(&String::from_utf8_lossy(&output.stdout))? {
+                found.push(Reverted { issue: Issue::parse(&trailer.item)?, box_text: trailer.box_text, sha: sha.to_owned() });
+            }
+        }
+    }
+    Ok(found)
+}
+
+pub fn revert_queue(queue_directory: &Path, repo: &Path, base: &str, head: &str) -> Vec<String> {
+    let reverted = match reverts(repo, base, head) {
+        Ok(reverted) => reverted,
+        Err(error) => return vec![format!("no box unticked: {error}")],
+    };
+    reverted
+        .into_iter()
+        .map(|reverted| {
+            let edit = Edit::Untick { box_text: reverted.box_text.clone(), sha: reverted.sha.clone() };
+            match issue_body::submit(queue_directory, &reverted.issue, &edit) {
+                Ok(_) => format!("queued the untick of {} box {:?} reverted from {}", reverted.issue, reverted.box_text, &reverted.sha[..reverted.sha.len().min(SHORT_SHA)]),
+                Err(error) => format!("cannot queue the untick of {} box {:?}: {error}", reverted.issue, reverted.box_text),
+            }
+        })
+        .collect()
+}
+
 pub fn queue(queue_directory: &Path, repo: &Path, base: &str, head: &str) -> Vec<String> {
     let landed = match landed(repo, base, head) {
         Ok(landed) => landed,
