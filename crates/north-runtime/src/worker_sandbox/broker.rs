@@ -22,6 +22,7 @@ use super::{Context, FLAG, LANE_ONLY, MAKER, MARK, SESSION_SCOPE, SOCKETS_HIDDEN
 const DIRECTORY: &str = "north-outside";
 const SOCKET: &str = "broker.sock";
 const UNIT: &str = "north-worker-outside";
+const SLICE: &str = "agent.slice";
 const RUNTIME_ENV: &str = "XDG_RUNTIME_DIR";
 const HOMES: [(&str, &str); 4] = [("XDG_STATE_HOME", ".local/state"), ("XDG_CACHE_HOME", ".cache"), ("XDG_DATA_HOME", ".local/share"), ("XDG_CONFIG_HOME", ".config")];
 const NAMESPACE: &str = "--namespaces";
@@ -178,9 +179,9 @@ fn listening(path: &Path) -> bool {
     false
 }
 
-/// Starts `north` as the broker in the transient user service `unit`; whether it started.
+/// Starts `north` as the broker in the transient user service `unit` under `agent.slice`, so the checks and builds it runs for workers count against the agent CPU quota: in the default app.slice a session's brokered safe-push compiled outside the 12-CPU desk bound and held the laptop at load 39 (north#892); whether it started.
 fn start(north: &Path, unit: &str) -> bool {
-    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    let started = Command::new("systemd-run").args(["--user", "--quiet", "--collect", "--service-type=exec", "--property=Restart=on-failure"]).arg(format!("--setenv=XDG_RUNTIME_DIR={}", runtime().display())).arg(format!("--slice={SLICE}")).args(["--unit", unit, "--"]).arg(north).args([FLAG, "--broker"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     started.is_ok_and(|status| status.success())
 }
 
