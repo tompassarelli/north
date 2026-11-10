@@ -16,7 +16,7 @@ static FIXTURE: std::sync::LazyLock<support::template::Template> = std::sync::La
 pub(crate) fn fixture(root: &Path, trace: &str) {
     FIXTURE.copy_into(root);
     reader(root);
-    executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", support::fake_claude()));
+    executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", env!("CARGO_BIN_EXE_fake_claude")));
 }
 
 fn reader(root: &Path) {

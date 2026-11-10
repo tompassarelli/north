@@ -126,9 +126,13 @@ path = "src/bin/verify_north/main.rs"
 [lints]
 workspace = true
 
-[[example]]
+[[bin]]
 name = "fake_claude"
 path = "src/bin/fake_claude.rs"
+
+[[bin]]
+name = "push_trace_git"
+path = "src/bin/push_trace_git.rs"
 
 [profile.dev]
 debug = "line-tables-only"

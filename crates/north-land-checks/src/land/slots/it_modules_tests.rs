@@ -27,7 +27,7 @@ fn a_probe_through_src_and_four_crates_runs_only_the_tests_it_modules_their_crat
     let modules = |names: &[&str]| Selection::Modules { modules: names.iter().map(|name| (*name).to_owned()).chain(["affected_modules", "agent_text_reads"].map(str::to_owned)).collect(), units: Units::default(), floor: Floor::default() };
     assert_eq!(selected(&["tests/it/threads_ledger.rs"]), modules(&["threads_ledger"]), "an edited module runs with the tree-wide ones");
     assert_eq!(selected(&["tests/it/runtime_update/prune.rs"]), modules(&["runtime_update"]), "a file in a module's directory selects it");
-    for file in ["tests/it/support/tree.rs", "tests/it/main.rs", TABLE, "examples/push_trace_git.rs", "Cargo.lock"] {
+    for file in ["tests/it/support/tree.rs", "tests/it/main.rs", TABLE, "Cargo.lock"] {
         assert_eq!(selected(&["src/main.rs", file]), Selection::Every, "{file} runs every module");
     }
 }

@@ -112,7 +112,7 @@ fn build_template(root: &Path) -> String {
     executable(&trace.join("checker"), CHECKER);
     executable(&trace.join("north"), NORTH);
     executable(&trace.join("mint"), MINT);
-    std::os::unix::fs::symlink(crate::support::push_trace_git(), bin.join("git")).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_push_trace_git"), bin.join("git")).unwrap();
     git(&repo, &["rev-parse", "HEAD"])
 }
 

@@ -66,7 +66,7 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   `runtime_access`, moved out of `ops` (box 4-9). Depends on `north-dispatch` for `dispatch`, `pacing` and `laptop` (the last two re-exported from
   `north-pacing`); nothing in `north-ops` uses it. Its tests reach `laptop::Ctx::fixture` through
   `north-pacing`'s `test-support` feature, a dev-dependency only.
-- `north` (the root package): `src/main.rs`, `src/cli/` and the `verify-north` and `fake_claude`
+- `north` (the root package): `src/main.rs`, `src/cli/` and the `verify-north`, `fake_claude` and `push_trace_git`
   binaries, plus the integration tests. Depends on `north-core`, `north-capacity-host`, `north-guard`, `north-landing`,
   `north-ops`, `north-runtime` and `north-tui`.
 
