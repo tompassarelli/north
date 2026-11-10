@@ -370,7 +370,7 @@ fn disk_below_floor(facts: &Facts) -> bool {
     facts.disk_free_gib.is_some_and(|free| free - reserved < default_mib("build_disk_free_gib"))
 }
 
-pub(super) fn memory_floor_mib(profile: Profile, total: f64) -> f64 {
+pub(crate) fn memory_floor_mib(profile: Profile, total: f64) -> f64 {
     let share = match profile {
         Profile::Attended => total / 5.0,
         Profile::Unattended => total / 12.0,

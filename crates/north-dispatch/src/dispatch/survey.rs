@@ -143,7 +143,7 @@ fn host(cfg: &DocumentMut, name: &str, here: &str, hosted_elsewhere: i64, laptop
     } else {
         Err("no ssh destination".into())
     };
-    Host { name: name.into(), cap, running, measure: super::measure::read(name == here, ssh), builds: None }.probed(here, ssh)
+    Host { name: name.into(), cap, room: None, running, measure: super::measure::read(name == here, ssh), builds: None }.probed(here, ssh)
 }
 
 fn account_hosts(cfg: &DocumentMut, account: &str, here: &str) -> Vec<String> {

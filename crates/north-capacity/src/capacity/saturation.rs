@@ -89,6 +89,13 @@ pub fn parse(text: &str) -> Option<Saturation> {
 }
 
 impl Saturation {
+    /// How many more sessions of the agent request fit in the host's available memory above the unattended floor; the load and stall checks in `refusal` still decide whether the host takes any.
+    pub fn session_room(&self) -> i64 {
+        let request = admission::dispatch_request_mib(Class::Agent);
+        let spare = self.memory_available_mib - admission::memory_floor_mib(admission::Profile::Unattended, self.memory_total_mib);
+        ((spare / request).floor() as i64).max(0)
+    }
+
     /// Why `host` takes no new session, the first of: a GitHub token past its trust window, too little available memory beyond a session's own request, a root disk under the build floor or past the eviction line the lease reaper reclaims under, or queued jobs at the limit or load over its threads.
     pub fn refusal(&self, host: &str) -> Option<String> {
         if let Some(age) = self.token_age_s.filter(|age| *age >= FRESH_SECONDS.unsigned_abs()) {

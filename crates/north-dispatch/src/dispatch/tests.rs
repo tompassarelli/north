@@ -50,7 +50,7 @@ effort = "medium"
 "#;
 
 pub(super) fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
-    Host { name: name.into(), cap: Some(cap), running: running.map_err(str::to_owned), measure: None, builds: None }
+    Host { name: name.into(), cap: Some(cap), room: None, running: running.map_err(str::to_owned), measure: None, builds: None }
 }
 
 fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {

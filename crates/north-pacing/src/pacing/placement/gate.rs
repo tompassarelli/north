@@ -68,7 +68,8 @@ pub struct Machine {
     pub reaches: Option<Vec<String>>,
     /// Whether `[hosts.NAME] launches = true` marks it a host fleet sessions start on; a host that only deploys, builds or checks lands is not.
     pub launches: bool,
-    pub cap: i64,
+    /// An explicit `resident_cap`; a host without one is limited by its measured saturation alone.
+    pub cap: Option<i64>,
     pub live: Option<i64>,
     pub accounts: Vec<String>,
     /// The Claude labels signed in through claude.ai there, the only ones `claude --cloud` starts under.
@@ -335,7 +336,7 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
         .filter_map(|name| {
             let host = hosts.get(&name)?;
             let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
-            let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
+            let cap = host.get("resident_cap").and_then(Item::as_integer);
             Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), launches: host.get("launches").and_then(Item::as_bool) == Some(true), name, ssh, cap, live: None, accounts: Vec::new(), claude_ai: Vec::new(), saturation: None })
         })
         .collect()
@@ -448,10 +449,10 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             }
             match machine.live {
                 None => format!("{name} unreachable over ssh {}", machine.ssh),
-                Some(live) if live >= machine.cap => format!("{name} full: {live}/{} resident CLIs", machine.cap),
+                Some(live) if machine.cap.is_some_and(|cap| live >= cap) => format!("{name} full: {live}/{} resident CLIs", machine.cap.unwrap_or(0)),
                 Some(live) => {
                     open.push(machine.clone());
-                    format!("{name} available: {live}/{} resident CLIs", machine.cap)
+                    format!("{name} available: {live} resident CLIs")
                 }
             }
         })

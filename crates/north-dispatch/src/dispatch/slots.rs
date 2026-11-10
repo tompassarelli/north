@@ -1,4 +1,4 @@
-//! Free worker slots: a host has its resident cap minus the sessions it runs, no more than the builds
+//! Free worker slots: a host has the sessions its measured memory has room for, or an explicit resident cap minus the sessions it runs, no more than the builds
 //! its admission queue takes. Whether an account may take a worker is the spend rule's call
 //! (`crate::spend`), which counts the workers this run has started.
 pub use crate::pacing::placement::room::{Charge, PlanSize, Room};
@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 pub struct Host {
     pub name: String,
     pub cap: Option<i64>,
+    /// Sessions its measured memory has room for, None without a reading.
+    pub room: Option<i64>,
     /// Running resident sessions, or why the host takes nothing now.
     pub running: Result<i64, String>,
     /// Its live load, when dispatch reaches it.
@@ -40,21 +42,25 @@ impl Host {
     /// admission queue has room for.
     pub fn read(self, reading: Option<&crate::capacity::saturation::Saturation>) -> Self {
         let builds = reading.and_then(|reading| reading.backlog).map(|backlog| backlog.build_room().max(0));
+        let room = reading.map(|reading| reading.session_room());
         let why = reading.and_then(|reading| reading.refusal(&self.name));
-        Self { builds, ..self }.saturated(why)
+        Self { builds, room, ..self }.saturated(why)
     }
 
     pub fn free(&self) -> Result<i64, String> {
         let running = self.running.clone()?;
-        let cap = self.cap.ok_or_else(|| format!("no [hosts.{}] resident_cap", self.name))?;
-        Ok((cap - running).max(0))
+        match (self.cap, self.room) {
+            (Some(cap), room) => Ok((cap - running).max(0).min(room.unwrap_or(i64::MAX))),
+            (None, Some(room)) => Ok(room),
+            (None, None) => Err(format!("host {} has no memory reading", self.name)),
+        }
     }
 
     pub fn line(&self) -> String {
         let measured = self.measure.map_or_else(String::new, |measure| format!("; load {:.1} on {:.0} cores, {:.0} of {:.0} MiB available", measure.load, measure.cores, measure.memory_available_mib, measure.memory_total_mib));
         let state = match (&self.running, self.cap) {
             (Err(why), _) => format!("host {}: takes nothing: {why}", self.name),
-            (Ok(running), None) => format!("host {}: {running} running, no resident_cap, so 0 free", self.name),
+            (Ok(running), None) => format!("host {}: {running} running, {} free by measured memory", self.name, self.room.unwrap_or(0)),
             (Ok(running), Some(cap)) => format!("host {}: {running}/{cap} resident, {} free", self.name, (cap - running).max(0)),
         };
         let builds = self.builds.map_or_else(String::new, |builds| format!("; its admission queue takes {builds} more builds"));
