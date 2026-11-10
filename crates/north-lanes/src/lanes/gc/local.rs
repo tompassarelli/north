@@ -10,6 +10,7 @@ use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;
 use super::super::reap::irreplaceable_ignored;
 use super::super::repo::is_lander_tree;
+use super::half::Lanes;
 use super::liveness::{holds_git_dir, worktree_admin};
 use super::report::Row;
 use super::strays::modified_within;
@@ -201,6 +202,9 @@ impl Gc {
     }
 
     fn sweep_lanes(&mut self, sweep: &mut Container, worktrees: &[BTreeMap<String, String>], live: &[PathBuf]) -> Result<(), String> {
+        let registered: Vec<PathBuf> = worktrees.iter().filter(|fields| !fields.contains_key("prunable")).map(|fields| real(Path::new(&fields["worktree"]))).collect();
+        let lanes = Lanes { main: &sweep.main, base: &sweep.base, project: &sweep.name, directory: &sweep.lanes, common: &sweep.common, registered: &registered, live };
+        self.archive_unregistered(&lanes);
         for fields in worktrees {
             self.sweep_worktree(sweep, fields, live)?;
         }

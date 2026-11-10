@@ -21,17 +21,26 @@ const HANDED: &str = "lanes-handed.json";
 pub(super) struct OwnedLanes {
     pub(super) tickets: Vec<QueuedLane>,
     worktree: Option<(PathBuf, String)>,
+    rejected: Option<(PathBuf, String)>,
 }
 
 impl OwnedLanes {
     pub(super) fn read(queues: &Path, record: &SessionRecord) -> Self {
         let tickets = forget::queued_lanes(queues, &record.name, Some(&record.cwd));
-        let worktree = unlanded_branch(&record.cwd).filter(|branch| tickets.iter().all(|lane| &lane.branch != branch)).map(|branch| (record.cwd.clone(), branch));
-        Self { tickets, worktree }
+        let unlanded = unlanded_branch(&record.cwd).filter(|branch| tickets.iter().all(|lane| &lane.branch != branch)).map(|branch| (record.cwd.clone(), branch));
+        let (rejected, worktree) = match unlanded {
+            Some((path, branch)) if rejection_recorded(&path, &branch) => (Some((path, branch)), None),
+            other => (None, other),
+        };
+        Self { tickets, worktree, rejected }
     }
 
     pub(super) fn is_empty(&self) -> bool {
         self.tickets.is_empty() && self.worktree.is_none()
+    }
+
+    fn archiving(&self) -> String {
+        self.rejected.iter().map(|(path, branch)| format!(" The lane job archives the rejected branch {branch} in {}, so leave it.", path.display())).collect()
     }
 
     fn describe(&self) -> String {
@@ -39,6 +48,11 @@ impl OwnedLanes {
         let worktree = self.worktree.iter().map(|(path, branch)| format!("unlanded branch {branch} in {}", path.display()));
         tickets.chain(worktree).collect::<Vec<_>>().join(", ")
     }
+}
+
+fn rejection_recorded(cwd: &Path, branch: &str) -> bool {
+    let common = Command::new(binary("git")).arg("-C").arg(cwd).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).stdin(Stdio::null()).stderr(Stdio::null()).output().ok().filter(|ran| ran.status.success());
+    common.is_some_and(|ran| Path::new(String::from_utf8_lossy(&ran.stdout).trim()).join("north/lane-rejections").join(branch).is_file())
 }
 
 fn unlanded_branch(cwd: &Path) -> Option<String> {
@@ -81,7 +95,7 @@ impl Fleet {
                 Ok(false)
             };
         };
-        let text = format!("[north: {} is leaving the fleet and its lanes are now yours: {}. Land each through safe-push or abandon it; a queued lane's verdict now comes to you.]", record.name, lanes.describe());
+        let text = format!("[north: {} is leaving the fleet and its lanes are now yours: {}. Land each through safe-push or abandon it; a queued lane's verdict now comes to you.{}]", record.name, lanes.describe(), lanes.archiving());
         self.send_signed(&Sender::fleet(), &heir, &text, Delivery::Queued)?;
         for lane in &lanes.tickets {
             forget::reassign(&lane.ticket, &heir)?;

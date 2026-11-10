@@ -354,7 +354,7 @@ pub(super) fn irreplaceable_ignored(tree: &Path) -> Vec<String> {
         .collect()
 }
 
-fn disposable(path: &str) -> bool {
+pub(super) fn disposable(path: &str) -> bool {
     let cache = |name: &str| path.starts_with(&format!("{name}/")) || path.contains(&format!("/{name}/"));
     cache(".direnv") || cache(".firn-cache") || cache("target") || path == "target" || ((path == "result" || path.starts_with("result-")) && !path.contains('/'))
 }

@@ -4,6 +4,7 @@ mod audit_rows;
 mod content;
 mod evidence;
 mod exec;
+mod half;
 mod liveness;
 mod local;
 mod remote;
@@ -37,7 +38,7 @@ use super::live_process::open_paths;
 use north_base::foundation::clock::Timestamp;
 use north_base::platform::host;
 use evidence::{IssueLedger, IssueState};
-use liveness::Hosts;
+use liveness::{Hosts, Trees};
 use state::{StaleReport, write_atomically};
 
 pub use audit::run as repo;
@@ -185,6 +186,11 @@ fn containers(root: &Path, only: &[String]) -> std::io::Result<Vec<PathBuf>> {
 pub fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let _ = std::env::set_current_dir(&home);
+    run_in(&home, None, arguments)
+}
+
+pub fn run_in(home: &Path, fleet: Option<Vec<Value>>, arguments: &[String]) -> u8 {
+    let home = home.to_path_buf();
     let options = match parse(arguments, &home) {
         Parsed::Sweep(options) => options,
         Parsed::Exit(code) => return code,
@@ -201,9 +207,14 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut stale = StaleReport::load(&stale_path);
     stale.notices = Vec::new();
     stale.at = Timestamp::from_unix_millis(now_ms).iso_millis();
-    let local = trees::scan(&options.root, now_ms);
-    let on_nexus = host::name() == "nexus";
-    let hosts = if on_nexus { Hosts { laptop: Default::default(), nexus: local, on_nexus } } else { Hosts { laptop: local, nexus: trees::scan_remote(now_ms), on_nexus } };
+    let known = fleet.is_some();
+    let hosts = if known {
+        Hosts { laptop: Default::default(), nexus: Trees { ok: true, ..Trees::default() }, on_nexus: false }
+    } else if host::name() == "nexus" {
+        Hosts { laptop: Default::default(), nexus: trees::scan(&options.root, now_ms), on_nexus: true }
+    } else {
+        Hosts { laptop: trees::scan(&options.root, now_ms), nexus: trees::scan_remote(now_ms), on_nexus: false }
+    };
     let remote_due = options.remote || remote_swept_at(&options.state).is_none_or(|at| now_ms - at >= REMOTE_EVERY_MS);
     let mut gc = Gc {
         home,
@@ -214,8 +225,8 @@ pub fn run(arguments: &[String]) -> u8 {
         rows: Vec::new(),
         counts: Counts::default(),
         hosts,
-        fleet: None,
-        claims: None,
+        fleet,
+        claims: known.then(HashSet::new),
         issues: IssueLedger::default(),
         pushes: HashMap::new(),
         open: HashMap::new(),
@@ -230,6 +241,7 @@ pub fn run(arguments: &[String]) -> u8 {
 impl Gc {
     fn sweep_all(&mut self, containers: &[PathBuf]) {
         let live = if self.options.remote { Vec::new() } else { open_paths(Path::new("/proc")) };
+        self.clear_stale_bundle_locks(&live);
         for container in containers {
             let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let has_origin = origin_repo(&container.join("main")).is_some();
@@ -300,5 +312,21 @@ impl Gc {
 
     fn issue_states(&mut self, items: &[String]) -> Vec<IssueState> {
         items.iter().map(|item| self.issues.state(item)).collect()
+    }
+}
+
+impl Gc {
+    fn clear_stale_bundle_locks(&mut self, live: &[PathBuf]) {
+        if self.options.remote {
+            return;
+        }
+        for lock in archive::stale_bundle_locks(&self.options.archive, self.now_ms, live) {
+            let place = self.tilde(&lock);
+            match if self.options.dry_run { Ok(()) } else { std::fs::remove_file(&lock) } {
+                Ok(()) if self.options.dry_run => println!("stale bundle lock {place}: remove"),
+                Ok(()) => println!("stale bundle lock {place}: removed"),
+                Err(error) => println!("stale bundle lock {place}: kept ({error})"),
+            }
+        }
     }
 }

@@ -16,7 +16,11 @@ when it is finished, and pushes no tag:
     --archive DIR/<project>/ (default ~/archive/lanes; uncommitted and untracked changes ride
     as one snapshot commit on the branch) with a line in index.tsv; the bundle must verify and
     hold the lane's head before the lane is removed with git worktree remove --force and its
-    branch deleted. A lane's issue is its branch.<name>.north-issue git config (north lane new
+    branch deleted. A directory under worktrees/ that git no longer registers (a half-removed lane) is
+    bundled the same way when no process, Fleet session or land ticket holds it and it holds no ignored
+    files beyond build output: its files ride as one snapshot commit on the branch of the same name,
+    which stays for the branch sweep, and the directory is then removed. A *.bundle.lock in --archive
+    that no process holds and that is over an hour old is deleted. A lane's issue is its branch.<name>.north-issue git config (north lane new
     records it), else the issues its commits cite (Refs/Fixes/Closes/Part of, or a trailing
     (repo#N) on a line). Its owner is a lock, a process inside, a live Fleet session, a live
     claim on its issue or a peer host's hold; a lane holding ignored files beyond build output
