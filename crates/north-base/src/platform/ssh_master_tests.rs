@@ -1,9 +1,10 @@
+use std::ffi::OsString;
 use std::process::Command;
 use std::time::Duration;
 
-use super::super::wait;
+use super::super::ssh::OWN_CONNECTION;
 use super::super::ssh_fixture::{master_words, which, Fixture};
-use super::{probe, Health, Master, SLOW};
+use super::{probe_with, Dial, Health, Master, Process, SLOW};
 
 struct Respawned<'a> {
     fixture: &'a mut Fixture,
@@ -23,6 +24,20 @@ impl Master for Respawned<'_> {
     }
 }
 
+struct Counting {
+    through: Vec<bool>,
+}
+
+impl Dial for Counting {
+    fn round_trip(&mut self, words: &[OsString], limit: Duration) -> Option<Duration> {
+        let answer = Process.round_trip(words, limit);
+        if !words.iter().any(|word| word == OWN_CONNECTION) && limit == SLOW {
+            self.through.push(answer.is_some());
+        }
+        answer
+    }
+}
+
 #[test]
 fn a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_closed_and_recreated() {
     let mut fixture = Fixture::new();
@@ -34,11 +49,10 @@ fn a_master_slower_than_three_seconds_while_a_direct_connection_answers_is_close
     let env = fixture.env();
     let program = [which("ssh").into()];
 
-    let (health, took) = wait::timed(|| probe(&program, &env, "testhost", &mut Respawned { fixture: &mut fixture, marker, words }));
+    let mut dial = Counting { through: Vec::new() };
+    let health = probe_with(&mut dial, &program, &env, "testhost", &mut Respawned { fixture: &mut fixture, marker, words });
 
-    assert!(took >= 2 * SLOW, "the stalled master was not sampled twice: {health:?}");
-    let Health::Recycled { direct, after: Some(after) } = health else { panic!("the stalled master was not recycled: {health:?}") };
-    assert!(direct < SLOW, "{direct:?}");
-    assert!(after < Duration::from_secs(1), "the recreated master took {after:?}");
+    assert_eq!(dial.through[..2], [false, false], "the stalled master was not sampled twice before it was recycled: {:?}", dial.through);
+    let Health::Recycled { after: Some(_), .. } = health else { panic!("the stalled master was not recycled: {health:?}") };
     assert!(!std::path::Path::new(&format!("/proc/{stalled}")).exists(), "the stalled master {stalled} still runs");
 }

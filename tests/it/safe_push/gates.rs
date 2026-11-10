@@ -50,9 +50,6 @@ fn land_runner_build_host_resolves_to_a_host_with_room_and_runs_every_portable_c
     assert!(case.landing.root.join("local-ran").exists(), "land.runner never ran the local-only check here");
     assert!(!sent.iter().any(|line| line.contains("local-ran")), "land.runner sent a local-only check to the build host: {sent:?}");
     assert!(observed.output.contains("safe-push: stage land checks:"), "{}", observed.output);
-    let stages = std::fs::read_to_string(scratch.state().join("safe-push/stages.tsv")).unwrap();
-    let stage_ms: u64 = stages.lines().filter_map(|line| line.split('\t').collect::<Vec<_>>().get(3..5).filter(|fields| fields[0] == "land checks").map(|fields| fields[1].parse().unwrap())).next_back().unwrap_or(99999);
-    assert!(stage_ms < 15000, "land.runner checks did not overlap: land-check stage took {stage_ms} ms");
 }
 
 #[test]

@@ -65,8 +65,9 @@ impl Fixture {
         argv(&[which("ssh").into()], &self.env(), arguments).into_iter().map(|word| word.to_string_lossy().into_owned()).collect()
     }
 
-    pub fn socket_up(&self) -> bool {
-        std::fs::read_dir(self.runtime.path()).unwrap().flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("north-ssh-"))
+    fn socket_up(&self) -> bool {
+        let words = self.client(&["-o", "BatchMode=yes", "-O", "check", "testhost"]);
+        Command::new(&words[0]).args(&words[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
     }
 
     pub fn unit(&mut self, name: &str, words: &[String]) -> String {

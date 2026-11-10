@@ -20,6 +20,21 @@ pub trait Master {
     fn start(&mut self, host: &str) -> Result<(), String>;
 }
 
+trait Dial {
+    fn round_trip(&mut self, words: &[OsString], limit: Duration) -> Option<Duration>;
+}
+
+struct Process;
+
+impl Dial for Process {
+    fn round_trip(&mut self, words: &[OsString], limit: Duration) -> Option<Duration> {
+        let started = Instant::now();
+        let mut child = Command::new(&words[0]).args(&words[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()?;
+        let status = super::process::child_within(&mut child, limit).ok().flatten()?;
+        status.success().then(|| started.elapsed())
+    }
+}
+
 #[derive(Debug)]
 pub enum Health {
     Answered(Duration),
@@ -54,24 +69,28 @@ fn argv(program: &[OsString], env: &BTreeMap<String, String>, arguments: &[&str]
 }
 
 pub fn probe(program: &[OsString], env: &BTreeMap<String, String>, host: &str, master: &mut dyn Master) -> Health {
+    probe_with(&mut Process, program, env, host, master)
+}
+
+fn probe_with(dial: &mut dyn Dial, program: &[OsString], env: &BTreeMap<String, String>, host: &str, master: &mut dyn Master) -> Health {
     let through = argv(program, env, &["-o", "BatchMode=yes", host, "true"]);
-    if let Some(took) = round_trip(&through, SLOW) {
+    if let Some(took) = dial.round_trip(&through, SLOW) {
         return Health::Answered(took);
     }
     let direct = argv(program, env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", OWN_CONNECTION, host, "true"]);
-    let Some(direct) = round_trip(&direct, DIRECT_LIMIT) else {
+    let Some(direct) = dial.round_trip(&direct, DIRECT_LIMIT) else {
         return Health::Unreachable;
     };
-    if let Some(took) = round_trip(&through, SLOW) {
+    if let Some(took) = dial.round_trip(&through, SLOW) {
         return Health::Answered(took);
     }
-    match recycle(program, env, host, master) {
-        Ok(()) => Health::Recycled { direct, after: round_trip(&through, SLOW) },
+    match recycle(dial, program, env, host, master) {
+        Ok(()) => Health::Recycled { direct, after: dial.round_trip(&through, SLOW) },
         Err(why) => Health::RecycleFailed { direct, why },
     }
 }
 
-fn recycle(program: &[OsString], env: &BTreeMap<String, String>, host: &str, master: &mut dyn Master) -> Result<(), String> {
+fn recycle(dial: &mut dyn Dial, program: &[OsString], env: &BTreeMap<String, String>, host: &str, master: &mut dyn Master) -> Result<(), String> {
     let socket = socket(program, env, host)?;
     master.stop(host)?;
     match std::fs::remove_file(&socket) {
@@ -81,7 +100,7 @@ fn recycle(program: &[OsString], env: &BTreeMap<String, String>, host: &str, mas
     master.start(host)?;
     let check = argv(program, env, &["-o", "BatchMode=yes", "-O", "check", host]);
     let started = Instant::now();
-    while round_trip(&check, SLOW).is_none() {
+    while dial.round_trip(&check, SLOW).is_none() {
         if started.elapsed() > READY_LIMIT {
             return Err(format!("no master answered on {} within {} s of the restart", socket.display(), READY_LIMIT.as_secs()));
         }
@@ -101,12 +120,6 @@ fn socket(program: &[OsString], env: &BTreeMap<String, String>, host: &str) -> R
         .ok_or_else(|| format!("ssh -G {host} names no control path"))
 }
 
-fn round_trip(words: &[OsString], limit: Duration) -> Option<Duration> {
-    let started = Instant::now();
-    let mut child = Command::new(&words[0]).args(&words[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()?;
-    let status = super::process::child_within(&mut child, limit).ok().flatten()?;
-    status.success().then(|| started.elapsed())
-}
 
 struct Unit;
 
