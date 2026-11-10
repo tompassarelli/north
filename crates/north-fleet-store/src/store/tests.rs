@@ -23,7 +23,7 @@ fn count(path: &std::path::Path, sql: &str) -> i64 {
 }
 
 fn session(name: &str, host: &str, status: &str) -> SessionRow {
-    SessionRow { name: name.into(), host: host.into(), status: status.into(), created: "2026-10-31T10:00:00Z".into(), updated: "2026-10-31T10:00:00Z".into(), ..SessionRow::default() }
+    SessionRow { name: name.into(), host: host.into(), status: status.into(), created: "2026-10-31T10:00:00Z".into(), updated: Timestamp::now().iso(), ..SessionRow::default() }
 }
 
 #[test]
@@ -128,6 +128,23 @@ fn the_fleet_spend_cap_counts_claude_workers_only_so_working_deepseek_sessions_d
     let Err(NorthError::Refused(cap)) = store.register(&worker("cl-3", "claude"), Claim::Fresh, &slots) else { panic!("a fourth Claude worker started under a cap of 3") };
 
     assert_eq!(cap, "spend cap: 3 worker sessions are starting or working across the fleet, the cap is 3");
+}
+
+/// On 2026-11-10 three dispatch rows on gex45 stayed `starting` with no host behind them, filled the cap of 5 and refused the coordinator's launches.
+#[test]
+fn a_starting_row_past_the_launch_grace_counts_toward_no_cap() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let stale = Timestamp::from_unix_millis(i64::try_from(crate::runtime::now_ms() - 2 * LAUNCH_GRACE_MS).unwrap()).iso();
+    let slots = Slots { workers: Some(2), resident: Some(("gex45".to_owned(), 2)) };
+    for at in 0..3 {
+        let never = SessionRow { updated: stale.clone(), machine: Some("gex45".into()), ..session(&format!("north-1041-{at}"), "gex45", "starting") };
+        assert!(never.never_started(crate::runtime::now_ms()));
+        store.register(&never, Claim::Fresh, &Slots::default()).unwrap();
+    }
+    let launching = SessionRow { machine: Some("gex45".into()), ..session("north-1042", "whiterabbit", "starting") };
+    assert!(!launching.never_started(crate::runtime::now_ms()));
+    store.register(&launching, Claim::Fresh, &slots).unwrap();
 }
 
 #[test]

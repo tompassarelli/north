@@ -34,6 +34,12 @@ pub fn box_slug(text: &str) -> Option<String> {
     (!slug.is_empty()).then_some(slug)
 }
 
+/// Whether two box slugs name one box: equal, or one the leading whole words of the other, so a claim by `--box` with a box's first words and one by dispatch's slug of the whole box collide.
+pub fn same_box(left: &str, right: &str) -> bool {
+    let (short, long) = if left.len() <= right.len() { (left, right) } else { (right, left) };
+    long.strip_prefix(short).is_some_and(|rest| rest.is_empty() || rest.starts_with('-'))
+}
+
 pub fn box_node(item: &str, text: &str) -> Option<String> {
     box_slug(text).map(|slug| format!("box:{item}:{slug}"))
 }
