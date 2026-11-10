@@ -373,8 +373,9 @@ formal-verification skills, TLA+, stateright and Kani, and the measured results,
   `offload-offer` are registered with no model, because their types are private to their crates.
 - **Reviews.** The machine-fix detector files "Model NAME" for an unmodelled machine whose code an incident fix
   changed and "Extend the NAME model to the fixes its check let through" for a modelled one, counting fixes newer
-  than its chart. The machine-refusal detector files "Settle NAME's refused move to STATE" when the store refused a
-  move in the last hour. Each is one box per machine and week on the owner above.
+  than its chart. The machine-refusal detector files "Settle NAME's refused move to STATE" when a host's lifecycle
+  stores (each host's ledger and the capacity runtime's `lifecycle.db`) refused a move in the last hour. Each is one
+  box per machine and week on the owner above.
 - **Two instances.** `fleet-session` and `land-ticket` also search a second instance: the first through every
   ordering of the scope above, the second attempting to start at each of the first's situations, and two launches
   racing from no record. The machine's real admission path decides whether a start is possible — the name claim

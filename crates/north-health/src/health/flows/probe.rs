@@ -4,7 +4,7 @@ use std::thread;
 
 use super::{Host, HostFacts, Snapshot, World, facts};
 
-const REMOTE: &str = r#""$HOME/.local/state/north/current/north" health facts"#;
+pub const REMOTE_FACTS: &str = r#""$HOME/.local/state/north/current/north" health facts"#;
 
 /// Each `[hosts.NAME]` in orchestration.toml that this host reaches over ssh, by its `ssh` or else its `deploy_ssh`.
 fn remote_hosts() -> Vec<(String, String)> {
@@ -19,7 +19,7 @@ fn remote_hosts() -> Vec<(String, String)> {
 }
 
 fn remote(destination: &str) -> Result<HostFacts, String> {
-    let output = super::super::command("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", destination, REMOTE], None, 25)?;
+    let output = super::super::command("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", destination, REMOTE_FACTS], None, 25)?;
     serde_json::from_str(&output).map_err(|error| format!("north health facts printed no facts: {error}"))
 }
 

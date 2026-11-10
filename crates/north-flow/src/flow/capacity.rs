@@ -17,7 +17,7 @@ const FREE_SLOT_CPUS: f64 = 4.0;
 const STATE_FILE: &str = "saturation.json";
 const SPILL_FILE: &str = "spill.json";
 const PROBE: &str = r#""${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}" capacity host status; echo ---; df -BG --output=avail / | tail -1"#;
-const SSH: [&str; 5] = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8"];
+pub const SSH: [&str; 5] =["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Reading {

@@ -18,7 +18,7 @@ use measure::{Env, get, project_targets};
 use notes::watch_silent;
 use render::format_row;
 
-pub use capacity::read_hosts;
+pub use capacity::{SSH, read_hosts, remote_hosts};
 pub use host::{Host, Machine, Places, write_atomic};
 
 mod alerts;

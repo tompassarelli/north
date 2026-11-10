@@ -108,7 +108,7 @@ fn stores(home: &Path) -> Vec<NorthResult<Store>> {
     std::iter::once(Store::host()).chain(leases.map(|path| Store::open(&path))).collect()
 }
 
-fn lifecycles(home: &Path) -> Lifecycles {
+pub fn lifecycles(home: &Path) -> Lifecycles {
     let now = Timestamp::now();
     let mut faults = Vec::new();
     for store in stores(home) {
