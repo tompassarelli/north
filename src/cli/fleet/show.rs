@@ -36,8 +36,22 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     Ok(())
 }
 
+fn queued_line(fleet: &Fleet, name: &str) -> Option<String> {
+    let queued = fleet.queued_launches().ok()?.into_iter().find(|queued| queued.name == name)?;
+    Some(format!("[queued] {} is queued at {} priority: {}", queued.name, queued.priority.label(), queued.refused))
+}
+
 pub(super) fn show(fleet: &Fleet, name: &str, follow: bool) -> NorthResult<()> {
-    let mut follower = fleet.follow(name)?;
+    let mut follower = match fleet.follow(name) {
+        Err(error @ NorthError::Usage(_)) => match queued_line(fleet, name) {
+            Some(line) => {
+                println!("{line}");
+                return Ok(());
+            }
+            None => return Err(error),
+        },
+        followed => followed?,
+    };
     let mut printed = print_entries(follower.transcript(), 0);
     println!("[{}]", follower.transcript().status.label());
     while follow && follower.transcript().status != Status::Exited {

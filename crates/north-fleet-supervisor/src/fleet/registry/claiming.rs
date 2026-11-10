@@ -251,6 +251,72 @@ mod launch_tests {
 }
 
 #[cfg(test)]
+mod ghost_tests {
+    use std::sync::Arc;
+
+    use crate::fleet::claims::{Claims, Held};
+    use crate::fleet::fakes::{Paper, Stream};
+    use crate::fleet::launch_queue::{Priority, QueuedLaunch};
+    use crate::fleet::model::{LaunchRequest, ProviderName};
+    use crate::fleet::prompt::PromptMode;
+    use crate::fleet::runtimes::Runtimes;
+
+    use super::*;
+
+    fn request(cwd: &std::path::Path) -> LaunchRequest {
+        LaunchRequest {
+            verification: false,
+            name: "safety-lead".into(),
+            provider: ProviderName::new("claude"),
+            account: "a".into(),
+            cwd: cwd.into(),
+            model: None,
+            effort: None,
+            prompt: "Item: north#1054".into(),
+            system_prompt: None,
+            foreground_cap_secs: None,
+            prompt_mode: PromptMode::North,
+            idle_exit_minutes: None,
+            parent: None,
+            task_ref: Some("north#1054".into()),
+            claim_box: None,
+            placement: None,
+            machine: None,
+            capacity_need: None,
+            role: None,
+            resume: None,
+            compact_window: None,
+        }
+    }
+
+    /// On 2026-11-11 a launch of safety-lead killed during its claims and a second one queued left a name that `launch` called taken while `show` and `--take-over` found no session.
+    #[test]
+    fn an_interrupted_or_queued_launch_leaves_a_name_a_later_launch_or_take_over_can_use() {
+        let home = tempfile::tempdir().unwrap();
+        let claims = Arc::new(Held::default());
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap();
+        let wanted = request(&home.path().join("no-such-directory"));
+        let tasks = ["north#1054".to_owned()];
+
+        for take_over in [false, true] {
+            let _ = fs::remove_dir_all(fleet.root.join("safety-lead"));
+            fs::create_dir_all(fleet.root.join("safety-lead")).unwrap();
+            claims.hold("north#1054", "safety-lead", &BTreeSet::new()).unwrap();
+            fleet.queue_launch(&QueuedLaunch::new(wanted.clone(), Priority::Normal, 1, "spend tripwire".into())).unwrap();
+            assert_eq!(fleet.queued_launches().unwrap().len(), 1);
+
+            let launched = if take_over { fleet.take_over(&wanted) } else { fleet.launch(&wanted) };
+
+            let error = launched.unwrap_err().user_message();
+            assert!(!error.contains("already exists") && !error.contains("no session named"), "take_over={take_over}: {error}");
+            let held: Vec<_> = claims.holders(Rows::Items(&tasks)).unwrap().into_iter().filter(|(_, owner)| owner == "safety-lead").collect();
+            assert_eq!(held, Vec::<(String, String)>::new(), "take_over={take_over}");
+            assert_eq!(fleet.queued_launches().unwrap().len(), 0, "take_over={take_over}: the queued launch outlived the launch that replaced it");
+        }
+    }
+}
+
+#[cfg(test)]
 mod never_started_tests {
     use std::sync::Arc;
 

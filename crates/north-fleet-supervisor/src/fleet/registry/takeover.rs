@@ -5,6 +5,7 @@ use crate::error::NorthResult;
 use super::Fleet;
 use super::stopping::Halt;
 use super::super::model::{Role, SessionRecord};
+use super::super::records::record_file;
 use super::super::runtime::PROXY;
 use super::super::store::{Addressee, Claim, FleetRow, RowKind};
 
@@ -27,13 +28,27 @@ impl Predecessor {
 impl Fleet {
     /// Ends and archives the session holding `name` when this launch takes the name over; None when no session holds it.
     pub(super) fn retire_for(&self, name: &str, claim: Claim) -> NorthResult<Option<Predecessor>> {
-        if claim != Claim::TakeOver || !self.session_dir(name)?.exists() {
+        if claim != Claim::TakeOver || !self.session_dir(name)?.exists() || self.clear_ghost(name)? {
             return Ok(None);
         }
         let record = self.record(name)?;
         let archived = self.archive(name, Halt::TakenOver, Halt::TakenOver.label())?;
         eprintln!("north fleet: {name} was held by conversation {}; it is stopped and archived at {}, and the name and its messages now go to the new session", record.conversation.as_deref().unwrap_or("none"), archived.display());
         Ok(Some(Predecessor { record }))
+    }
+
+    /// Removes a directory that holds a name with no session record in it, as a launch killed after claiming the name leaves, and gives up the claims the dead launch took under the name; true when it removed one. The caller holds the name's start lock, so no live launch is building a record there.
+    pub(super) fn clear_ghost(&self, name: &str) -> NorthResult<bool> {
+        let dir = self.session_dir(name)?;
+        if !dir.exists() || record_file(&dir).exists() {
+            return Ok(false);
+        }
+        if let Err(error) = self.release_all_claims_of(name) {
+            eprintln!("north fleet: a launch of {name} died before its session began, and its claims were not all given up: {}", error.user_message());
+        }
+        self.discard_failed_launch(&dir)?;
+        eprintln!("north fleet: {name} was left by a launch that died before its session began; its directory is removed and the name is free");
+        Ok(true)
     }
 
     /// Retires the session holding `name` for a take-over and runs `succeed` to bring up its successor, all under the name's start lock, so a revive racing them either runs before the old session is stopped or finds the successor running.

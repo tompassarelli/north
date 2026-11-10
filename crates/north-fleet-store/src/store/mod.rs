@@ -71,7 +71,7 @@ impl Store {
 
     pub fn register(&mut self, row: &SessionRow, claim: Claim) -> NorthResult<()> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
-        sessions::register(&tx, row, claim)?;
+        sessions::register(&tx, row, claim, crate::runtime::now_ms())?;
         tx.commit().map_err(sql)
     }
 

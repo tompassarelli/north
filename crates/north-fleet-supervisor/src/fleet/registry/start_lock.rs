@@ -28,16 +28,29 @@ impl Drop for StartLock {
 
 impl Fleet {
     pub(super) fn start_lock(&self, name: &str) -> NorthResult<StartLock> {
+        Ok(self.locked(name, FlockOperation::LockExclusive)?.unwrap_or(StartLock(None)))
+    }
+
+    /// The start lock when no other process holds it, else `None`: a launch holds it from the moment it claims the name until it ends, so a name claimed with the lock free has no launch behind it.
+    pub(super) fn try_start_lock(&self, name: &str) -> NorthResult<Option<StartLock>> {
+        self.locked(name, FlockOperation::NonBlockingLockExclusive)
+    }
+
+    fn locked(&self, name: &str, operation: FlockOperation) -> NorthResult<Option<StartLock>> {
         self.session_dir(name)?;
         let locks = self.root.join(LOCKS);
         let path = locks.join(name);
         if HELD.with_borrow(|held| held.contains(&path)) {
-            return Ok(StartLock(None));
+            return Ok(Some(StartLock(None)));
         }
         fs::create_dir_all(&locks)?;
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
-        flock(&file, FlockOperation::LockExclusive).map_err(|error| NorthError::State(format!("{name} start lock: {error}")))?;
+        match flock(&file, operation) {
+            Ok(()) => {}
+            Err(rustix::io::Errno::WOULDBLOCK) => return Ok(None),
+            Err(error) => return Err(NorthError::State(format!("{name} start lock: {error}"))),
+        }
         HELD.with_borrow_mut(|held| held.insert(path.clone()));
-        Ok(StartLock(Some((path, file))))
+        Ok(Some(StartLock(Some((path, file)))))
     }
 }

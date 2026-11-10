@@ -29,14 +29,23 @@ impl Fleet {
     fn launch_as(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<SessionRecord> {
         let session_dir = self.session_dir(&request.name)?;
         if claim == Claim::TakeOver {
+            let _ = self.remove_queued(&request.name);
             return self.launch_into(request, claim, &session_dir);
         }
-        match north_session_host::session_lifecycle::claim(&session_dir) {
+        let Some(_launching) = self.try_start_lock(&request.name)? else {
+            return Err(NorthError::Usage(format!("a launch of {} is in progress; --take-over waits for it and then replaces its session", request.name)));
+        };
+        let mut claimed = north_session_host::session_lifecycle::claim(&session_dir);
+        if matches!(&claimed, Err(error) if error.kind() == io::ErrorKind::AlreadyExists) && self.clear_ghost(&request.name)? {
+            claimed = north_session_host::session_lifecycle::claim(&session_dir);
+        }
+        match claimed {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 return Err(NorthError::Usage(format!("a session named {} already exists; --take-over ends it and moves the name and its messages to the new session", request.name)));
             }
             claimed => claimed?,
         }
+        let _ = self.remove_queued(&request.name);
         self.launch_into(request, claim, &session_dir).inspect_err(|_| {
             let _ = fs::remove_dir(&session_dir);
         })
@@ -103,7 +112,7 @@ impl Fleet {
     }
 
     /// Ends the host of a failed launch and removes its directory however far the launch got, so a host slow to show its provider's exit leaves nothing under the name; renaming it away first means a watchdog racing on the name cannot leave it half removed.
-    fn discard_failed_launch(&self, session_dir: &Path) -> NorthResult<()> {
+    pub(super) fn discard_failed_launch(&self, session_dir: &Path) -> NorthResult<()> {
         Host::new(session_dir.to_path_buf()).terminate()?;
         let discarded = self.root.join(format!(".failed-launch-{}", new_uuid()?));
         fs::rename(session_dir, &discarded)?;

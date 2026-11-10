@@ -129,6 +129,19 @@ fn a_registration_is_refused_for_a_live_name() {
 }
 
 #[test]
+fn a_launch_that_died_before_its_session_registered_leaves_its_name_to_a_later_fresh_claim() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let died = SessionRow { updated: "2026-10-31T04:27:00Z".into(), ..session("safety-lead-2", "nexus", "starting") };
+    store.register(&died, Claim::Fresh).unwrap();
+
+    store.register(&session("safety-lead-2", "whiterabbit", "starting"), Claim::Fresh).unwrap();
+
+    let held: Vec<String> = store.sessions().unwrap().into_iter().map(|row| row.host).collect();
+    assert_eq!(held, ["whiterabbit"]);
+}
+
+#[test]
 fn a_settled_wait_leaves_its_registration_in_the_wait_history() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();

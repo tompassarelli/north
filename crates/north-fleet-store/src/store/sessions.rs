@@ -61,12 +61,16 @@ pub enum Claim {
     TakeOver,
 }
 
-pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim) -> NorthResult<()> {
+/// Registers `row` under its name; a `starting` row older than the launch grace holds nothing, because its launch died before its session registered, so a fresh claim replaces it.
+pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim, now_ms: u64) -> NorthResult<()> {
     let guard = match claim {
-        Claim::Fresh => "fleet_sessions.status = ?6 OR fleet_sessions.host = excluded.host",
-        Claim::TakeOver => "1",
+        Claim::Fresh => {
+            let launching_since = Timestamp::from_unix_millis(i64::try_from(now_ms.saturating_sub(super::LAUNCH_GRACE_MS)).unwrap_or(i64::MAX)).iso();
+            format!("fleet_sessions.status = ?6 OR fleet_sessions.host = excluded.host OR (fleet_sessions.status = '{}' AND fleet_sessions.updated < '{launching_since}')", Status::Starting.label())
+        }
+        Claim::TakeOver => "1".to_owned(),
     };
-    if upsert(tx, row, guard)? == 1 {
+    if upsert(tx, row, &guard)? == 1 {
         return Ok(());
     }
     let (host, status): (String, String) =
