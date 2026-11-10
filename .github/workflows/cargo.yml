@@ -48,8 +48,8 @@ jobs:
           rustup: false
           cache-key: cargo-test
           save: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 }}
-      - name: Cargo test environment
-        uses: ./.github/actions/cargo-test
+      - name: Cargo test environment (bubblewrap with apt retries)
+        uses: ./.github/actions/cargo-test-environment
         with:
           dev-shell: true
       - name: Test

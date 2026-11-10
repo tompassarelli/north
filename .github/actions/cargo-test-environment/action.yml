@@ -20,8 +20,19 @@ runs:
       env:
         DEV_SHELL: ${{ inputs.dev-shell }}
       run: |
-        sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 update -qq
-        sudo timeout 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=2 install -y --no-install-recommends bubblewrap
+        if ! command -v bwrap >/dev/null; then
+          installed=false
+          for attempt in 1 2 3; do
+            sudo timeout 90 apt-get -o Acquire::http::Timeout=20 -o Acquire::Retries=2 update -qq || true
+            if sudo timeout 90 apt-get -o Acquire::http::Timeout=20 -o Acquire::Retries=2 install -y --no-install-recommends bubblewrap; then
+              installed=true
+              break
+            fi
+            echo "::warning::apt could not install bubblewrap (attempt $attempt of 3)"
+            sleep 10
+          done
+          "$installed" || { echo "::error::bubblewrap is not installable from the apt mirror"; exit 1; }
+        fi
         CI_TOOLS_SKIP_AST_GREP="$DEV_SHELL" bash "$GITHUB_ACTION_PATH/../ci-tools.sh"
     - name: Allow bubblewrap user namespaces
       shell: bash

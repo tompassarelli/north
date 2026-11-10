@@ -22,7 +22,7 @@ jobs:
       - name: Toolchain and cargo cache
         uses: ./.github/actions/rust
       - name: Cargo test environment
-        uses: ./.github/actions/cargo-test
+        uses: ./.github/actions/cargo-test-environment
       - name: cargo test catches its planted fault
         run: harness/scripts/canary.sh cargo-test
       - name: clippy catches its planted fault
