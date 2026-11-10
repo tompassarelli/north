@@ -51,7 +51,7 @@ impl Context {
     }
 }
 
-/// The stores under `~/.local/state` no worker command may remove: the threads ledger every fleet decision is read from and the conversation index `north convo` searches, which hold the transcripts, the fleet's session records, and the account profiles and tokens that hold each provider's transcripts and logins.
+/// The stores under `~/.local/state` no worker command may remove: the threads ledger every fleet decision is read from and the conversation index `north convo` searches, which hold the transcripts, the fleet's session records, and the account profiles and tokens that hold each provider's transcripts and logins. They are the history the fleet screen shows and every later decision reads, so they sit outside a worker's trees.
 const PROTECTED_STATE: [&str; 5] = ["threads", "convo", "north/profiles", "north/claude-tokens", "north/fleet"];
 
 /// The trees a worker command may remove or rename files out of: its lane, the git common directory of its project and of every project it names, whose lock files, packs and maintenance files git renames from every checkout, scratch and caches, and agent state apart from the transcript stores that hold transcripts and logins.
