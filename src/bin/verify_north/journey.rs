@@ -81,7 +81,7 @@ fn take_brief(journey: &mut Journey) -> Result<String, String> {
     let name = journey.session.clone();
     journey.notes.note(&Note::Session(name.clone()));
     let before = processes::session_hosts();
-    let launch = ["fleet", "launch", "--provider", "claude", "--account", &account, "--model", CLAUDE_MODEL, "--name", &name, "--parent", "none", "--test", "--cwd", &lane, "--no-wait", BRIEF];
+    let launch = ["fleet", "launch", "--provider", "claude", "--account", &account, "--model", CLAUDE_MODEL, "--name", &name, "--parent", "none", "--role", "worker", "--test", "--cwd", &lane, "--no-wait", BRIEF];
     journey.north.run(&launch, QUERY_WAIT)?;
     journey.watch_host(&before)?;
     Ok(format!("{name} on claude/{account} in {lane}"))
