@@ -105,7 +105,6 @@ fn silent_codex_turn(root: &Path, wall_ms: u64) -> HostConfig {
         socket: None,
         idle_exit: None,
         provider: Some("codex".into()),
-        adopt: None,
         runtime: vec!["sh".into(), "-c".into(), script],
     }
 }
@@ -132,7 +131,7 @@ fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) 
     let result = json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false});
     let stdin = root.join("stdin.jsonl");
     let script = format!("printf '%s\\n' '{assistant}' '{result}'; while read -r line; do echo \"$line\" >> '{}'; done", stdin.display());
-    let config = HostConfig { name: "worker".into(), generation: 1, state_dir: root.join("worker"), socket: None, idle_exit: None, provider: Some("claude".into()), adopt: None, runtime: vec!["sh".into(), "-c".into(), script] };
+    let config = HostConfig { name: "worker".into(), generation: 1, state_dir: root.join("worker"), socket: None, idle_exit: None, provider: Some("claude".into()), runtime: vec!["sh".into(), "-c".into(), script] };
     (config, stdin)
 }
 

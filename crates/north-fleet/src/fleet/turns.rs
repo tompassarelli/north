@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::error::NorthResult;
 use crate::router::pricing::TokenUse;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct Tokens {
     pub input: u64,
     pub output: u64,
@@ -108,12 +108,12 @@ pub struct Turn {
     pub exit: TurnExit,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Turns {
     threads: HashMap<String, Thread>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Thread {
     model: Option<String>,
     effort: Option<String>,
@@ -123,7 +123,7 @@ struct Thread {
     tasks: HashSet<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 struct Open {
     started_ms: u64,
     baseline: Tokens,

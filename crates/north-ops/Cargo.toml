@@ -7,7 +7,6 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-north-runtime-follow = { path = "../north-runtime-follow" }
 north-registries = { path = "../north-registries" }
 north-base = { path = "../north-base" }
 north-lanes = { path = "../north-lanes" }

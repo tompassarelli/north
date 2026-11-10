@@ -1,25 +1,19 @@
-use std::fs;
-use std::io;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
-use tokio::sync::{mpsc, watch};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 
 use crate::error::{NorthError, NorthResult};
-
-mod handover;
-mod pipes;
-mod provider;
-
-use pipes::{append, copy_lines, copy_rotating, feed_stdin};
-use provider::{Provider, signal};
 
 pub const STDERR_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
 pub const STDIN_LINES: usize = 64;
@@ -33,7 +27,7 @@ pub const STDIN_CLOSED: &str = r#"{"error":"stdin-closed"}"#;
 pub const INVALID_FRAME: &str = r#"{"error":"invalid-frame"}"#;
 
 const USAGE: &str = "Usage: north session-host --name NAME --generation N --state-dir DIR [--socket PATH] [--idle-exit SECS] [--provider NAME] \
-     [--adopt FILE] -- RUNTIME [ARG...]";
+     -- RUNTIME [ARG...]";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HostConfig {
@@ -43,7 +37,6 @@ pub struct HostConfig {
     pub socket: Option<PathBuf>,
     pub idle_exit: Option<Duration>,
     pub provider: Option<String>,
-    pub adopt: Option<PathBuf>,
     pub runtime: Vec<String>,
 }
 
@@ -51,7 +44,7 @@ impl HostConfig {
     pub fn parse(arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(USAGE.into());
         let (mut name, mut generation, mut state_dir, mut socket, mut idle_exit) = (None, None, None, None, None);
-        let (mut provider, mut adopt) = (None, None);
+        let mut provider = None;
         let mut index = 0;
         while index < arguments.len() {
             let flag = arguments[index].as_str();
@@ -67,7 +60,6 @@ impl HostConfig {
                 "--state-dir" if state_dir.is_none() => state_dir = Some(PathBuf::from(value)),
                 "--socket" if socket.is_none() => socket = Some(PathBuf::from(value)),
                 "--provider" if provider.is_none() => provider = Some(value.clone()),
-                "--adopt" if adopt.is_none() => adopt = Some(PathBuf::from(value)),
                 "--idle-exit" if idle_exit.is_none() => {
                     let seconds = value.parse::<u64>().map_err(|_| usage())?;
                     idle_exit = Some((seconds > 0).then(|| Duration::from_secs(seconds)));
@@ -85,7 +77,6 @@ impl HostConfig {
                 socket,
                 idle_exit: idle_exit.flatten(),
                 provider,
-                adopt,
                 runtime,
             }),
             _ => Err(usage()),
@@ -115,8 +106,8 @@ struct Frame {
 pub struct Activity(Arc<Mutex<Instant>>);
 
 impl Activity {
-    fn since(idle: Duration) -> Self {
-        Self(Arc::new(Mutex::new(Instant::now().checked_sub(idle).unwrap_or_else(Instant::now))))
+    fn new() -> Self {
+        Self(Arc::new(Mutex::new(Instant::now())))
     }
 
     fn touch(&self) {
@@ -137,23 +128,7 @@ pub struct StdinQueue {
     watcher: Watcher,
 }
 
-/// The receiving ends of a host's two stdin lanes: control frames, then user frames.
-struct Lanes {
-    control: mpsc::Receiver<Frame>,
-    user: mpsc::Receiver<Frame>,
-}
-
 impl StdinQueue {
-    fn open(next: u64, activity: Activity, watcher: Watcher) -> (Self, Lanes) {
-        let (control, control_lane) = mpsc::channel(STDIN_LINES);
-        let (user, user_lane) = mpsc::channel(STDIN_LINES);
-        (Self { control, user, next: Arc::new(Mutex::new(next)), activity, watcher }, Lanes { control: control_lane, user: user_lane })
-    }
-
-    fn sequence(&self) -> u64 {
-        *self.next.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     pub async fn enqueue(&self, line: String, reply: Option<Reply>) -> Option<u64> {
         self.activity.touch();
         let respond = |message: String| {
@@ -206,12 +181,6 @@ pub trait FrameWatch: Send {
         None
     }
     fn close(&mut self);
-    /// What the host's next image needs to keep watching, read while no line is being watched.
-    fn hand_over(&mut self) -> serde_json::Value {
-        serde_json::Value::Null
-    }
-    /// Restores what the host's previous image handed over.
-    fn take_over(&mut self, _state: serde_json::Value) {}
 }
 
 #[derive(Clone, Default)]
@@ -258,48 +227,17 @@ impl Watcher {
     fn close(&self) {
         self.with((), |watch| watch.close());
     }
-
-    fn hand_over(&self) -> serde_json::Value {
-        self.with(serde_json::Value::Null, |watch| watch.hand_over())
-    }
-
-    fn take_over(&self, state: serde_json::Value) {
-        self.with((), |watch| watch.take_over(state));
-    }
-}
-
-/// How far a host has wound down to hand its session to a new image: serving, no longer taking clients or resting,
-/// then stopping its pipe tasks at a frame and line boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Stage {
-    Serving,
-    Closing,
-    Handing,
-}
-
-struct Pipes {
-    input: ChildStdin,
-    output: Option<ChildStdout>,
-    errors: Option<ChildStderr>,
-}
-
-struct Fed {
-    input: ChildStdin,
-    lanes: Lanes,
 }
 
 pub struct SessionHost {
     pub stdin: StdinQueue,
-    directory: PathBuf,
-    provider: Provider,
-    writer: JoinHandle<Fed>,
-    stdout: JoinHandle<io::Result<Option<ChildStdout>>>,
-    stderr: JoinHandle<io::Result<Option<ChildStderr>>>,
-    server: Option<JoinHandle<Option<UnixListener>>>,
+    child: Child,
+    writer: JoinHandle<ChildStdin>,
+    stdout: JoinHandle<io::Result<()>>,
+    stderr: JoinHandle<io::Result<()>>,
+    server: Option<JoinHandle<()>>,
     parking: Option<JoinHandle<()>>,
-    park_after: Option<Duration>,
     watcher: Watcher,
-    stage: watch::Sender<Stage>,
 }
 
 impl SessionHost {
@@ -309,86 +247,79 @@ impl SessionHost {
     }
 
     pub fn spawn_watched(config: &HostConfig, watcher: Watcher) -> NorthResult<Self> {
-        let mut child = std::process::Command::new(&config.runtime[0])
+        let directory = config.generation_dir();
+        fs::create_dir_all(&directory)?;
+        let stream = append(&directory.join("stream.jsonl"))?;
+        let log = directory.join("stderr.log");
+        let mut child = Command::new(&config.runtime[0])
             .args(&config.runtime[1..])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
         let missing = || NorthError::State("runtime pipe was not captured".into());
-        let pipes = Pipes {
-            input: ChildStdin::from_std(child.stdin.take().ok_or_else(missing)?)?,
-            output: Some(ChildStdout::from_std(child.stdout.take().ok_or_else(missing)?)?),
-            errors: Some(ChildStderr::from_std(child.stderr.take().ok_or_else(missing)?)?),
-        };
-        let (stdin, lanes) = StdinQueue::open(0, Activity::since(Duration::ZERO), watcher.clone());
-        Ok(Self::hold(config.generation_dir(), Provider::watch(child.id()), pipes, (stdin, lanes), watcher)?)
-    }
-
-    fn hold(directory: PathBuf, provider: Provider, pipes: Pipes, (stdin, lanes): (StdinQueue, Lanes), watcher: Watcher) -> io::Result<Self> {
-        fs::create_dir_all(&directory)?;
-        let stream = append(&directory.join("stream.jsonl"))?;
-        let log = directory.join("stderr.log");
-        let (stage, _) = watch::channel(Stage::Serving);
-        let stdout = match pipes.output {
-            Some(output) => tokio::spawn(copy_lines(output, stream, stdin.activity.clone(), watcher.clone(), stage.subscribe())),
-            None => tokio::spawn(async { Ok(None) }),
-        };
-        let stderr = match pipes.errors {
-            Some(errors) => tokio::spawn(copy_rotating(errors, log, STDERR_ROTATE_BYTES, stage.subscribe())),
-            None => tokio::spawn(async { Ok(None) }),
-        };
+        let input = child.stdin.take().ok_or_else(missing)?;
+        let output = child.stdout.take().ok_or_else(missing)?;
+        let errors = child.stderr.take().ok_or_else(missing)?;
+        let (control, priority) = mpsc::channel(STDIN_LINES);
+        let (user, lines) = mpsc::channel(STDIN_LINES);
+        let activity = Activity::new();
         Ok(Self {
-            writer: tokio::spawn(feed_stdin(pipes.input, lanes, stage.subscribe())),
-            stdout,
-            stderr,
-            stdin,
-            directory,
-            provider,
+            stdin: StdinQueue { control, user, next: Arc::default(), activity: activity.clone(), watcher: watcher.clone() },
+            child,
+            writer: tokio::spawn(feed_stdin(input, priority, lines)),
+            stdout: tokio::spawn(copy_lines(output, stream, activity, watcher.clone())),
+            stderr: tokio::spawn(copy_rotating(errors, log, STDERR_ROTATE_BYTES)),
             server: None,
             parking: None,
-            park_after: None,
             watcher,
-            stage,
         })
     }
 
     pub fn serve(&mut self, listener: UnixListener) {
-        self.server = Some(tokio::spawn(accept_clients(listener, self.stdin.clone(), self.stage.subscribe())));
+        self.server = Some(tokio::spawn(accept_clients(listener, self.stdin.clone())));
     }
 
     pub fn end_with_host_signal(&self) {
-        let pid = self.provider.pid;
+        let Some(child) = self.child.id() else { return };
         let Ok(mut term) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) else { return };
         tokio::spawn(async move {
             term.recv().await;
-            signal(pid, rustix::process::Signal::Term);
+            let Some(pid) = i32::try_from(child).ok().and_then(rustix::process::Pid::from_raw) else { return };
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::Term);
             tokio::time::sleep(TERM_GRACE).await;
-            signal(pid, rustix::process::Signal::Kill);
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::Kill);
         });
     }
 
     pub fn rest_when_idle(&mut self, park_after: Option<Duration>) {
-        self.park_after = park_after;
-        let resting = rest_when_idle(self.stdin.clone(), self.watcher.clone(), park_after, self.provider.pid, self.stage.subscribe());
+        let resting = rest_when_idle(self.stdin.clone(), self.watcher.clone(), park_after, self.child.id());
         self.parking = Some(tokio::spawn(resting));
     }
 
     pub async fn wait(self) -> NorthResult<u8> {
-        let Self { stdin, mut provider, writer, stdout, stderr, server, parking, watcher, .. } = self;
+        let Self { stdin, mut child, writer, stdout, stderr, server, parking, watcher } = self;
         drop(stdin);
-        provider.ended().await;
-        let code = provider.reap();
-        server.iter().for_each(JoinHandle::abort);
-        parking.iter().for_each(JoinHandle::abort);
+        let status = child.wait().await?;
+        for task in [server, parking].into_iter().flatten() {
+            task.abort();
+        }
         writer.abort();
         let _ = writer.await;
-        let drained = (stdout.await.map(|copied| copied.map(drop)), stderr.await.map(|copied| copied.map(drop)));
+        let drained = (stdout.await, stderr.await);
         watcher.close();
         for result in [drained.0, drained.1] {
             result.map_err(|error| NorthError::State(format!("pipe task failed: {error}")))??;
         }
-        Ok(code)
+        Ok(exit_code(status))
+    }
+}
+
+pub fn exit_code(status: ExitStatus) -> u8 {
+    match (status.code(), status.signal()) {
+        (Some(code), _) => u8::try_from(code).unwrap_or(1),
+        (None, Some(signal)) => u8::try_from(128 + signal).unwrap_or(255),
+        (None, None) => 1,
     }
 }
 
@@ -398,30 +329,20 @@ pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Op
     fs::create_dir_all(&config.state_dir)?;
     fs::write(north_base::platform::session_host_files::pid_path(&config.state_dir), std::process::id().to_string())?;
     let watcher = watch_for(&config).map(Watcher::new).unwrap_or_default();
-    let mut host = match &config.adopt {
-        Some(carried) => handover::adopt(&config, carried, watcher)?,
-        None => {
-            let listener = bind(&socket)?;
-            let mut host = SessionHost::spawn_watched(&config, watcher)?;
-            host.serve(listener);
-            host
-        }
-    };
+    let listener = bind(&socket)?;
+    let mut host = SessionHost::spawn_watched(&config, watcher)?;
+    host.serve(listener);
     host.end_with_host_signal();
     host.rest_when_idle(config.idle_exit);
-    let code = handover::follow(host, &config).await;
+    let code = host.wait().await;
     let _ = fs::remove_file(&socket);
     code
 }
 
-async fn rest_when_idle(stdin: StdinQueue, watcher: Watcher, park_after: Option<Duration>, child: u32, mut stage: watch::Receiver<Stage>) {
+async fn rest_when_idle(stdin: StdinQueue, watcher: Watcher, park_after: Option<Duration>, child: Option<u32>) {
     let tick = park_after.into_iter().chain(watcher.soonest_rest()).map(|limit| limit / 4).fold(REST_TICK, Duration::min);
     loop {
-        tokio::select! {
-            biased;
-            Ok(_) = stage.wait_for(|stage| *stage != Stage::Serving) => return,
-            () = tokio::time::sleep(tick) => {}
-        }
+        tokio::time::sleep(tick).await;
         match watcher.rest(stdin.activity.idle_for(), park_after) {
             Rest::Wait => {}
             Rest::Send(frames) => {
@@ -432,9 +353,11 @@ async fn rest_when_idle(stdin: StdinQueue, watcher: Watcher, park_after: Option<
             Rest::End => break,
         }
     }
-    signal(child, rustix::process::Signal::Term);
-    tokio::time::sleep(TERM_GRACE).await;
-    signal(child, rustix::process::Signal::Kill);
+    if let Some(pid) = child.and_then(|pid| i32::try_from(pid).ok()).and_then(rustix::process::Pid::from_raw) {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::Term);
+        tokio::time::sleep(TERM_GRACE).await;
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::Kill);
+    }
 }
 
 pub fn bind(path: &Path) -> io::Result<UnixListener> {
@@ -448,26 +371,12 @@ pub fn bind(path: &Path) -> io::Result<UnixListener> {
     UnixListener::bind(path)
 }
 
-/// Serves clients until the host winds down, then gives any still connected `DEFER` to finish and returns the
-/// listener for the host's next image.
-async fn accept_clients(listener: UnixListener, queue: StdinQueue, mut stage: watch::Receiver<Stage>) -> Option<UnixListener> {
+async fn accept_clients(listener: UnixListener, queue: StdinQueue) {
     let mut clients = JoinSet::new();
-    loop {
-        tokio::select! {
-            biased;
-            Ok(_) = stage.wait_for(|stage| *stage != Stage::Serving) => break,
-            accepted = listener.accept() => {
-                let Ok((stream, _)) = accepted else { return None };
-                while clients.try_join_next().is_some() {}
-                clients.spawn(serve_client(stream, queue.clone()));
-            }
-        }
+    while let Ok((stream, _)) = listener.accept().await {
+        while clients.try_join_next().is_some() {}
+        clients.spawn(serve_client(stream, queue.clone()));
     }
-    let finished = tokio::time::timeout(north_runtime_follow::DEFER, async { while clients.join_next().await.is_some() {} }).await;
-    if finished.is_err() {
-        clients.shutdown().await;
-    }
-    Some(listener)
 }
 
 async fn serve_client(stream: UnixStream, queue: StdinQueue) {
@@ -482,10 +391,7 @@ async fn serve_client(stream: UnixStream, queue: StdinQueue) {
         }
     });
     let detached = read_frames(&mut reader, &queue, &reply).await.unwrap_or(false);
-    drop(reply);
-    if detached {
-        let _ = responder.await;
-    } else {
+    if !detached {
         responder.abort();
     }
 }
@@ -542,6 +448,95 @@ async fn read_frames(
     }
 }
 
+async fn feed_stdin(
+    mut input: ChildStdin,
+    mut priority: mpsc::Receiver<Frame>,
+    mut lines: mpsc::Receiver<Frame>,
+) -> ChildStdin {
+    loop {
+        let frame = tokio::select! {
+            biased;
+            Some(frame) = priority.recv() => frame,
+            Some(frame) = lines.recv() => frame,
+            else => break,
+        };
+        if write_frame(&mut input, frame).await.is_err() {
+            break;
+        }
+    }
+    input
+}
+
+async fn write_frame(input: &mut ChildStdin, Frame { mut line, reply }: Frame) -> io::Result<()> {
+    if !line.ends_with('\n') {
+        line.push('\n');
+    }
+    let write = async {
+        input.write_all(line.as_bytes()).await?;
+        input.flush().await
+    };
+    tokio::pin!(write);
+    match tokio::time::timeout(STDIN_WRITE_TIMEOUT, &mut write).await {
+        Ok(written) => written,
+        Err(_) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(STDIN_BLOCKED.into());
+            }
+            write.await
+        }
+    }
+}
+
+async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File, activity: Activity, watcher: Watcher) -> io::Result<()> {
+    let mut pending = Vec::new();
+    let mut chunk = vec![0; 64 * 1024];
+    loop {
+        let read = source.read(&mut chunk).await?;
+        if watcher.output_keeps_awake() {
+            activity.touch();
+        }
+        if read == 0 {
+            if !pending.is_empty() {
+                pending.push(b'\n');
+                file.write_all(&pending)?;
+                watcher.lines(&pending);
+            }
+            return Ok(());
+        }
+        let start = pending.len();
+        pending.extend_from_slice(&chunk[..read]);
+        if let Some(position) = pending[start..].iter().rposition(|byte| *byte == b'\n') {
+            let complete = start + position + 1;
+            file.write_all(&pending[..complete])?;
+            watcher.lines(&pending[..complete]);
+            pending.drain(..complete);
+        }
+    }
+}
+
+async fn copy_rotating(mut source: impl AsyncRead + Unpin, path: PathBuf, limit: u64) -> io::Result<()> {
+    let mut file = append(&path)?;
+    let mut size = file.metadata()?.len();
+    let mut chunk = vec![0; 64 * 1024];
+    loop {
+        let read = source.read(&mut chunk).await?;
+        if read == 0 {
+            return Ok(());
+        }
+        if size > 0 && size + read as u64 > limit {
+            fs::rename(&path, path.with_extension("log.1"))?;
+            file = append(&path)?;
+            size = 0;
+        }
+        file.write_all(&chunk[..read])?;
+        size += read as u64;
+    }
+}
+
+fn append(path: &Path) -> io::Result<File> {
+    OpenOptions::new().create(true).append(true).open(path)
+}
+
 #[cfg(test)]
 mod socket {
     use super::*;
@@ -582,7 +577,6 @@ mod socket {
             socket: Some(root.join("lead-g1.sock")),
             idle_exit: None,
             provider: None,
-            adopt: None,
             runtime: vec!["sh".into(), "-c".into(), script.into()],
         };
         let path = config.socket_path().unwrap();

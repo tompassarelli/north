@@ -145,11 +145,10 @@ fn start(user: bool, socket: Option<PathBuf>, policy: Option<PathBuf>) -> Result
     if let Some(limit) = idle {
         let watched = Arc::clone(&broker);
         let path = socket.clone();
-        let mut runtime = north_runtime_follow::Follow::current();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(5));
-                let quiet = runtime.replaced().is_some() || watched.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).elapsed() > limit;
+                let quiet = watched.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).elapsed() > limit;
                 if quiet && watched.active.load(Ordering::SeqCst) == 0 {
                     let _ = std::fs::remove_file(&path);
                     std::process::exit(0);

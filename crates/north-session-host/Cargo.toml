@@ -11,9 +11,7 @@ doctest = false
 
 [dependencies]
 north-base = { path = "../north-base" }
-north-runtime-follow = { path = "../north-runtime-follow" }
 rustix.workspace = true
-serde.workspace = true
 sha2.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

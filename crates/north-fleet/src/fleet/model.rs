@@ -513,7 +513,7 @@ pub struct LastSender {
     pub at_ms: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EntryKind {
     User,
     Assistant,
@@ -541,7 +541,7 @@ impl EntryKind {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entry {
     pub kind: EntryKind,
     pub text: String,

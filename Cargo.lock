@@ -1035,7 +1035,6 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "north-base",
- "north-runtime-follow",
  "percent-encoding",
  "ring",
  "rustix 0.38.44",
@@ -1656,7 +1655,6 @@ dependencies = [
  "north-pace",
  "north-providers",
  "north-registries",
- "north-runtime-follow",
  "north-strategy-types",
  "north-threads",
  "pbkdf2",
@@ -1822,9 +1820,7 @@ name = "north-session-host"
 version = "0.1.0"
 dependencies = [
  "north-base",
- "north-runtime-follow",
  "rustix 0.38.44",
- "serde",
  "serde_json",
  "sha2",
  "tempfile",

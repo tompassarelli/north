@@ -37,8 +37,6 @@ use super::usage_sink::{NoUsage, UsageSink};
 use super::wait;
 use super::waits::Waits;
 
-mod handover;
-
 const KEPT_LINES: usize = 5;
 
 pub struct TurnWatch {
@@ -464,14 +462,6 @@ impl FrameWatch for TurnWatch {
 
     fn soonest_rest(&self) -> Option<Duration> {
         Some(self.idle.registered_park_after)
-    }
-
-    fn hand_over(&mut self) -> Value {
-        handover::hand_over(self)
-    }
-
-    fn take_over(&mut self, state: Value) {
-        handover::take_over(self, state);
     }
 
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {

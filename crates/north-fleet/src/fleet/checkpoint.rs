@@ -54,7 +54,7 @@ pub fn pays(model: Option<&str>, context: u64, turns_left: u64) -> bool {
 
 /// One conversation's checkpoint: when it last asked, whether an answer is awaited, the compaction its answer chose,
 /// whether that compaction was sent, and whether the worker is owed its resume turn.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default)]
 pub struct Checkpoint {
     last: Option<u64>,
     asked_at: Option<u64>,
@@ -102,7 +102,7 @@ impl Checkpoint {
 }
 
 /// Every conversation's checkpoint, by conversation id.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default)]
 pub struct Checkpoints(HashMap<String, Checkpoint>);
 
 impl Checkpoints {

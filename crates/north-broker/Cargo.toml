@@ -7,7 +7,6 @@ rust-version = "1.96"
 publish = false
 
 [dependencies]
-north-runtime-follow = { path = "../north-runtime-follow" }
 north-base = { path = "../north-base" }
 base64.workspace = true
 percent-encoding.workspace = true
