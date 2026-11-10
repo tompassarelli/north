@@ -18,3 +18,10 @@ fn generated_authorization_messages_do_not_disclose_payloads() {
         }
     }
 }
+
+#[test]
+fn the_refusal_names_the_provider_that_refused() {
+    let gate = "only Tom, the gate session's parent, or a proxy whose current turn Tom opened by typing after the gate opened may answer";
+    assert_eq!(NorthError::Rejected(gate.into()).to_string(), gate);
+    assert_eq!(NorthError::Protocol("Claude Code closed its stream mid-probe".into()).to_string(), "protocol failed: Claude Code closed its stream mid-probe");
+}

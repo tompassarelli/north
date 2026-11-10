@@ -29,10 +29,10 @@ impl NorthError {
     pub fn user_message(&self) -> String {
         match self {
             Self::Protocol(message) if message.contains("401 Unauthorized") => {
-                "Couldn’t connect to Codex: authorization was rejected.".into()
+                "Couldn’t connect: the provider rejected the authorization.".into()
             }
             Self::Protocol(message) if message.contains("turn ended as failed") => {
-                "Codex couldn’t complete the request.".into()
+                "The provider couldn’t complete the request.".into()
             }
             Self::State(message) => format!("North couldn’t read the conversation state: {message}"),
             _ => self.to_string(),
@@ -49,7 +49,7 @@ impl fmt::Display for NorthError {
             Self::Configuration(message) => {
                 write!(formatter, "North configuration failed: {message}")
             }
-            Self::Protocol(message) => write!(formatter, "Codex protocol failed: {message}"),
+            Self::Protocol(message) => write!(formatter, "protocol failed: {message}"),
             Self::State(message) => write!(formatter, "Incomplete North state: {message}"),
             Self::GateAnswered { id, answer, by } => write!(formatter, "gate {id} was already answered: {} by {by}", answer.split_whitespace().collect::<Vec<_>>().join(" ")),
         }

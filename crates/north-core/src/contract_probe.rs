@@ -247,7 +247,7 @@ pub async fn probe_runtime(command: &[String], deadline: Duration, invocation: &
     match (outcome, drained) {
         (Ok(Ok(())), Ok(Ok(()))) => Ok((session.frames, Expectation::for_runtime(&first, &second))),
         (Ok(Err(error)), _) | (_, Ok(Err(error))) => Err(error),
-        _ => Err(NorthError::Protocol(format!("runtime did not finish the probe within {deadline:?}"))),
+        _ => Err(NorthError::Protocol(format!("Claude Code did not finish the probe within {deadline:?}"))),
     }
 }
 
@@ -281,7 +281,7 @@ impl Session {
                 return Ok(());
             }
         }
-        Err(NorthError::Protocol("runtime closed its stream mid-probe".into()))
+        Err(NorthError::Protocol("Claude Code closed its stream mid-probe".into()))
     }
 }
 
