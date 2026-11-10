@@ -45,7 +45,7 @@ pub fn with_needs(text: &str, extra: &[String]) -> String {
 /// The needs a box line declares for itself with `Needs: a, b` (`none` for a box that needs nothing beyond its repository), which replace what its prose would name.
 pub fn declared(line: &str) -> Option<Vec<String>> {
     let listed = DECLARED.captures(line)?[1].to_lowercase();
-    let mut needs: Vec<String> = listed.split(',').map(|word| word.trim()).filter(|word| *word != "none").map(|word| SYNONYMS.iter().find(|(name, _)| *name == word).map_or(word, |(_, need)| need).to_owned()).collect();
+    let mut needs: Vec<String> = listed.split(',').map(|word| word.trim().trim_end_matches('.')).filter(|word| *word != "none").map(|word| SYNONYMS.iter().find(|(name, _)| *name == word).map_or(word, |(_, need)| need).to_owned()).collect();
     needs.sort();
     needs.dedup();
     Some(needs)

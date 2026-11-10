@@ -5,12 +5,19 @@ pub fn home_paths(prompt: &str, home: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
     for word in prompt.split_whitespace() {
         let word = word.trim_matches(|c: char| "\"'`(<[{)]}>,;:.".contains(c));
-        let path = word.strip_prefix("~/").map_or_else(|| PathBuf::from(word), |rest| home.join(rest));
+        let path = expand(word, home);
         if path != home && path.starts_with(home) && !in_primary_checkout(&path, home) && !paths.contains(&path) {
             paths.push(path);
         }
     }
     paths
+}
+
+fn expand(word: &str, home: &Path) -> PathBuf {
+    if let Some(rest) = word.strip_prefix("~/").or_else(|| word.strip_prefix("$HOME/")) {
+        return home.join(rest);
+    }
+    word.strip_prefix("$XDG_STATE_HOME/").map_or_else(|| PathBuf::from(word), |rest| home.join(".local/state").join(rest))
 }
 
 fn in_primary_checkout(path: &Path, home: &Path) -> bool {

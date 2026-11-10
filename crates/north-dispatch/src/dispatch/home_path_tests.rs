@@ -36,3 +36,13 @@ fn a_box_naming_a_primary_checkout_places_on_a_remote_fleet_host() {
     let launched: Vec<String> = round.launches.iter().map(|launch| format!("{} on {}", launch.item, launch.host)).collect();
     assert_eq!(launched, ["north#1020 on cpx62"], "{:?}", round.skipped);
 }
+
+/// On 2026-11-10 north#1041's box naming `$XDG_STATE_HOME/north/gates/peer-invocation.jsonl` was staffed on a host that cannot read it, and stopped on the leash.
+#[test]
+fn a_box_naming_a_state_file_by_environment_variable_is_skipped_on_a_remote_host() {
+    let accounts = vec![account("claude:a", &["gex45"])];
+    let named = issue("north", 1041, "- [ ] a reviewer reads `$XDG_STATE_HOME/north/gates/peer-invocation.jsonl` and fixes any false refusal", &[]);
+    let round = decide(&survey(vec![named], Cloud::Closed("no credit".into()), vec![host("gex45", 1, Ok(0))], accounts), "test");
+    assert!(round.launches.is_empty(), "{:?}", round.launches);
+    assert!(round.skipped.iter().any(|(_, why)| why.contains("/.local/state/north/gates/peer-invocation.jsonl")), "{:?}", round.skipped);
+}

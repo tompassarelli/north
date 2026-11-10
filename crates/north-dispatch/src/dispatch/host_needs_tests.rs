@@ -24,3 +24,17 @@ fn a_lander_state_box_is_placed_on_the_lander_host() {
     assert_eq!(gate::lacks(&cfg, "gex45", &brief).as_deref(), Some("reach to whiterabbit"));
     assert_eq!(gate::lacks(&cfg, "whiterabbit", &brief), None);
 }
+
+#[test]
+fn a_box_that_ends_its_needs_line_with_a_full_stop_is_placed_on_the_host_that_serves_it() {
+    let at = 1_794_270_600.0;
+    let lander = |_: &IssueRef| None;
+    let boxed = issue("north", 1048, "- [ ] On the laptop, by hand: `north fleet revive proxy` on a stopped proxy leaves a niri window. Needs: laptop. Done when: `niri msg -j windows | jq -e 'any(.[]; .title == \"north proxy\")'` exits 0", &[]);
+    let needs = of_with(&boxed, &[], at, &lander);
+    assert_eq!(needs, ["laptop"]);
+    let route = Route { tier: Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() };
+    let brief = super::brief::brief(&Issue { needs, ..boxed }, "dispatch", &route, &super::grounds::Grounds::default(), None);
+    let cfg: toml_edit::DocumentMut = "[hosts.cpx62b]\nlaunches = true\nserves = []\n[hosts.whiterabbit]\nlaunches = true\nserves = [\"laptop\"]\n".parse().unwrap();
+    assert!(gate::lacks(&cfg, "cpx62b", &brief).is_some(), "{brief}");
+    assert_eq!(gate::lacks(&cfg, "whiterabbit", &brief), None);
+}
