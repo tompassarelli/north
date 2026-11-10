@@ -50,8 +50,12 @@ fn env_prefix_refuses_unknown_keys_and_bad_values() {
         plan("env THREADS_ACTOR=a THREADS_ACTOR=b threads list"),
         Err(Refusal::EnvRepeated("THREADS_ACTOR".into()))
     );
-    let long = format!("env THREADS_ACTOR={} threads list", "a".repeat(65));
+    let long = format!("env THREADS_ACTOR={} threads list", "a".repeat(256));
     assert!(matches!(plan(&long), Err(Refusal::EnvValue(_))));
+    let box_named = "north-1041-d0648-each-guarantee-a-hook-enforces-for-claude-today";
+    let owners = format!("env 'THREADS_ALIVE_OWNERS=[\"{box_named}\"]' THREADS_ACTOR={box_named} threads list");
+    assert!(plan(&owners).is_ok(), "a box-named session longer than 64 characters claims through remote-serve: {owners}");
+
 }
 
 #[test]
