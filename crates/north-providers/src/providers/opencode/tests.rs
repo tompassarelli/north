@@ -325,3 +325,12 @@ fn an_ended_opencode_host_leaves_its_conversation_but_not_its_tmp_and_cache() {
     assert!(["data", "config", "state"].iter().all(|kept| scratch.join(kept).join("session").exists()));
     assert!(["tmp", "cache"].iter().all(|dropped| !scratch.join(dropped).exists()));
 }
+
+#[test]
+fn a_session_placed_on_a_build_host_runs_on_the_go_key_that_host_holds() {
+    let home = Path::new("/home/tom");
+    let account = seeing(Visibility::Private, day("2026-11-10")).account_on(home, Path::new("/none"), "go", "gex45").unwrap();
+
+    assert_eq!(account.token_file, Some(home.join(".local/state/north/accounts/opencode/go.key")));
+    assert!(seeing(Visibility::Private, day("2026-11-10")).account_on(home, Path::new("/none"), "b", "gex45").is_err());
+}

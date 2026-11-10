@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, ProviderName};
 use crate::fleet::roster::{Declared, Roster};
 
@@ -16,4 +17,13 @@ pub fn discover(provider: &ProviderName, state_root: &Path) -> Roster {
     let key = key_file(state_root);
     let account = Account { provider: provider.clone(), label: LABEL.into(), token_file: key.is_file().then_some(key), home, api: None };
     Roster::distinct([(account, None)], &Declared::default())
+}
+
+/// The account `label` as `machine` holds it: a machine keeps the home layout of this one, so its key sits at the same path under the home, and the key file is the machine's own to hold, which this host cannot read.
+pub fn on_machine(provider: &ProviderName, home: &Path, label: &str, machine: &str) -> NorthResult<Account> {
+    if label != LABEL {
+        return Err(NorthError::Usage(format!("no {} account named {label} exists for {machine}; the one account is {LABEL}", provider.label())));
+    }
+    let state_root = home.join(".local/state/north");
+    Ok(Account { provider: provider.clone(), label: LABEL.into(), token_file: Some(key_file(&state_root)), home: state_root.join("accounts/opencode"), api: None })
 }

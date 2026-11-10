@@ -21,6 +21,7 @@ use super::overlay::Arm;
 use super::shared::{self, Shared};
 use super::turns::Phase;
 use super::lane::{self, Making};
+use super::remote;
 use crate::providers::pi::windows::PiWindows;
 use super::{accounts, live, screen};
 
@@ -110,6 +111,10 @@ impl Runtime for Deepseek {
         accounts::discover(&self.provider(), state_root)
     }
 
+    fn account_on(&self, home: &Path, _policy: &Path, label: &str, machine: &str) -> NorthResult<Account> {
+        accounts::on_machine(&self.provider(), home, label, machine)
+    }
+
     fn assign_conversation(&self) -> NorthResult<Option<String>> {
         Ok(Some(self.harness.conversation(&new_uuid()?)))
     }
@@ -121,7 +126,10 @@ impl Runtime for Deepseek {
         };
         let system = request.system_prompt.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
         let route = self.route(request, &format!("{}\n{system}", request.prompt))?;
-        let cwd = lane::prepared(&request.cwd, &request.name, &request.tasks(), &*self.lanes)?;
+        let cwd = match &request.machine {
+            Some(_) => lane::planned(&request.cwd, &request.name, &request.tasks()).map_or_else(|| request.cwd.clone(), |lane| lane.path),
+            None => lane::prepared(&request.cwd, &request.name, &request.tasks(), &*self.lanes)?,
+        };
         let delivered = match route {
             Route::Free => render(&PromptInputs { session: &request.name, role: request.role(), mode: request.prompt_mode, orders: seed_orders(), foreground_cap_secs: request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS), extra: Some(&system).filter(|text| !text.is_empty()).map(String::as_str) }),
             Route::Go => instructions.to_owned(),
@@ -142,6 +150,9 @@ impl Runtime for Deepseek {
         }
         if let Some(effort) = request.effort {
             argv.extend(["--effort".into(), effort.label().to_owned()]);
+        }
+        if let Some(machine) = &request.machine {
+            remote::stage(machine, &scratch(self.harness, &request.name), lane::planned(&request.cwd, &request.name, &request.tasks()).as_ref())?;
         }
         let mut env: Vec<(String, std::ffi::OsString)> = vec![(SESSION_ENV.into(), request.name.clone().into()), (ROLE_ENV.into(), request.role().label().into()), (ACTOR_ENV.into(), request.name.clone().into())];
         env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));

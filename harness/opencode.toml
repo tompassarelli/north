@@ -9,6 +9,6 @@ repos = ["south"]
 # issue title or box text matches one of claude_only: credentials, the worker sandbox, fleet locking (north#1020) and a box
 # whose own text says a DeepSeek session cannot do it (north#1054).
 [dispatch]
-hosts = ["whiterabbit"]
-slot_cap = 4
+hosts = ["gex45", "cpx62", "cpx62b", "whiterabbit"]
+slot_cap = 16
 claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex', '\bA DeepSeek session cannot do\b']

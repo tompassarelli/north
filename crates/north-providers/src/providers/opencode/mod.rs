@@ -4,6 +4,7 @@ mod fleet;
 pub mod harness;
 mod lane;
 mod live;
+mod remote;
 pub mod overlay;
 pub mod report;
 pub mod route;
