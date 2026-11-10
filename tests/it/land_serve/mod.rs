@@ -271,8 +271,13 @@ impl Fixture {
 
 #[test]
 fn a_lander_whose_state_lies_outside_the_declared_fixture_root_refuses_before_it_serves() {
-    let fixture = Fixture::new();
-    let output = fixture.command().env("NORTH_TEST_ROOT", fixture.root.join("elsewhere")).output().unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["land", "serve", "--once"])
+        .env("XDG_STATE_HOME", scratch.path().join("state"))
+        .env("NORTH_TEST_ROOT", scratch.path().join("elsewhere"))
+        .output()
+        .unwrap();
     let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 
     assert!(!output.status.success(), "{text}");
