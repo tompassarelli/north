@@ -31,10 +31,6 @@ pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
         "claude" => claude_accounts(&north)?,
         _ => vec![None],
     };
-    if accounts.is_empty() {
-        println!("north runtime canary probe: no Claude account has headroom here, so the launch is not judged");
-        return Ok(());
-    }
     judge(provider, &accounts, |account, round| {
         let name = format!("canary-{provider}-{}-{round}", std::process::id());
         let attempt = attempt(&scene, provider, &name, &cwd, prompt, account, &evidence);
@@ -106,7 +102,7 @@ pub(super) enum Attempt {
     Busy(String),
 }
 
-/// Runs the probe on each account in turn until one answers its first turn. A provider that refuses the account itself (a usage limit, a signed-out login, a billing refusal) says nothing of the runtime, and neither does a worker still working at the deadline (runtime 03da559f was rolled back on 2026-11-11 at laptop load 150 for that), so the next account takes the probe, and with none left the probe is not judged rather than failed.
+/// Runs the probe on each account in turn until one answers its first turn. A provider that refuses the account itself (a usage limit, a signed-out login, a billing refusal) says nothing of the runtime, and neither does a worker still working at the deadline (runtime 03da559f was rolled back on 2026-11-11 at laptop load 150 for that), so the next account takes the probe, and with none left, or none with headroom to begin with, the probe exits no-verdict, which the canary counts as unrun: neither failed nor passed.
 pub(super) fn judge(provider: &str, accounts: &[Option<String>], mut attempt: impl FnMut(Option<&str>, usize) -> Result<Attempt, Failure>) -> Result<(), Failure> {
     for (round, account) in accounts.iter().enumerate() {
         match attempt(account.as_deref(), round + 1)? {
@@ -115,8 +111,8 @@ pub(super) fn judge(provider: &str, accounts: &[Option<String>], mut attempt: im
             Attempt::Busy(why) => println!("north runtime canary probe: {provider}{} was still working at its deadline ({why})", account.as_deref().map_or(String::new(), |account| format!(" on claude:{account}"))),
         }
     }
-    println!("north runtime canary probe: no {provider} account answered or failed its first turn, so the launch is not judged");
-    Ok(())
+    let why = if accounts.is_empty() { "has headroom here" } else { "answered or failed its first turn" };
+    Err(failed(DEFERRED, format!("no {provider} account {why}, so the launch is not judged")))
 }
 
 fn attempt(scene: &Scene, provider: &str, name: &str, cwd: &Path, prompt: &str, account: Option<&str>, evidence: &Evidence) -> Result<Attempt, Failure> {

@@ -350,7 +350,9 @@ fn a_canary_probe_answered_by_a_provider_limit_retries_on_the_next_account() {
     assert!(verdict.is_ok() && tried == ["c", "d"], "a provider limit on the first account must hand the probe to the next: {verdict:?} {tried:?}");
 
     let verdict = launch::judge("claude", &accounts, |_, _| Ok(launch::Attempt::Refused(weekly.to_owned())));
-    assert!(verdict.is_ok(), "every account refused, so the probe is not judged, never failed: {verdict:?}");
+    assert!(verdict.is_err_and(|unjudged| unjudged.code == NO_VERDICT), "every account refused, so the probe exits no-verdict: unrun, neither failed nor passed");
+    let none = launch::judge("claude", &[], |_, _| Ok(launch::Attempt::Answered)).unwrap_err();
+    assert!(none.code == NO_VERDICT && none.message.contains("no claude account has headroom"), "no account to launch on judged nothing, so exit 0 would count a pass: {none:?}");
     let broken = launch::judge("claude", &accounts, |_, _| Err(crate::runtime::failure::failed(1, "boom")));
     assert!(broken.is_err(), "an answer that is no refusal still fails the probe");
 }
@@ -394,9 +396,9 @@ fn a_probe_still_working_at_its_deadline_is_no_verdict() {
     let name = "canary-opencode-1";
     assert!(matches!(launch::at_deadline(name, true, "status working"), Ok(launch::Attempt::Busy(_))), "03da559f at laptop load 150: a worker still working has not judged the runtime");
     let busy = launch::judge("opencode", &[None], |_, _| launch::at_deadline(name, true, "status working"));
-    assert!(busy.is_ok(), "no verdict means the probe exits 0 and the canary rolls nothing back: {busy:?}");
+    assert!(busy.is_err_and(|unjudged| unjudged.code == NO_VERDICT), "no verdict means the probe exits no-verdict, so the canary rolls nothing back and counts no pass");
     let exited = launch::judge("opencode", &[None], |_, _| launch::at_deadline(name, false, "status exited"));
-    assert!(exited.is_err(), "a worker that stopped without answering still fails the runtime");
+    assert!(exited.is_err_and(|failure| failure.code == 1), "a worker that stopped without answering still fails the runtime");
 }
 
 #[test]
