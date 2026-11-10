@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -10,9 +11,14 @@ use crate::landing::step::cancelled;
 use crate::landing::step::{Refused, Step};
 use crate::slug::slug_of;
 
+const SOUTH_ENV: &str = "SAFE_PUSH_SOUTH";
+const DENYLIST_ENV: &str = "SAFE_PUSH_DENYLIST";
+
 pub struct Denylist {
     pub south: PathBuf,
+    pub south_named: bool,
     pub config: Option<PathBuf>,
+    pub kinds: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,10 +51,18 @@ impl DenylistVerdict {
 
 impl Denylist {
     pub fn from_env() -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-        let south = std::env::var_os("SAFE_PUSH_SOUTH").filter(|value| !value.is_empty()).map_or_else(|| home.join("code/south"), PathBuf::from);
-        let config = std::env::var_os("SAFE_PUSH_DENYLIST").filter(|value| !value.is_empty()).map(PathBuf::from);
-        Self { south, config }
+        Self::from_vars(|name| std::env::var_os(name))
+    }
+
+    fn from_vars(var: impl Fn(&str) -> Option<OsString>) -> Self {
+        let named = |name: &str| var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+        let south = named(SOUTH_ENV);
+        Self {
+            south_named: south.is_some(),
+            south: south.unwrap_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join("code/south")),
+            config: named(DENYLIST_ENV),
+            kinds: named(private_text::KINDS_ENV),
+        }
     }
 
     pub fn scan(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step {
@@ -80,11 +94,10 @@ impl Denylist {
         findings: impl FnOnce() -> Result<BTreeSet<String>, Fault>,
         judged: impl FnOnce() -> Result<Vec<Finding>, String>,
     ) -> DenylistVerdict {
-        let configured = self.config.as_ref().is_some_and(|config| config.is_file());
-        if !configured && !self.south.is_dir() {
-            let named = self.config.as_ref().map_or_else(|| format!("{} origin/main", self.south.display()), |config| config.display().to_string());
+        let named = self.south_named || self.config.is_some() || self.kinds.is_some();
+        if !named && !self.south.is_dir() {
             return DenylistVerdict::pass(vec![format!(
-                "safe-push: ⚠ no deny-list at {named} and no south checkout at {}, so private values were not scanned.",
+                "safe-push: ⚠ no deny-list and no south checkout at {}, so private values were not scanned.",
                 self.south.display()
             )]);
         }
@@ -92,11 +105,10 @@ impl Denylist {
         if matches!(visibility.as_str(), "PRIVATE" | "INTERNAL") {
             return DenylistVerdict::pass(Vec::new());
         }
-        if let Some(config) = self.config.as_ref().filter(|_| !configured) {
+        if let Some((variable, source)) = self.absent_source() {
             return DenylistVerdict::refuse(vec![format!(
-                "safe-push: ✗ the deny-list {} is missing although {} exists, so a {visibility} push cannot be scanned for private values; restore it in south; NOT pushed.",
-                config.display(),
-                self.south.display()
+                "safe-push: ✗ {variable} names {}, which is missing or empty, so a {visibility} push cannot be checked for private detail; point it at a real source or unset it; NOT pushed.",
+                source.display()
             )]);
         }
         let values = self.report(findings(), &visibility);
@@ -112,8 +124,16 @@ impl Denylist {
         Self::report_kinds(judged(), &visibility)
     }
 
+    fn absent_source(&self) -> Option<(&'static str, &Path)> {
+        let filled = |file: &Path| std::fs::read_to_string(file).is_ok_and(|text| !text.trim().is_empty());
+        let south = Some(self.south.as_path()).filter(|south| self.south_named && !south.join("main").is_dir()).map(|south| (SOUTH_ENV, south));
+        let config = self.config.as_deref().filter(|config| !filled(config)).map(|config| (DENYLIST_ENV, config));
+        let kinds = self.kinds.as_deref().filter(|kinds| !filled(kinds)).map(|kinds| (private_text::KINDS_ENV, kinds));
+        south.or(config).or(kinds)
+    }
+
     fn can_judge(&self) -> bool {
-        self.south.join("main").is_dir() || private_text::kinds_override()
+        self.south.join("main").is_dir() || self.kinds.is_some()
     }
 
     fn private_kinds(root: &Path, base: &str, head: &str, tag: &str) -> Result<Vec<Finding>, String> {

@@ -28,10 +28,6 @@ pub struct Finding {
     pub span: String,
 }
 
-pub fn kinds_override() -> bool {
-    std::env::var_os(KINDS_ENV).is_some_and(|value| !value.is_empty())
-}
-
 pub fn render(findings: &[Finding]) -> String {
     findings.iter().map(|finding| format!("{}\t{}\n", finding.kind, finding.span.replace(['\n', '\t'], " "))).collect()
 }

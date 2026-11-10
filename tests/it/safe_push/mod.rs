@@ -239,6 +239,7 @@ impl<'a> Run<'a> {
         let scratch = self.scratch.path();
         let path = format!("{}:{}", scratch.join("bin").display(), std::env::var("PATH").unwrap_or_default());
         let sink = File::create(log).unwrap();
+        std::fs::create_dir_all(scratch.join("home")).unwrap();
         let mut command = Command::new(safe_push(self.scratch));
         command
             .args(&self.arguments)
@@ -247,8 +248,9 @@ impl<'a> Run<'a> {
             .env("XDG_STATE_HOME", self.scratch.state())
             .env("GIT_CONFIG_GLOBAL", scratch.join("gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("SAFE_PUSH_DENYLIST", scratch.join("absent-denylist.toml"))
-            .env("SAFE_PUSH_SOUTH", scratch.join("absent-south"))
+            .env("HOME", scratch.join("home"))
+            .env_remove("SAFE_PUSH_DENYLIST")
+            .env_remove("SAFE_PUSH_SOUTH")
             .env("THREADS_DB", scratch.join("threads.db"))
             .stdin(Stdio::null())
             .stderr(Stdio::from(sink.try_clone().unwrap()))

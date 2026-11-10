@@ -198,7 +198,7 @@ fn land_publish() {
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), &link).unwrap();
         assert_eq!(fs::canonicalize(&link).unwrap().file_name().unwrap(), "north");
         script(&fixture.path("stubs/betterleaks"), "printf 'betterleaks %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit \"$STUB_LEAKS_STATUS\"\n");
-        let output = fixture.command_through(&fixture.base, &fixture.head, &link).env("SAFE_PUSH_DENYLIST", fixture.path("absent-denylist.toml")).env("SAFE_PUSH_SOUTH", fixture.path("absent-south")).env("STUB_LEAKS_STATUS", leaks).output().unwrap();
+        let output = fixture.command_through(&fixture.base, &fixture.head, &link).env("HOME", fixture.path("home")).env_remove("SAFE_PUSH_DENYLIST").env_remove("SAFE_PUSH_SOUTH").env("STUB_LEAKS_STATUS", leaks).output().unwrap();
         assert_eq!(output.status.code(), Some(status), "{}\n{}", text(&output), fixture.trace());
         assert!(fixture.trace().contains("betterleaks "), "the link did not run the publication scan: {}", fixture.trace());
         assert_eq!(fixture.path("ran").exists(), status == 0, "{}", text(&output));

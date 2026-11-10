@@ -10,7 +10,7 @@ fn attest(scratch: &Scratch, fixture: &Real, branch: &str, status: &str) -> supe
     write(&fixture.repo.join("content.txt"), &format!("clean {branch}\n"));
     fixture.commit_all("attested work");
     Run::new(scratch, &fixture.repo, &["--to", branch])
-        .env("SAFE_PUSH_SOUTH", scratch.path().join("attest-south"))
+        .env("HOME", scratch.path().join("attest-home"))
         .env("SAFE_PUSH_DENYLIST", scratch.path().join("denylist.toml"))
         .env("SAFE_PUSH_TEST_VISIBILITY", "PUBLIC")
         .env("SAFE_PUSH_TEST_ATTEST_TRACE", scratch.path().join("attest-trace"))
@@ -27,7 +27,7 @@ fn a_claude_branch_push_to_a_public_autoland_repository_attests_its_tip_and_a_fa
     let scratch = Scratch::new();
     let fixture = Real::new(&scratch, "denylist-attest");
     write(&scratch.path().join("denylist.toml"), DENYLIST);
-    std::fs::create_dir_all(scratch.path().join("attest-south")).unwrap();
+    std::fs::create_dir_all(scratch.path().join("attest-home/code/south")).unwrap();
     write(&fixture.repo.join(".github/workflows/autoland.yml"), "on: [workflow_dispatch]\n");
     write(&fixture.repo.join(".safe-push"), "[landing]\n\tqueue = autoland\n");
     git(&fixture.repo, &["add", ".github/workflows/autoland.yml", ".safe-push"]);
@@ -39,14 +39,14 @@ fn a_claude_branch_push_to_a_public_autoland_repository_attests_its_tip_and_a_fa
     fixture.commit_all("attested work");
     let pushed = Run::new(&scratch, &fixture.repo, &["--to", "claude/attest-work"])
         .env("NORTH_FLEET_SESSION", session)
-        .env("SAFE_PUSH_SOUTH", scratch.path().join("attest-south"))
+        .env("HOME", scratch.path().join("attest-home"))
         .env("SAFE_PUSH_DENYLIST", scratch.path().join("denylist.toml"))
         .env("SAFE_PUSH_TEST_VISIBILITY", "PUBLIC")
         .env("SAFE_PUSH_TEST_ATTEST_TRACE", scratch.path().join("attest-trace"))
         .output();
     assert_eq!(pushed.status, Some(0), "{}", pushed.output);
     let repo_name = format!("{}/remote", fixture.remote.parent().unwrap().file_name().unwrap().to_string_lossy());
-    let south = scratch.path().join("attest-south");
+    let south = scratch.path().join("attest-home/code/south");
     assert!(attested(&scratch).lines().any(|line| line == format!("denylist attest --south {} --repo {repo_name} --branch claude/attest-work", south.display())), "a claude/ push did not attest its tip: {}", attested(&scratch));
     let tip = fixture.remote_ref("refs/heads/claude/attest-work").unwrap();
     assert!(pushed.output.contains(&format!("safe-push: pushed {tip} to claude/attest-work")), "{}", pushed.output);

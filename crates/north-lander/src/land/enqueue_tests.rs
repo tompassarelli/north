@@ -4,6 +4,7 @@ use std::process::Command;
 
 use serde_json::json;
 
+use super::Denylist;
 use super::refuse::refuse_static_gates;
 
 fn run(repo: &Path, args: &[&str]) -> String {
@@ -78,8 +79,8 @@ impl Lane {
     }
 
     fn try_enqueue_from(&self, host: &str, shape: super::Shape) -> Result<super::Queued, String> {
-        let (state, south) = (self.dir.path().join("state"), self.dir.path().join("absent-south"));
-        let environment = super::Environment { state_home: &state, host, session: None, south: &south, denylist: None };
+        let (state, denylist) = (self.dir.path().join("state"), without_south(self.dir.path()));
+        let environment = super::Environment { state_home: &state, host, session: None, denylist: &denylist };
         super::enqueue(&self.repo, shape, false, &environment)
     }
 
@@ -204,9 +205,9 @@ fn a_lane_that_began_with_a_wip_commit_lands_under_its_last_commit_and_a_lane_en
 #[test]
 fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queues_the_same_head_until_the_withdrawer_clears_it_or_the_head_changes() {
     let lane = Lane::new();
-    let (state, south) = (lane.dir.path().join("state"), lane.dir.path().join("absent-south"));
+    let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
     let enqueue_as = |session: &str| {
-        let environment = super::Environment { state_home: &state, host: "fixture-host", session: Some(session), south: &south, denylist: None };
+        let environment = super::Environment { state_home: &state, host: "fixture-host", session: Some(session), denylist: &denylist };
         super::enqueue(&lane.repo, super::Shape::OneCommit { message: None }, false, &environment)
     };
     let queued = enqueue_as("worker-1").unwrap();
@@ -400,4 +401,8 @@ fn a_lane_locking_an_npm_version_with_an_open_advisory_is_refused() {
     let (gates, detail) = refused.unwrap_err();
     assert!(gates.contains("dependency advisory") && !gates.contains("dependency age"), "{gates}: {detail}");
     assert!(detail.contains("bun.lock: fixture-npm@1.0.0: GHSA-fixture"), "{detail}");
+}
+
+fn without_south(dir: &Path) -> Denylist {
+    Denylist { south: dir.join("absent-south"), south_named: false, config: None, kinds: None }
 }

@@ -75,8 +75,9 @@ impl Fixture {
             .env("GH_STATE", self.root().join("gh-state"))
             .env("GH_REMOTE", self.remote())
             .env("XDG_STATE_HOME", self.root().join("state"))
-            .env("SAFE_PUSH_DENYLIST", self.root().join("absent-denylist.toml"))
-            .env("SAFE_PUSH_SOUTH", self.root().join("absent-south"))
+            .env("HOME", self.root().join("home"))
+            .env_remove("SAFE_PUSH_DENYLIST")
+            .env_remove("SAFE_PUSH_SOUTH")
             .env("NORTH_NO_AUTOREAP", "1")
             .env_remove("SAFE_PUSH_OUTPUT_CLAIMED");
         command

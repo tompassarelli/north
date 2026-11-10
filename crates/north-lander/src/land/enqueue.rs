@@ -43,8 +43,7 @@ pub struct Environment<'a> {
     pub state_home: &'a Path,
     pub host: &'a str,
     pub session: Option<&'a str>,
-    pub south: &'a Path,
-    pub denylist: Option<&'a Path>,
+    pub denylist: &'a Denylist,
 }
 
 pub(super) fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -270,8 +269,7 @@ fn check_lane(root: &Path, base: &str, branch: &str, origin: &str, destination: 
     }
     let bodies = git(root, &["log", "--format=%B", &format!("{base}..HEAD")])?;
     judged(environment, root, branch, &lane_head, "commit trailers", super::divergence::refuse_malformed(&bodies))?;
-    let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
-    outgoing::enqueue_gate(root, base, &denylist, origin, destination)?;
+    outgoing::enqueue_gate(root, base, environment.denylist, origin, destination)?;
     runner::fails_first(root, base, &lane_head)?;
     refuse_unfetchable(root, base, &lane_head)?;
     runner::refuse_queue_checks(root, base, &lane_head)?;
@@ -292,7 +290,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
     let sources = Denylist::from_env();
-    let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), south: &sources.south, denylist: sources.config.as_deref() };
+    let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), denylist: &sources };
     match enqueue(repo, parsed.shape(), parsed.keep_lane, &environment) {
         Ok(queued) => {
             match &queued.squash {
