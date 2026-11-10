@@ -1,5 +1,5 @@
 pub use north_providers::providers;
-pub use north_dispatch::{capacity, dispatch, fleet, foundation, laptop, pacing, platform, shell, threads};
+pub use north_dispatch::{capacity, dispatch, fleet, foundation, laptop, pacing, platform, shell, spend, threads};
 
 pub mod agent_contain;
 pub mod worker_sandbox;

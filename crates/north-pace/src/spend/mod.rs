@@ -6,6 +6,7 @@ mod read;
 #[cfg(test)]
 mod tests;
 pub mod drain;
+pub mod operational;
 pub mod tripwire;
 
 use std::fmt;
