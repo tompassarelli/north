@@ -166,11 +166,25 @@ worker updates its own class's line when its lane lands.
 
 ### 7. Dispatch staffs a box a live lane holds
 
-- Incident: n882-tax's claim on north#879 matched no box, so dispatch staffed a second worker.
-  Forgotten sessions north-870-d0106 and north-870-d0111 kept their claims.
+- Incident: n882-tax's claim on north#879 matched no box, so dispatch staffed north-879-d0116
+  beside it on 2026-11-08, and north-873-d0051 ran beside n882-brief whose brief named its arm
+  box. Forgotten sessions north-870-d0106 and north-870-d0111 kept the boxes they had claimed.
+- Root cause: the per-box check read a claim whose slug matched no box as holding nothing and
+  could not see a box another issue's brief named; forget released only the launch record's claim
+  keys, never the threads ledger's.
+- Invariant: one session per box, decided before a session starts on it (4).
 - Mechanism: a running claim naming a box slug the issue lacks holds every box of the issue
-  (210c4f1383), and forget releases every claim the ledger lists for the session (c2cba7ead6).
-- Status: north#888 owns it. This class is done when north#888 closes. Three of its boxes are open.
+  (210c4f1383); a launch whose brief names another issue's box claims that box too
+  (cc9f745bff86); forget releases every threads claim the ledger lists for the session, even
+  when its host left placement (c2cba7ead6, 1e19a696c1); a launch whose box claim the ledger has
+  not confirmed does not start, and a turn handed a new box takes that box's claim first. The
+  fleet tick counts duplicate stagings per day.
+- Replay: `cargo test -p north-fleet-supervisor claim` names the 2026-11-08 pairs and passes on
+  main e8ba82581d67; `cargo test -p north-dispatch a_claim_on_a_slug` refuses a second staff of
+  north#879, and `cargo test -p north-fleet claims` refuses north-873-d0051 while n882-brief runs.
+- Status: enforced. north#888 closed on 2026-11-09 with every box ticked: 210c4f1383,
+  cc9f745bff86, c2cba7ead6 and 1e19a696c1 are on origin/main, and the supervisor replay above
+  passed on e8ba82581d67.
 
 ### 8. An alarm goes to a retired name
 
