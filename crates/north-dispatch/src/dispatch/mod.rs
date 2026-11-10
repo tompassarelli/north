@@ -76,6 +76,8 @@ mod claim_tests;
 #[cfg(test)]
 mod threads_claim_tests;
 #[cfg(test)]
+mod corroborated_tests;
+#[cfg(test)]
 mod order_tests;
 #[cfg(test)]
 mod stops_tests;

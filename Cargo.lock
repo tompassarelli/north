@@ -1221,6 +1221,7 @@ dependencies = [
  "north-fleet-store",
  "north-fleet-supervisor",
  "north-github-mirror",
+ "north-graph",
  "north-graph-ground",
  "north-graph-loops",
  "north-pace",

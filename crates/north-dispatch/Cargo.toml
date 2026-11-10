@@ -32,6 +32,7 @@ toml_edit.workspace = true
 
 [dev-dependencies]
 north-fleet-store = { path = "../north-fleet-store" }
+north-graph = { path = "../north-graph" }
 
 [lints]
 workspace = true
