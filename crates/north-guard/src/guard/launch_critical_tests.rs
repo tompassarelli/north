@@ -219,7 +219,7 @@ fn main_checkout_takes_a_pull_or_merge_only_from_origin_main() {
         (format!("git -C {main} merge --ff-only n791-placement"), "/tmp"),
     ] {
         let reason = decide(&command, cwd).unwrap_or_else(|| panic!("{command} was allowed"));
-        assert!(reason.contains("safe-push --to main") && reason.contains("merge --ff-only origin/main"), "{reason}");
+        assert!(reason.contains("safe-push --to main") && reason.contains(&format!("north lane sync {main}")), "{reason}");
     }
     for (command, cwd) in [
         (format!("git -C {main} merge --ff-only origin/main"), "/tmp"),

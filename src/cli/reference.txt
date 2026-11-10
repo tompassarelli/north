@@ -313,6 +313,7 @@ Commands:
   help                                          Show the operator and agent commands
   docs reference-index [--check] [--root DIR]    Regenerate src/cli/reference.txt from the one-file-per-command tree under src/cli/reference/, or with --check fail when it is stale
   runtime lag --processes                       List each long-lived north process on this host with the runtime it runs, and behind for each whose runtime is not the one its link names
+  lane sync CHECKOUT...                            Fetch and fast-forward each project main checkout to origin/main, outside a worker sandbox
 
 Options:
   -h, --help  Show the operator and agent commands

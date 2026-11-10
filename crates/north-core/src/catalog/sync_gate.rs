@@ -68,6 +68,43 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
     Ok(0)
 }
 
+const SYNC_USAGE: &str = "usage: north lane sync CHECKOUT...
+
+Brings each CHECKOUT, the absolute path of a project's main checkout (.../PROJECT/main), up to origin/main by the fetch and fast-forward `agents sync` makes, clearing untracked files whose bytes equal the incoming blob. A sandboxed worker runs it through the broker, since the fast-forward unlinks and replaces files its own domain refuses to remove. A checkout that is off main, ahead of origin, or holds uncommitted changes or differing untracked files is left as it is and the reason named.";
+
+pub fn sync_checkouts(arguments: &[String]) -> u8 {
+    if arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
+        println!("{SYNC_USAGE}");
+        return 0;
+    }
+    if arguments.is_empty() || arguments.iter().any(|argument| argument.starts_with('-')) {
+        eprintln!("{SYNC_USAGE}");
+        return 2;
+    }
+    let now = crate::platform::records_mirror::now() as u64;
+    let mut say = |line: String| eprintln!("{line}");
+    let mut code = 0;
+    for checkout in arguments.iter().map(PathBuf::from) {
+        match main_checkout_name(&checkout).and_then(|name| current_main(&name, &checkout, now, &mut say).map(|()| name)) {
+            Ok(name) => println!("{name} main is at origin/main"),
+            Err(reason) => {
+                eprintln!("kept {}: {reason}", checkout.display());
+                code = 1;
+            }
+        }
+    }
+    code
+}
+
+fn main_checkout_name(checkout: &Path) -> Result<String, String> {
+    let name = checkout
+        .parent()
+        .and_then(Path::file_name)
+        .filter(|_| checkout.is_absolute() && checkout.file_name().is_some_and(|name| name == "main") && checkout.join(".git").is_dir())
+        .ok_or("name the main checkout of a project by its absolute path (.../PROJECT/main with a .git directory)")?;
+    Ok(name.to_string_lossy().into_owned())
+}
+
 fn project_profiles() -> bool {
     let cfg = crate::usage::profiles::policy_value(&crate::platform::orchestration::path());
     match crate::usage::profiles::sync(&cfg, &crate::platform::host::name(), &crate::usage::profiles::home()) {

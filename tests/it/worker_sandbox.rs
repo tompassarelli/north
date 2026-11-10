@@ -322,3 +322,62 @@ fn a_sandboxed_worker_opens_a_gate_and_records_a_box_check() {
     let threads = names(".local/state/threads/spool");
     assert!(threads.iter().filter(|name| name.ends_with(".jsonl")).count() == 2, "{threads:?}: {report}");
 }
+
+struct Broker(std::process::Child);
+
+impl Drop for Broker {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn a_sandboxed_worker_fast_forwards_a_main_checkout_through_the_broker() {
+    let home = Home::new();
+    let runtime = tempfile::Builder::new().prefix("n1097").tempdir_in("/tmp").unwrap();
+    let north = env!("CARGO_BIN_EXE_north");
+    let socket = runtime.path().join("north-outside/broker.sock");
+    let _broker = Broker(Command::new(north).args(["--worker-sandbox", "--broker"]).env_clear().env("PATH", std::env::var_os("PATH").unwrap()).env("HOME", home.path()).env("XDG_RUNTIME_DIR", runtime.path()).spawn().unwrap());
+    assert!(north_core::platform::wait::until(std::time::Duration::from_secs(5), || std::os::unix::net::UnixStream::connect(&socket).is_ok()), "the scratch broker never listened");
+    let origin = home.path().join("origin");
+    std::fs::create_dir_all(&origin).unwrap();
+    git(&origin, &["init", "-q", "-b", "main"]);
+    file(&origin.join("flake.lock"));
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "one"]);
+    let main = home.path().join("code/s/main");
+    std::fs::create_dir_all(main.parent().unwrap()).unwrap();
+    git(home.path(), &["clone", "-q", origin.to_str().unwrap(), main.to_str().unwrap()]);
+    std::fs::write(origin.join("flake.lock"), "moved").unwrap();
+    file(&origin.join("agents/decisions/new.md"));
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "two"]);
+    let head = |directory: &Path| String::from_utf8_lossy(&Command::new("git").arg("-C").arg(directory).args(["rev-parse", "HEAD"]).output().unwrap().stdout).trim().to_owned();
+    git(&main, &["fetch", "-q", "origin", "main"]);
+    let sandboxed = |command: &str| {
+        Command::new(north)
+            .args(["--worker-sandbox", command])
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .env("HOME", home.path())
+            .env("SHELL", "bash")
+            .env("NORTH_FLEET_ROLE", "worker")
+            .env("NORTH_WORKER_SANDBOX", "1")
+            .env("XDG_RUNTIME_DIR", runtime.path())
+            .current_dir(home.lane())
+            .output()
+            .unwrap()
+    };
+    let refused = sandboxed(&format!("git -C {} merge --ff-only origin/main", main.display()));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("Permission denied"), "the sandbox let a bare fast-forward replace a file in main, so the broker proves nothing: {}", String::from_utf8_lossy(&refused.stderr));
+    assert_ne!(head(&main), head(&origin));
+
+    let output = sandboxed(&format!("{north} lane sync {}", main.display()));
+    let report = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "{report}");
+    assert_eq!(head(&main), head(&origin), "{report}");
+    assert_eq!(std::fs::read_to_string(main.join("flake.lock")).unwrap(), "moved");
+    let status = Command::new("git").arg("-C").arg(&main).args(["status", "--porcelain"]).output().unwrap();
+    assert!(status.stdout.is_empty(), "{}", String::from_utf8_lossy(&status.stdout));
+}

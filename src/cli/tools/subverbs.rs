@@ -65,6 +65,7 @@ const LANE: &[(&str, Run)] = &[
     ("seed", crate::lanes::target_seed),
     ("stray", |arguments| outside_the_sandbox("lane", "stray", crate::lanes::stray, arguments)),
     ("squash", lane_squash::run),
+    ("sync", |arguments| outside_the_sandbox("lane", "sync", crate::agent_catalog::sync_gate::sync_checkouts, arguments)),
     ("sweep", crate::ops::cleanup_sweep::run),
     ("unlock", |arguments| outside_the_sandbox("lane", "unlock", crate::lanes::unlock, arguments)),
 ];
