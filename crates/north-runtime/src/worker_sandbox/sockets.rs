@@ -11,6 +11,7 @@ use super::Context;
 
 const KEPT: [&str; 6] = ["wayland-", "pipewire-", "pulse", "private-desktop", "cc-socks", "north"];
 const DEPTH: usize = 4;
+const SSH_CONFIG: &str = "/etc/ssh/ssh_config";
 /// What `make` prints when its namespaces are laid.
 pub const READY: &[u8] = b"ready\n";
 
@@ -63,9 +64,14 @@ pub fn hide(runtime: &Path, paths: &[PathBuf]) -> Result<(), String> {
     if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
 }
 
+/// The file ssh reads its system configuration from, with every link resolved: the overlay goes over this path.
+pub fn ssh_config() -> Option<PathBuf> {
+    std::fs::canonicalize(SSH_CONFIG).ok()
+}
+
 // ssh's config format refuses an Included file that this namespace shows as owned by nobody, which is every file of the store, so ssh's system configuration is laid over with a copy that has no Include.
 fn own_includes_only(runtime: &Path) -> Result<(), String> {
-    let Ok(real) = std::fs::canonicalize("/etc/ssh/ssh_config") else { return Ok(()) };
+    let Some(real) = ssh_config() else { return Ok(()) };
     let Ok(text) = std::fs::read_to_string(&real) else { return Ok(()) };
     let kept: String = text.lines().filter(|line| !line.trim_start().to_ascii_lowercase().starts_with("include")).map(|line| format!("{line}\n")).collect();
     if kept.len() == text.len() {

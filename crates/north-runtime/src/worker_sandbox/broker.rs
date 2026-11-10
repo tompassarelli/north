@@ -357,8 +357,25 @@ fn hung_up(stream: &UnixStream) -> bool {
     rustix::net::recv(stream, &mut [0u8; 1], RecvFlags::PEEK | RecvFlags::DONTWAIT).is_ok_and(|read| read == 0)
 }
 
+/// What a namespace maker laid its overlay over: the sockets it hid and the file `/etc/ssh/ssh_config` resolved to, which a NixOS activation moves to a new store path the old overlay does not cover (north#1083).
+pub(super) struct Laid {
+    pub(super) hidden: Vec<PathBuf>,
+    pub(super) ssh_config: Option<PathBuf>,
+}
+
+impl Laid {
+    fn now(runtime: &Path, request: &Request) -> Self {
+        Self { hidden: super::sockets::hidden(runtime, &multiplexer(request)), ssh_config: super::sockets::ssh_config() }
+    }
+
+    /// Whether namespaces laid for `self` still serve `now`: they hide every socket there is now and overlay the ssh configuration ssh reads now.
+    pub(super) fn serves(&self, now: &Self) -> bool {
+        self.ssh_config == now.ssh_config && now.hidden.iter().all(|path| self.hidden.contains(path))
+    }
+}
+
 struct Namespaces {
-    hidden: Vec<PathBuf>,
+    laid: Laid,
     user: OwnedFd,
     mount: OwnedFd,
 }
@@ -386,24 +403,24 @@ fn multiplexer(request: &Request) -> PathBuf {
     super::sockets::multiplexer(uid, request.environment.iter().find(|(name, _)| name == "TMUX_TMPDIR").map(|(_, value)| value.into()))
 }
 
-/// The namespaces for the sockets there are now, the last made ones when they already hide all of them.
+/// The namespaces for the sockets and ssh configuration there are now, the last made ones when they still serve them.
 fn namespaces(north: &Path, request: &Request) -> Result<[OwnedFd; 2], String> {
     let runtime = socket().parent().and_then(Path::parent).map(Path::to_path_buf).ok_or("the broker has no runtime directory")?;
-    let now = super::sockets::hidden(&runtime, &multiplexer(request));
+    let now = Laid::now(&runtime, request);
     let mut held = NAMESPACES.lock().map_err(|error| error.to_string())?;
-    if !held.as_ref().is_some_and(|made| now.iter().all(|path| made.hidden.contains(path))) {
+    if !held.as_ref().is_some_and(|made| made.laid.serves(&now)) {
         *held = Some(make(north, &runtime, now)?);
     }
     let made = held.as_ref().ok_or("no namespaces")?;
     Ok([made.user.try_clone().map_err(|error| error.to_string())?, made.mount.try_clone().map_err(|error| error.to_string())?])
 }
 
-fn make(north: &Path, runtime: &Path, hidden: Vec<PathBuf>) -> Result<Namespaces, String> {
-    let mut maker = Command::new(north).args([FLAG, MAKER]).arg(runtime).args(&hidden).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().map_err(|error| format!("{}: {error}", north.display()))?;
-    let mut ready = vec![0u8; super::sockets::READY.len()];
-    let laid = maker.stdout.take().ok_or("no output")?.read_exact(&mut ready).is_ok() && ready == super::sockets::READY;
+fn make(north: &Path, runtime: &Path, laid: Laid) -> Result<Namespaces, String> {
+    let mut maker = Command::new(north).args([FLAG, MAKER]).arg(runtime).args(&laid.hidden).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().map_err(|error| format!("{}: {error}", north.display()))?;
+    let mut answer = vec![0u8; super::sockets::READY.len()];
+    let ready = maker.stdout.take().ok_or("no output")?.read_exact(&mut answer).is_ok() && answer == super::sockets::READY;
     let own = |name: &str| std::fs::File::open(format!("/proc/{}/ns/{name}", maker.id())).map(OwnedFd::from).map_err(|error| format!("{name} namespace: {error}"));
-    let opened = if laid { own("user").and_then(|user| own("mnt").map(|mount| Namespaces { hidden, user, mount })) } else { Err("the namespace maker did not lay its overlay".to_owned()) };
+    let opened = if ready { own("user").and_then(|user| own("mnt").map(|mount| Namespaces { laid, user, mount })) } else { Err("the namespace maker did not lay its overlay".to_owned()) };
     drop(maker.stdin.take());
     let _ = maker.wait();
     opened

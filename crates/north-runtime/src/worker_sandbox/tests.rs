@@ -287,3 +287,13 @@ fn a_lane_only_domain_reads_the_north_runtime_and_not_the_state_beside_it() {
     assert!(!hidden.iter().any(|path| runtimes.join("a/tree/bin").starts_with(path)), "the north runtime is hidden: {hidden:?}");
     assert!(hidden.contains(&state.join("profiles")), "the agent state beside the runtime is readable: {hidden:?}");
 }
+
+#[test]
+fn namespaces_laid_before_a_nixos_activation_moved_ssh_config_are_not_reused_north_1083() {
+    use super::broker::Laid;
+    let socket = PathBuf::from("/run/user/1000/bus");
+    let before = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/d980-etc-ssh-ssh_config")) };
+    let after = Laid { hidden: vec![socket.clone()], ssh_config: Some(PathBuf::from("/nix/store/zhf1-etc-ssh-ssh_config")) };
+    assert!(!before.serves(&after));
+    assert!(before.serves(&Laid { hidden: vec![socket], ssh_config: before.ssh_config.clone() }));
+}
