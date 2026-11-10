@@ -65,14 +65,23 @@ impl Follow {
     /// Replaces this process image with the same program of the link's runtime and the same arguments, keeping its
     /// pid, its children and every descriptor not marked close-on-exec; returns only the error that stopped it.
     pub fn reexec(&self) -> io::Error {
-        let Some(program) = &self.program else {
-            return io::Error::other("this process runs no promoted runtime, so it has no build to move to");
+        self.reexec_with(std::env::args_os().skip(1))
+    }
+
+    /// The program this process would run under the link's runtime.
+    pub fn next(&self) -> io::Result<PathBuf> {
+        let program = self.program.as_ref().ok_or_else(|| io::Error::other("this process runs no promoted runtime, so it has no build to move to"))?;
+        let runtime = fs::canonicalize(&self.link).map_err(|error| io::Error::other(format!("{}: {error}", self.link.display())))?;
+        Ok(runtime.join(program))
+    }
+
+    /// `reexec` with `arguments` in place of this process's own.
+    pub fn reexec_with(&self, arguments: impl IntoIterator<Item = OsString>) -> io::Error {
+        let next = match self.next() {
+            Ok(next) => next,
+            Err(error) => return error,
         };
-        let next = match fs::canonicalize(&self.link) {
-            Ok(runtime) => runtime.join(program),
-            Err(error) => return io::Error::other(format!("{}: {error}", self.link.display())),
-        };
-        Command::new(&next).arg0(&next).args(std::env::args_os().skip(1)).exec()
+        Command::new(&next).arg0(&next).args(arguments).exec()
     }
 }
 

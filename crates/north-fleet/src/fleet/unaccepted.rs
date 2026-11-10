@@ -7,7 +7,7 @@ const FILE: &str = "unaccepted.jsonl";
 const REPLAYS: u32 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-struct Entry {
+pub struct Entry {
     id: String,
     line: String,
     replays: u32,
@@ -43,6 +43,16 @@ impl Unaccepted {
         if self.entries.len() != before {
             self.save();
         }
+    }
+
+    pub fn held(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    /// Replaces the journal with `entries`, as a host's new image takes over its previous image's.
+    pub fn hold(&mut self, entries: Vec<Entry>) {
+        self.entries = entries;
+        self.save();
     }
 
     pub fn is_empty(&self) -> bool {

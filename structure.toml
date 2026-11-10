@@ -125,7 +125,7 @@ may_use = []
 [[crate_dag.crate]]
 name = "north-broker"
 paths = ["crates/north-broker/src/**"]
-may_use = ["north-base"]
+may_use = ["north-base", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-claude-stream"
@@ -320,7 +320,7 @@ may_use = ["north-base", "north-fleet", "north-threads"]
 [[crate_dag.crate]]
 name = "north-ops"
 paths = ["crates/*/src/ops.rs", "crates/*/src/ops/**", "crates/*/src/health.rs", "crates/*/src/health/**"]
-may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes", "north-registries"]
+may_use = ["north-dispatch", "north-threads", "north-github-mirror", "north-lanes", "north-registries", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-pace"
@@ -340,7 +340,7 @@ may_use = ["north-pace", "north-publish"]
 [[crate_dag.crate]]
 name = "north-session-host"
 paths = ["crates/north-session-host/src/**"]
-may_use = ["north-base"]
+may_use = ["north-base", "north-runtime-follow"]
 
 [[crate_dag.crate]]
 name = "north-resume"
@@ -418,7 +418,7 @@ may_use = []
 name = "broker"
 paths = ["crates/north-broker/src/**"]
 responsibility = "The credential broker: a per-uid policy ceiling, scoped GitHub App installation tokens and allowlisted cloud calls forwarded with the credential swapped in."
-may_use = ["foundation", "platform", "platform.process"]
+may_use = ["foundation", "platform", "platform.process", "runtime_follow"]
 
 [[module]]
 name = "strategy_types"
@@ -548,7 +548,7 @@ may_use = ["foundation", "crate-roots", "lifecycle", "platform.harness"]
 
 [[module]]
 name = "fleet"
-paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs", "crates/north-session-host/src/session_lifecycle.rs"]
+paths = ["crates/north-core/src/lead_journal.rs", "crates/*/src/fleet/**", "crates/north-session-host/src/session_host.rs", "crates/north-session-host/src/session_host/**", "crates/north-session-host/src/row_delivery.rs", "crates/north-session-host/src/held.rs", "crates/north-session-host/src/session_lifecycle.rs"]
 responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
 may_use = ["domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "land_ticket", "platform.git", "platform.process", "platform.records", "fleet_store", "platform.harness", "graph_loops", "runtime_follow"]
 

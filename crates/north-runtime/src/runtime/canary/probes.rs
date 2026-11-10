@@ -93,13 +93,21 @@ pub(super) fn core_loop(host: &str, sha: &str, launchable: &[String], reaches_hu
         probes.push(probe("one scratch landing lands on its origin", scratch_landing(&north), SCRATCH_LANDING_LIMIT));
     }
     if is_hub(host) {
-        return CoreLoop { probes, not_applicable };
+        return CoreLoop { probes: judging(sha, probes), not_applicable };
     }
     not_applicable.extend(PROVIDERS.iter().copied().filter(|provider| !launchable.iter().any(|present| present.as_str() == *provider)).map(str::to_owned));
     for provider in PROVIDERS.iter().filter(|provider| launchable.iter().any(|present| present.as_str() == **provider)) {
         probes.push(probe(format!("a --test {provider} worker answers its first turn"), format!("{north} runtime probe launch {provider}"), LAUNCH_LIMIT));
     }
-    CoreLoop { probes, not_applicable }
+    CoreLoop { probes: judging(sha, probes), not_applicable }
+}
+
+/// Every process a probe starts follows a link naming the judged runtime, so a resident one such as a probe worker's
+/// session host stays on the build being judged instead of moving onto whichever runtime `current` or the lander link
+/// names while the canary runs.
+fn judging(sha: &str, probes: Vec<Probe>) -> Vec<Probe> {
+    let pinned = format!("link=\"${{XDG_STATE_HOME:-$HOME/.local/state}}/north/judged/{sha}\"\nmkdir -p \"${{link%/*}}\" && ln -sfn \"../runtimes/{sha}\" \"$link\"\nexport {}=\"$link\"\n", north_runtime_follow::LINK);
+    probes.into_iter().map(|probe| Probe { script: format!("{pinned}{}", probe.script), ..probe }).collect()
 }
 
 /// The product verification of the judged runtime, run only when a Claude account can place its
