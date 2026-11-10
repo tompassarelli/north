@@ -198,6 +198,11 @@ pub fn threads_database() -> PathBuf {
     state.join(if home.join(".config/threads/remote").exists() { "snapshot.db" } else { "threads.db" })
 }
 
+/// True when `THREADS_DB` names a ledger of this process's own, such as a test launch's scratch root, instead of the shared one.
+pub fn private_ledger() -> bool {
+    ambient_client(unread_fleet()).is_some_and(|client| client.var("THREADS_DB").is_some())
+}
+
 pub fn ledger_path() -> NorthResult<PathBuf> {
     ambient_client(unread_fleet()).map(|client| client.ledger()).ok_or_else(|| NorthError::Usage("no home directory".into()))
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use north_base::platform::harness::{DEFAULTS, document};
 use north_graph::{Graph, Retained, Retention, Synced, Term, default_path};
@@ -10,6 +11,8 @@ use crate::facts::Sourced;
 use crate::{corrections, coverage, crates, issues, ledger, losses, observations, pushes, ranking, reads, touches};
 
 const USAGE: &str = "usage: north graph ingest [--db PATH] [SOURCE...]\n       north graph retain [--db PATH]\nsources: mirror ranking ledger losses pushes touches corrections coverage crates reads observations (all when none is named)";
+
+const RETAIN_PATIENCE: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Source {
@@ -155,14 +158,14 @@ fn retain_command(arguments: &[String]) -> u8 {
         [flag, path] if flag == "--db" => PathBuf::from(path),
         _ => return usage("retain takes only --db PATH"),
     };
-    let mut graph = match Graph::open(&db) {
+    let Some(_alone) = alone(&db) else { return 1 };
+    let mut graph = match Graph::open_patiently(&db, RETAIN_PATIENCE) {
         Ok(graph) => graph,
         Err(why) => {
             eprintln!("north graph retain: {why}");
             return 1;
         }
     };
-    let Some(_alone) = alone(&db) else { return 1 };
     let retention = Retention { retired: retired_writers(), horizon_days: north_base::platform::harness::default_number("graph_retain_days") as i64, now: now() };
     match graph.retain(&retention) {
         Ok(Retained { horizon, occurrences, withdrawals, terms, transactions, longest_ms, delete_ms, full_vacuum, vacuum_ms }) => {

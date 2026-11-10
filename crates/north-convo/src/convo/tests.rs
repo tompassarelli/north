@@ -174,7 +174,7 @@ fn compression_holds_back_open_warm_and_rostered_files_and_restores_byte_for_byt
     let mut lab = Lab::new();
     let dir = lab.codex_dir("01");
     let roster = dir.join("../roster.json");
-    fs::write(&roster, r#"{"version":"north:agent-roster:v1","agents":[]}"#).unwrap();
+    fs::write(&roster, "[]").unwrap();
     lab.env.roster_cmd = Some(format!("cat {}", roster.display()));
     let rostered_id = "dddddddd-1111-2222-3333-444444444444";
     let names = ["cold", "warm", "held", rostered_id];
@@ -192,7 +192,7 @@ fn compression_holds_back_open_warm_and_rostered_files_and_restores_byte_for_byt
     has(&dry, "projected");
     has(&dry, "1 open by a process");
     assert!(dir.join("cold.jsonl").exists() && !dir.join("cold.jsonl.zst").exists());
-    fs::write(&roster, format!(r#"{{"version":"north:agent-roster:v1","agents":[{{"uuid":"{rostered_id}"}}]}}"#)).unwrap();
+    fs::write(&roster, format!(r#"[{{"conversation":"{rostered_id}","status":"working"}}]"#)).unwrap();
     lab.run(&["compress", "-q"]);
     assert!(dir.join("cold.jsonl.zst").exists() && !dir.join("cold.jsonl").exists(), "a closed transcript was not compressed");
     for held in ["warm", "held", rostered_id] {
@@ -222,7 +222,7 @@ fn a_claude_transcript_idle_30_days_is_compressed_and_still_found() {
     let mut lab = Lab::new();
     demo(&lab);
     let roster = lab.root.join("roster.json");
-    fs::write(&roster, r#"{"version":"north:agent-roster:v1","agents":[]}"#).unwrap();
+    fs::write(&roster, "[]").unwrap();
     lab.env.roster_cmd = Some(format!("cat {}", roster.display()));
     let project = lab.root.join("anthropic/acct/projects/-synthetic-claude");
     let idle = project.join(format!("{CSID}.jsonl"));

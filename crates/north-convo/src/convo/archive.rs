@@ -140,7 +140,7 @@ fn collect_ids(value: &serde_json::Value, out: &mut HashSet<String>) {
 
 /// Session ids the coordinator accounts for; any failure aborts the sweep.
 pub(super) fn coordinator_ids(env: &Env) -> Result<HashSet<String>> {
-    let text = env.roster_cmd.clone().unwrap_or_else(|| "north config agents --json".to_owned());
+    let text = env.roster_cmd.clone().unwrap_or_else(|| "north fleet list --json".to_owned());
     let words = shell_split(&text).filter(|words| !words.is_empty()).ok_or_else(|| unsafe_to_sweep("the roster command is not readable".to_owned()))?;
     let mut child = Command::new(&words[0])
         .args(&words[1..])
@@ -161,12 +161,11 @@ pub(super) fn coordinator_ids(env: &Env) -> Result<HashSet<String>> {
     }
     let roster: serde_json::Value =
         serde_json::from_str(&out).map_err(|error| unsafe_to_sweep(format!("the coordinator roster was not readable JSON: {error}")))?;
-    let agents = roster.get("agents").and_then(serde_json::Value::as_array);
-    if roster.get("version").and_then(serde_json::Value::as_str) != Some("north:agent-roster:v1") || agents.is_none() {
-        return Err(unsafe_to_sweep("the coordinator roster is not north:agent-roster:v1".to_owned()));
-    }
+    let Some(sessions) = roster.as_array() else {
+        return Err(unsafe_to_sweep("the coordinator roster is not a list of fleet sessions".to_owned()));
+    };
     let mut ids = HashSet::new();
-    agents.into_iter().flatten().for_each(|row| collect_ids(row, &mut ids));
+    sessions.iter().filter(|row| row.get("status").and_then(serde_json::Value::as_str) != Some("exited")).for_each(|row| collect_ids(row, &mut ids));
     Ok(ids)
 }
 

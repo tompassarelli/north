@@ -49,7 +49,7 @@ impl Registrar for LedgerRegistrar {
             .map_err(|error| NorthError::Refused(format!("a launch registers {} in the fleet store on the ledger host first, and it did not answer: {}", row.name, error.user_message())))?;
         match answer {
             Some(answer) => serde_json::from_slice::<Registered>(&answer)?.refused.map_or(Ok(()), |why| Err(NorthError::Refused(why))),
-            None if (self.far_machine)(&row.host) => Err(NorthError::Refused(format!(
+            None if (self.far_machine)(&row.host) && !client::private_ledger() => Err(NorthError::Refused(format!(
                 "{} runs only the CLIs other hosts place on it and keeps no fleet registry of its own, so it cannot register {}; launch from the host that places work here",
                 row.host, row.name
             ))),
