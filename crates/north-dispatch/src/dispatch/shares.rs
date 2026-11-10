@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 
 pub const PACK: &str = "context-pack";
 pub const NO_PACK: &str = "no-pack";
+/// The reasoning efforts a DeepSeek launch draws between, each stamped as its own arm so the ledger compares them apart from Claude's effort arms.
+pub const DEEPSEEK_ARMS: [&str; 2] = ["deepseek-high", "deepseek-max"];
 
 /// One experiment's arms in a category with each arm's share of the category's next boxes, as
 /// `settle::shares` gives them from the arms' boxes: what the climber prints and what a launch draws.
@@ -41,6 +43,7 @@ pub fn experiment_arms(family: &str) -> Vec<String> {
     let mut arms: Vec<String> = match family {
         "context" => CONTEXT_WINDOWS.map(crate::fleet::compaction::arm).to_vec(),
         "pack" => vec![PACK.to_owned(), NO_PACK.to_owned()],
+        "deepseek" => DEEPSEEK_ARMS.map(str::to_owned).to_vec(),
         _ => Vec::new(),
     };
     arms.sort();

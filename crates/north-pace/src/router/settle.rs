@@ -107,6 +107,7 @@ pub fn family(arm: &str) -> &'static str {
         "context-pack" | "no-pack" => "pack",
         _ if arm.starts_with("handoff-") => "handoff",
         _ if arm.starts_with("effort-") => "effort",
+        _ if arm.starts_with("deepseek-") => "deepseek",
         _ if arm.starts_with("context-") => "context",
         _ if arm.starts_with("climb-") => "climb",
         _ => "tier",
