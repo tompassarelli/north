@@ -76,20 +76,39 @@ pub fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger
     let priced = Route { tier: launched.unwrap_or(route.tier), ..route.clone() };
     let prompt = stamped(ask.prompt, &priced, stamp, launched.is_some(), &grounds(&priced));
     let prompt = if ask.worker { with_facets(&prompt) } else { prompt };
-    let (prompt, route) = context_armed(ask, prompt, route, history, ledger);
+    let (prompt, route) = context_armed(ask, prompt, route, overridden.is_some(), history, ledger);
     Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some(), needs: Vec::new() })
 }
 
-/// A worker brief on no arm draws the context arm dispatch draws for an unarmed local box.
-fn context_armed(ask: &Ask, prompt: String, route: Route, history: &History, ledger: &BTreeMap<String, Evidence>) -> (String, Route) {
+/// A launch whose brief names no arm draws the context arm dispatch draws for an unarmed local box, whoever
+/// launches it and whatever model it names; a tier override stamps no effort arm, so it draws too.
+fn context_armed(ask: &Ask, prompt: String, route: Route, overridden: bool, history: &History, ledger: &BTreeMap<String, Evidence>) -> (String, Route) {
     let declared = [ask.brief, prompt.as_str()].iter().any(|text| text.lines().any(|line| line.trim_start().starts_with("Arm:")));
-    if !ask.worker || declared || route.stamp().is_some() {
+    if declared || (route.stamp().is_some() && !overridden) {
         return (prompt, route);
     }
     let evidence = ledger.get(&route.category).cloned().unwrap_or_default();
     let (arm, drawn) = tier::context_arm(ask.item, &route.category, history, &evidence);
     let (armed, why) = super::pack::armed(&prompt, (&arm, &drawn), ask.item, &route.category, history, &evidence);
     (armed, Route { why: format!("{}, {why}", route.why), ..route })
+}
+
+/// The auto-compact window a launch that names no issue, the proxy's own included, draws from its category's context shares.
+pub fn untasked_window(name: &str, category: &str, history: &History, ledger: &BTreeMap<String, Evidence>) -> Option<u64> {
+    let evidence = ledger.get(category).cloned().unwrap_or_default();
+    let (arm, drawn) = tier::context_arm(name, category, history, &evidence);
+    eprintln!("tier: {name} context arm {arm} {drawn}");
+    crate::fleet::compaction::window(&format!("Arm: {arm}"))
+}
+
+/// [`untasked_window`] over the ledger and launch history as `north fleet launch` reads them.
+pub fn draw_untasked_window(name: &str, brief: &str) -> Option<u64> {
+    let category = facets::declared_in(brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase();
+    let history = History::new(&record::read(&record::directory()));
+    let mut notes = Vec::new();
+    let ledger = survey::evidence(&[category.as_str()], &mut notes);
+    notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
+    untasked_window(name, &category, &history, &ledger)
 }
 
 fn named_tier(name: &str) -> Result<(Tier, Option<&'static str>), String> {

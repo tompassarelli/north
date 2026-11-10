@@ -1,6 +1,6 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, LaunchRequest};
-use crate::dispatch::{Ask, Start, start_hand, tier_reason, untasked};
+use crate::dispatch::{Ask, Start, draw_untasked_window, start_hand, tier_reason, untasked};
 
 use super::placement::{self, Overrides};
 
@@ -26,6 +26,9 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
         None if untasked(&header, request.model.as_deref(), reason.as_deref()).map_err(NorthError::Refused)? => (request.name.clone(), header),
         None => {
             overrides.tier = reason;
+            if request.window().is_none() {
+                request.compact_window = draw_untasked_window(&request.name, &header);
+            }
             return Ok(None);
         }
     };

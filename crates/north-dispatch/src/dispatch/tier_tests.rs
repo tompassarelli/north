@@ -187,7 +187,7 @@ fn a_hand_launch_on_an_issue_with_no_open_done_when_box_is_refused() {
 }
 
 #[test]
-fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_launches_claude_with_its_auto_compact_window() {
+fn a_hand_launched_brief_with_no_arm_draws_the_context_arm_dispatch_would_and_launches_claude_with_its_auto_compact_window() {
     use super::manual::{Ask, start};
     use super::tier::{Evidence, History, context_arm};
     use crate::fleet::model::{Account, LaunchRequest};
@@ -241,7 +241,8 @@ fn a_hand_launched_worker_brief_with_no_arm_draws_the_context_arm_dispatch_would
     let armed = launch("Item: north#636\nCategory: debugging-known-cause\nTier: worker\nArm: context-400k\n\nGoal: x", true);
     assert_eq!((armed.prompt.matches("Arm: ").count(), window(&armed.prompt).as_deref()), (1, Some("400000")));
     let lead = launch("Item: north#636\nCategory: debugging-known-cause\nTier: worker\n\nGoal: x", false);
-    assert_eq!((lead.prompt.matches("Arm: ").count(), window(&lead.prompt)), (0, None));
+    assert_eq!(lead.prompt.matches("Arm: ").count(), 1, "{}", lead.prompt);
+    assert!(window(&lead.prompt).is_some());
 }
 
 #[test]
@@ -299,4 +300,26 @@ fn an_unknown_cause_bug_naming_a_repro_starts_on_sonnet_and_escalates_once_to_op
     let spanning = route(&plan("cross-module"), &History::default(), &unread).unwrap();
     assert!(spanning.why.contains("planning at Scope: cross-module spans modules, so worker at high effort"), "{}", spanning.why);
     assert!(module.cell.is_some_and(|cell| super::cells::allowed("planning").contains(&cell)) && spanning.cell.is_some_and(|cell| super::cells::allowed("planning").contains(&cell)));
+}
+
+#[test]
+fn a_hand_launch_with_a_model_draws_a_context_window() {
+    use super::grounds::Grounds;
+    use super::manual::{Ask, start, untasked_window};
+    use super::tier::{CONTEXT_WINDOWS, History};
+    use std::collections::BTreeMap;
+    let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    let brief = "Item: north#636\nCategory: feature\nSpec: measured\n\nDo the box.";
+    let launch = |model: &str, worker: bool| {
+        let ask = Ask { item: "north#636", brief, prompt: brief, model: Some(model), reason: Some("the proxy staffs this box on that model"), worker, places: false };
+        start(&ask, "", &cfg, &History::default(), &BTreeMap::new(), &|_| Grounds::default()).unwrap()
+    };
+    for (model, worker) in [("claude-opus-5-5", true), ("claude-sonnet-5-5", true), ("claude-opus-5-5", false)] {
+        let launched = launch(model, worker);
+        let arms: Vec<&str> = launched.prompt.lines().filter(|line| line.starts_with("Arm: ")).collect();
+        assert_eq!(arms.len(), 1, "{model} worker={worker}: {}", launched.prompt);
+        assert!(crate::fleet::compaction::window(&launched.prompt).is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{}", launched.prompt);
+    }
+    let window = untasked_window("the-proxy", "feature", &History::default(), &BTreeMap::new());
+    assert!(window.is_some_and(|window| CONTEXT_WINDOWS.contains(&window)), "{window:?}");
 }
