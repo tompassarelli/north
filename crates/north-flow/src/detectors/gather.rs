@@ -21,6 +21,7 @@ use crate::flow::{Host, Places};
 use crate::platform::sqlite::{self, Access};
 
 mod machines;
+mod skills;
 
 const LANE_RECENT_S: f64 = 24.0 * 3600.0;
 const DISPATCH_RECENT_S: f64 = 2.0 * 3600.0;

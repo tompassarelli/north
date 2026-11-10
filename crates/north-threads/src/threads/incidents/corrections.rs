@@ -18,6 +18,7 @@ pub struct Class {
     pub pattern: Option<Regex>,
     pub paraphrase: String,
     pub owner: Option<String>,
+    pub skill: Option<String>,
     pub guard: Option<String>,
     pub guarded_at: Option<f64>,
     pub structure: Structure,
@@ -58,7 +59,7 @@ pub fn parse(text: &str) -> Result<Vec<Class>, String> {
                 (None, Some(why)) => Structure::Behavioural(why),
                 _ => return Err(format!("{TABLE}: class {name} needs exactly one of graph_guard (its harness/graph-guards file) and not_structural (why no graph fact holds it)")),
             };
-            Ok(Class { name, pattern, paraphrase, owner: text("owner"), guard: text("guard"), guarded_at, structure })
+            Ok(Class { name, pattern, paraphrase, owner: text("owner"), skill: text("skill"), guard: text("guard"), guarded_at, structure })
         })
         .collect()
 }

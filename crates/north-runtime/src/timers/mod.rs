@@ -8,8 +8,6 @@ mod incident_retro;
 mod nexus_run;
 pub mod runtime_update;
 mod skill_prune;
-mod skill_review;
-mod skill_triggers;
 mod supply_chain;
 mod watch_review;
 #[cfg(test)]
@@ -31,7 +29,6 @@ pub enum Timer {
     JobWatch,
     OutsideWatch,
     SkillPrune,
-    SkillReviewQueue,
     SupplyChainScan,
     UsageWebRead,
     WatchReview,
@@ -47,7 +44,6 @@ impl Timer {
         ("job-watch", Self::JobWatch),
         ("outside-watch", Self::OutsideWatch),
         ("skill-prune", Self::SkillPrune),
-        ("skill-review-queue", Self::SkillReviewQueue),
         ("supply-chain-scan", Self::SupplyChainScan),
         ("usage-web-read", Self::UsageWebRead),
         ("watch-review", Self::WatchReview),
@@ -67,7 +63,6 @@ impl Timer {
             Self::JobWatch => crate::job_watch::run(arguments),
             Self::OutsideWatch => crate::outside_watch::run(arguments),
             Self::SkillPrune => skill_prune::run(arguments),
-            Self::SkillReviewQueue => skill_review::run(arguments),
             Self::SupplyChainScan => supply_chain::run(arguments),
             Self::UsageWebRead => crate::usage_web_read::run(arguments),
             Self::WatchReview => watch_review::run(arguments),

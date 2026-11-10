@@ -4,6 +4,8 @@
 # paraphrase, never Tom's words. A class seen twice gets one box on its owner proposing the guard.
 # When that guard lands, set guarded_at to its landing time (ISO, UTC): a correction of the class
 # after it is a recurrence and prints red in the proxy's fleet tick for a week.
+# A class may name skill, the harness/skills directory whose rule it corrects: a correction of that class after the skill's
+# last review files the skill-review detector's box for the skill.
 # Each class names either graph_guard, the harness/graph-guards file (without .json) that finds its failure in graph
 # facts, or not_structural, why no graph fact holds it; a class with a landed graph guard files no guard box.
 
@@ -28,6 +30,7 @@ name = "harmful-brief"
 pattern = '''(ran|running|run|ordered) (a )?load (test|generator) on (my|the|this) laptop|busy loops on (my|the|this) laptop|(my|the|this) laptop.{0,40}(melting|on fire|frozen|unusable)'''
 paraphrase = "Tom said a brief ordered work that harmed his laptop."
 owner = "north#523"
+skill = "workers"
 guard = "`north fleet launch` refuses a brief that orders a load test, soak or benchmark without a Needs: line naming a host other than the laptop."
 not_structural = "a brief's orders are launch text that `north fleet launch` reads; the graph holds no brief"
 
@@ -36,6 +39,7 @@ name = "unproven-cause"
 pattern = '''(isn'?t|is not) (a|an) (compute|cpu|capacity|load|git|hardware) (issue|problem)|this is a (you|u) (issue|problem)|didn'?t (you|u) just|you were wrong|that'?s (wrong|not (it|right|true))|what \w+ are (you|u) talking about'''
 paraphrase = "Tom rejected the cause the reply gave as unproven."
 owner = "north#523"
+skill = "debugging"
 guard = "None: the Stop hook that judged this in prose was deleted (north#719); a recurrence is read from the correction ledger."
 not_structural = "a cause is a claim in a reply's prose, which no graph fact records"
 
@@ -44,6 +48,7 @@ name = "manual-not-guarded"
 pattern = '''do we not have (a|any) (mechanical|determ\w*)|(is )?(that|this|it)'?s? determ\w* enforced|never (ever,? )?(let|allow) this (to )?happen again'''
 paraphrase = "Tom asked why a rule was kept by hand instead of by a deterministic guard."
 owner = "north#523"
+skill = "agent-policy"
 guard = "`north config agents check` refuses a new must or never line in AGENTS.md or a skill that names no enforcing hook, gate or check and carries no prose-only owner issue."
 guarded_at = "2026-11-06T21:08:55Z"
 not_structural = "which rules lack an enforcing hook is in the instruction files `north config agents check` reads, not in graph facts"
@@ -53,6 +58,7 @@ name = "overbuilt"
 pattern = '''isn'?t the (easiest|simplest) (pattern|way|answer|fix)|doesn'?t (require|need) spinning up|research project on'''
 paraphrase = "Tom said the reply chose a heavier path than the simplest one that works."
 owner = "north#523"
+skill = "planning"
 guard = "Dispatch refuses a plan or design box that adds an agent, service, crate or bake-off without a Simplest: line naming the smallest change that meets its Done when and why it falls short."
 guarded_at = "2026-11-06T21:00:47Z"
 not_structural = "how heavy a chosen path is lives in a plan's prose, which no graph fact measures"
@@ -62,6 +68,7 @@ name = "ungrounded-design"
 pattern = '''under-?specified|not (really )?grounded (on|in)|heavier doesn'?t mean'''
 paraphrase = "Tom said the design was not grounded in evidence."
 owner = "north#525"
+skill = "planning"
 guard = "Dispatch refuses a design or plan box whose brief has no Spec: measured line citing a ledger measurement or a docs/references.md entry."
 guarded_at = "2026-11-06T21:00:46Z"
 not_structural = "the evidence a design cites is brief text that dispatch reads; the graph holds no brief"
@@ -71,6 +78,7 @@ name = "stale-or-scaffolding"
 pattern = '''still in the (readme|docs?)|barnacles|stale (doc|line|readme)'''
 paraphrase = "Tom found stale text or leftover scaffolding that the harness should have removed."
 owner = "north#635"
+skill = "program-craftsmanship"
 guard = "A land check resolves every repository path and doc link named in README.md, AGENTS.md and docs/ and refuses a lane that leaves one pointing at nothing."
 guarded_at = "2026-11-06T03:49:20Z"
 not_structural = "stale paths are file contents the doc-links land check resolves; the graph holds no doc text"
@@ -80,6 +88,7 @@ name = "shallow-fix"
 pattern = '''\d+x smarter|re-?worked to be|band-?aid'''
 paraphrase = "Tom asked for a deeper fix than the patch proposed."
 owner = "north#525"
+skill = "debugging"
 guard = "Dispatch refuses a restaff of a box whose last attempt failed at the same tier unless the brief names the assumption both attempts shared."
 not_structural = "the depth of a fix is a judgement over a patch, and restaff history is in the ledger, not graph facts"
 
@@ -150,6 +159,7 @@ name = "unverified-tick"
 pattern = '''(ticked|marked|claimed|reported) (it |this |that )?(as )?(done|landed) but|not actually (landed|on main)'''
 paraphrase = "Tom found a box ticked done whose commit no check or landing confirmed."
 owner = "north#706"
+skill = "verification"
 guard = "harness/graph-guards/unverified-tick.json finds a ticked box whose claimed commit landed or was pushed over 24 h ago and has no corroborated row (harness/graph-rules/corroborated.json)."
 graph_guard = "unverified-tick"
 
@@ -158,5 +168,6 @@ name = "duplicate-claim"
 pattern = '''(two|both|2) (sessions|workers|agents) (are )?(on|working on|doing) the same|duplicate (sessions?|workers?|claims?)'''
 paraphrase = "Tom found two sessions holding the same box."
 owner = "north#706"
+skill = "workers"
 guard = "harness/graph-guards/duplicate-claim.json finds each holder of an unticked box that another session's claim in the threads claims table also holds."
 graph_guard = "duplicate-claim"
