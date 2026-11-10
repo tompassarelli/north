@@ -25,6 +25,11 @@ impl PriceTable {
         let price = model.and_then(|model| self.price(model)).or_else(|| self.price(fallback_model(tier)));
         price.map_or(0.0, |price| price.of(TokenUse { input: 0, output, cache_read, cache_write: (input - cache_read).max(0) }))
     }
+
+    pub fn cache_write_usd(&self, model: Option<&str>, tier: &str, tokens: i64) -> f64 {
+        let price = model.and_then(|model| self.price(model)).or_else(|| self.price(fallback_model(tier)));
+        price.map_or(0.0, |price| price.of(TokenUse { cache_write: tokens.max(0), ..TokenUse::default() }))
+    }
 }
 
 #[cfg(test)]

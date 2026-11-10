@@ -176,6 +176,48 @@ pub fn inside(window: &str) -> NorthResult<(Vec<WindowRun>, ClosedReport)> {
     Ok((window_runs(&database, &since, &until)?, report_over(&database, &since, &until, started, corroborated)?))
 }
 
+/// How often a run took over another run's work (a handover, revive or relaunch in a new conversation) and what the
+/// first turn of those runs cost to write to the cache, both scaled to a week.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Handovers {
+    pub per_week: f64,
+    pub first_turn_cache_write_usd: f64,
+}
+
+/// The handovers of the last `window`: runs that began with a `Follows:`. A run's first turn writes its opening context
+/// to the cache, which cannot exceed the run's peak context nor the input it left uncached, so the smaller of the two
+/// is priced at the run model's cache write rate.
+pub fn handovers(window: &str) -> NorthResult<Handovers> {
+    handovers_in(&threads_database(), window, Timestamp::now())
+}
+
+pub fn handovers_in(database: &Path, window: &str, now: Timestamp) -> NorthResult<Handovers> {
+    let (since, until) = window_bounds(window, now)?;
+    let rows = sqlite::rows(
+        database,
+        Access::ReadOnly,
+        Duration::from_secs(5),
+        &format!(
+            "SELECT tier, model, COALESCE(peak_ctx, 0) AS peak, COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read \
+             FROM runs WHERE COALESCE(follows, '') != '' AND started >= '{}' AND started < '{}'",
+            since.replace('\'', ""),
+            until.replace('\'', "")
+        ),
+    )?;
+    let prices = PriceTable::load()?;
+    let first_turn_usd: f64 = rows
+        .iter()
+        .map(|row| {
+            let written = (row["input"].as_i64().unwrap_or(0) - row["cache_read"].as_i64().unwrap_or(0)).max(0);
+            let peak = row["peak"].as_i64().unwrap_or(0);
+            let first_turn = if peak > 0 { written.min(peak) } else { written };
+            prices.cache_write_usd(row["model"].as_str(), &text(row, "tier"), first_turn)
+        })
+        .sum();
+    let week = 7.0 * 86_400.0 / span_seconds(window)? as f64;
+    Ok(Handovers { per_week: rows.len() as f64 * week, first_turn_cache_write_usd: first_turn_usd * week })
+}
+
 /// The `[since, until)` bounds of `window` ending at `now`, both in the ledger's timestamp text.
 fn window_bounds(window: &str, now: Timestamp) -> NorthResult<(String, String)> {
     Ok((Timestamp::from_unix_seconds(now.unix_seconds() - span_seconds(window)?).iso(), now.iso()))

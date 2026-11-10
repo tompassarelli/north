@@ -303,6 +303,30 @@ fn a_dash_window_counts_only_runs_that_started_inside_it_and_never_a_run_stamped
 }
 
 #[test]
+fn handovers_count_the_runs_that_follow_another_and_price_their_first_turn_cache_write_per_week() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("threads.db");
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch(crate::threads::fixtures::LEDGER_SCHEMA).unwrap();
+    let insert = |agent: &str, follows: Option<&str>, started: &str| {
+        db.execute(
+            "INSERT INTO runs(agent, item, follows, tier, category, started, ended, outcome, minutes, model, input_tokens, cache_read_tokens, peak_ctx, tokens, brief_text) VALUES (?1, 'life#1', ?2, 'sonnet', 'feature', ?3, ?3, 'done', 60, 'claude-sonnet-5-5', 1000000, 600000, 200000, 100, '')",
+            rusqlite::params![agent, follows, started],
+        )
+        .unwrap();
+    };
+    insert("first", None, "2026-11-09T05:00:00Z");
+    insert("handed", Some("first"), "2026-11-09T06:00:00Z");
+    let now = crate::foundation::clock::Timestamp::parse("2026-11-09T12:00:00Z").unwrap();
+    let day = super::closed_source::handovers_in(&path, "24h", now).unwrap();
+    let week = super::closed_source::handovers_in(&path, "7d", now).unwrap();
+    assert_eq!(week.per_week, 1.0);
+    assert_eq!(day.per_week, 7.0, "one handover in a day is seven in a week");
+    let price = crate::router::pricing::PriceTable::load().unwrap().cache_write_usd(Some("claude-sonnet-5-5"), "sonnet", 200_000);
+    assert!(price > 0.0 && (week.first_turn_cache_write_usd - price).abs() < 1e-9, "the first turn writes no more than the run's 200k peak context: {week:?}");
+}
+
+#[test]
 fn run_times_names_each_run_its_wall_minutes_and_the_eta_its_brief_stated() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");

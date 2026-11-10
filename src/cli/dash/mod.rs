@@ -10,7 +10,7 @@ use super::scoreboard::{self, ready, workers};
 use crate::fleet::board::Board;
 use crate::fleet::registry::Fleet;
 use crate::foundation::clock::Timestamp;
-use crate::ledger::{self, ClosedReport, Ledger, WindowRun};
+use crate::ledger::{self, ClosedReport, Handovers, Ledger, WindowRun};
 use crate::usage::outlook::{AccountOutlook, Runway};
 
 pub(crate) use crate::cli::infra::manifest as billing;
@@ -39,6 +39,8 @@ pub struct Screen {
     pub habits: Result<Vec<habits::Row>, String>,
     /// The runs of the last 7 days, from which each subscription's week is sized in dollars.
     pub week_runs: Result<Vec<WindowRun>, String>,
+    /// The runs that took over another run's work, per week, and what their first turns wrote to the cache.
+    pub handovers: Result<Handovers, String>,
     pub billing: Result<billing::Billing, String>,
     pub infra: Result<(Vec<crate::cli::infra::report::Resource>, Vec<String>), String>,
     /// Each api organization's credit, as `north fleet usage`, `north fleet accounts --plan` and the fleet screen print it.
@@ -126,13 +128,14 @@ pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Scr
     let since = ledger::window_start_ms(window).map_err(|error| error.user_message())? / 1_000;
     let span = now - since;
     let since_ms = u64::try_from(since.saturating_mul(1_000)).unwrap_or(0);
-    let (bars, accounts, runs, attempts, habits, week_runs, work, infra) = std::thread::scope(|scope| {
+    let (bars, accounts, runs, attempts, habits, week_runs, handovers, work, infra) = std::thread::scope(|scope| {
         let bars = scope.spawn(|| ready::lines(now, span));
         let accounts = scope.spawn(accounts);
         let runs = scope.spawn(|| ledger::inside(window).map_err(|error| error.user_message()));
         let attempts = scope.spawn(|| first_tries(since, now));
         let habits = scope.spawn(|| habits::rows(&ledger::threads_database(), &Timestamp::from_unix_seconds(since).iso(), &Timestamp::from_unix_seconds(now).iso()));
         let week_runs = scope.spawn(|| ledger::runs_inside("7d").map_err(|error| error.user_message()));
+        let handovers = scope.spawn(|| ledger::handovers(window).map_err(|error| error.user_message()));
         let work = scope.spawn(|| match fleet {
             Some(fleet) => board::work(fleet, since_ms),
             None => Err("the fleet store is unreadable".to_owned()),
@@ -142,10 +145,10 @@ pub(crate) fn read_with_fleet(window: &str, fleet: Option<&Fleet>) -> Result<Scr
             (read.billing, read.resources, read.unread)
         });
         let joined = |name: &str| format!("{name} reader panicked");
-        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))), work.join().unwrap_or_else(|_| Err(joined("work"))), infra.join().unwrap_or_else(|_| (Err(joined("infra")), Vec::new(), Vec::new())))
+        (bars.join().unwrap_or_else(|_| Err(joined("bars"))), accounts.join().unwrap_or_else(|_| Err(joined("usage"))), runs.join().unwrap_or_else(|_| Err(joined("runs"))), attempts.join().unwrap_or_else(|_| Err(joined("first tries"))), habits.join().unwrap_or_else(|_| Err(joined("habits"))), week_runs.join().unwrap_or_else(|_| Err(joined("week runs"))), handovers.join().unwrap_or_else(|_| Err(joined("handovers"))), work.join().unwrap_or_else(|_| Err(joined("work"))), infra.join().unwrap_or_else(|_| (Err(joined("infra")), Vec::new(), Vec::new())))
     });
     let (billing, resources, unread) = infra;
-    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, billing, infra: Ok((resources, unread)), credit: credit(), work })
+    Ok(Screen { window: window.to_owned(), now, since, bars, accounts, runs, attempts, launches: north_dispatch::dispatch::launch_records(&north_dispatch::dispatch::launch_directory()), habits, week_runs, handovers, billing, infra: Ok((resources, unread)), credit: credit(), work })
 }
 
 /// The Board the fleet screen reads: the same snapshot `north dash` prints, over the board's day window.
@@ -234,6 +237,9 @@ fn figures(screen: &Screen) -> Value {
         "cells": section(mixes.as_ref().map(|mixes| json!(mixes.cells))),
         "escalations": escalations,
         "habits": section(habits),
+        "handovers_per_week": screen.handovers.as_ref().ok().map(|handovers| handovers.per_week),
+        "handover_first_turn_cache_write_usd": screen.handovers.as_ref().ok().map(|handovers| handovers.first_turn_cache_write_usd),
+        "handovers_unread": screen.handovers.as_ref().err(),
     })
 }
 
