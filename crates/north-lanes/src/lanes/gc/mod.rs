@@ -36,11 +36,13 @@ use serde_json::Value;
 use super::live_process::open_paths;
 use north_base::foundation::clock::Timestamp;
 use north_base::platform::host;
-use evidence::{IssueLedger, IssueState, origin_repo};
+use evidence::{IssueLedger, IssueState};
 use liveness::Hosts;
 use state::{StaleReport, write_atomically};
 
 pub use audit::run as repo;
+pub(super) use archive::{Lane as ArchivedLane, archive};
+pub(super) use evidence::{lane_issues, origin_repo};
 pub(super) use targets::{BuildTarget, drop_build_target, gib};
 
 const SKIP: [&str; 3] = ["clients", "resources", "archive"];

@@ -75,7 +75,7 @@ pub(super) fn protected_branch(branch: &str) -> bool {
     matches!(branch, "main" | "master" | "gh-pages") || branch.starts_with("release/")
 }
 
-pub(super) fn origin_repo(main: &Path) -> Option<String> {
+pub(in crate::lanes) fn origin_repo(main: &Path) -> Option<String> {
     let url = git(main, &["remote", "get-url", "origin"]);
     if !url.ok {
         return None;
@@ -114,7 +114,7 @@ pub(super) fn named_issues(main: &Path, own: &str, base: &str, tip: &str) -> Res
     Ok(unique(cited.map(|found| item_ref(&qualified(&found[1])))))
 }
 
-pub(super) fn lane_issues(main: &Path, own: &str, base: &str, branch: &str, tip: &str) -> Result<Vec<String>, String> {
+pub(in crate::lanes) fn lane_issues(main: &Path, own: &str, base: &str, branch: &str, tip: &str) -> Result<Vec<String>, String> {
     match recorded(main, branch) {
         Some(item) => Ok(vec![item_ref(&item)]),
         None => named_issues(main, own, base, tip),

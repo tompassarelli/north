@@ -1,7 +1,7 @@
   lane rescue [path] [--dry-run]                   Move a dirty main checkout's changes into a new rescue lane and clean main; move a clean main's unpushed commits to a keep/ branch and reset it to origin/main
   lane unlock [CHECKOUT...]                        Remove the git lock files in a checkout's git directory that no process holds and that are older than 60 s
   lane stray PATH...                               Remove an untracked file this session's own tool call created, named in its transcript before the file was born
-  lane remove LANE...                              Remove a finished lane directory under worktrees/ that holds no unlanded or uncommitted work, from outside a worker sandbox, so no unregistered directory is left behind
+  lane remove [--rejected VERDICT] LANE...         Remove a finished lane directory under worktrees/ that holds no unlanded or uncommitted work, from outside a worker sandbox, so no unregistered directory is left behind; --rejected bundles a review-rejected lane to ~/archive/lanes with its verdict first
   lane new --issue REPO#N [--from REF] LANE        Create a lane under a project's worktrees/ on a new branch from origin/main and record the issue it serves in git config
   lane exec [--lane CHECKOUT] [--] PROGRAM [ARGS...]  Run a lane's own build output (target/, node_modules/) outside depbox, which an agent's worker sandbox refuses by path, when the lane's lock files equal origin/main's, else inside depbox
   usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)

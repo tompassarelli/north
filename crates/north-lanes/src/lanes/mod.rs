@@ -4,12 +4,15 @@ pub use gc::USAGE as GC_USAGE;
 mod hardcoded_paths;
 mod home_move;
 mod lane_issue;
+mod lane_rejection;
 mod layout_check;
 mod live_process;
 mod nested_shell;
+mod orphan;
 mod new;
 mod pin_retire;
 mod reap;
+mod reject;
 mod remove;
 mod reference_search;
 mod repo;
@@ -41,6 +44,8 @@ pub use unlock::run as unlock;
 mod new_tests;
 #[cfg(test)]
 mod remove_tests;
+#[cfg(test)]
+mod reject_tests;
 #[cfg(test)]
 mod pin_retire_tests;
 #[cfg(test)]

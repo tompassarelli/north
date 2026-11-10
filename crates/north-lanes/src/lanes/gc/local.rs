@@ -6,7 +6,7 @@ use super::Gc;
 use super::archive::{self, window_hours};
 use super::evidence::{IssueState, LaneFacts, Landed, committed, committed_each, lane_class, landed, landed_each, lane_issues, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
-use super::super::lane_issue;
+use super::super::{lane_issue, lane_rejection};
 use super::super::live_process::any_inside;
 use super::super::reap::irreplaceable_ignored;
 use super::super::repo::is_lander_tree;
@@ -53,6 +53,7 @@ struct ArchiveLane<'a> {
     tip: &'a str,
     place: &'a str,
     issues: &'a [String],
+    rejected: Option<&'a str>,
 }
 
 struct Worktree {
@@ -362,12 +363,15 @@ impl Gc {
         let issues = lane_issues(&sweep.main, &sweep.own, &sweep.base, &lane.branch, &lane.tip).unwrap_or_default();
         let states = self.issue_states(&issues);
         let held = self.held(lane, live);
+        if held.is_empty() && self.archive_rejected(sweep, lane, &issues) {
+            return Ok(true);
+        }
         let idle_hours = if dirty && self.idle_for(lane, 24.0) { lane.age_h } else { 0.0 };
         let class = lane_class(&LaneFacts { dirty, equivalent: lane.landed.landed, issues: &states, idle_hours, held: !held.is_empty() });
         if let Some(window) = window_hours(&states) {
             let why = if held.is_empty() { self.archive_hold(sweep, lane, window, &issues) } else { held };
             if why.is_empty() {
-                let found = ArchiveLane { worktree: Some(&lane.path), branch: &lane.branch, tip: &lane.tip, place: &lane.place, issues: &issues };
+                let found = ArchiveLane { worktree: Some(&lane.path), branch: &lane.branch, tip: &lane.tip, place: &lane.place, issues: &issues, rejected: None };
                 if self.archive_lane(sweep, &found) {
                     return Ok(true);
                 }
@@ -384,6 +388,18 @@ impl Gc {
             println!("{}: {} {}: surface to {owner}{}", sweep.name, class.label(), lane.place, cited(&issues));
         }
         Ok(false)
+    }
+
+    fn archive_rejected(&mut self, sweep: &mut Container, lane: &Worktree, issues: &[String]) -> bool {
+        let Some(verdict) = lane_rejection::recorded(&sweep.main, &lane.branch) else { return false };
+        if !irreplaceable_ignored(&lane.path).is_empty() {
+            return false;
+        }
+        if !land_queue::waiting_on(&land_queue::queues(&self.home.join(".local/state")), &land_queue::local_host(), &lane.path).is_empty() {
+            return false;
+        }
+        let found = ArchiveLane { worktree: Some(&lane.path), branch: &lane.branch, tip: &lane.tip, place: &lane.place, issues, rejected: Some(&verdict) };
+        self.archive_lane(sweep, &found)
     }
 
     fn archive_hold(&mut self, sweep: &Container, lane: &Worktree, window: f64, issues: &[String]) -> String {
@@ -409,7 +425,11 @@ impl Gc {
     }
 
     fn archive_lane(&mut self, sweep: &mut Container, lane: &ArchiveLane) -> bool {
-        let why = if lane.issues.is_empty() { "no issue, no owner".to_owned() } else { format!("issue closed: {}", lane.issues.join(" ")) };
+        let why = match lane.rejected {
+            Some(verdict) => format!("rejected: {verdict}"),
+            None if lane.issues.is_empty() => "no issue, no owner".to_owned(),
+            None => format!("issue closed: {}", lane.issues.join(" ")),
+        };
         let directory = self.options.archive.join(&sweep.name);
         if self.options.dry_run {
             println!("{}: archive {} ({why}) to {}, then reap", sweep.name, lane.place, self.tilde(&directory));
@@ -518,7 +538,7 @@ impl Gc {
             let age_h = (self.now_ms as f64 - touched_ms) / HOUR_MS;
             let why = if age_h < window { format!("touched within {} days", window / 24.0) } else { self.local_archive_guard(&sweep.main, &name, &issues, branch, None) };
             if why.is_empty() {
-                let found = ArchiveLane { worktree: None, branch, tip, place: &format!("branch {branch}"), issues: &issues };
+                let found = ArchiveLane { worktree: None, branch, tip, place: &format!("branch {branch}"), issues: &issues, rejected: None };
                 if self.archive_lane(sweep, &found) {
                     return Ok(());
                 }

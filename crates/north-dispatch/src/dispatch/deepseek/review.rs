@@ -242,7 +242,7 @@ pub fn brief(job_name: &str, item: &str, category: &str, box_text: Option<&str>,
         "Category: review\nItem: {item}\n{}Review and land the DeepSeek worker {job_name}'s commits in {} (head {sha}) against the box above.\n\n\
          Read `git -C {} log -p origin/main..HEAD` and the box's Done when, and run that check in the lane. Reject the commit for any of these classes:\n{classes}\n\
          If it is clean, land it with `safe-push` from the lane and run `{verdict} clean`. If you fix a real defect yourself, land the fixed lane and run `{verdict} defect CLASS`. \
-         If it cannot land, run `{verdict} defect CLASS` and report Not done naming the class; dispatch then gives the box to Claude.\n",
+         If it cannot land, run `{verdict} defect CLASS`, which records the rejection on the lane so `north lane gc` bundles it to ~/archive/lanes with your verdict and removes it once you exit, and report Not done naming the class; dispatch then gives the box to Claude.\n",
         box_text.map_or_else(String::new, |text| format!("Box: {text}\n")),
         lane.display(),
         lane.display(),
@@ -344,12 +344,29 @@ pub fn verdict(arguments: &[String]) -> u8 {
         [defect, class] if defect == "defect" && CLASSES.iter().any(|(known, _)| known == class) => (Kind::Defect, Some(class.clone())),
         _ => return usage(),
     };
+    let rejected = class.clone().filter(|_| kind == Kind::Defect);
     match sampling::append(&record::directory(), &Verdict { at: placement::now(), session: session.clone(), category: category.clone(), sha: sha.clone(), kind, class, effort }) {
-        Ok(()) => 0,
+        Ok(()) => {
+            if let Some(class) = rejected {
+                reject_lane(session, sha, &class);
+            }
+            0
+        }
         Err(why) => {
             eprintln!("north fleet dispatch verdict: {why}");
             1
         }
+    }
+}
+
+fn reject_lane(session: &str, sha: &str, class: &str) {
+    let Ok(top) = std::env::current_dir().map_err(|error| error.to_string()).and_then(|cwd| git(&cwd, &["rev-parse", "--show-toplevel"])) else { return };
+    if !Path::new(&top).parent().is_some_and(|parent| parent.ends_with("worktrees")) {
+        return;
+    }
+    match north(&["lane", "remove", "--rejected", &format!("{class} (review of {session} at {sha})"), &top]) {
+        Ok(line) => println!("{line}"),
+        Err(why) => eprintln!("north fleet dispatch verdict: the rejected lane {top} stays: {why}"),
     }
 }
 

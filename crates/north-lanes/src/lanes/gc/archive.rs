@@ -2,13 +2,14 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::super::lane_issue;
+use super::super::{lane_issue, lane_rejection};
 use super::evidence::IssueState;
 use super::exec::{git, git_with, LIMIT};
 use north_base::foundation::clock::Timestamp;
 
 pub(super) const CLOSED_ISSUE_HOURS: f64 = 7.0 * 24.0;
 pub(super) const NO_ISSUE_HOURS: f64 = 14.0 * 24.0;
+const STALE_LOCK: std::time::Duration = std::time::Duration::from_secs(60);
 const IDENTITY: [&str; 4] = ["-c", "user.name=north lane gc", "-c", "user.email=lane-gc@north.invalid"];
 
 pub(super) fn window_hours(issues: &[IssueState]) -> Option<f64> {
@@ -21,15 +22,15 @@ pub(super) fn window_hours(issues: &[IssueState]) -> Option<f64> {
     }
 }
 
-pub(super) struct Lane<'a> {
-    pub(super) main: &'a Path,
-    pub(super) base: &'a str,
-    pub(super) project: &'a str,
-    pub(super) worktree: Option<&'a Path>,
-    pub(super) branch: &'a str,
-    pub(super) tip: &'a str,
-    pub(super) issues: &'a [String],
-    pub(super) why: &'a str,
+pub(in crate::lanes) struct Lane<'a> {
+    pub(in crate::lanes) main: &'a Path,
+    pub(in crate::lanes) base: &'a str,
+    pub(in crate::lanes) project: &'a str,
+    pub(in crate::lanes) worktree: Option<&'a Path>,
+    pub(in crate::lanes) branch: &'a str,
+    pub(in crate::lanes) tip: &'a str,
+    pub(in crate::lanes) issues: &'a [String],
+    pub(in crate::lanes) why: &'a str,
 }
 
 fn slug(lane: &Lane) -> String {
@@ -68,6 +69,7 @@ fn snapshot(lane: &Lane, worktree: &Path) -> Result<String, String> {
 }
 
 fn create(lane: &Lane, head: &str, file: &Path) -> Result<(), String> {
+    clear_stale_lock(&file.with_extension("bundle.lock"));
     let reference = format!("refs/north-archive/{}", slug(lane));
     if !git(lane.main, &["update-ref", &reference, head]).ok {
         return Err(format!("cannot point {reference} at {head}"));
@@ -75,6 +77,13 @@ fn create(lane: &Lane, head: &str, file: &Path) -> Result<(), String> {
     let created = git_with(lane.main, &["bundle", "create", "-q", &file.to_string_lossy(), &reference, &format!("^{}", lane.base)], LIMIT, &[]);
     git(lane.main, &["update-ref", "-d", &reference]);
     if created.ok { Ok(()) } else { Err(format!("bundle failed: {}", created.last_err_line())) }
+}
+
+fn clear_stale_lock(lock: &Path) {
+    let stale = std::fs::metadata(lock).and_then(|meta| meta.modified()).is_ok_and(|modified| modified.elapsed().is_ok_and(|age| age > STALE_LOCK));
+    if stale {
+        let _ = std::fs::remove_file(lock);
+    }
 }
 
 fn bundle(lane: &Lane, head: &str, file: &Path) -> Result<(), String> {
@@ -93,7 +102,7 @@ fn bundle(lane: &Lane, head: &str, file: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn archive(lane: &Lane, root: &Path, now_ms: i64) -> Result<PathBuf, String> {
+pub(in crate::lanes) fn archive(lane: &Lane, root: &Path, now_ms: i64) -> Result<PathBuf, String> {
     let head = match lane.worktree {
         Some(worktree) => snapshot(lane, worktree)?,
         None => lane.tip.to_owned(),
@@ -118,6 +127,7 @@ pub(super) fn archive(lane: &Lane, root: &Path, now_ms: i64) -> Result<PathBuf, 
     }
     if !lane.branch.is_empty() {
         lane_issue::forget(lane.main, lane.branch);
+        lane_rejection::forget(lane.main, lane.branch);
     }
     Ok(file)
 }
