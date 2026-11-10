@@ -106,3 +106,50 @@ fn active_workers_counts_claude_workers_alone() {
     assert_eq!(crate::dispatch::fleets::active_workers(&sessions), 2, "two Claude workers are working while a proxy and three DeepSeek sessions are not Claude workers");
     assert_eq!(crate::dispatch::fleets::working_by_account(&sessions).get("opencode"), Some(&2));
 }
+
+#[test]
+fn opencode_model_by_repository_visibility_is_go_for_private_and_unreadable_and_free_for_public() {
+    use crate::fleet::model::{Account, LaunchRequest};
+    use crate::fleet::prompt::PromptMode;
+    use crate::fleet::runtime::{Opening, Runtime};
+    use north_providers::providers::opencode::harness::OPENCODE;
+    use north_providers::providers::opencode::route::{self, Route};
+    use north_providers::providers::opencode::{Deepseek, Visibility};
+    use std::sync::Arc;
+
+    let home = tempfile::tempdir().unwrap();
+    let account = Account { provider: Deepseek::opencode().provider(), label: "go".into(), home: home.path().into(), token_file: Some(home.path().join("go.key")), api: None };
+    let request = LaunchRequest {
+        verification: false,
+        name: "worker".into(),
+        provider: Deepseek::opencode().provider(),
+        account: "go".into(),
+        cwd: home.path().into(),
+        model: None,
+        effort: None,
+        prompt: "Item: north#1\nBox: add a.txt".into(),
+        system_prompt: None,
+        foreground_cap_secs: None,
+        prompt_mode: PromptMode::North,
+        idle_exit_minutes: None,
+        parent: None,
+        task_ref: None,
+        claim_box: None,
+        placement: None,
+        machine: None,
+        capacity_need: None,
+        role: None,
+        resume: None,
+        compact_window: None,
+    };
+    let picked = |visibility| {
+        let runtime = Deepseek::reading(&OPENCODE, Arc::new(move |_| visibility), Arc::new(|| route::date("2026-11-10").unwrap()));
+        let spec = runtime.host(&account, &request, Opening::Fresh(Some("ses_x")), "").unwrap();
+        let label = spec.argv.iter().position(|word| word == "--route").and_then(|at| spec.argv.get(at + 1)).unwrap();
+        Route::parse(label).unwrap().model()
+    };
+
+    assert_eq!(picked(Visibility::Private), "opencode-go/deepseek-v4.1-flash");
+    assert_eq!(picked(Visibility::Public), "opencode/deepseek-v4.1-flash-free");
+    assert_eq!(picked(Visibility::Unknown), "opencode-go/deepseek-v4.1-flash");
+}
