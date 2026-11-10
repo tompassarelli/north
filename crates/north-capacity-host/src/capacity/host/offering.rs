@@ -95,7 +95,9 @@ async fn await_offer(mut work: tokio::task::JoinHandle<Result<u8, Option<Decline
                 expired = true;
             }
             number = terminations.next() => {
-                offer_lifecycle::abandoned(root, offer_id, &format!("its gate was stopped by signal {number}"));
+                if offer.load(Ordering::SeqCst) != OFFER_STARTED {
+                    offer_lifecycle::abandoned(root, offer_id, &format!("its gate was stopped by signal {number}"));
+                }
                 if let Some(ticket) = ticket {
                     dequeue(root, ticket);
                     handover::forget(root, ticket);
