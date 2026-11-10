@@ -177,6 +177,7 @@ fn told(controlled: Controlled, verb: ControlVerb, name: &str) {
         Controlled::Here => {}
         Controlled::Spooled(row) => println!("spooled CONTROL row {}: {} {name} applies on the host that holds it at its next tick", row.id, verb.label()),
         Controlled::Retired { host } => println!("retired {name} at once instead of spooling a {}: its host {host} is no longer in placement", verb.label()),
+        Controlled::Withdrawn => println!("withdrew the queued launch {name}"),
     }
 }
 

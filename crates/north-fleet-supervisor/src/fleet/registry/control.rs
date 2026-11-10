@@ -11,6 +11,7 @@ pub enum Controlled {
     Here,
     Spooled(Box<FleetRow>),
     Retired { host: String },
+    Withdrawn,
 }
 
 impl Fleet {

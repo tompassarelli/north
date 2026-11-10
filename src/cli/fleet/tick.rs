@@ -2,6 +2,8 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
+use crate::dispatch::{IssueRef, work_gone};
+use crate::fleet::launch_queue::QueuedLaunch;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::stage::detach;
@@ -101,12 +103,19 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     revived
 }
 
+/// Why the issue or box a queued launch was for no longer needs a worker, by GitHub's own copy of it.
+fn finished(queued: &QueuedLaunch) -> Option<String> {
+    let item = IssueRef::parse(&queued.request.task()?)?;
+    work_gone(&item, queued.request.claimed_box().as_deref())
+}
+
 fn drain_queue(fleet: &Fleet) -> NorthResult<Vec<String>> {
     let started = Instant::now();
     let now = crate::fleet::runtime::now_ms();
-    let mut lines = Vec::new();
+    let due = |queued: &QueuedLaunch| queued.tried_ms.is_none_or(|tried| now.saturating_sub(tried) >= QUEUE_RETRY_MS);
+    let mut lines = fleet.drop_unstartable(&due, &finished)?;
     for queued in fleet.queued_launches()? {
-        if queued.tried_ms.is_some_and(|tried| now.saturating_sub(tried) < QUEUE_RETRY_MS) {
+        if !due(&queued) {
             continue;
         }
         fleet.mark_queued_tried(&queued.name, now)?;

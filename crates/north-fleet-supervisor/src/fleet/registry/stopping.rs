@@ -14,7 +14,7 @@ use super::super::records::{ARCHIVE, read_record};
 use super::super::runtime::{PROXY, now_ms};
 use super::super::unaccepted::Unaccepted;
 use super::super::store::ControlVerb;
-use super::{Fleet, session_running};
+use super::{Controlled, Fleet, session_running};
 
 /// Why the fleet stops a session, recorded as the cause of the turn the stop cuts short.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +116,9 @@ impl Fleet {
     /// Forgets `name` here or spools the forget to its host, unless a land-queue ticket on this host
     /// still reports to it; `force` names why it should go anyway.
     pub fn forget_unless_queued(&self, name: &str, force: Option<&str>, successor: Option<&str>) -> NorthResult<Forgotten> {
+        if !self.session_dir(name)?.exists() && self.withdraw_queued(name)? {
+            return Ok(Forgotten { controlled: Controlled::Withdrawn, overrode: Vec::new() });
+        }
         let record = self.session_dir(name)?.exists().then(|| self.record(name)).transpose()?;
         let lanes = forget::queued_lanes(&self.state.join("land-queue"), name, record.as_ref().map(|record| record.cwd.as_path()));
         let heir = record.as_ref().map(|record| self.lane_heir(record, successor)).transpose()?.flatten();

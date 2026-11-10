@@ -18,6 +18,7 @@ pub use record::cloud_launch_times;
 pub use stops::entries_read;
 pub use cloud::{Launch as CloudLaunch, Login, autoland as cloud_autoland, branch as cloud_branch, current_login as cloud_login};
 pub use fleets::holder as task_holder;
+pub use survey::github::recheck as work_gone;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, boxless_launch_refusal, draw_untasked_window, picked_tier, tier_reason, untasked};
 pub use pause::standing as paused;

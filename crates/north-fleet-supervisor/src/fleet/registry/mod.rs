@@ -60,6 +60,7 @@ mod launching;
 mod home;
 mod start_lock;
 mod stopping;
+mod withdrawing;
 mod spend_rows;
 mod takeover;
 mod wait_rows;
