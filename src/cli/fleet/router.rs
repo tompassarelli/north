@@ -122,7 +122,6 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["need", rest @ ..] => need::run(rest),
         ["drain", rest @ ..] => drain::run(rest),
         ["hold", task] => hold(&fleet, task),
-        ["held", rest @ ..] => super::withheld::run(&fleet, rest),
         ["accounts", flags @ ..] => accounts::run(&fleet, flags),
         ["digest", ..] => {
             eprintln!("north fleet digest moved to `north work --since DURATION`; it prints the same landed, in-flight, gate, stall and held sections");
