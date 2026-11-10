@@ -135,7 +135,9 @@ impl Batching for Lander {
 
     fn land_fresh(&self, watch: &mut Watch, pass: &mut Pass, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], logs: &Path) -> Result<Flow, String> {
         self.heartbeat.enter(Step::Build);
+        let building = std::time::Instant::now();
         let built = candidate::build(&self.worktree, base, tickets, queued, usize::MAX, logs)?;
+        println!("north land: built candidate {} of {} lanes from {} queued in {:.1} s", built.head, built.included(), tickets.len(), building.elapsed().as_secs_f64());
         let attempt = Attempt { base, tickets, built: &built };
         let (included, undecided) = self.sort_picks(pass, &attempt)?;
         if included.is_empty() {

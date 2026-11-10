@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::{PoisonError, RwLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
 use north_base::platform::process;
@@ -156,7 +157,7 @@ fn carrier(worktree: &Path, base: &str, head: &str) -> Option<String> {
     git(worktree, &["log", "--cherry-mark", "--left-only", "--no-merges", "--format=%m%H", &range]).ok()?.lines().find_map(|line| line.strip_prefix('=').map(str::to_owned))
 }
 
-fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase) -> Result<Pick, String> {
+fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case: &mut PickCase, gating: &mut Option<Gating>) -> Result<Pick, String> {
     let (ticket, earlier) = (turn.ticket, turn.earlier);
     case.readable = Some(readable(worktree, ticket));
     if case.readable == Some(false) {
@@ -233,18 +234,56 @@ fn pick(worktree: &Path, base: &str, turn: &Turn, logs: &Path, name: &str, case:
         }
         shadowed.record(&state_home, "revert guard", &stale_revert::refusal(&found));
     }
-    let head = git(worktree, &["rev-parse", "HEAD"])?;
-    let code_health = super::after::gates::code_health_program();
-    let advisory_db = crate::advisory_gate::database(&state_home);
-    let lane = Lane { worktree, base: &picked_onto, head: &head, state_home: &state_home, code_health: &code_health, registry: &crate::dep_gate::PublicRegistries, advisory_db: &advisory_db };
-    let Some(refused) = lane_gates::judge(&lane, logs, name)? else { return Ok(Pick::Included) };
-    case.lane_gate = Some(refused.verdict.clone());
-    if !enforcing {
-        shadowed.record(&state_home, &refused.gates, &fs::read_to_string(&refused.log).unwrap_or_default());
-        return Ok(Pick::Included);
-    }
-    git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-    Ok(Pick::Refused(refused))
+    *gating = Some(Gating { picked_onto, head: git(worktree, &["rev-parse", "HEAD"])? });
+    Ok(Pick::Included)
+}
+
+struct Gating {
+    picked_onto: String,
+    head: String,
+}
+
+struct GateJob {
+    name: String,
+    gating: Gating,
+}
+
+type Gated = Result<Option<lane_gates::Refused>, String>;
+
+fn gate_lane(worktree: &Path, job: &GateJob, logs: &Path) -> Gated {
+    let scratch = tempfile::tempdir_in(worktree.parent().unwrap_or(worktree)).map_err(|error| error.to_string())?;
+    let tree = scratch.path().join("tree");
+    let path = tree.to_str().ok_or_else(|| format!("{} is not UTF-8", tree.display()))?;
+    change_worktrees_alone(worktree, &["worktree", "add", "-q", "-f", "--detach", "--no-checkout", path, &job.gating.head])?;
+    let judged = git(&tree, &["reset", "-q", "--hard", &job.gating.head]).and_then(|_| {
+        let (state_home, code_health) = (crate::platform::records_mirror::state_home(), super::after::gates::code_health_program());
+        let advisory_db = crate::advisory_gate::database(&state_home);
+        let lane = Lane { worktree: &tree, base: &job.gating.picked_onto, head: &job.gating.head, state_home: &state_home, code_health: &code_health, registry: &crate::dep_gate::PublicRegistries, advisory_db: &advisory_db };
+        lane_gates::judge(&lane, logs, &job.name)
+    });
+    let _ = change_worktrees_alone(worktree, &["worktree", "remove", "--force", path]);
+    judged
+}
+
+const GATE_THREADS: usize = 8;
+
+fn gate_lanes(worktree: &Path, jobs: &[GateJob], logs: &Path) -> Vec<Gated> {
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<Gated>>> = Mutex::new(jobs.iter().map(|_| None).collect());
+    let threads = jobs.len().min(GATE_THREADS).min(std::thread::available_parallelism().map_or(1, usize::from)).max(1);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    let at = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(job) = jobs.get(at) else { break };
+                    let judged = gate_lane(worktree, job, logs);
+                    results.lock().unwrap_or_else(PoisonError::into_inner)[at] = Some(judged);
+                }
+            });
+        }
+    });
+    results.into_inner().unwrap_or_else(PoisonError::into_inner).into_iter().map(|judged| judged.unwrap_or_else(|| Err("a lane gate thread ended without a verdict".to_owned()))).collect()
 }
 
 /// The pick as the decision log records it.
@@ -267,26 +306,46 @@ pub fn rebuild_recorded(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket
     assemble(worktree, base, tickets, &[], usize::MAX, logs)
 }
 
-fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
+struct Stacked {
+    pick: Pick,
+    case: PickCase,
+    decide_us: u64,
+    gating: Option<Gating>,
+    name: String,
+}
+
+struct Stack {
+    head: String,
+    tips: Vec<String>,
+    lanes: Vec<Stacked>,
+}
+
+fn stack(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path, refused: &BTreeMap<usize, lane_gates::Refused>) -> Result<Stack, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
     git(worktree, &["checkout", "-q", "--detach", base])?;
-    let mut picks = Vec::new();
+    let mut lanes = Vec::new();
     let mut tips = Vec::new();
     let mut included = 0;
     let mut decided = HashSet::new();
-    for (path, ticket) in tickets {
+    for (index, (path, ticket)) in tickets.iter().enumerate() {
         if included >= limit {
             break;
         }
-        let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane");
+        let name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("lane").to_owned();
         let earlier: Vec<&Ticket> = match queued.iter().position(|(queued, _)| queued == path) {
             Some(at) => queued[..at].iter().filter(|(queued, _)| !decided.contains(queued)).map(|(_, ticket)| ticket).collect(),
             None => Vec::new(),
         };
         let mut case = PickCase { base: base.to_owned(), branch: ticket.branch.clone(), head: ticket.head.clone(), red_fix: ticket.red_fix.is_some(), earlier: earlier.iter().map(|ahead| ahead.branch.clone()).collect(), ..PickCase::default() };
-        let (pick, decide_us) = decision_log::timed(|| pick(worktree, base, &Turn { ticket, earlier: &earlier }, logs, name, &mut case));
+        let mut gating = None;
+        let (pick, decide_us) = match refused.get(&index) {
+            Some(gate) => {
+                case.lane_gate = Some(gate.verdict.clone());
+                (Ok(Pick::Refused(gate.clone())), 0)
+            }
+            None => decision_log::timed(|| pick(worktree, base, &Turn { ticket, earlier: &earlier }, logs, &name, &mut case, &mut gating)),
+        };
         let pick = pick?;
-        decision_log::record(Entry { kind: Kind::LandPick, at: decision_log::now(), follows: None, case: &case, decision: &recorded(&pick), decide_us });
         included += usize::from(matches!(pick, Pick::Included));
         if matches!(pick, Pick::Included) {
             tips.push(git(worktree, &["rev-parse", "HEAD"])?);
@@ -294,9 +353,53 @@ fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: 
         if matches!(pick, Pick::Decided(_) | Pick::Refused(_)) {
             decided.insert(path);
         }
+        lanes.push(Stacked { pick, case, decide_us, gating, name });
+    }
+    Ok(Stack { head: git(worktree, &["rev-parse", "HEAD"])?, tips, lanes })
+}
+
+fn assemble(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
+    let enforcing = landing_refusals::enforcing();
+    let mut refused = BTreeMap::new();
+    let mut gated: BTreeMap<usize, Option<lane_gates::Refused>> = BTreeMap::new();
+    loop {
+        let mut built = stack(worktree, base, tickets, queued, limit, logs, &refused)?;
+        let todo: Vec<usize> = (0..built.lanes.len()).filter(|at| built.lanes[*at].gating.is_some() && !gated.contains_key(at)).collect();
+        if todo.is_empty() {
+            return Ok(finish(built, &gated, tickets, enforcing));
+        }
+        let jobs: Vec<GateJob> = todo.iter().filter_map(|at| built.lanes[*at].gating.take().map(|gating| GateJob { name: built.lanes[*at].name.clone(), gating })).collect();
+        let mut refusals = false;
+        for (at, judged) in todo.into_iter().zip(gate_lanes(worktree, &jobs, logs)) {
+            let judged = judged?;
+            if enforcing && let Some(gate) = &judged {
+                refused.insert(at, gate.clone());
+                refusals = true;
+            }
+            gated.insert(at, judged);
+        }
+        if !refusals {
+            return Ok(finish(built, &gated, tickets, enforcing));
+        }
+    }
+}
+
+fn finish(built: Stack, gated: &BTreeMap<usize, Option<lane_gates::Refused>>, tickets: &[(PathBuf, Ticket)], enforcing: bool) -> Built {
+    let state_home = crate::platform::records_mirror::state_home();
+    let mut picks = Vec::new();
+    for (at, lane) in built.lanes.into_iter().enumerate() {
+        let Stacked { pick, mut case, decide_us, .. } = lane;
+        if let Some(gate) = gated.get(&at).and_then(Option::as_ref) {
+            case.lane_gate = Some(gate.verdict.clone());
+            if !enforcing && let Some((_, ticket)) = tickets.get(at) {
+                let root = ticket.root.to_string_lossy();
+                landing_refusals::Lane { at: "pick", root: &root, branch: &ticket.branch, head: &ticket.head }.record(&state_home, &gate.gates, &fs::read_to_string(&gate.log).unwrap_or_default());
+            }
+        }
+        decision_log::record(Entry { kind: Kind::LandPick, at: decision_log::now(), follows: None, case: &case, decision: &recorded(&pick), decide_us });
         picks.push(pick);
     }
-    Ok(Built { head: git(worktree, &["rev-parse", "HEAD"])?, picks, tips })
+    Built { head: built.head, picks, tips: built.tips }
 }
 
 #[cfg(test)]

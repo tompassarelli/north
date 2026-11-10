@@ -18,6 +18,7 @@ pub struct Lane<'a> {
     pub advisory_db: &'a Path,
 }
 
+#[derive(Clone)]
 pub struct Refused {
     pub gates: String,
     pub verdict: String,
