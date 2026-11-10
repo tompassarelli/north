@@ -58,15 +58,53 @@ pub fn run(directory: &Path, arguments: &[String], out: &mut impl Write) -> u8 {
         let _ = writeln!(out, "mutant kill: not run in this probe: each of its {lanes} lane(s) was judged alone against its fork point before it queued, and no two of them touch the same file");
         return 0;
     }
-    let Some(lane) = range.as_deref().filter(|_| !bad && !remote.is_empty()).and_then(|range| lane(directory, range)) else {
+    let judge = |lane: &Lane, out: &mut _| if here { on_this_host(directory, lane, out) } else { offloaded(directory, lane, host.clone(), &remote, out) };
+    let Some(code) = range.as_deref().filter(|_| !bad && !remote.is_empty()).and_then(|range| judge_each(directory, range, &tips, here, judge, out)) else {
         eprintln!("{USAGE}");
         return 64;
     };
-    let Some(lane) = lane else {
+    code
+}
+
+/// Judges each lane of `range` against its own diff with `judge` and returns the worst verdict, stopping at the first refusal, so one lane's added tests are never paired with the mutants of another lane's diff. `--here` is one lane; any other range splits at the probe's `tips` when they end at its head, else at each commit, since a lane lands as one commit.
+fn judge_each<O: Write>(directory: &Path, range: &str, tips: &str, whole: bool, mut judge: impl FnMut(&Lane, &mut O) -> u8, out: &mut O) -> Option<u8> {
+    let mut worst = 0;
+    let mut judged = false;
+    for part in lane_ranges(directory, range, tips, whole)? {
+        let Some(lane) = lane(directory, &part)? else { continue };
+        judged = true;
+        match judge(&lane, out) {
+            0 => {}
+            1 => return Some(1),
+            code => worst = code,
+        }
+    }
+    if !judged {
         let _ = writeln!(out, "mutant kill: not applicable (the lane adds no Rust test next to a change in its mutated source)");
-        return 0;
+    }
+    Some(worst)
+}
+
+fn lane_ranges(directory: &Path, range: &str, tips: &str, whole: bool) -> Option<Vec<String>> {
+    let Range { base, head } = Range::parse(range)?;
+    if whole {
+        return Some(vec![range.to_owned()]);
+    }
+    let commit = |revision: &str| git::text(directory, &["rev-parse", "--verify", &format!("{revision}^{{commit}}")]).map(|sha| sha.trim().to_owned());
+    let (base, head) = (commit(&git::merge_base(directory, base, head))?, commit(head)?);
+    let tips: Vec<String> = tips.split_whitespace().map(str::to_owned).collect();
+    let ends = if tips.last().and_then(|last| commit(last)).is_some_and(|last| last == head) {
+        tips
+    } else {
+        git::text(directory, &["rev-list", "--reverse", "--first-parent", &format!("{base}..{head}")])?.lines().map(str::to_owned).collect()
     };
-    if here { on_this_host(directory, &lane, out) } else { offloaded(directory, &lane, host, &remote, out) }
+    let mut from = base;
+    let mut ranges = Vec::new();
+    for end in ends {
+        ranges.push(format!("{from}..{end}"));
+        from = end;
+    }
+    Some(if ranges.is_empty() { vec![range.to_owned()] } else { ranges })
 }
 
 /// The number of lanes in a probe whose lanes, ending at `tips` oldest first, touch pairwise disjoint files; `None` outside a probe or when two lanes share a file, so the merged tree is judged.
