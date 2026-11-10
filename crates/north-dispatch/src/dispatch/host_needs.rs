@@ -1,6 +1,6 @@
 //! The hosts and local needs workers recorded for a box with `north fleet need HOST REASON`, kept in host-needs.jsonl beside the
 //! launch record on the host that holds it, so a need an earlier launch recorded still places a later launch after another
-//! launch ended on another stop. A need holds while any box it was recorded for stays unticked word for word.
+//! launch ended on another stop. A need holds only the box it was recorded for, while that box stays unticked word for word.
 use super::issues::{Issue, IssueRef};
 use super::stops::Relay;
 use super::record;
@@ -37,15 +37,14 @@ pub fn is_need(need: &str) -> bool {
 }
 
 /// Appends the need `session` recorded for `issue` with `north fleet need`, once per session and need, and returns every record including it.
-/// The boxes are the one box the launch staffed when `box_text` names a takeable one, else the issue's unticked takeable ones, so the need holds while any stays unticked.
+/// The boxes are the one box the launch staffed when `box_text` names a takeable one, else none, so the need holds no other box and a session whose launch named no box keeps its record for the relay only.
 pub fn record(directory: &Path, issue: &Issue, box_text: Option<&str>, session: &str, need: &str, reason: &str, at: f64) -> Result<Vec<Learned>, String> {
     let mut known = read(directory);
     let item = issue.reference().to_string();
     if known.iter().any(|seen| seen.item == item && seen.need == need && seen.session == session) {
         return Ok(known);
     }
-    let named: Vec<String> = box_text.map(|text| issue.takeable_box(text, at).map(|line| line.trim().to_owned()).collect()).unwrap_or_default();
-    let boxes = if named.is_empty() { issue.takeable(at).map(|line| line.trim().to_owned()).collect() } else { named };
+    let boxes: Vec<String> = box_text.map(|text| issue.takeable_box(text, at).map(|line| line.trim().to_owned()).collect()).unwrap_or_default();
     let learned = Learned { item, need: need.to_owned(), session: session.to_owned(), at, boxes, reason: reason.trim().to_owned() };
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join(FILE)).map_err(|error| error.to_string())?;

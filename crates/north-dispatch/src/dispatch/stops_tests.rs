@@ -45,12 +45,12 @@ fn a_last_report_holds_its_box_until_the_issue_changes_after_a_decision_until_it
 
     let needs = tempfile::tempdir().unwrap();
     let mut moved = issue("north", 636, "- [ ] the window moves to the account with headroom", &[]);
-    let recorded = super::host_needs::record(needs.path(), &moved, None, "sc-636-d0720", "laptop", "the window move has to be checked on the laptop, and gex45 cannot reach it", 1_794_000_000.0).unwrap();
+    let recorded = super::host_needs::record(needs.path(), &moved, Some("the window moves to the account"), "sc-636-d0720", "laptop", "the window move has to be checked on the laptop, and gex45 cannot reach it", 1_794_000_000.0).unwrap();
     moved.needs = super::host_needs::of(&moved, &recorded, 1_794_000_000.0);
     assert_eq!(moved.needs, ["laptop"]);
     assert_eq!(super::host_needs::relay(&recorded, "north#636", "sc-636-d0720").map(|relay| (relay.need, relay.report)), Some(("laptop".into(), "the window move has to be checked on the laptop, and gex45 cannot reach it".into())));
     assert_eq!(super::host_needs::relay(&recorded, "north#636", "sc-636-d0730"), None, "only the newest launch's own session relays");
-    assert_eq!(super::host_needs::record(needs.path(), &moved, None, "sc-636-d0720", "laptop", "again", 1_794_000_001.0).unwrap().len(), 1, "one record per session and need");
+    assert_eq!(super::host_needs::record(needs.path(), &moved, Some("the window moves to the account"), "sc-636-d0720", "laptop", "again", 1_794_000_001.0).unwrap().len(), 1, "one record per session and need");
     assert_eq!(issues::readiness(&moved, &world(0.0)), Ok(()), "a host need is no reason to wait");
     let route = super::tier::Route { tier: super::tier::Tier::Opus, category: "feature".into(), effort: None, effort_arm: false, cell: None, cell_role: None, signal: None, follows: None, why: String::new() };
     let brief = super::brief::brief(&moved, "dispatch", &route, &super::grounds::Grounds::default(), None);
@@ -207,8 +207,8 @@ fn north_725_d0411_is_held_off_gex45_by_the_host_needs_both_earlier_launches_rec
     let directory = tempfile::tempdir().unwrap();
     let (d0306_at, d0352_at, d0411_at) = (1_794_027_996.0, 1_794_030_733.0, 1_794_033_106.0);
     let first = issue("north", 725, body, &[]);
-    super::host_needs::record(directory.path(), &first, None, "north-725-d0306", "ccx33", "the ledger fix landed, but ccx33 and the laptop were not measured", d0306_at + 2100.0).unwrap();
-    let learned = super::host_needs::record(directory.path(), &first, None, "north-725-d0352", "laptop", "the laptop row of the per-host byte table needs `north capacity disk` run on the laptop itself", d0352_at + 600.0).unwrap();
+    super::host_needs::record(directory.path(), &first, Some("the issue holds the per-host byte table"), "north-725-d0306", "ccx33", "the ledger fix landed, but ccx33 and the laptop were not measured", d0306_at + 2100.0).unwrap();
+    let learned = super::host_needs::record(directory.path(), &first, Some("the issue holds the per-host byte table"), "north-725-d0352", "laptop", "the laptop row of the per-host byte table needs `north capacity disk` run on the laptop itself", d0352_at + 600.0).unwrap();
     let mut issue = first;
     issue.needs = super::host_needs::of(&issue, &learned, d0411_at);
     assert_eq!(super::host_needs::relay(&learned, "north#725", "north-725-d0352").map(|relay| relay.need).as_deref(), Some("laptop"), "the newest launch's own need is the one the next launch follows");
@@ -241,7 +241,7 @@ fn a_hand_launch_on_north_759_reads_the_nexus_need_of_n_claim_reland_and_gex45_i
     let at = 1_794_041_000.0;
     let directory = tempfile::tempdir().unwrap();
     let claimed = issue("north", 759, "- [ ] the claim lands on the ledger host and a replay shows it held", &[]);
-    let learned = super::host_needs::record(directory.path(), &claimed, None, "n-claim-reland", "nexus", "the claim reland needs the ledger on nexus", at).unwrap();
+    let learned = super::host_needs::record(directory.path(), &claimed, Some("the claim lands on the ledger host"), "n-claim-reland", "nexus", "the claim reland needs the ledger on nexus", at).unwrap();
     let needs = super::host_needs::of(&claimed, &learned, at);
     assert_eq!(needs, ["nexus"], "the hand launch's own recorded need places the next try like a dispatched one's");
 
@@ -345,7 +345,7 @@ fn a_box_is_placed_on_its_own_needs_line_and_its_prose_never_holds_it_north_787(
 #[test]
 fn the_relaunch_after_north_733s_recorded_laptop_need_follows_the_stopped_run_and_starts_from_its_reason() {
     let mut stopped = issue("north", 733, "- [ ] a take-over is watched live", &[]);
-    let recorded = super::host_needs::record(tempfile::tempdir().unwrap().path(), &stopped, None, "north-733-d0215", "laptop", "the code for north#733 is already on origin/main, but nobody has watched a take-over live", 10.0).unwrap();
+    let recorded = super::host_needs::record(tempfile::tempdir().unwrap().path(), &stopped, Some("a take-over is watched live"), "north-733-d0215", "laptop", "the code for north#733 is already on origin/main, but nobody has watched a take-over live", 10.0).unwrap();
     stopped.needs = super::host_needs::of(&stopped, &recorded, 10.0);
     stopped.stop.relay = super::host_needs::relay(&recorded, "north#733", "north-733-d0215");
 

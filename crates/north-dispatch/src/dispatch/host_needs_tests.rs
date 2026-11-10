@@ -1,4 +1,4 @@
-use super::host_needs::of_with;
+use super::host_needs::{of_box_with, of_with, record, relay};
 use super::issues::{Issue, IssueRef};
 use super::tests::issue;
 use super::tier::{Route, Tier};
@@ -37,4 +37,32 @@ fn a_box_that_ends_its_needs_line_with_a_full_stop_is_placed_on_the_host_that_se
     let cfg: toml_edit::DocumentMut = "[hosts.cpx62b]\nlaunches = true\nserves = []\n[hosts.whiterabbit]\nlaunches = true\nserves = [\"laptop\"]\n".parse().unwrap();
     assert!(gate::lacks(&cfg, "cpx62b", &brief).is_some(), "{brief}");
     assert_eq!(gate::lacks(&cfg, "whiterabbit", &brief), None);
+}
+
+#[test]
+fn a_need_recorded_for_one_box_holds_no_other_box() {
+    let at = 1_794_270_600.0;
+    let lander = |_: &IssueRef| None;
+    let body = "- [ ] On the laptop, by hand: the window opens. Needs: laptop. Done when: `niri msg windows` exits 0\n- [ ] Make the parser refuse an empty line. Done when: `cargo nextest run -p north-dispatch -E 'test(/an_empty_line_is_refused/)'` exits 0";
+    let tracked = issue("north", 1022, body, &[]);
+    let directory = tempfile::tempdir().unwrap();
+    let learned = record(directory.path(), &tracked, Some("On the laptop, by hand"), "n1022-laptop", "laptop", "the window needs the laptop", at).unwrap();
+    assert_eq!(of_box_with(&tracked, "On the laptop, by hand", &learned, at, &lander), ["laptop"]);
+    assert!(of_box_with(&tracked, "Make the parser refuse an empty line", &learned, at, &lander).is_empty(), "the code-only box is placed on any build host");
+
+    let unnamed = record(directory.path(), &tracked, None, "n1022-unnamed", "native", "a need from a launch that named no box", at).unwrap();
+    assert!(of_box_with(&tracked, "Make the parser refuse an empty line", &unnamed, at, &lander).is_empty(), "a launch that named no box holds no other box");
+    assert_eq!(relay(&unnamed, "north#1022", "n1022-unnamed").map(|relay| relay.need).as_deref(), Some("native"), "its record still follows its own next try");
+}
+
+#[test]
+fn a_dispatched_brief_for_one_box_carries_no_need_recorded_for_another_box() {
+    let at = 1_794_270_600.0;
+    let body = "- [ ] On the laptop, by hand: the window opens. Needs: laptop. Done when: `niri msg windows` exits 0\n- [ ] Make the parser refuse an empty line. Done when: `cargo nextest run -p north-dispatch -E 'test(/an_empty_line_is_refused/)'` exits 0";
+    let tracked = issue("north", 1022, body, &[]);
+    let learned = record(tempfile::tempdir().unwrap().path(), &tracked, Some("On the laptop, by hand"), "n1022-laptop", "laptop", "the window needs the laptop", at).unwrap();
+    let survey = super::survey::Survey { learned, at, ..super::tests::survey(vec![tracked.clone()], super::plan::Cloud::Closed(String::new()), Vec::new(), Vec::new()) };
+    let needs_line = |box_text: &str| super::screen::written(&survey, &tracked, "dispatch", Some(box_text)).unwrap().1.lines().find(|line| line.starts_with("Needs:")).map(str::to_owned);
+    assert_eq!(needs_line("On the laptop, by hand").as_deref(), Some("Needs: laptop"));
+    assert_eq!(needs_line("Make the parser refuse an empty line"), None);
 }
