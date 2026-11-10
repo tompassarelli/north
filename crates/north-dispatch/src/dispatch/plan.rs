@@ -121,7 +121,6 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             Cloud::Closed(_) => {}
         }
     }
-    capacity.spend.capped(capacity.rules, pools.placed()).map_err(|refusal| refusal.to_string())?;
     let mut refused = Vec::new();
     for candidate in candidates {
         if let Some(why) = &candidate.refusal {

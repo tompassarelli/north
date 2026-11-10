@@ -1,7 +1,7 @@
 //! The spend rule (docs/rationale/spend-rule.md): the only reasons a new worker may not start on usage
-//! grounds are a pooled reserve, a fleet-wide cap on working sessions and a burn tripwire. The
-//! provider's own limit stops an account that has no room at all. Everything here is a pure function
-//! of a recorded `View`; `read` gathers one from this host's state files.
+//! grounds are a pooled reserve and a burn tripwire. The provider's own limit stops an account that has
+//! no room at all. Everything here is a pure function of a recorded `View`; `read` gathers one from this
+//! host's state files.
 mod read;
 #[cfg(test)]
 mod tests;
@@ -24,8 +24,6 @@ pub struct Rules {
     pub floor_five_hour: f64,
     /// Points of a Max 5x week one new worker is expected to take from the pool.
     pub charge: f64,
-    /// Worker sessions that may be working at once across every host and account.
-    pub cap: usize,
     pub fleet_trip: tripwire::Burst,
     pub session_trip: tripwire::Burst,
     /// Hours after which an account's reading no longer counts toward the pool.
@@ -40,7 +38,6 @@ impl Rules {
             floor_week: number("spend_floor_week"),
             floor_five_hour: number("spend_floor_five_hour"),
             charge: number("spend_worker_charge"),
-            cap: number("spend_worker_cap") as usize,
             fleet_trip: tripwire::Burst { points: number("spend_trip_fleet_points"), minutes: number("spend_trip_fleet_min") },
             session_trip: tripwire::Burst { points: number("spend_trip_session_points"), minutes: number("spend_trip_session_min") },
             reading_max_h: number("spend_reading_max_h"),
@@ -102,15 +99,15 @@ pub struct View {
     pub drain: bool,
 }
 
-/// What one run has already started, so it cannot place past the cap or the reserve.
+/// What one run has already started, so it cannot place past the reserve.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Placed {
     pub workers: usize,
 }
 
 /// Who starts: a worker meets every rule; an Agent-tool subagent runs inside its parent's session, so
-/// it meets the reserve and the tripwire but not the cap; the proxy, a scheduled routine or one of
-/// Tom's own sessions may use the reserve and counts against neither the cap nor the tripwire.
+/// it meets the reserve and the tripwire; the proxy, a scheduled routine or one of Tom's own sessions
+/// may use the reserve and meets no tripwire.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Starter {
     Worker,
@@ -122,7 +119,6 @@ pub enum Starter {
 pub enum Rule {
     Reserve,
     Floor,
-    Cap,
     Tripwire,
     ProviderLimit,
     Unread,
@@ -133,7 +129,6 @@ impl fmt::Display for Rule {
         f.write_str(match self {
             Self::Reserve => "spend reserve",
             Self::Floor => "spend floor",
-            Self::Cap => "spend cap",
             Self::Tripwire => "spend tripwire",
             Self::ProviderLimit => "provider limit",
             Self::Unread => "no usage reading",
@@ -171,11 +166,8 @@ impl View {
     /// Whether `starter` may start one more session on `account`, given what this run has placed.
     pub fn admit(&self, rules: &Rules, account: &str, starter: Starter, placed: Placed) -> Result<(), Refusal> {
         let keyed = self.keyed.iter().any(|name| account.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with(':')));
-        match starter {
-            Starter::Worker if keyed => self.capped(rules, placed)?,
-            Starter::Worker => self.fleet(rules, placed)?,
-            Starter::Subagent if !keyed => self.reserved(rules, placed)?,
-            Starter::Subagent | Starter::Reserved => {}
+        if starter != Starter::Reserved && !keyed {
+            self.reserved(rules, placed)?;
         }
         if keyed {
             return Ok(());
@@ -208,22 +200,7 @@ impl View {
         Err(Refusal { rule: Rule::Floor, line: format!("{} is inside its operational floor: {}; the privacy judge, lander and canaries keep it", account.name, reasons.join("; ")) })
     }
 
-    /// The rules no account choice passes: the cap on working sessions and the pooled reserve.
-    pub fn fleet(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
-        self.capped(rules, placed)?;
-        self.reserved(rules, placed)
-    }
-
-    /// The cap on working sessions alone, the one rule a worker on an API-key account meets, since it spends no subscription week.
-    pub fn capped(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
-        let working = self.working + placed.workers;
-        if working >= rules.cap {
-            return Err(Refusal { rule: Rule::Cap, line: format!("{working} worker sessions are working, the cap is {}", rules.cap) });
-        }
-        Ok(())
-    }
-
-    /// The pooled reserve alone: whether the pool, less one more charge for each placed worker and this
+    /// The pooled reserve: whether the pool, less one more charge for each placed worker and this
     /// one, stays above it.
     fn reserved(&self, rules: &Rules, placed: Placed) -> Result<(), Refusal> {
         if self.drain {
@@ -236,11 +213,12 @@ impl View {
         Ok(())
     }
 
-    /// One line for a session's grounding or `north spend`: the pool, the reserve, the cap and each trip.
+    /// One line for a session's grounding or `north spend`: the pool, the reserve, the working
+    /// sessions and each trip.
     pub fn line(&self, rules: &Rules) -> String {
         let trips: Vec<&str> = self.trips.iter().map(|trip| trip.line.as_str()).collect();
         let tripped = if trips.is_empty() { String::new() } else { format!("; tripped: {}", trips.join("; ")) };
         let reserve = if self.drain { "drain on, no reserve".to_owned() } else { format!("reserve {:.0}", self.reserve(rules)) };
-        format!("spend: {:.0} week points left across accounts, {reserve}; {}/{} worker sessions working{tripped}", self.pool(), self.working, rules.cap)
+        format!("spend: {:.0} week points left across accounts, {reserve}; {} worker sessions working{tripped}", self.pool(), self.working)
     }
 }

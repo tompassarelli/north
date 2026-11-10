@@ -71,7 +71,7 @@ pub struct Survey {
     pub backlog: Option<north_graph_ground::Backlog>,
     /// The dated stops this pass learned for the first time, which `execute` records as waits causes.
     pub fresh_waits: Vec<super::wait_stops::Learned>,
-    /// The DeepSeek cap, the sessions holding it, the boxes DeepSeek tried and the sessions that reported Done.
+    /// The DeepSeek sessions that reported Done, and the boxes and sessions dispatch read about DeepSeek.
     pub deepseek: super::deepseek::Seen,
     pub at: f64,
 }
@@ -452,7 +452,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
-    let deepseek = super::deepseek::Seen::read(&here, laptop.as_deref(), &fleet_lists, &laptop_reports, &sessions, &records, &issues, at, &mut notes);
+    let deepseek = super::deepseek::Seen::read(&here, laptop.as_deref(), &fleet_lists, &laptop_reports, &records, &issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
     Ok(Survey { here, cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, fresh_waits, deepseek, at })
 }

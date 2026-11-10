@@ -13,8 +13,8 @@ pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
 }
 pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
 
-/// The sessions taking a turn on each account and the worker sessions taking a turn across every registry, as the spend cap counts
-/// them; dispatch reads them from every registry.
+/// The sessions taking a turn on each account and the worker sessions taking a turn across every registry,
+/// which the spend view reports; dispatch reads them from every registry.
 pub struct Workers {
     pub by_account: BTreeMap<String, i64>,
     pub active: usize,

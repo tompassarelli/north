@@ -286,14 +286,6 @@ settles_when = { need = 20, count = "count_worker_runs", what = "worker runs wit
 fallback = "every worker charges one point"
 consumers = ["crates/north-pace/src/spend/mod.rs"]
 
-[spend_worker_cap]
-value = 5
-allowed = { min = 1, max = 200 }
-unit = "worker sessions working at once across every host and account"
-source = "tom: 2026-11-10 raised to five workers in progress until the account e week resets on Wed 2026-11-11 10:00 AM, then back to three (was three from 2026-11-09 so the fleet stretches its usage while hard problems keep senior effort; 30 from 2026-11-08, north#966)"
-fallback = "none: the cap is a stated amount"
-consumers = ["crates/north-pace/src/spend/mod.rs"]
-
 [spend_trip_fleet_points]
 value = 30
 allowed = { min = 1, max = 100 }

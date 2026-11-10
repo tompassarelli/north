@@ -10,13 +10,14 @@ use crate::dispatch::slots::Room;
 use serde_json::json;
 use std::collections::BTreeSet;
 
-fn settings(slots: i64) -> Settings {
-    Settings::parse(&format!("[go]\nslots = {slots}\n[dispatch]\nhosts = [\"whiterabbit\"]\nclaude_only = ['\\bsandbox', '\\block(s|ed|ing)?\\b']\n").parse().unwrap())
+fn settings() -> Settings {
+    let document: toml_edit::DocumentMut = "[dispatch]\nhosts = [\"whiterabbit\"]\nclaude_only = ['\\bsandbox', '\\block(s|ed|ing)?\\b']\n".parse().unwrap();
+    Settings::parse(&document)
 }
 
 #[test]
 fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_without_the_proxy() {
-    deepseek_workers_hold_no_claude_slot();
+    active_workers_counts_claude_workers_alone();
     a_category_is_reviewed_in_full_until_ten_clean_then_one_in_five_while_a_defect_resets_it_and_landing_boxes_are_always_reviewed();
     an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_no_other_session_does();
     let hosts = vec![host("nexus", 6, Ok(0)), host("whiterabbit", 8, Ok(0))];
@@ -30,7 +31,7 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
         issue("north", 6, "- [ ] a third column", &[]),
     ];
     let mut planned = survey(boxes, Cloud::Closed("no credit".into()), hosts, accounts);
-    planned.deepseek = Seen { settings: settings(3), holding: 1, tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), done: Vec::new() };
+    planned.deepseek = Seen { settings: settings(), tried: BTreeSet::from([key(&IssueRef::new("north", 4), Some("retry it"))]), done: Vec::new() };
 
     let outcome = decide(&planned, "test");
 
@@ -44,9 +45,9 @@ fn a_deepseek_box_is_staffed_sampled_for_review_and_queued_from_its_done_report_
             on("north#3", "claude:a", "nexus"),
             on("north#4", "claude:a", "nexus"),
             on("north#5", "opencode:go", "whiterabbit"),
-            on("north#6", "claude:a", "nexus"),
+            on("north#6", "opencode:go", "whiterabbit"),
         ],
-        "one opencode session already holds a slot of 3, so two boxes go to DeepSeek; sandbox, locking and a box DeepSeek tried go to Claude"
+        "DeepSeek takes every box that may leave Claude and it has not tried; sandbox and locking boxes go to Claude"
     );
     assert_eq!(super::tried(&[Record { at: 0.0, item: "north#5".into(), host: "whiterabbit".into(), account: "opencode:go".into(), name: "north-5-d0101".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, box_text: Some("another column".into()), hand: false, effort_arm: None, signal: None, lift: None, effort: None, cell: None, cell_role: None }]), BTreeSet::from([key(&IssueRef::new("north", 5), Some("another column"))]), "a DeepSeek launch's record makes its box tried");
 }
@@ -91,7 +92,7 @@ fn an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_
     assert_eq!(review::job(&found[0]), ["fleet", "dispatch", "review", "ds-done", "--item", "north#7", "--category", "feature", "--box", "the box", "--landing"]);
 }
 
-fn deepseek_workers_hold_no_claude_slot() {
+fn active_workers_counts_claude_workers_alone() {
     let listing = json!([
         {"name": "w1", "status": "working", "provider": "claude", "account": "a", "role": "worker"},
         {"name": "w2", "status": "working", "provider": "claude", "account": "b", "role": "worker"},
@@ -102,6 +103,6 @@ fn deepseek_workers_hold_no_claude_slot() {
     ]);
     let sessions: Vec<_> = crate::dispatch::fleets::running_sessions(&listing).into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
 
-    assert_eq!(crate::dispatch::fleets::active_workers(&sessions), 2, "five worker sessions were counted against a cap of 3 while two were Claude's");
+    assert_eq!(crate::dispatch::fleets::active_workers(&sessions), 2, "two Claude workers are working while a proxy and three DeepSeek sessions are not Claude workers");
     assert_eq!(crate::dispatch::fleets::working_by_account(&sessions).get("opencode"), Some(&2));
 }

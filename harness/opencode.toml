@@ -1,7 +1,6 @@
 [go]
 zero_retention_until = "2026-11-30"
 source = "https://opencode.ai/docs/go"
-slots = 32
 
 [private]
 repos = ["south"]

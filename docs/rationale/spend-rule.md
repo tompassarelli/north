@@ -1,4 +1,4 @@
-# Spend rule: one reserve, one floor, one concurrency cap, one tripwire
+# Spend rule: one reserve, one floor, one tripwire
 
 Decided 2026-11-07 under north#702: north spends account capacity as fast as useful work allows, and only these
 rules may stop a new worker. Before this, about 35 files read pace state and each derived its own limit from a
@@ -10,7 +10,7 @@ fate.
 
 One module, `north_pace::spend`, holds the rule. Dispatch, `north fleet launch`, the spawn hook and
 follows-release call it, and nothing else may refuse a worker on usage grounds. A refusal names the rule that
-fired: `spend reserve`, `spend floor`, `spend cap`, `spend tripwire`, `provider limit` or `no usage reading`.
+fired: `spend reserve`, `spend floor`, `spend tripwire`, `provider limit` or `no usage reading`.
 
 1. **Pooled reserve.** One reserve covers all accounts together. The pool is the sum, over the accounts
    spend counts, of each account's unspent share of its week (all of it once the week has reset), scaled by
@@ -18,21 +18,10 @@ fired: `spend reserve`, `spend floor`, `spend cap`, `spend tripwire`, `provider 
    `spend_reserve` (5, restated 2026-11-09 under north#1000) percent of the combined week of all counted
    accounts, in the same units, so it means "a twentieth of everything" whatever the plans are. A worker starts only if the pool, less `spend_worker_charge` for
    it and for each worker this run has already placed, stays above the reserve. Workers may drain any single
-   account to the operational floor (rule 4), and reserved starters to the provider's limit. An account that
+   account to the operational floor (rule 3), and reserved starters to the provider's limit. An account that
    refills first returns its week to the pool. The proxy, scheduled routines (a `[routine:...]` brief) and
    Tom's own sessions are not held by the reserve and go to whichever account still has headroom.
-2. **Concurrency cap.** At most `spend_worker_cap` (18) worker sessions may be active at once. Active means a
-   fleet session in status `starting` or `working`, other than the proxy and adopted windows, counted once per
-   name across every registry the caller surveys (dispatch and `north fleet launch` survey every host's
-   `north fleet list --json`), plus this run's own placements. An idle or parked session spends nothing and
-   lands nothing, so it does not count. A survey is read before its run launches, so two spawners on two
-   hosts could both pass it: a worker launch therefore also carries the cap to the ledger host, which counts
-   the fleet table's starting and working rows (less the proxy and adopted windows) in the same transaction
-   that registers the name, and refuses it there with `spend cap`. The same registration counts the rows on
-   the machine the worker runs on against that machine's `resident_cap` and refuses with `resident cap`.
-   The cap is set from the hosts' resident capacity and tuned from
-   measured landing contention (conflicts, slot waits, rework), never from usage.
-3. **Tripwire.** No new worker starts on an account while either holds:
+2. **Tripwire.** No new worker starts on an account while either holds:
    - the account's five-hour window rose more than `spend_trip_fleet_points` within `spend_trip_fleet_min`
      minutes (readings that share one reset);
    - one session spent more than `spend_trip_session_points` of that window within `spend_trip_session_min`
@@ -41,7 +30,7 @@ fired: `spend reserve`, `spend floor`, `spend cap`, `spend tripwire`, `provider 
    The proxy is told once per trip, with the top spenders. Running sessions continue. A trip lapses once no
    tick confirms it within the longer of the two spans. Trip events go to `agents/spend/trips.jsonl` so a week
    of them can tune the thresholds.
-4. **Operational floor.** Each subscription account keeps `spend_floor_week` (5) percent of its week and
+3. **Operational floor.** Each subscription account keeps `spend_floor_week` (5) percent of its week and
    `spend_floor_five_hour` (10) percent of its five-hour window for the privacy judge, the lander and the
    canaries (north#1049). A new worker refuses on `spend floor` once either window has that much or less left,
    so a busy fleet cannot spend the capacity the gates that let it land need. A reserved starter (the proxy,
@@ -54,14 +43,14 @@ placement skips it and the refusal names `provider limit`.
 **No per-account cover (2026-11-09, north#1000).** An earlier rule (north#259) refused a worker on an account whose
 windows could not cover one worker run at its p90. It is deleted: a worker that reaches a provider limit
 mid-run continues on another account in its own conversation (north#998), so admission does not predict
-whether a session fits in one account. The reserve pools every account, the operational floor (rule 4,
+whether a session fits in one account. The reserve pools every account, the operational floor (rule 3,
 north#1049) keeps the last 5% of a week and 10% of a five-hour window for operational callers, and the
 provider limit is the only other account-level usage stop. The proxy, routines and Tom's sessions, and
 Agent-tool subagents, meet only the provider limit.
 
 **Drain.** `north fleet drain on [--until TIME]` turns the reserve off until `north fleet drain off` or the time
 passes; every account may then be spent past the pooled reserve, to its provider limit unless it is inside the
-operational floor. The cap, the tripwire and the floor stay. The switch lives in `spend/drain.json` in the agents
+operational floor. The tripwire and the floor stay. The switch lives in `spend/drain.json` in the agents
 state directory of the host that admits the launch, and `north fleet usage` prints the mode on its first line. The proxy flips it only on Tom's own word to drain; without that word the
 default reserve applies. A refusal reads "a new worker session would leave N points of week across all
 accounts, not above the M-point reserve".
@@ -89,13 +78,13 @@ week has room, a grant's expiry), then week room per plan unit per hour to reset
 five-hour room. `north fleet accounts --plan` prints the order with each source's reason. Order never refuses.
 
 **Providers.** The pool, the reserve and the tripwire cover Claude accounts. Other providers have no plan
-accounts in use; a launch on one meets the cap and its provider's limit.
+accounts in use; a launch on one meets its provider's limit.
 
-**Agent-tool subagents** run inside their parent's session and lane, so they do not count against the cap.
+**Agent-tool subagents** run inside their parent's session and lane, so they add no session.
 The spawn hook applies the reserve and the tripwire to the account the parent bills.
 
 **Handover.** A running session whose account reaches the provider's limit is handed to the account in room
-order that spend admits as a reserved starter. It adds no session, so the cap and reserve do not hold it.
+order that spend admits as a reserved starter. It adds no session, so the reserve does not hold it.
 
 **Where the tripwire runs.** In `north fleet tick` on every host whose copy of the usage table holds a
 five-hour reading from the last 30 minutes, beside the spend breaker, so each host's spawners read trips
@@ -107,7 +96,7 @@ session burst reads the spend so far of each session that host runs, which the t
 each new one is appended to `agents/spend/trips.jsonl`. Only the host that holds the proxy tells it, so a
 fleet burst every host sees reaches the proxy once. `north spend [--json]` prints the view.
 
-**Follows-release.** A released follower is a new worker, so release asks `spend::admit`. A cap or tripwire
+**Follows-release.** A released follower is a new worker, so release asks `spend::admit`. A tripwire
 refusal leaves the follower waiting for the next release pass rather than failing it.
 
 ## Every gate on 2026-11-07, and its fate
@@ -119,7 +108,7 @@ refusal leaves the follower waiting for the next release pass rather than failin
 - `projection.rs` (`project`, `week_refusal`) and `north tune`'s projection scoring, along with the launch
   record's `projection` field: **deleted**.
 - `exhaustion.rs` (the five-hour stop short of the provider's, the five-hour burn cap, the exhausted week):
-  **deleted**. The provider limit, rule 1 and rule 3 replace it.
+  **deleted**. The provider limit, rule 1 and rule 2 replace it.
 - `admission.rs`: the `refusal` "Hold:" for a stale sample or exhaustion is **deleted**. `interval`, the
   sampler's read cadence, is not a gate; it **moves** into the sampler.
 - `target.rs` (spend targets, `[pace."ACCOUNT"] spend_to_pct` by `by`): **deleted**. `seconds` and
@@ -200,21 +189,21 @@ Other readers:
 - `harness/defaults.toml`: `pace_*`, `plan_stop`, `five_hour_burn_cap_pct_h`, `claude_session_target`,
   `spawn_reservation_ttl_s`, `grant_reservation_hold_s`, `placement_drain_margin`,
   `reservation_fallback_points` and the replay quota floors are **deleted**. `spend_reserve`,
-  `spend_worker_charge`, `spend_worker_cap`, `spend_reading_max_h` and the four tripwire knobs are **added**.
+  `spend_worker_charge`, `spend_reading_max_h` and the four tripwire knobs are **added**.
 - South's orchestration `[pace.*]` tables and the firn unit that described pace enforcement: **deleted** and
   **reworded** in their own repositories.
 
 These are **not** usage gates and are **kept**: each host's `resident_cap` and saturation reading, the CPU
 spawn gate, battery and playtest leases, the landing governor, and the cloud lane's session count. They bound
-machines and landing contention. They do not bound account spend, and rule 2 does not replace them.
+machines and landing contention. They do not bound account spend.
 
 ## Why this shape
 
 Every deleted gate answered one question in its own way: will this account run out before its window
 resets? The answers came from different projections, so they disagreed, and the most conservative one won.
 The provider already enforces running out. North needs only to keep a little capacity for Tom and the proxy
-(rule 1), to avoid starting more work than landing can absorb (rule 2), and to notice a runaway quickly
-(rule 3). A per-account floor would strand a tenth of every account, so the reserve is pooled (Tom,
+(rule 1) and to notice a runaway quickly (rule 2). A per-account floor would strand a tenth of every account,
+so the reserve is pooled (Tom,
 2026-11-07).
 
 ## Tier defaults (north#702 2026-11-07, north#966 2026-11-09)

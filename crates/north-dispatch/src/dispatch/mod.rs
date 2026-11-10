@@ -175,7 +175,6 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     outcome.revival = revival;
     let world = issues::World { open: &survey.open, holds: &holds, box_holds: &survey.box_holds, box_tries: &survey.box_tries, live: &survey.live, planned: &planned, backlog: survey.backlog.as_ref(), at: survey.at };
     let mut claims = hotspots::Claims::default();
-    let mut deepseek_placed = 0;
     for issue in ordered(&survey.issues, &survey.projects, survey.backlog.as_ref()) {
         if let Err(why) = screen::admitted(survey, issue, &world) {
             outcome.skipped.push((issue.reference(), why));
@@ -209,7 +208,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
             let ready = Ready { item: reference.clone(), brief, code_only, route };
             let candidates = candidates(survey, &ready.brief);
-            match survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, &mut deepseek_placed, |pools| plan::place(&ready, &capacity, &candidates, pools)) {
+            match survey.deepseek.staff(issue, box_text, &ready, &candidates, &mut pools, |pools| plan::place(&ready, &capacity, &candidates, pools)) {
                 Ok(mut launch) => {
                     screen::arm(survey, &mut launch);
                     claims.take(&paths, &format!("{named}of {reference}, launched in this run"));

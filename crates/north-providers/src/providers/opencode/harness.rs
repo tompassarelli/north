@@ -4,7 +4,6 @@ use serde_json::Value;
 
 use crate::fleet::model::{Effort, EntryKind};
 use crate::fleet::runtime::summarize;
-use crate::platform::harness;
 
 use super::config;
 use super::route::Route;
@@ -58,19 +57,6 @@ pub trait Harness: Send + Sync {
 
     /// Where under its scratch directory it discovers skills.
     fn skills(&self) -> &'static str;
-
-    /// The settings file that holds how many of its workers may run at once.
-    fn settings(&self) -> &'static str;
-
-    /// The table in that file that holds the cap.
-    fn slots_table(&self) -> &'static str;
-}
-
-impl dyn Harness {
-    /// How many of its workers may run at once, apart from the Claude worker cap.
-    pub fn slots(&self) -> usize {
-        harness::document(self.settings())[self.slots_table()]["slots"].as_integer().and_then(|slots| usize::try_from(slots).ok()).unwrap_or(1)
-    }
 }
 
 pub fn tool_text(tool: &str, input: &Value) -> String {
@@ -141,13 +127,5 @@ impl Harness for OpenCode {
 
     fn skills(&self) -> &'static str {
         "config/opencode/skills"
-    }
-
-    fn settings(&self) -> &'static str {
-        "harness/opencode.toml"
-    }
-
-    fn slots_table(&self) -> &'static str {
-        "go"
     }
 }

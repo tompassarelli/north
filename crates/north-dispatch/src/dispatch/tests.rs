@@ -71,9 +71,9 @@ pub(super) fn view(accounts: &[Account]) -> View {
     View { at: 0.0, accounts: accounts.iter().map(spent).collect(), working: 0, trips: Vec::new(), keyed: Vec::new(), drain: false }
 }
 
-/// The shipped rules with a cap no test fleet reaches, so these tests pin slots and order alone.
+/// The shipped rules, so these tests pin slots and order alone.
 pub(super) fn rules() -> Rules {
-    Rules { cap: 1000, ..Rules::configured() }
+    Rules::configured()
 }
 
 pub(super) fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {

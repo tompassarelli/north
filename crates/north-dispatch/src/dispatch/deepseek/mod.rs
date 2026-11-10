@@ -1,12 +1,11 @@
 //! DeepSeek staffing (north#1020): dispatch puts a ready box on an opencode worker ahead of every Claude account while the
-//! opencode cap in harness/opencode.toml has room, the box's subject may leave Claude and DeepSeek has not tried that box;
-//! a box DeepSeek tried goes to Claude. A DeepSeek session that reports `Done:` queues one review job on its host
-//! (`review`), which samples its commit for a Sonnet review (`sampling`) or lands it through safe-push, and forgets the
-//! session so its slot frees.
+//! box's subject may leave Claude and DeepSeek has not tried that box; a box DeepSeek tried goes to Claude. A DeepSeek
+//! session that reports `Done:` queues one review job on its host (`review`), which samples its commit for a Sonnet review
+//! (`sampling`) or lands it through safe-push, and forgets the session so its slot frees.
 use super::issues::{Issue, IssueRef};
 use super::plan::{Candidate, Launch, Ready};
 use super::record::Record;
-use super::fleets::{self, PROBE, Session};
+use super::fleets::{self, PROBE};
 use super::slots::Pools;
 use regex::Regex;
 use serde_json::Value;
@@ -24,8 +23,6 @@ const SETTINGS: &str = "harness/opencode.toml";
 
 #[derive(Clone, Debug, Default)]
 pub struct Settings {
-    /// DeepSeek workers that may hold a session at once, apart from the Claude worker cap.
-    pub slots: i64,
     /// The hosts that hold the opencode key, in the order dispatch fills them.
     pub hosts: Vec<String>,
     /// Subjects whose boxes stay on Claude, matched against the issue title and the box.
@@ -41,19 +38,16 @@ impl Settings {
         let strings = |item: Option<&Item>| -> Vec<String> { item.and_then(Item::as_array).into_iter().flatten().filter_map(|value| value.as_str().map(str::to_owned)).collect() };
         let dispatch = document.get("dispatch");
         Self {
-            slots: document.get("go").and_then(|go| go.get("slots")).and_then(Item::as_integer).unwrap_or(0),
             hosts: strings(dispatch.and_then(|table| table.get("hosts"))),
             claude_only: strings(dispatch.and_then(|table| table.get("claude_only"))).iter().filter_map(|pattern| Regex::new(&format!("(?i){pattern}")).ok()).collect(),
         }
     }
 }
 
-/// What a dispatch run reads about DeepSeek: its settings, the opencode sessions holding a slot, the boxes it tried and
-/// the sessions that reported Done.
+/// What a dispatch run reads about DeepSeek: its settings, the boxes it tried and the sessions that reported Done.
 #[derive(Clone, Debug, Default)]
 pub struct Seen {
     pub settings: Settings,
-    pub holding: i64,
     pub tried: BTreeSet<String>,
     pub done: Vec<review::Done>,
 }
@@ -94,12 +88,11 @@ pub fn cell(launch: &Launch, cfg: &DocumentMut) -> Option<String> {
 }
 
 impl Seen {
-    /// What dispatch reads about DeepSeek: the opencode sessions holding a slot across every listing, the boxes the dispatch
-    /// record shows it tried, and the idle sessions on its hosts whose last report starts `Done:`.
+    /// What dispatch reads about DeepSeek: the boxes the dispatch record shows it tried, and the idle sessions on its
+    /// hosts whose last report starts `Done:`.
     #[allow(clippy::too_many_arguments, reason = "each input is a reading the dispatch survey already holds")]
-    pub fn read(here: &str, laptop: Option<&str>, fleet_lists: &[(String, Value)], laptop_reports: &Value, sessions: &[(Session, String)], records: &[Record], issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Self {
+    pub fn read(here: &str, laptop: Option<&str>, fleet_lists: &[(String, Value)], laptop_reports: &Value, records: &[Record], issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Self {
         let settings = Settings::read();
-        let holding = sessions.iter().filter(|(session, _)| session.account.as_deref() == Some(PROVIDER)).map(|(session, _)| session.name.as_str()).collect::<BTreeSet<_>>().len();
         let mut reports: Vec<(String, Value)> = laptop.filter(|host| settings.hosts.iter().any(|name| name == host)).map(|host| (host.to_owned(), laptop_reports.clone())).into_iter().collect();
         if settings.hosts.iter().any(|name| name == here) {
             match fleets::remote_json_within(None, &["fleet", "reports", "--json"], PROBE) {
@@ -109,26 +102,19 @@ impl Seen {
         }
         let queued = review::queued(&super::record::directory(), at);
         let done = review::done(fleet_lists, &reports, records, issues, &queued);
-        Self { holding: i64::try_from(holding).unwrap_or(i64::MAX), tried: tried(records), done, settings }
+        Self { tried: tried(records), done, settings }
     }
 
-    /// Places `ready` on DeepSeek when it takes the box, counting it in `placed`, else on Claude through `claude`.
-    #[allow(clippy::too_many_arguments, reason = "the dispatch loop's own state for one box")]
-    pub fn staff(&self, issue: &Issue, box_text: Option<&str>, ready: &Ready, candidates: &[Candidate], pools: &mut Pools, placed: &mut i64, claude: impl FnOnce(&mut Pools) -> Result<Launch, String>) -> Result<Launch, String> {
-        match self.takes(issue, box_text, *placed).and_then(|()| self.place(ready, candidates, pools)) {
-            Ok(launch) => {
-                *placed += 1;
-                Ok(launch)
-            }
+    /// Places `ready` on DeepSeek when it takes the box, else on Claude through `claude`.
+    pub fn staff(&self, issue: &Issue, box_text: Option<&str>, ready: &Ready, candidates: &[Candidate], pools: &mut Pools, claude: impl FnOnce(&mut Pools) -> Result<Launch, String>) -> Result<Launch, String> {
+        match self.takes(issue, box_text).and_then(|()| self.place(ready, candidates, pools)) {
+            Ok(launch) => Ok(launch),
             Err(_) => claude(pools),
         }
     }
 
     /// Why `issue`'s box stays on Claude, or `Ok` when DeepSeek may take it.
-    pub fn takes(&self, issue: &Issue, box_text: Option<&str>, placed: i64) -> Result<(), String> {
-        if self.holding + placed >= self.settings.slots {
-            return Err(format!("the opencode cap of {} is full", self.settings.slots));
-        }
+    pub fn takes(&self, issue: &Issue, box_text: Option<&str>) -> Result<(), String> {
         if self.tried.contains(&key(&issue.reference(), box_text)) {
             return Err("DeepSeek already tried this box".into());
         }

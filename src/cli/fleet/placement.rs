@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Effort, LaunchRequest, Machine, Role, Status};
+use crate::fleet::model::{Effort, LaunchRequest, Machine, Role};
 use crate::fleet::registry::Fleet;
 use crate::fleet::store::Slots;
 use crate::fleet::roster::Roster;
@@ -122,8 +122,8 @@ pub(super) fn home_path_refusal(request: &LaunchRequest, machine: Option<&Machin
 }
 
 /// Why placement does not start a launch: a saturated host may take it once its admission queue,
-/// disk or load eases, and a spend refusal once sessions finish or a window resets
-/// (docs/rationale/spend-rule.md), while anything else needs a different launch.
+/// disk or load eases, and a spend refusal once a window resets (docs/rationale/spend-rule.md),
+/// while anything else needs a different launch.
 #[derive(Debug, PartialEq)]
 pub(super) enum Refusal {
     Saturated(String),
@@ -162,10 +162,6 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], o
 fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
     if let Some(why) = home_path_refusal(request, request.machine.as_ref()) {
         return Ok(Err(Refusal::Final(why)));
-    }
-    if let Some(harness) = crate::providers::harness_named(request.provider.label()).filter(|_| !request.verification) {
-        let running: Vec<String> = fleet.sessions()?.into_iter().filter(|record| fleet.status(record) != Status::Exited).map(|record| record.provider.label().to_owned()).collect();
-        return Ok(harness_room(&running, harness.provider(), harness.slots()).map(|()| Placed::default()));
     }
     if request.provider.label() != "claude" || request.verification {
         return Ok(Ok(Placed::default()));
@@ -210,16 +206,7 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     } else {
         admits(&chosen).map_err(Refusal::Spend).and(placed)
     };
-    Ok(settled.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref()), &rules), ..placed } } else { placed }))
-}
-
-/// Whether one more worker of a DeepSeek harness fits under that harness's own cap, which counts the sessions of its provider alone: Claude workers, however many, neither take its slots nor fill them.
-pub(super) fn harness_room(running_providers: &[String], harness: &str, cap: usize) -> Result<(), Refusal> {
-    let running = running_providers.iter().filter(|provider| provider.as_str() == harness).count();
-    if running >= cap {
-        return Err(Refusal::Spend(format!("{running} {harness} workers are running, the cap is {cap}")));
-    }
-    Ok(())
+    Ok(settled.map(|placed| if starter == Starter::Worker { Placed { slots: slots(fleet, placed.machine.as_ref().or(request.machine.as_ref())), ..placed } } else { placed }))
 }
 
 /// The placement `chosen` when the spend rule admits its account; otherwise the first other account the rule admits that placement also
@@ -246,10 +233,10 @@ fn with_room(
     Ok(Err(Refusal::Spend(refusals.join("; "))))
 }
 
-fn slots(fleet: &Fleet, machine: Option<&Machine>, rules: &spend::Rules) -> Slots {
+fn slots(fleet: &Fleet, machine: Option<&Machine>) -> Slots {
     let machine = machine.map_or_else(|| fleet.host().to_owned(), |machine| machine.name.clone());
     let cap = crate::pacing::placement::config().ok().and_then(|cfg| cfg.get("hosts")?.get(&machine)?.get("resident_cap")?.as_integer()).and_then(|cap| usize::try_from(cap).ok());
-    Slots { workers: Some(rules.cap), resident: cap.map(|cap| (machine, cap)) }
+    Slots { resident: cap.map(|cap| (machine, cap)) }
 }
 
 /// Runs live placement, prints one verdict line per account and machine when `report`, and returns where to run.

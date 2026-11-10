@@ -5,7 +5,6 @@ use crate::error::{NorthError, NorthResult};
 
 use crate::foundation::clock::Timestamp;
 use crate::status::Status;
-use crate::runtime::PROXY;
 use super::schema::sql;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -78,7 +77,6 @@ pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim, slots: 
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Slots {
-    pub workers: Option<usize>,
     pub resident: Option<(String, usize)>,
 }
 
@@ -89,12 +87,6 @@ fn refuse_past(tx: &Transaction, row: &SessionRow, slots: &Slots) -> NorthResult
     let count = |filter: &str, value: &str| -> NorthResult<usize> {
         tx.query_row(&format!("SELECT count(*) FROM fleet_sessions WHERE {ACTIVE} AND {filter}"), params![row.name, value, launching_since], |found| found.get::<_, i64>(0)).map(|found| usize::try_from(found).unwrap_or(usize::MAX)).map_err(sql)
     };
-    if let Some(cap) = slots.workers {
-        let working = count("name != ?2 AND COALESCE(NULLIF(provider, ''), 'claude') = 'claude' AND COALESCE(placement, '') NOT LIKE 'adopted window%'", PROXY)?;
-        if working >= cap {
-            return Err(NorthError::Refused(format!("spend cap: {working} worker sessions are starting or working across the fleet, the cap is {cap}")));
-        }
-    }
     if let Some((machine, cap)) = &slots.resident {
         let resident = count("COALESCE(machine, host) = ?2", machine)?;
         if resident >= *cap {

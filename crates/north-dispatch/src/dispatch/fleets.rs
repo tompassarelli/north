@@ -31,7 +31,7 @@ pub struct Session {
     pub working: bool,
     /// The account it spends, `provider:label` for Claude and the provider otherwise.
     pub account: Option<String>,
-    /// Whether it counts against the spend cap, which limits Claude workers on subscription weeks: every Claude role but the proxy, and no DeepSeek harness worker, which has its own cap.
+    /// Whether it is a Claude worker rather than the proxy or a DeepSeek harness worker, which the spend view reports as working.
     pub worker: bool,
 }
 

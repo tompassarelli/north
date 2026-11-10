@@ -109,7 +109,7 @@ pub struct Pools {
     signed_in: BTreeMap<String, Vec<String>>,
     /// Points of its own percent each account is charged for the boxes planned on it this run, which orders the next pick.
     charged: BTreeMap<String, Charge>,
-    /// The workers this run has started, which the spend rule's cap and reserve count.
+    /// The workers this run has started, which the spend rule's reserve counts.
     placed: Placed,
     cloud: i64,
 }

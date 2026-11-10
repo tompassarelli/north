@@ -56,12 +56,4 @@ impl Harness for Pi {
     fn skills(&self) -> &'static str {
         "agent/skills"
     }
-
-    fn settings(&self) -> &'static str {
-        "harness/pi.toml"
-    }
-
-    fn slots_table(&self) -> &'static str {
-        "pi"
-    }
 }

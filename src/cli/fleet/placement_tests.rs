@@ -123,13 +123,3 @@ fn a_launch_naming_no_account_moves_to_one_the_spend_rule_admits_and_defers_with
     assert!(matches!(&refusal, Refusal::Spend(why) if why.starts_with("claude:c is at its provider's week limit; claude:a")), "{refusal:?}");
     assert_eq!(NorthError::from(refusal).exit_code(), 75);
 }
-
-#[test]
-fn deepseek_harness_workers_have_their_own_cap_and_claude_workers_neither_fill_it_nor_are_refused_by_it() {
-    let claude = || "claude".to_owned();
-    let running = |opencode: usize| [vec![claude(), claude(), claude()], vec!["opencode".to_owned(); opencode]].concat();
-
-    assert_eq!(harness_room(&running(0), "opencode", 2), Ok(()));
-    assert_eq!(harness_room(&running(1), "opencode", 2), Ok(()));
-    assert_eq!(harness_room(&running(2), "opencode", 2), Err(Refusal::Spend("2 opencode workers are running, the cap is 2".into())));
-}
