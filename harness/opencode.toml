@@ -9,5 +9,5 @@ repos = ["south"]
 # north fleet dispatch staffs DeepSeek on these hosts, which hold the opencode key, and keeps on Claude every box whose
 # issue title or box text matches one of claude_only: credentials, the worker sandbox and fleet locking (north#1020).
 [dispatch]
-hosts = ["whiterabbit"]
+hosts = ["gex45", "cpx62", "whiterabbit"]
 claude_only = ['\bcredentials?\b', '\bsecrets?\b', '\bsops\b', '\bpasswords?\b', '\bkeyring\b', '\bsandbox', '\blandlock\b', '\block(s|ed|ing)?\b', '\bflock\b', '\bmutex']
