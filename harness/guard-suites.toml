@@ -1,6 +1,7 @@
 # The guard floor of test selection (docs/rationale/test-selection.md, rule 1; north#1039). A lane that changes a path under a
 # suite's `paths` (a directory ends in `/`) runs that suite before landing, whatever the coverage map says. `tests` names
-# PACKAGE for a whole package's unit tests or PACKAGE MODULE:: for one module of its lib, and `it` names tests/it modules.
+# PACKAGE for a whole package's unit tests or PACKAGE MODULE:: for one module of its lib, `cases` names BINARY TEST
+# for one test in an integration binary, and `it` names tests/it modules.
 # Every path must exist at the lane's head, and a lane that renames or deletes a guarded file while its rename target or
 # the Rust it adds lies outside every path of that suite is refused until the suite lists the new home: the "guard suite"
 # lane gate checks both.
@@ -41,6 +42,7 @@ it = []
 
 [[suite]]
 name = "landing machinery"
-paths = ["crates/north-lander/", "crates/north-land-checks/", "crates/north-safe-push/"]
+paths = ["crates/north-lander/", "crates/north-land-checks/", "crates/north-landing/", "crates/north-safe-push/"]
 tests = ["north-lander", "north-land-checks", "north-safe-push"]
+cases = ["north-lander::it land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane"]
 it = []

@@ -147,7 +147,9 @@ fn replay_of_the_sandbox_move(repo: &Path) -> (String, String) {
         write(file, &format!("// {file}\nfn policy() {{}}\n"));
     }
     for path in super::super::guard_suites::Suites::parse(&read(super::super::guard_suites::TABLE)).unwrap().paths() {
-        if !repo.join(path).exists() {
+        if path.ends_with('/') {
+            std::fs::create_dir_all(repo.join(path)).unwrap();
+        } else if !repo.join(path).exists() {
             write(path, "fn guarded() {}\n");
         }
     }

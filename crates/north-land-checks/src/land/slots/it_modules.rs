@@ -33,8 +33,12 @@ impl Selection {
     pub fn arguments(&self) -> String {
         match self {
             Self::Every => format!("--test it -E {UNIT}|{EVERY_IT}"),
-            Self::Modules { modules, .. } if modules.is_empty() => format!("-E {UNIT}"),
-            Self::Modules { modules, .. } => format!("--test it -E {UNIT}|({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")),
+            Self::Modules { modules, floor, .. } => {
+                let traced = (!modules.is_empty()).then(|| format!("({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")));
+                let extra = (!floor.is_empty()).then(|| floor.filter());
+                let filter = std::iter::once(UNIT.to_owned()).chain(traced).chain(extra).collect::<Vec<_>>().join("|");
+                format!("{}-E {filter}", if !modules.is_empty() || floor.has_it_case() { "--test it " } else { "" })
+            }
             Self::Tests(tests) => tests.arguments(),
         }
     }

@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 use crate::foundation::check_log::{self, Failure};
 use crate::land::slots::graph_selection::{SELECTED, Selected};
+use crate::land::slots::guard_suites::Suites;
 use crate::platform::records_mirror;
 
 const USAGE: &str = "usage: north land missed --since DATE [--repo DIR]
@@ -48,6 +49,7 @@ pub fn run(arguments: &[String]) -> u8 {
         return 1;
     }
     let landings = landings(&records.home().join("north/land-queue"));
+    let suites = Suites::read(&repo).ok();
     let runs = match failed_runs(&repo, &since) {
         Ok(runs) => runs,
         Err(why) => {
@@ -67,10 +69,19 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("run {} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.id, short(&run.sha), tests.len(), tests.join(", "));
             continue;
         };
-        let left: Vec<&str> = tests.iter().map(String::as_str).filter(|name| !landing.selected.holds(name)).collect();
+        let floor = suites.as_ref().map(|suites| suites.floor(&changed(&repo, &landing.base, &landing.head)));
+        let held = |name: &str| landing.selected.holds(name) || floor.as_ref().is_some_and(|floor| floor.selects(name));
+        let guarded = tests.iter().map(String::as_str).filter(|name| !landing.selected.holds(name) && floor.as_ref().is_some_and(|floor| floor.selects(name))).count();
+        let left: Vec<&str> = tests.iter().map(String::as_str).filter(|name| !held(name)).collect();
         judged += tests.len();
         missed += left.len();
-        let detail = if left.is_empty() { String::new() } else { format!("; left out: {}", left.join(", ")) };
+        let detail = if !left.is_empty() {
+            format!("; left out: {}", left.join(", "))
+        } else if guarded > 0 {
+            format!("; {guarded} held by the guard suite")
+        } else {
+            String::new()
+        };
         println!("run {} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.id, short(&run.sha), tests.len(), tests.len() - left.len(), short(&landing.base), short(&landing.head));
     }
     println!("north land missed: {} failing Cargo runs on main since {since}; of {judged} failed tests in a range with a recorded selection, {missed} were left out of it; {unjudged} failed in a range with none", runs.len());
@@ -108,6 +119,14 @@ fn landings(queues: &Path) -> Vec<Landing> {
         }
     }
     found
+}
+
+fn changed(repo: &Path, base: &str, head: &str) -> Vec<String> {
+    let Ok(output) = Command::new("git").arg("-C").arg(repo).args(["diff", "--name-only", base, head]).stderr(Stdio::null()).output() else { return Vec::new() };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&output.stdout).lines().map(str::to_owned).collect()
 }
 
 fn ancestor(repo: &Path, older: &str, newer: &str) -> bool {

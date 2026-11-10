@@ -25,6 +25,17 @@ fn a_lane_touching_a_guarded_path_runs_its_guard_suite() {
     assert!(selection.packages().is_superset(&["north-runtime", "north-base", "north-landing-gates", "north-land-scans", "north-safe-push"].map(str::to_owned).into()), "the suite's packages are built");
     let sandbox = Selection::Modules { modules: BTreeSet::new(), units: Default::default(), floor: Floor::default() }.with_floor(suites.floor(&["crates/north-land-sandbox/src/lib.rs".to_owned()]));
     assert!(sandbox.runs_module("worker_sandbox") && sandbox.packages().contains("north-land-sandbox"), "the crate fallback keeps the floor too: {}", sandbox.summary());
+    let landing = suites.floor(&["crates/north-landing/src/land/post_land/execute.rs".to_owned()]);
+    assert_eq!(landing.names(), "landing machinery");
+    assert!(landing.selects("land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane"), "the landing machinery floor holds the chaos test");
+    assert!(!suites.floor(&["crates/north-ops/src/lib.rs".to_owned()]).selects("land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane"), "an unguarded path holds nothing");
+    let floor = Selection::Tests(Tests::parse(r#"{"tests":["north-ops ops::report::tests::reads"],"known":1}"#).unwrap()).with_floor(landing);
+    assert!(floor.packages().is_superset(&["north-lander", "north-land-checks", "north-safe-push"].map(str::to_owned).into()), "a north-landing lane builds the landing machinery tests, including north-lander's chaos test");
+    assert!(floor.arguments().contains("package(north-lander)"), "the north-lander unit tests run for a post-land runner change: {}", floor.arguments());
+    assert!(floor.arguments().starts_with("--test it "), "the case runs in north-lander's integration binary: {}", floor.arguments());
+    assert!(floor.arguments().contains("(binary_id(north-lander::it)&test(=land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane))"), "the chaos test that guards the post-land runner runs: {}", floor.arguments());
+    let fallback = Selection::Modules { modules: BTreeSet::new(), units: Default::default(), floor: suites.floor(&["crates/north-landing/src/land/post_land/execute.rs".to_owned()]) };
+    assert!(fallback.arguments().contains("(binary_id(north-lander::it)&test(=land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane))"), "the crate fallback keeps the guard case too: {}", fallback.arguments());
     assert!(suites.floor(&["crates/north-ops/src/lib.rs".to_owned()]).is_empty(), "an unguarded path runs no suite");
 
     let renamed = |from: &str, to: Option<&str>| vec![(from.to_owned(), to.map(str::to_owned))];

@@ -88,7 +88,7 @@ impl Tests {
     }
 
     pub fn arguments(&self) -> String {
-        let it = !self.modules.is_empty() || self.by_binary.keys().any(|binary| binary.ends_with(IT_SUFFIX)) || self.added.iter().any(|(package, _)| package == IT_PACKAGE);
+        let it = !self.modules.is_empty() || self.by_binary.keys().any(|binary| binary.ends_with(IT_SUFFIX)) || self.added.iter().any(|(package, _)| package == IT_PACKAGE) || self.floor.has_it_case();
         format!("{}-E {}", if it { "--test it " } else { "" }, self.filter())
     }
 
