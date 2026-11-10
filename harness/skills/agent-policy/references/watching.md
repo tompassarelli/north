@@ -22,13 +22,7 @@ The daily `north watch-review` timer launches one fleet session per due source a
    the idea.
 3. Report each mechanism the last cycle kept as kept, reverted or unfinished,
    with file or command evidence, read from its issue's verdict box. One still
-   unfinished past its verdict date is a finding, not a footnote. Start from
-   the newest record of the source under `docs/rationale/watch/` and its
-   "Next review: start here" section when it has one. For pstack's
-   formal-verification and statechart skills that record is
-   `docs/rationale/watch/2026-11-10-pstack-verification.md`: north answers them
-   with `north check machines`, so report whether that check is live and ask
-   only what the skills now do that it does not.
+   unfinished past its verdict date is a finding, not a footnote.
 4. Rank the source's mechanisms by expected effect on landing speed, quality
    and usage per closed box. Give each a measured basis (git history, ledger,
    a count over the current tree) or a reasoned one labeled as such. Keep every

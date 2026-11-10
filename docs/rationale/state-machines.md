@@ -2,12 +2,6 @@
 
 On 2026-11-07 north lost hours to state that moved through phases while nothing could say it was stuck: a snapshot pull marker whose mtime meant "running" after its pull was killed, a dispatch pause held by a stopped systemd timer that a deploy restarted, a policy generation held on every host for four hours, an API organization marked exhausted by a bare file, session reports lost when the reaper archived their sessions, and issues staffed twice because filing one did not claim it. Each is a state machine that north holds implicitly, in marker files, mtimes, unit state, status strings and boolean pairs. This note lists where each such machine lives today, ranked, and the one pattern every one of them moves to; each has a box on north#757.
 
-Owner: north#1042
-
-The machine-fix and machine-refusal detectors file one box per machine and week on the owner: for a machine whose
-code an incident fix changed, and for a move the lifecycle store refused. Every machine that has moved to the pattern
-is checked over every ordering of a stated scope at the landing of each change to it
-([Checking every ordering](#checking-every-ordering-north1042)).
 
 ## Inventory
 
@@ -18,11 +12,6 @@ names the machine (keyword-matched over `git log`, so a coarse count) times the 
 loses or duplicates work or stops the whole fleet, 2 when it silently stops one flow or host, 1 when it wastes time.
 The incident ledger lives on the ledger host and was not readable from the inventorying host, so commits stand in for
 incidents. Shapes name the north#758 rule that matches each machine's code.
-
-Reviewed on 2026-11-10 (north#1042, [watch record](watch/2026-11-10-pstack-verification.md)): the rank is a keyword
-count from one sweep and is not kept current. The list of machines that have moved to the pattern is the registry in
-`src/cli/machines.rs`, which the landing holds complete, and `north check machines --replay` recounts the incident
-fixes in each machine's code from history.
 
 1. **Fleet session lifecycle and retirement** (score 348: 116 x 3). `fleet/NAME/session.json` spreads the phase over
    `stopped`, `ended`, `host_pid` and `adopted_ms` (`crates/north-fleet/src/fleet/model.rs:231-301`); status is never
@@ -41,8 +30,7 @@ fixes in each machine's code from history.
    final and its cause carries the report's `Stop:` line. Status is derived from the record, and from the stream only
    for a live session. Not converted: `host.pid`, which stays the handle `Host::terminate` signals, and
    `fleet_sessions.status`, the cross-host projection of derived status; a revival that follows a stop is a legal
-   move, so the two still race in the order they commit. See the
-   [fleet-session chart](state-machines/fleet-session.md).
+   move, so the two still race in the order they commit.
 2. **Land ticket lifecycle** (330: 110 x 3). A ticket's phase is its queue directory (`Q/`, `outbox/`, `done/`,
    `withdrawn/`, `quarantine/`, remote `outbox/taken/`) plus the first word of its `verdict` string, read by value in
    fifteen places (`crates/north-landing/src/land/{bisect,records,incidents,reservation,replay,promote,sheriff}.rs`,
@@ -51,26 +39,20 @@ fixes in each machine's code from history.
    exit; `replace_older` deletes a ticket with no record (`land/enqueue.rs:148-165`). The landing intent
    (`Q/landing/intent.json`, `recovering.json`) keeps its tickets out of every candidate while recovery fails
    (`land/jobs.rs:93,119`), and `finish` removes the lane worktree before deciding its ticket (`land/after/mod.rs:136`).
-   Shapes: phase-suffix (directory as phase), status-string. Now the machine `land-ticket`
-   (`crates/north-base/src/land_ticket.rs`, `0b3ae0170`), one record per ticket on the lander host; see the
-   [land-ticket chart](state-machines/land-ticket.md).
+   Shapes: phase-suffix (directory as phase), status-string.
 3. **After-landing run, red-main episode and base-broken pause** (255: 85 x 3). The run's phase is spread over
    `Q/following/HEAD.json`, `Q/logs/post-land-SHA.{runner,status,outcome}` and process-group liveness
    (`land/watch.rs:26-186`, `land/post_land/runner.rs:25-99`); `misses` lives in memory, so a restart resets the
    alarm, and a reused process group passes for a live runner. The red episode marker `post-land-red-REPO` opens only
    if its alarm got through (`land/post_land/settle.rs:126`); `Q/base-broken` keeps `alerted=true` for the next
    breakage (`land/pause.rs:49`); strikes reset whenever main moves (`land/bisect.rs:49-118`). Shapes: presence-flag,
-   pid-liveness. Now the machines `after-landing-run`, `red-main` and `base-broken`
-   (`crates/north-landing/src/land/after_landing_lifecycle.rs`); see the
-   [after-landing-run chart](state-machines/after-landing-run.md), the [red-main chart](state-machines/red-main.md)
-   and the [base-broken chart](state-machines/base-broken.md).
+   pid-liveness.
 4. **Issue claims** (195: 65 x 3). Four rules decide "held" (`crates/north-threads/src/threads/claims/ledger.rs:95`,
    `claims/verbs.rs:134-183`, `board/mod.rs:166`, `work_items.rs:126`); closing an issue never deletes its claim; a
    session-host close releases the claims of an idle-parked session that can still be revived
    (`crates/north-fleet/src/fleet/watch.rs:483`); a failed launch leaves claims on a name that no longer exists
    (`fleet/registry/launching.rs:73`); a refused re-claim is only logged (`fleet/claims.rs:47`). Filing an issue did
-   not claim it until 22350314c. Shapes: status-string (`standing == "live"`). Now the machine `claim`
-   (`crates/north-threads/src/threads/claims/lifecycle.rs`); see the [claim chart](state-machines/claim.md).
+   not claim it until 22350314c. Shapes: status-string (`standing == "live"`).
 5. **Runtime promotion** (141: 47 x 3). `current` points at a new runtime before its health check and `agents sync`
    pass (`crates/north-runtime/src/runtime/update/sync.rs:17-58`), and on a first install a failed check leaves it
    live while saying "rolled back"; `runtime-previous` is not updated on rollback; the one-hour `runtime-failed` hold
@@ -92,7 +74,7 @@ fixes in each machine's code from history.
    (`crates/north-session-host/src/row_delivery.rs`, writers in `fleet/registry/hand_in.rs` and `delivery.rs`): `handing-in`
    (held, 10 min), `delivered`, `interrupted` (a dead holder's `handing-in`, 15 min), `failed` (retried each tick, 1 h). The
    journal directory and its `.handing` markers are adopted once at `Fleet::open` and removed; the spool file stays a
-   queue and the stopped-session filter stays a query. See the [row-delivery chart](state-machines/row-delivery.md).
+   queue and the stopped-session filter stays a query.
 7. **Threads spool and mirrored-client mode** (88: 44 x 2). `~/.config/threads/remote` presence switches a host to
    snapshot reads and spooled writes (`crates/north-threads/src/threads/client.rs:118-125`). **Converted (north#757):**
    the machine `threads-spool`, one record per spool file in the client's `ledger.db`: queued, sending, sent and
@@ -103,8 +85,7 @@ fixes in each machine's code from history.
    (`crates/north-providers/src/ledger/gates.rs:35-55`); other hosts see a deleted-and-reinserted `fleet_gates`
    snapshot (`crates/north-fleet/src/fleet/store/gates.rs:31`); the answer is delivered after the close with no retry;
    the default timer is a detached process that does not survive a reboot; a spooled answer is set aside as spoofed
-   (north#747, which owns that bug). Shapes: status-string (NULL-encoded phase). Now the machine `gate`
-   (`crates/north-fleet-store/src/gate_lifecycle.rs`); see the [gate chart](state-machines/gate.md).
+   (north#747, which owns that bug). Shapes: status-string (NULL-encoded phase).
 9. **Capacity leases** (82: 41 x 2). Queue ticket, lease JSON, scope unit and three freezing layers
    (`crates/north-capacity-host/src/capacity/host/{state,decision,run}.rs`,
    `crates/north-capacity/src/capacity/{lease_deadline,agent_load}.rs`); `scope_live` treats an unknown systemd
@@ -119,7 +100,7 @@ fixes in each machine's code from history.
    moves to overstaying with that cause instead of silently staying. A lease file with no record is adopted once from
    its `kind` and `frozenAt`; a record whose file is gone is reclaimed. Not converted: the queue tickets, the
    `gaming-frozen.json` unit list and the batch slice `cgroup.freeze` (the other two freezing layers) and the
-   decision strings. See the [capacity-lease chart](state-machines/capacity-lease.md).
+   decision strings.
 10. **Lane retirement** (75: 25 x 3). Lane gc's activity from reflog and mtimes, `flagged_at` carried in
     `stale.json`, reap's age from a `.git` mtime that counts as old enough when unreadable
     (`crates/north-lanes/src/lanes/reap.rs:320`), rescue's partial end states, pin sidecars removed after their
@@ -237,7 +218,7 @@ fixes in each machine's code from history.
 
 ## The pattern
 
-The module is `north_base::lifecycle` (`crates/north-base/src/lifecycle.rs`), built under north#757.
+Owner: north#757. The module is `north_base::lifecycle` (`crates/north-base/src/lifecycle.rs`).
 
 - **One typed state per machine.** A machine implements `Lifecycle`: its `NAME`, a `State` enum whose every
   variant is a phase a person would name, `legal(from, to)` (the whole transition table in one match), `dwell(state)`
@@ -311,9 +292,6 @@ The module is `north_base::lifecycle` (`crates/north-base/src/lifecycle.rs`), bu
 4. **Test the two guarantees a person would notice:** an illegal move is refused and leaves the record unchanged, and
    the stuck state of the incident that motivated the machine (a holder killed, a dwell outlived) appears in
    `Store::faults`.
-5. **Register it.** Add the machine to the registry in `src/cli/machines.rs` with its table file, the code that
-   drives it, its ends and the states a writer may announce again, run `north check machines --write --root .` and
-   commit its chart. The landing refuses a machine the registry does not name.
 
 ### Rules that keep it from coming back (north#758)
 
@@ -343,34 +321,3 @@ underneath it (a `set-property --runtime` value cached past a reboot).
 Code that reads and writes its state through `north_base::lifecycle::Store` is exempt; an exception is a
 `[[implicit_state.allow]]` entry in structure.toml naming the shape, path, item and reason, or a
 `Code-health-allow: implicit-state PATH — REASON` trailer; the files under `[implicit_state] owners` are not scanned.
-
-## Checking every ordering (north#1042)
-
-A machine on the pattern is a table the code already holds, so north checks the table itself and keeps no second
-model of it. `north check machines --root .` drives each machine's own `Lifecycle` impl through the real store over
-every ordering of a stated scope (one instance; three processes, two on one host and one on another, each trying
-every move for every holder and settling the instance; the death of the process holding the state; its dwell running
-out) and exits 1 with each broken promise and the shortest ordering that shows it. The comparison with pstack's
-formal-verification skills, TLA+, stateright and Kani, and the measured results, are in
-[watch/2026-11-10-pstack-verification.md](watch/2026-11-10-pstack-verification.md).
-
-- **Promises.** Every accepted move is logged and the log alone rebuilds the record; a live holder is never declared
-  gone, and a held state is taken from a live holder only by a move the machine lets replace one; an end has no way
-  out, no dwell and no holder; a state is accepted twice exactly where the machine promises it; every other situation
-  can be left once nothing more dies; every state is reached.
-- **Registry.** `src/cli/machines.rs` names every `Lifecycle` machine in the tree, modelled or not. The landing runs
-  the search when a lane changes the kernel, a table, the explorer, the registry or a chart, and on every code lane
-  refuses an `impl Lifecycle for` the registry does not name.
-- **Charts.** `north check machines --write` writes one state chart per modelled machine from the moves the store
-  accepted during the search, and the check fails on a page that differs or that no machine owns. Besides the charts
-  linked from the inventory, the [check-environment chart](state-machines/check-environment.md) is of a machine the
-  inventory does not list (`crates/north-check-environment/src/lib.rs`).
-- **Not modelled yet.** `runtime-promotion`, `runtime-canary`, `runtime-landing-judgement`, `threads-spool` and
-  `offload-offer` are registered with no model, because their types are private to their crates.
-- **Reviews.** The machine-fix detector files "Model NAME" for an unmodelled machine whose code an incident fix
-  changed and "Extend the NAME model to the fixes its check let through" for a modelled one, counting fixes newer
-  than its chart. The machine-refusal detector files "Settle NAME's refused move to STATE" when the store refused a
-  move in the last hour. Each is one box per machine and week on the owner above.
-- **Limit.** The search covers one instance. A promise across instances (one live session per name, one queued
-  ticket per head) is outside it, and the recorded ordering fixes of fleet session and land ticket are of that kind
-  (north#1042).

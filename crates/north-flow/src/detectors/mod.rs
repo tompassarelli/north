@@ -1,6 +1,6 @@
 //! The self-detectors: pure functions from recorded state to findings, run by `north ledger flow`. A stalled
 //! plan box, a silent signal, a repeated lander refusal class, a class of Tom's corrections seen twice and a test over its
-//! time line in its newest land check runs, a crate within 5% of its line cap or over it, a lifecycle machine whose code a landed incident fix changed and a move the lifecycle store refused, each become one box on the owning issue, filed once per key and left to dispatch to staff.
+//! time line in its newest land check runs, and a crate within 5% of its line cap or over it, each become one box on the owning issue, filed once per key and left to dispatch to staff.
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -18,8 +18,6 @@ mod crate_headroom;
 mod disk;
 mod filing;
 mod gather;
-mod machine_fix;
-mod machine_refusal;
 mod plan;
 mod refusal;
 mod signal;
@@ -55,12 +53,10 @@ pub enum Detector {
     SlowTest,
     SlowCheck,
     CrateHeadroom,
-    MachineFix,
-    MachineRefusal,
 }
 
 impl Detector {
-    pub const ALL: [Self; 11] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck, Self::CrateHeadroom, Self::MachineFix, Self::MachineRefusal];
+    pub const ALL: [Self; 9] = [Self::StalledPlan, Self::SilentSignal, Self::RepeatedRefusal, Self::LowDisk, Self::RecurringSequence, Self::RepeatedCorrection, Self::SlowTest, Self::SlowCheck, Self::CrateHeadroom];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -73,8 +69,6 @@ impl Detector {
             Self::SlowTest => "slow-test",
             Self::SlowCheck => "slow-check",
             Self::CrateHeadroom => "crate-headroom",
-            Self::MachineFix => "machine-fix",
-            Self::MachineRefusal => "machine-refusal",
         }
     }
 }
@@ -143,8 +137,6 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::SlowTest => slow_test::slow(&gatherer.slow_tests(limits, now), limits),
             Detector::SlowCheck => slow_check::slow(&slow_check::over(&gatherer.check_samples(), &slow_check::budgets(), limits.slow_test_runs), &default_text("detector_slow_check_owner")),
             Detector::CrateHeadroom => crate_headroom::near(&gatherer.crates()),
-            Detector::MachineFix => machine_fix::fixed(&gatherer.machine_fixes()),
-            Detector::MachineRefusal => machine_refusal::refused(&gatherer.machine_refusals()),
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);

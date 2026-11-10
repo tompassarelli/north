@@ -23,7 +23,6 @@ mod hook_stats;
 mod hook_verb;
 mod ledger;
 mod ledger_duplicate;
-mod machines;
 mod moved;
 mod nix;
 mod orders;

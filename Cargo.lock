@@ -950,7 +950,6 @@ dependencies = [
  "north-base",
  "north-broker",
  "north-calibration",
- "north-capacity",
  "north-capacity-host",
  "north-check-environment",
  "north-climb",
@@ -960,7 +959,6 @@ dependencies = [
  "north-core",
  "north-coverage",
  "north-dispatch",
- "north-fleet-store",
  "north-flow",
  "north-frontier",
  "north-github-mirror",
@@ -977,16 +975,13 @@ dependencies = [
  "north-landing",
  "north-landing-gates",
  "north-lanes",
- "north-machine-model",
  "north-mutants",
  "north-ops",
  "north-providers",
  "north-replay",
  "north-runtime",
  "north-safe-push",
- "north-session-host",
  "north-strategy-types",
- "north-threads",
  "north-tui",
  "north-tune",
  "percent-encoding",
@@ -1631,13 +1626,6 @@ dependencies = [
  "tempfile",
  "time",
  "toml_edit",
-]
-
-[[package]]
-name = "north-machine-model"
-version = "0.1.0"
-dependencies = [
- "north-base",
 ]
 
 [[package]]

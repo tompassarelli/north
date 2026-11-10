@@ -180,7 +180,6 @@ const CHECK: &[(&str, Run)] = &[
     ("experiments", crate::experiments::run),
     ("goals", goals),
     ("issue-boxes", issue_box_lint::run),
-    ("machines", super::machines::run),
     ("nix", super::nix::doctor),
     ("provenance", provenance::run),
 ];
