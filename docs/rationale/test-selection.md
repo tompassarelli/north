@@ -67,7 +67,9 @@ A test runs before landing when any of these holds:
      `north-lander::it land_chaos::chaos_lander_stopped_by_sigterm_mid_after_run_adopts_its_live_runner_and_reverts_the_red_lane`,
      so a lane changing north-landing builds north-lander's integration binary and runs that test; on 2026-11-09
      bb9237cbd0 changed north-landing's post-land runner and left the test out of every selection, and this edge makes
-     the suite run it (north#1039).
+     the suite run it (north#1039). `north land missed` holds a failed test this floor selects for its landing range,
+     so that historical miss reads as held by the guard suite rather than left out; the floor and the rejudging
+     landed as 4ae28f7fb1 (north#1039).
 
    Two checks keep the table true. Every path in it must exist at the lane's head, the rule
    `harness/rust-reach-tests` already enforces. And a lane is refused when `git diff -M` shows a file under a guarded
