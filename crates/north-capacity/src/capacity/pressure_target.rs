@@ -29,8 +29,7 @@ pub(super) fn deferred(facts: &Facts) -> Option<Reason> {
         return None;
     }
     let pressure = f64::from(facts.cpu_some_avg10_basis_points);
-    let host_over = host_pressure(facts).is_some_and(|host| f64::from(host) >= default_mib("offload_job_cpu_psi") * 100.0);
-    (pressure >= band(facts).high_basis_points || host_over || (host_pressure(facts).is_none() && starting(facts))).then_some(Reason::DeferCpuPressure)
+    (pressure >= band(facts).high_basis_points || host_over(facts) || (host_pressure(facts).is_none() && starting(facts))).then_some(Reason::DeferCpuPressure)
 }
 
 fn age_seconds(facts: &Facts, created_at: f64) -> f64 {
@@ -66,7 +65,11 @@ pub(super) fn growing_memory_mib(facts: &Facts) -> f64 {
     heavy_leases(facts).filter(|lease| age_seconds(facts, lease.created_at) < ramp).map(|lease| lease.memory_mib).sum()
 }
 
-/// On a build host the whole host's CPU pressure, batch slices included, holds a heavy run against `offload_job_cpu_psi` in place of the CPUs its peers reserve.
+/// On a build host the whole host's CPU pressure, batch slices included, holds a heavy or moderate run against `offload_job_cpu_psi` in place of the CPUs and memory its peers reserve; a land check there waits on neither sum.
 pub(super) fn host_pressure(facts: &Facts) -> Option<u32> {
-    (facts.class == Class::Heavy && facts.build_host).then_some(facts.host_cpu_some_avg10_basis_points).flatten()
+    (matches!(facts.class, Class::Heavy | Class::Moderate | Class::Critical) && facts.build_host).then_some(facts.host_cpu_some_avg10_basis_points).flatten()
+}
+
+pub(super) fn host_over(facts: &Facts) -> bool {
+    host_pressure(facts).is_some_and(|host| f64::from(host) >= default_mib("offload_job_cpu_psi") * 100.0)
 }

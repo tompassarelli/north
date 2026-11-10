@@ -353,7 +353,7 @@ fn memory(facts: &Facts) -> Option<Reason> {
     if facts.memory_available_mib - facts.requested_memory_mib - super::pressure_target::growing_memory_mib(facts) < memory_floor_mib(facts.profile, facts.memory_total_mib) {
         return Some(Reason::DeferMemoryHeadroom);
     }
-    ((facts.leased_memory_mib + facts.requested_memory_mib) * 4.0 > facts.memory_total_mib * 3.0)
+    (super::pressure_target::host_pressure(facts).is_none() && (facts.leased_memory_mib + facts.requested_memory_mib) * 4.0 > facts.memory_total_mib * 3.0)
         .then_some(Reason::DeferMemoryCapacity)
 }
 
@@ -483,7 +483,7 @@ fn batch(facts: &Facts) -> Reason {
     if facts.peer_exclusive_runs > 0 {
         return Reason::DeferExclusive;
     }
-    if facts.class == Class::Critical && landing_cpus_full(facts) {
+    if facts.class == Class::Critical && super::pressure_target::host_pressure(facts).is_none() && landing_cpus_full(facts) {
         return Reason::DeferCpuCapacity;
     }
     if matches!(facts.class, Class::Critical | Class::Tom | Class::Runtime) {
@@ -535,7 +535,7 @@ fn shared(facts: &Facts) -> Reason {
     if facts.class == Class::Heavy {
         return super::pressure_target::deferred(facts).unwrap_or(Reason::Run);
     }
-    if facts.cpu_some_avg10_basis_points > BATCH_PRESSURE_BASIS_POINTS {
+    if facts.cpu_some_avg10_basis_points > BATCH_PRESSURE_BASIS_POINTS || super::pressure_target::host_over(facts) {
         return Reason::DeferCpuPressure;
     }
     Reason::Run

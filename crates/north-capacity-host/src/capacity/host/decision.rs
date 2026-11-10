@@ -393,7 +393,18 @@ mod tests {
         assert_eq!(cpx62.host_cpu_some_avg10_basis_points, Some(2168));
         assert_eq!(admit(&cpx62, |_| None).reason, Reason::Run);
         assert_eq!(admit(&Facts { host_cpu_some_avg10_basis_points: Some(4200), ..cpx62.clone() }, |_| None).reason, Reason::DeferCpuPressure);
-        assert_eq!(admit(&Facts { build_host: false, ..cpx62 }, |_| None).reason, Reason::DeferCpuCapacity);
+        assert_eq!(admit(&Facts { build_host: false, ..cpx62.clone() }, |_| None).reason, Reason::DeferCpuCapacity);
+        let cpx62_15_07 = Facts { memory_total_mib: 31_332.0, memory_available_mib: 26_977.0, leased_memory_mib: 21_468.0, requested_memory_mib: 3_246.0, ..cpx62.clone() };
+        assert_eq!(admit(&cpx62_15_07, |_| None).reason, Reason::Run);
+        assert_eq!(admit(&Facts { build_host: false, ..cpx62_15_07.clone() }, |_| None).reason, Reason::DeferMemoryCapacity);
+        let land_check = Facts { class: Class::Critical, ..cpx62_15_07 };
+        assert_eq!(admit(&land_check, |_| None).reason, Reason::Run);
+        assert_eq!(admit(&Facts { build_host: false, ..land_check.clone() }, |_| None).reason, Reason::DeferMemoryCapacity);
+        assert_eq!(admit(&Facts { build_host: false, leased_memory_mib: 0.0, ..land_check }, |_| None).reason, Reason::DeferCpuCapacity);
+        let moderate = Facts { class: Class::Moderate, ..cpx62 };
+        assert_eq!(admit(&moderate, |_| None).reason, Reason::Run);
+        assert_eq!(admit(&Facts { host_cpu_some_avg10_basis_points: Some(4200), ..moderate.clone() }, |_| None).reason, Reason::DeferCpuPressure);
+        assert_eq!(admit(&Facts { build_host: false, ..moderate }, |_| None).reason, Reason::DeferCpuCapacity);
     }
 
     #[test]
