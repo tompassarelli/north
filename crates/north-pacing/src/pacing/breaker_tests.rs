@@ -21,9 +21,9 @@ fn readings(from: f64, to: f64) -> [Sample; 2] {
 #[test]
 fn a_circuit_breaker_trips_an_account_whose_fifteen_minute_burn_would_exhaust_its_window() {
     let rules = rules();
-    let trip = tripwire::trip(&rules, "claude:a", &readings(30.0, 55.0), &[], 0.0, NOW).expect("25 points in 15 minutes reaches 155% by the reset");
+    let trip = tripwire::trip(&rules, "claude:a", &readings(30.0, 55.0), None, &[], 0.0, NOW).expect("25 points in 15 minutes reaches 155% by the reset");
     assert!(trip.line.contains("circuit breaker"), "{}", trip.line);
-    assert_eq!(tripwire::trip(&rules, "claude:b", &readings(30.0, 35.0), &[], 0.0, NOW), None, "5 points in 15 minutes reaches 55%");
+    assert_eq!(tripwire::trip(&rules, "claude:b", &readings(30.0, 35.0), None, &[], 0.0, NOW), None, "5 points in 15 minutes reaches 55%");
 
     let view = View { at: NOW, accounts: vec![account("claude:a", 55.0), account("claude:b", 35.0)], trips: vec![trip.clone()], ..View::default() };
     assert_eq!(view.admit(&rules, "claude:a", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Tripwire));

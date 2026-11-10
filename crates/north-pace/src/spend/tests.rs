@@ -41,12 +41,12 @@ fn twelve_concurrent_workers_start_on_an_account_with_room_and_only_the_pool_sto
 fn the_tripwire_fires_on_a_planted_burst_and_names_the_top_spender() {
     let samples = [Sample { at: NOW - 14.0 * 60.0, used_pct: 20.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 55.0, resets_at: Some(NOW + HOUR) }];
     let spenders = [Spender { session: "runaway".into(), account: "claude:c".into(), spent: vec![(NOW - 14.0 * 60.0, 1.0), (NOW, 31.0)] }];
-    let trip = tripwire::trip(&rules(), "claude:c", &samples, &spenders, 1.0, NOW).expect("a 35-point rise in 14 minutes trips");
+    let trip = tripwire::trip(&rules(), "claude:c", &samples, None, &spenders, 1.0, NOW).expect("a 35-point rise in 14 minutes trips");
     assert!(trip.line.contains("runaway"), "{}", trip.line);
     let view = View { at: NOW, accounts: vec![account("claude:c", 55.0, 50.0)], working: 0, trips: vec![trip], keyed: Vec::new(), operational: Vec::new(), drain: false };
     assert_eq!(view.admit(&rules(), "claude:c", Starter::Worker, Placed::default()).map_err(|refusal| refusal.rule), Err(Rule::Tripwire));
     let calm = [Sample { at: NOW - 14.0 * 60.0, used_pct: 20.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 25.0, resets_at: Some(NOW + HOUR) }];
-    assert_eq!(tripwire::trip(&rules(), "claude:c", &calm, &[], 1.0, NOW), None);
+    assert_eq!(tripwire::trip(&rules(), "claude:c", &calm, None, &[], 1.0, NOW), None);
 }
 
 /// north#1000 let a worker start with 3% of the week left; north#1049 reserves the last 5% of the
@@ -85,10 +85,10 @@ fn drain_skips_the_reserve_but_not_the_provider_limit_or_the_floor() {
 #[test]
 fn a_session_trip_priced_before_a_recalibration_is_lifted_at_the_new_price_and_prints_its_price() {
     let spenders = [Spender { session: "north-bars-lead".into(), account: "claude:b".into(), spent: vec![(NOW - 10.0 * 60.0, 10.0), (NOW, 13.4)] }];
-    let stale = tripwire::trip(&rules(), "claude:b", &[], &spenders, 3.529, NOW).expect("12 points at the stale rate trips");
+    let stale = tripwire::trip(&rules(), "claude:b", &[], None, &spenders, 3.529, NOW).expect("12 points at the stale rate trips");
     assert!(stale.line.contains("at 3.529 points per dollar"), "{}", stale.line);
     let later = NOW + 120.0;
-    assert_eq!(tripwire::trip(&rules(), "claude:b", &[], &spenders, 0.465, later), None);
+    assert_eq!(tripwire::trip(&rules(), "claude:b", &[], None, &spenders, 0.465, later), None);
     let held = tripwire::judge(std::slice::from_ref(&stale), Vec::new(), later, &rules(), |_| 3.529);
     assert_eq!(held.current, vec![stale.clone()], "an unconfirmed trip at the same price holds its window");
     let aged = tripwire::judge(std::slice::from_ref(&stale), Vec::new(), NOW + 11.0 * 60.0, &rules(), |_| 3.529);
@@ -109,4 +109,12 @@ fn a_worker_launch_refuses_the_declared_operational_reserve_while_operational_ca
     assert_eq!(view.admit(&rules(), "claude:e", Starter::Reserved, Placed::default()), Ok(()));
     assert_eq!(view.admit(&rules(), "claude:a", Starter::Worker, Placed::default()), Ok(()));
     assert_eq!(view.pool(), 90.0, "the reserve's week is not the workers' pool");
+}
+
+/// The 2026-11-11 failure: e's five-hour projection reached 100% so every worker went to d, while e's week reset 30 minutes after its five-hour window and discarded 28 week points.
+#[test]
+fn an_account_whose_week_resets_first_is_not_tripped_by_its_five_hour_projection() {
+    let samples = [Sample { at: NOW - 15.0 * 60.0, used_pct: 30.0, resets_at: Some(NOW + HOUR) }, Sample { at: NOW, used_pct: 55.0, resets_at: Some(NOW + HOUR) }];
+    assert!(tripwire::trip(&rules(), "claude:e", &samples, None, &[], 0.0, NOW).is_some(), "without a week reset the projection trips");
+    assert_eq!(tripwire::trip(&rules(), "claude:e", &samples, Some(NOW + HOUR + 30.0 * 60.0), &[], 0.0, NOW), None);
 }

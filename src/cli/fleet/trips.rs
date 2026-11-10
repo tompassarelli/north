@@ -17,6 +17,7 @@ use crate::usage::{open_ledger, profiles};
 use crate::watch;
 
 const SAMPLED_WITHIN_S: f64 = 30.0 * 60.0;
+const WEEK_READING_S: f64 = 2.0 * 3600.0;
 const STALE_INPUTS: &str = "spend/stale-inputs.json";
 
 pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
@@ -26,6 +27,10 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
     let span = rules.fleet_trip.minutes.max(rules.session_trip.minutes) * 60.0;
     let samples = match five_hour_samples(&db, now - span) {
         Ok(samples) => samples,
+        Err(why) => return vec![format!("the spend tripwire did not run: the usage table is unreadable: {why}")],
+    };
+    let week_resets = match week_resets(&db, now) {
+        Ok(resets) => resets,
         Err(why) => return vec![format!("the spend tripwire did not run: the usage table is unreadable: {why}")],
     };
     if !samples.iter().any(|(_, sample)| now - sample.at <= SAMPLED_WITHIN_S) {
@@ -46,7 +51,8 @@ pub(super) fn watch(fleet: &Fleet, now_ms: u64) -> Vec<String> {
         .iter()
         .filter_map(|(account, rate)| {
             let own: Vec<Sample> = samples.iter().filter(|(name, _)| name == account).map(|(_, sample)| *sample).collect();
-            tripwire::trip(&rules, account, &own, &spenders.sessions, *rate.as_ref().unwrap_or(&0.0), now)
+            let week = week_resets.iter().find(|(name, _)| name == account).map(|(_, reset)| *reset);
+            tripwire::trip(&rules, account, &own, week, &spenders.sessions, *rate.as_ref().unwrap_or(&0.0), now)
         })
         .collect();
     lines.extend(stale_alarm(fleet, &agents, &priced));
@@ -86,6 +92,24 @@ fn five_hour_samples(db: &Connection, since: f64) -> rusqlite::Result<Vec<(Strin
     let mut query = db.prepare("SELECT account, ts, used_pct, resets_at FROM usage WHERE provider = 'claude' AND kind = 'window' AND name = 'session' AND used_pct IS NOT NULL AND ts >= ?1")?;
     let rows = query.query_map(params![since], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?, row.get::<_, Option<String>>(3)?)))?;
     Ok(rows.flatten().filter_map(|(account, ts, used_pct, resets_at)| Some((format!("claude:{account}"), Sample { at: seconds(&ts)?, used_pct, resets_at: resets_at.as_deref().and_then(seconds) }))).collect())
+}
+
+/// Each account's newest weekly reset the usage table holds, in unix seconds.
+fn week_resets(db: &Connection, now: f64) -> rusqlite::Result<Vec<(String, f64)>> {
+    let present: i64 = db.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'usage'", [], |row| row.get(0))?;
+    if present == 0 {
+        return Ok(Vec::new());
+    }
+    let since = Timestamp::from_unix_millis(((now - WEEK_READING_S) * 1000.0) as i64).iso();
+    let mut query = db.prepare("SELECT account, resets_at FROM usage WHERE provider = 'claude' AND kind = 'window' AND name = 'weekly_all' AND resets_at IS NOT NULL AND ts >= ?1 ORDER BY ts")?;
+    let rows = query.query_map(params![since], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let mut newest: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+    for (account, reset) in rows.flatten() {
+        if let Some(reset) = Timestamp::parse(&reset).ok().map(|at| at.unix_millis() as f64 / 1000.0) {
+            newest.insert(format!("claude:{account}"), reset);
+        }
+    }
+    Ok(newest.into_iter().collect())
 }
 
 /// The five-hour points per dollar the session rule prices `account`'s spend with: zero when unmeasured, so the rule refuses nothing, and why when the newest rate is stale.
