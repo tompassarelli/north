@@ -6,6 +6,35 @@ use crate::error::NorthError;
 const OLD_EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('claim','release','KICKOFF','ANSWER')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;
 CREATE INDEX events_item ON events(item, seq);";
 
+/// The fleet registry before `WAIT` and `SPEND` rows existed: the events table's kind check and the row-id index are
+/// the parts its writable open rewrites in place.
+const OLD_STATE: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('MESSAGE','GATE','GATE-ANSWER','JOB-START','JOB-BEAT','JOB-EXIT','CONTROL')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;
+CREATE INDEX events_item ON events(item, seq);
+CREATE TABLE fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL, provider TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', cwd TEXT NOT NULL DEFAULT '', parent TEXT, placement TEXT, machine TEXT, tasks TEXT NOT NULL DEFAULT '[]', conversation TEXT) STRICT;";
+
+#[test]
+fn an_old_state_registry_opens_writable_and_read_only_and_keeps_its_rows() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("threads.db");
+    Connection::open(&path).unwrap().execute_batch(OLD_STATE).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO fleet_sessions(name, host, status, created, updated, conversation) VALUES ('north-0', 'nexus', 'working', '2026-11-10T00:00:00Z', '2026-11-10T00:00:00Z', 'conversation-1');
+             INSERT INTO events(seq, ts, kind, actor, tier, data) VALUES (1, '2026-11-10T00:00:00Z', 'MESSAGE', 'whiterabbit', '', '{\"id\":\"m-1\",\"kind\":\"MESSAGE\",\"to_node\":\"north-0\",\"sender\":\"tom\",\"text\":\"hello\"}');",
+        )
+        .unwrap();
+
+    let store = Store::open(&path).unwrap();
+    let opened: Vec<String> = store.sessions().unwrap().into_iter().map(|row| row.name).collect();
+    assert_eq!(opened, ["north-0"], "the writable open keeps the session row the older build wrote");
+    assert_eq!(count(&path, "SELECT count(*) FROM sqlite_schema WHERE name = 'events_fleet_id'"), 1, "the writable open adds the row-id index the older build lacked");
+    drop(store);
+
+    let delivered = delivered_by(&path, &crate::sender::Sender::Tom).unwrap();
+    assert!(delivered.contains(&("conversation-1".to_owned(), "hello".to_owned())), "the read-only open reads the message row the older build wrote");
+}
+
 fn ledger() -> (tempfile::TempDir, std::path::PathBuf) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("threads.db");

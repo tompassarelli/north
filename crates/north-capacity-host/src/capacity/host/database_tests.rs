@@ -1,6 +1,41 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
-use super::{SCHEMA, migrate};
+use super::{SCHEMA, capacity_database_at, migrate, table_columns};
+
+/// The capacity database before the model, priority and admission tables and the run columns the host adds on open.
+const OLD_STATE: &str = "CREATE TABLE capacity_runs (
+    source_id TEXT PRIMARY KEY, at TEXT NOT NULL, family TEXT NOT NULL, repo TEXT,
+    package TEXT, class TEXT NOT NULL, signature_exact INTEGER NOT NULL, cwd TEXT,
+    owner TEXT, shape TEXT, reservedCpus REAL, reservedMemoryMiB REAL, chargedCpus REAL,
+    chargedMemoryMiB REAL, cpuSeconds REAL, meanCores REAL, p90Cores REAL, peakCores REAL,
+    peakMemoryMiB REAL, gpuSeconds REAL, wallSeconds REAL, exitCode INTEGER,
+    ioReadBytes REAL, ioWriteBytes REAL, ioPressureSomeUsec REAL, diskBusyShare REAL);
+    CREATE INDEX capacity_runs_signature ON capacity_runs(family, repo, package, class, at);";
+
+#[test]
+fn an_old_state_capacity_database_opens_writable_and_read_only_and_keeps_its_rows() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let path = scratch.path().join("capacity.db");
+    let old = Connection::open(&path).expect("old store");
+    old.execute_batch(OLD_STATE).expect("the older build's schema");
+    old.execute_batch("INSERT INTO capacity_runs (source_id, at, family, class, signature_exact, owner, reservedCpus, meanCores, wallSeconds, exitCode) VALUES ('lease:old', '2026-11-04T10:00:00.000Z', 'cargo', 'heavy', 1, 'north-1022-d0917', 6.0, 2.5, 12.0, 0)")
+        .expect("a row the older build wrote");
+    drop(old);
+
+    let upgraded = capacity_database_at(&path, false).expect("the writable open");
+    assert!(table_columns(&upgraded, "capacity_runs").iter().any(|column| column == "host"), "the writable open adds the run columns the older build lacked");
+    let imported: i64 = upgraded.query_row("SELECT count(*) FROM capacity_imports", [], |row| row.get(0)).expect("the import rows");
+    assert_eq!(imported, 0, "opening a store of its own reads no usage log");
+    let kept: (String, f64) = upgraded.query_row("SELECT owner, meanCores FROM capacity_runs WHERE source_id = 'lease:old'", [], |row| Ok((row.get(0)?, row.get(1)?))).expect("the row the older build wrote");
+    assert_eq!(kept, ("north-1022-d0917".to_owned(), 2.5), "the writable open keeps the row the older build wrote");
+    drop(upgraded);
+
+    let readonly = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).expect("the read-only open");
+    let kept: (String, f64) = readonly.query_row("SELECT owner, wallSeconds FROM capacity_runs WHERE source_id = 'lease:old'", [], |row| Ok((row.get(0)?, row.get(1)?))).expect("the row the older build wrote");
+    assert_eq!(kept, ("north-1022-d0917".to_owned(), 12.0), "the read-only open reads the row the older build wrote");
+    let created: i64 = readonly.query_row("SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'capacity_model'", [], |row| row.get(0)).expect("the model table");
+    assert_eq!(created, 1, "the writable open creates the table the older build lacked");
+}
 
 #[test]
 fn opening_a_current_database_takes_no_write_lock_so_a_held_writer_never_times_it_out() {

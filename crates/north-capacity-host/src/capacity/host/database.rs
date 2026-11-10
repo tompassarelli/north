@@ -151,28 +151,43 @@ pub fn failure_status(error: &rusqlite::Error) -> i32 {
     if is_contended(error) { TEMPORARY_FAILURE } else { 1 }
 }
 
-fn open_once(path: &Path, wait: Duration) -> rusqlite::Result<Connection> {
+fn open_once(path: &Path, wait: Duration, seed: bool) -> rusqlite::Result<Connection> {
     let mut db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI)?;
     db.busy_timeout(wait)?;
     if migrate(&mut db)? {
         db.execute_batch("DETACH DATABASE legacy_capacity")?;
     }
-    import_usage_log(&mut db)?;
+    if seed {
+        import_usage_log(&mut db)?;
+    }
     Ok(db)
 }
 
-/// The capacity database, created and seeded from the usage log on first open; SQLite skips its busy handler when a read transaction upgrades to a write, so the whole open is retried until the lock wait ends.
-pub fn capacity_database() -> rusqlite::Result<Connection> {
-    let path = env("AGENT_CAPACITY_DB").map_or_else(|| state_root().join("agents/machine-capacity/capacity.db"), PathBuf::from);
-    private_parent(&path).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+/// The capacity database at `path`, created and migrated, then seeded from this host's usage log on first open when
+/// `seed` is set; SQLite skips its busy handler when a read transaction upgrades to a write, so the whole open is
+/// retried until the lock wait ends. A caller that opens a store of its own, such as an old-state fixture, passes
+/// `seed: false` so the open reads no host state.
+fn opening(path: &Path, seed: bool) -> rusqlite::Result<Connection> {
     let deadline = Instant::now() + lock_wait();
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        match open_once(&path, remaining) {
+        match open_once(path, remaining, seed) {
             Err(error) if is_contended(&error) && Instant::now() < deadline => std::thread::sleep(RETRY_PAUSE),
             other => return other,
         }
     }
+}
+
+/// The capacity database at `path`, created and migrated; `seed` reads this host's usage log into it on first open.
+pub fn capacity_database_at(path: &Path, seed: bool) -> rusqlite::Result<Connection> {
+    private_parent(path).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    opening(path, seed)
+}
+
+/// The capacity database, created and seeded from the usage log on first open.
+pub fn capacity_database() -> rusqlite::Result<Connection> {
+    let path = env("AGENT_CAPACITY_DB").map_or_else(|| state_root().join("agents/machine-capacity/capacity.db"), PathBuf::from);
+    capacity_database_at(&path, true)
 }
 
 pub(super) fn sql(value: Option<&Value>) -> Sql {
