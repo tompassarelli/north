@@ -84,10 +84,10 @@ fn nexus_reaches_a_worker_only_through_its_own_verb_set() {
         }
     }
     let nexus = Grants { peer: NEXUS_PEER.into(), repos: vec![] };
-    for allowed in ["north fleet spool cache", "north fleet spool registry", "north fleet list --json", "north dash --closed --since 30d", "north runtime health"] {
+    for allowed in ["north fleet spool cache", "north fleet spool registry", "north fleet list --json", "north dash --closed --since 30d", "north runtime health", "north session-attach /home/w/.local/state/north/held/u1 u1 0a1b 0", "north session-attach /home/w/.local/state/north/held/u1 u1 0a1b 4096"] {
         assert!(plan_for(allowed, &nexus, &NoJobs).is_ok(), "{allowed}");
     }
-    for refused in ["sh -s", "bash -s", "sh -c id", "north fleet spool", "north dash --closed --since 3w", "threads claim north#1", "south land", "cat x"] {
+    for refused in ["sh -s", "bash -s", "sh -c id", "north fleet spool", "north dash --closed --since 3w", "threads claim north#1", "south land", "cat x", "north session-attach /tmp/x u1 n 0", "north session-attach /home/w/.local/state/north/held/../../x u1 n 0", "north session-attach /home/w/.local/state/north/held/u1 u1 n 1x", "north session-attach /home/w/.local/state/north/held/u1 -x n 0"] {
         assert!(plan_for(refused, &nexus, &NoJobs).is_err(), "{refused}");
     }
     assert!(plan_for("north fleet spool cache", &Grants { peer: "w1".into(), repos: vec![] }, &NoJobs).is_err());

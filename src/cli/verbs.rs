@@ -158,6 +158,7 @@ pub(super) const VERB_KINDS: VerbKinds = VerbKinds::new(&[
     ("retain", Bookkeeping),
     ("runtime", Bookkeeping),
     ("safe-push", Landing),
+    ("session-attach", Diagnosis),
     ("session-host", Diagnosis),
     ("session-link", Diagnosis),
     ("session-unit", Diagnosis),

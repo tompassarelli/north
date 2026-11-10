@@ -22,6 +22,7 @@ use north_base::foundation::exit::TRANSPORT_FAILED_STATUS;
 pub use north_fleet_store::ssh::quote;
 
 const USAGE: &str = "Usage: north session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND";
+const ATTACH_USAGE: &str = "Usage: north session-attach DIR UNIT NONCE OFFSET";
 const OPTIONS: [&str; 11] = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ControlPath=none"];
 const RETRY_FIRST: Duration = Duration::from_secs(1);
 const RETRY_MOST: Duration = Duration::from_secs(15);
@@ -48,6 +49,12 @@ tail -c +$(($(stat -c %s err) + 1)) -f --pid="$cli" err >&2 &
 tail -c +$(($3 + 1)) -f --pid="$cli" out
 kill "$feed" 2>/dev/null
 exit "$(cat status 2>/dev/null || echo 143)""#;
+
+/// `north session-attach DIR UNIT NONCE OFFSET`, the worker's half of a relay connection: it replaces this process with `ATTACH` from this binary (the relay's pid and process group are the shell's own, which a later connection kills), so nexus's ssh names this verb and sends no shell text.
+pub fn attach_here(arguments: &[String]) -> NorthResult<u8> {
+    let [dir, unit, nonce, offset] = arguments else { return Err(NorthError::Usage(ATTACH_USAGE.into())) };
+    Err(std::os::unix::process::CommandExt::exec(std::process::Command::new("sh").args(["-c", ATTACH, dir, unit, nonce, offset])).into())
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Link {
