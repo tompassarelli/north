@@ -86,12 +86,7 @@ pub(super) fn verdict(failing: &[Failing]) -> Result<(), String> {
 }
 
 fn shape(cause: &str) -> String {
-    cause.chars().fold(String::new(), |mut shape, character| {
-        if !(character.is_ascii_digit() && shape.ends_with('#')) {
-            shape.push(if character.is_ascii_digit() { '#' } else { character });
-        }
-        shape
-    })
+    north_base::foundation::cause::key(cause)
 }
 
 pub(super) fn announce(failing: &[Failing], told: &mut Told, now_ms: u64, send: &mut dyn FnMut(&str) -> bool) {

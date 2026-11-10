@@ -1,10 +1,11 @@
 //! Folds a service's alarms of one cause into one message per window: the first alarm of a cause
 //! reaches its recipient, while a repeat of that cause within the window and a notice that the alarm
 //! cleared or recovered are held for the digest (`held.rs`), except a health unit's one recovered line,
-//! the clearing opening the cause again. A cause is the alarm's first sentence with its numbers blanked,
-//! after the ops watch's `still, N min:` prefix, so a re-sent alarm whose load, age or count moved is
-//! the same cause. Only the alarm services fold, and only the page-now classes in `page.rs` reach the
-//! proxy; every other message passes.
+//! the clearing opening the cause again. A cause is the alarm's first sentence with its numbers and
+//! commit-shaped tokens blanked, after the ops watch's `still, N min:` prefix, so a re-sent alarm whose load, age or count moved is
+//! the same cause. The key blanks a fresh runtime sha and canary session id as well as the numbers, so
+//! an alarm re-sent after those moved still folds. Only the alarm services fold, and only the page-now
+//! classes in `page.rs` reach the proxy; every other message passes.
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -104,16 +105,5 @@ fn first_sentence(text: &str) -> &str {
 }
 
 fn blank(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut in_number = false;
-    for ch in text.trim().chars() {
-        let digit = ch.is_ascii_digit();
-        if digit && !in_number {
-            out.push('#');
-        } else if !digit {
-            out.extend(ch.to_lowercase());
-        }
-        in_number = digit;
-    }
-    out
+    crate::foundation::cause::key(text)
 }

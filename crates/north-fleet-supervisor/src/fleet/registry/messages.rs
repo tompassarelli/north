@@ -287,4 +287,23 @@ mod tests {
         assert_eq!(alarm("watchdog: host overload, load 107.96 (4.5/core), cpu pressure 72.02% over 60 s.", 0), Admit::Hold, "an overload is not page-now and waits for the digest");
         assert_eq!(admit(home.path(), &health, PROXY, "harness unit fleet-tick.service recovered: under 3 failed starts in the last hour", 0), Admit::Send, "one cleared line for a health unit");
     }
+
+    #[test]
+    fn an_alarm_re_sent_with_a_fresh_runtime_sha_or_canary_waits_in_the_digest() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        let proxy = live(&fleet, PROXY);
+        let health = Sender::Service("north-health".into());
+        let alert = |sha: &str, canary: &str| {
+            let text = format!("harness unit north-runtime-follow.service failed to start 13 times in the last hour: runtime {sha} for {canary}");
+            fleet.send_message(&health, PROXY, &text, Delivery::Queued).unwrap()
+        };
+
+        assert_eq!(alert("636c151b", "canary-opencode-4101624"), Sent::HandedIn);
+        assert_eq!(alert("22272a0b", "canary-opencode-4123229"), Sent::Held, "a fresh runtime sha and canary session id are the same cause");
+        assert_eq!(proxy.frames.lock().unwrap().len(), 1);
+        let held: Vec<String> = fleet.held_since(0).into_iter().map(|held| held.text).collect();
+        assert_eq!(held.len(), 1);
+        assert!(held[0].contains("22272a0b"), "{held:?}");
+    }
 }

@@ -35,6 +35,30 @@ fn tick(told: &mut Told, journal: &str, now: u64) -> Vec<String> {
     sent
 }
 
+fn refreshed_start(sha: &str, canary: &str) -> Vec<String> {
+    vec![
+        json!({"_SYSTEMD_USER_UNIT": UNIT, "SYSLOG_IDENTIFIER": "north", "MESSAGE": format!("runtime follower failed to install main {sha} for {canary}")}).to_string(),
+        json!({"USER_UNIT": UNIT, "SYSLOG_IDENTIFIER": "systemd", "MESSAGE": format!("{UNIT}: Failed with result 'exit-code'.")}).to_string(),
+        json!({"USER_UNIT": UNIT, "SYSLOG_IDENTIFIER": "systemd", "MESSAGE": "Failed to start fleet-tick: flush this host's north fleet spool."}).to_string(),
+    ]
+}
+
+#[test]
+fn a_repeated_failed_start_with_a_fresh_runtime_sha_or_canary_pages_once() {
+    let mut told = Told::default();
+    let start = WINDOW_MS * 2;
+    let first = tick(&mut told, &journal(3, &|_| refreshed_start("636c151b", "canary-opencode-4101624")), start);
+    assert_eq!(first, vec![format!("harness unit {UNIT} failed to start 3 times in the last hour: runtime follower failed to install main 636c151b for canary-opencode-4101624")]);
+
+    for starts in [4, 5, 13] {
+        assert_eq!(
+            tick(&mut told, &journal(starts, &|_| refreshed_start("22272a0b", "canary-opencode-4123229")), start + WINDOW_MS - 1),
+            Vec::<String>::new(),
+            "a moved count, runtime sha and canary session id are one cause at {starts} starts"
+        );
+    }
+}
+
 #[test]
 fn a_repeated_failed_start_with_the_same_cause_pages_once() {
     let goals = |n: usize| timed_out_start(&format!("goals: {n} open, {} held, claude:a week 9{n}%", n + 1));
