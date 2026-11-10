@@ -4,8 +4,9 @@ use super::fix::{self, Rewrite};
 use super::rust_text::RustFile;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use toml_edit::{DocumentMut, Item};
 
 pub(super) const SHARED: &str = "shared-mutability";
@@ -288,6 +289,62 @@ pub fn grown(root: &Path, rev: &str) -> Result<Vec<String>, String> {
             }
         }
     }
+    Ok(out)
+}
+
+fn sources_at(root: &Path, rev: &str) -> Result<Vec<(String, String)>, String> {
+    let output = Command::new("git").arg("-C").arg(root).args(["ls-tree", "-r", "-z", "--name-only", rev]).output().map_err(|error| format!("git ls-tree: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("git ls-tree: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    let names: Vec<String> = String::from_utf8_lossy(&output.stdout).split('\0').filter(|name| name.ends_with(".rs")).map(str::to_owned).collect();
+    let mut child = Command::new("git").arg("-C").arg(root).args(["cat-file", "--batch"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().map_err(|error| format!("git cat-file: {error}"))?;
+    let mut stdin = child.stdin.take().ok_or("git cat-file: no input")?;
+    let request: String = names.iter().map(|name| format!("{rev}:{name}\n")).collect();
+    let writer = std::thread::spawn(move || stdin.write_all(request.as_bytes()));
+    let stdout = child.stdout.take().ok_or("git cat-file: no output")?;
+    let mut reader = BufReader::new(stdout);
+    let mut sources = Vec::with_capacity(names.len());
+    for name in names {
+        let mut header = String::new();
+        reader.read_line(&mut header).map_err(|error| format!("git cat-file: {error}"))?;
+        let Some(size) = header.split_whitespace().nth(2).and_then(|size| size.parse::<usize>().ok()) else { continue };
+        let mut body = vec![0u8; size];
+        reader.read_exact(&mut body).map_err(|error| format!("git cat-file: {error}"))?;
+        let mut end = [0u8; 1];
+        reader.read_exact(&mut end).map_err(|error| format!("git cat-file: {error}"))?;
+        sources.push((name, String::from_utf8_lossy(&body).into_owned()));
+    }
+    let _ = writer.join();
+    let _ = child.wait();
+    Ok(sources)
+}
+
+fn found_at(root: &Path, rev: &str) -> Result<Vec<Finding>, String> {
+    let Ok(config) = std::fs::read_to_string(root.join("structure.toml")) else {
+        return Ok(Vec::new());
+    };
+    let Some(mut habits) = Habits::parse(&config)? else {
+        return Ok(Vec::new());
+    };
+    habits.read_ambient(|allowlist| at_rev(root, rev, allowlist))?;
+    let files = files_of(&habits, sources_at(root, rev)?);
+    Ok(check(&habits, &files, None))
+}
+
+pub fn findings_new(root: &Path, rev: &str) -> Result<Vec<String>, String> {
+    let mut known: BTreeMap<(&'static str, String, String), usize> = BTreeMap::new();
+    for finding in found_at(root, rev)? {
+        *known.entry((finding.rule, finding.path, finding.item)).or_default() += 1;
+    }
+    let mut out = Vec::new();
+    for finding in found(root, None)? {
+        match known.get_mut(&(finding.rule, finding.path.clone(), finding.item.clone())) {
+            Some(left) if *left > 0 => *left -= 1,
+            _ => out.push(finding.render()),
+        }
+    }
+    out.extend(grown(root, rev)?);
     Ok(out)
 }
 

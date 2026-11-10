@@ -96,7 +96,7 @@ fn a_wall_clock_age_in_test_code_is_rewritten_to_a_fixed_moment_and_a_poll_loop_
 
 #[test]
 fn an_allowlist_count_raised_above_the_base_revision_is_refused_and_a_lowered_one_is_not() {
-    use super::habits::grown;
+    use super::habits::{findings_new, grown};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(root).args(args).status().unwrap().success());
@@ -106,14 +106,26 @@ fn an_allowlist_count_raised_above_the_base_revision_is_refused_and_a_lowered_on
     git(&["config", "commit.gpgsign", "false"]);
     std::fs::write(root.join("structure.toml"), "[rust_habits]\nchecks = [\"ambient-test-input\"]\n[[rust_habits.ambient_inputs]]\ninput = \"clock\"\nallowlist = \"clocks.tsv\"\nfixture = \"inject the clock\"\n").unwrap();
     std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t1\n").unwrap();
+    std::fs::create_dir(root.join("tests")).unwrap();
+    std::fs::write(root.join("tests/debt.rs"), "#[test]\nfn t() {\n    std::thread::sleep(d);\n}\n").unwrap();
     git(&["add", "."]);
     git(&["commit", "-qm", "base"]);
 
+    let base_findings = findings_new(root, "HEAD").unwrap();
+    assert!(base_findings.is_empty(), "a finding the base already holds is not the lane's: {base_findings:?}");
+    std::fs::write(root.join("tests/debt.rs"), "#[test]\nfn t() {\n    std::thread::sleep(d);\n    std::thread::sleep(d);\n}\n").unwrap();
+    let added = findings_new(root, "HEAD").unwrap();
+    assert_eq!(added.len(), 1, "a finding the lane adds beside an old one is new: {added:?}");
+    assert!(added[0].contains("tests/debt.rs:4"), "{added:?}");
+    std::fs::write(root.join("tests/debt.rs"), "#[test]\nfn t() {\n    std::thread::sleep(d);\n}\n").unwrap();
+
     std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t2\ntests/new.rs\t1\n").unwrap();
+    std::fs::write(root.join("tests/new.rs"), "#[test]\nfn t() {\n    std::thread::sleep(d);\n}\n").unwrap();
     let raised = grown(root, "HEAD").unwrap();
     assert_eq!(raised.len(), 2, "{raised:?}");
     assert!(raised.iter().any(|line| line.contains("tests/kept.rs") && line.contains("up from 1")), "{raised:?}");
     assert!(raised.iter().any(|line| line.contains("tests/new.rs") && line.contains("up from 0")), "{raised:?}");
+    assert_eq!(findings_new(root, "HEAD").unwrap().len(), 2, "a lane that raises an allowlist count meets the grown line");
 
     std::fs::write(root.join("clocks.tsv"), "tests/kept.rs\t0\n").unwrap();
     assert!(grown(root, "HEAD").unwrap().is_empty());
