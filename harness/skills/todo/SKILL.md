@@ -2,8 +2,8 @@
 name: todo
 description: >-
   Restart-grade records for cross-turn work, waits, parked tasks, handoffs; recall past agent work, decisions or session IDs from transcripts via convo.
-grounded: 2026-10-15
-written: 2026-10-15
+grounded: 2026-11-10
+written: 2026-11-10
 metadata:
   kind: playbook
 ---

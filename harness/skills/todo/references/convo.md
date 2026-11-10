@@ -17,14 +17,15 @@
 
 `north convo` indexes the canonical `~/code/north-data/accounts` tree, a configured
 `CODEX_HOME` and `NORTH_CODEX_POOLED_HOME`, the default pooled runtime home,
-and Claude Code's `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`). In a
+`~/.local/state/north/profiles`, Claude Code's `~/.claude/projects` (or
+`$CLAUDE_CONFIG_DIR/projects`) and the Tom corpus. In a
 Claude projects tree only `<project>/<session>.jsonl` and
 `<project>/<session>/subagents/agent-<id>.jsonl` are transcripts; a subagent
 file carries its parent's session id and its own agent id. A Codex subagent
 rollout carries its lead's session id. A file reached twice through symlinks or
 hardlinks is indexed once.
 
-The index is `~/.local/state/convo/index-v4.db` (SQLite, FTS5 with porter
+The index is `~/.local/state/convo/index-v7.db` (SQLite, FTS5 with porter
 stemming and bm25). Tables: `files` (one row per transcript, with its byte
 offset), `msg` (every message: file, line, time, role, tool, body), `body`
 (each distinct text once) and `ftx` (full text of each body, keyed by the
@@ -51,11 +52,12 @@ points to `~/code/north-data`, so searching both reads the corpus twice.
 
 ## Compression and resume
 
-`north convo compress` rewrites Codex rollouts untouched for 48 hours as
+`north convo compress` rewrites Codex rollouts untouched for 48 hours (`--older-than`)
+and Claude Code transcripts untouched for 30 days as
 `.jsonl.zst` (zstd -3, 128 MiB window), skipping files any process holds open
 and sessions the coordinator roster names. It verifies a byte-exact round trip
-before unlinking the source. Claude Code transcripts are never compressed;
-`compress` reports how many it left alone. Search keeps working on archives,
+before unlinking the source; `--dry-run` projects the saving and reports how many
+files it held back. Search keeps working on archives,
 but `codex resume <uuid>` needs plain JSONL, so run `north convo restore <file>`
 first. Compression, restore and full rebuilds are maintenance, never
 prerequisites for answering a question.
@@ -64,7 +66,7 @@ prerequisites for answering a question.
 
 A Claude Skill load is a `tool` message with `tool = 'Skill'` and text
 `Skill skill=<name>`. Count loads and sessions over a frozen window straight
-from the index (`sqlite3 -readonly ~/.local/state/convo/index-v4.db` after one
+from the index (`sqlite3 -readonly ~/.local/state/convo/index-v7.db` after one
 `north convo index`):
 
 ```sql
