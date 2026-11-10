@@ -11,7 +11,7 @@ pub const STAMP: &str = "north/records-stamp.json";
 pub const TICK_JOURNAL: &str = "north/fleet-tick.log";
 pub const KEPT: Duration = Duration::from_secs(7 * 86_400);
 pub const FRESH: Duration = Duration::from_secs(300);
-const LEDGERS: [&str; 4] = ["north/enqueue-refusals.jsonl", "north/runtime-live.jsonl", "safe-push/post-land.tsv", TICK_JOURNAL];
+const LEDGERS: [&str; 4] = ["north/enqueue-refusals.jsonl", "north/runtime-pins.jsonl", "safe-push/post-land.tsv", TICK_JOURNAL];
 const TREES: [&str; 3] = ["north/land-queue", "north/gates", "north/decisions/placement"];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

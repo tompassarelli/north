@@ -5,6 +5,7 @@ use super::layout::{self, Layout, TREE};
 use super::lifecycle::{self, Promoting, Promotion};
 use super::live;
 use super::peers;
+use super::pin;
 use super::pull;
 use super::remote;
 use super::reuse;
@@ -137,21 +138,37 @@ pub(super) fn named_lock_waiting(layout: &Layout, name: &str, limit: Duration, w
 }
 
 fn pass(layout: &Layout) -> Result<Pass, Failure> {
+    if land_offload::runs_pinned_runtime_here() {
+        println!("north runtime: {} runs the pinned runtime the settling host ships it after the runtime walked the spine there; it does not follow origin/main", host::name());
+        return Ok(Pass::Settled);
+    }
     let checkout = checkout();
-    let target = main_commit(&checkout)?;
+    let main = main_commit(&checkout)?;
+    let (target, reason) = match land_offload::settles_fleet_here() {
+        true => pin::target(layout, &checkout, &main),
+        false => (main, None),
+    };
+    let advanced = advance_to(layout, &checkout, &target);
+    if let (Ok(Pass::Promoted), Some(reason)) = (&advanced, reason) {
+        pin::promoted(layout, &target, reason);
+    }
+    advanced
+}
+
+fn advance_to(layout: &Layout, checkout: &Path, target: &str) -> Result<Pass, Failure> {
     let previous = fs::read_link(layout.current()).ok();
-    let linked = previous.as_deref() == Some(layout::link(&target).as_path());
-    if linked && lifecycle::confirm_current(layout, &target)? {
-        println!("north runtime current: {}", layout::short(&target));
-        republish_if_unpublished(layout, &target);
+    let linked = previous.as_deref() == Some(layout::link(target).as_path());
+    if linked && lifecycle::confirm_current(layout, target)? {
+        println!("north runtime current: {}", layout::short(target));
+        republish_if_unpublished(layout, target);
         return Ok(Pass::Settled);
     }
     let fallback = match linked {
-        true => lifecycle::previous(layout, &target, |sha| layout::has_programs(&layout.runtime(sha)))?.map(|sha| layout::link(&sha)),
+        true => lifecycle::previous(layout, target, |sha| layout::has_programs(&layout.runtime(sha)))?.map(|sha| layout::link(&sha)),
         false => previous,
     };
-    match advance(layout, &checkout, &target, fallback.as_deref()) {
-        Err(deferred) if deferred.code == DEFERRED => catch_up(layout, &checkout, &target, fallback.as_deref())?.ok_or(deferred),
+    match advance(layout, checkout, target, fallback.as_deref()) {
+        Err(deferred) if deferred.code == DEFERRED => catch_up(layout, checkout, target, fallback.as_deref())?.ok_or(deferred),
         advanced => advanced,
     }
 }

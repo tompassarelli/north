@@ -125,6 +125,10 @@ pub fn accepts_peer_runtimes_here() -> bool {
     config().is_ok_and(|cfg| !destinations::settles_fleet(&cfg, &crate::platform::host::name()))
 }
 
+pub fn runs_pinned_runtime_here() -> bool {
+    config().is_ok_and(|cfg| destinations::pinned_by_settler(&cfg, &crate::platform::host::name()))
+}
+
 pub fn in_game_reserve() -> bool {
     let local = agent_load::Host::from_env();
     agent_load::gaming_declared(&local)

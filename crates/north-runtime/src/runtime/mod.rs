@@ -13,6 +13,7 @@ mod host_facts;
 pub mod layout;
 pub mod live;
 mod peers;
+pub mod pin;
 mod pull;
 mod probe;
 mod remote;
@@ -27,15 +28,16 @@ pub(crate) use update::collect;
 use crate::land_offload;
 use std::path::Path;
 
-const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
+const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
 covers [--head REV] [--code PATH,...]
 
-update [--sha SHA]     bring this host's current runtime to origin/main (or SHA): pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health fails; an agents sync failure keeps the code, alerts the proxy and retries each tick
-settle                 on the host that settles the fleet: update here, deploy where current differs, probe every host, run the core-loop probes (a sandboxed worker shell reaching the hub host, the hub fetching a repository, each lander minting its push credential, with a host with no running lander or a repository no running lander serves reported once as not applicable, one `--test` worker per provider the host can launch answering, with a provider it cannot launch reported once as not applicable) on each host per promoted runtime and roll a host back, alarming the proxy with the failing probe, when one fails, and judge each landing once by landing_live_deadline_sec
+update [--sha SHA]     bring this host's current runtime to the pinned runtime (or SHA): on the host that settles the fleet, origin/main is promoted at most 6 times a day, 4 h apart, or at once when the commits since the pin carry a Main-red: trailer; every other host runs only what the settling host ships it after the runtime walked the spine there; pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health fails; an agents sync failure keeps the code, alerts the proxy and retries each tick
+settle                 on the host that settles the fleet: update here, run the core-loop probes here and ship the live runtime to the hosts behind it only when it passed them, probe every host, run the core-loop probes (a sandboxed worker shell reaching the hub host, the hub fetching a repository, each lander minting its push credential, with a host with no running lander or a repository no running lander serves reported once as not applicable, one `--test` worker per provider the host can launch answering, with a provider it cannot launch reported once as not applicable) on each host per promoted runtime and roll a host back, alarming the proxy with the failing probe, when one fails, and judge the newest landing the pinned runtime holds once by landing_live_deadline_sec after its promotion
+status                 print the pinned runtime, when and why it was promoted, whether it walked the spine here, the promotions in the last 24 h and since when origin/main has waited for the next one, from runtime-pins.jsonl
 deploy [HOST...]       build here, then ship and promote that runtime on each HOST (default: every other declared host with an ssh destination); a HOST whose live runtime descends from it keeps its own
 health                 check the live runtime
 rollback --from SHA    relink current to the previous runtime and hold SHA back for an hour, when current is SHA; settle runs it on a host whose canary probes failed
-promote                after a landing: wait for any running update, bring this host to origin/main in one pass, then ship the runtime now live here to every declared host; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
+promote                after a landing: wait for any running update, bring this host to the pinned runtime in one pass; on the host that settles the fleet, run the core-loop probes on it here and ship it to every declared host only when it passed them; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
 follow --repo-dir DIR  after a landing: start promote in the background when DIR's origin is north
 mirror                 on the host that settles the fleet: copy its lander and runtime records into north/records-mirror on every host it ships runtimes to, as each fleet tick does in the background
 agents [VERSION]       update this host's north runtime, then the Claude, Pi and OpenCode runtimes, as the twice-daily timer does
@@ -101,6 +103,10 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         (command, []) if command == "settle" => Some(settle::settle(layout)),
         (command, [flag, sha]) if command == "rollback" && flag == "--from" && layout::is_sha(sha) => Some(update::roll_back(layout, sha).map(|_| ())),
         (command, []) if command == "health" => Some(health::health(layout)),
+        (command, []) if command == "status" => {
+            print!("{}", pin::status(&layout.state, layout.live_sha().as_deref()));
+            Some(Ok(()))
+        }
         (command, []) if command == "promote" => Some(follow::promote_detached(layout)),
         (command, []) if command == "mirror" => Some(mirror::run()),
         (command, flags) if command == "covers" => covers(layout, flags),

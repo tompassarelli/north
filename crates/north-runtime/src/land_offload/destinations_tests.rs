@@ -25,3 +25,13 @@ fn a_host_sends_builds_only_to_the_hosts_it_reaches_and_one_that_reaches_none_is
 fn a_laptop_on_battery_takes_no_land_check_even_when_away() {
     assert_eq!(crate::land_offload::standing(false, true, true), crate::land_offload::room::Standing::Reserved);
 }
+
+#[test]
+fn a_host_the_settling_host_ships_to_runs_the_pin_and_the_settling_host_follows_main() {
+    let cfg: DocumentMut = HOSTS.parse().expect("fixture");
+    assert!(pinned_by_settler(&cfg, "gex45") && pinned_by_settler(&cfg, "nexus"));
+    assert!(!pinned_by_settler(&cfg, "whiterabbit"), "the settling host promotes the pin");
+    assert!(!pinned_by_settler(&cfg, "laptop"), "an undeclared host has no route from the settling host");
+    let alone: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\n".parse().unwrap();
+    assert!(!pinned_by_settler(&alone, "gex45"), "with no settling host nothing ships the pin");
+}

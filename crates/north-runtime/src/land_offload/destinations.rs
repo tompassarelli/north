@@ -69,6 +69,14 @@ pub(super) fn settles_fleet(cfg: &DocumentMut, here: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether `here` runs the pinned runtime another host settles and ships to it, rather than following origin/main itself: some other host settles the fleet and `here` has the ssh destination that host ships through.
+pub(super) fn pinned_by_settler(cfg: &DocumentMut, here: &str) -> bool {
+    let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return false };
+    let settler = hosts.iter().any(|(name, _)| name != here && settles_fleet(cfg, name));
+    let reached = hosts.get(here).is_some_and(|host| ["deploy_ssh", "ssh"].iter().any(|key| host.get(key).and_then(Item::as_str).and_then(ssh_destination).is_some()));
+    settler && reached
+}
+
 pub(super) fn offloads_builds(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("offload_builds")).and_then(Item::as_bool) == Some(true)
 }

@@ -5,7 +5,7 @@ use super::growth::Growth;
 use super::history::History;
 use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
-use super::live;
+use super::pin;
 use super::probe::{self, Shell};
 use super::update;
 use crate::land_offload;
@@ -42,11 +42,10 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         return Err(failed(1, format!("could not hand settle to the live runtime {}: {error}", layout::short(&live))));
     }
     let checkout = update::checkout();
-    let hosts = hosts_with_runtime_shipped(layout, &checkout);
+    let hosts = fleet_hosts();
     let landing = due_landing(layout, &checkout)?;
     let live = |runtime: &str| landing.as_ref().is_none_or(|landing| runtime == landing.sha || ancestor(&checkout, &landing.sha, runtime));
     let mut records = Vec::new();
-    let mut swaps = Vec::new();
     let mut failing = Vec::new();
     let mut broken = Vec::new();
     let judging = landing.as_ref().filter(|landing| !judged(layout, &landing.sha));
@@ -55,9 +54,8 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let mut growth = Growth::load(layout);
     let mut incidents = Vec::new();
     let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
-    for host in &hosts {
-        let facts = probed(layout, host);
-        swaps.push((facts.host.clone(), facts.swaps.clone()));
+    let here = walk_and_ship(layout, &hosts, &checkout);
+    for facts in std::iter::once(here).chain(hosts[1..].iter().map(|host| probed(layout, host).0)) {
         let problems = judged_problems(&facts, live, &mut growth);
         println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
         if !problems.is_empty() {
@@ -72,7 +70,6 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         }
         records.push(probe::record(&facts, &problems));
     }
-    live::record(layout, &checkout, &swaps);
     if let Err(error) = history.save().and_then(|()| growth.save()) {
         eprintln!("north runtime settle: could not record each host's problems and process counts: {error}");
     }
@@ -90,13 +87,25 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     }
 }
 
-fn hosts_with_runtime_shipped(layout: &Layout, checkout: &Path) -> Vec<Shell> {
+fn fleet_hosts() -> Vec<Shell> {
     let mut hosts = vec![Shell::Here(host::name())];
     hosts.extend(land_offload::other_destinations().iter().cloned().map(Shell::Ssh));
-    if let Some(here) = layout.live_sha() {
-        ship_behind(&hosts[1..], &here, &layout.runtime(&here), checkout);
-    }
     hosts
+}
+
+/// Probes this host first, so its canary walks the spine on the live runtime, and ships that runtime to the hosts behind it only when it passed.
+fn walk_and_ship(layout: &Layout, hosts: &[Shell], checkout: &Path) -> probe::Facts {
+    let (facts, judged) = probed(layout, &hosts[0]);
+    let live = layout.live_sha();
+    let walk = pin::walk_of(layout, &facts.host, live.as_deref(), judged.as_ref().map(|(sha, verdict)| (sha.as_str(), verdict)));
+    let shipped = pin::ship_if_walked(walk, |here| {
+        ship_behind(&hosts[1..], here, &layout.runtime(here), checkout);
+        Ok(())
+    });
+    if let Err(failure) = shipped {
+        eprintln!("north runtime settle: {}", failure.message);
+    }
+    facts
 }
 
 fn ship_behind(hosts: &[Shell], here: &str, runtime: &Path, checkout: &Path) {
@@ -115,16 +124,16 @@ fn ship_behind(hosts: &[Shell], here: &str, runtime: &Path, checkout: &Path) {
     });
 }
 
-fn probed(layout: &Layout, host: &Shell) -> probe::Facts {
+/// The host's facts after its canary, and the runtime the canary judged with its verdict, which the pin journal records when it walked or rolled back.
+fn probed(layout: &Layout, host: &Shell) -> (probe::Facts, Option<(String, Verdict)>) {
     let facts = probe::facts(host);
-    let judged = match &facts.runtime {
-        Some(runtime) if facts.unreachable.is_none() => canary::check(layout, &facts.host, runtime, &canary::Live { layout, host }),
-        _ => Verdict::Skipped,
+    let Some(runtime) = facts.runtime.clone().filter(|_| facts.unreachable.is_none()) else {
+        return (facts, None);
     };
-    match judged {
-        Verdict::RolledBack => probe::facts(host),
-        _ => facts,
-    }
+    let verdict = canary::check(layout, &facts.host, &runtime, &canary::Live { layout, host });
+    pin::judged(layout, &facts.host, &runtime, &verdict, &facts.swaps);
+    let facts = if verdict == Verdict::RolledBack { probe::facts(host) } else { facts };
+    (facts, Some((runtime, verdict)))
 }
 
 fn handed_to_live(layout: &Layout) -> Option<String> {
@@ -155,11 +164,26 @@ fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Fail
         fs::write(&seen_path, kept.iter().map(|(at, sha)| format!("{at} {sha}\n")).collect::<String>())?;
     }
     let deadline = probe::default_number("landing_live_deadline_sec") as u64;
-    let Some((_, sha)) = seen.iter().rev().find(|(at, _)| *at + deadline <= now()) else {
+    let pinned = layout.live_sha();
+    let promoted_at = pinned.as_deref().map_or(0, |pinned| promoted_at(&pin::read(&layout.state), pinned));
+    let held = |sha: &str| pinned.as_deref().is_some_and(|pinned| sha == pinned || ancestor(checkout, sha, pinned));
+    let Some(sha) = due_in(&seen, promoted_at, deadline, now(), held) else {
         return Ok(None);
     };
     let subject = process::run("git", Some(checkout), &["log", "-1", "--format=%s", sha]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
-    Ok(Some(Landing { sha: sha.clone(), subject }))
+    Ok(Some(Landing { sha: sha.to_owned(), subject }))
+}
+
+fn promoted_at(events: &[pin::Event], pinned: &str) -> u64 {
+    events.iter().rev().find_map(|event| match event {
+        pin::Event::Promoted { sha, at, .. } if sha == pinned => u64::try_from(*at).ok(),
+        _ => None,
+    }).unwrap_or(0)
+}
+
+/// The landing settle judges: the newest one seen that the pinned runtime holds, once `deadline` passed since it was seen and since the pin was promoted, since a landing the pin does not hold yet is due nowhere.
+fn due_in(seen: &[(u64, String)], promoted_at: u64, deadline: u64, now: u64, held: impl Fn(&str) -> bool) -> Option<&str> {
+    seen.iter().rev().find(|(at, sha)| (*at).max(promoted_at) + deadline <= now && held(sha)).map(|(_, sha)| sha.as_str())
 }
 
 fn verdict(facts: &probe::Facts, problems: &[String]) -> String {
@@ -235,7 +259,17 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::blame;
+    use super::{blame, due_in};
+
+    #[test]
+    fn settle_judges_only_a_landing_the_pinned_runtime_holds_once_the_pin_had_its_deadline() {
+        let seen = vec![(100, "a".to_owned()), (200, "b".to_owned())];
+        assert_eq!(due_in(&seen, 0, 60, 1_000, |sha| sha == "a"), Some("a"));
+        assert_eq!(due_in(&seen, 0, 60, 1_000, |_| true), Some("b"));
+        assert_eq!(due_in(&seen, 950, 60, 1_000, |_| true), None);
+        assert_eq!(due_in(&seen, 900, 60, 1_000, |_| true), Some("b"));
+        assert_eq!(due_in(&seen, 0, 60, 1_000, |_| false), None);
+    }
 
     #[test]
     fn a_runtime_lagging_a_newer_main_is_not_this_landings_breakage() {

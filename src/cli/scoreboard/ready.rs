@@ -46,7 +46,9 @@ enum Bar {
     Corrections,
     PriorityNow,
     IdleAccount,
-    LiveP90,
+    RuntimeBreaks,
+    RuntimeRollback,
+    RuntimeAge,
     UsagePerLanding,
     StrandedUsage,
     MainGreenLander,
@@ -54,7 +56,7 @@ enum Bar {
 }
 
 impl Bar {
-    const ALL: [Self; 15] = [
+    const ALL: [Self; 17] = [
         Self::LandingP90,
         Self::VerificationP50,
         Self::VerificationP90,
@@ -65,7 +67,9 @@ impl Bar {
         Self::Corrections,
         Self::PriorityNow,
         Self::IdleAccount,
-        Self::LiveP90,
+        Self::RuntimeBreaks,
+        Self::RuntimeRollback,
+        Self::RuntimeAge,
         Self::UsagePerLanding,
         Self::StrandedUsage,
         Self::MainGreenLander,
@@ -84,7 +88,9 @@ impl Bar {
             Self::Corrections => "ready-corrections",
             Self::PriorityNow => "ready-priority-now",
             Self::IdleAccount => "ready-idle-account",
-            Self::LiveP90 => "ready-live-p90",
+            Self::RuntimeBreaks => "ready-runtime-breaks",
+            Self::RuntimeRollback => "ready-runtime-rollback",
+            Self::RuntimeAge => "ready-runtime-age",
             Self::UsagePerLanding => "ready-usage-per-landing",
             Self::StrandedUsage => "ready-stranded-usage",
             Self::MainGreenLander => "ready-main-green-lander",
@@ -104,7 +110,9 @@ impl Bar {
             Self::Corrections => "corrections per h (all)",
             Self::PriorityNow => "priority:now open",
             Self::IdleAccount => "longest idle account (all)",
-            Self::LiveP90 => "landing to live everywhere p90",
+            Self::RuntimeBreaks => "runtime breaks reaching a 2nd host (all)",
+            Self::RuntimeRollback => "runtime rollback after swap, slowest (all)",
+            Self::RuntimeAge => "main waiting for the pinned runtime (all)",
             Self::UsagePerLanding => "usage per first try landed (all)",
             Self::StrandedUsage => "usage stranded while work waited (all)",
             Self::MainGreenLander => "main green by the lander's verdicts",
@@ -112,9 +120,9 @@ impl Bar {
         }
     }
 
-    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent.
+    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback has none to time.
     fn quiet_passes(self) -> bool {
-        matches!(self, Self::AskToLanding | Self::Corrections | Self::LiveP90)
+        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback)
     }
 }
 
@@ -253,7 +261,7 @@ struct Records {
     firsts: HashMap<String, Vec<i64>>,
     priority: Vec<Noted>,
     idle: Idle,
-    live: HashMap<String, Vec<(i64, f64)>>,
+    pins: Vec<north_runtime::runtime::pin::Event>,
     lander_red: HashMap<String, main_green::Reds>,
     ci_red: HashMap<String, main_green::Reds>,
     usage: Facts,
@@ -305,7 +313,7 @@ impl Records {
             ci_red: REPOS.iter().filter_map(|repo| Some(((*repo).to_owned(), main_green::github(repo, now)?))).collect(),
             idle: Idle::read(since),
             usage: Facts::load(&usage_yield::Sources { db: &threads, policy: &crate::platform::orchestration::path(), state: &state_root() }, now),
-            live: HashMap::from([("north".to_owned(), north_runtime::runtime::live::everywhere(&north_runtime::runtime::live::read(&sources.records.join("north"))))]),
+            pins: north_runtime::runtime::pin::read(&sources.records.join("north")),
         })
     }
 
@@ -329,7 +337,7 @@ impl Records {
             Bar::LandingP90 => spread(&self.landings, 0.9),
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
-            Bar::LiveP90 => spread(&self.live, 0.9),
+            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeAge => runtime(bar, &north_runtime::runtime::pin::bars(&self.pins, window.start, window.end)),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)
@@ -365,6 +373,16 @@ impl Records {
                 }
             }
         }
+    }
+}
+
+/// The pinned runtime's bars, one fleet for every repository: spine-breaking promotions that reached a second host, the slowest rollback after its swap, and how long main has waited for the pin.
+fn runtime(bar: Bar, pins: &north_runtime::runtime::pin::Bars) -> Option<Reading> {
+    match bar {
+        Bar::RuntimeBreaks => pins.breaks_reaching_second_host.map(|breaks| Reading { value: breaks as f64, sample: 1 }),
+        Bar::RuntimeRollback => pins.rollback_seconds.map(|seconds| Reading { value: seconds, sample: pins.rollbacks }),
+        Bar::RuntimeAge => pins.runtime_age_hours.map(|hours| Reading { value: hours, sample: 1 }),
+        _ => None,
     }
 }
 

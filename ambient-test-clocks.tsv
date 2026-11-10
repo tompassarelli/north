@@ -22,7 +22,6 @@ crates/north-ops/src/ops/retention/tests.rs	1
 crates/north-runtime/src/land_offload/ship/pinned.rs	4
 crates/north-runtime/src/offload_cache/tests.rs	2
 crates/north-runtime/src/runtime/bounded.rs	1
-crates/north-runtime/src/runtime/follow.rs	3
 crates/north-runtime/src/runtime/update/tests.rs	1
 crates/north-session-host/src/session_host.rs	3
 crates/north-threads/src/threads/client/tests.rs	4

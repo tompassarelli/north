@@ -1,17 +1,16 @@
 use super::failure::{Failure, failed};
 use super::layout::{Layout, TREE};
-use super::{deploy, update};
+use super::{deploy, pin, update};
+use crate::land_offload;
 use crate::platform::process;
 use std::fs::{self, OpenOptions};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use rustix::fs::FlockOperation;
 
 const LANDER_SHADOW_MINUTES: &str = "3";
-const SWAP_POLL: Duration = Duration::from_millis(100);
 const LANDER_LOCK: &str = "lander-promote.lock";
 const LANDER_REPLAY_LIMIT: Duration = Duration::from_secs(30 * 60);
 const SCOPED: &str = "NORTH_RUNTIME_PROMOTE_SCOPED";
@@ -57,31 +56,15 @@ pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
     }
 }
 
+/// The other hosts take the runtime only after it walked the spine here, so a runtime that breaks the core loop is rolled back on this host and reaches no second one.
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
-    let before = layout.live_sha();
-    let built = AtomicBool::new(false);
-    std::thread::scope(|scope| {
-        let here = scope.spawn(|| {
-            let here = update::update_after_landing(layout);
-            built.store(true, Ordering::Release);
-            here
-        });
-        let elsewhere = scope.spawn(|| {
-            await_swap(layout, before.as_deref(), &built);
-            deploy::deploy_live(layout)
-        });
-        let here = here.join().unwrap_or_else(|_| Err(failed(1, "runtime update panicked")));
-        let lander = follow_lander(layout);
-        let elsewhere = elsewhere.join().unwrap_or_else(|_| Err(failed(1, "runtime shipping panicked")));
-        here.and(elsewhere).and(lander)
-    })
-}
-
-/// The other hosts take the runtime as soon as this host swaps to it, not after this host's health check, agents sync and old-runtime collection, which only the next build waits behind.
-fn await_swap(layout: &Layout, before: Option<&str>, update_returned: &AtomicBool) {
-    while layout.live_sha().as_deref() == before && !update_returned.load(Ordering::Acquire) {
-        std::thread::sleep(SWAP_POLL);
-    }
+    let here = update::update_after_landing(layout);
+    let elsewhere = match land_offload::settles_fleet_here() {
+        true => pin::ship_if_walked(pin::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ()),
+        false => Ok(()),
+    };
+    let lander = follow_lander(layout);
+    here.and(elsewhere).and(lander)
 }
 
 fn follow_lander(layout: &Layout) -> Result<(), Failure> {
@@ -139,38 +122,4 @@ fn names_north(url: &str) -> bool {
     let url = url.trim_end_matches('/');
     let url = url.strip_suffix(".git").unwrap_or(url);
     url.rsplit(['/', ':']).next() == Some("north")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Layout, await_swap};
-    use std::os::unix::fs::symlink;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::time::{Duration, Instant};
-
-    const OLD: &str = "0c54814b5c34a736fc44672f7e752782a7dbcd03";
-    const NEW: &str = "1613a7786406485376d98593c765ee31cebbf632";
-
-    #[test]
-    fn shipping_starts_when_this_host_swaps_not_when_its_update_returns() {
-        let state = tempfile::tempdir().unwrap();
-        let layout = Layout { state: state.path().to_owned() };
-        symlink(super::super::layout::link(OLD), layout.current()).unwrap();
-        let returned = AtomicBool::new(false);
-        let started = Instant::now();
-        std::thread::scope(|scope| {
-            scope.spawn(|| {
-                std::thread::sleep(Duration::from_millis(300));
-                let staged = layout.state.join("current.tmp");
-                symlink(super::super::layout::link(NEW), &staged).unwrap();
-                std::fs::rename(&staged, layout.current()).unwrap();
-                while !returned.load(Ordering::Acquire) {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            });
-            await_swap(&layout, Some(OLD), &returned);
-            assert!(started.elapsed() < Duration::from_secs(10), "shipping waited for the update to return");
-            returned.store(true, Ordering::Release);
-        });
-    }
 }
