@@ -1,12 +1,14 @@
 //! Where a build host's root disk counts as too full, as free space rather than a percent so a large disk keeps the
 //! same headroom as a small one. Passing the high watermark starts one cleanup pass that trims regenerable caches least
 //! recently used first down to the low watermark, far roomier, so one pass lasts weeks rather than trimming just back over
-//! one line; under the eviction line the lease reaper also takes land-offload slots and placement refuses the host.
+//! one line; under the eviction line placement refuses the host and the lease reaper also takes land-offload slots, back over the
+//! roomier eviction stop line so the disk is not left on the line placement refuses at.
 use super::admission::default_mib as default_number;
 
 const LOW_WATERMARK_FREE_SHARE: f64 = 0.40;
 const HIGH_WATERMARK_FREE_SHARE: f64 = 0.13;
 const EVICT_FREE_SHARE: f64 = 0.20;
+const EVICT_STOP_FREE_SHARE: f64 = 0.25;
 
 /// Free space under the smaller of a share of the disk's size and a fixed headroom.
 #[derive(Clone, Copy)]
@@ -32,6 +34,12 @@ impl Line {
     /// `offload_evict_free_gib` free, or 20% of a disk too small to spare it.
     pub fn eviction() -> Self {
         Self { free_share: EVICT_FREE_SHARE, free_gib: default_number("offload_evict_free_gib") }
+    }
+
+    /// `offload_evict_stop_free_gib` free, or 25% of a disk too small to spare it: a pass that starts under the eviction line takes land slots
+    /// until the disk is back over this one, so it does not leave the disk on the line placement refuses at.
+    pub fn eviction_stop() -> Self {
+        Self { free_share: EVICT_STOP_FREE_SHARE, free_gib: default_number("offload_evict_stop_free_gib") }
     }
 
     /// The free GiB under which a disk of `size_gib` passes this line; 0 for a disk of unknown size.

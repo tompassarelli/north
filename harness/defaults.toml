@@ -653,6 +653,14 @@ source = "measured: the 80% line was set when the GPU host had a 468 GiB disk, 9
 fallback = "none: the reaper always applies it"
 consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-runtime/src/offload_cache/mod.rs", "crates/north-capacity/src/capacity/saturation.rs"]
 
+[offload_evict_stop_free_gib]
+value = 130
+allowed = { min = 0, max = 65536 }
+unit = "GiB free a build host's lease reaper takes land-offload slots back up to once a pass starts with the root disk under offload_evict_free_gib, so the pass leaves the disk a margin above the line placement refuses at rather than on it; a disk too small to spare it uses 25% free instead"
+source = "measured: on 2026-11-10 from 3:55 PM the GPU host read 92 to 99 GiB free and refused launches, because each pass stopped at 94 GiB after taking 0.5 to 2 GiB of caches, until a pass at 4:04 PM took one 38 GiB land slot (94 to 126 GiB); 36 GiB over the line is one warm land slot of margin (north#1036)"
+fallback = "none: the reaper always applies it"
+consumers = ["crates/north-capacity/src/capacity/disk_line.rs", "crates/north-runtime/src/offload_cache/mod.rs"]
+
 [disk_low_watermark_free_gib]
 value = 400
 allowed = { min = 0, max = 65536 }

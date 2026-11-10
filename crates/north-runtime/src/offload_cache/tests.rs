@@ -155,6 +155,56 @@ fn a_large_disk_evicts_at_the_same_free_headroom_as_a_small_one_so_a_roomy_host_
     let land = home.path().join(".cache/land-offload");
     slot(&land, "code-north-main-3", 8, 40);
     slot(&land, "code-north-main", 8, 50);
-    let evicted = evict(&stores(home.path(), Some(disk(936.0, 81.0)), &DiskBudget::default(), &Ledger::shipped(), Lines::pass(true)), &mut || Some(disk(936.0, 81.0)));
+    let evicted = evict(&stores(home.path(), Some(disk(936.0, 81.0)), &DiskBudget::default(), &Ledger::shipped(), Lines::pass(true, false)), &mut || Some(disk(936.0, 81.0)));
     assert!(evicted.is_empty() && land.join("code-north-main-3/target/blob").exists() && land.join("code-north-main/target/blob").exists());
+}
+
+#[test]
+fn the_first_pass_under_the_eviction_line_takes_land_slots_back_over_the_stop_line_and_the_budget_holds_every_slot_landers_included() {
+    const KIB_PER_GIB: usize = 64;
+    let scaled = |home: &Path| allocated_tree(home, &mut HashSet::new()).unwrap().0 as f64 / (KIB_PER_GIB * KIB) as f64;
+    let lay_out = || {
+        let home = tempfile::tempdir().unwrap();
+        let (build, land) = (home.path().join(".cache/build-offload"), home.path().join(".cache/land-offload"));
+        slot(&build, "lane-a", KIB_PER_GIB, 3);
+        slot(&build, "lane-b", KIB_PER_GIB / 2, 2);
+        for (name, gib, age_hours) in [("code-north-main-3", 38, 9), ("code-north-main-1", 36, 8), ("code-north-main-2", 37, 7), ("code-north-main-4", 40, 6), ("code-north-main", 30, 5), ("code-north-main-5", 28, 10)] {
+            slot(&land, name, gib * KIB_PER_GIB, age_hours);
+        }
+        home
+    };
+    let size_bytes = 936 * (1u64 << 30);
+    let floor = Line::eviction().floor_gib(936.0);
+    let stop = Line::eviction_stop().floor_gib(936.0);
+    let home = lay_out();
+    let room = 93.0 + scaled(home.path());
+    let mut traffic = 0.0;
+    let mut lowest = f64::INFINITY;
+    let mut land_passes = 0;
+    for pass in 0..20 {
+        let mut reading = || Some(Disk { used_percent: 90.0, free_gib: room - traffic - scaled(home.path()), size_bytes });
+        let (evicted, after) = evict_here(home.path(), &DiskBudget::default(), &mut reading, false);
+        let after = after.unwrap().free_gib;
+        if evicted.iter().any(|gone| gone.path.starts_with(home.path().join(".cache/land-offload"))) {
+            land_passes += 1;
+        }
+        if pass == 0 {
+            assert!(after >= stop, "the 3:55 PM pass at 93 GiB free must land at the stop line ({stop:.0} GiB), not at the refusal line ({floor:.0} GiB); it left {after:.1}");
+        }
+        lowest = lowest.min(after);
+        traffic += 1.5;
+    }
+    assert!(lowest >= floor, "10 minutes of land-check traffic after the pass never brings the disk back under the refusal line; lowest {lowest:.1}");
+    assert_eq!(land_passes, 1, "one pass takes land slots, not one every 30 s");
+
+    let home = lay_out();
+    let land = home.path().join(".cache/land-offload");
+    let budget = DiskBudget::parse("[hosts.h.disk_budget_gib]\nland_offload = 0.01\n", "h");
+    let cap = (budget.named_gib("land_offload").unwrap() * GIB) as u64;
+    let roomy = Disk { used_percent: 50.0, free_gib: 400.0, size_bytes };
+    let stores = stores(home.path(), Some(roomy), &budget, &Ledger::shipped(), Lines::pass(false, false));
+    let evicted = evict(&stores, &mut || Some(roomy));
+    let held: u64 = slots(&land).iter().map(|slot| slot.bytes).sum();
+    assert!(held <= cap, "the budget holds every land slot together, the lander's included, to the cap on a calm pass: {held} > {cap}");
+    assert!(land.join("code-north-main-5/target/blob").exists() && evicted.iter().all(|gone| !gone.path.ends_with("code-north-main-5")), "the lander's reserved slot goes last");
 }

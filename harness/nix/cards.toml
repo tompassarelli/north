@@ -175,7 +175,8 @@ text = """
 Each build host's lease reaper keeps the disk with wide hysteresis: passing disk_high_watermark_free_gib (else 13% free) starts
 one cleanup pass that trims idle build-offload slots, idle shared cargo target output, wisp window builds and sccache, past their
 caps, down to disk_low_watermark_free_gib (else 40% free), records one host-disk incident and pages the proxy with what it took and
-the largest stores; land-offload slots go only under offload_evict_free_gib (else 20%). The page names the stores to look at.
+the largest stores; land-offload slots keep their land_offload budget, and past it go only in a pass that starts under
+offload_evict_free_gib (else 20%), then until the disk is back over offload_evict_stop_free_gib (else 25%). The page names the stores to look at.
 `north capacity disk` prints every store's size and the bytes no store explains; state stores are never deleted by north.
 Never delete a slot by hand while its lock is held, and never touch worktrees or checkouts outside those caches.
 """

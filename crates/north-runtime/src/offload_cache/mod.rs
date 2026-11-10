@@ -2,9 +2,11 @@
 //! lease reaper trims itself. Passing the high watermark starts one cleanup pass that takes regenerable caches (build-offload slots, the
 //! shared cargo targets, wisp window builds, sccache) least recently used first and past their caps, down to the far roomier low
 //! watermark, and pages the proxy once with what it took and the ledger's largest stores; the next pass waits for the next crossing.
-//! Between passes only caps are kept. Land-offload slots, the lander's reserved slot of each checkout last, go only under the eviction
-//! line. Within a slot store the least recently used slot whose lock no job holds goes first. The lines are free space, not a percent,
-//! so a large disk keeps the same headroom as a small one. The lease reaper starts it every 30 s on each build host as its own unit, and a disk-floor
+//! Between passes only caps are kept. Land-offload slots, the lander's reserved slot of each checkout last, are held to their cap on every
+//! pass and otherwise go only in a pass that starts under the eviction line, then until the disk is back over the roomier eviction stop
+//! line, so a pass never leaves the disk on the line placement refuses at. Within a slot store the least recently used slot whose lock no
+//! job holds goes first. The lines are free space, not a percent, so a large disk keeps the same headroom as a small one. The lease
+//! reaper starts it every 30 s on each build host as its own unit, and a disk-floor
 //! admission defer runs it after the other reclaim sweeps before deciding again.
 use std::collections::HashSet;
 use std::fs;
@@ -34,10 +36,11 @@ const COMPANION_DIRS: [&str; 1] = ["beside"];
 const COMPANION_FILES: [&str; 2] = ["bundle", "patch"];
 const ENTRY_IDLE: Duration = Duration::from_secs(20 * 60);
 const ALARM_STORES: usize = 3;
+const LAND_OFFLOAD: &str = "land_offload";
 
 /// One thing eviction may take from, in the order `stores` lists them, each while the disk passes its own `line`.
 pub enum Store {
-    /// Offload slots under `root` that `take` admits, the oldest unlocked first, while they pass `cap_bytes` or the disk passes `line`.
+    /// Offload slots under `root` that `take` admits, the oldest unlocked first, while all of `root`'s slots pass `cap_bytes` or the disk passes `line`.
     Slots { root: PathBuf, cap_bytes: Option<u64>, take: Take, line: Line },
     /// The shared cargo targets under `cache`, idle build output of the least recently built first, to `cap_bytes` and below it by as much as the disk needs.
     CargoTargets { cache: PathBuf, cap_bytes: u64, line: Line },
@@ -55,9 +58,10 @@ pub struct Lines {
 }
 
 impl Lines {
-    /// A cleanup pass trims caches to the low watermark; between passes they keep only their caps. Warm stores wait for the eviction line.
-    pub fn pass(cleanup: bool) -> Self {
-        Self { trim: if cleanup { Line::low_watermark() } else { Line::NEVER }, evict: Line::eviction() }
+    /// A cleanup pass trims caches to the low watermark; between passes they keep only their caps. Warm stores go only in an `evicting`
+    /// pass, one that started under the eviction line, and then until the disk is back over the eviction stop line.
+    pub fn pass(cleanup: bool, evicting: bool) -> Self {
+        Self { trim: if cleanup { Line::low_watermark() } else { Line::NEVER }, evict: if evicting { Line::eviction_stop() } else { Line::NEVER } }
     }
 }
 
@@ -190,9 +194,10 @@ fn evict_slots(root: &Path, cap_bytes: Option<u64>, take: Take, line: Line, disk
     if cap_bytes.is_none() && !over(line, disk) {
         return;
     }
-    let mut slots: Vec<Slot> = slots(root).into_iter().filter(|slot| slot.path.file_name().is_some_and(|name| take.admits(&name.to_string_lossy()))).collect();
+    let every = slots(root);
+    let mut held: u64 = every.iter().map(|slot| slot.bytes).sum();
+    let mut slots: Vec<Slot> = every.into_iter().filter(|slot| slot.path.file_name().is_some_and(|name| take.admits(&name.to_string_lossy()))).collect();
     slots.sort_by_key(|slot| slot.used);
-    let mut held: u64 = slots.iter().map(|slot| slot.bytes).sum();
     for slot in slots {
         let over_cap = cap_bytes.is_some_and(|cap| held > cap);
         if !over_cap && !over(line, disk) {
@@ -203,6 +208,13 @@ fn evict_slots(root: &Path, cap_bytes: Option<u64>, take: Take, line: Line, disk
             evicted.push(Evicted { path: slot.path, bytes: slot.bytes, what: "offload slot" });
         }
     }
+}
+
+/// Whether the land-offload slots under `root` take `more` bytes and stay within this host's `land_offload` budget, which the reaper
+/// holds them to on every pass, so a warm job never fills a slot the next pass evicts.
+pub fn land_slots_take(root: &Path, more: u64) -> bool {
+    let Some(cap) = DiskBudget::local().named_gib(LAND_OFFLOAD) else { return true };
+    slots(root).iter().map(|slot| slot.bytes).sum::<u64>() + more <= (cap * GIB) as u64
 }
 
 fn slots(root: &Path) -> Vec<Slot> {
@@ -284,11 +296,12 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from)
 }
 
-/// One eviction pass over this home's stores, a cleanup pass when `cleanup` is set or the disk reads past the eviction line.
-fn evict_here(home: &Path, disk: &mut dyn FnMut() -> Option<Disk>, cleanup: bool) -> (Vec<Evicted>, Option<Disk>) {
+/// One eviction pass over this home's stores under `budget`, a cleanup pass when `cleanup` is set or the disk reads past the eviction
+/// line, which alone lets the pass take warm stores past their caps.
+fn evict_here(home: &Path, budget: &DiskBudget, disk: &mut dyn FnMut() -> Option<Disk>, cleanup: bool) -> (Vec<Evicted>, Option<Disk>) {
     let first = disk();
-    let cleanup = cleanup || first.is_some_and(|disk| disk.past(Line::eviction()));
-    let evicted = evict(&stores(home, first, &DiskBudget::local(), &Ledger::shipped(), Lines::pass(cleanup)), disk);
+    let evicting = first.is_some_and(|disk| disk.past(Line::eviction()));
+    let evicted = evict(&stores(home, first, budget, &Ledger::shipped(), Lines::pass(cleanup || evicting, evicting)), disk);
     for gone in &evicted {
         eprintln!("north capacity: evicted {} {} ({} MiB), least recently used", gone.what, gone.path.display(), gone.bytes >> 20);
     }
@@ -335,7 +348,7 @@ pub fn keep() {
     let Some(before) = disk_of(&home) else { return };
     let passed = |disk: Disk| disk.past(Line::high_watermark()) || disk.past(Line::eviction());
     let starts = !open && passed(before);
-    let (evicted, Some(after)) = evict_here(&home, &mut || disk_of(&home), starts) else { return };
+    let (evicted, Some(after)) = evict_here(&home, &DiskBudget::local(), &mut || disk_of(&home), starts) else { return };
     if starts {
         let host = crate::platform::host::name();
         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
@@ -393,7 +406,7 @@ fn record(key: &str, host: &str, detail: &str) -> bool {
 /// it; the free GiB afterwards, or `None` when neither freed anything.
 pub fn reclaim_in(home: &Path, disk: &mut dyn FnMut() -> Option<Disk>, rest: fn() -> Option<f64>) -> Option<f64> {
     let swept = rest();
-    let (evicted, after) = evict_here(home, disk, false);
+    let (evicted, after) = evict_here(home, &DiskBudget::local(), disk, false);
     if evicted.is_empty() { swept } else { after.map(|after| after.free_gib).or(swept) }
 }
 
