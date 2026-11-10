@@ -2,8 +2,8 @@
 name: program-craftsmanship
 description: >-
   Refactor, clean up or port code preserving behavior; structure.toml code-health messages; organize project files, pipelines, handoff layouts.
-grounded: 2026-10-15
-written: 2026-11-06
+grounded: 2026-11-10
+written: 2026-11-10
 portable: true
 ---
 

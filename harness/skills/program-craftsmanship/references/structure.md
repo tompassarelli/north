@@ -101,6 +101,8 @@ the fix. The rules:
 - file-size: a warning, never a refusal, for a new hand file over `file_lines` or one that crossed it. Growing a file already over is the hotspot rule's concern.
 - function: a new function over a line or complexity limit, or one that crossed it. Growing one already over is the hotspot rule's concern.
 - hotspot: a top hotspot file whose total complexity rose.
+- implicit-state: a new status string, presence flag or phase suffix where `[implicit_state]` names a typed owner.
+- crate-lines: a crate that grew over its `[crate_lines]` cap; put the new code in a smaller crate.
 - generated: a claimed generated file whose producer is missing.
 
 Exit 2 is a tool error; report it rather than working around it.
@@ -119,7 +121,7 @@ Exit 2 is a tool error; report it rather than working around it.
 
 ## Code-health-allow
 
-For function, hotspot and crate-lines (the path is the crate name) only, a commit trailer
+For function, hotspot, implicit-state and crate-lines (the path is the crate name) only, a commit trailer
 `Code-health-allow: <rule> <path> — <reason>` passes the gate when splitting
 now would be worse, for example a table-driven function whose branches are
 data. The reason must say why. The report lists every allow as debt for the
@@ -128,13 +130,13 @@ change `structure.toml`.
 
 ## The recurring review
 
-An hourly timer runs `code-health signal` per enrolled repo. It fires after
-the `[review]` thresholds (commits, hand lines added, days with a landing, a
-hotspot score, or growth since the last review in hidden links, volatile
-imports or special cases) since the last review. The thresholds are the
+Each hour the review detector runs `code-health signal --record` per enrolled repo and files one review box once the `[review]`
+thresholds are passed since the last review (commits, hand lines added, days
+with a landing, a hotspot score, or growth in hidden links, volatile imports or
+special cases). The thresholds are the
 `code-health-review` loop in `harness/loops.toml`, judged by the median files
-touched per feature commit and the rework rate since the last review. A fired review starts one worker or lead
-that reads `code-health report`, lands behavior-preserving slices against the
+touched per feature commit and the rework rate since the last review. A worker or lead takes that box,
+reads `code-health report`, lands behavior-preserving slices against the
 top hotspots, allowed debt, cycles and layer violations, then runs
 `code-health report --save` and `code-health review-done`. Ordinary work does
 not wait for it; fix what your own change touches.
