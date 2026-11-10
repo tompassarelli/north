@@ -9,15 +9,16 @@ use crate::land::slots::guard_suites::Suites;
 use crate::platform::records_mirror;
 
 mod base;
+mod flaky;
 mod full_runs;
+use flaky::Seen;
 use full_runs::{Conclusion, Run, Window, failed_tests};
 pub use base::classify;
-use selection_miss::rev_parse;
 mod responsible;
 mod selection_miss;
 
 pub const USAGE: &str = "usage: north land missed --since DATE_OR_SPAN [--until DATE] [--repo DIR] [--coverage FILE]
-lists each failing full run on main from two sources, the Cargo runs of GitHub Actions created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z) and the `north test coverage record` full run whose map (--coverage FILE, by default this host's map of the repository) was recorded in that window and names its failed tests, judged as a Cargo run on the map's commit; for each, its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the run on that commit's parent, which is listed as an environment failure and is no miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
+lists each failing full run on main from two sources, the Cargo runs of GitHub Actions created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z) and the `north test coverage record` full run whose map (--coverage FILE, by default this host's map of the repository) was recorded in that window and names its failed tests, judged as a Cargo run on the map's commit; for each, its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the nearest earlier full run the commit descends from, which is listed as an environment failure, and a test that a later full run passed with no change between the two runs touching its crate or the crates it depends on, which is listed as flaky; neither is a miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
 const SETTLED: f64 = 3600.0;
 
 struct Landing {
@@ -61,32 +62,36 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     };
     let mut outcomes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let (mut tally, mut failing) = (Tally::default(), Vec::new());
+    let mut seen: Vec<Seen> = Vec::new();
     for run in &runs {
-        if run.conclusion != Conclusion::Failure {
-            outcomes.entry(run.sha.clone()).or_default();
-            continue;
-        }
-        let tests = failed_tests(&repo, &run.source);
+        let tests = if run.conclusion == Conclusion::Failure { failed_tests(&repo, &run.source) } else { Vec::new() };
         outcomes.entry(run.sha.clone()).or_default().extend(tests.iter().cloned());
+        seen.push(Seen { sha: run.sha.clone(), failed: tests.iter().cloned().collect(), names_its_failures: run.conclusion == Conclusion::Success || !tests.is_empty() });
+    }
+    let (mut tally, mut failing) = (Tally::default(), Vec::new());
+    for (at, run) in runs.iter().enumerate().filter(|(_, run)| run.conclusion == Conclusion::Failure) {
+        let tests: Vec<String> = seen[at].failed.iter().cloned().collect();
         failing.push((run, tests.clone()));
         if tests.is_empty() {
             println!("{} at {}: its log names no failed test", run.source, short(&run.sha));
             continue;
         }
-        let on_base = rev_parse(&repo, &format!("{}^", run.sha)).and_then(|parent| outcomes.get(&parent)).map(|failed| failed.iter().cloned().collect::<Vec<_>>());
-        tally.add(after_landing(&repo, &landings, suites.as_ref(), run, &tests, on_base.as_deref()));
+        let on_base = flaky::before(&repo, &seen[..at], &run.sha).filter(|base| base.names_its_failures).map(|base| base.failed.iter().cloned().collect::<Vec<_>>());
+        let reaches_nothing = |name: &str| flaky::reaches_nothing(&repo, &seen, at, name);
+        tally.add(after_landing(&repo, &landings, suites.as_ref(), run, &tests, on_base.as_deref(), &reaches_nothing));
     }
     let failing_count = failing.len();
     selection_miss::name_lanes(&repo, &runs, failing, &outcomes, &landings, &records.home().join("safe-push/post-land.tsv"));
-    println!("north land missed: {failing_count} failing full runs on main since {}; of {} failed tests in a range with a recorded selection, {} were left out of it; {} more also fail on their base commit and are environment failures; {} failed in a range with none", window.since, tally.judged, tally.missed, tally.environment, tally.unjudged);
-    u8::from(tally.missed > 0)
+    tally.print_lists();
+    println!("north land missed: {failing_count} failing full runs on main since {}; of {} failed tests in a range with a recorded selection, {} were left out of it; {} failed with no change reaching them and are flaky, not selection gaps; {} more also fail on their base run and are environment failures; {} failed in a range with none", window.since, tally.judged, tally.left_out.len(), tally.flaky.len(), tally.environment, tally.unjudged);
+    u8::from(!tally.left_out.is_empty())
 }
 
 #[derive(Default)]
 struct Tally {
     judged: usize,
-    missed: usize,
+    left_out: Vec<(String, String)>,
+    flaky: Vec<(String, String)>,
     unjudged: usize,
     environment: usize,
 }
@@ -94,20 +99,34 @@ struct Tally {
 impl Tally {
     fn add(&mut self, other: Self) {
         self.judged += other.judged;
-        self.missed += other.missed;
+        self.left_out.extend(other.left_out);
+        self.flaky.extend(other.flaky);
         self.unjudged += other.unjudged;
         self.environment += other.environment;
     }
+
+    fn print_lists(&self) {
+        for (title, list) in [("selection gaps, left out of a selection that a change reached", &self.left_out), ("flaky, failed with no change reaching them", &self.flaky)] {
+            let mut by_test: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+            for (test, sha) in list {
+                by_test.entry(test).or_default().push(sha);
+            }
+            println!("{title}: {}", by_test.len());
+            for (test, shas) in by_test {
+                println!("  {test} at {}", shas.join(", "));
+            }
+        }
+    }
 }
 
-fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String], on_base: Option<&[String]>) -> Tally {
+fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String], on_base: Option<&[String]>, flaky: &dyn Fn(&str) -> bool) -> Tally {
     let Some(landing) = landings.iter().find(|landing| holds(repo, landing, &run.sha)) else {
         println!("{} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.source, short(&run.sha), tests.len(), tests.join(", "));
         return Tally { unjudged: tests.len(), ..Tally::default() };
     };
     let floor = suites.map(|suites| suites.floor(&changed(repo, &landing.base, &landing.head)));
     let guards = |name: &str| floor.as_ref().is_some_and(|floor| floor.selects(name));
-    let verdict = classify(tests, on_base, |name| landing.selected.holds(name) || guards(name));
+    let verdict = classify(tests, on_base, flaky, |name| landing.selected.holds(name) || guards(name));
     let guarded = verdict.selected.iter().filter(|name| !landing.selected.holds(name)).count();
     let mut detail = String::new();
     if !verdict.left_out.is_empty() {
@@ -115,11 +134,15 @@ fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run
     } else if guarded > 0 {
         detail.push_str(&format!("; {guarded} held by the guard suite"));
     }
+    if !verdict.flaky.is_empty() {
+        detail.push_str(&format!("; flaky, no change reached them: {}", verdict.flaky.join(", ")));
+    }
     if !verdict.environment.is_empty() {
         detail.push_str(&format!("; environment failures that also fail on the base: {}", verdict.environment.join(", ")));
     }
     println!("{} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.source, short(&run.sha), tests.len(), verdict.selected.len(), short(&landing.base), short(&landing.head));
-    Tally { judged: verdict.selected.len() + verdict.left_out.len(), missed: verdict.left_out.len(), unjudged: 0, environment: verdict.environment.len() }
+    let at = |names: Vec<String>| names.into_iter().map(|name| (name, short(&run.sha).to_owned())).collect();
+    Tally { judged: verdict.selected.len() + verdict.left_out.len() + verdict.flaky.len(), left_out: at(verdict.left_out), flaky: at(verdict.flaky), unjudged: 0, environment: verdict.environment.len() }
 }
 
 fn since_instant(text: &str, now: Timestamp) -> String {

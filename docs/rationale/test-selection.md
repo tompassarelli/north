@@ -209,6 +209,14 @@ cost sample below.
   FILE`, by default the host's map of the repository) is judged as a Cargo run on the map's commit, failed or green.
   The `:guards` edge names the map's `test:BINARY::NAME` node when the graph holds exactly one, else `test:NAME`, since
   the Actions log names a test without its binary; the rule 2 reader matches both forms.
+- **Carried and flaky failures (north#902).** A failed test is judged against the nearest earlier full run the failing
+  commit descends from, not its git parent, because a landing range has one full run and the parent usually has none:
+  a test that already failed there is an environment failure carried forward, never a miss. A test that failed on a
+  fresh commit and that a later full run passed, with no file touched between the earlier run and that passing run in
+  the crate holding the test or the crates it depends on, is listed apart as flaky. The two lists print under their own
+  headings, and only the selection-gap list sets the exit code. The 2026-11-10 replay found the carried class in the
+  session-socket tests (failing in CI from the commit that parked the socket in the runtime directory until the commit
+  that parked it beside itself) and in the worker sandbox tests, and the flaky class in the fleet tick floor test.
 - **Record.** `north ledger incident record --key selection-miss:LANE:TEST --class selection-miss --noticed-by lander
   --repo north --subject LANE --detail "TEST; FILES"` records the lane, the test and the lane's changed files, and
   `north ledger incident report` on the ledger host lists the incident. When the guard lands,
