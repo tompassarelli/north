@@ -324,8 +324,14 @@ impl Records {
     }
 
     /// The pinned runtime's bars, one fleet for every repository.
-    fn runtime(&self, window: Window) -> north_runtime::runtime::pin::Bars {
-        north_runtime::runtime::pin::bars(&self.pins, window.start, window.end)
+    fn runtime(&self, bar: Bar, window: Window) -> Option<Reading> {
+        let pins = north_runtime::runtime::pin::bars(&self.pins, window.start, window.end);
+        let reading = match bar {
+            Bar::RuntimeBreaks => pins.breaks(),
+            Bar::RuntimeRollback => pins.rollback(),
+            _ => pins.age(),
+        };
+        reading.map(Reading::from)
     }
 
     fn priority(&self, repo: &str, window: Window) -> Option<Reading> {
@@ -348,9 +354,7 @@ impl Records {
             Bar::LandingP90 => spread(&self.landings, 0.9),
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
-            Bar::RuntimeBreaks => self.runtime(window).breaks().map(Reading::from),
-            Bar::RuntimeRollback => self.runtime(window).rollback().map(Reading::from),
-            Bar::RuntimeAge => self.runtime(window).age().map(Reading::from),
+            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeAge => self.runtime(bar, window),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)
