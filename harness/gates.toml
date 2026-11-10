@@ -26,9 +26,15 @@ by = "ds-865"
 hours = 41
 decisions = 77
 
-# A north lane whose own build drops a flag or subcommand that a nixos-config unit or script on its origin/main still runs (north#706): `north land scan tool-removal` asks the lane's build for `north PATH --help`. Would-be refusals: $XDG_STATE_HOME/north/gates/peer-invocation.jsonl on the checking host.
+# A north lane whose own build drops a flag or subcommand that a nixos-config unit or script on its origin/main still runs (north#706): `north land scan tool-removal` asks the lane's build for `north PATH --help`. Would-be refusals: $XDG_STATE_HOME/north/gates/peer-invocation.jsonl on the checking host. The 2026-11-10 review read 2150 decisions over 61 h: 2113 in the laptop log through the records mirror (2026-11-08 00:26 to 2026-11-10 06:48 UTC), none a would-be refusal, and 37 on cpx62, one would-be refusal and true: 3b32b3699 dropped `north skill-review-queue` while nixos-config's skill-review-queue module still ran it, though no host enabled that module, so the module is deleted in nixos-config. gex45's and nexus's logs were unreachable from cpx62. The false refusal north#1041 named, `north fleet send --from` missing from its help, was fixed by a40793dcd; a sweep of every nixos-config invocation against the live runtime's help found two more flags accepted but unlisted, `north config agents check-hook-paths --claude` and `north ops check --synthetic`, which their reference lines now name.
 [gate.peer-invocation]
-mode = "shadow"
+mode = "enforce"
+
+[gate.peer-invocation.review]
+reviewed = "2026-11-10"
+by = "n1041-peer-enforce"
+hours = 61
+decisions = 2150
 
 # A filed or edited issue's new unticked box that names no backticked `Done when:` command and says neither `Needs:` nor `not before` is refused with a message naming the box and showing how to write one (north#872), since only its own worker can tick it. The 2026-11-09 review read the log on gex45 alone (the laptop's and nexus's logs were unreachable), 2 would-be refusals over 24 h rather than the 20 the box asked for: 1 true (a probe box naming no command) and 1 false (an edit of north#706 that appended a measurement to a box it already held, so the box was not new), fixed by matching held boxes on their opening words instead of the whole line. That review passed on elapsed time alone and was not enough to enforce (north#971). The 2026-11-10 review read 24 decisions: 20 in the laptop log through the records mirror, all correct, and the 4 on gex45 (the 2 above plus 2 probes), 3 correct; nexus refuses a log read over remote-serve, so its log is unread. Neither log has a row since 2026-11-09 while more than 40 issues filed since then hold unrunnable boxes, because the gate read only the text of a Claude shell command and missed every body written to a file, a script or a Rust tool. The gate now judges the body `north gh-session` sends on every fleet gh call, for each provider (north#1041), so the next review reads that layer's rows on every host before the mode goes to enforce.
 [gate.unrunnable-box]

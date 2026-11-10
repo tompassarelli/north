@@ -57,7 +57,7 @@ Commands:
   config agents on ID                           Turn one skill or hook on
   config agents off ID                          Turn one skill or hook off
   config agents sync                            Sync the managed skills and hooks into place
-  config agents check-hook-paths ...            Check that every registered hook path resolves
+  config agents check-hook-paths --claude FILE --codex FILE --provider-hooks DIR  Check that every registered hook path resolves
   config agents check-owners ...                Check that every registered owner exists
   config agents live-refs [--dropped-by-catalog]  List live references to managed skills and hooks
   config agents busy                            Exit 0 while an agent session is working
@@ -153,7 +153,7 @@ Commands:
   fleet dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
-  ops check [--dry-run]                         Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
+  ops check [--dry-run | --synthetic]           Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   config context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks

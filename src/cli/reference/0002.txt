@@ -10,7 +10,7 @@
   config agents on ID                           Turn one skill or hook on
   config agents off ID                          Turn one skill or hook off
   config agents sync                            Sync the managed skills and hooks into place
-  config agents check-hook-paths ...            Check that every registered hook path resolves
+  config agents check-hook-paths --claude FILE --codex FILE --provider-hooks DIR  Check that every registered hook path resolves
   config agents check-owners ...                Check that every registered owner exists
   config agents live-refs [--dropped-by-catalog]  List live references to managed skills and hooks
   config agents busy                            Exit 0 while an agent session is working

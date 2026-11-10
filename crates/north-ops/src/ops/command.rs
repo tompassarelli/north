@@ -5,7 +5,7 @@ pub fn run(arguments: &[String]) -> u8 {
         Some((command, rest)) if command == "dividend" => dividend::run(rest),
         Some((command, _)) if command == "check" => check::run(arguments),
         _ => {
-            eprintln!("usage: north ops dividend [--dry-run] [CHECK] | north ops check [--dry-run]");
+            eprintln!("usage: north ops dividend [--dry-run] [CHECK] | north ops check [--dry-run | --synthetic]");
             2
         }
     }
