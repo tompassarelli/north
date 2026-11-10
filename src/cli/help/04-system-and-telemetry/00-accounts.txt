@@ -1,2 +1,2 @@
 accounts
-Each account's state, 5h and week room with resets, and each api grant's dollars left
+Each account's state, 5h and week room, and each api grant's dollars

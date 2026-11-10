@@ -30,7 +30,7 @@ Engineering and landing:
   nix                   Explain a Nix footgun, or root and collect the store
 
 System and telemetry:
-  accounts              Each account's state, 5h and week room with resets, and each api grant's dollars left
+  accounts              Each account's state, 5h and week room, and each api grant's dollars
   health                Readiness bars, goals and harness invariants
   infra                 Live paid resources with their monthly price and a total
   config                Skills and hooks, agent plan and usage, context, proxy calls
