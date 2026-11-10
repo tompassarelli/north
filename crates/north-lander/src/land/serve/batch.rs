@@ -104,7 +104,7 @@ impl Batching for Lander {
             Ok(base) => base,
             Err(error) => return Ok(Flow::Done(Round::Waiting(format!("transient: {error}")))),
         };
-        let (fresh, stale) = alone::split(&self.repo, &base, tickets);
+        let (fresh, stale) = alone::split(tickets);
         let flow = if fresh.is_empty() { Flow::Done(pass.progress_or(Round::Idle)) } else { self.land_fresh(watch, pass, &base, &fresh, &queued, logs)? };
         match (flow, stale.first()) {
             (Flow::Done(Round::Progress | Round::Idle), Some(lane)) => {

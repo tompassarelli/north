@@ -182,7 +182,7 @@ fn a_lane_whose_private_kind_judge_exits_75_is_queued_without_an_alone_pass_and_
 }
 
 #[test]
-fn a_lane_queued_six_landings_ago_is_checked_alone_again_before_it_joins_a_batch_while_a_fresh_lane_lands_directly() {
+fn a_lane_whose_alone_pass_is_six_landings_old_lands_in_the_same_batch_as_a_fresh_lane_without_another_alone_check() {
     let world = World::new();
     let north = world.repository("north");
     let calls_file = checker(&world);
@@ -198,11 +198,8 @@ fn a_lane_queued_six_landings_ago_is_checked_alone_again_before_it_joins_a_batch
     north.lane("fresh");
     vouch(&north, "fresh", &main);
     let journal = serve(&world, &north);
-    assert!(journal.contains("carries 1 lanes that passed their checks before queueing"), "{journal}");
+    assert!(journal.contains("carries 2 lanes that passed their checks before queueing"), "a lane whose pass aged past a batch was left out of the candidate: {journal}");
     assert!(verdict(&north, "fresh").starts_with("landed "), "{journal}");
-    assert!(journal.contains(&format!("stale passed alone on {start}, more landings ago than the alone pass lasts; checking it alone")), "{journal}");
-    assert_eq!(calls(&calls_file), 1, "{journal}");
-    let journal = serve(&world, &north);
     assert!(verdict(&north, "stale").starts_with("landed "), "{journal}");
-    assert_eq!(calls(&calls_file), 1, "a lane that passed its alone check was checked again before its batch: {journal}");
+    assert_eq!(calls(&calls_file), 0, "an aged alone pass held its lane for a serial alone check: {journal}");
 }

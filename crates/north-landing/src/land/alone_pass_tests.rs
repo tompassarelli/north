@@ -17,7 +17,7 @@ fn an_alone_pass_vouches_for_its_lane_until_main_gains_more_landings_than_the_se
     let ticket = Ticket { head: "lane".into(), alone_green: Some("lane".into()), alone_base: Some(landed[0].clone()), ..Ticket::default() };
     let pass = ticket.passed_alone_on().unwrap();
     assert!(Currency::at(repo.path(), &landed[5]).current(pass), "five landings past its pass the lane is still vouched for");
-    assert!(!Currency::at(repo.path(), &landed[6]).current(pass), "six landings past its pass the lane must be checked alone again");
+    assert!(!Currency::at(repo.path(), &landed[6]).current(pass), "six landings past its pass the after-landing run no longer carries the tests the pass ran");
     assert!(!Currency::at(repo.path(), &elsewhere).current(pass), "a main that does not descend from the pass expires it");
     let moved = Ticket { head: "lane-rebased".into(), ..ticket };
     assert_eq!(moved.passed_alone_on(), None, "a pass for an older head of the lane vouches for nothing");
