@@ -29,7 +29,8 @@ boxes on the tier, because a tier's unstamped work carries the earlier routing's
 settled every category on 31 Oct with the Opus arm at 8 to 11 runs, and pricing those boxes made Opus look 2.4 times
 dearer on feature than its own arm boxes show (Arm result, 2026-11-05). Sonnet
 runs only at high effort: a launch without an effort takes the account default, medium, so the session registry pins
-Sonnet to high and refuses any other effort.
+Sonnet to high and refuses any other effort, and dispatch's launch build passes that high effort so it never plans a
+launch the launcher refuses (north#1054).
 
 `north tune` tells each settled category's route to the graph as writer `tune` once a day, and dispatch
 follows that cell, read through harness/graph-rules/effort.json, while the tick is under 36 h old (one missed daily tick plus slack); with no cell for the category or

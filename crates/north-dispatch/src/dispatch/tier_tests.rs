@@ -87,6 +87,22 @@ fn every_launch_starts_at_its_category_tier_by_hand_as_in_dispatch_an_unknown_ca
     assert_eq!(crate::fleet::compaction::window(&launch.brief).map(crate::fleet::compaction::arm), Some(stamp.trim_start_matches("Arm: ").to_owned()));
     use super::manual::{Ask, start};
     let cfg: toml_edit::DocumentMut = super::tests::CONFIG.parse().unwrap();
+    let sonnet = super::tier::Route {
+        tier: Tier::Sonnet,
+        category: "feature".into(),
+        effort: Some(super::tier::Effort::Medium),
+        effort_arm: false,
+        cell: Some(Cell { model: "sonnet", effort: "high" }),
+        cell_role: Some("leader"),
+        signal: None,
+        follows: None,
+        why: "a sonnet-high arm whose launch was built with medium effort".into(),
+    };
+    assert_eq!(
+        sonnet.invocation(&cfg).unwrap(),
+        ["--model", "claude-sonnet-5-5", "--effort", "high"],
+        "a Sonnet launch passes high, never the medium the launcher refuses"
+    );
     let hand = |category: &str| {
         let brief = format!("Item: north#7\nCategory: {category}");
         start(&Ask { item: "north#7", brief: &brief, prompt: &format!("{brief}\n\nDo the box."), model: None, reason: None, worker: true, places: false }, "", &cfg, &History::default(), &unread, &|_| super::grounds::Grounds::default())

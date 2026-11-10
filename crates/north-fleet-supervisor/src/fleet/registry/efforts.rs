@@ -2,8 +2,9 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::runtime::Runtime;
 
-/// The one effort a Sonnet session runs at: the workers policy staffs Sonnet only at high.
-fn pinned(model: Option<&str>) -> Option<Effort> {
+/// The one effort a Sonnet session runs at: the workers policy staffs Sonnet only at high. Dispatch
+/// reads it too, so a launch it builds carries the effort the launcher will admit.
+pub fn pinned(model: Option<&str>) -> Option<Effort> {
     model.is_some_and(|model| model.to_lowercase().contains("sonnet")).then_some(Effort::High)
 }
 
