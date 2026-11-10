@@ -1,4 +1,4 @@
-use super::{Told, WINDOW_MS, announce, scan};
+use super::{LIMIT, Told, WINDOW_MS, announce, scan};
 use serde_json::json;
 
 const UNIT: &str = "fleet-tick.service";
@@ -100,4 +100,18 @@ fn a_repeated_failed_start_with_the_same_cause_pages_once() {
     );
     assert_eq!(tick(&mut told, &journal(0, &exited), start + WINDOW_MS + 4), Vec::<String>::new(), "recovery is told once");
     assert_eq!(told, Told::default());
+
+    let next = start + WINDOW_MS + 10;
+    assert_eq!(tick(&mut told, &journal(3, &goals), next), vec![format!("harness unit {UNIT} failed to start 3 times in the last hour: start operation timed out")]);
+    let started = format!(
+        "{}\n{}",
+        journal(3, &goals),
+        json!({"USER_UNIT": UNIT, "SYSLOG_IDENTIFIER": "systemd", "MESSAGE": format!("Started {UNIT}.")})
+    );
+    assert!(scan(&started).is_empty(), "a successful start after the last failure clears the failed-start streak");
+    assert_eq!(
+        tick(&mut told, &started, next + 1),
+        vec![format!("harness unit {UNIT} recovered: under {LIMIT} failed starts in the last hour")],
+        "a unit that started since its last failure is sent as recovered, not as failing"
+    );
 }

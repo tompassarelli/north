@@ -32,6 +32,12 @@ struct Seen {
     output: Vec<String>,
 }
 
+impl Seen {
+    fn started(&mut self) {
+        *self = Self::default();
+    }
+}
+
 pub(super) fn scan(journal: &str) -> Vec<Failing> {
     let mut seen: BTreeMap<String, Seen> = BTreeMap::new();
     for entry in journal.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
@@ -41,6 +47,8 @@ pub(super) fn scan(journal: &str) -> Vec<Failing> {
             let own = message.strip_prefix(unit).and_then(|rest| rest.strip_prefix(": ")).unwrap_or("");
             if message.starts_with("Failed to start") {
                 seen.count += 1;
+            } else if message.starts_with("Started ") {
+                seen.started();
             } else if own.starts_with("start operation timed out") {
                 seen.timed_out = true;
             } else if own.starts_with("Failed with result") {
