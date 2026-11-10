@@ -326,10 +326,17 @@ fn a_canary_probe_answered_by_a_provider_limit_retries_on_the_next_account() {
 }
 
 #[test]
-fn a_launch_probe_fails_when_the_worker_cannot_quote_the_shared_policy_heading() {
-    assert_eq!(launch::carries("# Tom's policy", Some("Tom's policy")), Ok(()));
-    assert_eq!(launch::carries("ok", Some("Tom's policy")), Err("Tom's policy"));
-    assert_eq!(launch::carries("ok", None), Ok(()));
+fn a_probe_answer_is_judged_by_a_planted_token_not_by_the_wording_of_a_heading() {
+    let token = "north-canary-0123456789abcdef".to_owned();
+    let planted = launch::Evidence::Token(token.clone());
+    assert_eq!(launch::carries(&format!("Tom\u{2019}s policy\n{token}"), &planted), Ok(()), "455c0e5c: a typographic apostrophe");
+    assert_eq!(launch::carries(&format!("Act and finish {}  ", token.to_uppercase()), &planted), Ok(()), "12f6d9b6: the first section heading");
+    assert!(launch::carries("Act and finish", &planted).is_err(), "a worker that never saw the policy has no token");
+    let headings = launch::Evidence::Headings(vec!["Tom's policy".to_owned(), "Act and finish".to_owned()]);
+    assert_eq!(launch::carries("Tom\u{2019}s policy", &headings), Ok(()));
+    assert_eq!(launch::carries("Act and finish", &headings), Ok(()));
+    assert!(launch::carries("ok", &headings).is_err());
+    assert_eq!(launch::carries("ok", &launch::Evidence::Nothing), Ok(()));
 }
 
 #[test]

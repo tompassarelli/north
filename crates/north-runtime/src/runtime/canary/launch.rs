@@ -3,12 +3,14 @@ use crate::platform::process;
 use north_providers::threads::{schema, verb::Failure as LedgerFailure};
 use crate::providers::opencode::Shared;
 use serde_json::Value;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 const PLAIN_PROMPT: &str = "Reply with the single word ok and nothing else.";
-const POLICY_PROMPT: &str = "Reply with the words of the first top-level heading of the standing policy text you were given before this message, without its leading mark, and nothing else.";
+const HEADING_PROMPT: &str = "Reply with the words of any one heading of the standing policy text you were given before this message, without its leading mark, and nothing else.";
+const TOKEN_PROMPT: &str = "Reply with the canary token written in the standing policy text you were given before this message, copied exactly, and nothing else.";
 const ASK: Duration = Duration::from_secs(30);
 const ANSWER_WITHIN: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(3);
@@ -18,8 +20,13 @@ pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
     let north = std::env::current_exe().map_err(|error| unrun(error.into()))?;
     let scratch = tempfile::tempdir().map_err(|error| unrun(error.into()))?;
     let (state, cwd) = scratch_root(scratch.path())?;
-    let heading = Shared::published().and_then(|shared| shared.heading());
-    let prompt = heading.as_deref().map_or(PLAIN_PROMPT, |_| POLICY_PROMPT);
+    let (evidence, agents) = evidence(provider, scratch.path()).map_err(unrun)?;
+    let scene = Scene { north: &north, state: &state, agents: agents.as_deref() };
+    let prompt = match evidence {
+        Evidence::Token(_) => TOKEN_PROMPT,
+        Evidence::Headings(_) => HEADING_PROMPT,
+        Evidence::Nothing => PLAIN_PROMPT,
+    };
     let accounts = match provider {
         "claude" => claude_accounts(&north)?,
         _ => vec![None],
@@ -30,10 +37,46 @@ pub(in crate::runtime) fn probe(provider: &str) -> Result<(), Failure> {
     }
     judge(provider, &accounts, |account, round| {
         let name = format!("canary-{provider}-{}-{round}", std::process::id());
-        let attempt = attempt(&north, &state, provider, &name, &cwd, prompt, account, heading.as_deref());
-        let _ = fleet(&north, &state, &["forget", &name, "--force", "runtime canary probe finished"]);
+        let attempt = attempt(&scene, provider, &name, &cwd, prompt, account, &evidence);
+        let _ = fleet(&scene, &["forget", &name, "--force", "runtime canary probe finished"]);
         attempt
     })
+}
+
+/// What the probe's fleet commands run against: the scratch state root, and, for a provider whose policy a planted token travels in, the scratch agent root that `Shared::published` then reads instead of the live generation.
+struct Scene<'a> {
+    north: &'a Path,
+    state: &'a Path,
+    agents: Option<&'a Path>,
+}
+
+/// What a worker's reply must carry to show the shared policy reached it.
+#[derive(Debug, PartialEq)]
+pub(super) enum Evidence {
+    Token(String),
+    Headings(Vec<String>),
+    Nothing,
+}
+
+/// OpenCode's policy arrives appended to its first turn by `deliver`, so its probe plants a fresh token in a scratch generation holding the published policy and asks for the token back; Claude and Pi read the live profile, which a probe must not touch, so they keep asking for a heading of the published policy.
+fn evidence(provider: &str, scratch: &Path) -> Result<(Evidence, Option<PathBuf>), Failure> {
+    let published = Shared::published().and_then(|shared| shared.policy());
+    if provider != "opencode" {
+        let headings: Vec<String> = published.iter().flat_map(|policy| policy.lines()).filter(|line| line.starts_with('#')).map(|line| line.trim_start_matches('#').trim().to_owned()).filter(|heading| !heading.is_empty()).collect();
+        return Ok((if headings.is_empty() { Evidence::Nothing } else { Evidence::Headings(headings) }, None));
+    }
+    let token = fresh_token()?;
+    let root = scratch.join("agents");
+    let policy = root.join("current/instructions/shared/AGENTS.md");
+    std::fs::create_dir_all(policy.parent().unwrap_or(&root))?;
+    std::fs::write(&policy, format!("Canary token: {token}\n\n{}\n", published.unwrap_or_default()))?;
+    Ok((Evidence::Token(token), Some(root)))
+}
+
+fn fresh_token() -> Result<String, Failure> {
+    let mut bytes = [0u8; 8];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(format!("north-canary-{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()))
 }
 
 pub(super) enum Attempt {
@@ -53,10 +96,9 @@ pub(super) fn judge(provider: &str, accounts: &[Option<String>], mut attempt: im
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn attempt(north: &Path, state: &Path, provider: &str, name: &str, cwd: &Path, prompt: &str, account: Option<&str>, heading: Option<&str>) -> Result<Attempt, Failure> {
-    match launch(north, state, provider, name, cwd, prompt, account) {
-        Ok(()) => answer(north, state, name, heading),
+fn attempt(scene: &Scene, provider: &str, name: &str, cwd: &Path, prompt: &str, account: Option<&str>, evidence: &Evidence) -> Result<Attempt, Failure> {
+    match launch(scene, provider, name, cwd, prompt, account) {
+        Ok(()) => answer(scene, name, evidence),
         Err(failure) if refused(&failure.message) => Ok(Attempt::Refused(failure.message)),
         Err(failure) => Err(unrun(failure)),
     }
@@ -88,10 +130,13 @@ pub(super) fn scratch_root(scratch: &Path) -> Result<(PathBuf, PathBuf), Failure
     Ok((state, cwd))
 }
 
-fn fleet(north: &Path, state: &Path, words: &[&str]) -> Result<String, String> {
-    let mut command = Command::new(north);
+fn fleet(scene: &Scene, words: &[&str]) -> Result<String, String> {
+    let (state, mut command) = (scene.state, Command::new(scene.north));
     command.arg("fleet").args(words);
     command.env("XDG_STATE_HOME", state).env("NORTH_TEST_ROOT", state).env("THREADS_DB", state.join("threads.db"));
+    if let Some(agents) = scene.agents {
+        command.env("NORTH_AGENT_STATE_ROOT", agents);
+    }
     for (key, _) in std::env::vars().filter(|(key, _)| key.starts_with("NORTH_FLEET_")) {
         command.env_remove(key);
     }
@@ -102,14 +147,14 @@ fn fleet(north: &Path, state: &Path, words: &[&str]) -> Result<String, String> {
     }
 }
 
-fn launch(north: &Path, state: &Path, provider: &str, name: &str, cwd: &Path, prompt: &str, account: Option<&str>) -> Result<(), Failure> {
+fn launch(scene: &Scene, provider: &str, name: &str, cwd: &Path, prompt: &str, account: Option<&str>) -> Result<(), Failure> {
     let cwd = cwd.to_string_lossy();
     let mut words = vec!["launch", "--provider", provider, "--name", name, "--parent", "none", "--test", "--no-wait", "--cwd", &cwd];
     if let Some(account) = account {
         words.extend(["--model", "haiku", "--account", account]);
     }
     words.push(prompt);
-    fleet(north, state, &words).map(drop).map_err(|why| failed(1, why))
+    fleet(scene, &words).map(drop).map_err(|why| failed(1, why))
 }
 
 fn claude_accounts(north: &Path) -> Result<Vec<Option<String>>, Failure> {
@@ -142,15 +187,15 @@ fn placed_account(listing: &str) -> Option<String> {
     words.next().and_then(|word| word.strip_prefix("claude:")).filter(|_| !host.ends_with(':')).map(str::to_owned)
 }
 
-fn answer(north: &Path, state: &Path, name: &str, heading: Option<&str>) -> Result<Attempt, Failure> {
+fn answer(scene: &Scene, name: &str, evidence: &Evidence) -> Result<Attempt, Failure> {
     let started = Instant::now();
     let mut last = "no transcript yet".to_owned();
     while started.elapsed() < ANSWER_WITHIN {
-        match fleet(north, state, &["show", name, "--json"]) {
+        match fleet(scene, &["show", name, "--json"]) {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(session) => match answered(&session) {
                     Some(Turn::Replied(reply) | Turn::Failed(reply)) if refused(&reply) => return Ok(Attempt::Refused(reply)),
-                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return carries(&reply, heading).map(|()| Attempt::Answered).map_err(|missing| failed(1, format!("{name} answered without the shared policy's heading: asked for it, it replied {:?} where {missing:?} was expected", reply.trim()))),
+                    Some(Turn::Replied(reply)) if !reply.trim().is_empty() => return carries(&reply, evidence).map(|()| Attempt::Answered).map_err(|missing| failed(1, format!("{name} answered without proof of the shared policy: asked for it, it replied {:?} where {missing} was expected", reply.trim()))),
                     Some(Turn::Failed(error)) => return Err(failed(1, format!("{name}'s first turn failed: {error}"))),
                     _ => last = format!("status {}", session["status"].as_str().unwrap_or("unknown")),
                 },
@@ -163,8 +208,21 @@ fn answer(north: &Path, state: &Path, name: &str, heading: Option<&str>) -> Resu
     Err(failed(1, format!("{name} gave no answer within {}s: {last}", ANSWER_WITHIN.as_secs())))
 }
 
-pub(super) fn carries<'a>(reply: &str, heading: Option<&'a str>) -> Result<(), &'a str> {
-    heading.filter(|heading| !reply.contains(*heading)).map_or(Ok(()), Err)
+pub(super) fn carries(reply: &str, evidence: &Evidence) -> Result<(), String> {
+    let reply = folded(reply);
+    match evidence {
+        Evidence::Token(token) if !reply.contains(&folded(token)) => Err(format!("the token {token}")),
+        Evidence::Headings(headings) if !headings.iter().any(|heading| reply.contains(&folded(heading))) => Err(format!("one of the headings {headings:?}")),
+        _ => Ok(()),
+    }
+}
+
+fn folded(text: &str) -> String {
+    text.trim().chars().map(|character| match character {
+        '\u{2018}' | '\u{2019}' | '\u{201B}' | '\u{2032}' => '\'',
+        '\u{201C}' | '\u{201D}' | '\u{201F}' | '\u{2033}' => '"',
+        other => other,
+    }).flat_map(char::to_lowercase).collect()
 }
 
 enum Turn {
