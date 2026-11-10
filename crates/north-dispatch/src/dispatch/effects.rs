@@ -12,7 +12,7 @@ use crate::fleet::runtime::PROXY;
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::process::run_within;
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 use toml_edit::{DocumentMut, Item};
@@ -138,11 +138,33 @@ fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Res
     let mut child = std::process::Command::new(&program);
     child.args(&words).env_remove(crate::fleet::runtime::SESSION_ENV).env_remove(crate::fleet::runtime::ROLE_ENV);
     match crate::platform::process::try_run_command_within(child, None, LAUNCH_WAIT) {
-        Err(error) => Err(format!("{program} did not start: {error}")),
-        Ok(None) => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
+        Err(error) => {
+            let why = format!("{program} did not start: {error}");
+            Err(failed_launch(name, why.clone(), &why))
+        }
+        Ok(None) => {
+            let why = format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs());
+            Err(failed_launch(name, why.clone(), &why))
+        }
         Ok(Some(output)) if output.status.success() => Ok(name.to_owned()),
-        Ok(Some(output)) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
+        Ok(Some(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(failed_launch(name, refusal_line(&stderr), &stderr))
+        }
     }
+}
+
+fn failed_launch(name: &str, why: String, stderr: &str) -> String {
+    let path = record::stderr_path(name);
+    if let Some(parent) = path.parent()
+        && let Err(error) = std::fs::create_dir_all(parent)
+    {
+        eprintln!("north fleet dispatch: {} not written: {error}", path.display());
+    }
+    if let Err(error) = std::fs::write(&path, stderr) {
+        eprintln!("north fleet dispatch: {} not written: {error}", path.display());
+    }
+    why
 }
 
 /// Revives a stranded session through `north fleet revive`, whose placement admits it as it would a
@@ -193,24 +215,102 @@ pub fn refusal_line(stderr: &str) -> String {
     error.or_else(|| lines().next_back()).unwrap_or("failed").to_owned()
 }
 
-/// Sends `line` through nexus-alert unless the same line went out in the last six hours.
-pub fn tell_tom(line: &str, dry_run: bool, at: f64) {
+#[derive(Debug, PartialEq)]
+pub enum Delivery {
+    Alert,
+    Page,
+}
+
+pub fn deliver(line: &str, alert: &mut dyn FnMut(&str) -> Result<(), String>, page: &mut dyn FnMut(&str) -> Result<(), String>) -> Result<Delivery, String> {
+    match alert(line) {
+        Ok(()) => Ok(Delivery::Alert),
+        Err(why) => match page(line) {
+            Ok(()) => Ok(Delivery::Page),
+            Err(page) => Err(format!("nexus-alert: {why}; the proxy page: {page}")),
+        },
+    }
+}
+
+pub fn page_proxy(line: &str) -> Result<(), String> {
+    let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
+    match run_within(&north, &["fleet", "send", "--now", "--from", "service:north-dispatch", crate::fleet::runtime::PROXY, line], Duration::from_secs(30)) {
+        Some(output) if output.status.success() => Ok(()),
+        Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
+        None => Err("north fleet send did not return within 30 s".to_owned()),
+    }
+}
+
+/// Sends `line` through nexus-alert unless the same line went out in the last six hours, and pages the proxy when nexus-alert fails.
+pub fn tell_tom(line: &str, dry_run: bool, at: f64) -> Result<(), String> {
     let last = placement::pace_state("dispatch/alert.json");
     if last["text"] == line && last["at"].as_f64().is_some_and(|sent| at - sent < REPEAT_ALERT_S) {
         println!("alert already sent: {line}");
-        return;
+        return Ok(());
     }
     if dry_run {
         println!("would alert: {line}");
-        return;
+        return Ok(());
     }
-    match run_within("nexus-alert", &["normal", line, "north fleet dispatch"], Duration::from_secs(30)) {
-        Some(output) if output.status.success() => {
+    let mut alert = |line: &str| match run_within("nexus-alert", &["normal", line, "north fleet dispatch"], Duration::from_secs(30)) {
+        Some(output) if output.status.success() => Ok(()),
+        Some(output) => Err(format!("exited {}", output.status)),
+        None => Err("did not return within 30 s".to_owned()),
+    };
+    let mut page = |line: &str| page_proxy(line);
+    match deliver(line, &mut alert, &mut page) {
+        Ok(Delivery::Alert) => {
             println!("alerted: {line}");
             remember("alert.json", &json!({"text": line, "at": at}));
+            Ok(())
         }
-        _ => eprintln!("north fleet dispatch: nexus-alert failed; the line was: {line}"),
+        Ok(Delivery::Page) => {
+            println!("paged the proxy: {line}");
+            remember("alert.json", &json!({"text": line, "at": at}));
+            Err(format!("nexus-alert failed; paged the proxy instead: {line}"))
+        }
+        Err(why) => Err(format!("{why}; the line was: {line}")),
     }
+}
+
+pub fn watch_failures(pages: &[record::FailurePage], at: f64, told: &mut BTreeMap<String, f64>, send: &mut dyn FnMut(&str) -> bool) -> bool {
+    let mut sent_all = true;
+    for page in pages {
+        let key = north_base::foundation::cause::key(&page.cause);
+        if told.get(&key).is_some_and(|sent| at - sent < record::FAILURE_WINDOW_S) {
+            continue;
+        }
+        let line = page.line();
+        if send(&line) {
+            told.insert(key, at);
+            println!("paged the proxy: {line}");
+        } else {
+            eprintln!("north fleet dispatch: could not page the proxy: {line}");
+            sent_all = false;
+        }
+    }
+    sent_all
+}
+
+pub fn report_failures(records: &[Record], at: f64, dry_run: bool) -> bool {
+    let pages = record::failure_pages(records, at);
+    if dry_run {
+        for page in &pages {
+            println!("would page the proxy: {}", page.line());
+        }
+        return true;
+    }
+    let path = record::directory().join("failure-pages.json");
+    let mut told: BTreeMap<String, f64> = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+    let sent = watch_failures(&pages, at, &mut told, &mut |line| page_proxy(line).is_ok());
+    if let Some(parent) = path.parent()
+        && let Err(error) = std::fs::create_dir_all(parent)
+    {
+        eprintln!("north fleet dispatch: {} not written: {error}", path.display());
+    }
+    if let Err(error) = std::fs::write(&path, serde_json::to_vec(&told).unwrap_or_default()) {
+        eprintln!("north fleet dispatch: {} not written: {error}", path.display());
+    }
+    sent
 }
 
 /// The message that asks the triage lead to box the open issues that have none.

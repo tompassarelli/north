@@ -50,27 +50,29 @@ pub fn guards(survey: &Survey) -> Vec<String> {
     survey.accounts.iter().filter_map(|account| survey.spend.admit(&survey.rules, &account.name, Starter::Worker, Placed::default()).err().map(|refusal| format!("{refusal} ({})", account.name))).collect()
 }
 
-/// Keeps the stretch in `FILE` across runs and tells the proxy once it passes the limit; a failed send is retried on the next frozen run.
-pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) {
+/// Keeps the stretch in `FILE` across runs and tells the proxy once it passes the limit; a failed send is retried on the next frozen run. Returns false when a page due this run did not go out.
+pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) -> bool {
     let path = record::directory().join(FILE);
     let previous = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<Stretch>(&bytes).ok());
     let limit = crate::platform::harness::default_number("dispatch_freeze_alarm_min");
     let (mut stretch, text) = step(previous, frozen, at, limit);
+    let mut sent_all = true;
     if let Some(text) = text {
         let text = format!("north fleet dispatch on {here}: {text}");
         if dry_run {
             println!("would tell the proxy: {text}");
-            return;
+            return true;
         }
         let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
         let sent = run_within(&north, &["fleet", "send", "--now", "--from", "service:north-dispatch", crate::fleet::runtime::PROXY, &text], Duration::from_secs(30)).is_some_and(|output| output.status.success());
         println!("{}: {text}", if sent { "told the proxy" } else { "could not tell the proxy" });
+        sent_all = sent;
         if let Some(stretch) = stretch.as_mut() {
             stretch.told = sent;
         }
     }
     if dry_run {
-        return;
+        return sent_all;
     }
     let written = match &stretch {
         Some(stretch) => std::fs::create_dir_all(record::directory()).and_then(|()| std::fs::write(&path, serde_json::to_vec(stretch).unwrap_or_default())),
@@ -79,4 +81,5 @@ pub fn watch(here: &str, frozen: Option<String>, dry_run: bool, at: f64) {
     if let Err(error) = written {
         eprintln!("north fleet dispatch: {} not recorded: {error}", path.display());
     }
+    sent_all
 }

@@ -13,6 +13,8 @@ pub const LAPTOP_SHOW_S: f64 = 15.0 * 60.0;
 const RETRY_WINDOW_S: f64 = 24.0 * 3600.0;
 const RETRIES: usize = 2;
 const FAILED_HOLD_S: f64 = 15.0 * 60.0;
+pub const FAILURE_WINDOW_S: f64 = 10.0 * 60.0;
+const FAILURES: usize = 3;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Record {
@@ -66,6 +68,40 @@ fn hold(record: &Record) -> f64 {
 
 pub fn directory() -> PathBuf {
     placement::pace_directory().join("dispatch")
+}
+
+pub fn stderr_path(name: &str) -> PathBuf {
+    directory().join("launch-stderr").join(format!("{name}.log"))
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FailurePage {
+    pub cause: String,
+    pub count: usize,
+    pub stderr: String,
+}
+
+impl FailurePage {
+    pub fn line(&self) -> String {
+        format!("north fleet dispatch: {} launches failed in 10 min with the same cause: {}; first stderr: {}", self.count, self.cause, self.stderr)
+    }
+}
+
+pub fn failure_pages(records: &[Record], at: f64) -> Vec<FailurePage> {
+    let mut groups: BTreeMap<String, Vec<&Record>> = BTreeMap::new();
+    for record in records.iter().filter(|record| !record.launched && !record.hand && at - record.at <= FAILURE_WINDOW_S && at >= record.at) {
+        groups.entry(north_base::foundation::cause::key(&record.detail)).or_default().push(record);
+    }
+    groups
+        .into_values()
+        .filter(|records| records.len() >= FAILURES)
+        .map(|mut records| {
+            records.sort_by(|a, b| a.at.total_cmp(&b.at));
+            let first = records[0];
+            let stderr = if first.cloud { "none (cloud launch)".to_owned() } else { stderr_path(&first.name).display().to_string() };
+            FailurePage { cause: first.detail.clone(), count: records.len(), stderr }
+        })
+        .collect()
 }
 
 pub fn read(directory: &Path) -> Vec<Record> {

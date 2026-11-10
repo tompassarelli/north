@@ -354,12 +354,22 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     for line in deepseek::review::queue(&survey.deepseek.done, &survey.here, survey.laptop.as_deref(), dry_run) {
         println!("{line}");
     }
+    let now = placement::now();
+    let mut alerts_failed = false;
     let frozen = freeze::frozen(&outcome, &failures, &freeze::guards(&survey));
-    if let Some(basis) = &frozen {
-        effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, placement::now());
+    if let Some(basis) = &frozen
+        && let Err(why) = effects::tell_tom(&format!("north fleet dispatch on {}: {basis}", survey.here), dry_run, now)
+    {
+        eprintln!("north fleet dispatch: {why}");
+        alerts_failed = true;
     }
-    freeze::watch(&survey.here, frozen, dry_run, placement::now());
-    0
+    if !effects::report_failures(&record::read(&record::directory()), now, dry_run) {
+        alerts_failed = true;
+    }
+    if !freeze::watch(&survey.here, frozen, dry_run, now) {
+        alerts_failed = true;
+    }
+    if alerts_failed { 1 } else { 0 }
 }
 
 /// `north cloud launch REPO SLUG BRIEF [--item REPO#N]`: starts the brief in the cloud lane, registers
