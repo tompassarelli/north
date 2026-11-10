@@ -29,7 +29,7 @@ impl Project {
     }
 
     fn rescue(&self, dry_run: bool) -> Finished {
-        Rescue { now: SystemTime::now(), apply_diff }.rescue(&self.main(), dry_run)
+        Rescue { now: SystemTime::now(), apply_diff, archive_root: self.path().join("archive") }.rescue(&self.main(), dry_run)
     }
 
     fn lanes(&self) -> Vec<PathBuf> {
@@ -94,7 +94,7 @@ fn a_verification_mismatch_aborts_with_main_untouched() {
     fs::write(project.main().join("f.txt"), "base\ndirty\n").unwrap();
     let before = git_in(&project.main(), &["status", "--porcelain"]);
     let head = git_in(&project.main(), &["rev-parse", "HEAD"]);
-    let failed = Rescue { now: SystemTime::now(), apply_diff: skip_apply }.rescue(&project.main(), false);
+    let failed = Rescue { now: SystemTime::now(), apply_diff: skip_apply, archive_root: project.path().join("archive") }.rescue(&project.main(), false);
     let Finished::Failed(lines) = failed else { panic!("a corrupted copy must abort") };
     assert!(lines.iter().any(|line| line.contains("VERIFY MISMATCH: f.txt")), "{lines:?}");
     assert_eq!(git_in(&project.main(), &["status", "--porcelain"]), before);
@@ -126,4 +126,39 @@ fn a_deleted_tracked_archive_and_an_untracked_archive_are_rescued() {
     assert!(!rescued.join("vendor/old.tgz").exists());
     assert_eq!(fs::read(rescued.join("vendor/new.tgz")).unwrap(), new_archive);
     assert_eq!(git_in(rescued, &["show", "--name-status", "--format=", "HEAD"]), "A\tvendor/new.tgz\nD\tvendor/old.tgz");
+}
+
+#[test]
+fn a_checkout_holding_lanes_is_cleaned_with_the_registered_one_relocated_and_the_stale_copy_archived() {
+    let project = Project::new();
+    let main = project.main();
+    git_in(&main, &["worktree", "add", "-q", "-b", "inner", main.join("worktrees/inner").to_str().unwrap()]);
+    fs::write(main.join("worktrees/inner/lane.txt"), "lane work\n").unwrap();
+    git_in(&main.join("worktrees/inner"), &["add", "lane.txt"]);
+    git_in(&main.join("worktrees/inner"), &["commit", "-qm", "lane commit"]);
+    git_in(&main, &["worktree", "add", "-q", "-b", "elsewhere", project.path().join("worktrees/elsewhere").to_str().unwrap()]);
+    fs::create_dir_all(main.join("worktrees/stale")).unwrap();
+    fs::copy(project.path().join("worktrees/elsewhere/.git"), main.join("worktrees/stale/.git")).unwrap();
+    fs::write(main.join("f.txt"), "base\nedited\n").unwrap();
+
+    let Finished::Done(line) = project.rescue(false) else { panic!("rescue failed") };
+    assert!(line.starts_with("rescued -> "), "{line}");
+    assert_eq!(git_in(&main, &["status", "--porcelain"]), "");
+    assert!(!main.join("worktrees/inner").exists() && !main.join("worktrees/stale").exists());
+    let moved = project.path().join("worktrees/inner");
+    assert_eq!(git_in(&moved, &["log", "-1", "--format=%s"]), "lane commit");
+    assert_eq!(git_in(&moved, &["symbolic-ref", "--short", "HEAD"]), "inner");
+    assert!(project.path().join("archive").read_dir().unwrap().flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("stale-stale-")));
+}
+
+#[test]
+fn a_failed_run_removes_the_rescue_lane_it_created() {
+    let project = Project::new();
+    let main = project.main();
+    fs::write(main.join("loose.txt"), "loose\n").unwrap();
+    std::os::unix::fs::symlink("/nonexistent", main.join("dangling")).unwrap();
+    assert!(matches!(project.rescue(false), Finished::Failed(_)));
+    assert!(project.lanes().is_empty());
+    assert_eq!(git_in(&main, &["branch", "--list", "rescue-*"]), "");
+    assert!(main.join("loose.txt").exists());
 }

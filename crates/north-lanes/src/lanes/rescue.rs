@@ -26,6 +26,7 @@ const APPLY_LIMIT: Duration = Duration::from_secs(120);
 pub(super) struct Rescue {
     pub(super) now: SystemTime,
     pub(super) apply_diff: fn(&Path, &[u8]) -> bool,
+    pub(super) archive_root: PathBuf,
 }
 
 pub(super) struct Arguments {
@@ -44,7 +45,25 @@ struct Changes {
     name_status: Vec<(String, String, Option<String>)>,
     tracked: Vec<String>,
     untracked: Vec<String>,
+    nested: Vec<Nested>,
     diff: Vec<u8>,
+}
+
+enum Nested {
+    Worktree(String),
+    Stale(String),
+}
+
+impl Nested {
+    fn path(&self) -> &str {
+        match self {
+            Self::Worktree(path) | Self::Stale(path) => path.trim_end_matches('/'),
+        }
+    }
+
+    fn name(&self) -> String {
+        Path::new(self.path()).file_name().map_or_else(|| "nested".into(), |name| name.to_string_lossy().into_owned())
+    }
 }
 
 struct Destination {
@@ -67,7 +86,8 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    let rescue = Rescue { now: SystemTime::now(), apply_diff };
+    let archive_root = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join("archive/lanes");
+    let rescue = Rescue { now: SystemTime::now(), apply_diff, archive_root };
     let start = parsed.path.map_or_else(|| std::env::current_dir().unwrap_or_default(), PathBuf::from);
     let Ok(start) = start.canonicalize().and_then(|dir| if dir.is_dir() { Ok(dir) } else { Err(std::io::ErrorKind::NotFound.into()) }) else {
         eprintln!("lane rescue: no such directory '{}'\n{USAGE}", start.display());
@@ -168,13 +188,23 @@ impl Rescue {
     fn relocate(&self, destination: &Destination, changes: &Changes) -> Result<(), Vec<String>> {
         let Destination { container, main_dir, rescue_dir, branch, .. } = destination;
         let failed = |line: String| vec![line];
+        for nested in changes.nested.iter().filter(|nested| matches!(nested, Nested::Worktree(_))) {
+            let target = container.join("worktrees").join(nested.name());
+            if target.exists() {
+                return Err(failed(format!("lane rescue: cannot relocate nested worktree {}: {} already exists; main is UNTOUCHED", nested.path(), target.display())));
+            }
+        }
         fs::create_dir_all(container.join("worktrees")).map_err(|error| failed(error.to_string()))?;
         git_checked(main_dir, &["worktree", "add", "-q", "-b", branch, &rescue_dir.to_string_lossy(), "HEAD"]).map_err(failed)?;
         if !changes.diff.is_empty() && !(self.apply_diff)(rescue_dir, &changes.diff) {
-            return Err(failed("lane rescue: git apply failed".into()));
+            discard(main_dir, rescue_dir, branch);
+            return Err(failed("lane rescue: git apply failed; the empty rescue lane was removed; main is UNTOUCHED".into()));
         }
         for file in &changes.untracked {
-            copy_preserving(&main_dir.join(file), &rescue_dir.join(file)).map_err(|error| failed(error.to_string()))?;
+            if let Err(error) = copy_preserving(&main_dir.join(file), &rescue_dir.join(file)) {
+                discard(main_dir, rescue_dir, branch);
+                return Err(failed(format!("lane rescue: could not copy {file}: {error}; the rescue lane was removed; main is UNTOUCHED")));
+            }
         }
         let mismatches = verify(main_dir, rescue_dir, changes);
         if !mismatches.is_empty() {
@@ -182,8 +212,13 @@ impl Rescue {
             lines.push(format!("lane rescue: ABORTING — verification failed; main is UNTOUCHED; rescue worktree left at {} for inspection", rescue_dir.display()));
             return Err(lines);
         }
-        commit(destination)?;
+        if changes.tracked.is_empty() && changes.untracked.is_empty() {
+            discard(main_dir, rescue_dir, branch);
+        } else {
+            commit(destination)?;
+        }
         restore(main_dir, changes);
+        self.relocate_nested(destination, changes)?;
         match git_out(main_dir, &["--no-optional-locks", "status", "--porcelain"]).filter(|status| !status.is_empty()) {
             Some(status) => Err(vec![
                 format!("lane rescue: main did NOT end clean after restore — rescue worktree ({}, branch {branch}) still holds the verified copy", rescue_dir.display()),
@@ -192,6 +227,46 @@ impl Rescue {
             None => Ok(()),
         }
     }
+}
+
+impl Rescue {
+    fn relocate_nested(&self, destination: &Destination, changes: &Changes) -> Result<(), Vec<String>> {
+        let Destination { container, main_dir, .. } = destination;
+        let mut errors = Vec::new();
+        for nested in &changes.nested {
+            let from = main_dir.join(nested.path());
+            let outcome = match nested {
+                Nested::Worktree(_) => git_checked(main_dir, &["worktree", "move", &from.to_string_lossy(), &container.join("worktrees").join(nested.name()).to_string_lossy()]),
+                Nested::Stale(_) => self.archive_stale(&from, &destination.timestamp, &nested.name()),
+            };
+            if let Err(message) = outcome {
+                errors.push(format!("lane rescue: could not move nested {}: {message}", nested.path()));
+            }
+        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
+    }
+
+    fn archive_stale(&self, from: &Path, timestamp: &str, name: &str) -> Result<(), String> {
+        fs::create_dir_all(&self.archive_root).map_err(|error| error.to_string())?;
+        let mut target = self.archive_root.join(format!("{name}-stale-{timestamp}"));
+        let mut suffix = 2;
+        while target.exists() {
+            target = self.archive_root.join(format!("{name}-stale-{timestamp}-{suffix}"));
+            suffix += 1;
+        }
+        fs::rename(from, &target).map_err(|error| format!("{error} (archiving to {})", target.display()))
+    }
+}
+
+fn discard(main_dir: &Path, rescue_dir: &Path, branch: &str) {
+    let _ = git_checked(main_dir, &["worktree", "remove", "--force", &rescue_dir.to_string_lossy()]);
+    let _ = git_checked(main_dir, &["branch", "-D", branch]);
+}
+
+fn registered_worktrees(main_dir: &Path) -> Vec<PathBuf> {
+    git_out(main_dir, &["worktree", "list", "--porcelain"])
+        .map(|listing| listing.lines().filter_map(|line| line.strip_prefix("worktree ")).map(PathBuf::from).collect())
+        .unwrap_or_default()
 }
 
 fn gather(main_dir: &Path) -> Option<Changes> {
@@ -207,9 +282,18 @@ fn gather(main_dir: &Path) -> Option<Changes> {
         tracked.extend(second.clone());
         parsed.push((status, first, second));
     }
-    let untracked = git_out(main_dir, &["ls-files", "--others", "--exclude-standard"])?.lines().filter(|line| !line.is_empty()).map(str::to_string).collect();
+    let listed: Vec<String> = git_out(main_dir, &["ls-files", "--others", "--exclude-standard"])?.lines().filter(|line| !line.is_empty()).map(str::to_string).collect();
+    let registered = registered_worktrees(main_dir);
+    let (directories, untracked): (Vec<String>, Vec<String>) = listed.into_iter().partition(|path| path.ends_with('/'));
+    let nested = directories
+        .into_iter()
+        .map(|path| {
+            let here = main_dir.join(path.trim_end_matches('/')).canonicalize().unwrap_or_default();
+            if registered.iter().any(|worktree| worktree.canonicalize().is_ok_and(|worktree| worktree == here)) { Nested::Worktree(path) } else { Nested::Stale(path) }
+        })
+        .collect();
     let diff = north_base::platform::git::run(main_dir, &["diff", "--binary", "HEAD"]).ok().filter(|output| output.status.success())?.stdout;
-    Some(Changes { name_status: parsed, tracked, untracked, diff })
+    Some(Changes { name_status: parsed, tracked, untracked, nested, diff })
 }
 
 fn plan(destination: &Destination, changes: &Changes) -> Vec<String> {
@@ -222,6 +306,10 @@ fn plan(destination: &Destination, changes: &Changes) -> Vec<String> {
     lines.extend(changes.tracked.iter().map(|path| format!("  {path}")));
     lines.push("untracked files to rescue:".to_string());
     lines.extend(changes.untracked.iter().map(|path| format!("  {path}")));
+    lines.push("nested worktrees to relocate:".to_string());
+    lines.extend(changes.nested.iter().filter(|nested| matches!(nested, Nested::Worktree(_))).map(|nested| format!("  {} -> {}", nested.path(), destination.container.join("worktrees").join(nested.name()).display())));
+    lines.push("stale nested copies to archive:".to_string());
+    lines.extend(changes.nested.iter().filter(|nested| matches!(nested, Nested::Stale(_))).map(|nested| format!("  {}", nested.path())));
     lines
 }
 

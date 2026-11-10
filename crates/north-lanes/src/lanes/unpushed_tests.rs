@@ -35,6 +35,7 @@ fn a_clean_main_ahead_of_origin_keeps_its_commits_on_a_keep_branch_and_resets() 
         Rescue {
             now: SystemTime::now(),
             apply_diff,
+            archive_root: base.join("archive"),
         }
         .rescue(&main, false)
     };
