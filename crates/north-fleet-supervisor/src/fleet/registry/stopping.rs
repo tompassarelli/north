@@ -132,19 +132,12 @@ impl Fleet {
     }
 
     pub(super) fn forget_for(&self, name: &str, why: Halt) -> NorthResult<()> {
-        let freed = match self.record(name) {
-            Ok(record) => {
-                let handed = self.hand_over_lanes(&record, None, false)?;
-                Some((record, handed))
-            }
-            Err(_) => None,
+        let lane = match self.record(name) {
+            Ok(record) if !self.hand_over_lanes(&record, None, false)? => self.remote_lane(&record),
+            _ => None,
         };
         self.archive(name, why, why.label())?;
-        if let Some((record, false)) = freed
-            && let Err(error) = self.remote_lanes.free(&record)
-        {
-            eprintln!("north fleet: {}'s lane on {} is left for north lane gc: {}", record.name, record.machine.as_ref().map_or("its host", |machine| machine.name.as_str()), error.user_message());
-        }
+        self.free_remote_lane(name, lane.as_ref());
         self.release_all_claims_of(name)?;
         self.uncache_session(name)
     }

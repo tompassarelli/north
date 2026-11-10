@@ -27,7 +27,7 @@ pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
 use super::run_recording::{NoRecording, RunRecording};
 use lanes::OverSshLanes;
-pub use lanes::RemoteLanes;
+pub use lanes::{RemoteLane, RemoteLanes};
 use super::usage_sink::{NoUsage, UsageSink};
 use super::sender::urgent_prefixed;
 use super::store::{OverSsh, Registrar, SPOOL_DIR, Spool};

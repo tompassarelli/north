@@ -9,9 +9,17 @@ use super::super::runtime::binary;
 use super::super::transcript::{WINDOW_SIZE, read_window, stream_path};
 use super::Fleet;
 
+/// The worktree a remote session worked in, on the machine that holds it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteLane {
+    pub machine: String,
+    pub ssh: String,
+    pub path: PathBuf,
+}
+
 /// Frees the lane a session worked in, on the machine that holds it, once the session has ended.
 pub trait RemoteLanes: Send + Sync {
-    fn free(&self, record: &SessionRecord) -> NorthResult<()>;
+    fn free(&self, lane: &RemoteLane) -> NorthResult<()>;
 }
 
 /// A remote session's lane lives on its machine, so this frees it over ssh; a local session's lane
@@ -19,9 +27,8 @@ pub trait RemoteLanes: Send + Sync {
 pub struct OverSshLanes;
 
 impl RemoteLanes for OverSshLanes {
-    fn free(&self, record: &SessionRecord) -> NorthResult<()> {
-        let Some(machine) = record.machine.as_ref() else { return Ok(()) };
-        north_session_host::held::free_lane(&binary("ssh"), &machine.ssh, &record.cwd).map_err(NorthError::State)
+    fn free(&self, lane: &RemoteLane) -> NorthResult<()> {
+        north_session_host::held::free_lane(&binary("ssh"), &lane.ssh, &lane.path).map_err(NorthError::State)
     }
 }
 
@@ -35,6 +42,30 @@ pub struct RunningLane {
 }
 
 impl Fleet {
+    /// The lane `record` worked in on its machine, read while its output is still in the registry: its launch
+    /// directory when that is a worktree, else the worktree beside its checkout that its output names most, since a
+    /// worker launched in the main checkout makes its lane there; none for a local session, or for a lane another
+    /// session on that machine works in.
+    pub(super) fn remote_lane(&self, record: &SessionRecord) -> Option<RemoteLane> {
+        let machine = record.machine.as_ref()?;
+        let parent = record.cwd.parent()?;
+        let path = if parent.file_name().is_some_and(|name| name == "worktrees") { record.cwd.clone() } else { worktree_of(record, &parent.join("worktrees"))? };
+        let worktrees = path.parent()?;
+        let sessions = self.sessions().ok()?;
+        let shared = sessions.iter().any(|other| {
+            other.name != record.name && other.machine.as_ref().is_some_and(|held| held.name == machine.name) && (other.cwd == path || worktree_of(other, worktrees).as_ref() == Some(&path))
+        });
+        (!shared).then(|| RemoteLane { machine: machine.name.clone(), ssh: machine.ssh.clone(), path })
+    }
+
+    pub(super) fn free_remote_lane(&self, session: &str, lane: Option<&RemoteLane>) {
+        if let Some(lane) = lane
+            && let Err(error) = self.remote_lanes.free(lane)
+        {
+            eprintln!("north fleet: {session}'s lane {} on {} is left for north lane gc: {}", lane.path.display(), lane.machine, error.user_message());
+        }
+    }
+
     /// The worktrees under `worktrees` that this host's running sessions, except `except`, work in, read from the tail of each session's output.
     pub fn running_lanes(&self, worktrees: &str, except: &str) -> Vec<RunningLane> {
         let Ok(sessions) = self.sessions() else { return Vec::new() };
