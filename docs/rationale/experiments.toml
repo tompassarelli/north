@@ -633,3 +633,36 @@ box = "Keep or revert: at the review, the settle rule keeps the pack only when i
 command = "! rg -q 'id = \"context-pack\"' docs/rationale/experiments.toml && { ! north work brief pack crates/north-dispatch/src/dispatch/shares.rs >/dev/null 2>&1 || ! rg -q 'NO_PACK' crates/north-dispatch/src/dispatch/shares.rs; }"
 review = "2026-12-11"
 owner = "tompassarelli/north#873"
+
+[[check]]
+id = "n939-sonnet-first-try-verdict"
+box = "After 15 to 20 such boxes, this issue records Sonnet's first-try landing rate"
+command = "gh issue view 939 -R tompassarelli/north --json comments -q '.comments[].body' | rg -qi 'first-try landing rate'"
+review = "2026-11-17"
+owner = "tompassarelli/north#939"
+lead = "proxy"
+
+[[check]]
+id = "n865-comment-rule-verdict"
+box = "Keep-or-revert, read 7 days after it enforces"
+command = "rg -q 'north#865 verdict' docs/rationale/watch/2026-11-08-t3code-gemini.md"
+review = "2026-11-16"
+owner = "tompassarelli/north#865"
+lead = "proxy"
+
+[[check]]
+id = "n1099-no-unmatched-binary-after-fix"
+box = "Landing logs written after the fix contain no such line"
+command = "find /home/tom/.local/state/safe-push -maxdepth 1 -name 'land-check-*.log' -newermt '2026-11-10 16:00 UTC' -exec grep -l -F \"didn't match any binary IDs\" {} + | wc -l"
+expect = "0"
+review = "2026-11-12"
+owner = "tompassarelli/north#1099"
+lead = "proxy"
+
+[[check]]
+id = "n1050-impeccable-check-verdict"
+box = "Verdict on main, 2026-12-10."
+command = "rg -q 'north#1050 verdict' docs/rationale/watch/2026-11-10-impeccable.md"
+review = "2026-12-10"
+owner = "tompassarelli/north#1050"
+lead = "proxy"
