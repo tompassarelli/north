@@ -258,6 +258,7 @@ fn a_first_turn_at_the_weekly_limit_marks_the_account_refused_and_north_accounts
     let accounts = north(root, &["accounts"]);
     let listed = text(&accounts.stdout);
     assert!(accounts.status.success(), "{listed}{}", text(&accounts.stderr));
-    assert!(listed.contains(&format!("claude:a unavailable: refused by its client: {text_written}")), "{listed}");
-    assert!(!listed.contains("claude:a available"), "a 99% reading was offered as headroom after the provider refused it: {listed}");
+    let row = listed.lines().find(|line| line.starts_with("a ")).unwrap_or_else(|| panic!("no row for a: {listed}"));
+    assert!(row.contains(" held ") && row.contains("refused by its client: You've hit"), "{listed}");
+    assert!(!row.contains(" open "), "a 99% reading was offered as headroom after the provider refused it: {listed}");
 }

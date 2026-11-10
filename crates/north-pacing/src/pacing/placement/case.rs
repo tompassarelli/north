@@ -314,13 +314,24 @@ pub fn grants_left(at: f64) -> Vec<GrantSource> {
 /// Every plan account and API grant this host can launch on, in the order placement ranks them (first is
 /// placed first), each with its verdict line and the reason for its rank: what `north fleet accounts --plan` prints.
 pub fn plan(roster: &Roster) -> Result<Vec<(String, String)>, String> {
+    Ok(verdicts(roster)?.into_iter().map(|verdict| (verdict.line, if verdict.available { verdict.rank.reason() } else { "unavailable".to_owned() })).collect())
+}
+
+/// Every plan account as placement judges it from the usage gate file the sampler wrote; no provider is polled.
+pub fn accounts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
     let text = std::fs::read_to_string(crate::platform::orchestration::path()).map_err(|error| error.to_string())?;
     let cfg: DocumentMut = text.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
     let at = storage::now();
     let (gate_value, _) = usage(at);
     let basis = Basis::new(&cfg, at);
-    let mut verdicts: Vec<gate::Verdict> = gate::verdicts(&gate_value, roster, &basis).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
+    Ok(gate::verdicts(&gate_value, roster, &basis).into_iter().filter(|verdict| verdict.owners.is_empty()).collect())
+}
+
+/// Every account and api grant as placement judges it, the available ones first in placement order.
+pub fn verdicts(roster: &Roster) -> Result<Vec<gate::Verdict>, String> {
+    let at = storage::now();
+    let mut verdicts = accounts(roster)?;
     verdicts.extend(grant_sources(roster, at).iter().map(gate::grant_verdict));
     verdicts.sort_by(|a, b| b.available.cmp(&a.available).then(b.rank.order(&a.rank)).then(a.account.cmp(&b.account)));
-    Ok(verdicts.into_iter().map(|verdict| (verdict.line, if verdict.available { verdict.rank.reason() } else { "unavailable".to_owned() })).collect())
+    Ok(verdicts)
 }

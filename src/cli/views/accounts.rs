@@ -4,10 +4,11 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
+use crate::usage::{ApiGrant, Placement, State};
 
 pub struct Accounts {
     pub text: String,
-    pub json: Value,
+    pub json: Option<Value>,
 }
 
 const USAGE: &str = "usage: north accounts [--json] | north accounts reset [--dry-run]";
@@ -22,13 +23,12 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    match super::Snapshot::new().accounts() {
+    match super::Snapshot::new().accounts(json) {
         Ok(snapshot) => {
             if let Some(accounts) = &snapshot.accounts {
-                if json {
-                    println!("{}", accounts.json);
-                } else {
-                    print!("{}", accounts.text);
+                match &accounts.json {
+                    Some(detail) => println!("{detail}"),
+                    None => print!("{}", accounts.text),
                 }
             }
             0
@@ -101,49 +101,57 @@ fn latest_reading<'a>(readings: &'a [Value], account: &str, name: &str) -> Optio
         .max_by_key(|row| row["ts"].as_str().unwrap_or_default())
 }
 
-pub fn read(at: Timestamp) -> Result<Accounts, String> {
+/// The account rows from the cached readings alone, with the machine detail (every reading, the placement order, runs and yield) when `detail` asks for it.
+pub fn read(at: Timestamp, detail: bool) -> Result<Accounts, String> {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let db = crate::usage::open_ledger(&home, None, &crate::threads::client::refresh_mirrored_snapshot)?;
+    let db = crate::usage::open_ledger(&home, None, &|| {})?;
     let places = crate::usage::Places::from_env();
-    let usage = crate::usage::detail_text(&db, &places, at)?;
-    let readings = crate::usage::json_readings(&db, at)?;
-    let plan = crate::pacing::placement::case::plan(&crate::cli::fleet::roster().map_err(|error| error.user_message())?)?;
+    let roster = crate::cli::fleet::roster().map_err(|error| error.user_message())?;
+    let verdicts = crate::pacing::placement::case::accounts(&roster)?;
     let credit = north_core::credit::standing(&crate::platform::orchestration::path(), &crate::watch::state_home(), at).orgs;
-    let runs = crate::ledger::runs_inside("24h").map_err(|error| error.user_message())?;
-    let yield_line = crate::flow::usage_line();
-    let mut text = format!("Accounts at {}\n\n{usage}\n\nPlan order:\n", at.iso());
-    for (index, (line, reason)) in plan.iter().enumerate() {
-        text.push_str(&format!("  {}. {line} [{reason}]\n", index + 1));
-    }
-    text.push_str("\nApi credit:\n");
-    for org in &credit {
-        text.push_str(&format!("  {}\n", org.line()));
-    }
-    text.push_str(&format!("\nRuns, last 24h: {}\n", runs.len()));
-    for (account, (count, usd)) in spend(&runs) {
-        text.push_str(&format!("  {account}: {count}, ${usd:.2}\n"));
-    }
-    text.push_str(&format!("\n{yield_line}\n"));
-    Ok(Accounts {
-        text,
-        json: json!({
-            "at": at.iso(),
-            "usage": readings,
-            "plan": plan.iter().map(|(line, reason)| json!({"line": line, "reason": reason})).collect::<Vec<_>>(),
-            "api_credit": credit.iter().map(|org| json!({"account": format!("api:{}", org.name), "left_usd": org.left, "estimate_usd": org.estimated, "exhausted": org.exhausted, "figure": org.figure()})).collect::<Vec<_>>(),
-            "runs_24h": runs.iter().map(|run| json!({"account": run.account, "model": run.model, "effort": run.effort, "outcome": run.outcome, "usd": run.usd})).collect::<Vec<_>>(),
-            "usage_yield": yield_line,
-        }),
-    })
+    let placement = placements(&verdicts);
+    let grants: Vec<ApiGrant> = credit.iter().map(grant).collect();
+    let view = crate::usage::SummaryView { db: &db, places: &places, now: at, offset_seconds: crate::foundation::clock::local_offset_seconds(), placement: &placement, grants: &grants };
+    let text = crate::usage::summary(&view)?;
+    let json = if detail { Some(detailed(&db, at, &roster, &credit)?) } else { None };
+    Ok(Accounts { text, json })
 }
 
-fn spend(runs: &[crate::ledger::WindowRun]) -> BTreeMap<String, (usize, f64)> {
-    let mut found: BTreeMap<String, (usize, f64)> = BTreeMap::new();
-    for run in runs {
-        let account = if run.account.is_empty() { "unrecorded".to_owned() } else { run.account.clone() };
-        let entry = found.entry(account).or_default();
-        entry.0 += 1;
-        entry.1 += run.usd;
-    }
-    found
+fn placements(verdicts: &[crate::pacing::placement::gate::Verdict]) -> BTreeMap<String, Placement> {
+    verdicts
+        .iter()
+        .filter_map(|verdict| {
+            let label = verdict.account.strip_prefix("claude:")?;
+            let state = if verdict.available { State::Open } else if verdict.exhausted { State::Out } else { State::Held };
+            let reason = verdict.line.split_once(" unavailable: ").map_or_else(String::new, |(_, reason)| reason.replace("claude:", ""));
+            Some((label.to_owned(), Placement { state, reason }))
+        })
+        .collect()
+}
+
+fn grant(org: &north_core::credit::Standing) -> ApiGrant {
+    let expires = org.balance.as_ref().map(|balance| balance.grant.expires.clone());
+    let (state, reason) = if org.exhausted {
+        (State::Out, "the provider refused a turn for credit".to_owned())
+    } else if org.left < 0.005 {
+        (State::Out, "no credit left".to_owned())
+    } else {
+        (State::Open, String::new())
+    };
+    ApiGrant { name: org.name.clone(), left_usd: org.left, expires, state, reason }
+}
+
+fn detailed(db: &rusqlite::Connection, at: Timestamp, roster: &crate::fleet::roster::Roster, credit: &[north_core::credit::Standing]) -> Result<Value, String> {
+    let readings = crate::usage::json_readings(db, at)?;
+    let plan = crate::pacing::placement::case::plan(roster)?;
+    let runs = crate::ledger::runs_inside("24h").map_err(|error| error.user_message())?;
+    let yield_line = crate::flow::usage_line();
+    Ok(json!({
+        "at": at.iso(),
+        "usage": readings,
+        "plan": plan.iter().map(|(line, reason)| json!({"line": line, "reason": reason})).collect::<Vec<_>>(),
+        "api_credit": credit.iter().map(|org| json!({"account": format!("api:{}", org.name), "left_usd": org.left, "estimate_usd": org.estimated, "exhausted": org.exhausted, "figure": org.figure()})).collect::<Vec<_>>(),
+        "runs_24h": runs.iter().map(|run| json!({"account": run.account, "model": run.model, "effort": run.effort, "outcome": run.outcome, "usd": run.usd})).collect::<Vec<_>>(),
+        "usage_yield": yield_line,
+    }))
 }

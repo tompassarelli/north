@@ -110,8 +110,8 @@ and their subverbs stay.
   the one account producer.
 - Board, Infra: `north infra`'s total and idle machines.
 - Board, Health: `dash --bars` and `north health`.
-- Drill-down: `north work` (digest, list, tree, show, report and flow's lane sections), `north accounts` (usage,
-  accounts, spend, runs and the usage yield), `north infra` (unchanged), `north health` (bars, invariants, goals).
+- Drill-down: `north work` (digest, list, tree, show, report and flow's lane sections), `north accounts` (a row per account and api grant
+  from the cached readings; usage, placement order, runs and the usage yield behind `--json`), `north infra` (unchanged), `north health` (bars, invariants, goals).
 - `fleet usage`, `fleet accounts --plan`, `fleet digest`, `fleet report` and `ledger flow` then print which view
   replaced them and retire by north#970's mechanism; `fleet accounts` without flags stays as the placement
   protocol, and `fleet spend --self` stays as the worker's budget read.

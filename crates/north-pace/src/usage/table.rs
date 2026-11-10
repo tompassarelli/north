@@ -56,11 +56,7 @@ fn claude_row(view: &View, account: &str, mine: &[&Row]) -> Result<Vec<String>, 
     let now = view.now;
     let session = current(mine, "session", now)?;
     let week = current(mine, "weekly_all", now)?;
-    let plan = match settings::plan(&view.places.policy, "claude", Some(account), detail::observed_plan(mine)) {
-        Some(Plan::Named { name, .. }) => name.strip_prefix("Claude ").unwrap_or(&name).to_owned(),
-        Some(Plan::Key(key)) => key,
-        None => String::new(),
-    };
+    let plan = plan_label(&view.places.policy, account, mine);
     let session_cell = session.map_or(NONE.to_owned(), |(used, _)| percent(used));
     let session_resets = session.map_or(NONE.to_owned(), |(_, reset)| plain::clock(reset, view.offset_seconds));
     let mut week_cell = week.map_or(NONE.to_owned(), |(used, _)| if used >= 100.0 { "100% (full)".to_owned() } else { percent(used) });
@@ -76,6 +72,14 @@ fn claude_row(view: &View, account: &str, mine: &[&Row]) -> Result<Vec<String>, 
         outlook.push(plain::ago(age));
     }
     Ok(vec![format!("{account}  {plan}").trim_end().to_owned(), session_cell, session_resets, week_cell, resets, outlook.join("; ")])
+}
+
+pub(super) fn plan_label(policy: &std::path::Path, account: &str, mine: &[&Row]) -> String {
+    match settings::plan(policy, "claude", Some(account), detail::observed_plan(mine)) {
+        Some(Plan::Named { name, .. }) => name.strip_prefix("Claude ").unwrap_or(&name).to_owned(),
+        Some(Plan::Key(key)) => key,
+        None => String::new(),
+    }
 }
 
 fn outlook(view: &View, mine: &[&Row], session: Option<(f64, Timestamp)>, week: Option<(f64, Timestamp)>) -> Result<String, String> {
@@ -167,7 +171,7 @@ fn scoped(mine: &[&Row], now: Timestamp) -> Vec<(String, f64)> {
         .collect()
 }
 
-fn current(mine: &[&Row], name: &str, now: Timestamp) -> Result<Option<(f64, Timestamp)>, String> {
+pub(super) fn current(mine: &[&Row], name: &str, now: Timestamp) -> Result<Option<(f64, Timestamp)>, String> {
     match mine.iter().find(|row| row.text("kind") == Some("window") && row.text("name") == Some(name)) {
         Some(row) => current_row(row, now),
         None => Ok(None),

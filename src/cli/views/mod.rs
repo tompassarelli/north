@@ -29,8 +29,8 @@ impl Snapshot {
         Ok(self)
     }
 
-    pub fn accounts(mut self) -> Result<Self, String> {
-        self.accounts = Some(accounts::read(self.at)?);
+    pub fn accounts(mut self, detail: bool) -> Result<Self, String> {
+        self.accounts = Some(accounts::read(self.at, detail)?);
         Ok(self)
     }
 

@@ -278,3 +278,41 @@ fn a_login_still_reporting_the_retired_max_20x_tier_shows_as_ultra_10x() {
     assert_eq!(label("max-20x"), "Claude Ultra 10x");
     assert_eq!(label("max-5x"), "Claude Max 5x");
 }
+
+#[test]
+fn the_account_view_of_the_2026_11_10_afternoon_readings_fits_a_screen_and_shows_no_raw_fields_or_negative_durations() {
+    let state: Value = serde_json::from_str(include_str!("fixtures/afternoon.json")).unwrap();
+    let scratch = Scratch::new(&state);
+    let placement: std::collections::BTreeMap<String, super::Placement> = [
+        ("a", super::State::Out, "week window at the provider's limit"),
+        ("b", super::State::Held, "held until c is spent (1% of its week left)"),
+        ("c", super::State::Open, ""),
+        ("d", super::State::Open, ""),
+        ("e", super::State::Out, "5h window at the provider's limit"),
+    ]
+    .into_iter()
+    .map(|(account, state, reason)| (account.to_owned(), super::Placement { state, reason: reason.to_owned() }))
+    .collect();
+    let grants = [
+        super::ApiGrant { name: "gmail".into(), left_usd: 126.53, expires: Some("2026-12-10".into()), state: super::State::Open, reason: String::new() },
+        super::ApiGrant { name: "proton".into(), left_usd: 0.0, expires: Some("2026-11-05".into()), state: super::State::Out, reason: "the provider refused a turn for credit".into() },
+    ];
+    let db = scratch.open();
+    let places = scratch.places();
+    let now = Timestamp::parse_rfc3339("2026-11-10T08:44:00Z").unwrap();
+    let text = super::summary(&super::SummaryView { db: &db, places: &places, now, offset_seconds: 7 * 3600, placement: &placement, grants: &grants }).unwrap();
+
+    for line in text.lines() {
+        assert!(line.chars().count() <= 100, "{} columns: {line}", line.chars().count());
+        assert!(!line.contains('='), "{line}");
+        assert!(!line.contains("resets in"), "{line}");
+        assert!(!line.split_whitespace().any(|word| word.starts_with('-') && word.chars().skip(1).any(|c| c.is_ascii_digit()) && word.contains('h')), "{line}");
+    }
+    let row = |name: &str| text.lines().find(|line| line.split_whitespace().next() == Some(name)).unwrap_or_else(|| panic!("no row for {name} in\n{text}")).split_whitespace().collect::<Vec<_>>().join(" ");
+    assert_eq!(row("a"), "a Ultra 10x out — — 0% Thu 9:00 AM week full");
+    assert_eq!(row("d"), "d Ultra 10x open 90% 8:00 PM 98% Tue 3:00 PM");
+    assert_eq!(row("e"), "e Max 5x out 0% 5:30 PM 42% Wed 10:00 AM 5h full");
+    assert!(row("b").contains("held") && row("b").ends_with("held until c is spent"), "{}", row("b"));
+    assert_eq!(row("gmail"), "gmail open $126.53 Dec 10");
+    assert!(row("proton").starts_with("proton out $0.00 Nov 5 "), "{}", row("proton"));
+}

@@ -28,6 +28,8 @@ mod refresh;
 mod render;
 mod settings;
 mod store;
+mod summary;
+pub use summary::{ApiGrant, Placement, State, View as SummaryView, render as summary};
 mod plain;
 mod table;
 #[cfg(test)]

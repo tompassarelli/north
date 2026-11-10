@@ -51,6 +51,11 @@ pub(super) fn day(date: &str) -> String {
 
 /// `table` as lines with every column padded to its widest cell, the first at least `first_width` wide.
 pub(super) fn grid(table: &[Vec<String>], first_width: usize) -> Vec<String> {
+    spaced(table, first_width, GAP)
+}
+
+/// `grid` with `gap` between the columns.
+pub(super) fn spaced(table: &[Vec<String>], first_width: usize, gap: &str) -> Vec<String> {
     let width = |cell: &String| cell.chars().count();
     let mut widths = vec![first_width];
     for row in table {
@@ -59,6 +64,14 @@ pub(super) fn grid(table: &[Vec<String>], first_width: usize) -> Vec<String> {
             widths[column] = widths[column].max(width(cell));
         }
     }
-    let padded = |cell: &String, column: usize| format!("{cell}{}{GAP}", " ".repeat(widths[column] - width(cell)));
+    let padded = |cell: &String, column: usize| format!("{cell}{}{gap}", " ".repeat(widths[column] - width(cell)));
     table.iter().map(|row| row.iter().enumerate().map(|(column, cell)| padded(cell, column)).collect::<String>().trim_end().to_owned()).collect()
+}
+
+/// `clock`, without the weekday when `at` falls on the same local day as `now`.
+pub(super) fn clock_near(at: Timestamp, now: Timestamp, offset_seconds: i64) -> String {
+    let offset = i32::try_from(offset_seconds).ok().and_then(|seconds| UtcOffset::from_whole_seconds(seconds).ok()).unwrap_or(UtcOffset::UTC);
+    let local = |moment: Timestamp| OffsetDateTime::from_unix_timestamp_nanos(moment.unix_nanos()).unwrap_or(OffsetDateTime::UNIX_EPOCH).to_offset(offset);
+    let shown = clock(at, offset_seconds);
+    if local(at).date() == local(now).date() { shown.split_once(' ').map_or(shown.clone(), |(_, time)| time.to_owned()) } else { shown }
 }

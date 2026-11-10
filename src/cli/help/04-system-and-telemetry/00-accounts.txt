@@ -1,2 +1,2 @@
 accounts
-Every account's windows, plan, api credit and spend
+Each account's state, 5h and week room with resets, and each api grant's dollars left
