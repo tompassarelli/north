@@ -58,7 +58,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let here = walk_and_ship(layout, &hosts, &checkout);
     for facts in std::iter::once(here).chain(hosts[1..].iter().map(|host| probed(layout, host).0)) {
         let problems = judged_problems(&facts, live, &mut growth);
-        println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems, landing.is_some()));
+        println!("north runtime settle: {}: {}", facts.host, probe::verdict(&facts, &problems, landing.is_some()));
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
             let inherited = judging.map_or(&[][..], |landing| history.before(&facts.host, &landing.sha, |earlier| ancestor(&checkout, earlier, &landing.sha)));
@@ -197,16 +197,6 @@ fn promoted_at(events: &[pin::Event], pinned: &str) -> u64 {
 /// The landing settle judges: the newest one seen that the pinned runtime holds, once `deadline` passed since it was seen and since the pin was promoted, since a landing the pin does not hold yet is due nowhere.
 fn due_in(seen: &[(u64, String)], promoted_at: u64, deadline: u64, now: u64, held: impl Fn(&str) -> bool) -> Option<&str> {
     seen.iter().rev().find(|(at, sha)| (*at).max(promoted_at) + deadline <= now && held(sha)).map(|(_, sha)| sha.as_str())
-}
-
-fn verdict(facts: &probe::Facts, problems: &[String], judged: bool) -> String {
-    let runtime = facts.runtime.as_deref().map_or("no runtime", layout::short);
-    match (problems.is_empty(), probe::installing(facts), judged) {
-        (false, _, _) => problems.join("; "),
-        (true, true, _) => "installing: declared with no live runtime yet".to_owned(),
-        (true, false, true) => "live and healthy".to_owned(),
-        (true, false, false) => format!("healthy on {runtime}; no landing is due yet, so whether it is live is not judged"),
-    }
 }
 
 fn blame<'a>(problems: &'a [String], moved_on: bool, inherited: &[String], code_changed: bool) -> (Vec<&'a str>, Vec<&'a str>) {
