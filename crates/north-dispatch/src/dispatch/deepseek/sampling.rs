@@ -21,7 +21,9 @@ pub enum Kind {
     Unsampled,
     /// Sampling sent it to safe-push without a review, and safe-push refused it.
     Refused,
-    /// The session reported Done with no commit ahead of main.
+    /// The session reported Done with no commit ahead of main, and the lander has landed a ticket of its lane.
+    Landed,
+    /// The session reported Done with no commit ahead of main and no landed ticket.
     Empty,
 }
 

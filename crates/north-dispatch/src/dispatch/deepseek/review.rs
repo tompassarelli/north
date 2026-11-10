@@ -221,6 +221,12 @@ pub fn serve(arguments: &[String]) -> u8 {
     }
 }
 
+/// `Landed` when the lander landed a ticket of `session`'s lane before its Done report, else `Empty`.
+pub(super) fn no_commit_kind(queues: &Path, session: &str) -> Kind {
+    let landed = north_base::land_ticket::lanes_of(queues, session).is_ok_and(|lanes| lanes.iter().any(|lane| lane.phase == north_base::land_ticket::Phase::Landed));
+    if landed { Kind::Landed } else { Kind::Empty }
+}
+
 fn review(job: &Job) -> Result<String, String> {
     let listing: Value = serde_json::from_str(&north(&["fleet", "list", "--json"])?).map_err(|error| error.to_string())?;
     let Some(session) = listing.as_array().into_iter().flatten().find(|session| session["name"] == job.name.as_str()) else { return Ok(format!("{} is no longer listed", job.name)) };
@@ -232,8 +238,10 @@ fn review(job: &Job) -> Result<String, String> {
     let verdict = |kind: Kind, class: Option<String>| Verdict { at: placement::now(), session: job.name.clone(), category: job.category.clone(), sha: sha.clone(), kind, class, effort: None };
     if ahead == 0 {
         north(&["fleet", "forget", &job.name])?;
-        sampling::append(&directory, &verdict(Kind::Empty, None))?;
-        return Ok(format!("{} reported Done with no commit ahead of origin/main; forgot it", job.name));
+        let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).filter(|path| path.is_absolute()).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
+        let kind = no_commit_kind(&state.join("north/land-queue"), &job.name);
+        sampling::append(&directory, &verdict(kind, None))?;
+        return Ok(format!("{} reported Done with no commit ahead of origin/main ({kind:?}); forgot it", job.name));
     }
     if sampling::reviews(&sampling::read(&directory), &job.category, job.landing, &sha) {
         let reviewer = format!("{}-rv", job.name);

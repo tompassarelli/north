@@ -171,3 +171,18 @@ fn the_sonnet_reviewer_draws_medium_or_high_by_seed_and_records_it() {
     assert_eq!(sampling::read(&directory), vec![row], "the verdict row keeps the effort");
     std::fs::remove_dir_all(&directory).unwrap();
 }
+
+
+#[test]
+fn a_deepseek_run_whose_lane_the_broker_landed_before_its_report_is_recorded_landed() {
+    let state = tempfile::tempdir().unwrap();
+    let queues = state.path().join("north/land-queue");
+    let done = queues.join("repo/done");
+    std::fs::create_dir_all(&done).unwrap();
+    std::fs::write(done.join("1-a.json"), r#"{"session":"ds-landed","branch":"lane","verdict":"landed abc123"}"#).unwrap();
+
+    assert_eq!(review::no_commit_kind(&queues, "ds-landed"), Kind::Landed);
+    assert_eq!(review::no_commit_kind(&queues, "ds-nothing"), Kind::Empty);
+    let verdicts = [Verdict { at: 0.0, session: "ds-landed".into(), category: "feature".into(), sha: "abc".into(), kind: Kind::Landed, class: None, effort: None }];
+    assert_eq!(sampling::clean_run(&verdicts, "feature"), 0);
+}
