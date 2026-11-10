@@ -203,6 +203,7 @@ impl Host {
             ("XDG_RUNTIME_DIR", self.path("").display().to_string()),
             ("XDG_STATE_HOME", self.path("state").display().to_string()),
             ("AGENT_CAPACITY_DB", self.path("capacity.db").display().to_string()),
+            ("NORTH_GRAPH_DB", self.path("graph.db").display().to_string()),
             ("AGENT_CAPACITY_USAGE_LOG", self.path("usage.jsonl").display().to_string()),
             ("AGENT_CAPACITY_CGROUP_ROOT", self.path("cgroup").display().to_string()),
             ("AGENT_CAPACITY_CPU_PRESSURE", self.path("pressure").display().to_string()),
