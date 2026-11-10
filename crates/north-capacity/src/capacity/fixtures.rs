@@ -12,6 +12,7 @@ pub fn facts(class: Class) -> Facts {
         memory_available_mib: 70000.0,
         cpu_some_avg10_basis_points: 0,
         protected_cpu_some_avg10_basis_points: 0,
+        host_cpu_some_avg10_basis_points: None,
         cpu_pressure_measured: false,
         leased_memory_mib: 0.0,
         leased_batch_cpus: 0.0,
@@ -61,6 +62,7 @@ pub fn facts(class: Class) -> Facts {
         requester_lease: None,
         land_check_waiting: false,
         holds_offload_slot: false,
+        build_host: false,
         client_hold: Default::default(),
     }
 }

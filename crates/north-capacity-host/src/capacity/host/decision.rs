@@ -33,6 +33,7 @@ pub fn signals_view(signals: &Signals) -> Obj {
         .put("memoryAvailableMiB", num(signals.memory_available_mib))
         .put("cpuSomeAvg10BasisPoints", num(signals.cpu_some))
         .put("protectedCpuSomeAvg10BasisPoints", num(signals.protected_cpu_some))
+        .put("hostCpuSomeAvg10BasisPoints", num(signals.host_cpu_some))
         .put("cpuPressureMeasured", true)
         .put("memoryFullAvg10BasisPoints", num(signals.memory_full))
 }
@@ -369,6 +370,31 @@ mod tests {
     use super::super::policy::Resources;
     use super::super::request::{Granted, Request};
     use super::{native_waiting_mark, scope};
+
+    #[test]
+    fn a_build_host_under_its_pressure_target_admits_the_next_queued_job() {
+        use crate::capacity::admission::{Class, Facts, Profile, Reason, admit};
+        use crate::capacity::native_hold::LeaseFact;
+        let lease = |id: &str, created_at: f64| -> LeaseFact { serde_json::from_value(serde_json::json!({"id": id, "class": "heavy", "owner": "land-check", "createdAt": created_at, "memoryMiB": 3329.0, "cpus": 4.0, "landing": true})).unwrap() };
+        let signals = super::super::machine::Signals { cores: 16.0, slice_cpus: None, memory_total_mib: 63_000.0, memory_available_mib: 45_000.0, cpu_some: 22.0, host_cpu_some: 2168.0, protected_cpu_some: 0.0, memory_full: 0.0 };
+        let mut base = serde_json::to_value(crate::capacity::fixtures::facts(Class::Heavy)).unwrap();
+        base.as_object_mut().unwrap().extend(super::signals_view(&signals).value().as_object().unwrap().clone());
+        let cpx62: Facts = Facts {
+            profile: Profile::Unattended,
+            build_host: true,
+            leased_batch_cpus: 13.97,
+            requested_cpus: 6.02,
+            peer_batch_runs: 3,
+            leases: vec![lease("a", 0.0), lease("b", 115_000.0), lease("c", 143_000.0)],
+            now: 166_000.0,
+            disk_free_gib: Some(200.0),
+            ..serde_json::from_value(base).unwrap()
+        };
+        assert_eq!(cpx62.host_cpu_some_avg10_basis_points, Some(2168));
+        assert_eq!(admit(&cpx62, |_| None).reason, Reason::Run);
+        assert_eq!(admit(&Facts { host_cpu_some_avg10_basis_points: Some(4200), ..cpx62.clone() }, |_| None).reason, Reason::DeferCpuPressure);
+        assert_eq!(admit(&Facts { build_host: false, ..cpx62 }, |_| None).reason, Reason::DeferCpuCapacity);
+    }
 
     #[test]
     fn only_a_native_start_deferred_on_the_gpu_or_its_aperture_sets_the_marker_that_holds_gpu_leases() {

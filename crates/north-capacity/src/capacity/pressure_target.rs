@@ -28,7 +28,8 @@ pub(super) fn deferred(facts: &Facts) -> Option<Reason> {
         return None;
     }
     let pressure = f64::from(facts.cpu_some_avg10_basis_points);
-    (pressure >= band(facts).high_basis_points || starting(facts)).then_some(Reason::DeferCpuPressure)
+    let host_over = host_pressure(facts).is_some_and(|host| f64::from(host) >= default_mib("offload_job_cpu_psi") * 100.0);
+    (pressure >= band(facts).high_basis_points || host_over || starting(facts)).then_some(Reason::DeferCpuPressure)
 }
 
 fn age_seconds(facts: &Facts, created_at: f64) -> f64 {
@@ -62,4 +63,9 @@ pub(super) fn growing_memory_mib(facts: &Facts) -> f64 {
     }
     let ramp = default_mib("admit_memory_ramp_seconds");
     heavy_leases(facts).filter(|lease| age_seconds(facts, lease.created_at) < ramp).map(|lease| lease.memory_mib).sum()
+}
+
+/// On a build host the whole host's CPU pressure, batch slices included, holds a heavy run against `offload_job_cpu_psi` in place of the CPUs its peers reserve.
+pub(super) fn host_pressure(facts: &Facts) -> Option<u32> {
+    (facts.class == Class::Heavy && facts.build_host).then_some(facts.host_cpu_some_avg10_basis_points).flatten()
 }

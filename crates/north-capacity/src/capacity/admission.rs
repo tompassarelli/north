@@ -50,6 +50,9 @@ pub struct Facts {
     pub memory_available_mib: f64,
     pub cpu_some_avg10_basis_points: u32,
     pub protected_cpu_some_avg10_basis_points: u32,
+    /// The whole host's CPU stall, its batch slices included, which `cpu_some_avg10_basis_points` leaves out.
+    #[serde(default)]
+    pub host_cpu_some_avg10_basis_points: Option<u32>,
     #[serde(default)]
     pub cpu_pressure_measured: bool,
     #[serde(rename = "leasedMemoryMiB")]
@@ -134,6 +137,9 @@ pub struct Facts {
     pub land_check_waiting: bool,
     #[serde(skip)]
     pub holds_offload_slot: bool,
+    /// Whether other hosts send builds here (`[hosts.NAME] offload_builds`).
+    #[serde(skip)]
+    pub build_host: bool,
     #[serde(skip)]
     pub client_hold: client_reserve::ClientHold,
 }
@@ -519,10 +525,11 @@ fn shared(facts: &Facts) -> Reason {
     if facts.class == Class::Gpu {
         return Reason::Run;
     }
-    if batch_jobs_full(facts) {
+    let by_host_pressure = super::pressure_target::host_pressure(facts).is_some();
+    if !by_host_pressure && batch_jobs_full(facts) {
         return Reason::DeferBatchJobs;
     }
-    if facts.peer_batch_runs > 0 && !batch_fits(facts, facts.requested_cpus) {
+    if !by_host_pressure && facts.peer_batch_runs > 0 && !batch_fits(facts, facts.requested_cpus) {
         return Reason::DeferCpuCapacity;
     }
     if facts.class == Class::Heavy {

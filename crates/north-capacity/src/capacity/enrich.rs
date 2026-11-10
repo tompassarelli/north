@@ -37,6 +37,7 @@ pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
     facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
     facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
     facts.holds_offload_slot = std::env::var(north_base::foundation::offload::SLOT_ENV).is_ok_and(|slot| !slot.is_empty());
+    facts.build_host = (host.build_host)();
     let mut gathered = admission_record::gathered(&facts, &queued_pairs);
     facts.derive_native_holds();
     facts.pair_leases.extend(queued_pairs);
