@@ -1,20 +1,22 @@
 use std::path::PathBuf;
 
-use north_base::foundation::step::Refused;
+use north_base::foundation::clock::Timestamp;
+use north_base::foundation::step::{Refused, cancelled};
 
 use crate::gates::plan::{Destination, Gate, GateFacts, plan};
 use crate::gates::run::{Capacity, Gates, LandChecks};
 use crate::gates::target::Target;
 use crate::gates::verdict::{Outcome, Snapshot as Observed, standing, verdict};
 use crate::publication::outgoing::Outgoing;
-use crate::publication::plan::publication;
+use crate::publication::plan::{Publication, publication};
 use crate::report::terminal::{Terminal, receipt};
 use crate::report::timeline::Timeline;
 use crate::request::Arguments;
 use crate::session::cancel::watch_for_cancel;
 use crate::session::output_log::claim;
 use crate::shell::Shell;
-use crate::shell::origin::Snapshot;
+use crate::shell::files::Pushed;
+use crate::shell::origin::{Hooks, Push, Snapshot};
 
 enum Stop {
     Refused(u8),
@@ -32,22 +34,38 @@ struct Cleared {
     ran_land_checks: bool,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Mode {
+    DryRun,
+    PublishRoot,
+}
+
 pub fn run(arguments: &Arguments, to: &str, shell: &Shell) -> u8 {
     watch_for_cancel();
     let mut timeline = Timeline::start(shell);
     let claims = match claim(shell) {
         Ok(claims) => claims,
-        Err(refused) => return Preflight { shell, to, claimed: "" }.terminal(&timeline, refused.into()),
+        Err(refused) => return Preflight { shell, to, claimed: "", mode: Mode::DryRun }.terminal(&timeline, refused.into()),
     };
-    let preflight = Preflight { shell, to, claimed: &claims.list };
-    match preflight.clear(&mut timeline) {
+    timeline.announce();
+    drive(arguments, &Preflight { shell, to, claimed: &claims.list, mode: Mode::DryRun }, &mut timeline)
+}
+
+/// Lands the lane as origin's first commit: the dry run's gates, then a push that needs the branch to be absent, since an empty origin has no queue to wait in and no branch to rebase onto.
+pub fn publish_root(arguments: &Arguments, to: &str, shell: &Shell, claimed: &str, timeline: &mut Timeline) -> u8 {
+    drive(arguments, &Preflight { shell, to, claimed, mode: Mode::PublishRoot }, timeline)
+}
+
+fn drive(arguments: &Arguments, preflight: &Preflight, timeline: &mut Timeline) -> u8 {
+    let shell = preflight.shell;
+    match preflight.clear(timeline) {
         Ok(cleared) => {
             if cleared.ran_land_checks && !arguments.keep_lane {
                 shell.processes.exit_code("north", &["land", "clean", &cleared.root]);
             }
             0
         }
-        Err(stop) => preflight.terminal(&timeline, stop),
+        Err(stop) => preflight.terminal(timeline, stop),
     }
 }
 
@@ -55,6 +73,7 @@ struct Preflight<'a> {
     shell: &'a Shell,
     to: &'a str,
     claimed: &'a str,
+    mode: Mode,
 }
 
 struct Lane<'a> {
@@ -75,7 +94,6 @@ struct Landed {
 impl Preflight<'_> {
     fn clear(&self, timeline: &mut Timeline) -> Result<Cleared, Stop> {
         let shell = self.shell;
-        timeline.announce();
         let directory = PathBuf::from(".");
         let outgoing = Outgoing::capture(shell, &directory, self.to)?;
         let identity = &outgoing.identity;
@@ -116,8 +134,31 @@ impl Preflight<'_> {
         })?;
         outgoing.revalidate(shell, &directory)?;
         let publication = publication(&outgoing.head, &outgoing.destination_ref, outgoing.snapshot_oid_or(""));
-        println!("safe-push: ✓ clean (--dry-run) — would push {} -> origin as {}", identity.branch(), publication.refspec);
+        if self.mode == Mode::DryRun {
+            println!("safe-push: ✓ clean (--dry-run) — would push {} -> origin as {}", identity.branch(), publication.refspec);
+            return Ok(Cleared { root, ran_land_checks });
+        }
+        println!("safe-push: ✓ clean — pushing {} -> origin as {}", identity.branch(), publication.refspec);
+        self.push(&outgoing, &publication)?;
         Ok(Cleared { root, ran_land_checks })
+    }
+
+    fn push(&self, outgoing: &Outgoing, publication: &Publication) -> Result<(), Stop> {
+        let shell = self.shell;
+        let origin_url = &outgoing.identity.origin_url;
+        cancelled()?;
+        let pushed_at = u64::try_from(Timestamp::now().unix_seconds()).unwrap_or(0);
+        let push = Push { source: None, url: origin_url, refspec: &publication.refspec, lease: Some(&publication.lease), hooks: Hooks::Skip, claimed: self.claimed };
+        shell.origin.push(&push)?;
+        if shell.origin.tip(origin_url, &outgoing.destination_ref).as_deref() != Some(outgoing.head.as_str()) {
+            return Err(Stop::Collected(format!("NOT landed: {} is not at {} on origin", outgoing.destination_ref, outgoing.head)));
+        }
+        let record = Pushed { at_secs: pushed_at, origin_url, branch: self.to, oid: &outgoing.head, session: &shell.settings.fleet_session };
+        if shell.files.record_push(&record).is_err() {
+            eprintln!("safe-push: could not record push timing");
+        }
+        println!("safe-push: pushed {} to {}", outgoing.head, self.to);
+        Ok(())
     }
 
     fn lane<'a>(&'a self, outgoing: &'a Outgoing, root: &'a str, range: &'a str) -> Result<Lane<'a>, Stop> {

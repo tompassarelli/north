@@ -3,6 +3,7 @@ use std::path::Path;
 use north_base::foundation::step::{Refused, Step};
 use north_base::platform::land_queue;
 
+use crate::landing::preflight;
 use crate::report::timeline::Timeline;
 use crate::request::{self, Arguments, Plan};
 use crate::session::cancel::watch_for_cancel;
@@ -121,14 +122,15 @@ fn run(arguments: &[String]) -> u8 {
     }
 }
 
-pub fn land(arguments: &[String], to: &str, shell: &Shell) -> u8 {
+pub fn land(arguments: &[String], request: &Arguments, to: &str, shell: &Shell) -> u8 {
     watch_for_cancel();
-    let timeline = Timeline::start(shell);
+    let mut timeline = Timeline::start(shell);
     let code = match claim(shell) {
-        Ok(_claims) => {
+        Ok(claims) => {
             timeline.announce();
             match fetch_destination(shell, to) {
-                Ok(()) => run(arguments),
+                Ok(Destination::Queue) => run(arguments),
+                Ok(Destination::EmptyOrigin) => return preflight::publish_root(request, to, shell, &claims.list, &mut timeline),
                 Err(Refused(code)) => code,
             }
         }
@@ -148,13 +150,21 @@ pub fn land(arguments: &[String], to: &str, shell: &Shell) -> u8 {
     }
 }
 
-fn fetch_destination(shell: &Shell, to: &str) -> Step {
+enum Destination {
+    Queue,
+    EmptyOrigin,
+}
+
+fn fetch_destination(shell: &Shell, to: &str) -> Step<Destination> {
     let reference = format!("refs/heads/{to}");
     if shell.origin.fetch(&format!("+{reference}:refs/remotes/origin/{to}")).is_ok() {
-        return Ok(());
+        return Ok(Destination::Queue);
     }
     match shell.origin.listing("origin", &[&reference]) {
-        Ok(listing) if listing.trim().is_empty() => Ok(()),
+        Ok(listing) if listing.trim().is_empty() => match shell.origin.listing("origin", &["refs/heads/*"]) {
+            Ok(branches) if branches.trim().is_empty() => Ok(Destination::EmptyOrigin),
+            _ => Ok(Destination::Queue),
+        },
         _ => {
             eprintln!("safe-push: could not fetch origin/{to}; NOT pushed.");
             Err(Refused(1))

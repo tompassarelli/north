@@ -42,7 +42,7 @@ fn dispatch(arguments: &[String], shell: &Shell) -> u8 {
     }
     match default_destination(&request, shell) {
         Some(to) if request.dry_run => preflight::run(&request, &to, shell),
-        Some(to) => route::land(arguments, &to, shell),
+        Some(to) => route::land(arguments, &request, &to, shell),
         None => publication::run(arguments, shell),
     }
 }
