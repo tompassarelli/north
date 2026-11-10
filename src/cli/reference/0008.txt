@@ -1,0 +1,35 @@
+  broker inspect [--json]                          Print the repositories and permissions the broker granted the token on stdin
+  gh-broker serve [--resident]|release|quota    Serve, release or read the GitHub call broker
+  gh-session REAL_GH [ARGS...]                  Run gh through the GitHub broker (gh's own --help passes through)
+  git-credential get                            Answer a git credential request through the GitHub broker
+  git-credential store                          Give no answer; nothing is stored
+  git-credential erase                          Give no answer; nothing is erased
+  hook HOOK                                     Run an agent hook
+  hook prompt-grounding                         Run the prompt grounding hook
+  hook stats [--since 7d|48h]                   Print hook statistics
+  alarm stats [--since 7d|48h]                  Print each alarm source's alerts and false share
+  job-run [--path DIRS] [--user USER] [--class CLASS] [--notify] NAME -- CMD...  Run a scheduled job and record its result
+  land fails-first [BASE HEAD]                  Check that a lane's new tests fail on BASE (default $SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD)
+  land red-check --main SHA --log FILE [--lane BRANCH]  Judge whether a red land check is main's fault
+  land missed --since DATE [--repo DIR]               List each failing Cargo run on main since DATE and the failed tests the change graph's after-landing selection for its landing range left out
+  loops check [--role ledger|lander|here]       Check the declared control loops and their scores
+  fleet pace place ...                          Place a launch on a machine and account
+  fleet pace sample                             Sample account usage
+  fleet pace gate PROVIDER                      Gate a launch on a provider's usage
+  private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]  Run the private-value checks
+  provider-capacity events [--minutes N]        Read provider capacity events
+  provider-capacity status [--minutes N]        Read provider capacity state
+  fleet report                                        Retired view: `north work` prints the report
+  resident-cap gate claude|codex [ARG...]       Refuse a launch over this host's resident session cap, exiting 3 with the Hold line
+  resident-cap status                           Print this host's live session count and cap
+  capacity bounded DURATION -- COMMAND [ARGS...]     Run a command bounded in time and memory
+  session-link --ssh DESTINATION --unit UNIT --dir DIR --nonce NONCE --launch COMMAND  Link a remote session unit
+  session-unit SYSTEMD-RUN-ARGS...              Run systemd-run in the fleet session's scope (systemd-run's own --help passes through)
+  code-health split move-module [--dry-run] [--from FROM] --crate CRATE [--allow-test-item NAME]... [--target-dir DIR] MODULE...  Move modules into a crate
+  ssh-argv SSH-ARGS...                          Print the attributed ssh argv, NUL separated
+  ssh-session REAL_SSH [ARGS...]                Run ssh with session attribution
+  ssh-master probe HOST...                      Recycle a shared ssh master slower than 3 s twice while a direct connection answers
+  lane seed [DIR]                               Seed a lane's cargo target from the shared one
+  tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
+  fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`
+  help                                          Show the operator and agent commands

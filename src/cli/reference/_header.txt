@@ -1,0 +1,7 @@
+North — every command, including those run by timers, hooks and other programs
+
+Usage: north [COMMAND]
+
+Run north --help for the operator and agent commands, or north COMMAND --help for one.
+
+Commands:

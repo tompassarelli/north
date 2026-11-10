@@ -1,0 +1,39 @@
+  capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
+  capacity watchdog sample [--once] [--interval SECONDS]  Every 30 s append host load, pressure and top processes to samples.jsonl, log unleased overload and step each sample
+  capacity watchdog report [--minutes N]...  Summarize the last N minutes of watchdog samples and incidents with flags
+  capacity watchdog rest-check [--seconds N] [--expected FILE] [--observed FILE] [--save FILE]  Compare running units, timers and sockets with the host's expected-at-rest set
+  capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl [--owners OWNERS.json] [--cpus N] | replay --snapshots SNAPSHOTS.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
+  nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
+  nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
+  fleet laptop open                             Open the laptop for placement on the ledger host
+  fleet laptop close                            Close the laptop to placement
+  fleet laptop drain                            Let running work finish and place nothing new
+  fleet laptop toggle                           Flip the laptop between open and closed
+  fleet laptop status                           Read the laptop's placement availability
+  fleet laptop tick                             Apply the daily laptop window
+  fleet laptop observe SAMPLE                   Record an idle and battery sample from the laptop
+  laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
+  agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
+  ops watch --once [--quiet]                    Run the landing and GitHub probes, raise their alerts to the proxy and the lane lead (--quiet prints none), then run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
+  job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers
+  outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read
+  outside-watch status                          Show the last run and its log line
+  lane reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
+  retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Mak'gora evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
+  lane layout                                   List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
+  hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
+  docs features-index [--check] [--root DIR]    Regenerate docs/features.md from the one-file-per-feature tree under docs/features/, or with --check fail when it is stale
+  docs rationale-index [--check] [--root DIR]   Regenerate docs/rationale/README.md, one line per note: title, link, first sentence; --check fails when it is stale
+  docs help-index [--check] [--root DIR]        Regenerate src/cli/help.txt from the one-file-per-command tree under src/cli/help/, or with --check fail when it is stale
+  lane gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Delete landed lanes and origin branches, bundle closed-issue and ownerless lanes to ~/archive/lanes before reaping them, keep the rest and list them by issue (hourly and daily timers)
+  ops strategy log check [--since 1h|30m|7d] | log retain [--days 14]  Parse every decision-log line (placement, admission and the lander's steps) back into its north-strategy-types record and report lines per kind, unparsed lines and decide_us; retain compresses closed hours with zstd and deletes days past 14
+  ops strategy refusals [--since 1h]  Print the launches placement refused in the window, each counted by its last placement, as a rate per hour: the oracle of the launch-refusals-per-hour goal
+  ops strategy replay [--since 24h] [--invariants] [--budget]  Decide the window's logged placement, admission and lander cases again with this binary's code and print each kind's outcome counts beside the logged ones; exits 1 when a count shifts past replay_outcome_shift_ratio, and with --invariants also when a launch is placed on an account at its provider's limit, a lease asked from inside an offload slot is deferred behind the land check waiting for it, or the replayed landing p90 passes replay_landing_p90_seconds
+  ops climb run --dry-run [--since 7d]  Print the week's largest measured loss from the worker ledger (repeat-run and unclosed-box dollars per tier and category), the one candidate policy change the generator writes for it, the candidate's score from strategy replay against the current policy, and every live arm's share with the ledger boxes behind it
+  test frontier tasks --since DATE --until DATE --repo DIR --briefs DIR  Pick landed boxes to replay
+  test frontier run TASKS.json --briefs DIR --out DIR [--arm north|plain|t3code]... [--t3 DIR --t3-node PATH] [--plan ACCOUNT] [--only ID]... [--jobs N] [--budget-usd X] [--stop-usd X] [--wall-min M] [--idle-min M]  Replay each task from its base under north's harness and under plain Claude Code, each in its own sandbox
+  test frontier grade TASKS.json --out DIR [--only ID]...  Grade each arm's tree by the landing's own tests
+  test frontier report TASKS.json --out DIR [--rows FILE]  Write one run row per arm and task for north dash --frontier (docs/rationale/frontier.md)
+  lane audit [--repo NAME]... [--alert]         For every unarchived tompassarelli GitHub repo pushed in 2026 (own forks only): list branches already on the default branch but still present (a repository's GitHub Pages source branch is expected and left out), group unlanded branches as open work under the issue they name with its state, owner and age (oldest first), then the tags that are not v* releases and the v* tags without a GitHub release; writes ~/.local/state/agents/repo-audit/latest.txt; exits 1 on a landed branch older than an hour, an unowned branch whose issues are all closed or that names no issue, a bad tag, or a lane gc that failed or retires nothing, and --alert sends supply-alert (nightly timer)
+  pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
+  lane reap [--all] [--dry-run]                    Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it

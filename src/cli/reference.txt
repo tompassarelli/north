@@ -156,7 +156,7 @@ Commands:
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   config context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
   ledger worker [--session ID] [--backfill] | --summary [--by LIST] | --recommend FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
-  dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --frontier | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]  One board over the window: landings and boxes per hour first, then the Work, Accounts, Infra and Health panels, each opening on its headline fact; --closed prints the closed-box report dispatch decides on as JSON, the other flags the scoreboard's reports, and losses lists each first try lost to the harness with its class and boundary record
+  dash [--since 24h] [--json] | --closed --since 7d | --bars [--all] [--explain] | --weekly | --record | --frontier | --rework [--since 7d] | audit [--tell] | losses [--since 24h] [--until DATE] [--repo north]  One screen over the window: the readiness bars failing first, each Claude account's week and the spend by model and effort, and per task category the model mix, first-try success and cost per closed box; --closed prints the closed-box report dispatch decides on as JSON, the other flags the scoreboard's reports, and losses lists each first try lost to the harness with its class and boundary record
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   fleet                                         Open the fleet screen; north fleet --help lists each verb
   glance                                        One line (layer 0): whether anything is broken, whether money is all right and whether any gate waits on Tom
@@ -255,6 +255,7 @@ Commands:
   skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines
   cross-project-scan [--print-bundle]           Daily cross-project overlap scan posted to the proxy
   eta-calibration                               Post the last 7 days of stated ETA against measured active minutes, per category and tier, to north#255 (weekly timer)
+  skill-review-queue                            Open, update or close the Skill review queue issue
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
   github-mirror sync [--repo NAME]...            Copy north's, makgora's, wisp's and firn's issues, branch tips, tags, releases, main CI runs and main check results into ~/.local/state/north/github-mirror.db with conditional reads (an unchanged read answers 304), so dispatch, the CI watch, lane gc --remote and repo audit read the copy instead of GitHub (timer every two minutes)
   ops github budget                              Print each GitHub token's hourly limit left, every fleet session's spend against its hourly share and the costliest callers of the last hour from the broker's calls.log
@@ -264,7 +265,7 @@ Commands:
   runtime opencode [VERSION]                 Install a checksum-verified OpenCode runtime from the newest stable anomalyco/opencode release and select it
   capacity nexus [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
   desktop warcraft close [--list]                       Close Tom's Steam launch of Battle.net and Warcraft III completely, or list its processes
-  desktop warcraft login-field PRIVATE_RUN a|b|c|d username|password [--owner-authorized]  Type one stored Battle.net field into the verified private login window
+  desktop warcraft login-field PRIVATE_RUN a|b|c|d FIELD [--owner-authorized]  Type one stored account field into the verified private login window
   ops credentials check [--json] | renew [--dry-run] | import-cookies SITE [--from CHROME_PROFILE]  List every credential the fleet uses with its kind (machine or human-session), expiry and renewal path and exit 1 on any human-session, expired or undeclared one; renew runs machine renewals before expiry, batches what needs Tom into one notice 30 days ahead and writes the loop record (daily timer); import-cookies copies a declared site's sign-in from Tom's Chrome profile into the automation-chrome profile on the same machine and refuses an undeclared site
   desktop capture --screen|--window ID|--region "X,Y WxH" OUT.png  Screenshot without touching Tom's clipboard
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there unless HOST runs a newer descendant
@@ -276,7 +277,7 @@ Commands:
   desktop-idle-state idle|active                Record whether Tom's desktop is idle
   evidence start RUN                            Start an evidence folder for one run
   ledger flow [--json] [--repo NAME]... [--stall-alarm] | row REPO [FIELD]... | detect [--dry-run]  Alarms and detectors; the lane view is `north work` and the usage line is `north accounts`
-  broker serve [--user]                            Run the credential broker that holds the GitHub App keys and cloud tokens
+  broker serve [--user]                          Run the credential broker that holds the app credentials and cloud tokens
   broker github-token --app agent|lander [--repo NAME]... [--permission NAME:LEVEL]...  Print a scoped one-hour GitHub App installation token
   broker inspect [--json]                          Print the repositories and permissions the broker granted the token on stdin
   gh-broker serve [--resident]|release|quota    Serve, release or read the GitHub call broker
@@ -313,6 +314,7 @@ Commands:
   tool-mine [--days N] [--min-sessions N] [--min-steps N] [--max N] [--owner REPO#N] [--dry-run]  Mine transcripts for repeated tool sequences
   fleet usage [--refresh [--local]] [--json|--verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample  Account writers; the account view is `north accounts`
   help                                          Show the operator and agent commands
+  docs reference-index [--check] [--root DIR]    Regenerate src/cli/reference.txt from the one-file-per-command tree under src/cli/reference/, or with --check fail when it is stale
 
 Options:
   -h, --help  Show the operator and agent commands

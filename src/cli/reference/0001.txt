@@ -1,0 +1,39 @@
+  accounts [--json]                              Every account's windows, plan, api credit and spend
+  health [--dry-run] [--json]                    Readiness bars, goals and harness invariants
+  infra [--json]                                 List each live paid resource with its monthly price and a total
+  home move [--dry-run] PLAN.tsv                 Apply a move plan at the top of home outside the worker sandbox: one rename per row, logged to moves.tsv, never copying or deleting
+  check calls [--tree DIR] [--live DIR]         Read every north call on this host (unit Exec lines and the scripts they run, hooks, ssh hops in the --tree source) against this runtime, exit 1 naming each unparsable one; runtime update runs it from the incoming runtime before each swap
+  check citations [--root DIR] [--list]         Fail on a doc, skill or hook that cites a north subcommand the CLI does not define
+  check experiments [--root DIR]                Check that every review rule and footgun card has an experiment registry entry
+  check experiments judge [--root DIR] [--today YYYY-MM-DD] [--file]  Judge the declared experiments due for review
+  check experiments defer ISSUE BOX --check CMD --by DATE  Defer a box to a dated check in the experiment registry
+  check goals [--root DIR] [PROJECT...]         Check each project's declared goals
+  check issue-boxes [REPO#N...] [--repo REPO]   Check issue acceptance boxes
+  check machines [--write | --registry | --fixes [--days N] | --replay [--days N]] [--root DIR]  Check every modelled lifecycle machine over every ordering of its scope, its chart and that the landing selects it; --registry checks only that every machine is named; --fixes reports machines whose code a landed incident fix changed; --replay scores that trigger over history beside calendar and churn sweeps
+  check nix [--lock FILE [--allow FILE]]        Report each dev shell as rooted and enterable offline, missing rustup wrapper store paths and a second nixpkgs in flake.lock
+  check provenance check BASE HEAD              List each new gating bar, hook or policy line with no Provenance record
+  check provenance debt [--due] [--repo REPO]   List target debt, or only the entries past their triggers
+  work review PLAN [--author TIER] [--root DIR]  Split a design review into fact, scenario and architecture items, run the facts, route the rest by tier
+  ci-diagnose [--dry-run OWNER/REPO RUN_ID]      Comment a Haiku-extracted, Opus-judged diagnosis once per new failure on each open "main is red" issue
+  red-main-notify                               Tell each open "main is red" issue's culprit lane session and the proxy, once per culprit commit
+  main-red RUN_ID                               Confirm a failed main CI run once, then ask the lander to revert its culprit (GH_REPO names the repository)
+  language-gate --repo DIR --base REV --head REV  Check language policy
+  code-health crate-lines [--repo DIR] [BASE HEAD]  Print non-test Rust lines per workspace crate against structure.toml [crate_lines]; with BASE HEAD exit 1 when a crate over its cap grew
+  code-health report [--repo DIR] [--config FILE] [--rev REV] [--json]  Report the full structure.toml debt
+  code-health gate [--repo DIR] [--config FILE] [--rev REV] [--json]  Report the structure.toml debt new between two commits
+  code-health check [--repo DIR] [--config FILE] [--rev REV] [--json]  Measure one dirty file against structure.toml
+  code-health signal [--repo DIR] [--config FILE] [--rev REV] [--json]  Print the recurring-review signal
+  code-health review-done [--repo DIR] [--config FILE] [--rev REV] [--json]  Record a structure review
+  code-health habits [--repo DIR]               Run the Rust habit checks
+  code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE] [--rev REF] [--file]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold; --rev measures a fresh detached checkout of REF, --file keeps one rolling split issue per repo
+  guard language                                PreToolUse language guard
+  graph ground query [--query TEXT] [--tier A|B] [--hook]  Retrieve existing infrastructure and history for a query
+  graph ground refresh [--force] [--if-idle] [--source NAME]...  Refresh the grounding docs in the graph from their sources
+  graph ground distill run [--since SINCE] [--no-refresh] [--if-idle] [--after-prompt]  Distill new corrections into grounding records
+  graph ground distill status                      Show the distill state
+  graph ground distill capture                     Capture a correction for the next distill run
+  graph ground score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]  Score grounding retrieval against an eval set
+  work [--since DURATION] [--json]              Show the fleet's work: sessions, gates, landings, stalls, report and lane flow
+  work list                                     List the open work items
+  work search TEXT                              Search work items
+  work show REPO#N                              Show one work item with its holder

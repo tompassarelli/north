@@ -76,5 +76,6 @@
 	contract = file-or-wire-format :: a format another program or a past north writes or reads: ledgers, trailers, transcripts, the GitHub and Claude APIs, git output
 
 [after-landing]
+advisory = generated reference index :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-ops/src/ops/docs.rs,crates/north-ops/src/ops/reference_index/ docs reference-index --check
 advisory = code-comment habit :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ code-health habits --base ${SAFE_PUSH_LAND_BASE} --head ${SAFE_PUSH_LAND_HEAD}
 advisory = whole-tree habits :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-code-health/src/code_health/ code-health habits

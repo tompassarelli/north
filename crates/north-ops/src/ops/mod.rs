@@ -14,6 +14,7 @@ pub mod remote_serve;
 pub mod review_items;
 pub mod retention;
 pub mod rationale_index;
+pub mod reference_index;
 pub mod report;
 pub mod watch;
 pub mod check;

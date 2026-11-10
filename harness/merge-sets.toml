@@ -69,6 +69,13 @@ sources = ["src/cli/help/"]
 generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/help_index/"]
 
 [[set]]
+path = "src/cli/reference.txt"
+kind = "regenerate"
+command = "north docs reference-index"
+sources = ["src/cli/reference/"]
+generator = ["crates/north-ops/src/ops/docs.rs", "crates/north-ops/src/ops/reference_index/"]
+
+[[set]]
 path = "docs/rationale/README.md"
 kind = "regenerate"
 command = "north docs rationale-index"

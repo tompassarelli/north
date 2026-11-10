@@ -1,0 +1,4 @@
+
+Options:
+  -h, --help  Show the operator and agent commands
+      --help-all  Show every command with its contract

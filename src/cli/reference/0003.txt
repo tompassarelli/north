@@ -1,0 +1,40 @@
+  land scan test-admission kills [--host NAME] [--remote-north COMMAND] [--here] BASE..HEAD  Before landing, refuse a lane whose added tests kill none of its cargo-mutants mutants
+  land scan docs-owners BASE..HEAD              Refuse a plan, port, migration or order doc whose owners are all closed or that names no owner or a missing path
+  land scan doc-links BASE..HEAD                Refuse a README, AGENTS or docs reference the lane leaves pointing at nothing
+  land scan gate-shadow BASE..HEAD              Refuse a gate in harness/gates.toml switched to enforce without a recorded shadow review
+  land scan denylist BASE HEAD REF              Scan an outgoing change for private deny-list values
+  land scan commit-email REVISION...            Check author and committer emails
+  land scan native-ref [--range REVISION]... [-- NAME...]  Refuse native item references
+  land scan secrets RANGE                       Run betterleaks over a range
+  land scan publication BASE HEAD               Run every publication scan
+  land clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
+  land train record ...                         Record a train verdict in the threads ledger
+  land train check ...                          Record a check run in the threads ledger
+  land train red ...                            Record a red-main interval in the threads ledger
+  ledger incident record --key K --class C --noticed-by WHO [--repo R] [--subject S] [--started-at EPOCH] [--detected-at EPOCH] [--detail TEXT]  Record a failure the moment it happens
+  ledger incident guard --class C --guard REF --landed-at EPOCH [--issue REPO#N]  Record the guard that closes a failure class
+  ledger incident report [--days N] [--since EPOCH --until EPOCH]  Read incidents by class, detector-first rate and recurrences
+  ledger duplicate [--days N] [--json]          Count the worker runs that started on a box another run still worked, by day; a day without one reads 0
+  ledger opencode [--since 7d]                  Per week and DeepSeek model: boxes attempted, landed Done, checked, escalated to Claude and its cost, Go window share and limit wait, against the ledger's Sonnet rate
+  ledger show L<id>                             Print one recorded decision's date, owner, source and decision; exit 1 naming the id when none exists
+  landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
+  stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
+  lane squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
+  merge-driver set [--config FILE] BASE OURS THEIRS PATH  Git merge driver: merge the order-insensitive unique-entry lists named in harness/merge-sets.toml, refusing duplicates and remove-versus-edit; leave its regenerated files conflicted
+  merge-driver continue [--config FILE]         Finish a rebase or cherry-pick stopped only on regenerated files: run each generator on the merged sources, stage and continue
+  bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry or removes a north subcommand or flag a deployed nixos-config or south unit, this host's user units or a call north's own Rust code builds still run
+  land tests [--jobs N] [--cases json] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
+  land actions --workflow FILE --base B --head H --timeout S -- COMMAND...
+                                                 Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
+  safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag other than v* (branches land through safe-push --to)
+  land release VERSION [--notes FILE]                 From a clean main at origin, create and push the annotated tag vVERSION and its GitHub release; a rerun finishes a partial release
+  nix explain <nix subcommand | class>           Print a Nix footgun card, then the option sections of this host's `nix <cmd> --help` it names
+  nix gc [--dry-run] [--max-freed SIZE]          Root every promoted runtime, live worktree dev shell and rustup wrapper store path, then collect the store
+  contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
+  test coverage select BASE HEAD [--map FILE]   Pick the Rust tests that reach the functions a change touches
+  test coverage miss BASE HEAD --log FILE [--map FILE]  Name the after-push failures the selection missed and refresh the map
+  test coverage record [NEXTEST-ARGUMENT...]    Record the test-to-function coverage map on a check host
+  test coverage refresh [--repo NAME] [--host NAME] [--head REVISION]  Refresh the coverage map on a check host
+  graph tell [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Record a fact in the triple graph
+  graph retract [--db PATH] [--writer NAME] (T1 T2 T3 | TRIPLE)  Withdraw a fact from the triple graph
+  graph show [--db PATH] [--json] T1            Show the facts about one term
