@@ -32,7 +32,7 @@ pub(super) fn setting(name: &str) -> f64 {
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
-const USAGE: &str = "usage: north lane reclaim [--dry-run] [--idle-hours H]";
+const USAGE: &str = "usage: north lane reclaim [--dry-run] [--idle-hours H] [--only scratch]";
 const DEFAULT_IDLE_HOURS: u64 = 24;
 const KEPT_PAIRS: [u32; 2] = [0, 1];
 
@@ -76,9 +76,22 @@ impl Inputs {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Scope {
+    Everything,
+    Scratch,
+}
+
 pub(super) struct Policy {
     idle: Duration,
     dry_run: bool,
+    scope: Scope,
+}
+
+impl Policy {
+    pub(super) fn everything(idle: Duration) -> Self {
+        Self { idle, dry_run: false, scope: Scope::Everything }
+    }
 }
 
 pub(super) struct Removal {
@@ -109,11 +122,12 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 fn policy(arguments: &[String]) -> Option<Policy> {
-    let mut policy = Policy { idle: Duration::from_secs(DEFAULT_IDLE_HOURS * 3600), dry_run: false };
+    let mut policy = Policy::everything(Duration::from_secs(DEFAULT_IDLE_HOURS * 3600));
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {
             "--dry-run" => policy.dry_run = true,
+            "--only" if rest.next()? == "scratch" => policy.scope = Scope::Scratch,
             "--idle-hours" => policy.idle = Duration::from_secs(rest.next()?.parse::<u64>().ok()?.checked_mul(3600)?),
             _ => return None,
         }
@@ -124,11 +138,16 @@ fn policy(arguments: &[String]) -> Option<Policy> {
 pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Removal>> {
     let held = held::paths(&inputs.proc_root);
     let mut removals = scratch::sweep(inputs, policy, &held)?;
+    if policy.scope == Scope::Scratch {
+        return Ok(removals);
+    }
     removals.extend(lan_clients::sweep(inputs, policy, &held)?);
     removals.extend(lan_residue::sweep(inputs, policy, &held)?);
     removals.extend(build_output::sweep(inputs, policy, &held)?);
     removals.extend(cache_cap::sweep(inputs, policy, &held)?);
-    removals.extend(evidence_budget::sweep(inputs, policy, &held, &evidence_budget::Budget::of(&inputs.disk_budget), 0)?);
+    if let Some(budget) = evidence_budget::Budget::of(&inputs.disk_budget) {
+        removals.extend(evidence_budget::sweep(inputs, policy, &held, &budget, 0)?);
+    }
     removals.extend(capture_batches::sweep(inputs, policy, &held)?);
     Ok(removals)
 }
@@ -149,10 +168,12 @@ pub fn evidence_start(arguments: &[String]) -> u8 {
         eprintln!("north evidence: create {}: {error}", folder.display());
         return 1;
     }
-    let policy = Policy { idle: Duration::from_secs(DEFAULT_IDLE_HOURS * 3600), dry_run: false };
-    match evidence_budget::sweep(&inputs, &policy, &held::paths(&inputs.proc_root), &evidence_budget::Budget::of(&inputs.disk_budget), 0) {
-        Ok(removals) => removals.iter().for_each(|removal| eprintln!("removed {}: {}", removal.path.display(), removal.reason)),
-        Err(error) => eprintln!("north evidence: budget sweep: {error}"),
+    let policy = Policy::everything(Duration::from_secs(DEFAULT_IDLE_HOURS * 3600));
+    if let Some(budget) = evidence_budget::Budget::of(&inputs.disk_budget) {
+        match evidence_budget::sweep(&inputs, &policy, &held::paths(&inputs.proc_root), &budget, 0) {
+            Ok(removals) => removals.iter().for_each(|removal| eprintln!("removed {}: {}", removal.path.display(), removal.reason)),
+            Err(error) => eprintln!("north evidence: budget sweep: {error}"),
+        }
     }
     println!("{}", folder.display());
     0
@@ -175,7 +196,7 @@ fn before_disk_defer(stamp: &Path, free_gib: fn() -> Option<f64>) -> Option<f64>
     }
     fs::create_dir_all(stamp.parent()?).ok()?;
     fs::write(stamp, b"").ok()?;
-    let policy = Policy { idle: Duration::from_secs(DEFAULT_IDLE_HOURS * 3600), dry_run: false };
+    let policy = Policy::everything(Duration::from_secs(DEFAULT_IDLE_HOURS * 3600));
     match reclaim(&Inputs::from_env(), &policy) {
         Ok(removals) => eprintln!("north capacity: disk under the floor, so reclaimed first: {}", summary(&removals, false)),
         Err(error) => eprintln!("north capacity: disk under the floor; reclaim failed: {error}"),

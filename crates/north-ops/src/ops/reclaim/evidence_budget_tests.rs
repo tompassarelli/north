@@ -19,7 +19,7 @@ fn run(machine: &Machine, name: &str, age: Duration) -> PathBuf {
 fn swept(machine: &Machine, inputs: &Inputs, runs: u64) -> Vec<PathBuf> {
     let one = size(&machine.path("evidence/oldest"));
     let budget = Budget { bytes: runs * one, min_age: DAY };
-    let policy = Policy { idle: DAY, dry_run: false };
+    let policy = Policy::everything(DAY);
     let mut removed = sweep(inputs, &policy, &held::paths(&inputs.proc_root), &budget, 0).unwrap().into_iter().map(|removal| removal.path).collect::<Vec<_>>();
     removed.sort();
     removed

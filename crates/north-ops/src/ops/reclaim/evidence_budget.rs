@@ -9,17 +9,15 @@ use crate::platform::disk_budget::{DiskBudget, Share};
 use super::held::Held;
 use super::{Inputs, Policy, Removal, hours, idle_for, removed, setting, size};
 
-const GIB: f64 = (1u64 << 30) as f64;
-
 pub(super) struct Budget {
     pub(super) bytes: u64,
     pub(super) min_age: Duration,
 }
 
 impl Budget {
-    pub(super) fn of(budget: &DiskBudget) -> Self {
-        let bytes = budget.bytes(Share::MakgoraEvidence).unwrap_or((setting("evidence_budget_gib") * GIB) as u64);
-        Self { bytes, min_age: Duration::from_secs_f64(setting("evidence_min_age_hours") * 3600.0) }
+    pub(super) fn of(budget: &DiskBudget) -> Option<Self> {
+        let bytes = budget.bytes(Share::MakgoraEvidence)?;
+        Some(Self { bytes, min_age: Duration::from_secs_f64(setting("evidence_min_age_hours") * 3600.0) })
     }
 }
 

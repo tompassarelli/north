@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 
-use super::{Inputs, Policy, reclaim};
+use super::{Inputs, Policy, Scope, reclaim};
 use crate::platform::disk_budget::DiskBudget;
 
 pub(super) const DAY: Duration = Duration::from_secs(24 * 3600);
+const HOUR: Duration = Duration::from_secs(3600);
 
 pub(super) struct Machine {
     root: tempfile::TempDir,
@@ -61,7 +62,7 @@ impl Machine {
     }
 
     fn reclaim(&self, dry_run: bool) -> Vec<PathBuf> {
-        let removals = reclaim(&self.inputs(), &Policy { idle: DAY, dry_run }).unwrap();
+        let removals = reclaim(&self.inputs(), &Policy { dry_run, ..Policy::everything(DAY) }).unwrap();
         let mut paths = removals.into_iter().map(|removal| removal.path).collect::<Vec<_>>();
         paths.sort();
         paths
@@ -110,3 +111,33 @@ fn lan_pair_copies_a_pool_json_names_stay_however_long_the_pair_sat_idle() {
     assert!(pooled.iter().flatten().all(|client| client.exists()));
 }
 
+
+#[test]
+fn scratch_is_reclaimed_alone_and_the_evidence_budget_runs_only_on_its_host() {
+    let machine = Machine::new();
+    let scratch = machine.dir("tmp/north-opencode-9", 4 * HOUR);
+    let evidence = machine.dir("evidence/old-run", 3 * DAY);
+    fs::write(evidence.join("frame.png"), vec![7u8; 256 << 10]).unwrap();
+    touch(&evidence, machine.now - 3 * DAY);
+    let build = machine.dir("code/north/target", 3 * DAY);
+    let configured = |host: &str| {
+        let text = "[hosts.gex45.disk_budget_gib]\nmakgora_evidence = 0.0001\n";
+        Inputs { disk_budget: DiskBudget::parse(text, host), ..machine.inputs() }
+    };
+    let policy = |scope| Policy { scope, ..Policy::everything(3 * HOUR) };
+    let reclaimed = |inputs: &Inputs, scope| reclaim(inputs, &policy(scope)).unwrap().into_iter().map(|removal| removal.path).collect::<Vec<_>>();
+
+    assert_eq!(reclaimed(&configured("gex45"), Scope::Scratch), vec![scratch]);
+    assert!(evidence.exists() && build.exists());
+
+    machine.dir("tmp/north-opencode-9", 4 * HOUR);
+    assert!(!reclaimed(&configured("cpx62b"), Scope::Everything).contains(&evidence));
+    assert!(evidence.exists());
+
+    assert!(reclaimed(&configured("gex45"), Scope::Everything).contains(&evidence));
+    assert!(!evidence.exists());
+
+    let arguments = |words: &[&str]| words.iter().map(ToString::to_string).collect::<Vec<_>>();
+    assert!(super::policy(&arguments(&["--only", "scratch", "--idle-hours", "3"])).is_some_and(|parsed| parsed.scope == Scope::Scratch));
+    assert!(super::policy(&arguments(&["--only", "evidence"])).is_none());
+}
