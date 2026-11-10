@@ -1,3 +1,4 @@
+pub mod checkout;
 pub mod cleanup;
 pub mod follow;
 pub use follow::send;
@@ -107,6 +108,7 @@ fn follow_once(lander: &Lander, base: &str, head: &str) {
 
 pub fn finish(lander: &Lander, claim: &Path, head: &str, base: &str, stages: &Stages, tickets: Vec<(PathBuf, Ticket, String)>) -> Result<(), String> {
     let _ = fetch_main(lander);
+    checkout::follow(lander, head);
     let state = state_home();
     let batch_size = tickets.len();
     let log = push_ledger::landing_log(&lander.repo, &state, &north_goals::code_root());

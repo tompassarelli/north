@@ -163,6 +163,7 @@ impl Repository {
         let (message, session) = commit;
         let lane = self.checkout.parent().unwrap().join("worktrees").join(branch);
         git(&self.checkout, &["worktree", "add", "-q", "-b", branch, lane.to_str().unwrap(), from]);
+        std::fs::create_dir_all(lane.join(file.0).parent().unwrap()).unwrap();
         std::fs::write(lane.join(file.0), file.1).unwrap();
         git(&lane, &["add", "-A"]);
         git(&lane, &["commit", "-q", "-m", &format!("{message}\n\nIncident-test: none; a fixture lane the incident guard must not look up on GitHub")]);
