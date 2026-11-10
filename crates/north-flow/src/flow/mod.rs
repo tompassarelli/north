@@ -9,7 +9,7 @@ use crate::foundation::clock::Timestamp;
 use crate::ledger::outcome::read as outcome;
 use crate::tempo::landing;
 use alerts::stall_alert;
-use capacity::saturation_alert;
+use capacity::host_alerts;
 use sampler::sampler_alert;
 use guards::actions_verdict;
 use host::valid_name;
@@ -100,8 +100,8 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     if stall_alert(places, host, rows, now).is_err() {
         println!("agents flow: stall alert state error");
     }
-    if saturation_alert(places, host, &crate::platform::orchestration::path(), now).is_err() {
-        println!("agents flow: saturation alert state error");
+    if host_alerts(places, host, &crate::platform::orchestration::path(), now).is_err() {
+        println!("agents flow: saturation or spill alert state error");
     }
     if sampler_alert(places, host, now).is_err() {
         println!("agents flow: sampler alert state error");
