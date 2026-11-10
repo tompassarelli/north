@@ -2,8 +2,8 @@
 name: machine-capacity
 description: >-
   Run builds, full suites, renders, Warcraft clients or other multi-core or >1 GiB work under capacity admission; DEFER or resource pressure. Skip small checks.
-grounded: 2026-10-15
-written: 2026-10-15
+grounded: 2026-11-10
+written: 2026-11-10
 metadata:
   kind: playbook
 ---
@@ -14,7 +14,7 @@ metadata:
 
 - Invoke the helper as `north capacity host`, because every caller must reach the one shared admission state.
 - Admit sustained multi-core or >1 GiB work through it, never through worker slots, because idle slots measure neither CPU nor memory.
-- Use `north capacity host run --class CLASS --owner OWNER --timeout-seconds N -- COMMAND ARG...`, with the timeout covering setup and downloads. Run `north capacity host estimate -- CMD` before staffing local work, because leases size from it.
+- Run `north capacity host run --class CLASS --owner OWNER --timeout-seconds N -- COMMAND ARG...`, the timeout covering setup and downloads. Run `north capacity host estimate -- CMD` before staffing local work, because leases size from it.
 - Supervise the wrapper, queued or running, through terminal `RELEASED` and never detach its work, because a dropped wrapper drops its ticket and a killed one leaves its allowance charged.
 - Retry a DEFER after a known release or 30 seconds and never busy-poll, because polling adds the load the queue exists to avoid.
 - Treat RUN/RESERVED as permission to continue, NESTED as a run under the batch lease it started from, and RECLAIMED as expired leases, never as permission to kill peers, because peers belong to their owners.
@@ -24,7 +24,7 @@ metadata:
 
 Choose the smallest sufficient class, because oversized claims queue peers for nothing.
 
-- moderate = 2 CPUs/2 GiB; heavy = 6 CPUs/8 GiB; exclusive = all allowed cores, no peer batch, 15 minutes at most; gpu = 1 CPU/2 GiB for headless Chrome and wisp renders (not grim captures), two at a time; native = 2 CPUs/4 GiB for Warcraft clients and private desktops.
+- moderate = 2 CPUs/2 GiB; heavy = 6 CPUs/8 GiB (all cores below 8, 3 at 8); exclusive = all allowed cores, no peer batch, 15 minutes at most; gpu = 1 CPU/2 GiB for headless Chrome and wisp renders (not grim captures), two at a time; native = 2 CPUs/4 GiB for Warcraft clients and private desktops.
 - Omit `--class` to size from the usage log (p90 of the last 20 runs plus 25%; moderate until three runs exist), because measured sizing beats guessing.
 - critical only for the landing-train holder or a run with an explicit `--critical` release-blocker diagnostic, because it jumps the queue and ignores pressure.
 - Add `--priority tom-ask` to a moderate, heavy or gpu `run` or `session` whose output Tom is waiting on: it takes the place of the oldest ticket of its class and still obeys pressure, and each use is recorded.
