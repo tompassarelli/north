@@ -508,7 +508,7 @@ may_use = ["strategy_types", "foundation", "platform.git", "crate-roots"]
 [[module]]
 name = "shell"
 paths = ["crates/north-base/src/shell/**", "crates/north-base/src/shellcmd.rs", "crates/north-base/src/nix_command.rs"]
-responsibility = "One shell lexer and segmenter, and one Nix command reader, for every guard and gate."
+responsibility = "One shell lexer and segmenter, the programs a command starts in command position, and one Nix command reader, for every guard and gate."
 may_use = ["foundation"]
 
 [[module]]
@@ -797,7 +797,7 @@ may_use = ["threads", "domain", "foundation", "crate-roots", "lifecycle"]
 name = "providers"
 paths = ["crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/rpc.rs", "crates/north-providers/src/codex.rs", "crates/north-providers/src/providers/**"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
-may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket"]
+may_use = ["fleet", "ledger", "guard", "catalog", "threads", "domain", "foundation", "crate-roots", "lifecycle", "claude_stream", "platform.process", "platform.harness", "land_ticket", "shell"]
 
 [[module]]
 name = "tui"

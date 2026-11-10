@@ -17,6 +17,7 @@ use super::{Deepseek, config, turns};
 
 const FAKE: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$(dirname "$0")/args.txt"
+printf '%s\n' "$OPENCODE_CONFIG_CONTENT" > "$(dirname "$0")/config.json"
 model=""; while [ $# -gt 0 ]; do case "$1" in -m) model="$2";; esac; shift; done
 case "$model" in
   *free) printf '%s\n' '{"type":"error","sessionID":"ses_x","error":{"type":"provider.free-limit","message":"Free usage limit reached"}}'; exit 0;;
@@ -200,6 +201,32 @@ fn the_launched_config_lists_only_the_one_chosen_provider_and_model() {
     assert_eq!(free["enabled_providers"], json!(["opencode"]));
     assert_eq!(free["model"], route::FREE_MODEL);
     assert!(free.get("provider").is_none());
+}
+
+#[test]
+fn a_launched_opencode_config_lists_only_the_chosen_model_and_the_guard_refuses_a_bare_opencode_run() {
+    let guarded = |command: &str| north_base::shell::started(command, &crate::fleet::claude_only::DEEPSEEK_PROVIDERS);
+
+    let home = tempfile::tempdir().unwrap();
+    let runtime = seeing(Visibility::Private, day("2026-11-10"));
+    let spec = runtime.host(&account(home.path()), &request(home.path()), Opening::Fresh(Some("ses_x")), "").unwrap();
+    assert_eq!(argument(&spec.argv, "--route").as_deref(), Some("go"), "a private lane launches on the paid Go model");
+
+    run_briefs(&runtime, Route::Go, None, home.path(), &["Item: north#1\nBox: add a.txt"]);
+
+    let launched: Value = serde_json::from_str(&std::fs::read_to_string(home.path().join("config.json")).unwrap()).unwrap();
+    assert_eq!(launched["enabled_providers"], json!([route::GO_PROVIDER]), "only the chosen provider is enabled: {launched}");
+    assert_eq!(launched["model"], route::GO_MODEL);
+    assert_eq!(launched["small_model"], route::GO_MODEL, "the small model is the same one, so no cheap step slides onto another model: {launched}");
+    let providers: Vec<&str> = launched["provider"].as_object().map(|providers| providers.keys().map(String::as_str).collect()).unwrap_or_default();
+    assert_eq!(providers, [route::GO_PROVIDER], "the config names no provider besides the chosen one: {launched}");
+
+    for command in ["opencode run -m opencode-go/deepseek-v4.1-flash hi", "cd lane && opencode run hi", "env FOO=1 /usr/bin/opencode run hi", "bash -c 'opencode run hi'"] {
+        assert_eq!(guarded(command).as_deref(), Some("opencode"), "{command}");
+    }
+    for command in ["opencode --version", "opencode models", "rg opencode docs", "echo \"opencode run\"", "north fleet launch --provider opencode --name w"] {
+        assert_eq!(guarded(command), None, "{command}");
+    }
 }
 
 fn past_the_zero_retention_date_a_private_lane_launch_is_refused_and_a_public_one_is_admitted() {

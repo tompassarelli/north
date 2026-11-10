@@ -3,6 +3,7 @@ mod lexer;
 mod scan;
 mod segments;
 mod spans;
+mod started;
 mod substitution;
 #[cfg(test)]
 mod tests;
@@ -21,6 +22,8 @@ pub use segments::{
 };
 #[allow(unused_imports)]
 pub use substitution::{shell_substitutions, unquoted_mask};
+#[allow(unused_imports)]
+pub use started::started;
 
 use serde_json::{Value, json};
 

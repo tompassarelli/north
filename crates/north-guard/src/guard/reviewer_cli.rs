@@ -1,3 +1,4 @@
+use crate::fleet::claude_only::DEEPSEEK_PROVIDERS;
 use crate::hook::{HookInput, Verdict};
 use crate::shell::{blank_quotes, strip_heredocs};
 use regex::Regex;
@@ -5,11 +6,10 @@ use std::sync::LazyLock;
 
 const WRAPPERS: &str = r"(?:(?:sudo|doas|env|command|exec|nohup|setsid|time|nice|xargs|then|do|else|elif|if|!|timeout\s+\S+)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*";
 const FLAGS: &str = r"(?:[ \t]+-\S+(?:[ \t]+[^-\s]\S*)?)*";
-const MAINTENANCE: [&str; 5] = ["--version", "--help", "-h", "-v", "models"];
 
 fn reviewer(prefix: &str) -> Regex {
     Regex::new(&format!(
-        r"{prefix}\s*{WRAPPERS}(?:\S*/)?(?P<tool>agy|antigravity|gemini|opencode|pi|codex{FLAGS}[ \t]+(?:exec{FLAGS}[ \t]+)?review)(?:\s|$)",
+        r"{prefix}\s*{WRAPPERS}(?:\S*/)?(?P<tool>agy|antigravity|gemini|codex{FLAGS}[ \t]+(?:exec{FLAGS}[ \t]+)?review)(?:\s|$)",
     ))
     .unwrap()
 }
@@ -20,15 +20,15 @@ static SHELL_PAYLOAD: LazyLock<Regex> =
     LazyLock::new(|| reviewer(r#"\b(?:ba|z|da)?sh\s+-\w*c\s+["']"#));
 
 fn refuses<'a>(text: &'a str, pattern: &Regex) -> Option<&'a str> {
-    pattern.captures_iter(text).find_map(|hit| {
-        let tool = hit.name("tool")?.as_str();
-        let tail = text[hit.get(0)?.end()..].split_whitespace().next();
-        (tool.starts_with("codex") || !tail.is_some_and(|word| MAINTENANCE.contains(&word))).then_some(tool)
-    })
+    pattern.captures_iter(text).find_map(|hit| hit.name("tool").map(|tool| tool.as_str()))
 }
 
-/// The tool a command runs in command position that no agent may start itself: a non-Claude model as a reviewer, or opencode or pi outside its launcher.
+/// The tool a command runs in command position that no agent may start itself: a non-Claude model as a reviewer, or
+/// opencode or pi outside the launcher that owns them.
 pub(super) fn refused_tool(command: &str) -> Option<String> {
+    if let Some(tool) = crate::shell::started(command, &DEEPSEEK_PROVIDERS) {
+        return Some(tool);
+    }
     let text = strip_heredocs(command);
     refuses(&blank_quotes(&text), &COMMAND_POSITION).or_else(|| refuses(&text, &SHELL_PAYLOAD)).map(str::to_owned)
 }
