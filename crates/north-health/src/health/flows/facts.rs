@@ -93,7 +93,8 @@ fn dispatch(state: &Path) -> Option<Dispatch> {
     let service = TIMER.replace(".timer", ".service");
     let exited = systemctl(&["--user", "show", &service, "-p", "ExecMainExitTimestamp", "--timestamp=unix"]);
     let last_run = property(&exited, "ExecMainExitTimestamp").and_then(|at| at.strip_prefix('@')?.parse().ok());
-    Some(Dispatch { timer_active: property(&timer, "ActiveState") == Some("active"), paused: held(&state.join(RECORD)), last_run })
+    let deploy_restarts = !north_base::dispatch_pause::held_by(&systemctl(&["--user", "cat", TIMER]));
+    Some(Dispatch { timer_active: property(&timer, "ActiveState") == Some("active"), deploy_restarts, paused: held(&state.join(RECORD)), last_run })
 }
 
 const LEDGER_TIMER: &str = "worker-ledger.timer";

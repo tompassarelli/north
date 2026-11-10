@@ -7,3 +7,8 @@ pub const TIMER: &str = "north-dispatch.timer";
 pub fn standing(home: &std::path::Path) -> Option<String> {
     std::fs::read_to_string(home.join(".local/state/north").join(RECORD)).ok().map(|reason| reason.trim().to_owned())
 }
+
+pub fn held_by(unit: &str) -> bool {
+    let skip = format!("!%h/.local/state/north/{RECORD}");
+    unit.lines().filter_map(|line| line.trim().strip_prefix("ConditionPathExists=")).any(|path| path.trim() == skip)
+}

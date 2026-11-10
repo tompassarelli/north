@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use north_base::dispatch_pause::RECORD;
 use north_base::lifecycle::Fault;
 
 use crate::foundation::clock::Timestamp;
@@ -45,6 +46,8 @@ impl Default for Lifecycles {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Dispatch {
     pub timer_active: bool,
+    #[serde(default)]
+    pub deploy_restarts: bool,
     pub paused: Option<Held>,
     pub last_run: Option<f64>,
 }
@@ -187,6 +190,9 @@ impl World {
                 (Some(paused), true) => faults.push(format!("{name} runs the dispatch timer though the proxy paused dispatch {} ago: {}", minutes(self.age(paused.since)), paused.cause)),
                 (None, false) => faults.push(format!("{name} has its dispatch timer stopped with no pause recorded (`north fleet dispatch pause --reason TEXT` records one)")),
                 _ => {}
+            }
+            if dispatch.deploy_restarts {
+                faults.push(format!("{name}'s dispatch timer has no ConditionPathExists=!%h/.local/state/north/{RECORD}, so a host deploy restarts it under a pause"));
             }
         }
         flow("dispatch", age, faults)

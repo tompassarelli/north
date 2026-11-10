@@ -16,7 +16,7 @@ fn healthy(now: f64) -> World {
     let facts = nexus.facts.as_mut().unwrap();
     facts.newest_run = Some(now - 120.0);
     facts.recording_interval_s = Some(15.0 * 60.0);
-    facts.dispatch = Some(Dispatch { timer_active: true, paused: None, last_run: Some(now - 30.0) });
+    facts.dispatch = Some(Dispatch { timer_active: true, deploy_restarts: false, paused: None, last_run: Some(now - 30.0) });
     World { now, hosts: vec![host("gex45", now), nexus, host("whiterabbit", now)], snapshot: Some(Snapshot { written: Some(now - 300.0), failure: None }) }
 }
 
@@ -81,12 +81,12 @@ fn a_launchable_profile_without_settings_alarms_as_a_host_launching_without_hook
 #[test]
 fn a_dispatch_timer_stopped_without_a_pause_and_one_restarted_under_a_pause_both_alarm() {
     let mut world = healthy(at("2026-11-07T02:58:00Z"));
-    facts(&mut world, "nexus").dispatch = Some(Dispatch { timer_active: false, paused: None, last_run: Some(at("2026-11-07T02:56:00Z")) });
+    facts(&mut world, "nexus").dispatch = Some(Dispatch { timer_active: false, deploy_restarts: false, paused: None, last_run: Some(at("2026-11-07T02:56:00Z")) });
     alarms_only(&world, "dispatch", "nexus has its dispatch timer stopped with no pause recorded");
 
     let mut world = healthy(at("2026-11-07T03:01:00Z"));
     let paused = Held { since: at("2026-11-07T02:57:00Z"), cause: "dispatch staffs issues the proxy is replanning".into() };
-    facts(&mut world, "nexus").dispatch = Some(Dispatch { timer_active: true, paused: Some(paused), last_run: Some(at("2026-11-07T02:56:00Z")) });
+    facts(&mut world, "nexus").dispatch = Some(Dispatch { timer_active: true, deploy_restarts: false, paused: Some(paused), last_run: Some(at("2026-11-07T02:56:00Z")) });
     alarms_only(&world, "dispatch", "nexus runs the dispatch timer though the proxy paused dispatch 4 min ago");
 }
 
