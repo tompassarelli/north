@@ -46,6 +46,8 @@ pub struct Survey {
     pub box_holds: record::BoxHolds,
     /// The open boxes dispatch tried twice in a day without ticking, by box slug, which wait for the proxy and count toward no cap.
     pub box_tries: record::BoxHolds,
+    /// The CLI verbs and deleted paths of origin/main, which hold a box whose check names one it no longer has.
+    pub mainline: super::retired::Mainline,
     /// The fleet sessions every reached registry lists as running or parked on a wait, which own the boxes their names are on.
     pub live: BTreeSet<String>,
     /// Every session name a reached registry lists, parked or stopped included.
@@ -459,6 +461,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
             issue.landings = landings::since(issue);
         }
     }
+    let mainline = mainline::read(&issues, at, &mut notes);
     let history = History::new(&records);
     let arm_boxes: Vec<ArmBox> = report.iter().flat_map(|report| report.arms.iter().cloned()).chain(remote_arms).collect();
     notes.extend(tier::context_figures(&arm_boxes));
@@ -470,11 +473,12 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     });
     let deepseek = super::deepseek::Seen::read(&here, laptop.as_deref(), &fleet_lists, &laptop_reports, &records, &issues, at, &mut notes);
     let backlog = north_graph_ground::read_backlog().map_err(|why| notes.push(format!("the fact graph's backlog is unread, so dispatch orders by priority label and reads box waits only as issue-level text: {why}"))).ok();
-    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, deepseek, at })
+    Ok(Survey { here, home: std::env::var_os("HOME").filter(|home| !home.is_empty()).map(std::path::PathBuf::from), cfg, projects, hosts, accounts, spend, rules, issues, open, holds, box_holds, box_tries, mainline, live, listed, cloud, laptop, cloud_running, notes, frozen, history, ledger, grounds, strands, saturated, revived, backlog, deepseek, at })
 }
 
 pub(super) mod github;
 mod landings;
+mod mainline;
 
 #[cfg(test)]
 #[path = "survey_tests.rs"]

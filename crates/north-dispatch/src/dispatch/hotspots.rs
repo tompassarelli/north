@@ -37,7 +37,7 @@ pub fn paths(issue: &Issue, box_text: Option<&str>) -> Vec<String> {
     declared(issue, "Files").map(named).unwrap_or_default()
 }
 
-fn named(text: &str) -> Vec<String> {
+pub(super) fn named(text: &str) -> Vec<String> {
     text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '`' | '(' | ')' | '\'' | '"'))
         .map(|word| word.trim_end_matches(['.', ';', ':']))
         .filter(|word| PATH.is_match(word) && !word.starts_with("http"))

@@ -50,6 +50,7 @@ mod plan;
 mod projects;
 mod record;
 mod report;
+mod retired;
 mod revive;
 mod screen;
 mod slots;
@@ -197,6 +198,12 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let mut staffed = running.len();
         for box_text in &boxes {
             let box_text = box_text.as_deref();
+            if let Some(text) = box_text
+                && let Some(what) = survey.mainline.retired(&issue.repo, text)
+            {
+                outcome.skipped.push((reference.clone(), format!("ready, not placed: box `{text}` check retired: {what}")));
+                continue;
+            }
             if issue.worker_cap().is_some_and(|cap| staffed >= cap) {
                 break;
             }

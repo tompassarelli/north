@@ -96,6 +96,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         holds: BTreeMap::new(),
         box_holds: BTreeMap::new(),
         box_tries: BTreeMap::new(),
+        mainline: super::retired::Mainline::default(),
         live: BTreeSet::new(),
         listed: BTreeSet::new(),
         cloud,
@@ -345,4 +346,23 @@ fn a_claim_on_a_slug_that_names_no_box_holds_every_box_of_its_issue() {
     assert!(unnamed.launches.is_empty(), "{:?}", unnamed.launches.len());
     assert!(unnamed.skipped.iter().any(|(_, why)| why.contains("held by fleet session n882-tax on nexus") && why.contains("names no box")), "{:?}", unnamed.skipped);
     assert_eq!(surveyed("the-tax-is-named").launches.len(), 2, "a ticked box a worker still holds is a box of the issue");
+}
+
+/// north#1054: on 2026-11-10 a session spent six turns on north#882's box before finding its check runs `north ops climb run --dry-run`, a verb north#970 deleted with the north-climb crate.
+#[test]
+fn a_box_whose_check_names_a_retired_verb_is_held() {
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let reference = "Commands:\n  ops dividend [--dry-run] [CHECK]  Evaluate\n  ops strategy replay [--since 24h]  Decide\n  fleet dispatch [--dry-run]  Place\n  threads ARGV  Run\n";
+    let live = "the dispatch table lists each box when `north fleet dispatch --dry-run` runs";
+    let verb = "the week's loss prints when `north ops climb run --dry-run` runs";
+    let path = "arms are read in crates/north-climb/src/arms.rs";
+    let body = format!("- [ ] {live}\n- [ ] {verb}\n- [ ] {path}");
+    let mut survey = survey(vec![issue("north", 872, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    survey.mainline = super::retired::Mainline { verbs: Some(super::retired::Verbs::parse(reference)), gone: BTreeMap::from([("north".to_owned(), BTreeSet::from(["crates/north-climb/src/arms.rs".to_owned()]))]) };
+    let outcome = decide(&survey, "test");
+    let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
+    assert_eq!(boxes, [live], "only the box whose check main still has launches");
+    let held: Vec<&String> = outcome.skipped.iter().map(|(_, why)| why).collect();
+    assert!(held.len() == 2 && held[0].contains("check retired: north ops climb") && held[1].contains("check retired: crates/north-climb/src/arms.rs"), "{held:?}");
 }
