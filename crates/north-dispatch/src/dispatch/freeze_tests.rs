@@ -22,44 +22,6 @@ fn the_tripwire_freeze_of_2026_11_08_tells_the_proxy_once_on_the_first_dispatch_
     let launched = Outcome { launches: Vec::new(), ready: Vec::new(), ..Outcome::default() };
     assert_eq!(step(stretch, frozen(&launched, &[], &[]), start + 30.0 * 60.0, 15.0), (None, None));
 
-    let failed = |at: f64, name: &str, detail: &str| super::record::Record {
-        at,
-        item: "north#1".into(),
-        host: "nexus".into(),
-        account: "claude:a".into(),
-        name: name.into(),
-        cloud: false,
-        launched: false,
-        detail: detail.into(),
-        tier: None,
-        category: None,
-        box_text: None,
-        hand: false,
-        effort_arm: None,
-        signal: None,
-        lift: None,
-        effort: None,
-        cell: None,
-        cell_role: None,
-    };
-    let records = vec![
-        failed(start + 60.0, "north-1-d0101", "error: launch refused: no capacity on nexus"),
-        failed(start + 120.0, "north-1-d0102", "error: launch refused: no capacity on nexus"),
-        failed(start + 180.0, "north-1-d0103", "error: launch refused: no capacity on nexus"),
-    ];
-    let pages = super::record::failure_pages(&records, start + 240.0);
-    assert_eq!(pages.len(), 1);
-    assert_eq!(pages[0].count, 3);
-    assert_eq!(pages[0].cause, "error: launch refused: no capacity on nexus");
-    assert!(pages[0].stderr.ends_with("north-1-d0101.log"), "{}", pages[0].stderr);
-    assert!(pages[0].line().contains("first stderr:"));
-    let mut paged = Vec::new();
-    assert!(super::effects::watch_failures(&pages, &mut |key, line| {
-        paged.push((key.to_owned(), line.to_owned()));
-        true
-    }));
-    assert_eq!(paged, [(pages[0].condition(), pages[0].line())], "the cause pages under one condition key, which the fleet store delivers once per episode");
-
     let mut alerts = Vec::new();
     let delivery = super::effects::deliver("dispatch alert", &mut |_| Err("no token".to_owned()), &mut |line| {
         alerts.push(line.to_owned());
@@ -87,4 +49,59 @@ fn a_failed_nexus_alert_pages_the_proxy_and_still_makes_the_dispatch_run_exit_no
     let both = super::effects::tell_tom_with(&line, false, 1_700_000_000.0, &mut |_| Err("no token".to_owned()), &mut |_| Err("no proxy".to_owned()), &mut |_, _| {});
     let why = both.expect_err("both sinks failed, so telling Tom failed");
     assert!(why.contains("no token") && why.contains("no proxy"), "{why}");
+}
+
+#[test]
+fn three_launches_failing_with_the_same_cause_within_ten_minutes_page_once() {
+    let failed = |at: f64, name: &str, detail: &str| super::record::Record {
+        at,
+        item: "north#1".into(),
+        host: "nexus".into(),
+        account: "claude:a".into(),
+        name: name.into(),
+        cloud: false,
+        launched: false,
+        detail: detail.into(),
+        tier: None,
+        category: None,
+        box_text: None,
+        hand: false,
+        effort_arm: None,
+        signal: None,
+        lift: None,
+        effort: None,
+        cell: None,
+        cell_role: None,
+    };
+    let start = 1_794_077_716.0;
+    let capacity = "error: launch refused: no capacity on nexus";
+    let spread = "error: claude exited before its first turn";
+    let failures = [
+        failed(start + 60.0, "north-1-d0101", capacity),
+        failed(start + 120.0, "north-1-d0102", capacity),
+        failed(start + 150.0, "north-1-d0103", spread),
+        failed(start + 180.0, "north-1-d0104", capacity),
+        failed(start + 420.0, "north-1-d0105", capacity),
+        failed(start + 840.0, "north-1-d0106", spread),
+        failed(start + 1200.0, "north-1-d0107", spread),
+    ];
+    let store = tempfile::tempdir().unwrap();
+    let dispatch = north_fleet_store::sender::Sender::Service("north-dispatch".into());
+    let mut delivered = Vec::new();
+    for run in 0..=10 {
+        let at = start + f64::from(run) * 120.0;
+        let seen: Vec<_> = failures.iter().filter(|record| record.at <= at).cloned().collect();
+        let pages = super::record::failure_pages(&seen, at);
+        assert!(super::effects::watch_failures(&pages, &mut |key, line| {
+            let condition = north_fleet_store::fold::Condition { key: key.to_owned(), cleared: false };
+            let admitted = north_fleet_store::fold::admit(store.path(), &dispatch, north_fleet_store::runtime::PROXY, line, Some(&condition), (at * 1000.0) as u64);
+            if admitted == north_fleet_store::fold::Admit::Send {
+                delivered.push(line.to_owned());
+            }
+            !matches!(admitted, north_fleet_store::fold::Admit::Drop)
+        }));
+    }
+    assert_eq!(delivered.len(), 1, "one page for the cause however many dispatch runs still see it, none for a cause failing three times over more than ten minutes: {delivered:?}");
+    assert!(delivered[0].contains("3 launches failed in 10 min") && delivered[0].contains(capacity), "{}", delivered[0]);
+    assert!(delivered[0].contains(&format!("first stderr: {}", super::record::stderr_path("north-1-d0101").display())), "{}", delivered[0]);
 }

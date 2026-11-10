@@ -1231,6 +1231,7 @@ dependencies = [
  "north-base",
  "north-calibration",
  "north-capacity-host",
+ "north-fleet-store",
  "north-fleet-supervisor",
  "north-github-mirror",
  "north-graph-ground",

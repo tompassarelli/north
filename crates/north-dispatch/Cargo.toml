@@ -30,5 +30,8 @@ tempfile.workspace = true
 time.workspace = true
 toml_edit.workspace = true
 
+[dev-dependencies]
+north-fleet-store = { path = "../north-fleet-store" }
+
 [lints]
 workspace = true
