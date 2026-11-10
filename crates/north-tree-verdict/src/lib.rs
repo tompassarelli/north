@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 const VERDICT_NEUTRAL: [&str; 5] = ["--locked", "--offline", "--frozen", "-q", "--quiet"];
 const BUILD_ENVIRONMENT: [&str; 8] = ["RUSTFLAGS", "RUSTDOCFLAGS", "RUSTC_WORKSPACE_WRAPPER", "CARGO_ENCODED_RUST", "CARGO_BUILD_", "CARGO_PROFILE_", "CARGO_TARGET_", "CARGO_UNSTABLE_"];
 const TARGET_DIRECTORY: &str = "CARGO_TARGET_DIR";
+const NOT_BUILD_CHANGING: [&str; 2] = [TARGET_DIRECTORY, "CARGO_BUILD_JOBS"];
 const SHELL_SYNTAX: &str = "'\"`$|&;<>()\\*?[]{}";
 const LAND_SHELL: [&str; 3] = ["./bin/land-shell", "--dev", "--"];
 
@@ -72,9 +73,9 @@ pub fn key(tree: &str, canonical: &str) -> String {
     hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Whether an environment variable can change what cargo compiles or lints, so a run under it says nothing about a land check's.
+/// Whether an environment variable can change what cargo compiles or lints, so a run under it says nothing about a land check's. The capacity lease sets its own target directory and job count, neither of which changes a clippy verdict.
 pub fn changes_build(name: &str) -> bool {
-    name != TARGET_DIRECTORY && BUILD_ENVIRONMENT.iter().any(|prefix| name.starts_with(prefix))
+    !NOT_BUILD_CHANGING.contains(&name) && BUILD_ENVIRONMENT.iter().any(|prefix| name.starts_with(prefix))
 }
 
 /// The cargo arguments a `CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo ...` land line runs once its `${NAME:-default}` words are expanded, or None for any other shape.

@@ -1,4 +1,4 @@
-use super::{canonical, land_arguments};
+use super::{canonical, changes_build, land_arguments};
 
 fn clippy_land_line() -> String {
     let config = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.safe-push")).unwrap();
@@ -10,7 +10,7 @@ fn words(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_session_clippy_over_the_lanes_changed_packages_has_the_land_clippy_lines_verdict_and_any_other_package_set_or_flag_does_not() {
+fn a_session_clippy_over_the_lanes_changed_packages_has_the_land_clippy_lines_verdict_and_any_other_package_set_or_flag_does_not_nor_does_the_leases_job_count() {
     let environment = [("SAFE_PUSH_LAND_CHANGED".to_owned(), "-p north-a -p north-b".to_owned())];
     let land = canonical(&land_arguments(&clippy_land_line(), &environment).unwrap()).unwrap();
     let own = |text: &str| canonical(&words(text));
@@ -20,4 +20,10 @@ fn a_session_clippy_over_the_lanes_changed_packages_has_the_land_clippy_lines_ve
     }
     let workspace = canonical(&land_arguments(&clippy_land_line(), &[]).unwrap()).unwrap();
     assert_eq!(own("clippy --workspace --all-targets --locked --offline -- -D warnings").as_deref(), Some(workspace.as_str()));
+    for set in ["CARGO_TARGET_DIR", "CARGO_BUILD_JOBS"] {
+        assert!(!changes_build(set), "{set}");
+    }
+    for changes in ["RUSTFLAGS", "CARGO_BUILD_RUSTFLAGS", "CARGO_PROFILE_RELEASE_OPT_LEVEL", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS", "CARGO_UNSTABLE_FOO", "CARGO_ENCODED_RUST"] {
+        assert!(changes_build(changes), "{changes}");
+    }
 }
