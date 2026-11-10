@@ -231,7 +231,8 @@ fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, qu
     let settled = admission::admitted(&request.name, waiting, |first| super::placement::placed(fleet, &request, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     let mut placed = match settled {
         Ok(placed) => placed,
-        Err(super::placement::Refusal::Spend(why)) if queued.is_none() => {
+        Err(refusal) if queued.is_none() && refusal.queues(request.provider.label()) => {
+            let why = refusal.to_string();
             spend_queue::enqueue(fleet, spend_queue::Refused { request: &request, overrides: &overrides, take_over, priority, caller, words: &words, why: why.clone() })?;
             eprintln!("fleet launch: {} is queued at {} priority: {why}", request.name, priority.label());
             println!("queued {}", request.name);

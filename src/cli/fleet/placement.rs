@@ -115,6 +115,14 @@ pub(super) enum Refusal {
     Final(String),
 }
 
+impl Refusal {
+    /// Whether the launch queue holds a launch this refusal stops: a spend refusal until a window resets, and a saturated host
+    /// for a harness launch, which has no wait of its own.
+    pub(super) fn queues(&self, provider: &str) -> bool {
+        matches!(self, Self::Spend(_)) || (provider != "claude" && matches!(self, Self::Saturated(_)))
+    }
+}
+
 impl std::fmt::Display for Refusal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -132,7 +140,8 @@ impl From<Refusal> for NorthError {
     }
 }
 
-/// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; `report`
+/// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; a
+/// harness launch (DeepSeek on opencode) is gated on its host's saturation alone. `report`
 /// prints its verdict lines. A refusal is a loss row written here, by the gate that saw it, since a launch that never
 /// starts leaves no run for the ledger to charge.
 pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
@@ -147,8 +156,12 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
     if let Some(why) = home_path_refusal(request, request.machine.as_ref()) {
         return Ok(Err(Refusal::Final(why)));
     }
-    if request.provider.label() != "claude" || request.verification {
+    if request.verification {
         return Ok(Ok(Placed::default()));
+    }
+    if request.provider.label() != "claude" {
+        let host = request.machine.as_ref().map_or_else(|| fleet.host().to_owned(), |machine| machine.name.clone());
+        return Ok(harness_host(&host, crate::pacing::placement::saturation_reading(&host).ok().as_ref()));
     }
     let text = crate::pacing::placement::needs::with_needs(&gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref()), needs);
     let model = request.model.as_deref();
@@ -191,6 +204,15 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
         admits(&chosen).map_err(Refusal::Spend).and(placed)
     };
     Ok(settled)
+}
+
+/// A launch of a non-Claude harness (DeepSeek on opencode) obeys the host verdict a Claude launch obeys: a host that is
+/// saturated by memory, disk, load or admission queue starts nothing, and an unreadable reading refuses nothing.
+pub(super) fn harness_host(host: &str, reading: Option<&crate::capacity::saturation::Saturation>) -> Result<Placed, Refusal> {
+    match reading.and_then(|reading| reading.refusal(host)) {
+        Some(why) => Err(Refusal::Saturated(format!("{why}; it starts there once the host has room"))),
+        None => Ok(Placed::default()),
+    }
 }
 
 /// The placement `chosen` when the spend rule admits its account; otherwise the first other account the rule admits that placement also
