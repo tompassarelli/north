@@ -81,8 +81,29 @@ pub fn admit(name: &str, lanes: &[QueuedLane], heir: Option<&str>, force: Option
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::super::model::SessionRecord;
     use super::super::registry::fixtures::{fleet, live, live_under};
+    use super::super::registry::RemoteLanes;
     use super::*;
+
+    #[derive(Default)]
+    struct Freed(Mutex<Vec<(String, PathBuf)>>);
+
+    impl RemoteLanes for Freed {
+        fn free(&self, record: &SessionRecord) -> NorthResult<()> {
+            self.0.lock().unwrap().push((record.machine.as_ref().unwrap().ssh.clone(), record.cwd.clone()));
+            Ok(())
+        }
+    }
+
+    fn remote(fleet: &super::super::registry::Fleet, name: &str, ssh: &str, cwd: &Path) {
+        let dir = fleet.root.join(name);
+        fs::create_dir_all(dir.join("g1")).unwrap();
+        let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": cwd, "model": null, "created_ms": 1, "host_pid": null, "conversation": name, "parent": null, "host_dir": dir, "stream_offset": 0, "machine": {"name": "gex45", "ssh": ssh}});
+        fs::write(dir.join("session.json"), record.to_string()).unwrap();
+    }
 
     fn ticket(home: &Path, area: &str, file: &str, session: &str, root: &str) -> PathBuf {
         let directory = home.join(".local/state/north/land-queue/560e3f31dbaa2415").join(area);
@@ -133,7 +154,8 @@ mod tests {
     #[test]
     fn a_forget_naming_a_successor_hands_the_lane_to_it_even_without_a_parent() {
         let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
+        let freed = Arc::new(Freed::default());
+        let fleet = fleet(home.path()).freeing_lanes(freed.clone());
         let _worker = live(&fleet, "n903-orphan");
         let heir = live(&fleet, "n903-heir");
         let lane = ticket(home.path(), "", "1-n903.json", "n903-orphan", "/code/north/worktrees/n903-waits");
@@ -145,5 +167,17 @@ mod tests {
         assert!(heir.frames.lock().unwrap().iter().any(|frame| frame.contains("n903-orphan is leaving the fleet")));
         assert!(fleet.session("n903-orphan").is_err(), "the forget still ran");
         assert!(fleet.forget_unless_queued("n903-heir", None, Some("nobody")).is_err());
+
+        let remote_lane = Path::new("/code/north/worktrees/n903-remote");
+        let retired_lane = Path::new("/code/north/worktrees/n903-retired");
+        remote(&fleet, "n903-remote", "tom@gex45", remote_lane);
+        remote(&fleet, "n903-retired", "tom@cpx62", retired_lane);
+        fleet.forget("n903-remote").unwrap();
+        fleet.retire("n903-retired", "reported", None).unwrap();
+        assert_eq!(
+            *freed.0.lock().unwrap(),
+            [("tom@gex45".to_owned(), remote_lane.to_path_buf()), ("tom@cpx62".to_owned(), retired_lane.to_path_buf())],
+            "a forgotten or retired remote session frees its lane on the machine that holds it"
+        );
     }
 }

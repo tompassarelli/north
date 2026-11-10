@@ -30,12 +30,16 @@ const DAY_MS: u64 = 86_400_000;
 
 impl Fleet {
     pub fn retire(&self, name: &str, why: &str, last: Option<&str>) -> NorthResult<PathBuf> {
-        self.hand_over_lanes(&self.record(name)?, None, true)?;
+        let record = self.record(name)?;
+        let handed = self.hand_over_lanes(&record, None, true)?;
         let note = json!({"why": why, "at_ms": now_ms(), "last": last});
         fs::write(self.session_dir(name)?.join(NOTE), serde_json::to_vec_pretty(&note)?)?;
         let stop = last.and_then(|last| last.lines().rev().map(str::trim).find(|line| line.starts_with("Stop:")));
         let cause = stop.map_or_else(|| why.to_owned(), |stop| format!("{why}; {stop}"));
         let archived = self.archive(name, Halt::Retired, &cause)?;
+        if !handed && let Err(error) = self.remote_lanes.free(&record) {
+            eprintln!("north fleet: {}'s lane on {} is left for north lane gc: {}", record.name, record.machine.as_ref().map_or("its host", |machine| machine.name.as_str()), error.user_message());
+        }
         self.uncache_session(name)?;
         Ok(archived)
     }

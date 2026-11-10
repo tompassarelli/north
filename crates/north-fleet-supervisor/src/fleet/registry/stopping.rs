@@ -121,7 +121,7 @@ impl Fleet {
         let heir = record.as_ref().map(|record| self.lane_heir(record, successor)).transpose()?.flatten();
         forget::admit(name, &lanes, heir.as_deref(), force)?;
         if let (Some(record), Some(_)) = (&record, successor) {
-            self.hand_over_lanes(record, successor, true)?;
+            let _ = self.hand_over_lanes(record, successor, true)?;
         }
         let controlled = self.control(ControlVerb::Forget, name)?;
         Ok(Forgotten { controlled, overrode: if heir.is_some() { Vec::new() } else { lanes } })
@@ -132,10 +132,19 @@ impl Fleet {
     }
 
     pub(super) fn forget_for(&self, name: &str, why: Halt) -> NorthResult<()> {
-        if let Ok(record) = self.record(name) {
-            self.hand_over_lanes(&record, None, false)?;
-        }
+        let freed = match self.record(name) {
+            Ok(record) => {
+                let handed = self.hand_over_lanes(&record, None, false)?;
+                Some((record, handed))
+            }
+            Err(_) => None,
+        };
         self.archive(name, why, why.label())?;
+        if let Some((record, false)) = freed
+            && let Err(error) = self.remote_lanes.free(&record)
+        {
+            eprintln!("north fleet: {}'s lane on {} is left for north lane gc: {}", record.name, record.machine.as_ref().map_or("its host", |machine| machine.name.as_str()), error.user_message());
+        }
         self.release_all_claims_of(name)?;
         self.uncache_session(name)
     }

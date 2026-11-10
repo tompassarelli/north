@@ -26,6 +26,8 @@ use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
 use super::run_recording::{NoRecording, RunRecording};
+use lanes::OverSshLanes;
+pub use lanes::RemoteLanes;
 use super::usage_sink::{NoUsage, UsageSink};
 use super::sender::urgent_prefixed;
 use super::store::{OverSsh, Registrar, SPOOL_DIR, Spool};
@@ -109,6 +111,7 @@ pub struct Fleet {
     admission: PathBuf,
     usage: Arc<dyn UsageSink>,
     recording: Arc<dyn RunRecording>,
+    remote_lanes: Arc<dyn RemoteLanes>,
 }
 
 struct Ports {
@@ -136,7 +139,7 @@ impl Fleet {
         let Ports { runtimes, ledger, claims, registrar, leases } = ports;
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording) };
+        let fleet = Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into(), cgroups: "/sys/fs/cgroup".into(), admission: crate::platform::admission_root::here(), usage: Arc::new(NoUsage), recording: Arc::new(NoRecording), remote_lanes: Arc::new(OverSshLanes) };
         fleet.adopt_journals()?;
         Ok(fleet)
     }

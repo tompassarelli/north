@@ -63,22 +63,22 @@ impl Fleet {
         Ok(heir.filter(|heir| heir != &record.name))
     }
 
-    /// Hands every unlanded lane `record` owns to its heir: each waiting ticket now reports to the heir, who is told the branches and worktree.
+    /// Hands every unlanded lane `record` owns to its heir: each waiting ticket now reports to the heir, who is told the branches and worktree; whether a lane was handed over.
     /// With no heir, `strict` refuses; otherwise the lanes stay where they lie.
-    pub(super) fn hand_over_lanes(&self, record: &SessionRecord, successor: Option<&str>, strict: bool) -> NorthResult<()> {
+    pub(super) fn hand_over_lanes(&self, record: &SessionRecord, successor: Option<&str>, strict: bool) -> NorthResult<bool> {
         let dir = self.session_dir(&record.name)?;
         if dir.join(HANDED).exists() {
-            return Ok(());
+            return Ok(true);
         }
         let lanes = OwnedLanes::read(&self.state.join("land-queue"), record);
         if lanes.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         let Some(heir) = self.lane_heir(record, successor)? else {
             return if strict {
                 Err(NorthError::Refused(format!("{} owns {} and has no parent or successor to take it; land it, or name a successor with --to NAME", record.name, lanes.describe())))
             } else {
-                Ok(())
+                Ok(false)
             };
         };
         let text = format!("[north: {} is leaving the fleet and its lanes are now yours: {}. Land each through safe-push or abandon it; a queued lane's verdict now comes to you.]", record.name, lanes.describe());
@@ -88,6 +88,6 @@ impl Fleet {
         }
         let branches: Vec<&str> = lanes.tickets.iter().map(|lane| lane.branch.as_str()).chain(lanes.worktree.iter().map(|(_, branch)| branch.as_str())).collect();
         fs::write(dir.join(HANDED), serde_json::to_vec_pretty(&json!({"to": heir, "at_ms": now_ms(), "branches": branches}))?)?;
-        Ok(())
+        Ok(true)
     }
 }

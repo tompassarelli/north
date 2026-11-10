@@ -3,7 +3,7 @@
 //! CLI, read over ssh since the placing host's procfs holds only the link.
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use north_base::platform::process::try_run_command_within;
@@ -65,6 +65,34 @@ pub fn work(ssh: &Path, destination: &str, units: &[String]) -> Option<BTreeMap<
         .filter(|(unit, _)| units.contains(unit))
         .collect();
     (counted.len() == units.len()).then_some(counted)
+}
+
+fn quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', r"'\''"))
+}
+
+/// Frees the lane a session worked in on the machine it ran on, once the session has ended: runs
+/// `north lane remove` there, which removes a finished lane with its worktree and target and keeps
+/// one that still holds unlanded, uncommitted, locked or queued work. A deletion outlives the fleet
+/// tick that asked for it: the ssh runs as its own transient user unit, so the tick's cgroup stop
+/// does not kill it, and a host without a user manager falls back to a plain child.
+pub fn free_lane(ssh: &Path, destination: &str, lane: &Path) -> Result<(), String> {
+    let script = format!("PATH=\"$HOME/.local/bin:$PATH\" north lane remove {}", quote(&lane.to_string_lossy()));
+    let arguments = [String::from("-T"), String::from("-o"), String::from("BatchMode=yes"), String::from("-o"), String::from("ConnectTimeout=5"), destination.to_owned(), String::from("--"), script];
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    let unit = format!("north-lane-free-{}-{stamp}", std::process::id());
+    let mut detached = Command::new("systemd-run");
+    detached.args(["--user", "--quiet", "--collect", "--unit", &unit]);
+    if let Some(socket) = std::env::var("SSH_AUTH_SOCK").ok().filter(|socket| !socket.is_empty()) {
+        detached.arg(format!("--setenv=SSH_AUTH_SOCK={socket}"));
+    }
+    let started = detached.arg("--").arg(ssh).args(&arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    if started.is_ok_and(|status| status.success()) {
+        return Ok(());
+    }
+    let mut command = Command::new(ssh);
+    command.args(&arguments).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.spawn().map(drop).map_err(|error| format!("cannot free lane {} on {destination}: {error}", lane.display()))
 }
 
 /// A held session's service running on this machine: when it became active and whether a placing
