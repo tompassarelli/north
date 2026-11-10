@@ -6,8 +6,6 @@ use std::sync::LazyLock;
 use super::ordered_json::{Json, quote};
 
 pub(super) const PROVIDERS: [&str; 2] = ["claude", "codex"];
-pub(super) const HOOKLESS_PROVIDERS: [&str; 3] = ["opencode", "pi", "agy"];
-pub(super) const SHARED_LAYERS: [&str; 6] = ["launch", "worker-sandbox", "sandbox-broker", "safe-push", "lander", "github-app"];
 pub(super) const EVENT_ORDER: [&str; 7] = [
     "PreToolUse",
     "PostToolUse",

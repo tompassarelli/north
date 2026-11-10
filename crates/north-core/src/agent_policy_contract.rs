@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 mod activation;
 mod bindings;
 mod ordered_json;
+mod shared_layers;
 mod surfaces;
 mod wiring;
 
