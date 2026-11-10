@@ -16,7 +16,7 @@ impl Bar {
             Self::IdleAccount => "longest an account sat idle",
             Self::RuntimeBreaks => "broken runtimes that reached a second host",
             Self::RuntimeRollback => "slowest rollback of a broken runtime",
-            Self::RuntimeAge => "how long landings waited for the fleet's runtime",
+            Self::RuntimeLive => "how long a landing took to go live on the fleet's runtime",
             Self::UsagePerLanding => "usage per first try landed",
             Self::StrandedUsage => "usage wasted while work waited",
             Self::MainGreenLander => "main green, landing checks",

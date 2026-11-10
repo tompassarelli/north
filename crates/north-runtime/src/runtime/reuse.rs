@@ -5,6 +5,7 @@ use north_base::build_inputs::rust_build_input;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 fn live(layout: &Layout) -> Option<String> {
     fs::read_link(layout.current()).ok().and_then(|link| layout::linked_sha(&link).map(str::to_owned))
@@ -34,13 +35,10 @@ pub(super) fn covers(layout: &Layout, checkout: &Path, head: &str, code: &[Strin
 }
 
 pub(super) fn reuse(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, own_build_only: bool) -> bool {
-    let Some(live) = live(layout) else {
+    let Some(built) = built_for(layout, checkout, target, own_build_only) else {
         return false;
     };
-    let source = layout.runtime(&live);
-    if live == target || !layout::usable(&source, own_build_only) || !unchanged(checkout, &live, target) {
-        return false;
-    }
+    let source = layout.runtime(&built);
     if install_programs(&source, runtime).is_err() {
         return false;
     }
@@ -50,15 +48,22 @@ pub(super) fn reuse(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
     if layout::stamp(runtime, target).is_err() {
         return false;
     }
-    println!("north runtime: {} changes no Rust build input since {}; reusing its binaries without a build", layout::short(target), layout::short(&live));
+    println!("north runtime: {} changes no Rust build input since {}; reusing its binaries without a build", layout::short(target), layout::short(&built));
     true
+}
+
+/// A runtime already here whose binaries `target` would build: the live one, else any other built or shipped here, newest first, whose commit differs from `target` in no Rust build input.
+fn built_for(layout: &Layout, checkout: &Path, target: &str, own_build_only: bool) -> Option<String> {
+    let mut built: Vec<(SystemTime, String)> = fs::read_dir(layout.runtimes()).into_iter().flatten().flatten().filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.file_name().into_string().ok().filter(|name| layout::is_sha(name))?))).collect();
+    built.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    live(layout).into_iter().chain(built.into_iter().map(|(_, sha)| sha)).find(|sha| sha != target && layout::usable(&layout.runtime(sha), own_build_only) && unchanged(checkout, sha, target))
 }
 
 fn unchanged(checkout: &Path, live: &str, target: &str) -> bool {
     unchanged_by(checkout, live, target, rust_build_input)
 }
 
-fn unchanged_by(checkout: &Path, live: &str, target: &str, input: impl Fn(&str) -> bool) -> bool {
+pub(super) fn unchanged_by(checkout: &Path, live: &str, target: &str, input: impl Fn(&str) -> bool) -> bool {
     let args = ["diff", "--name-only", "--no-renames", "--no-ext-diff", "-z", live, target];
     let Ok(output) = process::run("git", Some(checkout), &args) else {
         return false;

@@ -33,7 +33,8 @@ pub(in super::super) fn verdict(layout: &Layout, target: &str, shipped: bool) ->
     let Some(record) = lifecycle::record_of::<Promoting>(layout, target)? else {
         return Ok(Verdict::Clear);
     };
-    let lapsed = Timestamp::now().unix_millis() - record.since.unix_millis() >= i64::try_from(RETRY_AFTER.as_millis()).unwrap_or(i64::MAX);
+    let quarantined = record.state == Promotion::RolledBack;
+    let lapsed = !quarantined && Timestamp::now().unix_millis() - record.since.unix_millis() >= i64::try_from(RETRY_AFTER.as_millis()).unwrap_or(i64::MAX);
     if !record.state.holds_back() || lapsed {
         return Ok(Verdict::Clear);
     }
@@ -48,6 +49,7 @@ impl Verdict {
     pub(super) fn notice(&self, short: &str, was: &str) -> Option<String> {
         match self {
             Verdict::Clear => None,
+            Verdict::Held(hold) if hold.state == Promotion::RolledBack => Some(format!("north runtime: {short} is quarantined after it was rolled back; staying on {was} until a newer landing ({hold})")),
             Verdict::Held(hold) => Some(format!("north runtime: {short} failed within the last hour; staying on {was} ({hold})")),
             Verdict::Waived(hold) => Some(format!("north runtime: {short} failed within the last hour on this host ({hold}), but a runtime built elsewhere was shipped here; promoting it")),
         }

@@ -7,6 +7,8 @@ use super::layout::{self, Layout};
 use super::lifecycle::{self, Judge, Judgement};
 use super::pin;
 use super::walk;
+use super::watch;
+use super::follow;
 use super::probe::{self, Shell};
 use super::update;
 use crate::land_offload;
@@ -34,9 +36,17 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
         println!("north runtime settle already running");
         return Ok(());
     }
-    if let Err(failure) = update::update(layout) {
-        eprintln!("north runtime settle: {}: {}", host::name(), failure.message);
+    let before = layout.live_sha();
+    match update::update(layout) {
+        Err(failure) => eprintln!("north runtime settle: {}: {}", host::name(), failure.message),
+        Ok(_) if layout.live_sha() != before => {
+            if let Err(failure) = follow::follow_lander(layout) {
+                eprintln!("north runtime settle: {}", failure.message);
+            }
+        }
+        Ok(_) => {}
     }
+    watch::watch(layout);
     if let Some(live) = handed_to_live(layout) {
         drop(lock);
         let error = Command::new(layout.runtime(&live).join("north")).args(["runtime", "settle"]).exec();

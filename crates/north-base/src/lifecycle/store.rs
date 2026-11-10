@@ -219,6 +219,18 @@ impl Store {
         .collect()
     }
 
+    /// How many moves of `machine` into `to`, from `from` when named, were made and not refused in `[start, end)`.
+    pub fn moves_between(&self, machine: &str, from: Option<&str>, to: &str, start: Timestamp, end: Timestamp) -> NorthResult<usize> {
+        self.connection
+            .query_row(
+                "SELECT count(*) FROM lifecycle_moves WHERE machine = ?1 AND to_state = ?2 AND (?3 IS NULL OR from_state = ?3) AND refused = 0 AND at_ms >= ?4 AND at_ms < ?5",
+                params![machine, to, from, start.unix_millis(), end.unix_millis()],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| usize::try_from(count).unwrap_or(0))
+            .map_err(sql)
+    }
+
     /// Every stuck instance, every illegal move of the last hour and every outbox effect past its attempts or its lease,
     /// of every machine, read without their types.
     pub fn faults(&self, at: Timestamp) -> NorthResult<Vec<Fault>> {

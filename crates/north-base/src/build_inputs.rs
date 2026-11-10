@@ -38,3 +38,11 @@ pub fn rust_build_input(path: &str) -> bool {
 pub fn run_time_data(path: &str) -> bool {
     RUN_TIME_DATA.contains(&path)
 }
+
+const NOT_RUN_TIME_DIRS: [&str; 4] = ["docs/", "tests/", "examples/", ".github/"];
+const NOT_RUN_TIME_FILES: [&str; 6] = ["LICENSE", "LICENSE-APACHE", "LICENSE-MIT", "NOTICE", "ambient-test-clocks.tsv", "ambient-test-inputs.tsv"];
+
+/// Whether a change to `path` changes what a promoted runtime runs: its binaries, or a file of the exported tree it reads, publishes or links.
+pub fn runtime_input(path: &str) -> bool {
+    rust_build_input(path) || run_time_data(path) || !(NOT_RUN_TIME_FILES.contains(&path) || NOT_RUN_TIME_DIRS.iter().any(|dir| path.starts_with(dir)))
+}

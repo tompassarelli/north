@@ -68,16 +68,13 @@ impl Drop for KeptTarget<'_> {
 enum Placement {
     Elsewhere(Box<gate::Machine>),
     Here { refused: Option<String> },
-    Yielding,
     Confined(Confinement),
     Held,
 }
 
-const DESKTOP_JOBS: u32 = 4;
-
-fn placement(reserved: bool, builds_only_here: bool, desktop_in_use: impl FnOnce() -> bool, confinement: impl FnOnce() -> Option<Confinement>, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
+fn placement(reserved: bool, builds_only_here: bool, confinement: impl FnOnce() -> Option<Confinement>, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
     if !reserved {
-        return if desktop_in_use() { Placement::Yielding } else { Placement::Here { refused: None } };
+        return Placement::Here { refused: None };
     }
     if builds_only_here {
         return confinement().map_or(Placement::Held, Placement::Confined);
@@ -97,7 +94,7 @@ pub(super) fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
         false => Err("it never takes a runtime built on another host".to_owned()),
     };
     let mut confined = None;
-    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), desktop_in_use, crate::capacity::game_reserve::confinement, other_host) {
+    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), crate::capacity::game_reserve::confinement, other_host) {
         Placement::Elsewhere(machine) => return remote::build(&machine, target, runtime),
         Placement::Confined(confinement) => {
             println!("north runtime: this host is in game-reserve; building {} on the agent CPUs {} at idle priority", layout::short(target), confinement.cpus);
@@ -105,20 +102,12 @@ pub(super) fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
         }
         Placement::Held => return Err(failed(DEFERRED, format!("this host builds its own runtime and is in game-reserve with the agent CPUs not enforced; {} waits for the reserve to end and the live runtime stays", layout::short(target)))),
         Placement::Here { refused: Some(why) } => println!("north runtime: this host is in game-reserve and {why}; building {} here under the runtime class admission", layout::short(target)),
-        Placement::Yielding => {
-            println!("north runtime: the desktop is in use; building {} with at most {DESKTOP_JOBS} jobs at idle priority", layout::short(target));
-            confined = Some(Confinement { cpus: "any".to_owned(), jobs: DESKTOP_JOBS });
-        }
         Placement::Here { refused: None } => {}
     }
     if !land_offload::builds_runtime_here() {
         return Err(failed(DEFERRED, format!("no other host has built {} yet and this host does not build runtimes (builds_runtime = false); retrying on the next tick", layout::short(target))));
     }
     build_here(layout, checkout, target, runtime, confined.as_ref())
-}
-
-fn desktop_in_use() -> bool {
-    crate::capacity::laptop_auto::seat_idle() == Some(false)
 }
 
 fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, confined: Option<&Confinement>) -> Result<(), Failure> {
@@ -190,14 +179,3 @@ pub(super) fn export_tree(checkout: &Path, target: &str, runtime: &Path) -> Resu
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_runtime_build_while_the_desktop_is_in_use_yields_instead_of_taking_every_core() {
-        let unreachable = || -> Result<gate::Machine, String> { panic!("outside game reserve the runtime is built on this host") };
-        assert!(matches!(placement(false, true, || true, || None, unreachable), Placement::Yielding));
-        assert!(matches!(placement(false, true, || false, || None, unreachable), Placement::Here { refused: None }));
-    }
-}

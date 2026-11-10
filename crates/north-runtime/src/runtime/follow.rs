@@ -56,18 +56,21 @@ pub(super) fn promote_detached(layout: &Layout) -> Result<(), Failure> {
     }
 }
 
-/// The other hosts take the runtime only after it walked the spine here, so a runtime that breaks the core loop is rolled back on this host and reaches no second one.
+/// The other hosts take the runtime only after it walked the spine here, so a runtime that breaks the core loop is rolled back on this host and reaches no second one; a promotion that found another running leaves its landing, the shipping and the lander to that one.
 pub(super) fn promote(layout: &Layout) -> Result<(), Failure> {
-    let here = update::update_after_landing(layout);
+    let here = update::update(layout);
+    if matches!(here, Ok(update::Flight::Joined)) {
+        return Ok(());
+    }
     let elsewhere = match land_offload::settles_fleet_here() {
         true => walk::ship_if_walked(walk::walked_here(layout), |_| deploy::deploy_live(layout)).map(|_| ()),
         false => Ok(()),
     };
     let lander = follow_lander(layout);
-    here.and(elsewhere).and(lander)
+    here.map(|_| ()).and(elsewhere).and(lander)
 }
 
-fn follow_lander(layout: &Layout) -> Result<(), Failure> {
+pub(super) fn follow_lander(layout: &Layout) -> Result<(), Failure> {
     if fs::symlink_metadata(layout.lander()).is_err() {
         return Ok(());
     }

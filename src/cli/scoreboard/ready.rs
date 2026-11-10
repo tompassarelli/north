@@ -48,7 +48,7 @@ enum Bar {
     IdleAccount,
     RuntimeBreaks,
     RuntimeRollback,
-    RuntimeAge,
+    RuntimeLive,
     UsagePerLanding,
     StrandedUsage,
     MainGreenLander,
@@ -69,7 +69,7 @@ impl Bar {
         Self::IdleAccount,
         Self::RuntimeBreaks,
         Self::RuntimeRollback,
-        Self::RuntimeAge,
+        Self::RuntimeLive,
         Self::UsagePerLanding,
         Self::StrandedUsage,
         Self::MainGreenLander,
@@ -90,7 +90,7 @@ impl Bar {
             Self::IdleAccount => "ready-idle-account",
             Self::RuntimeBreaks => "ready-runtime-breaks",
             Self::RuntimeRollback => "ready-runtime-rollback",
-            Self::RuntimeAge => "ready-runtime-age",
+            Self::RuntimeLive => "ready-runtime-live-p90",
             Self::UsagePerLanding => "ready-usage-per-landing",
             Self::StrandedUsage => "ready-stranded-usage",
             Self::MainGreenLander => "ready-main-green-lander",
@@ -112,7 +112,7 @@ impl Bar {
             Self::IdleAccount => "longest idle account (all)",
             Self::RuntimeBreaks => "runtime breaks reaching a 2nd host (all)",
             Self::RuntimeRollback => "runtime rollback after swap, slowest (all)",
-            Self::RuntimeAge => "main waiting for the pinned runtime (all)",
+            Self::RuntimeLive => "landing to live p90 (all)",
             Self::UsagePerLanding => "usage per first try landed (all)",
             Self::StrandedUsage => "usage stranded while work waited (all)",
             Self::MainGreenLander => "main green by the lander's verdicts",
@@ -120,9 +120,9 @@ impl Bar {
         }
     }
 
-    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback has none to time.
+    /// Whether a window with nothing to observe still counts as passed: Tom's own activity can be absent, and a window with no rollback or no landing that changed the runtime has none to time.
     fn quiet_passes(self) -> bool {
-        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback)
+        matches!(self, Self::AskToLanding | Self::Corrections | Self::RuntimeRollback | Self::RuntimeLive)
     }
 }
 
@@ -329,7 +329,7 @@ impl Records {
         let reading = match bar {
             Bar::RuntimeBreaks => pins.breaks(),
             Bar::RuntimeRollback => pins.rollback(),
-            _ => pins.age(),
+            _ => (!pins.landing_to_live_seconds.is_empty()).then(|| (percentile(&pins.landing_to_live_seconds, 0.9), pins.landing_to_live_seconds.len())),
         };
         reading.map(Reading::from)
     }
@@ -354,7 +354,7 @@ impl Records {
             Bar::LandingP90 => spread(&self.landings, 0.9),
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
-            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeAge => self.runtime(bar, window),
+            Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive => self.runtime(bar, window),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)

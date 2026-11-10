@@ -99,7 +99,7 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         Rollback::To(previous) => {
             finish(Canary::RolledBack, &failure);
             trust(layout, host, &previous, short);
-            machine.alarm(&format!("north runtime canary: {failure}; {host} rolled back to {} and holds {short} back for an hour", layout::short(&previous)));
+            machine.alarm(&format!("north runtime canary: {failure}; {host} rolled back to {} and quarantines {short} until a newer landing", layout::short(&previous)));
             Verdict::RolledBack
         }
         Rollback::Deferred(why) => {
@@ -143,7 +143,7 @@ fn host_fault(host: &str, short: &str, machine: &impl Machine, faults: &[String]
     Verdict::Unrun(why)
 }
 
-fn trust(layout: &Layout, host: &str, previous: &str, failed: &str) {
+pub(super) fn trust(layout: &Layout, host: &str, previous: &str, failed: &str) {
     let instance = format!("{host}/{previous}");
     if !layout::is_sha(previous) || lifecycle::state_of::<Canarying>(layout, &instance).ok().flatten().is_some_and(Canary::judged) {
         return;

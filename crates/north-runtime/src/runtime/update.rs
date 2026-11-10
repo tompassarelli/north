@@ -27,6 +27,7 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(2 * 60);
 const PASSES: usize = 5;
 const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
+const WANTED: &str = "runtime-promote.wanted";
 
 pub(super) mod hold;
 mod build;
@@ -43,24 +44,51 @@ enum Pass {
     Promoted,
 }
 
-pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
-    recorded(layout, lock(layout, FlockOperation::NonBlockingLockExclusive), follow_main)
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Flight {
+    Flew,
+    Joined,
 }
 
-pub(super) fn update_after_landing(layout: &Layout) -> Result<(), Failure> {
-    recorded(layout, lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime promote").map(Some), |layout| pass(layout).map(|_| ()))
-}
-
-fn recorded(layout: &Layout, lock: Result<Option<File>, Failure>, update: impl FnOnce(&Layout) -> Result<(), Failure>) -> Result<(), Failure> {
-    let updated = lock.and_then(|lock| match lock {
-        Some(_lock) => update(layout),
-        None => {
-            println!("north runtime update already running");
-            Ok(())
-        }
-    });
+pub(super) fn update(layout: &Layout) -> Result<Flight, Failure> {
+    let flown = flight(layout, follow_main);
+    if matches!(flown, Ok(Flight::Joined)) && land_offload::settles_fleet_here() {
+        note_landing(layout);
+    }
     host_facts::record_if_stale(layout);
-    updated
+    flown
+}
+
+/// A caller that left its landing to the running promotion still dates it, so landing to live counts from the landing, not from when the holder reached it.
+fn note_landing(layout: &Layout) {
+    let checkout = checkout();
+    if let Ok(main) = main_commit(&checkout) {
+        pin::observe(layout, &checkout, &main);
+    }
+}
+
+/// One promotion runs per host: every caller marks one wanted, and the caller holding the update lock follows origin/main again while a mark is left, so a landing during a build is promoted next at the newest head, and a caller that finds the lock held leaves its landing to the holder.
+pub(super) fn flight(layout: &Layout, mut run: impl FnMut(&Layout) -> Result<(), Failure>) -> Result<Flight, Failure> {
+    let wanted = layout.state.join(WANTED);
+    fs::create_dir_all(&layout.state)?;
+    fs::write(&wanted, "")?;
+    let (mut flew, mut last) = (false, Ok(()));
+    loop {
+        let Some(lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
+            if !flew {
+                println!("north runtime: a promotion is running here and takes origin/main's newest head when its pass ends");
+            }
+            return last.map(|()| if flew { Flight::Flew } else { Flight::Joined });
+        };
+        flew = true;
+        while fs::remove_file(&wanted).is_ok() {
+            last = run(layout);
+        }
+        drop(lock);
+        if !wanted.exists() {
+            return last.map(|()| Flight::Flew);
+        }
+    }
 }
 
 fn follow_main(layout: &Layout) -> Result<(), Failure> {
@@ -111,6 +139,7 @@ pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Fai
     live::note_swap(layout, &layout::link(&previous));
     lifecycle::move_to::<Promoting>(layout, failed_sha, Promotion::RolledBack, "rolled back on this host after promotion")?;
     lifecycle::move_to::<Promoting>(layout, &previous, Promotion::Live, &format!("rolled back to after {} failed", layout::short(failed_sha)))?;
+    super::canary::trust(layout, &host::name(), &previous, layout::short(failed_sha));
     println!("north runtime rolled back to {previous}");
     Ok(previous)
 }
@@ -144,13 +173,11 @@ fn pass(layout: &Layout) -> Result<Pass, Failure> {
     }
     let checkout = checkout();
     let main = main_commit(&checkout)?;
-    let (target, reason) = match land_offload::settles_fleet_here() {
-        true => pin::target(layout, &checkout, &main),
-        false => (main, None),
-    };
+    let settles = land_offload::settles_fleet_here();
+    let target = if settles { pin::target(layout, &checkout, &main) } else { main };
     let advanced = advance_to(layout, &checkout, &target);
-    if let (Ok(Pass::Promoted), Some(reason)) = (&advanced, reason) {
-        pin::promoted(layout, &target, reason);
+    if settles && matches!(advanced, Ok(Pass::Promoted)) {
+        pin::promoted(layout, &target);
     }
     advanced
 }
