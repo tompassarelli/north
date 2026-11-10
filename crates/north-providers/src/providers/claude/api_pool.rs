@@ -168,7 +168,14 @@ pub fn rejudge(policy: &Path, home: &Path, state_root: &Path, here: &str, probe:
                 Ok(false) => {}
                 Err(error) => lines.push(format!("api:{} exhausted mark was not cleared: {error}", org.name)),
             },
-            Err(body) => lines.push(format!("api:{} keeps its exhausted mark: the probe refused with {}", org.name, body.trim().replace(['\r', '\n'], " "))),
+            Err(body) => {
+                let refreshed = marks::refresh(&marks, &id, &body);
+                let now = match refreshed {
+                    Ok(true) => " (its mark now keeps this body)",
+                    _ => "",
+                };
+                lines.push(format!("api:{} keeps its exhausted mark{now}: the probe refused with {}", org.name, body.trim().replace(['\r', '\n'], " ")));
+            }
         }
     }
     lines

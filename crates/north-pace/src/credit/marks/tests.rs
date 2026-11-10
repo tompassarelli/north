@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{adopt, body, clear, cleared, held, mark, names_low_credit, until};
+use super::{adopt, body, clear, cleared, held, mark, names_low_credit, refresh, until};
 
 const REFUSAL: &str = "HTTP 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API.\"}}";
 
@@ -74,6 +74,16 @@ fn clearing_a_mark_leaves_a_tombstone_so_a_peer_resending_that_same_mark_cannot_
     );
     assert_eq!(adopt(dir.path(), &fresh, "2026-11-11").unwrap(), ["g"]);
     assert!(held(dir.path(), "g", "2026-11-11"));
+
+    // A probe that keeps a bodyless mark rewrites its body; the peer still holds that bodyless copy.
+    let bodyless = "north-1 2026-11-30\n";
+    std::fs::write(dir.path().join("h"), bodyless).unwrap();
+    assert!(refresh(dir.path(), "h", REFUSAL).unwrap());
+    assert!(clear(dir.path(), "h", 1_794_470_400).unwrap());
+    let mut peer = BTreeMap::new();
+    peer.insert("h".to_owned(), bodyless.to_owned());
+    assert!(adopt(dir.path(), &peer, "2026-11-30").unwrap().is_empty(), "a peer's bodyless copy restored a mark a probe had rewritten and then cleared");
+    assert!(!held(dir.path(), "h", "2026-11-30"));
 }
 #[test]
 fn a_peer_copy_of_a_cleared_mark_does_not_restore_it_through_a_tombstone_file() {

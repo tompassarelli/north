@@ -45,6 +45,20 @@ pub fn mark(dir: &Path, id: &str, session: &str, today: &str, until: Option<&str
     Ok(true)
 }
 
+/// Replaces the refusal body the mark for organization `id` under `dir` keeps with the provider's fresh `body` when that body names low credit, leaving the first line that names its session, day and next credit untouched, so a mark made before bodies were kept learns why the provider refuses; whether it rewrote anything.
+pub fn refresh(dir: &Path, id: &str, body: &str) -> io::Result<bool> {
+    if !names_low_credit(body) {
+        return Ok(false);
+    }
+    let Ok(mark) = std::fs::read_to_string(dir.join(id)) else { return Ok(false) };
+    let fresh = format!("{}\n{}\n", meta(&mark), body.trim_end());
+    if mark == fresh {
+        return Ok(false);
+    }
+    std::fs::write(dir.join(id), fresh)?;
+    Ok(true)
+}
+
 /// The day from which the mark for organization `id` under `dir` stops holding, when it names one.
 pub fn until(dir: &Path, id: &str) -> Option<String> {
     let mark = std::fs::read_to_string(dir.join(id)).ok()?;
@@ -74,11 +88,16 @@ pub fn cleared(dir: &Path, id: &str) -> Option<String> {
     text.split_once('\n').map(|(_, mark)| mark.trim_end().to_owned())
 }
 
-/// Writes each of `marks` that holds on `today` and that `dir` holds none for, except one a probe already cleared with exactly this text, so a peer's stale copy does not bring a cleared mark back; the ids it wrote.
+/// Whether the tombstone `cleared` for an organization already accounts for the copy `mark` a peer offers: the same text, or a copy with no body whose first line names the same session, day and next credit, since a probe that keeps a mark rewrites its body and a peer still holding the old bodyless copy must not bring the cleared mark back.
+fn same_clearing(cleared: &str, mark: &str) -> bool {
+    cleared == mark.trim_end() || (body(mark).trim().is_empty() && meta(cleared) == meta(mark))
+}
+
+/// Writes each of `marks` that holds on `today` and that `dir` holds none for, except one a probe already cleared, so a peer's stale copy does not bring a cleared mark back; the ids it wrote.
 pub fn adopt(dir: &Path, marks: &BTreeMap<String, String>, today: &str) -> io::Result<Vec<String>> {
     let mut adopted = Vec::new();
     for (id, mark) in marks.iter().filter(|(id, mark)| holds(mark, today) && !held(dir, id, today) && !id.contains(['/', '.'])) {
-        if cleared(dir, id).is_some_and(|cleared| cleared == mark.trim_end()) {
+        if cleared(dir, id).is_some_and(|cleared| same_clearing(&cleared, mark)) {
             continue;
         }
         std::fs::create_dir_all(dir)?;

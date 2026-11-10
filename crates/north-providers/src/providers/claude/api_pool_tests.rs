@@ -308,11 +308,21 @@ fn a_probe_that_still_refuses_keeps_the_organizations_mark() {
     let state = home.path().join(".local/state/north");
     let dir = state.join("api-exhausted");
     marks::mark(&dir, "p", "north-1", &today(), None, "Your credit balance is too low to access the Anthropic API.").unwrap();
+    let stale = std::fs::read_to_string(dir.join("p")).unwrap();
+    let meta = stale.lines().next().unwrap().to_owned();
 
-    let lines = rejudge(&policy, home.path(), &state, &here, |_| Err("Your credit balance is too low to access the Anthropic API.".to_owned()));
+    let fresh = "HTTP 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API.\"}}";
+    let lines = rejudge(&policy, home.path(), &state, &here, |_| Err(fresh.to_owned()));
 
     assert!(marks::held(&dir, "p", &today()), "{lines:?}");
-    assert!(lines.iter().any(|line| line.contains("keeps its exhausted mark")), "{lines:?}");
+    assert!(lines.iter().any(|line| line.contains("keeps its exhausted mark (its mark now keeps this body)")), "{lines:?}");
+    let mark = std::fs::read_to_string(dir.join("p")).unwrap();
+    assert_eq!(mark.lines().next().unwrap(), meta, "the fresh body moved the mark's first line: {mark:?}");
+    assert_eq!(marks::body(&mark).trim_end(), fresh, "the mark did not keep the probe's refusal body: {mark:?}");
+
+    let lines = rejudge(&policy, home.path(), &state, &here, |_| Err("HTTP 401: invalid x-api-key".to_owned()));
+    assert!(lines.iter().any(|line| line.contains("keeps its exhausted mark: the probe refused")), "{lines:?}");
+    assert_eq!(marks::body(&std::fs::read_to_string(dir.join("p")).unwrap()).trim_end(), fresh, "a refusal that names no credit rewrote the mark's body");
 }
 #[test]
 fn a_low_credit_turn_writes_the_providers_refusal_body_into_the_mark() {
