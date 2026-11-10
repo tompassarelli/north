@@ -93,6 +93,15 @@ fn github_items<'a>(items: impl Iterator<Item = &'a str>) -> BTreeSet<(String, u
     items.filter_map(|item| CATALOG.parse_ref(item).ok()).filter(|(repo, _)| !CATALOG.is_native(repo)).collect()
 }
 
+/// Refuses a box slug the issue's body lacks, ticked or not: a claim on a box its issue lacks holds every box of it in dispatch. A native item or an unreadable body refuses nothing.
+fn box_of_issue(issues: &dyn Issues, (repo, number): (&str, u64), slug: &str) -> Result<(), String> {
+    let body = (!CATALOG.is_native(repo)).then(|| issues.body(repo, number)).flatten();
+    match body {
+        Some(body) if !names_box(&body, slug) => Err(format!("--box {slug} names no box of {repo}#{number}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it")),
+        _ => Ok(()),
+    }
+}
+
 fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let [id] = parsed.positional.as_slice() else { return Err("usage: threads claim REPO#N [--box TEXT] [--by NAME] [--parent NAME ...] [--eta MINUTES]".into()) };
     let (repo, number) = CATALOG.parse_ref(id)?;
@@ -103,11 +112,8 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let by = parsed.by.clone().unwrap_or_else(|| context.actor.clone());
     let item = format!("{repo}#{number}");
     let slug = parsed.box_text.as_deref().map(|text| box_slug(text).ok_or_else(|| format!("--box {text} names no word of a box"))).transpose()?;
-    if let (Some(slug), Some(text)) = (&slug, &parsed.box_text)
-        && let Some(body) = (!CATALOG.is_native(&repo)).then(|| context.issues.body(&repo, number)).flatten()
-        && !names_box(&body, slug)
-    {
-        return Err(format!("--box {text:?} names no box of {item}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it"));
+    if let Some(slug) = &slug {
+        box_of_issue(context.issues, (&repo, number), slug)?;
     }
     let mut db = ledger::open(context.database, true)?;
     let github = context.issues.read(&github_items(std::iter::once(item.as_str())));
