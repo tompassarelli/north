@@ -397,13 +397,18 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
         row.insert("idle_compaction".into(), json!(session.idle_compaction.map(i32::from)));
     }
     if !matches!(row["status"].as_str(), Some("running" | "stale")) {
-        if path.strip_prefix(&root.projects).is_ok_and(|rest| rest.to_string_lossy().starts_with("-tmp-")) {
+        if path.strip_prefix(&root.projects).is_ok_and(|rest| scratch_probe(&row, rest)) {
             row.insert("role".into(), json!("probe"));
         } else if row["brief"].as_str().is_some_and(|brief| brief.starts_with("[routine:")) {
             row.insert("role".into(), json!("routine"));
         }
     }
     Some(row)
+}
+
+fn scratch_probe(row: &Map<String, Value>, project: &Path) -> bool {
+    let landed = row.get("landed") == Some(&json!(1)) || row.get("landed_sha").and_then(Value::as_str).is_some_and(|sha| !sha.is_empty());
+    project.to_string_lossy().starts_with("-tmp-") && !landed
 }
 
 fn worker_tier(policy: Option<&DocumentMut>, metadata: Option<&Value>, usage: &Map<String, Value>) -> Option<String> {

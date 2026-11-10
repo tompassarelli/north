@@ -251,3 +251,11 @@ shared-mutability tests/x.rs:9 RefCell in non-test code";
     let shown: Vec<(&str, &str)> = rows.iter().map(|row| (row["verdict"].as_str().unwrap(), row["rule"].as_str().unwrap())).collect();
     assert_eq!(shown, [("rewrite", "ambient-test-input"), ("advisory", "ambient-test-input"), ("advisory", "shared-mutability"), ("advisory", "code-health")]);
 }
+
+#[test]
+fn a_run_in_a_scratch_directory_that_landed_a_commit_is_stored_as_work_not_a_probe_north_1103() {
+    let project = std::path::Path::new("-tmp-north-verify-north-1794324732-lane/0f1e.jsonl");
+    let landed = serde_json::Map::from_iter([("landed".to_owned(), json!(1)), ("landed_sha".to_owned(), json!("72f618c352e39e967c72e473ddb57b5db9f9e803"))]);
+    assert!(!super::scratch_probe(&landed, project), "on 2026-11-10 verify-north's worker landed 72f618c352 from a scratch lane, was stored as a probe, and the settle left it not done");
+    assert!(super::scratch_probe(&serde_json::Map::from_iter([("landed".to_owned(), json!(0))]), project));
+}
