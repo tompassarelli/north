@@ -100,7 +100,8 @@ fixes in each machine's code from history.
    naming the verb, and `north health` reports one finding per refused verb, not one per file (north#957). A write the
    host withheld (a verb off its allowlist, or an exit 126 or 127) is asked again by sending its verb's oldest write an
    hour after that verb's last refusal, and once a write of the verb is delivered every withheld one goes back to
-   `queued` (north#872). The mirrored-client mode itself stays a file (north#757). Shapes: presence-flag.
+   `queued` (north#872). The mirrored-client mode itself stays a file (north#757). Shapes: presence-flag. See the
+   [threads-spool chart](state-machines/threads-spool.md).
 8. **Gates** (84: 28 x 3). Open means `closed_ms IS NULL` in each host's `ledger.db`
    (`crates/north-providers/src/ledger/gates.rs:35-55`); other hosts see a deleted-and-reinserted `fleet_gates`
    snapshot (`crates/north-fleet/src/fleet/store/gates.rs:31`); the answer is delivered after the close with no retry;
@@ -369,8 +370,8 @@ formal-verification skills, TLA+, stateright and Kani, and the measured results,
   accepted during the search, and the check fails on a page that differs or that no machine owns. Besides the charts
   linked from the inventory, the [check-environment chart](state-machines/check-environment.md) is of a machine the
   inventory does not list (`crates/north-check-environment/src/lib.rs`).
-- **Not modelled yet.** `runtime-promotion`, `runtime-canary`, `runtime-landing-judgement`, `threads-spool` and
-  `offload-offer` are registered with no model, because their types are private to their crates.
+- **Not modelled yet.** `runtime-landing-judgement` and `offload-offer` are registered with no model, because their
+  types are private to their crates.
 - **Reviews.** The machine-fix detector files "Model NAME" for an unmodelled machine whose code an incident fix
   changed and "Extend the NAME model to the fixes its check let through" for a modelled one, counting fixes newer
   than its chart. The machine-refusal detector files "Settle NAME's refused move to STATE" when a host's lifecycle

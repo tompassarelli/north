@@ -13,7 +13,7 @@ use crate::foundation::clock::Timestamp;
 use crate::foundation::exit::{TIMED_OUT_STATUS, TRANSPORT_FAILED_STATUS};
 
 mod process;
-mod spool;
+pub mod spool;
 pub use process::shell_quote;
 use process::{Input, agent_event_checks, code_of, detach, execute, execute_capturing_stderr, has_usage, python_json};
 

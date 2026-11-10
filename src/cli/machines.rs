@@ -171,7 +171,17 @@ const MACHINES: &[Machine] = &[
         }),
     },
     Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, guard: &[], code: &[], explore: None },
-    Machine { name: "threads-spool", kind: "SpooledWrite", source: "crates/north-threads/src/threads/client/spool.rs", guard: &[], code: &["crates/north-threads/src/threads/client"], explore: None },
+    Machine {
+        name: "threads-spool",
+        kind: "SpooledWrite",
+        source: "crates/north-threads/src/threads/client/spool.rs",
+        guard: &[],
+        code: &["crates/north-threads/src/threads/client"],
+        explore: Some(|| {
+            use north_threads::threads::client::spool::{Phase, SpooledWrite};
+            explore::<SpooledWrite>(&Promises { ends: &[Phase::Sent], repeats: &[] })
+        }),
+    },
     Machine { name: "offload-offer", kind: "OffloadOffer", source: "crates/north-capacity-host/src/capacity/host/offer_lifecycle.rs", guard: &[], code: &[], explore: None },
 ];
 

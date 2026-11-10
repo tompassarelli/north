@@ -23,7 +23,7 @@ const COMMAND_NOT_FOUND_STATUS: i32 = 127;
 
 /// Where a write spooled on a mirrored client stands on its way to the ledger host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Phase {
+pub enum Phase {
     Queued,
     Sending,
     Sent,
@@ -44,7 +44,7 @@ impl State for Phase {
 }
 
 /// One spooled write, named by its file in the spool directory.
-pub(super) struct SpooledWrite;
+pub struct SpooledWrite;
 
 struct Sent {
     code: i32,
