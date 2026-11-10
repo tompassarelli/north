@@ -115,7 +115,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         [] => tui::fleet::run(fleet, crate::cli::dash::for_fleet, crate::cli::glance::lines),
-        [verb @ ("list" | "stranded" | "rebooted" | "reports"), rest @ ..] => list::list(&fleet, verb, rest),
+        [verb @ ("list" | "stranded" | "rebooted" | "reports" | "held"), rest @ ..] => list::list(&fleet, verb, rest),
         ["tree"] => tree::tree(&fleet),
         ["spend", rest @ ..] => spend::run(&fleet, rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
