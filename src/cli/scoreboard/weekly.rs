@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use north_graph_loops::scoreboard::{self, Reading, Told};
 use time::OffsetDateTime;
 
-use super::{Better, Measure, Sources, WEEK_S, measure, state_root};
+use super::{Better, Measure, Sources, WEEK_S, Weekly, measure, state_root};
 use crate::foundation::clock::Timestamp;
 
 const SCORE: &str = "north/scoreboard/week.txt";
@@ -119,12 +119,12 @@ fn write(relative: &str, text: &str) -> Result<(), String> {
     fs::create_dir_all(parent).and_then(|()| fs::write(&path, text)).map_err(|why| format!("{}: {why}", path.display()))
 }
 
-pub fn record(sources: &Sources, now: i64) -> Result<(Record, Vec<Measure>), String> {
-    let measures = measure(sources, now)?;
-    let record = Record::of(&measures, now);
+pub fn record(sources: &Sources, now: i64) -> Result<(Record, Weekly), String> {
+    let report = measure(sources, now)?;
+    let record = Record::of(&report.measures, now);
     scoreboard::tell(&north_graph_loops::graph_path(), &record.readings(), now)?;
     write(SCORE, &format!("{}\n", record.score()))?;
-    Ok((record, measures))
+    Ok((record, report))
 }
 
 fn stored() -> Result<Option<Record>, String> {

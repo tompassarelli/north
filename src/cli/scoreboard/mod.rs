@@ -75,6 +75,13 @@ pub struct Measure {
     pub weeks: [Figure; 2],
 }
 
+/// One week's report: the measures, and the model spend the money line sets beside the infra total.
+pub(super) struct Weekly {
+    pub measures: Vec<Measure>,
+    /// API-equivalent model spend, this week then the week before.
+    pub spend: [f64; 2],
+}
+
 pub(super) fn duration(seconds: f64) -> String {
     match seconds {
         value if value < 120.0 => format!("{value:.0} s"),
@@ -130,12 +137,24 @@ impl Figure {
     }
 }
 
-pub fn render(measures: &[Measure], now: i64) -> String {
+/// The live infra total the money line prints, from `north infra`'s read model; a read with no priced
+/// resource says why instead of printing an empty amount.
+fn infra_total() -> Result<String, String> {
+    let infra = crate::cli::views::infra::read()?;
+    if !infra.report.totals.is_empty() {
+        return Ok(infra.report.total_line());
+    }
+    Err(infra.unread.into_iter().next().unwrap_or_else(|| "no priced resource".to_owned()))
+}
+
+pub(super) fn render(report: &Weekly, infra: Result<String, String>, now: i64) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "north dash --weekly: last 7 days | the 7 days before, ending {} today", Timestamp::from_unix_seconds(now).local_twelve_hour());
-    for (index, measure) in measures.iter().enumerate() {
+    let infra = infra.map_or_else(|why| format!("infra unread: {why}"), |total| format!("infra {total} a month"));
+    let _ = writeln!(out, "money: model spend ${:.2} this week, ${:.2} the week before | {infra}", report.spend[0], report.spend[1]);
+    for (index, measure) in report.measures.iter().enumerate() {
         let _ = writeln!(out, "- {}: {} | {}", measure.name, measure.weeks[0].text(), measure.weeks[1].text());
-        if measures.get(index + 1).is_none_or(|next| next.source != measure.source) {
+        if report.measures.get(index + 1).is_none_or(|next| next.source != measure.source) {
             let _ = writeln!(out, "  from {}", measure.source);
         }
     }
@@ -167,7 +186,7 @@ pub(super) fn open(path: &Path) -> Result<Connection, String> {
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|why| format!("{}: {why}", path.display()))
 }
 
-fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
+fn measure(sources: &Sources, now: i64) -> Result<Weekly, String> {
     let weeks = Window::weeks(now);
     let threads = open(&sources.threads)?;
     let failed = |why: rusqlite::Error| format!("{}: {why}", sources.threads.display());
@@ -179,9 +198,11 @@ fn measure(sources: &Sources, now: i64) -> Result<Vec<Measure>, String> {
     measures.push(landing::rework(&threads, &sources.places.rework, weeks, now)?);
     measures.extend(workers::first_try(&threads, weeks).map_err(failed)?);
     measures.push(tom.recommendations(weeks));
-    measures.extend(work::per_verified(&outcome::read::read_weeks(&sources.places, tom.typed(), now)?));
+    let outcome = outcome::read::read_weeks(&sources.places, tom.typed(), now)?;
+    let spend = std::array::from_fn(|week| outcome.get(week).map_or(0.0, |week| week.total.usd));
+    measures.extend(work::per_verified(&outcome));
     measures.extend(product::product_share(&threads, weeks).map_err(|why| format!("{}: {why}", sources.threads.display()))?);
-    Ok(measures)
+    Ok(Weekly { measures, spend })
 }
 
 fn harness_lanes(sources: &Sources, now: i64) -> String {
@@ -257,10 +278,10 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let now = Timestamp::now().unix_seconds();
     let sources = Sources::live();
-    let measured = if recording { weekly::record(&sources, now).map(|(record, measures)| (measures, Some(record))) } else { measure(&sources, now).map(|measures| (measures, None)) };
+    let measured = if recording { weekly::record(&sources, now).map(|(record, report)| (report, Some(record))) } else { measure(&sources, now).map(|report| (report, None)) };
     match measured {
-        Ok((measures, record)) => {
-            print!("{}", render(&measures, now));
+        Ok((report, record)) => {
+            print!("{}", render(&report, infra_total(), now));
             if record.is_none() {
                 print!("{}", harness_lanes(&sources, now));
             }
