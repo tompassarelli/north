@@ -45,7 +45,7 @@ fn stalled_text(repo: &str, reading: &Reading) -> String {
 }
 
 fn body(text: &str, repo: &str) -> String {
-    format!("{text}\n\n## Done when\n- [ ] (headless run) `north ledger flow --repo {repo}` shows origin/main moving through the lander again; this issue then closes itself.\n")
+    format!("{text}\n\n## Done when\n- [ ] (headless run) origin/main moves through the lander again. Done when: judged by the lander alarm `north ledger flow --repo {repo}` raises, which closes this issue once it reads the lander moving.\n")
 }
 
 /// The steps due this run: a new stall tells and files, an unfinished stall retries what failed,

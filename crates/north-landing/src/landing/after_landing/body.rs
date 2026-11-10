@@ -4,6 +4,7 @@ const FIELDS: &str = "Category: bug-known-cause\nClass: a gate that runs after l
 const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
 const DROPPED: &str = "Older sections dropped: ";
 const DONE_WHEN: &str = "\n## Done when\n- [ ] No section remains below: each failed gate is fixed forward on main and its section deleted.";
+const CHECK: &str = " Done when: `gh issue list --state open --search 'in:title \"After-landing gate debt\"' --json body -q '.[].body' | rg -qF '<!-- after-landing-gate: '; test $? -eq 1` exits 0.";
 const SPLIT_ONLY_GATE: &str = "crate-lines";
 
 fn is_box(line: &str) -> bool {
@@ -74,6 +75,7 @@ pub(super) fn render(dropped: usize, kept: &str, sections: &[String]) -> String 
         body.push_str(&format!("{DROPPED}{dropped}.\n"));
     }
     body.push_str(DONE_WHEN);
+    body.push_str(CHECK);
     if let Some(boxes) = waits_on_boxes(kept, sections) {
         body.push_str(&format!(" Waits on {boxes}."));
     }

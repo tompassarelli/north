@@ -78,7 +78,7 @@ fn added_lines_on(main: &Path, base: &str, fork: &str, tip: &str) -> Result<bool
 
 pub(super) fn box_line(branch: &str, tip: &str, age_h: i64) -> String {
     format!(
-        "- [ ] Unlanded origin branch `{branch}` ({}, {age_h} h old) is on main by no commit: land it through safe-push, rebuild it, or delete it with `safe-push abandon --superseded {branch} --by COMMIT` naming the commit on main that supersedes it. (lane gc --remote)",
+        "- [ ] Unlanded origin branch `{branch}` ({}, {age_h} h old) is on main by no commit: land it through safe-push, rebuild it, or delete it with `safe-push abandon --superseded {branch} --by COMMIT` naming the commit on main that supersedes it. Done when: `git ls-remote --exit-code origin refs/heads/{branch}; test $? -eq 2` exits 0. (lane gc --remote)",
         &tip[..tip.len().min(12)]
     )
 }

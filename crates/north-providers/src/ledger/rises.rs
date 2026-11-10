@@ -47,7 +47,7 @@ pub fn issue_body(rises: &[Rise]) -> Option<String> {
     Some(format!(
         "Spec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
          `north tune` keeps this issue while any staffed cell's median cost of a closed box sits more than {:.0}% above the week before (each week holding at least {RISE_MIN_BOXES} closed boxes), and closes it on the first tick no cell has.\n\n\
-         ## Done when\n- [ ] (headless run) Each rise below is traced to its runs in `north dash --since 7d`, and either a fix lands or `north tune` shows the cell back within 25% of the week before.\n\n{sections}",
+         ## Done when\n- [ ] (headless run) Each rise below is traced to its runs in `north dash --since 7d`, and either a fix lands or `north tune` shows the cell back within 25% of the week before. Done when: judged by `north tune`, which closes this issue on the first tick no staffed cell rises.\n\n{sections}",
         RISE * 100.0,
     ))
 }

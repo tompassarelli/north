@@ -72,7 +72,12 @@ impl Finding {
     }
 
     pub fn box_line(&self) -> String {
-        format!("- [ ] **{}.** {} Done when: {} (detector {})", self.title, self.detail, self.done_when, self.key)
+        let done_when = if self.done_when.starts_with('`') {
+            self.done_when.clone()
+        } else {
+            format!("`north ledger flow detect --dry-run | rg -qF ' {}: '; test $? -eq 1` exits 0, once {}", self.key, self.done_when)
+        };
+        format!("- [ ] **{}.** {} Done when: {done_when} (detector {})", self.title, self.detail, self.key)
     }
 }
 

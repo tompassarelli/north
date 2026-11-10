@@ -3,9 +3,9 @@ use std::sync::LazyLock;
 
 pub const HEADING: &str = "**Clean-up before closing**";
 pub const BOXES: [&str; 3] = [
-    "- [ ] Clean-up: development tests turned down. Every test written while building this that pins no guarantee a person would notice is deleted. Each kept test names its guarantee and why it stays: the bug it reproduces, or the contract it pins.",
-    "- [ ] Clean-up: scaffolding removed. Debug output, temporary scripts, flags, fixtures, records and shims this change no longer needs are deleted.",
-    "- [ ] Clean-up: nothing left for later. No TODOs, follow-up notes or half-removed old paths remain, and the docs describe what shipped.",
+    "- [ ] Clean-up: development tests turned down. Every test written while building this that pins no guarantee a person would notice is deleted. Each kept test names its guarantee and why it stays: the bug it reproduces, or the contract it pins. Done when: judged by the landing reviewer, reading which tests the lane adds and what each pins.",
+    "- [ ] Clean-up: scaffolding removed. Debug output, temporary scripts, flags, fixtures, records and shims this change no longer needs are deleted. Done when: judged by the landing reviewer, reading the lane's diff for debug output, temporary scripts, flags, fixtures and shims.",
+    "- [ ] Clean-up: nothing left for later. No TODOs, follow-up notes or half-removed old paths remain, and the docs describe what shipped. Done when: judged by the landing reviewer, reading the lane's diff for TODOs and half-removed paths and the docs against what shipped.",
 ];
 const REPOSITORIES: [&str; 3] = ["tompassarelli/north", "tompassarelli/makgora", "tompassarelli/wisp"];
 /// Labels on issues a workflow opens, rewrites and closes itself, so no person boxes or cleans them.

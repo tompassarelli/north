@@ -39,7 +39,7 @@ pub fn due(facts: &Facts) -> Vec<Finding> {
                     reading.since,
                     reading.reasons.join("; ")
                 ),
-                done_when: format!("the review slices have landed on {repo} main and `north code-health review-done --repo {checkout} --rev origin/main` has recorded the marker, so `north code-health signal --repo {checkout} --rev origin/main` prints quiet."),
+                done_when: format!("`north code-health signal --repo {checkout} --rev origin/main | rg -qx quiet` exits 0, once the review slices have landed on {repo} main and `north code-health review-done --repo {checkout} --rev origin/main` has recorded the marker."),
                 instances: reading.reasons.clone(),
             }
         })
