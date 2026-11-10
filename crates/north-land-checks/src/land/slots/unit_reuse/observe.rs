@@ -7,6 +7,7 @@ use north_base::platform::process::child_within;
 use north_base::verdict_cache::fingerprint::{self, Artifacts, Tree, Weak};
 use north_base::verdict_cache::path_set::{self, Entry};
 use north_base::verdict_cache::{Pass, Store, set_id};
+use north_base::foundation::carry::{self, Boundary};
 
 use super::lines::Record;
 use super::outcome::{Outcome, parse};
@@ -72,6 +73,14 @@ fn metadata(root: &Path) -> Option<String> {
     status.success().then(|| reader.join().ok().flatten()).flatten()
 }
 
+const WHO_ASKED: [&str; 2] = ["NORTH_FLEET_SESSION", "NORTH_FLEET_SCOPE"];
+
+pub fn checked_environment(variables: impl IntoIterator<Item = (String, String)>, roots: &[(&Path, &str)]) -> Vec<(String, String)> {
+    let carried: Vec<&str> = carry::names(Boundary::Sandbox).collect();
+    let given = variables.into_iter().filter(|(name, value)| !value.is_empty() && carried.contains(&name.as_str()));
+    fingerprint::normalized(given.map(|(name, value)| if WHO_ASKED.contains(&name.as_str()) { (name, "set".to_owned()) } else { (name, value) }), roots)
+}
+
 fn hostname() -> String {
     fs::read_to_string("/proc/sys/kernel/hostname").map(|name| name.trim().replace(char::is_whitespace, "-")).ok().filter(|name| !name.is_empty()).unwrap_or_else(|| "unknown".to_owned())
 }
@@ -125,7 +134,7 @@ fn shadow(options: &Options, root: &Path, inside: Option<&Path>, text: &str, rec
     let packages = metadata(root);
     let mut artifacts = Artifacts::open(root, inside, &target, packages.as_deref());
     let rustc = rustc_identity(&target);
-    let environment = fingerprint::normalized(std::env::vars(), &[(&target, "<target>"), (root, "<tree>")]);
+    let environment = checked_environment(std::env::vars(), &[(&target, "<target>"), (root, "<tree>")]);
     let line = fingerprint::without_selection(&options.command);
     let store = Store::here();
     let mut found = Vec::new();

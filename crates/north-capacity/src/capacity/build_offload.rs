@@ -1,7 +1,7 @@
 //! Whether a heavy build this host would defer runs on another host instead, and which one.
 
 pub const REASON: &str = "OFFLOAD";
-pub const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
+pub use north_base::foundation::carry::REMOTE_MARK;
 pub const PROBE_LIMIT_SECONDS: u64 = 5;
 pub const UNREACHABLE_RETRY_FACTOR: f64 = 20.0;
 

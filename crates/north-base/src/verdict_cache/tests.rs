@@ -138,7 +138,7 @@ fn north_reads_none_of_the_variables_its_check_keys_ignore() {
         "crates/north-base/src/verdict_cache/key.rs",
         "crates/north-land-checks/src/land/slots/affected.rs",
         "crates/north-land-checks/src/land/slots/it_modules.rs",
-        "crates/north-capacity/src/capacity/carry.rs",
+        "crates/north-base/src/foundation/carry.rs",
         "crates/north-capacity-host/src/capacity/host/mod.rs",
         "crates/north-runtime/src/land_offload/ship/script.rs",
     ];

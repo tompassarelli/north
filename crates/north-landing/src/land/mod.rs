@@ -31,3 +31,6 @@ pub mod repositories;
 pub mod reservation;
 pub mod setting;
 
+#[cfg(test)]
+mod reuse_shadow_tests;
+

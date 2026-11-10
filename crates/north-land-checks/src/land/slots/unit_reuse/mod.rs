@@ -2,6 +2,7 @@ mod execute;
 pub mod harvest;
 pub mod lines;
 mod observe;
+pub use observe::checked_environment;
 pub mod outcome;
 mod recorder;
 

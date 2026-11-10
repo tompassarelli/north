@@ -361,8 +361,10 @@ The nextest land line (a check line that runs `cargo nextest run`, not `--no-run
   recording run, so a host holds the lander's records and the lander holds the host's.
 - **Weak** is the sha256 of the unit id (`BINARY_ID TEST`), the check line with every `${SAFE_PUSH_LAND_PACKAGES|CHANGED|IT|CPUS|SELECT_PATHS...}`
   expansion removed, the blob ids of `rust-toolchain.toml`, `flake.lock`, `Cargo.lock` and `.cargo/config.toml`, `rustc -vV` from cargo's
-  `target/.rustc_info.json`, and the job's environment with the tree and target directory paths replaced by
-  labels and the names in `fingerprint::IGNORED` removed, each with its reason.
+  `target/.rustc_info.json`, and the environment the check's sandbox is given: only the variables `north capacity carry --list --into sandbox`
+  names with a non-empty value (depbox clears the rest, so a login session id, a systemd invocation id or an ssh address never reaches a test; a fleet session name is keyed only as set or unset, because code under test branches on its presence), with the tree and
+  target directory paths replaced by labels and the names in `fingerprint::IGNORED` removed, each with its reason. Hashing the observer's
+  whole environment made every landing's key differ from every earlier recording's, so the shadow found no set to reuse (north#902).
 - **Strong** answers each entry on the tree under check: a content or exec entry by `git ls-tree -r` mode and blob id, an absent entry by
   presence, a listing by the sorted names and modes of the directory, and a `target/` artifact by its build identity (the hash in
   its file name), its dep-info's sources and `# env-dep:` values and the same for every path crate it links. `cargo metadata`
