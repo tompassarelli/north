@@ -225,21 +225,31 @@ fn a_lane_whose_alone_pass_is_six_landings_old_lands_in_the_same_batch_as_a_fres
     assert_eq!(calls(&calls_file), 0, "an aged alone pass held its lane for a serial alone check: {journal}");
 }
 
-#[test]
-fn a_lane_whose_alone_check_reaches_no_verdict_twice_steps_aside_while_a_lane_with_a_pass_lands_beside_it() {
+fn no_verdict_lane_steps_aside_beside_two_landed(checker_output: &str) {
     let world = World::new();
     let north = world.repository("north");
     let path = world.path().join("bin/checker");
-    north_base::foundation::shim::write_executable(&path, "#!/bin/sh\npwd >> \"$0.calls\"\necho 'the private-text judge did not finish' >&2\nexit 75\n");
+    north_base::foundation::shim::write_executable(&path, format!("#!/bin/sh\npwd >> \"$0.calls\"\necho \"{checker_output}\" >&2\nexit 75\n"));
     north.lane("unsettled");
     let ticket = fs::read_dir(&north.queue).unwrap().flatten().map(|entry| entry.path()).find(|path| path.is_file() && queue::read(path).is_ok_and(|ticket| ticket.branch == "unsettled")).unwrap();
     queue::write(&ticket, &queue::Ticket { alone_green: None, alone_base: None, ..queue::read(&ticket).unwrap() }).unwrap();
     north.lane("passed");
+    north.lane("also-passed");
     let first = report(&world.lander(&north, None).wait_with_output().unwrap());
-    assert!(verdict(&north, "passed").starts_with("landed "), "{first}");
+    assert!(verdict(&north, "passed").starts_with("landed ") && verdict(&north, "also-passed").starts_with("landed "), "{first}");
     assert!(first.contains("it is checked once more next round"), "{first}");
     let journal = serve(&world, &north);
     let unsettled = verdict(&north, "unsettled");
     assert!(unsettled.starts_with("failed ") && unsettled.contains("reached no verdict twice"), "a lane whose alone check never settles held the queue: {unsettled}\n{journal}");
     assert_eq!(calls(&world.path().join("bin/checker.calls")), 2, "{journal}");
+}
+
+#[test]
+fn a_lane_whose_alone_check_reaches_no_verdict_twice_steps_aside_while_lanes_with_a_pass_land_beside_it() {
+    no_verdict_lane_steps_aside_beside_two_landed("the private-text judge did not finish");
+}
+
+#[test]
+fn a_lane_whose_solo_check_reaches_no_verdict_never_holds_the_round() {
+    no_verdict_lane_steps_aside_beside_two_landed("safe-push: verdict transient main's check environment is broken: the base fails");
 }

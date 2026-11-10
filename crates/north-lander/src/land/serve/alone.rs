@@ -28,10 +28,6 @@ pub(super) fn check(lander: &Lander, (path, ticket): (&PathBuf, &Ticket), head: 
             records::write(lander, path, ticket, &Candidate { head, batch_size: 1, stages: &Stages::empty() }, &Decision::Refused { verdict: &verdict });
             bisect::decide(path, ticket, verdict, Some(&log), base)?;
         }
-        Verdict::BrokenBase(detail) => {
-            println!("north land: the alone check of {} reached no verdict (broken-base {detail}); it is checked again next round", ticket.branch);
-            return Ok(false);
-        }
         other if ticket.alone_unsettled.as_deref() == Some(ticket.head.as_str()) => {
             let (class, detail) = other.class();
             let verdict = format!("failed {}: its alone check reached no verdict twice ({class} {detail}), so it steps aside instead of holding the queue", log.display());
