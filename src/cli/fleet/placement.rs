@@ -140,14 +140,6 @@ impl From<Refusal> for NorthError {
     }
 }
 
-/// Whether the spend rule, its tripwire included, admits one more session on the request's own account: what a tick's hand-over checks before it starts a session elsewhere.
-pub(super) fn spend_admits(fleet: &Fleet, request: &LaunchRequest) -> NorthResult<()> {
-    let starter = if request.role == Some(Role::Proxy) { Starter::Reserved } else { Starter::Worker };
-    let (view, rules) = crate::dispatch::spend_now(&fleet.roster()).map_err(|why| NorthError::Saturated(format!("spend view unread: {why}")))?;
-    let account = format!("{}:{}", request.provider.label(), request.account);
-    view.admit(&rules, &account, starter, spend::Placed::default()).map_err(|refusal| NorthError::Saturated(refusal.to_string()))
-}
-
 /// Placement gates every Claude launch except `--test` sessions, before anything starts, on the brief and the `needs` the item it names carries; a
 /// harness launch (DeepSeek on opencode) is gated on its host's saturation alone. `report`
 /// prints its verdict lines. A refusal is a loss row written here, by the gate that saw it, since a launch that never
