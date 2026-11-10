@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::land::trace::profile::percentile;
+
 pub const FILE: &str = "propagation.jsonl";
 pub const FIRN_CLOSURE: &str = "firn closure";
 pub const TOTAL: &str = "total";
@@ -27,6 +29,11 @@ pub fn read(records: &Path) -> Vec<Row> {
 }
 
 /// Whole landing-to-live seconds of each landing inside the window, from every host's total row.
-pub fn totals(rows: &[Row], artifact: &str, start: i64, end: i64) -> Vec<f64> {
+fn totals(rows: &[Row], artifact: &str, start: i64, end: i64) -> Vec<f64> {
     rows.iter().filter(|row| row.artifact == artifact && row.stage == TOTAL && row.landed >= start && row.landed < end).map(|row| row.seconds).collect()
+}
+
+pub fn firn_closure_p90(rows: &[Row], start: i64, end: i64) -> Option<(f64, usize)> {
+    let seconds = totals(rows, FIRN_CLOSURE, start, end);
+    (!seconds.is_empty()).then(|| (percentile(&seconds, 0.9), seconds.len()))
 }

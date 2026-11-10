@@ -362,10 +362,7 @@ impl Records {
             Bar::VerificationP50 => spread(&self.verification, 0.5),
             Bar::VerificationP90 => spread(&self.verification, 0.9),
             Bar::RuntimeBreaks | Bar::RuntimeRollback | Bar::RuntimeLive => self.runtime(bar, window),
-            Bar::FirnClosureLive => {
-                let seconds = propagation::totals(&self.propagation, propagation::FIRN_CLOSURE, window.start, window.end);
-                (!seconds.is_empty()).then(|| Reading { value: percentile(&seconds, 0.9), sample: seconds.len() })
-            }
+            Bar::FirnClosureLive => propagation::firn_closure_p90(&self.propagation, window.start, window.end).map(Reading::from),
             Bar::Rework => {
                 let held: Vec<&landing::Judged> = self.reworked.iter().filter(|landing| window.holds(landing.at) && landing.repos.contains(repo)).collect();
                 share(held.iter().filter(|landing| landing.reworked).count(), held.len(), 100.0)
