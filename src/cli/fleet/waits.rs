@@ -136,6 +136,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.scoreboard", own: None, run: Box::new(|_| said(crate::cli::scoreboard::tick(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.settle.corrections", own: None, run: Box::new(|_| said(recurred_corrections(i64::try_from(now_ms() / 1000).unwrap_or_default()))) },
             ProbeJob { name: "probes.records_mirror", own: None, run: Box::new(|_| said(crate::runtime::mirror::publish())) },
+            ProbeJob { name: "probes.checkouts", own: None, run: Box::new(|_| said(crate::runtime::checkouts::publish())) },
         ];
         match self {
             Self::Fleet => registry.into_iter().chain(fleet_wide).collect(),

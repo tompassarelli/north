@@ -1,6 +1,7 @@
 mod bounded;
 mod cargo_build;
 mod canary;
+pub mod checkouts;
 mod deploy;
 mod entry_links;
 mod failure;
@@ -29,7 +30,7 @@ pub(crate) use update::collect;
 use crate::land_offload;
 use std::path::Path;
 
-const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
+const USAGE: &str = "usage: north runtime update [--sha SHA] | north runtime settle | north runtime status | north runtime deploy [HOST...] | north runtime rollback --from SHA | north runtime health | north runtime promote | north runtime mirror | north runtime checkouts | north runtime follow --repo-dir DIR | north runtime agents|claude|pi|opencode [VERSION] | north runtime probe launch claude|opencode|pi | north runtime probe launch PROVIDER  one `--test` worker of PROVIDER (claude, opencode or pi) is asked for the heading of the shared policy it was given and answers it, then is forgotten; exit 0 when it answered; the canary runs it on each host
 covers [--head REV] [--code PATH,...]
 
 update [--sha SHA]     bring this host's current runtime to the pinned runtime (or SHA): on the host that settles the fleet, origin/main is promoted at most 6 times a day, 4 h apart, or at once when the commits since the pin carry a Main-red: trailer; every other host runs only what the settling host ships it after the runtime walked the spine there; pull it from a peer, reuse the live binaries when no Rust build input changed, else build it under a runtime capacity lease; swap back when health fails; an agents sync failure keeps the code, alerts the proxy and retries each tick
@@ -41,6 +42,7 @@ rollback --from SHA    relink current to the previous runtime and hold SHA back 
 promote                after a landing: wait for any running update, bring this host to the pinned runtime in one pass; on the host that settles the fleet, run the core-loop probes on it here and ship it to every declared host only when it passed them; when this host runs the lander, also run north land promote against the new current so the lander link follows it, or log the named reason it is held
 follow --repo-dir DIR  after a landing: start promote in the background when DIR's origin is north
 mirror                 on the host that settles the fleet: copy its lander and runtime records into north/records-mirror on every host it ships runtimes to, as each fleet tick does in the background
+checkouts              on the host that settles the fleet: ask every host it ships runtimes to fast-forward its ~/code/<project>/main checkouts onto origin/main (south, then north, nixos-config, wisp and makgora), naming each move and each checkout a host could not move, as each fleet tick does in the background
 agents [VERSION]       update this host's north runtime, then the Claude, Pi and OpenCode runtimes, as the twice-daily timer does
 claude|pi|opencode [VERSION]   install a checksum-verified Claude, Pi or OpenCode runtime and select it
 covers [--head REV] [--code PATH,...]
@@ -110,6 +112,7 @@ fn dispatch(layout: &layout::Layout, arguments: &[String]) -> Option<Result<(), 
         }
         (command, []) if command == "promote" => Some(follow::promote_detached(layout)),
         (command, []) if command == "mirror" => Some(mirror::run()),
+        (command, []) if command == "checkouts" => Some(checkouts::run()),
         (command, flags) if command == "covers" => covers(layout, flags),
         (command, [verb, provider]) if command == "probe" && verb == "launch" => Some(canary::launch_probe(provider)),
         (command, [flag, repo]) if command == "follow" && flag == "--repo-dir" => Some(follow::follow(layout, Path::new(repo))),
