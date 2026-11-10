@@ -304,7 +304,10 @@ footguns plan and the nix-development skill's regrounding.
   https://nix.dev/manual/nix/latest/release-notes/.
 - <a id="nixos-2605"></a>**NixOS 26.05 announcement**, https://nixos.org/blog/announcements/2026/nixos-2605/.
 - <a id="nixos-release-notes"></a>**NixOS release notes (26.05, 25.11)**,
-  https://nixos.org/manual/nixos/stable/release-notes.
+  https://nixos.org/manual/nixos/stable/release-notes. Followed at `nixos/doc/manual/release-notes` in
+  https://github.com/NixOS/nixpkgs (MIT), monthly. Informed: the 2026-11-10 review
+  [rationale/watch/2026-11-10-nixos-release-notes.md](rationale/watch/2026-11-10-nixos-release-notes.md), which made
+  watch-review count content commits and let a source come due monthly.
 - <a id="nix-experimental-features"></a>**Nix experimental features**,
   https://nix.dev/manual/nix/latest/development/experimental-features.
 - <a id="nix-cli-stabilization"></a>**NixOS/nix#7701, CLI stabilization effort**,

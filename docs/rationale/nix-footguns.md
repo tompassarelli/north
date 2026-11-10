@@ -419,10 +419,12 @@ No new checker: staleness rides on the two that exist.
   `https://github.com/NixOS/nixpkgs`, path `nixos/doc/manual/release-notes`, MIT). A watch cycle that finds a change
   touching a card's subcommands records it in `docs/rationale/watch/` like any other source.
 - Trigger (a box on north#112, not this plan). `north skill-review-queue`
-  (`crates/north-runtime/src/timers/skill_review.rs`, weekly on nexus) already flags a skill more than 30 days past
-  `grounded:`; it also flags a stamped file when `nix --version` on a host moves major.minor past `nix-version:`, when
-  the flake.lock it names moves past `nixpkgs-lock:`, or when watch-review records a change to a Nix source after
-  `grounded:`, and files the regrounding box the queue already files.
+  (`crates/north-runtime/src/timers/skill_review.rs`, weekly on nexus) flags a skill under `harness/skills` past its
+  `cadence:` (nix-development 14 days) or when `nix --version` on a host moves major.minor past `nix-version:`. The
+  lock leg (a flake.lock moving past `nixpkgs-lock:`) and the watch leg (a cycle on a Nix source) were never built,
+  and the first nixos-release-notes cycle left them unbuilt: the stamped files teach no NixOS option, the watch leg
+  would flag them on every cycle, and a lock move is caught within the 14-day cadence
+  ([watch/2026-11-10-nixos-release-notes.md](watch/2026-11-10-nixos-release-notes.md)).
 
 ## Current practice
 

@@ -36,12 +36,7 @@ impl World for System {
             git(&clone, &["update-ref", "refs/watch/head", "HEAD"])?;
         }
         git(&clone, &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", source.last_commit)]).map_err(|_| format!("{} not found", source.last_commit))?;
-        let range = format!("{}..refs/watch/head", source.last_commit);
-        let mut args = vec!["rev-list", "--count", range.as_str()];
-        if !source.path.is_empty() {
-            args.extend(["--", source.path.as_str()]);
-        }
-        let count = git(&clone, &args)?.parse().map_err(|_| "rev-list gave no count".to_owned())?;
+        let count = content_commits(&clone, &source.last_commit, &source.path)?;
         Ok(Moved { count, head: git(&clone, &["rev-parse", "--short", "refs/watch/head"])? })
     }
 
@@ -67,5 +62,41 @@ impl World for System {
 
     fn tell_proxy(&self, text: &str) -> Result<(), String> {
         self.fleet.tell_proxy(text)
+    }
+}
+
+fn content_commits(clone: &Path, last_commit: &str, path: &str) -> Result<usize, String> {
+    let range = format!("{last_commit}..refs/watch/head");
+    let mut args = vec!["rev-list", "--count", "--no-merges", range.as_str()];
+    if !path.is_empty() {
+        args.extend(["--", path]);
+    }
+    git(clone, &args)?.parse().map_err(|_| "rev-list gave no count".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_merge_carrying_two_branches_changes_across_counts_as_no_new_commit() {
+        let repo = tempfile::tempdir().unwrap();
+        let dir = repo.path();
+        let commit = |file: &str, text: &str| {
+            fs::write(dir.join(file), text).unwrap();
+            git(dir, &["add", file]).unwrap();
+            git(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", text]).unwrap();
+        };
+        git(dir, &["init", "-q", "-b", "main"]).unwrap();
+        commit("notes.md", "base\n");
+        let base = git(dir, &["rev-parse", "HEAD"]).unwrap();
+        git(dir, &["checkout", "-q", "-b", "staging"]).unwrap();
+        commit("notes.md", "base\nstaging\n");
+        git(dir, &["checkout", "-q", "main"]).unwrap();
+        commit("other.md", "main\n");
+        commit("notes.md", "main\nbase\n");
+        git(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "merge", "-q", "--no-edit", "staging"]).unwrap();
+        git(dir, &["update-ref", "refs/watch/head", "HEAD"]).unwrap();
+        assert_eq!(content_commits(dir, &base, "notes.md"), Ok(2));
     }
 }

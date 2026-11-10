@@ -16,6 +16,13 @@ pub(super) struct Source {
     pub path: String,
     pub last_reviewed_day: i64,
     pub last_commit: String,
+    pub cadence: Cadence,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Cadence {
+    Busy,
+    Monthly,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,7 +74,12 @@ pub(super) fn sources(text: &str) -> Result<Vec<Result<Source, String>>, String>
             if !valid(&id, &repo, &last_commit) {
                 return Err(named("invalid id, repo or last_commit"));
             }
-            Ok(Source { id, repo, path: text("path"), last_reviewed_day: day, last_commit })
+            let cadence = match text("cadence").as_str() {
+                "" => Cadence::Busy,
+                "monthly" => Cadence::Monthly,
+                _ => return Err(named("cadence must be \"monthly\" or absent")),
+            };
+            Ok(Source { id, repo, path: text("path"), last_reviewed_day: day, last_commit, cadence })
         })
         .collect())
 }
@@ -118,7 +130,8 @@ Recheck {repo}, screened earlier and held for this question: {reason}. Follow st
 }
 
 pub(super) fn due(source: &Source, moved: &Moved, today: i64) -> bool {
-    (today - source.last_reviewed_day >= STALE_DAYS && moved.count > 0) || moved.count >= BUSY_COMMITS
+    let stale = today - source.last_reviewed_day >= STALE_DAYS && moved.count > 0;
+    stale || (source.cadence == Cadence::Busy && moved.count >= BUSY_COMMITS)
 }
 
 pub(super) fn brief(source: &Source, moved: &Moved, today: &str) -> String {
@@ -323,5 +336,16 @@ mod tests {
         let due = review(&Idle, Vec::new(), rechecks(TOML), "2026-12-07", "0", true);
         assert_eq!(due.lines, vec!["watch-review: launch anatomy recheck (due 2026-12-07)".to_owned()]);
         assert_eq!(due.failed, vec!["recheck bad: needs id, an https repo and a recheck date".to_owned()]);
+    }
+
+    #[test]
+    fn a_monthly_source_waits_out_its_month_however_many_commits_arrive() {
+        let toml = "[[source]]\nid = \"notes\"\nrepo = \"https://example.org/n\"\nlast_reviewed = 2026-11-05\nlast_commit = \"807ccdd\"\ncadence = \"monthly\"\n";
+        let source = sources(toml).unwrap().remove(0).unwrap();
+        let moved = Moved { count: 77, head: "68060cb".into() };
+        let day = |date: &str| Timestamp::parse_loose(date).map(Timestamp::unix_days).unwrap();
+        assert!(!due(&source, &moved, day("2026-11-10")));
+        assert!(due(&source, &moved, day("2026-12-05")));
+        assert!(due(&Source { cadence: Cadence::Busy, ..source }, &moved, day("2026-11-10")));
     }
 }
