@@ -109,6 +109,13 @@ laptop itself where named.
 - Loops: tune's cells moved into the graph (9626577317). nexus's graph was seeded once from its cells.json, so the
   first graph-backed tick keeps the 2x step limit.
 
+## Verified on 2026-11-10
+
+- One grounding store: whiterabbit's runtime update to 8917932b88 left no `~/.local/state/north/grounding/index.db`;
+  `north graph ground query` opens `graph.db` for its documents, and
+  `grounding::store::tests::the_query_reads_a_grounding_document_told_to_graph_db` fails if a document told to the graph is
+  not what the search returns. The five Beagle text relations and the store move are 5b1623c4f6 on origin/main.
+
 ## Prior art
 
 - Beagle Store (`~/code/beagle/main/store`, MIT or Apache-2.0, Tom's): the kernel, and its query reference (in the
