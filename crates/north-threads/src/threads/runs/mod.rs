@@ -97,7 +97,7 @@ fn recorded_line(tally: &Tally, context: &Context) -> String {
     let unpriced = if unpriced.is_empty() { unpriced } else { format!("; token weight for models without a list price: {unpriced}") };
     let (backfilled, hooks) = (counted(tally.backfilled, "backfilled"), counted(tally.hooks, "hook verdicts"));
     let (concerns, admissions) = (counted(tally.concerns, "concern samples"), counted(tally.admissions, "capacity admissions"));
-    let checks = counted(tally.done_checks, "Done-when checks");
+    let checks = format!("{}{}", counted(tally.done_checks, "Done-when checks"), counted(tally.boxes, "issue boxes"));
     format!("NorthThreads: {} runs recorded{backfilled}{hooks}{concerns}{admissions}{checks} in {}{unpriced}", tally.added, context.database.display())
 }
 
@@ -111,7 +111,7 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
     let mut input = Vec::new();
     stdin.read_to_end(&mut input).map_err(|error| Failure::Refused(error.to_string()))?;
     let mut db = open(context.database, true)?;
-    let (mut tally, mut readouts, mut hooked, mut concerned, mut admitted, mut checked) = (Tally::default(), Vec::new(), false, false, false, false);
+    let (mut tally, mut readouts, mut hooked, mut concerned, mut admitted, mut checked, mut boxed) = (Tally::default(), Vec::new(), false, false, false, false, false);
     let tx = immediate(&mut db)?;
     columns::ensure(&tx)?;
     for line in input.split(|byte| *byte == b'\n').filter(|line| !String::from_utf8_lossy(line).trim().is_empty()) {
@@ -136,6 +136,12 @@ fn ingest(argv: &[String], context: &Context, stdin: &mut dyn Read, err: &mut dy
                 checked = true;
             }
             tally.done_checks += super::done_checks::record(&tx, &row)?;
+        } else if row.get("type").is_some_and(|kind| kind == super::issue_boxes::KIND) {
+            if !boxed {
+                super::issue_boxes::ensure(&tx)?;
+                boxed = true;
+            }
+            tally.boxes += super::issue_boxes::record(&tx, &row)?;
         } else if row.get("type").is_some_and(|kind| kind == super::concerns::KIND) {
             if !concerned {
                 super::concerns::ensure(&tx, context.now)?;

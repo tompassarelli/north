@@ -9,6 +9,7 @@ pub mod done_checks;
 pub mod fixtures;
 pub mod client;
 pub mod hold;
+pub mod issue_boxes;
 pub mod ingest_lock;
 pub mod ingest_log;
 pub mod items;

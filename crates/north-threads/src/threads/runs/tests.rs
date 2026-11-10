@@ -322,3 +322,32 @@ fn a_quick_uncategorized_run_that_landed_its_commit_is_a_worker_settled_done() {
     ledger.ingest(&[json!({"id": "vn", "fleet_name": "vn-1", "account": "api", "tier": "haiku", "actual_min": 0, "started": "2026-10-28T08:20:00.000Z", "ended": "2026-10-28T08:20:30.000Z", "outcome": "not done", "report": "Done: queued.", "expects_landing": 1, "landed": 1, "landed_sha": "f57cfd3"})]);
     assert_eq!(ledger.rows("SELECT role, outcome, landed, landed_sha FROM runs"), vec![vec![Value::Text("worker".into()), Value::Text("done".into()), Value::Integer(1), Value::Text("f57cfd3".into())]]);
 }
+
+/// A worker claimed two boxes of north#872, ticked the first citing the main commit its Done-when check passed on, and
+/// left the second open; it landed nothing, so its run read `not done` (north#872).
+#[test]
+fn settle_split_reads_the_boxes_a_session_ticked_beside_the_boxes_it_left_open() {
+    let ledger = ledger();
+    let brief = "Item: north#872\nBox: First box\nCategory: feature\nSpec: exact\nScope: module\nSurface: rust\nVerify: local-test\n";
+    let worker = |status: &str| {
+        let mut row = json!({"id": "w1", "fleet_name": "w1", "role": "worker", "status": status, "tier": "sonnet", "started": "2026-10-28T08:00:00Z", "eta_min": 30, "brief": brief});
+        if status == "finished" {
+            row.as_object_mut().unwrap().extend([("ended".into(), json!("2026-10-28T08:30:00Z")), ("actual_min".into(), json!(30)), ("outcome".into(), json!("not done")), ("report".into(), json!("Done: ticked one box."))]);
+        }
+        row
+    };
+    let issue = |body: &str| json!({"type": "issue_boxes", "item": "north#872", "body": body});
+    let check = json!({"type": "done_check", "host": "h", "task_ref": "north#872", "head_sha": "abcdef1234567890", "command": "true", "exit": 0, "ran_ms": 1_793_175_000_000_i64});
+    let outcome = || ledger.rows("SELECT outcome FROM runs WHERE agent = 'w1'");
+    let read = |name: &str| vec![vec![Value::Text(name.to_owned())]];
+    let first = |sha: &str| format!("- [x] First box. Evidence: `true` passed on main {sha} on 2026-10-28.\n");
+
+    ledger.ingest(&[worker("running")]);
+    Connection::open(&ledger.path).unwrap().execute("INSERT INTO events(ts, item, kind, actor, data) VALUES ('2026-10-28T08:01:00Z', 'north#872', 'claim', 'w1', '{\"box\": \"second-box\"}')", []).unwrap();
+    ledger.ingest(&[check, issue(&format!("{}- [ ] Second box. Done when: `true` exits 0.\n", first("111111111111"))), worker("finished")]);
+    assert_eq!(outcome(), read("done"), "its check passed, and the box ticked cites another commit");
+    ledger.ingest(&[issue(&format!("{}- [ ] Second box. Done when: `true` exits 0.\n", first("abcdef123456")))]);
+    assert_eq!(outcome(), read("split"));
+    ledger.ingest(&[issue(&format!("{}{}", first("abcdef123456"), "- [x] Second box. Evidence: `true` passed on main abcdef123456 on 2026-10-28.\n"))]);
+    assert_eq!(outcome(), read("done"), "no box it claimed is left open");
+}

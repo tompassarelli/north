@@ -15,7 +15,7 @@ use crate::platform::run_roles;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::lifecycle::Moved as ClaimMoved;
 use crate::threads::claims::{box_slug, key};
-use crate::threads::verb::{Context, Failure, event_as};
+use crate::threads::verb::{Context, Failure, event_as, text_or_null};
 
 const ROLES: [&str; 5] = ["worker", "parent", "proxy", "routine", "probe"];
 const STAGES: [&str; 3] = ["staffed", "review_requested", "landed_at"];
@@ -126,6 +126,7 @@ pub(super) struct Tally {
     pub hooks: usize,
     pub concerns: usize,
     pub done_checks: usize,
+    pub boxes: usize,
     pub admissions: usize,
     pub unpriced: BTreeSet<String>,
 }
@@ -386,7 +387,8 @@ impl Ingest<'_> {
         let r = &run.r;
         let since = bind(Some(&r.or("started", Value::from(self.context.now.iso()))))?;
         self.db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", params![held, run.agent()?, since, r.rounded("eta_min")?])?;
-        self.event(item, "claim", run, Value::object([("eta_min", r.get_or("eta_min", Value::Null))]))?;
+        let boxed = text_or_null(run.box_text().as_deref().and_then(box_slug));
+        self.event(item, "claim", run, Value::object([("eta_min", r.get_or("eta_min", Value::Null)), ("box", boxed)]))?;
         self.tally.claims.push(ClaimMoved::held(held, format!("claimed by {} for its running run", run.id.as_str().unwrap_or_default())));
         if truthy(follows) && *follows != run.id {
             self.event(item, "handoff", run, Value::object([("from", follows.clone()), ("to", run.id.clone())]))?;

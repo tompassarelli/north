@@ -1,6 +1,8 @@
 //! A finished worker run's outcome, settled from the records that hold the fact rather than from its report: done when
-//! its lane landed on origin/main, escalated when its session opened a gate for Tom, done when a run that landed nothing
-//! has a passing Done-when check of its item inside its window, else not done (north#872, docs/rationale/attribution.md).
+//! its lane landed on origin/main, escalated when its session opened a gate for Tom,
+//! split when its session ticked boxes of its item and left boxes it claimed open (the issue's `[x]` lines that name a sha its
+//! lane landed or its Done-when check passed on), done when a run that landed nothing has a passing Done-when check of its
+//! item inside its window, else not done (north#872, docs/rationale/attribution.md).
 use rusqlite::{Connection, params};
 
 use crate::foundation::clock::Timestamp;
@@ -25,16 +27,27 @@ fn outcome(db: &Connection) -> String {
     } else {
         "0".to_owned()
     };
-    let checked = if table(db, "done_checks") {
-        format!(
-            "coalesce(runs.expects_landing, 0) = 0 AND EXISTS (SELECT 1 FROM done_checks WHERE task_ref = runs.item AND exit = 0 AND ran_ms >= {} AND ran_ms <= {})",
-            millis("runs.started", "'+0 seconds'"),
-            millis("runs.ended", SLACK)
-        )
-    } else {
-        "0".to_owned()
+    let window = |alias: &str| {
+        format!("{alias}.task_ref = runs.item AND {alias}.exit = 0 AND {alias}.ran_ms >= {} AND {alias}.ran_ms <= {}", millis("runs.started", "'+0 seconds'"), millis("runs.ended", SLACK))
     };
-    format!("CASE WHEN coalesce(runs.landed_sha, '') != '' OR coalesce(runs.landed, 0) = 1 THEN 'done' WHEN {gated} THEN 'escalated' WHEN {checked} THEN 'done' ELSE 'not done' END")
+    let checked = if table(db, "done_checks") { format!("coalesce(runs.expects_landing, 0) = 0 AND EXISTS (SELECT 1 FROM done_checks d WHERE {})", window("d")) } else { "0".to_owned() };
+    let split = if table(db, "issue_boxes") { split(db, &window("d")) } else { "0".to_owned() };
+    format!("CASE WHEN coalesce(runs.landed_sha, '') != '' OR coalesce(runs.landed, 0) = 1 THEN 'done' WHEN {gated} THEN 'escalated' WHEN {split} THEN 'split' WHEN {checked} THEN 'done' ELSE 'not done' END")
+}
+
+fn same_sha(left: &str, right: &str) -> String {
+    format!("({left} LIKE {right} || '%' OR {right} LIKE {left} || '%')")
+}
+
+/// Whether the run's session ticked a box of its item, a `[x]` line naming a sha its lane landed or a passing Done-when
+/// check of the item ran on (`window` selects those checks as `d`), and left open a box it claimed: a claim event of the
+/// session naming a box whose line in the issue's body is still unticked.
+fn split(db: &Connection, window: &str) -> String {
+    let own_sha = format!("coalesce(runs.landed_sha, '') != '' AND {}", same_sha("b.sha", "runs.landed_sha"));
+    let checked_sha = if table(db, "done_checks") { format!("EXISTS (SELECT 1 FROM done_checks d WHERE {window} AND {})", same_sha("b.sha", "d.head_sha")) } else { "0".to_owned() };
+    let ticked = format!("EXISTS (SELECT 1 FROM issue_boxes b WHERE b.item = runs.item AND b.ticked = 1 AND b.sha != '' AND ({own_sha} OR {checked_sha}))");
+    let claimed = "SELECT 1 FROM events e WHERE e.kind = 'claim' AND e.item = runs.item AND e.actor IN (runs.agent, coalesce(runs.fleet_name, '')) AND json_extract(e.data, '$.box') IS NOT NULL AND EXISTS (SELECT 1 FROM issue_boxes o WHERE o.item = e.item AND o.ticked = 0 AND (o.slug = json_extract(e.data, '$.box') OR o.slug LIKE json_extract(e.data, '$.box') || '-%' OR json_extract(e.data, '$.box') LIKE o.slug || '-%'))";
+    format!("({ticked} AND EXISTS ({claimed}))")
 }
 
 /// Settles every finished worker run that ended in the last week, so a landing, a gate or a check recorded after the run's
