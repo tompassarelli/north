@@ -350,12 +350,12 @@ fn a_rollback_lands_only_on_a_runtime_whose_canary_passed() {
 #[test]
 fn a_runtime_that_goes_live_by_promote_settle_or_update_gets_a_canary_verdict() {
     let host = Host::promoted();
-    let name = crate::platform::host::name();
+    let name = "whiterabbit";
     let fleet = host.fleet(None);
-    assert!(!update::judge_outgoing(&host.layout, &name, PROMOTED, &fleet), "a passing outgoing runtime lets the promotion go on");
+    assert!(!update::judge_outgoing(&host.layout, name, PROMOTED, &fleet), "a passing outgoing runtime lets the promotion go on");
     assert_eq!(lifecycle::state_of::<Canarying>(&host.layout, &format!("{name}/{PROMOTED}")).unwrap(), Some(Canary::Passed), "on 2026-11-10 six runtimes went live on whiterabbit and were replaced with no canary verdict");
     let failing = Host::promoted();
     let fleet = failing.fleet(Some(("opencode", exited(1, "a test launch needs NORTH_TEST_ROOT\n"))));
-    assert!(update::judge_outgoing(&failing.layout, &name, PROMOTED, &fleet), "a failing outgoing runtime rolls back, so the promotion waits for the next pass");
+    assert!(update::judge_outgoing(&failing.layout, name, PROMOTED, &fleet), "a failing outgoing runtime rolls back, so the promotion waits for the next pass");
     assert_eq!(failing.current(), layout::link(PREVIOUS));
 }
