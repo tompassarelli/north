@@ -18,7 +18,7 @@ const JUDGEMENT_DWELL: Duration = Duration::from_secs(15 * 60);
 
 /// One runtime, by its commit, on this host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Promotion {
+pub enum Promotion {
     Building,
     Installing,
     Live,
@@ -53,7 +53,7 @@ impl Promotion {
     }
 }
 
-pub(super) struct Promoting;
+pub struct Promoting;
 
 impl Lifecycle for Promoting {
     const NAME: &'static str = "runtime-promotion";

@@ -7,7 +7,7 @@ mod entry_links;
 mod failure;
 mod follow;
 mod growth;
-mod lifecycle;
+pub mod lifecycle;
 mod health;
 mod history;
 mod host_facts;

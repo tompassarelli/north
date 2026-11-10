@@ -155,7 +155,10 @@ const MACHINES: &[Machine] = &[
             explore::<CheckEnvironment>(&Promises { ends: &[], repeats: &[Environment::Placed, Environment::Local] })
         }),
     },
-    Machine { name: "runtime-promotion", kind: "Promoting", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/lifecycle", "crates/north-runtime/src/runtime/update", "crates/north-runtime/src/runtime/settle.rs"], explore: None },
+    Machine { name: "runtime-promotion", kind: "Promoting", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/lifecycle", "crates/north-runtime/src/runtime/update", "crates/north-runtime/src/runtime/settle.rs"], explore: Some(|| {
+        use north_runtime::runtime::lifecycle::Promoting;
+        explore::<Promoting>(&Promises { ends: &[], repeats: &[] })
+    }) },
     Machine { name: "runtime-canary", kind: "Canarying", source: RUNTIME, guard: &[], code: &["crates/north-runtime/src/runtime/canary"], explore: None },
     Machine { name: "runtime-landing-judgement", kind: "Judge", source: RUNTIME, guard: &[], code: &[], explore: None },
     Machine { name: "threads-spool", kind: "SpooledWrite", source: "crates/north-threads/src/threads/client/spool.rs", guard: &[], code: &["crates/north-threads/src/threads/client"], explore: None },
