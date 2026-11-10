@@ -22,8 +22,11 @@ const SESSION_FILE_ENV: &str = "PI_SESSION_FILE";
 const AGENT_ENV: &str = "PI_CODING_AGENT_DIR";
 const EXTENSION: &str = r#"// The north fleet bridge for Pi: register this window so `north fleet adopt` and dispatch see it
 // live, and listen on its socket so a report to the name reaches this session as a user message.
+// It also hands each tool call to `north hook`, as Claude Code's hooks do, so a Pi session meets the
+// same refusals (north#1041).
 // `north fleet adopt` installs this file under <agent>/extensions; Pi loads it on start or /reload.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { homedir } from "node:os";
@@ -33,11 +36,33 @@ const xdg = process.env.XDG_STATE_HOME;
 const state = xdg && xdg.startsWith("/") ? join(xdg, "north") : join(homedir(), ".local/state/north");
 const windows = join(state, "pi-windows");
 const sockets = join(state, "pi-sessions");
+const hookTools: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write" };
+
+function hookInput(tool: string, input: Record<string, unknown>): Record<string, unknown> {
+  if (tool === "Bash") return { command: input.command };
+  const { path, ...rest } = input;
+  return { ...rest, file_path: path };
+}
+
+function refusal(toolName: string, input: Record<string, unknown>, cwd: string, session: string): string | undefined {
+  const tool = hookTools[toolName];
+  if (!tool) return undefined;
+  const event = { hook_event_name: "PreToolUse", tool_name: tool, tool_input: hookInput(tool, input), cwd, session_id: session };
+  const run = spawnSync("north", ["hook"], { input: JSON.stringify(event), encoding: "utf8", timeout: 30_000 });
+  if (run.error || run.status !== 0) return `north hook could not judge this ${tool} call (${run.error ?? run.stderr}), so it is refused`;
+  const decision = run.stdout.trim() ? JSON.parse(run.stdout)?.hookSpecificOutput : undefined;
+  return decision?.permissionDecision === "deny" ? String(decision.permissionDecisionReason) : undefined;
+}
 
 export default function (pi: ExtensionAPI) {
   let server: Server | undefined;
   let context: ExtensionContext | undefined;
   let registry = "";
+
+  pi.on("tool_call", async (event, ctx) => {
+    const reason = refusal(event.toolName, event.input as Record<string, unknown>, ctx.cwd, ctx.sessionManager.getSessionId());
+    return reason ? { block: true, reason } : undefined;
+  });
 
   pi.on("session_shutdown", () => {
     server?.close();

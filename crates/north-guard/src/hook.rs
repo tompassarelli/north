@@ -315,6 +315,16 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
     (output.as_object()?.len() > 1).then(|| Value::object([("hookSpecificOutput", output)]))
 }
 
+/// The refusal north's Bash hook gives `command` run in `cwd`, for a session whose harness binds no hook: the worker sandbox screens each shell command of such a session with it, so a Pi or OpenCode worker meets the deciders a Claude worker's hook applies (north#1041).
+pub fn command_refusal(command: &str, cwd: &std::path::Path) -> Option<String> {
+    let tool_input = Value::object([("command", command.into())]);
+    let data = Value::object([("hook_event_name", "PreToolUse".into()), ("tool_name", "Bash".into()), ("cwd", cwd.display().to_string().into()), ("tool_input", tool_input)]);
+    let input = HookInput::parse(pyjson::dumps(&data).as_bytes())?;
+    let output = evaluate(&input, HookKind::PreBash.guards(), HookKind::PreBash.event())?;
+    let decision = &output["hookSpecificOutput"];
+    (decision["permissionDecision"].as_str() == Some("deny")).then(|| decision["permissionDecisionReason"].as_str().unwrap_or("north hook refused this command").to_owned())
+}
+
 pub(crate) fn process(
     reader: impl Read,
     writer: &mut impl Write,

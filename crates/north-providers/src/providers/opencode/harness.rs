@@ -49,6 +49,11 @@ pub trait Harness: Send + Sync {
     /// The variables its child needs on `route`, given the paid key when the route is Go.
     fn environment(&self, host: &Host, route: Route, key: Option<&str>) -> Vec<(String, String)>;
 
+    /// Points its shell tool at `shell`, the session's wrapper that runs each command in a fresh lane-only domain after the hook deciders (north#1033, north#1041), for a program that reads its shell from a file rather than from the variables `environment` gives.
+    fn bind_shell(&self, _host: &Host, _shell: &std::path::Path) -> std::io::Result<()> {
+        Ok(())
+    }
+
     /// Folds one event line of its output into the turn's tally.
     fn read(&self, tally: &mut Tally, line: &str);
 

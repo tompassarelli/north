@@ -38,6 +38,10 @@ const MARK: &str = north_base::platform::gh_session::SANDBOX_MARK;
 const ROLE_ENV: &str = "NORTH_FLEET_ROLE";
 const LANE_ONLY: &str = north_base::platform::session_scope::LANE_ONLY;
 const SESSION_SCOPE: &str = "NORTH_WORKER_SESSION_SCOPE";
+const HOOKED: &str = "CLAUDECODE";
+
+/// The refusal north's Bash hook gives a shell command run in a directory, or `None` to let it run; the binary passes north-guard's, which this crate does not depend on.
+pub type Screen = fn(&str, &Path) -> Option<String>;
 const USAGE: &str = "usage: north --worker-sandbox COMMAND | north --worker-sandbox --built|--program -- PROGRAM [ARGS...] | north --worker-sandbox --lane -- PROGRAM [ARGS...] | north --worker-sandbox --hand-off -- PROGRAM [ARGS...] | north --worker-sandbox --outside -- NORTH ARGS... | north --worker-sandbox --broker";
 
 /// Restricts this process, and everything it starts, to removing and renaming away only beneath `roots`: the rule a process the outside broker handed work to keeps inside the namespace it builds, where Landlock could not be applied before the mount calls and the namespace alone does not know the worker's trees.
@@ -68,16 +72,16 @@ pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Opti
     ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
 }
 
-pub fn run(arguments: &[String]) -> std::process::ExitCode {
+pub fn run(arguments: &[String], screen: Screen) -> std::process::ExitCode {
     match arguments {
         [broker] if broker == BROKER => broker::serve(),
         [maker, runtime, paths @ ..] if maker == MAKER => sockets::make(Path::new(runtime), &paths.iter().map(PathBuf::from).collect::<Vec<_>>()),
         [outside, separator, north, words @ ..] if outside == OUTSIDE && separator == "--" && !north.is_empty() => self::outside(north, words),
-        [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true),
-        [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program),
+        [built, separator, program @ ..] if built == BUILT && separator == "--" && !program.is_empty() => self::program(program, true, screen),
+        [lane, separator, program @ ..] if lane == LANE && separator == "--" && !program.is_empty() => self::in_lane(program, screen),
         [hand, separator, program @ ..] if hand == HAND_OFF && separator == "--" && !program.is_empty() => self::hand_off(program),
-        [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false),
-        [command] => shell(command),
+        [flag, separator, program @ ..] if flag == PROGRAM && separator == "--" && !program.is_empty() => self::program(program, false, screen),
+        [command] => shell(command, screen),
         _ => {
             eprintln!("{USAGE}");
             std::process::ExitCode::from(2)
@@ -123,7 +127,10 @@ fn confines_worker() -> bool {
     worker && applies
 }
 
-fn shell(command: &str) -> std::process::ExitCode {
+fn shell(command: &str, screen: Screen) -> std::process::ExitCode {
+    if let Some(refused) = refusal(command, screen) {
+        return refused;
+    }
     broker::ensure();
     let context = Context::from_env(command);
     let confined = confines_worker();
@@ -137,7 +144,10 @@ fn shell(command: &str) -> std::process::ExitCode {
 }
 
 /// Runs `program` under the command's domain, with the rule against executing build output unless `lift` says a lane's own build output that `north lane exec` vouched for.
-fn program(program: &[String], lift: bool) -> std::process::ExitCode {
+fn program(program: &[String], lift: bool, screen: Screen) -> std::process::ExitCode {
+    if let Some(refused) = shell_command(program).and_then(|command| refusal(command, screen)) {
+        return refused;
+    }
     let context = Context::from_env(&program.join(" "));
     let fenced = std::env::var_os(LANE_ONLY).is_some();
     let confined = fenced || confines_worker();
@@ -152,7 +162,10 @@ fn program(program: &[String], lift: bool) -> std::process::ExitCode {
 }
 
 /// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable. The session's shell tool asks the outside broker for a fresh domain of this kind for each command, since a lane the session creates after its long-lived domain was built holds no rule there; a fresh domain, known by the lane-only marker already in its environment, keeps what the long-lived one kept plus the lanes created since (lane_session.rs). The broker must answer before the long-lived domain hides the sockets.
-fn in_lane(program: &[String]) -> std::process::ExitCode {
+fn in_lane(program: &[String], screen: Screen) -> std::process::ExitCode {
+    if let Some(refused) = shell_command(program).and_then(|command| refusal(command, screen)) {
+        return refused;
+    }
     session_join::join_named_scope();
     broker::ensure();
     let mut context = Context::from_env(&program.join(" "));
@@ -173,6 +186,24 @@ fn in_lane(program: &[String]) -> std::process::ExitCode {
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").env(LANE_ONLY, "1").env_remove(SESSION_SCOPE).envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
+}
+
+/// Refuses `command` with the message north's Bash hook gives it when the session's harness binds no hook. Claude Code sets `CLAUDECODE` for every command it runs, after its own hook judged the command with the session's full context; OpenCode and Pi bind no hook, so this is where their commands meet those deciders (north#1041).
+fn refusal(command: &str, screen: Screen) -> Option<std::process::ExitCode> {
+    if std::env::var_os(HOOKED).is_some_and(|hooked| hooked == "1") {
+        return None;
+    }
+    let message = screen(command, &std::env::current_dir().unwrap_or_default())?;
+    eprintln!("{message}");
+    Some(std::process::ExitCode::from(126))
+}
+
+/// The command a shell runs when `program` is `SHELL -c COMMAND`, as OpenCode's and Pi's shell tools start it through the session's `shell` wrapper.
+fn shell_command(program: &[String]) -> Option<&str> {
+    match program {
+        [shell, flag, command, ..] if flag == "-c" && Path::new(shell).file_name().is_some_and(|name| ["sh", "bash", "dash", "zsh"].iter().any(|known| name == *known)) => Some(command),
+        _ => None,
+    }
 }
 
 /// Hides the sockets that start processes outside the domain, before the domain is applied: a kernel before Landlock ABI 9 cannot limit which Unix sockets a command connects through, and Landlock refuses mount(2), so a session that already runs inside a domain (one launched from a confined command) joins the namespaces the broker laid, and one that does not lays them itself. Whether they are hidden.

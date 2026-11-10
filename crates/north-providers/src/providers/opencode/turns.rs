@@ -217,7 +217,9 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
     }
     std::fs::create_dir_all(host.scratch.join("tmp"))?;
     command.env("TMPDIR", host.scratch.join("tmp")).env("NORTH_SANDBOX_SCRATCH", &host.scratch);
-    command.env("SHELL", command_shell(host));
+    let shell = command_shell(host);
+    host.harness.bind_shell(host, &shell)?;
+    command.env("SHELL", shell);
     let key = match route {
         Route::Go => {
             let file = host.key_file.as_ref().ok_or_else(|| NorthError::Refused("the paid Go route has no key file".into()))?;

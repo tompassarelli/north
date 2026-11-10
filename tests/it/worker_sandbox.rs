@@ -257,3 +257,30 @@ fn a_lane_only_shell_ends_with_done_instead_of_running_safe_push_north_1041() {
     assert!(stderr.contains(&format!("lane-only session: end with Done: {} lane {sha}; the review-and-land loop lands it", lane.display())), "{stderr}");
     assert!(!stderr.contains("north worker-sandbox broker"), "the refusal names the hand-off, not the broker's opaque refusal: {stderr}");
 }
+
+#[test]
+fn a_git_stash_run_through_the_wrapper_with_no_hook_is_refused_with_the_hooks_message_north_1041() {
+    let home = tempfile::Builder::new().prefix("north-1041-home").tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let repository = home.path().join("repository");
+    std::fs::create_dir_all(&repository).unwrap();
+    git(&repository, &["init", "-q", "-b", "main"]);
+    std::fs::write(repository.join("work.txt"), "committed").unwrap();
+    git(&repository, &["add", "work.txt"]);
+    git(&repository, &["commit", "-q", "-m", "one"]);
+    std::fs::write(repository.join("work.txt"), "unfinished").unwrap();
+    let active = home.path().join("activation.active");
+    std::fs::write(&active, "hook north-hook\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["--worker-sandbox", "git stash"])
+        .current_dir(&repository)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", home.path())
+        .env("NORTH_AGENT_ACTIVE", &active)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(126), "the wrapper ran `git stash` for a session with no hook: {stderr}");
+    assert!(stderr.contains("The stash is shared by every worktree"), "the refusal lacks the hook's message: {stderr}");
+    assert_eq!(std::fs::read_to_string(repository.join("work.txt")).unwrap(), "unfinished", "the refused stash still took the worker's change");
+}

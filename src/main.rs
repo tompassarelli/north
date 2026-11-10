@@ -49,7 +49,7 @@ fn main() -> std::process::ExitCode {
             return enter(point, &arguments);
         }
         if arguments.first().is_some_and(|flag| flag == worker_sandbox::FLAG) {
-            return worker_sandbox::run(&arguments[1..]);
+            return worker_sandbox::run(&arguments[1..], hook::command_refusal);
         }
         arguments
             .first()
