@@ -12,17 +12,18 @@ use super::{AccountReadings, HandOver, Observed, hand_over};
 use crate::error::NorthResult;
 use crate::fleet::fakes::{Paper, Stream};
 use crate::fleet::host::alive;
-use crate::fleet::model::{Account, LaunchRequest, ProviderName, Quota, SessionRecord, Transcript};
+use crate::fleet::model::{Account, ApiKey, LaunchRequest, ProviderName, Quota, SessionRecord, Transcript};
 use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::{HostSpec, Instructions, LiveWindow, Opening, PROXY, Runtime, WindowInbox, now_ms};
 use crate::fleet::runtimes::Runtimes;
 use crate::fleet::turns::TurnSignal;
-use crate::usage::decide::world::{Label, Percent, Reading, RowId, Source, Unix, Window};
+use crate::usage::decide::world::{Credit, Label, Percent, Reading, RowId, Source, Unix, Usd, Window};
 
 const CONVERSATION: &str = "5b1d7c52-proxy-window";
 
 struct Windowed {
+    on: String,
     accounts: Vec<Account>,
     pid: u32,
     busy: AtomicBool,
@@ -31,7 +32,7 @@ struct Windowed {
 
 impl Windowed {
     fn inbox(&self) -> Option<WindowInbox> {
-        alive(self.pid).then(|| WindowInbox { account: "c".into(), pid: self.pid, socket: PathBuf::new(), token: "peer".into(), busy: self.busy.load(Ordering::SeqCst) })
+        alive(self.pid).then(|| WindowInbox { account: self.on.clone(), pid: self.pid, socket: PathBuf::new(), token: "peer".into(), busy: self.busy.load(Ordering::SeqCst) })
     }
 }
 
@@ -108,7 +109,7 @@ impl AccountReadings for Table {
     fn observed(&self, now_ms: u64) -> Observed {
         let now = (now_ms / 1000) as i64;
         let read = |row, account: &str, window, used| Reading { row: RowId(row), account: Label(account.into()), window, used: Percent(used), resets_at: Some(Unix(now + 2 * 86_400)), read_at: Unix(now - 60), source: Source::Header };
-        Observed { readings: vec![read(0, "c", Window::FiveHour, 20.0), read(1, "c", Window::Week, 99.0), read(2, "b", Window::FiveHour, 5.0), read(3, "b", Window::Week, 7.0)], ..Observed::default() }
+        Observed { readings: vec![read(0, "c", Window::FiveHour, 20.0), read(1, "c", Window::Week, 99.0), read(2, "b", Window::FiveHour, 5.0), read(3, "b", Window::Week, 7.0)], credits: [("gmail".to_owned(), Credit { left: Usd(0.0), next_grant: None })].into(), ..Observed::default() }
     }
 }
 
@@ -122,15 +123,19 @@ struct Adopted {
 
 impl Adopted {
     fn on_account_c() -> Self {
+        Self::on("c")
+    }
+
+    fn on(on: &str) -> Self {
         let home = tempfile::tempdir().unwrap();
         let mut child = Command::new("sleep").arg("600").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
         let pid = child.id();
         std::thread::spawn(move || child.wait());
-        let account = |label: &str| Account { provider: Stream.provider(), label: label.into(), home: home.path().join(format!("claude-{label}")), token_file: None, api: None };
-        let window = Arc::new(Windowed { accounts: vec![account("b"), account("c")], pid, busy: AtomicBool::new(false), told: Mutex::new(Vec::new()) });
+        let account = |label: &str| Account { provider: Stream.provider(), label: label.into(), home: home.path().join(format!("claude-{label}")), token_file: None, api: label.split_once(':').map(|(_, org)| ApiKey { org: org.into(), file: home.path().join(org) }) };
+        let window = Arc::new(Windowed { on: on.to_owned(), accounts: vec![account("b"), account("c"), account("api:gmail")], pid, busy: AtomicBool::new(false), told: Mutex::new(Vec::new()) });
         let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![window.clone()]), Arc::new(Paper::default())).unwrap().arming(|_| Ok(()));
         let record = fleet.adopt(PROXY, CONVERSATION, "/tmp".into()).unwrap();
-        assert!(record.host_pid.is_none() && record.account == "c");
+        assert!(record.host_pid.is_none() && record.account == on);
         Self { _home: home, fleet, window, record, launches: RefCell::new(Vec::new()) }
     }
 
@@ -199,4 +204,14 @@ fn an_adopted_proxy_window_on_an_account_at_99_percent_of_its_week_moves_to_the_
     assert_eq!((launches[0].account.as_str(), launches[0].resume.as_deref()), ("b", Some(CONVERSATION)));
     assert!(!alive(silent.window.pid), "the window holding the conversation closes before it resumes elsewhere");
     assert!(resumed.lines.iter().any(|line| line.contains("resumes on account b instead of c")), "{:?}", resumed.lines);
+}
+
+#[test]
+fn a_session_on_an_api_org_north_reads_as_spent_is_not_handed_over_to_a_subscription_account() {
+    let session = Adopted::on("api:gmail");
+
+    let ticked = session.tick(now_ms());
+
+    assert!(session.launches.borrow().is_empty() && session.window.told.lock().unwrap().is_empty(), "{:?}", ticked.lines);
+    assert!(alive(session.window.pid));
 }

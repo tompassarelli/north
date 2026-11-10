@@ -1,6 +1,7 @@
 //! A session is taken over onto another source when `usage::decide::assess` says so: a worker with
 //! unlanded work once its source is out or paused, a proxy or lead before its source runs out. A worker
 //! resumes its own conversation there; one that never started a conversation gets a `Follows:` brief naming the lane its newest land ticket holds, else its brief file, never its working directory, and a lead goes first.
+//! A session on an API organization stays out: `api_pool::move_spent` moves it only on the provider's own low-credit refusal, never on north's credit estimate.
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod proxy;
@@ -139,11 +140,13 @@ pub fn hand_over(
 fn candidates(fleet: &Fleet) -> Vec<SessionRecord> {
     let waits = fleet.waits();
     let parked = |name: &str| waits.of(name).iter().any(|wait| matches!(wait.run, Run::Usage { .. }));
+    let pools: BTreeSet<String> = fleet.accounts().into_iter().filter(|account| account.api.is_some()).filter_map(|account| account.label.split(':').next().map(str::to_owned)).collect();
+    let on_api = |record: &SessionRecord| record.account.split_once(':').is_some_and(|(pool, _)| pools.contains(pool));
     fleet
         .sessions()
         .unwrap_or_default()
         .into_iter()
-        .filter(|record| record.provider.label() == "claude" && !record.verification)
+        .filter(|record| record.provider.label() == "claude" && !record.verification && !on_api(record))
         .filter(|record| !matches!(record.phase(), Some(Phase::Stopped | Phase::IdleExited)))
         .filter(|record| if record.adopted() { fleet.running(record) } else { recent(record) && (fleet.running(record) || parked(&record.name)) })
         .collect()
