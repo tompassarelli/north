@@ -3,7 +3,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::claims;
 use crate::fleet::host::Host;
 use crate::fleet::limit::stopped_on_limit;
 use crate::fleet::records::write_record;
@@ -72,14 +71,13 @@ impl Fleet {
         self.succeed(&request.name, claim, |predecessor| {
             record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
             self.claim_before_start(request, &tasks, verification)?;
-            let brought = fs::create_dir_all(session_dir).map_err(NorthError::from).and_then(|()| self.bring_up(request, &mut record, &account, runtime.as_ref(), predecessor.as_ref(), conversation.as_deref()));
-            let Err(error) = brought else {
+            fs::create_dir_all(session_dir)?;
+            let Err(error) = self.bring_up(request, &mut record, &account, runtime.as_ref(), predecessor.as_ref(), conversation.as_deref()) else {
                 if let Err(error) = self.inherit_workers(request, &record) {
                     eprintln!("north fleet: {} launched, but its predecessor's workers were not moved to it: {}", record.name, error.user_message());
                 }
                 return Ok(record);
             };
-            claims::release_for(self.claims.as_ref(), &record);
             Err(match self.discard_failed_launch(session_dir) {
                 Ok(()) => error,
                 Err(left) => NorthError::State(format!("{}; its directory {} was left: {}", error.user_message(), session_dir.display(), left.user_message())),
@@ -96,7 +94,7 @@ impl Fleet {
             (Some(kept), None) => Opening::Resume(kept),
             (None, _) => Opening::Fresh(conversation),
         };
-        self.start(record, account, opening)?;
+        self.start_claiming(record, account, opening)?;
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }

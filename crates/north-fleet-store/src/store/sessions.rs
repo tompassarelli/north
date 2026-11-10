@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
 
-use crate::foundation::clock::Timestamp;
 use crate::status::Status;
 use crate::runtime::PROXY;
 use super::schema::sql;
@@ -31,14 +30,6 @@ pub struct SessionRow {
     pub tasks: Vec<String>,
     #[serde(default)]
     pub conversation: Option<String>,
-}
-
-impl SessionRow {
-    /// Whether the row still says `starting` long after its host should have shown a turn: a launch whose host never started leaves such a row, and it holds neither a spend slot nor a claim.
-    pub fn never_started(&self, now_ms: u64) -> bool {
-        let cutoff = i64::try_from(now_ms.saturating_sub(super::LAUNCH_GRACE_MS) / 1000).unwrap_or(i64::MAX);
-        self.status == Status::Starting.label() && Timestamp::parse(&self.updated).is_ok_and(|updated| updated.unix_seconds() < cutoff)
-    }
 }
 
 const COLUMNS: &str = "name, host, status, created, updated, provider, account, cwd, parent, placement, machine, tasks, conversation";
@@ -82,12 +73,11 @@ pub struct Slots {
     pub resident: Option<(String, usize)>,
 }
 
-const ACTIVE: &str = "(status = 'working' OR (status = 'starting' AND updated >= ?3)) AND name != ?1";
+const ACTIVE: &str = "status IN ('starting', 'working') AND name != ?1";
 
 fn refuse_past(tx: &Transaction, row: &SessionRow, slots: &Slots) -> NorthResult<()> {
-    let launching_since = Timestamp::from_unix_millis(i64::try_from(crate::runtime::now_ms().saturating_sub(super::LAUNCH_GRACE_MS)).unwrap_or(i64::MAX)).iso();
     let count = |filter: &str, value: &str| -> NorthResult<usize> {
-        tx.query_row(&format!("SELECT count(*) FROM fleet_sessions WHERE {ACTIVE} AND {filter}"), params![row.name, value, launching_since], |found| found.get::<_, i64>(0)).map(|found| usize::try_from(found).unwrap_or(usize::MAX)).map_err(sql)
+        tx.query_row(&format!("SELECT count(*) FROM fleet_sessions WHERE {ACTIVE} AND {filter}"), params![row.name, value], |found| found.get::<_, i64>(0)).map(|found| usize::try_from(found).unwrap_or(usize::MAX)).map_err(sql)
     };
     if let Some(cap) = slots.workers {
         let working = count("name != ?2 AND COALESCE(NULLIF(provider, ''), 'claude') = 'claude' AND COALESCE(placement, '') NOT LIKE 'adopted window%'", PROXY)?;

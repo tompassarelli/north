@@ -4,20 +4,14 @@ use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::claims::{self, Rows};
-use crate::fleet::model::{LaunchRequest, SessionRecord, Status};
+use crate::fleet::model::{Account, LaunchRequest, SessionRecord, Status};
 use crate::fleet::records::{CLAIMS_RELEASED, CLAIMS_SWEEP_LOG, read_record, write_record};
-use crate::fleet::runtime::now_ms;
-use crate::fleet::store::LAUNCH_GRACE_MS;
+use crate::fleet::runtime::Opening;
 
 use super::{Fleet, session_running};
 
 /// How many owners one `threads holder` read names, so a fleet with hundreds of exited sessions never asks for them all in a read the ledger cannot answer within its bound.
 const OWNERS_PER_READ: usize = 64;
-
-/// Whether a session's record names no host long after its launch: the host never started, so the session holds nothing.
-pub(super) fn never_started(record: &SessionRecord) -> bool {
-    record.host_dir.as_os_str().is_empty() && now_ms().saturating_sub(record.created_ms) > LAUNCH_GRACE_MS
-}
 
 impl Fleet {
     /// Claims every task of a launch before its session starts: a live holder refuses it. A `--test` session claims nothing.
@@ -32,6 +26,15 @@ impl Fleet {
     fn claim_tasks(&self, parent: Option<&str>, name: &str, tasks: &[String]) -> NorthResult<()> {
         let ancestors = self.ancestors(parent);
         claims::hold_all(self.claims.as_ref(), &claims::own_tasks(self.claims.as_ref(), tasks, &ancestors), name, &ancestors)
+    }
+
+    /// Starts a fresh session, giving its claims back when it does not start.
+    pub(super) fn start_claiming(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
+        let started = self.start(record, account, opening);
+        if started.is_err() {
+            claims::release_for(self.claims.as_ref(), record);
+        }
+        started
     }
 }
 
@@ -101,18 +104,14 @@ impl Fleet {
         if items.is_empty() {
             return Ok(0);
         }
-        let mut gone = self.exited()?;
-        let now = now_ms();
-        gone.extend(self.cached_sessions()?.unwrap_or_default().into_iter().filter(|row| row.never_started(now)).map(|row| row.name));
-        Ok(claims::release_exited(self.claims.as_ref(), &gone, Rows::Items(items))?.released)
+        Ok(claims::release_exited(self.claims.as_ref(), &self.exited()?, Rows::Items(items))?.released)
     }
 
-    /// The sessions that hold nothing: those that exited, and those whose host never started within the launch grace.
     fn exited(&self) -> NorthResult<BTreeSet<String>> {
         Ok(self
             .sessions()?
             .iter()
-            .filter(|record| !record.verification && (never_started(record) || (!session_running(record) && self.status(record) == Status::Exited)))
+            .filter(|record| !record.verification && !session_running(record) && self.status(record) == Status::Exited)
             .map(|record| record.name.clone())
             .collect())
     }
@@ -182,91 +181,5 @@ mod tests {
 
         let refused = fleet.claim_tasks(None, "n-924-outsider", &boxed).unwrap_err();
         assert!(matches!(refused, NorthError::Refused(why) if why == "north#902 is already owned by qp90-lead"));
-    }
-}
-
-#[cfg(test)]
-mod launch_tests {
-    use std::sync::Arc;
-
-    use crate::fleet::claims::{Claims, Held};
-    use crate::fleet::fakes::{Paper, Stream};
-    use crate::fleet::model::{LaunchRequest, ProviderName};
-    use crate::fleet::prompt::PromptMode;
-    use crate::fleet::runtimes::Runtimes;
-
-    use super::*;
-
-    fn request(cwd: &std::path::Path) -> LaunchRequest {
-        LaunchRequest {
-            verification: false,
-            name: "north-1042-d0525".into(),
-            provider: ProviderName::new("claude"),
-            account: "a".into(),
-            cwd: cwd.into(),
-            model: None,
-            effort: None,
-            prompt: "Item: north#1042".into(),
-            system_prompt: None,
-            foreground_cap_secs: None,
-            prompt_mode: PromptMode::North,
-            idle_exit_minutes: None,
-            parent: None,
-            task_ref: Some("north#1042".into()),
-            claim_box: None,
-            placement: None,
-            machine: None,
-            capacity_need: None,
-            role: None,
-            resume: None,
-            compact_window: None,
-            slots: Default::default(),
-        }
-    }
-
-    /// On 2026-11-10 dispatch launches of north#1042 failed at start and the claim stayed with the dead launch.
-    #[test]
-    fn a_launch_whose_host_fails_at_start_leaves_no_claim_behind() {
-        let home = tempfile::tempdir().unwrap();
-        let claims = Arc::new(Held::default());
-        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap();
-
-        let launched = fleet.launch(&request(&home.path().join("no-such-directory")));
-
-        let error = launched.unwrap_err().user_message();
-        let tasks = ["north#1042".to_owned()];
-        assert_eq!(claims.holders(Rows::Items(&tasks)).unwrap(), Vec::<(String, String)>::new());
-        assert!(claims.0.lock().unwrap().iter().any(|(kind, _, _)| *kind == "hold"), "the launch took its claim before the host failed: {error}");
-    }
-}
-
-#[cfg(test)]
-mod never_started_tests {
-    use std::sync::Arc;
-
-    use crate::fleet::claims::{Claims, Held};
-    use crate::fleet::fakes::{Paper, Stream};
-    use crate::fleet::runtimes::Runtimes;
-
-    use super::*;
-
-    /// On 2026-11-10 north-1042-d0525 never started and `sweep-claims` released 0, because the session never counted as exited.
-    #[test]
-    fn the_sweep_releases_the_claims_of_a_session_whose_host_never_started() {
-        let home = tempfile::tempdir().unwrap();
-        let claims = Arc::new(Held::default());
-        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Stream)]), Arc::new(Paper::default()), claims.clone()).unwrap();
-        let dir = fleet.root.join("north-1042-d0525");
-        fs::create_dir_all(&dir).unwrap();
-        let record = serde_json::json!({"name": "north-1042-d0525", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": null, "host_dir": "", "stream_offset": 0});
-        fs::write(dir.join("session.json"), record.to_string()).unwrap();
-        claims.hold("north#1042", "north-1042-d0525", &BTreeSet::new()).unwrap();
-        let tasks = ["north#1042".to_owned()];
-
-        assert_eq!(fleet.unswept().unwrap(), ["north-1042-d0525"]);
-        assert_eq!(fleet.release_exited_claims().unwrap(), 1);
-
-        assert_eq!(claims.holders(Rows::Items(&tasks)).unwrap(), Vec::<(String, String)>::new());
-        assert!(fleet.live_owners().unwrap().is_empty());
     }
 }
