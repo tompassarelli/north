@@ -28,14 +28,8 @@ pub fn state(world: &World, account: &Label, family: ModelFamily) -> State {
     if let Some(resumes_at) = out(five_hour) {
         return State::Paused { resumes_at };
     }
-    let View::Fresh { used: shared, resets_at: shared_resets, .. } = week else {
+    let View::Fresh { used: week, resets_at: week_resets, .. } = week else {
         return State::Unknown { window: Window::Week, read_at: read_at(week) };
-    };
-    // A family's own weekly meter is the tightest of the shared week and its scoped window: Fable draws
-    // on both, so the floor is reached when either runs out.
-    let (week, week_resets) = match scoped {
-        View::Fresh { used, resets_at, .. } if used.0 > shared.0 => (used, resets_at),
-        _ => (shared, shared_resets),
     };
     match five_hour {
         View::Fresh { used, resets_at, .. } => State::Open { five_hour: used, week, five_hour_resets: resets_at, week_resets, not_started: false },

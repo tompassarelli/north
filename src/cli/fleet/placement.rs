@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Effort, LaunchRequest, Machine, Role, Status};
+use crate::fleet::model::{LaunchRequest, Machine, Role, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::store::Slots;
 use crate::fleet::roster::Roster;
@@ -14,7 +14,6 @@ use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
 use crate::platform::attribution::{self, Cause, Harness};
 use crate::platform::decision_log;
 use crate::spend::{self, Starter};
-use crate::usage::decide::world::ModelFamily;
 use north_strategy_types::placement::{self as record, Case};
 use north_strategy_types::Kind;
 
@@ -59,9 +58,6 @@ pub(super) struct Placed {
     pub machine: Option<Machine>,
     pub need: Option<String>,
     pub slots: Slots,
-    /// A model the decision overrides, such as the coordinator's Opus high when no account has Fable headroom.
-    pub model: Option<String>,
-    pub effort: Option<Effort>,
 }
 
 #[derive(Clone, Copy)]
@@ -76,10 +72,6 @@ pub(super) struct Launch<'a> {
     pub machine: Option<&'a str>,
     /// A fresh launch of a lead, which staffs other hosts and so runs only where its commands have the reach to launch there.
     pub lead: bool,
-    pub role: Role,
-    /// The model the launch records, whose family decides which meter placement reads.
-    pub model: Option<&'a str>,
-    pub family: ModelFamily,
 }
 
 /// The brief placement reads: the system prompt file when there is one, then the prompt.
@@ -171,18 +163,7 @@ fn place(fleet: &Fleet, request: &LaunchRequest, needs: &[String], overrides: &O
         return Ok(Ok(Placed::default()));
     }
     let text = crate::pacing::placement::needs::with_needs(&gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref()), needs);
-    let model = request.model.as_deref();
-    let launch = Launch {
-        name: &request.name,
-        account: &request.account,
-        brief: request.system_prompt.as_deref(),
-        cwd: Some(&request.cwd),
-        machine: request.machine.as_ref().map(|machine| machine.name.as_str()),
-        lead: is_lead(request),
-        role: request.role(),
-        model,
-        family: family_of(model),
-    };
+    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()), lead: is_lead(request) };
     if let Some(why) = lead_refusal(fleet.host(), &launch, |host| trusted(host, fleet.host())) {
         return Ok(Err(Refusal::Final(why)));
     }
@@ -287,8 +268,6 @@ fn recorded_launch(launch: &Launch, overrides: &Overrides) -> record::Launch {
         overrides: record::Overrides { local: overrides.local.clone(), pin: overrides.pin.clone(), tier: overrides.tier.clone() },
         provider: "claude".to_owned(),
         verification: false,
-        model: launch.model.map(str::to_owned),
-        role: Some(launch.role.label().to_owned()),
     }
 }
 
@@ -396,14 +375,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     if let Some(reason) = &overrides.tier {
         notes.push(format!("tier: {reason}"));
     }
-    let (model, effort) = match decision.family.filter(|family| is_coordinator(launch.role) && *family != launch.family) {
-        Some(ModelFamily::Opus) => {
-            notes.push("model: Opus high, no account has Fable headroom".to_owned());
-            (Some("opus".to_owned()), Some(Effort::High))
-        }
-        _ => (None, None),
-    };
-    Ok(Placed { account: None, note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text), slots: Slots::default(), model, effort })
+    Ok(Placed { account: None, note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text), slots: Slots::default() })
 }
 
 fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) -> String {
@@ -507,16 +479,6 @@ const LEAD_ON_TRUSTED: &str = "a lead staffs other hosts and its commands run on
 /// Whether the session this launch starts is a lead as its record will say: it names no parent and holds no task.
 fn is_lead(request: &LaunchRequest) -> bool {
     request.role.map_or_else(|| request.parent.is_none() && request.tasks().is_empty() && request.name != crate::fleet::runtime::PROXY, |role| role == Role::Lead)
-}
-
-/// The family whose meter placement reads: the launch model's, else the shared Opus windows.
-fn family_of(model: Option<&str>) -> ModelFamily {
-    model.and_then(crate::usage::meter::family).unwrap_or(ModelFamily::Opus)
-}
-
-/// Whether the role is the fleet coordinator, by either spelling the role has had.
-fn is_coordinator(role: Role) -> bool {
-    matches!(role.label(), "proxy" | "coordinator")
 }
 
 /// Whether `host` is trusted: it holds the ledger or declares the hosts it `reaches`; a worker host declares none.

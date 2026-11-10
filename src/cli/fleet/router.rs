@@ -220,10 +220,6 @@ pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if let Some(account) = placed.account.take() {
         request.account = account;
     }
-    if let Some(model) = placed.model.take() {
-        request.model = Some(model);
-        request.effort = placed.effort.or(request.effort);
-    }
     gated::admit(fleet, &mut request)?;
     (request.placement, request.capacity_need) = (placed.note, placed.need);
     request.machine = placed.machine.or(request.machine);

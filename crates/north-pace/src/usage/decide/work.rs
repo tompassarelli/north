@@ -8,9 +8,7 @@ const WEEK_HOURS: f64 = 7.0 * 24.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    /// Move to another account; `family` names a model family to switch to, as the coordinator switches
-    /// to Opus high when no account has Fable headroom.
-    HandOver { to: Label, family: Option<ModelFamily> },
+    HandOver { to: Label },
     Park { resumes_at: Option<Unix> },
 }
 
@@ -29,14 +27,14 @@ pub fn actions(world: &World) -> Vec<(Name, Action)> {
             continue;
         }
         match state(world, &session.account, session.family) {
-            State::Paused { resumes_at } => match roomiest(world, session, session.family, true) {
-                Some(to) => rest.push((true, session.name.clone(), Action::HandOver { to, family: None })),
+            State::Paused { resumes_at } => match roomiest(world, session) {
+                Some(to) => rest.push((true, session.name.clone(), Action::HandOver { to })),
                 None if session.parked_since.is_none() => rest.push((true, session.name.clone(), Action::Park { resumes_at })),
                 None => {}
             },
             State::WeekOut { .. } | State::ScopeOut { .. } => {
                 if let Some(to) = soonest_expiring(world, session) {
-                    rest.push((true, session.name.clone(), Action::HandOver { to, family: None }));
+                    rest.push((true, session.name.clone(), Action::HandOver { to }));
                 }
             }
             _ => {}

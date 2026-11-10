@@ -4,14 +4,11 @@
 use super::super::storage;
 use super::gate::{self, Decision, Machine};
 use super::hosts::{self, Facts};
-use super::room::{Basis, Rank};
+use super::room::Basis;
 use super::{local, strings};
 use crate::capacity::saturation::Saturation;
 use crate::capacity::{agent_load, laptop_auto, mode};
 use crate::fleet::roster::Roster;
-use crate::usage::decide::world::ModelFamily;
-use crate::usage::decide::SUBSCRIPTION_FLOOR;
-use crate::usage::meter;
 use north_strategy_types::placement::{Case, Config, GrantSource, Here, Host, Launch, Usage, Window};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -67,26 +64,9 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     let basis = Basis::new(&cfg, case.at);
     let credit = hosts::credit_verdict(&case.credit, case.config.cloud_credit.as_deref().unwrap_or_default(), case.at);
     let here = case.here.name.as_str();
-    let family = launch_family(&case.launch);
-    let coordinator = is_coordinator(&case.launch);
-    let mut verdicts = gate::verdicts_of_for(&gate_value, &case.roster, &basis, Some(family));
-    if coordinator {
-        rank_by_headroom(&mut verdicts);
-    }
-    let fable_has_room = has_headroom(&verdicts);
+    let mut verdicts = gate::verdicts_of(&gate_value, &case.roster, &basis);
     verdicts.extend(case.grants.iter().map(gate::grant_verdict));
-    let mut decision = gate::decide(&case.brief, &cfg, verdicts, credit.clone(), &machines, here, case.here.gaming);
-    decision.family = Some(family);
-    if coordinator && family == ModelFamily::Fable && !fable_has_room {
-        let mut opus = gate::verdicts_of_for(&gate_value, &case.roster, &basis, Some(ModelFamily::Opus));
-        rank_by_headroom(&mut opus);
-        if opus.iter().any(has_floor_headroom) {
-            opus.extend(case.grants.iter().map(gate::grant_verdict));
-            decision = gate::decide(&case.brief, &cfg, opus, credit, &machines, here, case.here.gaming);
-            decision.family = Some(ModelFamily::Opus);
-            decision.machine_lines.push("no account has Fable headroom; the coordinator starts on Opus high".to_owned());
-        }
-    }
+    let mut decision = gate::decide(&case.brief, &cfg, verdicts, credit, &machines, here, case.here.gaming);
     decision.here_on_battery = case.here.battery.map(|percent| gate::battery_refusal(here, percent, &machines));
     decision.here_closed = gate::closed(here, case.here.playtest_hold_until, || case.here.battery, case.at as u64);
     if let Some(name) = case.launch.named_machine.as_deref() {
@@ -97,36 +77,6 @@ pub fn decide(case: &Case) -> Result<Decision, String> {
     decision.here_cpu_held = case.here.spawn_cpu.as_ref().and_then(|cpu| crate::pacing::spawn_gate::launch_verdict(cpu, &case.brief));
     decision.hold_here();
     Ok(decision)
-}
-
-/// The model family a launch asks placement to meter: the family its recorded model names, else the
-/// shared Opus windows it has always used.
-pub fn launch_family(launch: &Launch) -> ModelFamily {
-    launch.model.as_deref().and_then(meter::family).unwrap_or(ModelFamily::Opus)
-}
-
-/// Whether the launch is the one fleet coordinator, however the role is spelled in an older record.
-fn is_coordinator(launch: &Launch) -> bool {
-    matches!(launch.role.as_deref(), Some("proxy" | "coordinator"))
-}
-
-/// Headroom below the subscription floor: the coordinator hands over before its meter reaches it.
-fn floor_headroom() -> f64 {
-    (100.0 - SUBSCRIPTION_FLOOR.0).max(0.0)
-}
-
-fn has_floor_headroom(verdict: &gate::Verdict) -> bool {
-    verdict.available && verdict.headroom > floor_headroom()
-}
-
-fn has_headroom(verdicts: &[gate::Verdict]) -> bool {
-    verdicts.iter().any(has_floor_headroom)
-}
-
-fn rank_by_headroom(verdicts: &mut [gate::Verdict]) {
-    for verdict in verdicts.iter_mut().filter(|verdict| verdict.available) {
-        verdict.rank = Rank::headroom(verdict.headroom);
-    }
 }
 
 fn recorded(machine: &Machine, facts: Facts, fleet_load: &BTreeMap<String, i64>) -> north_strategy_types::placement::Machine {

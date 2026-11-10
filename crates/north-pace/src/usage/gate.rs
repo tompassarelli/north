@@ -8,8 +8,7 @@ use serde_json::{Map, Value, json};
 use toml_edit::DocumentMut;
 
 use super::ctx::{self, Defaults, Tier};
-use super::decide::world::ModelFamily;
-use super::{Places, meter, profiles, py, settings};
+use super::{Places, profiles, py, settings};
 use crate::foundation::clock::Timestamp;
 use crate::router::{ops, policy};
 
@@ -53,7 +52,7 @@ pub(super) fn write(db: &Connection, providers: &[&str], places: &Places, now: T
         let refusal = |account: Option<&str>| refusal(&context, provider, account, local.as_deref());
         let named: Vec<&String> = context["accounts"].as_object().into_iter().flatten().map(|(name, _)| name).filter(|name| name.split(':').next() == Some(provider)).collect();
         let refusals: Map<String, Value> = named.iter().map(|name| ((*name).clone(), refusal(Some(name)))).collect();
-        let windows: Map<String, Value> = named.iter().map(|name| sampled(&context, name, provider, now, &readings)).collect::<Result<_, _>>()?;
+        let windows: Map<String, Value> = named.iter().map(|name| sampled(&context, name, provider, now)).collect::<Result<_, _>>()?;
         let verdict = json!({
             "ts": py::second(now), "epoch": now.unix_seconds_f64(), "stale_min": settings::default_value("usage_stale_min"),
             "refusal": refusal(None), "refusals": refusals, "windows": windows,
@@ -97,7 +96,7 @@ fn refusal(context: &Value, provider: &str, account: Option<&str>, local: Option
     }
 }
 
-fn sampled(context: &Value, name: &str, provider: &str, now: Timestamp, readings: &[super::store::Row]) -> Result<(String, Value), String> {
+fn sampled(context: &Value, name: &str, provider: &str, now: Timestamp) -> Result<(String, Value), String> {
     let account = &context["accounts"][name];
     let key = if provider == "claude" { format!("claude:{}", account["id"].as_str().unwrap_or("None")) } else { name.to_owned() };
     let mut windows = Vec::new();
@@ -107,19 +106,6 @@ fn sampled(context: &Value, name: &str, provider: &str, now: Timestamp, readings
             "window": kind, "used_pct": 100.0 - window["headroom"].as_f64().unwrap_or_default(), "reset_h": window["reset_in"],
             "age_s": age, "as_of": window["as_of"], "resets_at": window["resets_at"],
         }));
-    }
-    if provider == "claude" {
-        let fable = meter::scoped(ModelFamily::Fable);
-        let label = account["id"].as_str().unwrap_or_default();
-        if let Some(row) = readings.iter().find(|row| row.text("provider") == Some("claude") && row.text("account") == Some(label) && row.text("kind") == Some("window") && row.text("name") == Some(fable.as_str()))
-            && let Some(used) = row.number("used_pct")
-        {
-            let as_of = row.text("ts").unwrap_or_default();
-            let age = (now.unix_nanos() - py::parse(as_of)?.unix_nanos()) as f64 / 1e9;
-            let resets_at = row.text("resets_at").filter(|text| !text.is_empty());
-            let reset_h = resets_at.and_then(|text| py::parse(text).ok()).map_or(0.0, |at| (at.unix_nanos() - now.unix_nanos()) as f64 / 1e9 / 3600.0).max(0.0);
-            windows.push(json!({"window": fable, "used_pct": used, "reset_h": reset_h, "age_s": age, "as_of": as_of, "resets_at": resets_at}));
-        }
     }
     Ok((key, Value::Array(windows)))
 }

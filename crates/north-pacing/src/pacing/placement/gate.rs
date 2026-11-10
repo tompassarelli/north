@@ -13,8 +13,6 @@ use crate::capacity::{agent_load, laptop_auto};
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
 use crate::fleet::roster::{Roster, Standing};
-use crate::usage::decide::world::ModelFamily;
-use crate::usage::meter;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -79,8 +77,6 @@ pub struct Machine {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Decision {
     pub target: Target,
-    /// The model family the chosen account serves, when placement knows the launch's model.
-    pub family: Option<ModelFamily>,
     pub code_only: bool,
     pub surface: String,
     pub verdicts: Vec<Verdict>,
@@ -212,7 +208,7 @@ fn best(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool, order: impl Fn(&Ve
 /// The label of the Claude account that runs here with the most headroom in the last usage sample,
 /// None when every one is at its provider's limit.
 pub fn roomiest_here(gate: &Value, roster: &Roster) -> Option<String> {
-    let here: Vec<Verdict> = standing_verdicts(gate, &standings(gate, roster), None).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
+    let here: Vec<Verdict> = standing_verdicts(gate, &standings(gate, roster)).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
     best(&here, |_| true, |a, b| a.headroom.total_cmp(&b.headroom)).map(|best| best.account.trim_start_matches("claude:").to_owned())
 }
 
@@ -229,7 +225,7 @@ fn window_refusal(window: &Value) -> Option<String> {
     (window["used_pct"].as_f64()? >= 100.0).then(|| format!("{name} window at the provider's limit"))
 }
 
-fn headroom(windows: &[&Value]) -> f64 {
+fn headroom(windows: &[Value]) -> f64 {
     windows
         .iter()
         .filter_map(|w| Some((100.0 - w["used_pct"].as_f64()?).max(0.0)))
@@ -237,7 +233,7 @@ fn headroom(windows: &[&Value]) -> f64 {
         .unwrap_or(0.0)
 }
 
-fn usage(windows: &[&Value]) -> String {
+fn usage(windows: &[Value]) -> String {
     windows
         .iter()
         .filter_map(|w| Some(format!("{} {:.0}%", w["window"].as_str()?, w["used_pct"].as_f64()?)))
@@ -245,32 +241,22 @@ fn usage(windows: &[&Value]) -> String {
         .join(", ")
 }
 
-/// Whether a sampled window bears on a launch of `family`: its five-hour and shared weekly windows
-/// always do, and a scoped weekly window does only for its own family.
-fn relevant(window: &Value, family: Option<ModelFamily>) -> bool {
-    match window["window"].as_str() {
-        Some("5h" | "week" | "weekly_all") => true,
-        Some(name) => family.is_some_and(|family| name == meter::scoped(family)),
-        None => false,
-    }
-}
-
-pub fn verdict(account: &str, sampled: &Value, family: Option<ModelFamily>) -> Verdict {
-    let windows: Vec<&Value> = rows(sampled).iter().filter(|window| relevant(window, family)).collect();
+pub fn verdict(account: &str, sampled: &Value) -> Verdict {
+    let windows = rows(sampled);
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
         return unavailable(account, "no live quota sample".into());
     }
-    if let Some(reason) = windows.iter().find_map(|window| window_refusal(window)) {
+    if let Some(reason) = windows.iter().find_map(window_refusal) {
         return Verdict { exhausted: true, ..unavailable(account, reason) };
     }
-    let room = headroom(&windows);
+    let room = headroom(windows);
     Verdict {
         account: account.into(),
         available: true,
         exhausted: false,
         headroom: room,
         rank: Rank::default(),
-        line: format!("{account} available: {} ({room:.0}% headroom)", usage(&windows)),
+        line: format!("{account} available: {} ({room:.0}% headroom)", usage(windows)),
         owners: Vec::new(),
     }
 }
@@ -473,31 +459,15 @@ pub fn verdicts(gate: &Value, roster: &Roster, basis: &Basis) -> Vec<Verdict> {
     verdicts_of(gate, &standings(gate, roster), basis)
 }
 
-/// The verdicts on each account for a launch of `family`: its scoped meter decides headroom and
-/// exhaustion beside the shared five-hour and weekly windows.
-pub fn verdicts_for(gate: &Value, roster: &Roster, basis: &Basis, family: ModelFamily) -> Vec<Verdict> {
-    verdicts_of_for(gate, &standings(gate, roster), basis, Some(family))
-}
-
 /// The verdicts on each account given its recorded standing in the roster; an account held until another is
 /// spent is unavailable while that one has week left.
 pub fn verdicts_of(gate: &Value, standings: &BTreeMap<String, record::Standing>, basis: &Basis) -> Vec<Verdict> {
-    verdicts_of_for(gate, standings, basis, None)
-}
-
-pub fn verdicts_of_for(gate: &Value, standings: &BTreeMap<String, record::Standing>, basis: &Basis, family: Option<ModelFamily>) -> Vec<Verdict> {
     let windows = &gate["claude"]["windows"];
-    standing_verdicts(gate, standings, family)
+    standing_verdicts(gate, standings)
         .into_iter()
         .map(|verdict| match basis.held(&verdict.account, windows).filter(|_| verdict.available) {
             Some(why) => Verdict { owners: verdict.owners, ..unavailable(&verdict.account, why) },
-            None => {
-                let rank = match family {
-                    Some(family) => basis.rank_for(family, verdict.available, &verdict.account, &windows[&verdict.account]),
-                    None => basis.rank(verdict.available, &verdict.account, &windows[&verdict.account]),
-                };
-                Verdict { rank, ..verdict }
-            }
+            None => Verdict { rank: basis.rank(verdict.available, &verdict.account, &windows[&verdict.account]), ..verdict },
         })
         .collect()
 }
@@ -519,13 +489,13 @@ pub fn standings(gate: &Value, roster: &Roster) -> BTreeMap<String, record::Stan
         .collect()
 }
 
-fn standing_verdicts(gate: &Value, standings: &BTreeMap<String, record::Standing>, family: Option<ModelFamily>) -> Vec<Verdict> {
+fn standing_verdicts(gate: &Value, standings: &BTreeMap<String, record::Standing>) -> Vec<Verdict> {
     claude_controls(gate)
         .into_iter()
         .map(|(name, control)| match standings.get(&name).unwrap_or(&record::Standing::Unknown) {
-            record::Standing::Listed => verdict(&name, control, family),
+            record::Standing::Listed => verdict(&name, control),
             record::Standing::Duplicate(duplicate) => unavailable(&name, duplicate.clone()),
-            record::Standing::Foreign(owners) => Verdict { owners: owners.clone(), ..verdict(&name, control, family) },
+            record::Standing::Foreign(owners) => Verdict { owners: owners.clone(), ..verdict(&name, control) },
             record::Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
         .collect()
@@ -556,7 +526,6 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     let Choice { open, lines: machine_lines, here_lacks, crowded } = machine_for(text, machines, &here_serves, here_gaming, &reach);
     let mut decision = Decision {
         target: Target::Held(String::new()),
-        family: None,
         code_only,
         surface,
         verdicts,

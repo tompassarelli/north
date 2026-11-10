@@ -3,7 +3,7 @@
 //! soonest windfall. A worker whose source pauses moves to that same source above the floor, and parks only when none is.
 use super::state::{State, state};
 use super::work::Action;
-use super::world::{Account, Credit, Label, ModelFamily, Percent, Session, Standing, Unix, Usd, World};
+use super::world::{Account, Credit, Label, ModelFamily, Percent, Session, Unix, Usd, World};
 
 pub const SUBSCRIPTION_FLOOR: Percent = Percent(98.0);
 pub const API_FLOOR: Usd = Usd(50.0);
@@ -49,13 +49,8 @@ fn credit_footing(world: &World, label: &Label, credit: Credit) -> Footing {
 pub(super) fn keep(world: &World, session: &Session) -> Option<Action> {
     let own = world.accounts.iter().find(|account| account.label == session.account)?;
     let Footing::Below { .. } = footing(world, own, session.family) else { return None };
-    if let Some(to) = roomiest(world, session, session.family, true) {
-        return Some(Action::HandOver { to, family: None });
-    }
-    if session.standing == Standing::Proxy
-        && let Some(to) = roomiest(world, session, ModelFamily::Opus, false)
-    {
-        return Some(Action::HandOver { to, family: Some(ModelFamily::Opus) });
+    if let Some(to) = roomiest(world, session) {
+        return Some(Action::HandOver { to });
     }
     session.parked_since.is_none().then(|| Action::Park { resumes_at: soonest_windfall(world, session) })
 }
@@ -63,21 +58,19 @@ pub(super) fn keep(world: &World, session: &Session) -> Option<Action> {
 pub(super) fn strand(world: &World, session: &Session) -> Option<Action> {
     let own = world.accounts.iter().find(|account| account.label == session.account && account.credit.is_some())?;
     let Footing::Below { windfall } = footing(world, own, session.family) else { return None };
-    if let Some(to) = roomiest(world, session, session.family, true) {
-        return Some(Action::HandOver { to, family: None });
+    if let Some(to) = roomiest(world, session) {
+        return Some(Action::HandOver { to });
     }
     session.parked_since.is_none().then_some(Action::Park { resumes_at: windfall })
 }
 
-/// The account above `family`'s floor with the most room; `elsewhere` keeps the session's own account out
-/// when it already sits there, as a hand-over to another account does.
-pub(super) fn roomiest(world: &World, session: &Session, family: ModelFamily, elsewhere: bool) -> Option<Label> {
+pub(super) fn roomiest(world: &World, session: &Session) -> Option<Label> {
     let provider = world.accounts.iter().find(|account| account.label == session.account)?.provider;
     world
         .accounts
         .iter()
-        .filter(|account| account.provider == provider && (!elsewhere || account.label != session.account))
-        .filter_map(|account| match footing(world, account, family) {
+        .filter(|account| account.provider == provider && account.label != session.account)
+        .filter_map(|account| match footing(world, account, session.family) {
             Footing::Above { worth } => Some((worth, &account.label)),
             Footing::Below { .. } | Footing::Unknown => None,
         })

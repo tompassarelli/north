@@ -94,8 +94,8 @@ pub fn hand_over(
     let mut moving = BTreeSet::new();
     for (name, action) in assessed.actions {
         let Some(record) = records.iter().find(|record| record.name == name.0) else { continue };
-        let (to, family) = match action {
-            Action::HandOver { to, family } => (to, family),
+        let to = match action {
+            Action::HandOver { to } => to,
             Action::Park { resumes_at } => {
                 let until_ms = resumes_at.and_then(|at| u64::try_from(at.0).ok()).map(|at| at * 1000).filter(|at| *at > now_ms).unwrap_or_else(|| unknown_reset_ms(now_ms));
                 match park(&waits, record, until_ms) {
@@ -107,7 +107,7 @@ pub fn hand_over(
         };
         if record.role() == Role::Proxy {
             moving.insert(record.name.as_str());
-            done.lines.extend(proxy::advance(fleet, record, &to.0, family, take_over, now_ms));
+            done.lines.extend(proxy::advance(fleet, record, &to.0, take_over, now_ms));
             continue;
         }
         if record.adopted() || !holds_work(record) {

@@ -2,10 +2,7 @@ use super::placement::gate::{self, Decision, Machine, Target, Verdict};
 use super::placement::room::Basis;
 use crate::fleet::model::{Account, ProviderName};
 use crate::fleet::roster::{Declared, Roster};
-use crate::usage::decide::world::ModelFamily;
-use north_strategy_types::placement as record;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
 use toml_edit::DocumentMut;
 
 const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: code\n";
@@ -220,36 +217,6 @@ fn a_brief_with_no_surface_line_takes_its_repositorys_default_so_a_build_host_ca
     assert_eq!(gate::surfaced(brief, &cfg).lines().next(), Some("Surface: rust"));
     let configured: DocumentMut = "[placement.surfaces]\nnorth = \"ts\"\n".parse().unwrap();
     assert_eq!(gate::surfaced(brief, &configured).lines().next(), Some("Surface: ts"));
-}
-
-/// A replay of a coordinator launch on Fable with two accounts, each carrying its shared week and its
-/// own Fable meter, exactly as the decision log records them.
-fn coordinator_case(fable: [f64; 2], shared: [f64; 2]) -> record::Case {
-    let at = crate::foundation::clock::rfc3339_seconds("2026-11-10T12:00:00Z").unwrap();
-    let window = |name: &str, used: f64| record::Window { window: Some(name.into()), used_pct: Some(used), resets_at: None, reset_h: Some(100.0) };
-    let account = |fable: f64, shared: f64| vec![window("5h", 0.0), window("week", shared), window("weekly_scoped/Fable", fable)];
-    record::Case {
-        at,
-        launch: record::Launch { name: "proxy".into(), fresh: true, provider: "claude".into(), model: Some("fable".into()), role: Some("proxy".into()), ..Default::default() },
-        brief: "Item: north#1065 coordinator wake\n".into(),
-        config: record::Config::default(),
-        credit: record::Credit::default(),
-        usage: record::Usage { controls: BTreeMap::from([("claude:a".into(), account(fable[0], shared[0])), ("claude:b".into(), account(fable[1], shared[1]))]), ..Default::default() },
-        roster: BTreeMap::from([("claude:a".into(), record::Standing::Listed), ("claude:b".into(), record::Standing::Listed)]),
-        machines: Vec::new(),
-        here: record::Here::default(),
-        github: None,
-        grants: Vec::new(),
-    }
-}
-
-#[test]
-fn a_replayed_coordinator_launch_reads_the_fable_meter_and_falls_back_to_opus_high_when_none_has_fable_headroom() {
-    let upstairs = super::placement::case::decide(&coordinator_case([99.0, 40.0], [10.0, 10.0])).unwrap();
-    assert_eq!((target(&upstairs).as_str(), upstairs.family), ("claude:b", Some(ModelFamily::Fable)), "{:?}", upstairs.verdicts);
-
-    let all_fable_out = super::placement::case::decide(&coordinator_case([99.0, 99.0], [90.0, 10.0])).unwrap();
-    assert_eq!((target(&all_fable_out).as_str(), all_fable_out.family), ("claude:b", Some(ModelFamily::Opus)), "{:?}", all_fable_out.verdicts);
 }
 
 #[test]

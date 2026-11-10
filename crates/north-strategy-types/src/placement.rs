@@ -44,12 +44,6 @@ pub struct Launch {
     pub overrides: Overrides,
     pub provider: String,
     pub verification: bool,
-    /// The model the launch records, whose family decides whether its scoped meter applies.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// The fleet role, so a coordinator whose model it does not name still falls back to Opus high.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
