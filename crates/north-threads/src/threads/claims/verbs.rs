@@ -5,10 +5,10 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::issues::Issues;
+use super::issues::{Issues, box_of_issue};
 use super::ledger::{self, Taken};
 use super::lifecycle::{self, Moved};
-use super::{Claim, Issue, OVERDUE_RATIO, Standing, box_slug, names_box, split_key};
+use super::{Claim, Issue, OVERDUE_RATIO, Standing, box_slug, split_key};
 use crate::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
@@ -91,15 +91,6 @@ fn issue_of(db: &rusqlite::Connection, item: &str, github: &BTreeMap<(String, u6
 
 fn github_items<'a>(items: impl Iterator<Item = &'a str>) -> BTreeSet<(String, u64)> {
     items.filter_map(|item| CATALOG.parse_ref(item).ok()).filter(|(repo, _)| !CATALOG.is_native(repo)).collect()
-}
-
-/// Refuses a box slug the issue's body lacks, ticked or not: a claim on a box its issue lacks holds every box of it in dispatch. A native item or an unreadable body refuses nothing.
-fn box_of_issue(issues: &dyn Issues, (repo, number): (&str, u64), slug: &str) -> Result<(), String> {
-    let body = (!CATALOG.is_native(repo)).then(|| issues.body(repo, number)).flatten();
-    match body {
-        Some(body) if !names_box(&body, slug) => Err(format!("--box {slug} names no box of {repo}#{number}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it")),
-        _ => Ok(()),
-    }
 }
 
 fn claim(parsed: &Args, context: &Context) -> Result<String, String> {

@@ -34,6 +34,15 @@ impl Issues for GitHub {
     }
 }
 
+/// Refuses a box slug the issue's body lacks, ticked or not: a claim on a box its issue lacks holds every box of it in dispatch. A native item or an unreadable body refuses nothing.
+pub fn box_of_issue(issues: &dyn Issues, (repo, number): (&str, u64), slug: &str) -> Result<(), String> {
+    let body = (!CATALOG.is_native(repo)).then(|| issues.body(repo, number)).flatten();
+    match body {
+        Some(body) if !super::names_box(&body, slug) => Err(format!("--box {slug} names no box of {repo}#{number}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it")),
+        _ => Ok(()),
+    }
+}
+
 fn repositories(items: &BTreeSet<(String, u64)>) -> BTreeMap<&str, Vec<u64>> {
     let mut repos: BTreeMap<&str, Vec<u64>> = BTreeMap::new();
     for (repo, number) in items {
