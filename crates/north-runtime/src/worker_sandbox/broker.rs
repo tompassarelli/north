@@ -53,7 +53,7 @@ fn socket() -> PathBuf {
     runtime().join(DIRECTORY).join(SOCKET)
 }
 
-/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built.
+/// The requests the broker runs, each a verb of `north` that has to leave the worker's Landlock domain: depbox builds a mount namespace, which Landlock refuses to a confined process; the capacity gate puts its command in a transient scope, which needs the user manager, and the broker starts that command in a new domain of its own (`confined`); `lane unlock` and `lane stray` enforce their own removal rule; `--worker-sandbox --built` starts a lane's vouched build output in a new domain that still hides the logins and the sockets; `--worker-sandbox --lane` starts a lane-only session's shell command in a fresh lane-only domain that also keeps the lanes the session created since its own was built; `safe-push` runs its checks before queueing, whose tests build mount namespaces of their own (north#1094), with the host's credentials for a lane-only session (lane_grant.rs) and with its own environment for any other.
 /// Where the command begins in the arguments of `capacity host run`: after the first `--`, when a word follows it.
 fn payload(words: &[&str]) -> Option<usize> {
     words.iter().position(|word| *word == "--").map(|at| at + 1).filter(|start| *start < words.len())
@@ -283,7 +283,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));
     }
-    if lane_grant::privileged(&request.arguments) {
+    if lane_grant::granted(&request.arguments, cgroup) {
         return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
     }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));

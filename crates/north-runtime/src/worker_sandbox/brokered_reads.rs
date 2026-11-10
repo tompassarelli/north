@@ -6,16 +6,33 @@ use super::Context;
 use super::lane_only::readable_in_lane;
 use super::readable::readable;
 
-/// The file a brokered `north home move` would read as its plan: its one operand that is not a flag, taken from the client's working directory, as the broker's verb would open it.
-fn plan(arguments: &[String], directory: &Path) -> Option<PathBuf> {
+const SAFE_PUSH_VALUED: [&str; 4] = ["--to", "--tag", "--delete-tag", "--several-commits"];
+
+/// The file a brokered verb opens by its client's word, taken from the client's working directory as the verb would open it: the plan of `north home move`, its one operand that is not a flag, and the `--message FILE` of `safe-push`, whose text becomes the message of the commit it lands.
+fn named_file(arguments: &[String], directory: &Path) -> Option<PathBuf> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let ["home", "move", operands @ ..] = words.as_slice() else { return None };
-    operands.iter().find(|word| !word.starts_with('-')).map(|word| directory.join(word))
+    match words.as_slice() {
+        ["home", "move", operands @ ..] => operands.iter().find(|word| !word.starts_with('-')).map(|word| directory.join(word)),
+        ["safe-push", rest @ ..] => {
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match *word {
+                    "--message" => return words.next().map(|file| directory.join(file)),
+                    valued if SAFE_PUSH_VALUED.contains(&valued) => {
+                        words.next();
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
-/// Refuses a brokered verb that would read a file its client cannot: `north home move` opens its plan from outside the client's domain, so a plan path beyond what the client's domain lets it read (the logins, a lane-only client's other lanes and state) would hand back the first two tab fields of that file in its failure messages. Every other brokered verb reads nothing the client names: depbox, the capacity gate and the `--built`, `--lane` and `--program` commands run the client's program in a new domain at least as narrow, `lane unlock|stray|remove|gc` read lane names and enforce their own removal rule, and the `lane_grant` verbs read only the session's own lane.
+/// Refuses a brokered verb that would read a file its client cannot: `north home move` opens its plan and `safe-push` its `--message` file from outside the client's domain, so a path beyond what the client's domain lets it read (the logins, a lane-only client's other lanes and state) would hand back the first two tab fields of that file in a failure message, or publish it as a commit message. Every other brokered verb reads nothing the client names: depbox, the capacity gate and the `--built`, `--lane` and `--program` commands run the client's program in a new domain at least as narrow, `lane unlock|stray|remove|gc` read lane names and enforce their own removal rule, and the `lane_grant` verbs read only the session's own lane.
 pub(super) fn plan_readable(arguments: &[String], directory: &Path, environment: &[(String, String)], cgroup: Option<&str>) -> Result<(), String> {
-    let Some(plan) = plan(arguments, directory) else { return Ok(()) };
+    let Some(plan) = named_file(arguments, directory) else { return Ok(()) };
     let real = plan.canonicalize().map_err(|error| format!("cannot read {}: {error}", plan.display()))?;
     let context = Context::from_request(&arguments.join(" "), directory, environment);
     let roots = if cgroup.is_none_or(session_scope::lane_only_cgroup) { readable_in_lane(&context, &[]) } else { readable(&context) };

@@ -210,7 +210,7 @@ fn report(confined: Result<RulesetStatus, String>) {
     }
 }
 
-/// Runs `north ARGUMENTS` outside the worker's Landlock domain when called inside it, for a verb that enforces its own removal rule (`north lane unlock`, `north lane stray`); `None` outside a worker sandbox, where the verb runs in place.
+/// Runs `north ARGUMENTS` outside the worker's Landlock domain when called inside it, for a verb that enforces its own removal rule (`north lane unlock`, `north lane stray`) or for `safe-push`, whose checks before queueing run tests that build their own mount namespace, which Landlock refuses to any process in a domain (north#1094); `None` outside a worker sandbox, where the verb runs in place.
 pub fn reenter_outside(arguments: &[String]) -> Option<u8> {
     std::env::var_os(MARK)?;
     Some(through_broker(arguments))

@@ -9,7 +9,7 @@ pub fn safe_push(arguments: &[String]) -> u8 {
         return 1;
     }
     let request: Vec<String> = std::iter::once("safe-push".to_owned()).chain(arguments.iter().cloned()).collect();
-    if let Some(code) = north_runtime::worker_sandbox::reenter_lane_only(&request) {
+    if let Some(code) = north_runtime::worker_sandbox::reenter_outside(&request) {
         return code;
     }
     entry::safe_push(arguments, &host_facts())

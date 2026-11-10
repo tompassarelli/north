@@ -58,13 +58,17 @@ impl Fixture {
     }
 
     fn ask_from(&self, cgroup: &str, arguments: &[&str], directory: &Path) -> Asked {
+        self.ask_with(cgroup, arguments, directory, Vec::new())
+    }
+
+    fn ask_with(&self, cgroup: &str, arguments: &[&str], directory: &Path, environment: Vec<(String, String)>) -> Asked {
         let (client, server) = UnixStream::pair().unwrap();
         let (mut out, out_writer) = std::io::pipe().unwrap();
         let (mut err, err_writer) = std::io::pipe().unwrap();
         let stdin = File::open("/dev/null").unwrap();
         let logged = std::thread::scope(|scope| {
             let served = scope.spawn(|| broker::answer(&self.north, &server, Some(cgroup), &self.host));
-            let request = Request { arguments: arguments.iter().map(|word| (*word).to_owned()).collect(), directory: directory.to_owned(), environment: Vec::new() };
+            let request = Request { arguments: arguments.iter().map(|word| (*word).to_owned()).collect(), directory: directory.to_owned(), environment };
             let code = broker::send(&client, request, [stdin.as_fd(), out_writer.as_fd(), err_writer.as_fd()]).unwrap();
             (code, served.join().unwrap())
         });
@@ -190,4 +194,22 @@ fn a_safe_push_from_the_brokered_lane_child_of_an_opencode_shell_command_is_gran
     let landed = fixture.ask_from(&child, &["safe-push", "--to", "main"], &fixture.lane);
     assert_eq!(landed.code, 0, "the brokered child's nested safe-push is granted: {}", landed.stderr);
     assert_eq!(fixture.ran().last().unwrap(), &format!("{}|safe-push --to main|{NAME}", fixture.lane.display()));
+}
+
+#[test]
+fn a_claude_workers_safe_push_runs_outside_with_its_own_environment_and_reads_only_what_it_could_north_1094() {
+    let fixture = Fixture::new();
+    let worker = "0::/user.slice/user-1000.slice/user@1000.service/agent.slice/north-fleet-n1094-x.service\n";
+    let own = vec![("HOME".to_owned(), fixture.host.home.display().to_string()), ("NORTH_FLEET_SESSION".to_owned(), "n1094-x".to_owned()), ("NORTH_WORKER_SANDBOXED".to_owned(), "1".to_owned())];
+    let landed = fixture.ask_with(worker, &["safe-push", "--to", "main"], &fixture.lane, own.clone());
+    assert_eq!(landed.code, 0, "{}", landed.stderr);
+    assert_eq!(landed.stdout, "out \n", "the host's token does not reach a worker that holds its own");
+    assert_eq!(fixture.ran(), [format!("{}|safe-push --to main|n1094-x", fixture.lane.display())]);
+    let login = fixture.host.home.join(".config/gh/hosts.yml");
+    std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+    std::fs::write(&login, "oauth_token: x\n").unwrap();
+    let leaked = fixture.ask_with(worker, &["safe-push", "--to", "main", "--message", login.to_str().unwrap()], &fixture.lane, own);
+    assert_eq!(leaked.code, 126);
+    assert!(leaked.logged.contains("outside the files the caller can read"), "{}", leaked.logged);
+    assert_eq!(fixture.ran().len(), 1, "a message file the worker cannot read is never handed to safe-push");
 }

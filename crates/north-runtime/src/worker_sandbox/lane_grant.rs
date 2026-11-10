@@ -43,13 +43,18 @@ pub(super) struct Session {
     pub lane: PathBuf,
 }
 
-/// Whether `arguments` ask for a verb this module grants, which only a lane-only session receives.
+/// Whether `arguments` ask for a verb this module grants a lane-only session.
 pub(super) fn privileged(arguments: &[String]) -> bool {
     match arguments {
         [verb, ..] if verb == "safe-push" => true,
         [noun, verb, ..] => noun == "task" && (verb == "comment" || verb == "check"),
         _ => false,
     }
+}
+
+/// Whether the request `arguments` from a caller whose `/proc/PID/cgroup` reads `cgroup` (`None` when unreadable) is served by this module's grant: each verb it grants, apart from a `safe-push` from outside every lane-only session's scope. That caller (a Claude worker) holds its own token, and the broker runs its safe-push with its own environment, outside the Landlock domain that refuses the mount namespaces its checks before queueing build (north#1094).
+pub(super) fn granted(arguments: &[String], cgroup: Option<&str>) -> bool {
+    privileged(arguments) && (arguments.first().is_none_or(|verb| verb != "safe-push") || cgroup.is_none_or(north_base::platform::session_scope::lane_only_cgroup))
 }
 
 /// The fleet session whose scope `cgroup` (the caller's `/proc/PID/cgroup`) names, when it is a lane-only one.
