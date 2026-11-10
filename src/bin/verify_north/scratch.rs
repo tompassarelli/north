@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use super::exec;
 
@@ -47,6 +48,20 @@ impl Scratch {
 
     pub fn origin_main(&self) -> Result<String, String> {
         git(&self.origin, &["rev-parse", "refs/heads/main"])
+    }
+
+    pub fn await_landing(&self, limit: Duration) -> Result<String, String> {
+        let started = Instant::now();
+        loop {
+            let landed = self.origin_main()?;
+            if landed != self.base {
+                return Ok(landed);
+            }
+            if started.elapsed() >= limit {
+                return Err(format!("origin main stayed on {} for {limit:?} while the host's lander held the queue", self.base));
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
     }
 
     pub fn lane_head(&self) -> Result<String, String> {

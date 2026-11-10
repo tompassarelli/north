@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -10,6 +11,8 @@ use super::transcript::Transcript;
 
 const QUERY_WAIT: Duration = Duration::from_secs(30);
 const PLACEMENT_WAIT: Duration = Duration::from_secs(90);
+const PLACEMENT_HOLD_WAIT: Duration = Duration::from_mins(20);
+const PLACEMENT_HOLD_RETRY: Duration = Duration::from_secs(60);
 const PLACEMENT_BRIEF: &str = "Surface: shell\nNeeds: laptop\n";
 
 fn placed_account(listing: &str) -> Result<String, String> {
@@ -67,8 +70,14 @@ impl North {
         let brief = tempfile::Builder::new().prefix("verify-north-brief").suffix(".md").tempfile().map_err(|error| format!("brief file: {error}"))?;
         std::fs::write(brief.path(), PLACEMENT_BRIEF).map_err(|error| format!("brief file: {error}"))?;
         let path = brief.path().to_string_lossy().into_owned();
-        let listing = self.run(&["config", "agents", "plan", "--place", &path], PLACEMENT_WAIT)?;
-        placed_account(&listing)
+        let deadline = Instant::now() + PLACEMENT_HOLD_WAIT;
+        loop {
+            let listing = self.run(&["config", "agents", "plan", "--place", &path], PLACEMENT_WAIT)?;
+            match placed_account(&listing) {
+                Err(problem) if problem.contains(" held: ") && Instant::now() < deadline => thread::sleep(PLACEMENT_HOLD_RETRY),
+                placed => return placed,
+            }
+        }
     }
 
     pub fn host_pid(&self, name: &str) -> Result<Option<u32>, String> {

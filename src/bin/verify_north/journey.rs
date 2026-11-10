@@ -107,12 +107,19 @@ fn land(journey: &mut Journey) -> Result<String, String> {
     let scratch = journey.scratch()?;
     let pushes = scratch.root.join("pushes.tsv");
     let ledger = scratch.root.join("threads.db");
-    let served = journey.north.run_with(&["land", "serve", "--once", "--repo", &scratch.main.to_string_lossy()], &[("THREADS_DB", &ledger), ("NORTH_PUSH_LOG", &pushes)], LAND_WAIT)?;
-    let landed = scratch.origin_main()?;
+    let served = match journey.north.run_with(&["land", "serve", "--once", "--repo", &scratch.main.to_string_lossy()], &[("THREADS_DB", &ledger), ("NORTH_PUSH_LOG", &pushes)], LAND_WAIT) {
+        Ok(served) => Some(served),
+        Err(problem) if problem.contains("already served by") => None,
+        Err(problem) => return Err(problem),
+    };
+    let landed = match &served {
+        Some(_) => scratch.origin_main()?,
+        None => scratch.await_landing(LAND_WAIT)?,
+    };
     let parent = scratch.origin(&["rev-parse", &format!("{landed}^")])?;
     let changed = scratch.origin(&["show", "--format=", "--name-only", &landed])?;
-    if parent != scratch.base || changed != CHANGED_FILE || !served.contains(&format!("landed {landed}")) {
-        return Err(format!("origin main is {landed} on {parent} changing {changed:?}; expected one commit changing {CHANGED_FILE} on {}; lander said: {}", scratch.base, shorten(&served)));
+    if parent != scratch.base || changed != CHANGED_FILE || served.as_ref().is_some_and(|served| !served.contains(&format!("landed {landed}"))) {
+        return Err(format!("origin main is {landed} on {parent} changing {changed:?}; expected one commit changing {CHANGED_FILE} on {}; lander said: {}", scratch.base, shorten(served.as_deref().unwrap_or("a lander the host already runs served the queue"))));
     }
     journey.landed = Some(landed.clone());
     Ok(format!("landed {}", short(&landed)))
