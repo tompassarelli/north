@@ -3,9 +3,10 @@
 ## Scope
 
 Engineer the speed and invalidation economics of a named repeated
-edit-to-signal or edit-to-behavior loop. `verification` still chooses
-and interprets any individual correctness check; this skill owns the repeated
-loop's latency budget, measurement, dependency shape, and optimization.
+edit-to-signal or edit-to-behavior loop. [verification](../../verification/SKILL.md)
+still chooses and interprets any individual correctness check; this skill owns
+the repeated loop's latency budget, measurement, dependency shape, and
+optimization.
 
 ## Admit and distinguish the real loop
 

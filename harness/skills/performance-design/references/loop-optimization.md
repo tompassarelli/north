@@ -3,10 +3,11 @@
 ## Correctness boundary
 
 Keep correctness signals lean without weakening them. Use the nearest
-decision-changing check selected by `verification`, dependency-aware
-test selection when supported, and one owner for each reachable failure wave.
-Do not repeatedly run a broad suite after a narrower result already determines
-the next action, and never lower an assertion or gate to improve timing.
+decision-changing check selected by [verification](../../verification/SKILL.md),
+dependency-aware test selection when supported, and one owner for each reachable
+failure wave. Do not repeatedly run a broad suite after a narrower result already
+determines the next action, and never lower an assertion or gate to improve
+timing.
 
 ## Locate the cost owner
 
@@ -24,9 +25,9 @@ less invalidated work for more parsing, linking, scheduling, API surface, or
 maintenance cost.
 
 Price measurement, implementation, and ongoing maintenance against the expected
-remaining uses: `uses × credible saved latency` must repay the total cost within
-the named horizon. Stop at the useful 80/20 point. A theoretical speedup without
-a paying repeated loop is not work.
+remaining uses with [pricing and progress](../../verification/references/pricing-and-progress.md),
+which owns the break-even cost model. Stop at the useful 80/20 point. A
+theoretical speedup without a paying repeated loop is not work.
 
 ## Alternatives and tradeoffs
 
