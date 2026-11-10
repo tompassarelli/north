@@ -256,6 +256,15 @@ fn with_session(line: &str, session: &str) -> String {
 }
 
 impl Host {
+    pub fn release_scratch(&self) {
+        for directory in ["tmp", "cache"] {
+            let path = self.scratch.join(directory);
+            if let Err(error) = std::fs::remove_dir_all(&path).or_else(|error| if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) }) {
+                eprintln!("north: remove {}: {error}", path.display());
+            }
+        }
+    }
+
     pub fn parse(harness: &'static dyn Harness, arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(usage(harness));
         let (mut route, mut session, mut scratch, mut program, mut key_file, mut instructions, mut effort) = (None, None, None, None, None, None, None);
@@ -281,6 +290,8 @@ impl Host {
 
 pub fn run(harness: &'static dyn Harness, arguments: &[String]) -> NorthResult<u8> {
     let host = Host::parse(harness, arguments)?;
-    serve(&host, BufReader::new(std::io::stdin()), &mut std::io::stdout())?;
+    let served = serve(&host, BufReader::new(std::io::stdin()), &mut std::io::stdout());
+    host.release_scratch();
+    served?;
     Ok(0)
 }

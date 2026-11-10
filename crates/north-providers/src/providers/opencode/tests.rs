@@ -304,3 +304,24 @@ fn a_deepseek_worker_launched_from_a_primary_checkout_starts_in_a_lane_the_launc
     assert_eq!(resumed.cwd, lane);
     assert_eq!(made.lock().unwrap().len(), 1, "a resumed worker keeps its lane");
 }
+
+#[test]
+fn an_ended_opencode_host_leaves_its_conversation_but_not_its_tmp_and_cache() {
+    let home = tempfile::tempdir().unwrap();
+    let scratch = home.path().join("scratch");
+    for kept in ["data", "config", "state"] {
+        std::fs::create_dir_all(scratch.join(kept)).unwrap();
+        std::fs::write(scratch.join(kept).join("session"), "conversation").unwrap();
+    }
+    for dropped in ["tmp", "cache"] {
+        std::fs::create_dir_all(scratch.join(dropped)).unwrap();
+        std::fs::write(scratch.join(dropped).join("build"), vec![0u8; 1 << 16]).unwrap();
+    }
+    let host = turns::Host { harness: &OPENCODE, route: Route::Free, effort: None, session: "ses_x".into(), scratch: scratch.clone(), key_file: None, instructions: None, launcher: Vec::new(), program: fake(home.path()), cwd: home.path().into() };
+
+    host.release_scratch();
+    host.release_scratch();
+
+    assert!(["data", "config", "state"].iter().all(|kept| scratch.join(kept).join("session").exists()));
+    assert!(["tmp", "cache"].iter().all(|dropped| !scratch.join(dropped).exists()));
+}
