@@ -5,4 +5,3 @@ pub mod port;
 pub mod read;
 pub mod store;
 pub mod sync;
-pub mod tip;
