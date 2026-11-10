@@ -58,7 +58,7 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let here = walk_and_ship(layout, &hosts, &checkout);
     for facts in std::iter::once(here).chain(hosts[1..].iter().map(|host| probed(layout, host).0)) {
         let problems = judged_problems(&facts, live, &mut growth);
-        println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems));
+        println!("north runtime settle: {}: {}", facts.host, verdict(&facts, &problems, landing.is_some()));
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
             let inherited = judging.map_or(&[][..], |landing| history.before(&facts.host, &landing.sha, |earlier| ancestor(&checkout, earlier, &landing.sha)));
@@ -199,11 +199,13 @@ fn due_in(seen: &[(u64, String)], promoted_at: u64, deadline: u64, now: u64, hel
     seen.iter().rev().find(|(at, sha)| (*at).max(promoted_at) + deadline <= now && held(sha)).map(|(_, sha)| sha.as_str())
 }
 
-fn verdict(facts: &probe::Facts, problems: &[String]) -> String {
-    match (problems.is_empty(), probe::installing(facts)) {
-        (false, _) => problems.join("; "),
-        (true, true) => "installing: declared with no live runtime yet".to_owned(),
-        (true, false) => "live and healthy".to_owned(),
+fn verdict(facts: &probe::Facts, problems: &[String], judged: bool) -> String {
+    let runtime = facts.runtime.as_deref().map_or("no runtime", layout::short);
+    match (problems.is_empty(), probe::installing(facts), judged) {
+        (false, _, _) => problems.join("; "),
+        (true, true, _) => "installing: declared with no live runtime yet".to_owned(),
+        (true, false, true) => "live and healthy".to_owned(),
+        (true, false, false) => format!("healthy on {runtime}; no landing is due yet, so whether it is live is not judged"),
     }
 }
 
