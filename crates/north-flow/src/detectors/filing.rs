@@ -1,3 +1,5 @@
+//! Filing a detector finding on the issue that owns its cause: one box per key, and a later episode whose cause
+//! already has an open box comments its new reading on that issue instead of filing a second box.
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
@@ -11,6 +13,15 @@ use crate::flow::{Host, Places, write_atomic};
 const FILE_LIMIT: usize = 12;
 const STATE: &str = "detectors.json";
 const LOCK: &str = "detectors.lock";
+
+/// What one detector finding did to its owning issue: filed its box, commented a repeated cause that an open box
+/// already covers, or left the issue alone.
+#[derive(Debug, Eq, PartialEq)]
+enum Appended {
+    Box,
+    Commented,
+    Skipped(&'static str),
+}
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct State {
@@ -46,6 +57,23 @@ fn issue_of(owner: &str) -> Option<(String, String)> {
     number.bytes().all(|byte| byte.is_ascii_digit()).then(|| (format!("{}/{repo}", crate::dispatch::OWNER), number.to_owned()))
 }
 
+/// Whether the issue body already carries an unticked box for this cause, which a later episode's reading belongs
+/// under as a comment: a detector key names one episode, but its title names the cause every episode shares.
+fn open_box(body: &str, title: &str) -> bool {
+    let line = format!("- [ ] **{title}.**");
+    body.lines().any(|text| text.trim_start().starts_with(&line))
+}
+
+fn repeat_comment(finding: &Finding) -> String {
+    format!(
+        "**{} saw this cause again.** {}\n\nThe open box \"{}\" above covers the same cause, so this tick commented the new reading here instead of filing a second box.\n\n(detector {})",
+        finding.detector.name(),
+        finding.detail,
+        finding.title,
+        finding.key
+    )
+}
+
 impl<'a> Filer<'a> {
     pub fn new(places: &'a Places, host: &'a dyn Host) -> Self {
         Self { places, host }
@@ -63,18 +91,23 @@ impl<'a> Filer<'a> {
         write_atomic(&self.path(), &(serde_json::to_string(state).map_err(|error| error.to_string())? + "\n")).map_err(|error| error.to_string())
     }
 
-    fn append(&self, finding: &Finding, slug: &str, number: &str) -> Result<Option<&'static str>, String> {
+    fn append(&self, finding: &Finding, slug: &str, number: &str) -> Result<Appended, String> {
         let issue = self.host.json(&["gh", "issue", "view", number, "-R", slug, "--json", "body,state"]).ok_or_else(|| format!("gh issue view {slug}#{number} did not answer"))?;
         if issue["state"].as_str() != Some("OPEN") {
-            return Ok(Some("the owning issue is not open"));
+            return Ok(Appended::Skipped("the owning issue is not open"));
         }
         let body = issue["body"].as_str().unwrap_or_default();
         if body.contains(&format!("(detector {})", finding.key)) {
-            return Ok(Some("the owning issue already carries the box"));
+            return Ok(Appended::Skipped("the owning issue already carries the box"));
+        }
+        if open_box(body, &finding.title) {
+            let comment = repeat_comment(finding);
+            self.host.run(&["gh", "issue", "comment", number, "-R", slug, "--body-file", "-"], None, Some(&comment)).ok_or_else(|| format!("gh issue comment {slug}#{number} failed"))?;
+            return Ok(Appended::Commented);
         }
         let edited = format!("{}\n{}\n", body.trim_end(), finding.box_line());
         self.host.run(&["gh", "issue", "edit", number, "-R", slug, "--body-file", "-"], None, Some(&edited)).ok_or_else(|| format!("gh issue edit {slug}#{number} failed"))?;
-        Ok(None)
+        Ok(Appended::Box)
     }
 
     pub fn filed_keys(&self) -> std::collections::BTreeSet<String> {
@@ -108,11 +141,18 @@ impl<'a> Filer<'a> {
                 continue;
             }
             match self.append(finding, &slug, &number) {
-                Ok(skipped) => {
+                Ok(appended) => {
                     state.filed.insert(finding.key.clone(), Filed { at: now, issue: owner.to_owned() });
                     self.save(&state)?;
-                    written += usize::from(skipped.is_none());
-                    outcome(skipped.is_none(), skipped.map_or_else(|| format!("filed a box on {owner}"), |why| format!("not filed: {why}")));
+                    let note = match appended {
+                        Appended::Box => {
+                            written += 1;
+                            format!("filed a box on {owner}")
+                        }
+                        Appended::Commented => format!("commented the repeated cause on {owner} instead of filing a second box"),
+                        Appended::Skipped(why) => format!("not filed: {why}"),
+                    };
+                    outcome(appended == Appended::Box, note);
                 }
                 Err(error) => outcome(false, format!("not filed: {error}")),
             }
@@ -121,3 +161,7 @@ impl<'a> Filer<'a> {
         Ok(outcomes)
     }
 }
+
+#[cfg(test)]
+#[path = "filing_tests.rs"]
+mod tests;

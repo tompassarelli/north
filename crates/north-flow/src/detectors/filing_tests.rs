@@ -1,0 +1,98 @@
+use std::cell::RefCell;
+use std::os::unix::process::ExitStatusExt;
+use std::path::Path;
+use std::process::{ExitStatus, Output};
+use std::time::Duration;
+
+use super::super::{Detector, Finding};
+use super::Filer;
+use crate::flow::{Host, Places};
+
+#[derive(Default)]
+struct GitHub {
+    body: RefCell<String>,
+    edits: RefCell<Vec<String>>,
+    comments: RefCell<Vec<String>>,
+}
+
+impl Host for GitHub {
+    fn output(&self, argv: &[&str], _: Option<&Path>, input: Option<&str>, _: Duration) -> Option<Output> {
+        let answer = |text: String| Some(Output { status: ExitStatus::from_raw(0), stdout: text.into_bytes(), stderr: Vec::new() });
+        match argv {
+            ["gh", "issue", "view", ..] => answer(serde_json::json!({ "body": self.body.borrow().clone(), "state": "OPEN" }).to_string()),
+            ["gh", "issue", "edit", ..] => {
+                let text = input.unwrap_or_default().to_owned();
+                self.edits.borrow_mut().push(text.clone());
+                *self.body.borrow_mut() = text;
+                answer(String::new())
+            }
+            ["gh", "issue", "comment", ..] => {
+                self.comments.borrow_mut().push(input.unwrap_or_default().to_owned());
+                answer(String::new())
+            }
+            _ => None,
+        }
+    }
+}
+
+fn places(root: &Path) -> Places {
+    Places { home: root.join("home"), state: root.join("state"), ledger: root.join("threads.db"), graph: root.join("graph.db") }
+}
+
+fn finding(key: &str, title: &str) -> Finding {
+    Finding {
+        detector: Detector::MachineFix,
+        key: key.to_owned(),
+        owner: Some("north#777".to_owned()),
+        title: title.to_owned(),
+        detail: format!("{key} landed commit 1 narrates an incident"),
+        done_when: "`north check machines` passes".to_owned(),
+        instances: Vec::new(),
+    }
+}
+
+#[test]
+fn a_repeated_cause_comments_on_the_open_box_instead_of_filing_a_second_one() {
+    let root = tempfile::tempdir().unwrap();
+    let places = places(root.path());
+    let github = GitHub::default();
+    let title = "Extend the pet machine model to the fixes its check let through";
+
+    let first = finding("machine-fix:pet:2026-W44", title);
+    let filed = Filer::new(&places, &github).file(&[first], 1.0).unwrap();
+    assert!(filed[0].filed, "{}", filed[0].note);
+    assert_eq!(github.edits.borrow().len(), 1);
+    assert!(github.body.borrow().contains("(detector machine-fix:pet:2026-W44)"));
+
+    let second = finding("machine-fix:pet:2026-W45", title);
+    let repeated = Filer::new(&places, &github).file(&[second], 2.0).unwrap();
+    assert!(!repeated[0].filed);
+    assert!(repeated[0].note.contains("commented the repeated cause on north#777"), "{}", repeated[0].note);
+    assert_eq!(github.edits.borrow().len(), 1, "the repeated cause files no second box");
+    assert_eq!(github.comments.borrow().len(), 1);
+    let comment = &github.comments.borrow()[0];
+    assert!(comment.contains("machine-fix:pet:2026-W45"), "{comment}");
+    assert!(comment.contains("2026-W45 landed commit 1 narrates an incident"), "{comment}");
+    assert!(comment.contains(title), "{comment}");
+    assert!(!github.body.borrow().contains("(detector machine-fix:pet:2026-W45)"), "the comment is not a box");
+
+    let ticked = github.body.borrow().replace("- [ ]", "- [x]");
+    *github.body.borrow_mut() = ticked;
+    let third = finding("machine-fix:pet:2026-W46", title);
+    let again = Filer::new(&places, &github).file(&[third], 3.0).unwrap();
+    assert!(again[0].filed, "a cause whose box is ticked files a new box: {}", again[0].note);
+    assert_eq!(github.edits.borrow().len(), 2);
+}
+
+#[test]
+fn a_different_cause_on_the_same_issue_still_files_its_box() {
+    let root = tempfile::tempdir().unwrap();
+    let places = places(root.path());
+    let github = GitHub::default();
+    let first = finding("machine-fix:pet:2026-W44", "Extend the pet machine model");
+    let second = finding("machine-refusal:pet:claim", "Model the claim move of pet");
+    let outcomes = Filer::new(&places, &github).file(&[first, second], 1.0).unwrap();
+    assert!(outcomes.iter().all(|outcome| outcome.filed));
+    assert_eq!(github.edits.borrow().len(), 2);
+    assert!(github.comments.borrow().is_empty());
+}
