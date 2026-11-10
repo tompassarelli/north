@@ -2,7 +2,8 @@
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
-use std::process::Stdio;
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use rustix::fs::{FlockOperation, flock};
@@ -10,9 +11,9 @@ use rustix::fs::{FlockOperation, flock};
 use super::bounded;
 use super::failure::{Failure, failed};
 use super::follow::own_scope;
-use super::layout::Layout;
+use super::layout::{self, Layout};
 use super::remote::ssh;
-use crate::land_offload;
+use crate::land_offload::{self, ship::quote};
 
 /// Seconds one host may take: a fetch of each checkout it keeps and a fast-forward, with room for a slow link.
 const LIMIT: Duration = Duration::from_secs(25);
@@ -24,14 +25,36 @@ const LOCK: &str = "host-checkouts.lock";
 /// The projects whose `main` checkout north reads policy, goals or configuration from, in the order a host syncs them: `south` first, since its `agents/orchestration.toml` places every host and its `agents` is the policy every session reads.
 const CHECKOUTS: [&str; 5] = ["south", "north", "nixos-config", "wisp", "makgora"];
 
-/// The shell a host runs: each checkout it keeps fetches origin/main and fast-forwards onto it when it is behind and git can, printing each move; a checkout behind that cannot fast-forward is named without touching it, a checkout this host lacks is skipped, and the script exits 0 so one host's refusal never stops the others.
-pub fn script() -> String {
-    let projects = CHECKOUTS.map(|project| format!(" {project}")).concat();
+/// Each project in `CHECKOUTS` with the origin its main checkout under `home` fetches, empty when that checkout is missing here.
+fn origins(home: &Path) -> Vec<(&'static str, String)> {
+    CHECKOUTS
+        .iter()
+        .map(|project| {
+            let output = Command::new("git").arg("-C").arg(home.join("code").join(project).join("main")).args(["remote", "get-url", "origin"]).stdin(Stdio::null()).stderr(Stdio::null()).output();
+            (*project, output.ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default())
+        })
+        .collect()
+}
+
+/// The shell a host runs: a checkout it lacks is cloned in the background from the origin `sources` names for it, so a host that enters offload holding only north and south gets every product repository's checkout from the same sync (on 2026-11-08 at 7:24 AM wisp's after-landing run on cpx62, which had no ~/code/wisp/main, exited 75 three times); each checkout it keeps fetches origin/main and fast-forwards onto it when it is behind and git can, printing each move; a checkout behind that cannot fast-forward is named without touching it, and the script exits 0 so one host's refusal never stops the others.
+pub fn script(sources: &[(&str, String)]) -> String {
+    let pairs = sources.iter().map(|(project, origin)| format!(" {} {}", quote(project), quote(origin))).collect::<String>();
     format!(
         r#"set -u
-for p in{projects}; do
+set --{pairs}
+while [ $# -ge 2 ]; do
+  p=$1 u=$2
+  shift 2
   d="$HOME/code/$p/main"
-  [ -e "$d/.git" ] || continue
+  if [ ! -e "$d/.git" ]; then
+    [ -n "$u" ] || continue
+    if [ -e "$d" ]; then printf '%s: ~/code/%s/main holds no .git\n' "$p" "$p"; continue; fi
+    mkdir -p "$HOME/code/$p" || {{ printf '%s: cannot make ~/code/%s\n' "$p" "$p"; continue; }}
+    flock -n "$HOME/code/$p/.main-clone.lock" true 2>/dev/null || continue
+    setsid -f sh -c 'exec 9>"$1/.main-clone.lock"; flock -n 9 || exit 0; [ -e "$1/main" ] && exit 0; t=$(mktemp -d "$1/.main-clone.XXXXXX") || exit 1; if git clone -q "$2" "$t"; then mv -T "$t" "$1/main"; else rmdir "$t"; fi' sh "$HOME/code/$p" "$u" </dev/null >/dev/null 2>&1
+    printf '%s: cloning %s\n' "$p" "$u"
+    continue
+  fi
   if ! git -C "$d" fetch -q --no-auto-maintenance origin main 2>/dev/null; then printf '%s: fetch failed\n' "$p"; continue; fi
   behind=$(git -C "$d" rev-list --count HEAD..origin/main 2>/dev/null) || {{ printf '%s: cannot count commits behind origin\n' "$p"; continue; }}
   [ "$behind" = 0 ] && continue
@@ -89,7 +112,7 @@ pub(super) fn run() -> Result<(), Failure> {
 
 /// Each move a host made and each host that could not be asked, asked side by side so the slowest link sets the wait.
 fn keep_all(destinations: &[String]) -> Vec<String> {
-    let script = script();
+    let script = script(&origins(&layout::home()));
     std::thread::scope(|scope| {
         let runs: Vec<_> = destinations.iter().map(|destination| (destination, scope.spawn(|| keep(destination, &script)))).collect();
         let mut kept = Vec::new();
@@ -161,9 +184,9 @@ mod tests {
         let scratch = tempfile::tempdir().expect("scratch");
         let (origin, home) = host(scratch.path());
         let ahead = commit(&origin, "two");
-        assert_eq!(run(&super::script(), &home), "south: fast-forwarded 1 commits\n");
+        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n");
         assert_eq!(git(&home.join("code/south/main"), &["rev-parse", "HEAD"]), ahead);
-        assert_eq!(run(&super::script(), &home), "", "a checkout already at origin/main says nothing");
+        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "", "a checkout already at origin/main says nothing");
     }
 
     #[test]
@@ -174,11 +197,11 @@ mod tests {
         std::fs::write(checkout.join("one"), "edited").expect("edit");
         commit(&origin, "two");
         let before = git(&checkout, &["rev-parse", "HEAD"]);
-        assert_eq!(run(&super::script(), &home), "south: uncommitted changes\n");
+        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: uncommitted changes\n");
         assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), before, "a dirty checkout is never moved");
         git(&checkout, &["checkout", "-q", "--", "one"]);
         git(&checkout, &["switch", "-q", "-c", "work"]);
-        assert_eq!(run(&super::script(), &home), "south: on work, not main\n");
+        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: on work, not main\n");
     }
 
     #[test]
@@ -188,16 +211,21 @@ mod tests {
         let checkout = home.join("code/south/main");
         let ahead = commit(&origin, "two");
         git(&checkout, &["checkout", "-q", "--detach"]);
-        assert_eq!(run(&super::script(), &home), "south: fast-forwarded 1 commits\n");
+        assert_eq!(run(&super::script(&[("south", String::new())]), &home), "south: fast-forwarded 1 commits\n");
         assert_eq!(git(&checkout, &["symbolic-ref", "-q", "--short", "HEAD"]), "main", "a detached checkout at an ancestor returns to main");
         assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), ahead);
     }
 
     #[test]
-    fn a_host_that_keeps_no_checkout_is_skipped() {
+    fn a_host_lacking_a_checkout_clones_it_from_the_origin_the_settler_fetches() {
         let scratch = tempfile::tempdir().expect("scratch");
-        let home = scratch.path().join("home");
-        std::fs::create_dir_all(&home).expect("home");
-        assert_eq!(run(&super::script(), &home), "");
+        let (origin, home) = host(scratch.path());
+        let head = git(&origin, &["rev-parse", "HEAD"]);
+        let sources = [("south", String::new()), ("wisp", origin.display().to_string()), ("makgora", String::new())];
+        assert_eq!(run(&super::script(&sources), &home), format!("wisp: cloning {}\n", origin.display()), "on 2026-11-08 cpx62 entered offload holding north and south but no ~/code/wisp/main; a project the settler keeps no checkout of is skipped");
+        let wisp = home.join("code/wisp/main");
+        assert!(north_base::platform::wait::until(std::time::Duration::from_secs(20), || wisp.join(".git").exists()), "the background clone never moved into ~/code/wisp/main");
+        assert_eq!(git(&wisp, &["rev-parse", "HEAD"]), head);
+        assert_eq!(run(&super::script(&sources), &home), "", "a cloned checkout at origin/main says nothing");
     }
 }

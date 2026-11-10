@@ -84,3 +84,24 @@ fn a_build_host_without_an_input_a_check_declares_is_left_out_of_that_check() {
     assert_eq!(run(&pinned, &cpx62, &bin), Vec::<String>::new(), "the store entry the check pins admits the host that holds it");
     assert_eq!(run(&Needs::default(), &cpx62b, &bin), Vec::<String>::new(), "a check that declares no input takes any host");
 }
+
+#[test]
+fn a_host_missing_the_landing_repositorys_own_checkout_is_left_out_of_offload_choose() {
+    let root = tempfile::tempdir().unwrap();
+    let (laptop, cpx62, bin) = (root.path().join("laptop"), root.path().join("cpx62"), root.path().join("bin"));
+    let wisp = laptop.join("code/wisp/main");
+    std::fs::create_dir_all(&wisp).unwrap();
+    assert!(Command::new("git").arg("init").arg("-q").arg(&wisp).status().unwrap().success());
+    let lane = laptop.join("code/wisp/worktrees/lane");
+    assert!(Command::new("git").current_dir(&wisp).args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "one"]).status().unwrap().success());
+    assert!(Command::new("git").current_dir(&wisp).args(["worktree", "add", "-q"]).arg(&lane).status().unwrap().success());
+    std::fs::write(lane.join(".safe-push"), "[land]\n\tafter = ** :: bun install --frozen-lockfile --silent && bun wisp ci pre-merge --base ${SAFE_PUSH_LAND_BASE}\n").unwrap();
+    for checkout in ["code/north/main/.git", "code/south/main/.git"] {
+        std::fs::create_dir_all(cpx62.join(checkout)).unwrap();
+    }
+    std::fs::create_dir_all(&bin).unwrap();
+    let needs = Needs::at(&lane, &laptop);
+    assert_eq!(run(&needs, &cpx62, &bin), ["~/code/wisp/main"], "on 2026-11-08 at about 7:24 AM wisp's after-landing run of acd3c88de4 went to cpx62, which held north and south but no ~/code/wisp/main, and exited 75 three times");
+    std::fs::create_dir_all(cpx62.join("code/wisp/main/.git")).unwrap();
+    assert_eq!(run(&needs, &cpx62, &bin), Vec::<String>::new(), "a host holding the landing repository's own checkout takes its land checks");
+}

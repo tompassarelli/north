@@ -80,12 +80,17 @@ pub fn quote(word: &str) -> String {
 }
 
 fn checkout(directory: &Path) -> Result<(String, String), String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is unset")?;
+    let relative = checkout_under(directory, &home)?;
+    Ok((relative.clone(), relative.replace('/', "-")))
+}
+
+/// The checkout, relative to `home`, a build host keeps for the repository `directory` is a checkout of.
+pub(super) fn checkout_under(directory: &Path, home: &Path) -> Result<String, String> {
     let output = Command::new("git").current_dir(directory).args(["rev-parse", "--path-format=absolute", "--git-common-dir"]).output().map_err(|error| format!("git: {error}"))?;
     let common = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
     let main = common.parent().ok_or("the repository has no main checkout")?;
-    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is unset")?;
-    let relative = remote_checkout(main, &home)?;
-    Ok((relative.clone(), relative.replace('/', "-")))
+    remote_checkout(main, home)
 }
 
 /// The checkout a build host keeps for the repository whose git directory sits in `main`: `code/PROJECT/main` for a project under `~/code`, whatever layout this host gave it, since the remote host keeps each project's main checkout there; else the same path relative to home.

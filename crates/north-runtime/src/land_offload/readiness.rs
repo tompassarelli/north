@@ -1,7 +1,8 @@
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use super::ship::{beside::named_checkouts, quote};
+use super::ship::{beside::named_checkouts, checkout_under, quote};
 use crate::platform::process::run_command_within;
 
 const CONFIG: &str = ".safe-push";
@@ -36,8 +37,20 @@ impl Needs {
         Self { checkouts: named_checkouts(&lines.join("\n")), aliases, inputs: Vec::new() }
     }
 
+    /// What the land checks of the checkout at `directory` read on a build host: the checkouts and aliases its .safe-push names, and the repository's own main checkout under `home`, which every shipped check is fetched into.
+    pub fn at(directory: &Path, home: &Path) -> Self {
+        let mut needs = std::fs::read_to_string(directory.join(CONFIG)).map(|text| Self::of(&text)).unwrap_or_default();
+        if let Ok(own) = checkout_under(directory, home)
+            && !needs.checkouts.contains(&own)
+        {
+            needs.checkouts.insert(0, own);
+        }
+        needs
+    }
+
     pub fn here() -> Self {
-        std::fs::read_to_string(CONFIG).map(|text| Self::of(&text)).unwrap_or_default()
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        std::env::current_dir().map(|directory| Self::at(&directory, &home)).unwrap_or_default()
     }
 
     pub fn with_inputs(self, inputs: &[String]) -> Self {
