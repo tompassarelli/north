@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 pub use crate::platform::store_refs::RUNTIME_PROGRAMS as PROGRAMS;
 pub const BUILT_HERE: &str = "built-here";
+pub const BUILT_ON: &str = "built-on";
 pub const BUILT_FROM: &str = "built-from";
 pub use crate::platform::harness::{TREE, is_sha};
 use crate::platform::harness::DEFAULTS;
@@ -84,8 +85,13 @@ pub fn has_programs(runtime: &Path) -> bool {
     PROGRAMS.iter().all(|program| runtime.join(program).is_file())
 }
 
-pub fn usable(runtime: &Path, own_build_only: bool) -> bool {
-    has_programs(runtime) && (!own_build_only || runtime.join(BUILT_HERE).is_file())
+pub fn usable(runtime: &Path, commissioned_only: bool) -> bool {
+    has_programs(runtime) && (!commissioned_only || commissioned(runtime))
+}
+
+/// Whether this host built the runtime or had a build host build it for it, as against one a peer shipped or left here.
+pub fn commissioned(runtime: &Path) -> bool {
+    [BUILT_HERE, BUILT_ON].iter().any(|marker| runtime.join(marker).is_file())
 }
 
 pub fn tree_marker() -> String {
@@ -142,7 +148,7 @@ pub(super) fn built_from_own_commit(runtime: &Path) -> Result<(), String> {
     }
 }
 
-fn binary_hash(path: &Path) -> std::io::Result<String> {
+pub(super) fn binary_hash(path: &Path) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();

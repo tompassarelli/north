@@ -22,7 +22,7 @@ pub(super) fn pull_from(host: &str, target: &str, runtime: &Path) -> bool {
 
 fn admitted(accepts: bool, host: &str, fetch: impl FnOnce() -> bool) -> bool {
     if !accepts {
-        eprintln!("north runtime: this host builds its own runtime and takes none built on {host}");
+        eprintln!("north runtime: this host settles the fleet and takes no runtime a peer offers from {host}: it builds its own or has a build host build it");
         return false;
     }
     fetch()
@@ -30,7 +30,7 @@ fn admitted(accepts: bool, host: &str, fetch: impl FnOnce() -> bool) -> bool {
 
 fn fetch_reported(host: &str, target: &str, runtime: &Path) -> bool {
     let short = layout::short(target);
-    match fetch(host, target, runtime) {
+    match fetch(host, target, runtime, &[]) {
         Ok(()) => {
             println!("north runtime: pulled {short} built on {host} and realised its store closure");
             true
@@ -45,11 +45,11 @@ fn fetch_reported(host: &str, target: &str, runtime: &Path) -> bool {
     }
 }
 
-fn fetch(host: &str, target: &str, runtime: &Path) -> Result<(), String> {
+pub(super) fn fetch(host: &str, target: &str, runtime: &Path, beside: &[&str]) -> Result<(), String> {
     fs::create_dir_all(runtime).map_err(|error| error.to_string())?;
     let mut copy = Command::new("rsync");
     copy.args(["-a", "--timeout=60", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ControlPath=none"])
-        .args(PROGRAMS.map(|program| format!("{host}:.local/state/north/runtimes/{target}/{program}")))
+        .args(PROGRAMS.iter().chain(beside).map(|file| format!("{host}:.local/state/north/runtimes/{target}/{file}")))
         .arg(runtime);
     step("rsync", &mut copy, limit(COPY))?;
     if !layout::has_programs(runtime) {

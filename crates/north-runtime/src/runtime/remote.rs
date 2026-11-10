@@ -1,31 +1,10 @@
 use super::bounded;
-use super::failure::{DEFERRED, Failure, code, failed};
-use super::layout::PROGRAMS;
-use crate::pacing::placement::gate;
-use std::fs;
+use super::failure::{Failure, code, failed};
 use std::io::ErrorKind;
-use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-const BUILD_ELSEWHERE: Duration = Duration::from_secs(30 * 60);
-const COPY: Duration = Duration::from_secs(10 * 60);
-const RSYNC_SOURCE_MISSING: u8 = 23;
 const REPORTED_LINES: usize = 12;
-
-pub(super) fn build(machine: &gate::Machine, target: &str, runtime: &Path) -> Result<(), Failure> {
-    let host = &machine.name;
-    println!("north runtime: building {} on {host} while this host is in game-reserve", &target[..8]);
-    run_reporting(host, "north runtime update", ssh(&machine.ssh).args(["north", "runtime", "update"]), BUILD_ELSEWHERE)?;
-    let built = format!("{}:.local/state/north/runtimes/{target}", machine.ssh);
-    fs::create_dir_all(runtime)?;
-    let mut copy = Command::new("rsync");
-    copy.args(["-a", "--timeout=120", "-e", OWN_RSH]).args(PROGRAMS.map(|program| format!("{built}/{program}"))).arg(runtime);
-    run(host, "rsync", &mut copy, COPY).map_err(|failure| match failure.code {
-        RSYNC_SOURCE_MISSING => failed(DEFERRED, format!("{host} has not finished building {}; retrying on the next tick ({})", &target[..8], failure.message)),
-        _ => failure,
-    })
-}
 
 pub(super) const OWN_RSH: &str = "ssh -o ControlPath=none";
 

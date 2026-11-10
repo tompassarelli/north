@@ -1,12 +1,11 @@
 use super::super::cargo_build::{self, BuildLog};
 use super::super::failure::{DEFERRED, Failure, failed};
 use super::super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
+use super::super::build_host;
 use super::super::pull;
-use super::super::remote;
 use super::git;
 use crate::capacity::game_reserve::Confinement;
 use crate::land_offload;
-use crate::pacing::placement::gate;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -66,48 +65,64 @@ impl Drop for KeptTarget<'_> {
 }
 
 enum Placement {
-    Elsewhere(Box<gate::Machine>),
-    Here { refused: Option<String> },
+    Here { reserved: bool },
     Confined(Confinement),
     Held,
 }
 
-fn placement(reserved: bool, builds_only_here: bool, confinement: impl FnOnce() -> Option<Confinement>, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
-    if !reserved {
-        return Placement::Here { refused: None };
-    }
-    if builds_only_here {
-        return confinement().map_or(Placement::Held, Placement::Confined);
-    }
-    match other_host() {
-        Ok(machine) => Placement::Elsewhere(Box::new(machine)),
-        Err(why) => Placement::Here { refused: Some(why) },
+fn placement(reserved: bool, settles: bool, confinement: impl FnOnce() -> Option<Confinement>) -> Placement {
+    match (reserved, settles) {
+        (true, true) => confinement().map_or(Placement::Held, Placement::Confined),
+        (reserved, _) => Placement::Here { reserved },
     }
 }
 
+/// A runtime nobody has built yet: pulled from a peer where this host takes them, else built on the build host with the most free cores, else here, which the log line says.
 pub(super) fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
     if pull::pull(target, runtime) {
         return Ok(());
     }
-    let other_host = || match land_offload::accepts_peer_runtimes_here() {
-        true => land_offload::host_with_room(),
-        false => Err("it never takes a runtime built on another host".to_owned()),
+    let short = layout::short(target);
+    let refused = match build_host::build(target, runtime, land_offload::build_host_rooms(), build_host::build_on) {
+        Ok(built) => {
+            build_host::note(layout, target, built);
+            return Ok(());
+        }
+        Err(why) => why,
     };
     let mut confined = None;
-    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), crate::capacity::game_reserve::confinement, other_host) {
-        Placement::Elsewhere(machine) => return remote::build(&machine, target, runtime),
+    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), crate::capacity::game_reserve::confinement) {
         Placement::Confined(confinement) => {
-            println!("north runtime: this host is in game-reserve; building {} on the agent CPUs {} at idle priority", layout::short(target), confinement.cpus);
+            println!("north runtime: {refused}; this host is in game-reserve, so it builds {short} on the agent CPUs {} at idle priority", confinement.cpus);
             confined = Some(confinement);
         }
-        Placement::Held => return Err(failed(DEFERRED, format!("this host builds its own runtime and is in game-reserve with the agent CPUs not enforced; {} waits for the reserve to end and the live runtime stays", layout::short(target)))),
-        Placement::Here { refused: Some(why) } => println!("north runtime: this host is in game-reserve and {why}; building {} here under the runtime class admission", layout::short(target)),
-        Placement::Here { refused: None } => {}
+        Placement::Held => return Err(failed(DEFERRED, format!("{refused}, and this host builds its own runtime and is in game-reserve with the agent CPUs not enforced; {short} waits for the reserve to end and the live runtime stays"))),
+        Placement::Here { reserved: true } => println!("north runtime: {refused}; this host is in game-reserve and builds {short} here under the runtime class admission"),
+        Placement::Here { reserved: false } => println!("north runtime: {refused}; building {short} on this host"),
     }
     if !land_offload::builds_runtime_here() {
-        return Err(failed(DEFERRED, format!("no other host has built {} yet and this host does not build runtimes (builds_runtime = false); retrying on the next tick", layout::short(target))));
+        return Err(failed(DEFERRED, format!("{refused}, and this host does not build runtimes (builds_runtime = false); retrying {short} on the next tick")));
     }
-    build_here(layout, checkout, target, runtime, confined.as_ref())
+    let started = std::time::Instant::now();
+    build_here(layout, checkout, target, runtime, confined.as_ref())?;
+    let binary = layout::binary_hash(&runtime.join("north"))?;
+    build_host::note(layout, target, build_host::Built { host: crate::platform::host::name(), seconds: started.elapsed().as_secs() as i64, binary });
+    Ok(())
+}
+
+/// On a build host: builds `target`, a commit on origin/main, into this host's runtimes for the settling host to take, under this host's runtime capacity admission, without promoting it here.
+pub(super) fn build_for_peer(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
+    if !land_offload::builds_for_peers() {
+        return Err(failed(1, format!("{} is no build host (no offload_builds), so it builds no runtime for another host", crate::platform::host::name())));
+    }
+    let short = layout::short(target);
+    if layout::has_programs(runtime) && layout::built_from_own_commit(runtime).is_ok() {
+        println!("north runtime: {short} is already built here");
+        return Ok(());
+    }
+    build_here(layout, checkout, target, runtime, None)?;
+    println!("north runtime: built {short} for another host to take");
+    Ok(())
 }
 
 fn build_here(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, confined: Option<&Confinement>) -> Result<(), Failure> {

@@ -99,10 +99,6 @@ pub(super) fn claim(ssh: Option<&str>) {
     };
 }
 
-pub(super) fn shortfall(room: &Room) -> Option<String> {
-    shortfall_reserving(room, 0.0)
-}
-
 /// The shortfall once `reserved` cores are counted as taken by builds already on their way to the host.
 pub fn shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
     shortfall_needing(room, reserved, offload_room().0)
@@ -142,18 +138,6 @@ pub(super) fn check_slots<'a>(rooms: impl IntoIterator<Item = &'a Room>, cores: 
         let open = room.slots.map_or(all, |slots| all.saturating_sub((slots.running + slots.ahead) as usize));
         (free + if shortfall_needing(room, 0.0, cores).is_none() { held(room.admission.free_cpus()).min(open) } else { 0 }, total + all)
     })
-}
-
-pub(super) fn first_with_room(hosts: impl IntoIterator<Item = (String, Option<Room>)>) -> Result<String, Vec<String>> {
-    let mut refused = Vec::new();
-    for (name, room) in hosts {
-        match room.as_ref().map(shortfall) {
-            Some(None) => return Ok(name),
-            Some(Some(why)) => refused.push(format!("{name}: {why}")),
-            None => refused.push(format!("{name}: unreachable or unreadable over ssh")),
-        }
-    }
-    Err(refused)
 }
 
 /// Whether this host takes land checks: never, only when no build host answers, or beside the build hosts as one of them.
@@ -260,21 +244,12 @@ mod tests {
     }
 
     #[test]
-    fn a_runtime_build_has_room_on_gex45_at_its_4_20_pm_reading_whose_load_average_is_the_ci_farm() {
-        let gib = 1024 * 1024;
-        let gex45 = reading(80 * gib, "61.00", "7.6", "35");
-        assert_eq!(shortfall(&gex45), None, "committed 7.6 of 20 CPUs at 35% pressure and load 61 is room for 6 cores");
-        assert!(shortfall(&reading(80 * gib, "3.00", "17.0", "10")).unwrap().contains("cores free of 20"));
-        assert!(shortfall(&reading(80 * gib, "3.00", "7.6", "40")).unwrap().contains("CPU pressure 40%"));
-    }
-
-    #[test]
     fn jobs_the_land_check_claim_holds_back_leave_the_host_its_room_for_the_land_check_that_claimed_it() {
         let gib = 1024 * 1024;
         let held = "{\"owner\":\"heavy-command-guard\",\"class\":\"heavy\",\"requestedClass\":\"heavy\",\"requestedCpus\":6,\"reason\":\"DEFER_LAND_CHECK_WAITING\"}";
         let waiting = parse(&PROBE.replace("%KIB%", &(80 * gib).to_string()).replace("%COMMITTED%", "1.0").replace("%PRESSURE%", "0").replace("\"cpuSomeAvg10\":0", &format!("\"cpuSomeAvg10\":0,\"queued\":[{held},{held},{held}]"))).unwrap();
         assert_eq!(waiting.admission.queued_heavy_cpus, 0.0);
-        assert_eq!(shortfall(&waiting), None);
+        assert_eq!(shortfall_reserving(&waiting, 0.0), None);
     }
 
     #[test]
@@ -288,7 +263,7 @@ mod tests {
         assert_eq!(moderate.admission.queued_heavy_cpus, 0.0);
         let mut idle = reading(80 * gib, "0.06", "0.0", "1");
         idle.admission.limit_cpus = 8.0;
-        assert!(shortfall(&queued(&format!("{},{},{}", heavy(6), heavy(6), heavy(6)))).unwrap().contains("cores free of 20"));
+        assert!(shortfall_reserving(&queued(&format!("{},{},{}", heavy(6), heavy(6), heavy(6))), 0.0).unwrap().contains("cores free of 20"));
         assert_eq!(check_host(Standing::Reserved, "laptop", || None, vec![("gex45".to_owned(), Some(busy)), ("ccx33".to_owned(), Some(idle))], &[], 6.0), Ok(Chosen::Room("ccx33".to_owned())));
         let mut quarter = reading(80 * gib, "2.00", "2.0", "1");
         quarter.admission.limit_cpus = 8.0;

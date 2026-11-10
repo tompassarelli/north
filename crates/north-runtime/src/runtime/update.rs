@@ -31,6 +31,8 @@ const ABANDONED_COPY: Duration = Duration::from_secs(60 * 60);
 const UPDATE_LOCK: &str = "runtime-update.lock";
 const PROMOTE_LOCK: &str = "runtime-promote.lock";
 const PROMOTE_QUEUE: &str = "runtime-promote-queue.lock";
+const BUILD_FOR_PEER_LOCK: &str = "runtime-build.lock";
+const BUILD_FOR_PEER_WAIT: Duration = Duration::from_secs(30 * 60);
 
 pub(super) mod hold;
 mod build;
@@ -106,7 +108,7 @@ fn follow_main(layout: &Layout, after_flip: &mut dyn FnMut()) -> Result<(), Fail
 
 pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
     if !land_offload::accepts_peer_runtimes_here() {
-        return Err(failed(1, format!("this host builds its own runtime and does not promote {} shipped from another host", layout::short(target))));
+        return Err(failed(1, format!("this host settles the fleet and promotes only a runtime it built or had a build host build, not {} shipped from another host", layout::short(target))));
     }
     let _promoting = promotion_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha")?;
     let checkout = checkout();
@@ -118,6 +120,18 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
         Shipped::Promote => return advance(layout, &checkout, target, previous.as_deref()).map(|_| ()),
     }
     Ok(())
+}
+
+/// One build for another host runs here at a time, since each borrows the one runtime-build lane and kept target; a commit not on origin/main is refused, so a build host builds only what landed.
+pub(super) fn build_for_peer(layout: &Layout, target: &str) -> Result<(), Failure> {
+    let checkout = checkout();
+    fetch(&checkout)?;
+    if !ancestor(&checkout, target, "origin/main") {
+        return Err(failed(1, format!("{} is not on origin/main; a build host builds only landed commits", layout::short(target))));
+    }
+    let _building = named_lock_waiting(layout, BUILD_FOR_PEER_LOCK, remote::limit(BUILD_FOR_PEER_WAIT), "north runtime build")?;
+    let _writing = writing(layout, target)?;
+    build::build_for_peer(layout, &checkout, target, &layout.runtime(target))
 }
 
 pub(super) fn roll_back(layout: &Layout, failed_sha: &str) -> Result<String, Failure> {

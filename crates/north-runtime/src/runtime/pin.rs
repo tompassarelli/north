@@ -17,12 +17,13 @@ pub enum Event {
     Promoted { sha: String, at: i64 },
     Walked { sha: String, host: String, at: i64 },
     RolledBack { sha: String, host: String, at: i64, seconds: i64, walker: bool },
+    Built { sha: String, host: String, at: i64, seconds: i64, binary: String },
 }
 
 impl Event {
     pub fn at(&self) -> i64 {
         match self {
-            Self::Landed { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } => *at,
+            Self::Landed { at, .. } | Self::Promoted { at, .. } | Self::Walked { at, .. } | Self::RolledBack { at, .. } | Self::Built { at, .. } => *at,
         }
     }
 }

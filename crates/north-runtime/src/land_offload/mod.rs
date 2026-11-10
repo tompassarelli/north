@@ -138,14 +138,20 @@ pub fn checks_confined_here() -> bool {
     crate::capacity::mode_tick::confined_agent_cpus(&agent_load::Host::from_env()).is_some()
 }
 
-pub fn host_with_room() -> Result<gate::Machine, String> {
-    let here = crate::platform::host::name();
-    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here).collect();
-    let rooms = others.iter().map(|machine| (machine.name.clone(), room::read(&machine.ssh)));
-    let host = room::first_with_room(rooms).map_err(|refused| {
-        format!("no other host has room: {}", if refused.is_empty() { "none has an ssh destination".to_owned() } else { refused.join("; ") })
-    })?;
-    others.into_iter().find(|machine| machine.name == host).ok_or_else(|| format!("{host} left the host list"))
+/// A build host this host reaches and the free cores its admission reported, none when it did not answer.
+pub struct BuildHost {
+    pub name: String,
+    pub ssh: String,
+    pub free_cpus: Option<f64>,
+}
+
+/// Each build host this host reaches, with the free cores its admission reports, read in parallel; a host that does not answer has none.
+pub fn build_host_rooms() -> Vec<BuildHost> {
+    let hosts = build_hosts();
+    std::thread::scope(|scope| {
+        let reads: Vec<_> = hosts.iter().map(|(_, ssh)| scope.spawn(|| room::read(ssh).map(|room| room.admission.free_cpus()))).collect();
+        hosts.iter().zip(reads).map(|((name, ssh), read)| BuildHost { name: name.clone(), ssh: ssh.clone(), free_cpus: read.join().ok().flatten() }).collect()
+    })
 }
 
 /// Prints each offload host's newest offloaded runs with their ship time and cache state, then its median ship time, read from the host's own records over ssh.
