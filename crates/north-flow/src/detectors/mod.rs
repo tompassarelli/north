@@ -1,6 +1,6 @@
 //! The self-detectors: pure functions from recorded state to findings, run by `north ledger flow`. A stalled
 //! plan box, a silent signal, a repeated lander refusal class, a class of Tom's corrections seen twice and a test over its
-//! time line in its newest land check runs, a crate within 5% of its line cap or over it, a lifecycle machine whose code a landed incident fix changed, a move the lifecycle store refused, a repository whose code-health review signal fires and a skill changed, corrected or drifted since its last review, each become one box on the owning issue, filed once per key and left to dispatch to staff. A later episode of a cause whose box is still open comments its reading on that issue instead of filing a second box.
+//! time line in its newest land check runs, a crate within 5% of its line cap or over it, a lifecycle machine whose code a landed incident fix changed, a move the lifecycle store refused, a repository whose code-health review signal fires, a skill changed, corrected or drifted since its last review and a followed source due under watching.md, each become one box on the owning issue, filed once per key and left to dispatch to staff. A later episode of a cause whose box is still open comments its reading on that issue instead of filing a second box.
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -21,6 +21,7 @@ mod crate_headroom;
 mod disk;
 mod done_check;
 mod filing;
+mod followed_source;
 mod gather;
 mod kind;
 mod machine_fix;
@@ -128,6 +129,7 @@ pub fn detect_timed(gatherer: &Gatherer, now: f64, limits: &Limits) -> (Vec<Find
             Detector::MachineRefusal => machine_refusal::refused(&gatherer.machine_refusals()),
             Detector::SkillReview => skill_review::due(&gatherer.skills()),
             Detector::CodeHealthReview => code_health_review::due(&gatherer.code_health_readings(now)),
+            Detector::FollowedSource => followed_source::due(&gatherer.followed_sources(now), now),
         };
         spends.push(Spend { detector, millis: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX), findings: found.len() });
         findings.extend(found);

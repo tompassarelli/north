@@ -1436,6 +1436,22 @@ source = "tom: reviews fire on a signal in place of a calendar, and a skill chan
 fallback = "the box is not filed"
 consumers = ["crates/north-flow/src/detectors/mod.rs", "crates/north-flow/src/detectors/gather/skills.rs"]
 
+[detector_followed_source_owner]
+value = "north#1012"
+allowed = { prefix = "north#" }
+unit = "issue a followed source's review box is filed on by the followed-source detector"
+source = "tom: reviews fire on a signal in place of a calendar, and a followed source due under watching.md gets one box naming the record its review starts from (north#1059, 2026-11-10)"
+fallback = "the box is not filed"
+consumers = ["crates/north-flow/src/detectors/gather/sources.rs"]
+
+[detector_followed_source_read_minutes]
+value = 1440
+allowed = { min = 5, max = 1440 }
+unit = "minutes between one followed source's fetches, each counting the commits its path gained since its last reviewed commit"
+source = "the daily timer of the retired source launch in `north watch-review` (north#1059)"
+fallback = "1440"
+consumers = ["crates/north-flow/src/detectors/gather/sources.rs"]
+
 [landing_watch_overrun_floor_seconds]
 value = 600
 allowed = { min = 1, max = 604800 }

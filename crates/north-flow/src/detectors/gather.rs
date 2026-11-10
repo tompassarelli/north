@@ -23,6 +23,7 @@ use crate::platform::sqlite::{self, Access};
 mod code_health;
 mod machines;
 mod skills;
+mod sources;
 
 const LANE_RECENT_S: f64 = 24.0 * 3600.0;
 const DISPATCH_RECENT_S: f64 = 2.0 * 3600.0;
