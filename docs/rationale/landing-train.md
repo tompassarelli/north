@@ -1277,8 +1277,11 @@ lander did not see.
   is adoptable. Culprit-search prefixes, sheriff probes and candidate checks still die with the
   lander and rerun: a candidate's lanes are still queued, so nothing lands unchecked, and an adopted
   red run starts its culprit search again from the adopted verdict (north#696). On a runtime change
-  the lander exits at once rather than waiting for culprit searches to end: on 2026-11-08 that wait
-  kept a lander from taking any candidate for 11 minutes while 12 tickets waited (north#948).
+  the lander exits at once rather than waiting for culprit searches or a check in flight to end: on
+  2026-11-08 that wait kept a lander from taking any candidate for 11 minutes while 12 tickets
+  waited, and on 2026-11-10 the lander announced the change at 3:28:26 AM and waited 287 s for an
+  alone check before exiting. A push already on its way to main gets at most 30 s to finish; a
+  check or build is abandoned and rerun by the restarted lander (north#948).
 - An after-landing run that only waited out busy build-host slots (exit 96) reached no verdict: it
   is recorded as transient and blames no lane, and a real failure in another check still wins over
   it (north#649).

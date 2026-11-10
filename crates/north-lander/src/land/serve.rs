@@ -56,6 +56,11 @@ fn runtime_target(link: &Path) -> Option<PathBuf> {
 
 const LANDER_INPUTS: &[&str] = &["crates/north-landing/", "crates/north-land-checks/", "crates/north-lander/", "crates/north-base/", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml"];
 
+struct Serving {
+    lander: Arc<Lander>,
+    handle: std::thread::JoinHandle<u8>,
+}
+
 struct RuntimeWatch {
     link: PathBuf,
     started_on: Option<PathBuf>,
@@ -305,20 +310,26 @@ fn serve_once(options: &Options) -> u8 {
 fn serve_forever(options: &Options) -> u8 {
     let mut runtime = RuntimeWatch::new(runtime_link());
     let retire = Arc::new(AtomicBool::new(false));
-    let mut running: HashMap<PathBuf, std::thread::JoinHandle<u8>> = HashMap::new();
+    let mut running: HashMap<PathBuf, Serving> = HashMap::new();
     let mut scanned: Option<Instant> = None;
     let mut seeded = false;
     let mut reported: HashSet<String> = HashSet::new();
     loop {
         if runtime.retires(running.keys().map(PathBuf::as_path)) {
-            println!("north land: the live runtime changed; exiting so the service restarts on it");
             retire.store(true, Ordering::Relaxed);
-            for (_, handle) in running.drain() {
-                let _ = handle.join();
+            handover::announce();
+            let landing: Vec<PathBuf> = running.iter().filter(|(_, serving)| handover::landing(serving.lander.heartbeat.current().0)).map(|(repo, _)| repo.clone()).collect();
+            let deadline = Instant::now() + handover::BOUND;
+            loop {
+                let now = Instant::now();
+                if now >= deadline || !landing.iter().any(|repo| running.get(repo).is_some_and(|serving| !serving.handle.is_finished())) {
+                    break;
+                }
+                std::thread::sleep(TICK.min(deadline - now));
             }
             return 0;
         }
-        running.retain(|_, handle| !handle.is_finished());
+        running.retain(|_, serving| !serving.handle.is_finished());
         if scanned.is_none_or(|at| at.elapsed() >= DISCOVERY) {
             scanned = Some(Instant::now());
             let (repos, unserved) = targets(options);
@@ -334,13 +345,13 @@ fn serve_forever(options: &Options) -> u8 {
                 match open(&repo, options) {
                     Ok(Opened::Serving(lander, hold)) => {
                         let retire = Arc::clone(&retire);
-                        running.insert(
-                            repo,
-                            std::thread::spawn(move || {
-                                let _hold = hold;
-                                serve_repository(&lander, false, &retire)
-                            }),
-                        );
+                        let lander = Arc::new(lander);
+                        let serving = Arc::clone(&lander);
+                        let handle = std::thread::spawn(move || {
+                            let _hold = hold;
+                            serve_repository(&serving, false, &retire)
+                        });
+                        running.insert(repo, Serving { lander, handle });
                     }
                     Ok(Opened::Held(reason)) => {
                         if reported.insert(reason.clone()) {

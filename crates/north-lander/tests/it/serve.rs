@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::time::Duration;
 
+use north_base::platform::wait;
 use north_lander::land::queue::{self, Ticket};
 
 const ARGUMENTS: &str = "NORTH_LAND_IT_ARGUMENTS";
@@ -14,10 +16,58 @@ fn lander_process() {
     std::process::exit(i32::from(north_lander::land::run(&arguments)));
 }
 
+#[test]
+fn a_runtime_change_exits_the_lander_instead_of_waiting_for_a_check_in_flight() {
+    let world = World::new();
+    let repository = world.repository("north");
+    let old = lander_input_commit(&repository, "old");
+    let new = lander_input_commit(&repository, "new");
+    std::os::unix::fs::symlink(format!("runtimes/{old}"), world.path().join("current")).unwrap();
+    repository.lane("stale");
+    let (path, mut ticket) = queue::pending(&repository.queue).unwrap().pop().unwrap();
+    ticket.alone_green = None;
+    ticket.alone_base = None;
+    queue::write(&path, &ticket).unwrap();
+
+    let (checker, token) = (world.path().join("bin/checker"), world.path().join("bin/token"));
+    let hold = world.path().join("hold");
+    let mut command = world.land(&["serve", "--repo", repository.checkout.to_str().unwrap(), "--checker", checker.to_str().unwrap(), "--app-token", token.to_str().unwrap()]);
+    command.env("HOLD", &hold);
+    let mut child = command.spawn().unwrap();
+    let checking = || world.path().join("hold.started").exists();
+    wait::until(Duration::from_secs(60), || checking() || child.try_wait().unwrap().is_some());
+    if !checking() {
+        let _ = child.kill();
+        let output = child.wait_with_output().unwrap();
+        let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        panic!("the lander never started checking the stale lane:\n{text}");
+    }
+    std::fs::remove_file(world.path().join("current")).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("current")).unwrap();
+    let exited = wait::until(Duration::from_secs(10), || child.try_wait().unwrap().is_some());
+    std::fs::write(world.path().join("hold.release"), "").unwrap();
+    if !exited {
+        let _ = child.kill();
+    }
+    let output = child.wait_with_output().unwrap();
+    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(exited && output.status.success(), "the lander announced the runtime change and kept waiting for the check in flight instead of exiting:\n{text}");
+    assert!(text.contains("north land: the live runtime changed"), "{text}");
+}
+
 pub(super) fn git(dir: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").arg("-C").arg(dir).args(arguments).env("GIT_CONFIG_GLOBAL", dir.ancestors().find(|path| path.join("gitconfig").is_file()).unwrap().join("gitconfig")).env("GIT_CONFIG_NOSYSTEM", "1").output().unwrap();
     assert!(output.status.success(), "git {arguments:?} in {}: {}", dir.display(), String::from_utf8_lossy(&output.stderr));
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn lander_input_commit(repository: &Repository, text: &str) -> String {
+    let path = repository.checkout.join("crates/north-lander/src/runtime-fixture.txt");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, text).unwrap();
+    git(&repository.checkout, &["add", "-A"]);
+    git(&repository.checkout, &["commit", "-qm", text]);
+    git(&repository.checkout, &["rev-parse", "HEAD"])
 }
 
 pub(super) struct World {
