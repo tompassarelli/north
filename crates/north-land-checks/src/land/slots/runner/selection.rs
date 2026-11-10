@@ -1,15 +1,18 @@
 use std::collections::BTreeSet;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
 use crate::landing::{land_test_runner, land_test_selection};
 use super::super::affected::Scope;
-use super::super::it_modules;
+use super::super::it_modules::Selection;
 use super::super::verdict_key;
 use super::super::select::{Config, changed};
 use super::super::selection_record::Recorded;
 use super::arguments::{Arguments, Outcome};
-use super::super::graph_selection::SELECTED;
+use super::super::graph_selection::{SELECTED, Selected};
+use crate::platform::records_mirror::state_home;
 use super::{say, warn};
 
 pub(super) fn selections(root: &Path, arguments: &Arguments, commands: &[String], recorded: Option<&Recorded>) -> (Option<Scope>, Option<String>) {
@@ -80,10 +83,36 @@ fn it_for(root: &Path, arguments: &Arguments, commands: &[String], recorded: Opt
     if !arguments.leased {
         say(&format!("safe-push: the tests/it run is {}", selection.summary()));
     }
-    if arguments.after
-        && let it_modules::Selection::Tests(tests) = &selection
-    {
-        Outcome(arguments.outcome.clone()).record(&[SELECTED, &arguments.base, &arguments.head, &serde_json::to_string(&tests.selected()).unwrap_or_default()]);
-    }
+    let selected = selected(&selection);
+    Outcome(arguments.outcome.clone()).record(&[SELECTED, &arguments.base, &arguments.head, &serde_json::to_string(&selected).unwrap_or_default()]);
+    let since = if let Selection::Tests(tests) = &selection { tests.unselected_since() } else { Vec::new() };
+    shadow_row(arguments, &selected, &since);
     Some((selection.arguments(), selection.packages()))
+}
+
+fn selected(selection: &Selection) -> Selected {
+    match selection {
+        Selection::Every => Selected { every: true, ..Selected::default() },
+        Selection::Modules { modules, units, floor } => Selected { tests: units.tests().map(str::to_owned).collect(), modules: modules.clone(), floor: floor.entries(), ..Selected::default() },
+        Selection::Tests(tests) => tests.selected(),
+    }
+}
+
+const GATE: &str = "test-selection";
+
+fn shadow_row(arguments: &Arguments, selected: &Selected, since: &[String]) {
+    let row = serde_json::json!({
+        "at": crate::foundation::clock::Timestamp::now().unix_seconds_f64(),
+        "base": arguments.base,
+        "head": arguments.head,
+        "after": arguments.after,
+        "current": { "tests": selected.tests.len(), "added": selected.added.len(), "modules": selected.modules, "floor": selected.floor, "every": selected.every },
+        "extra": { "since-map": since },
+        "extra_tests": since.len(),
+    });
+    let directory = state_home().join("north/gates");
+    let written = fs::create_dir_all(&directory).and_then(|()| OpenOptions::new().create(true).append(true).open(directory.join(format!("{GATE}.jsonl")))).and_then(|mut file| writeln!(file, "{row}"));
+    if let Err(why) = written {
+        warn(&format!("safe-push: the {GATE} gate's shadow row was not written: {why}"));
+    }
 }

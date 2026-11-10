@@ -138,6 +138,23 @@ impl<'g> Facts<'g> {
         Ok(self.subjects(predicate, path)?.iter().map(|node| self.test(node)).collect())
     }
 
+    pub fn guarded(&self, path: &str) -> Result<(BTreeSet<TestId>, BTreeSet<String>), String> {
+        let (mut known, mut bare) = (BTreeSet::new(), BTreeSet::new());
+        for node in self.subjects("guards", path)? {
+            let rest = node.strip_prefix("test:").unwrap_or(&node);
+            if self.tests.contains_key(&node) || self.tests.values().any(|id| rest.strip_prefix(id.binary.as_str()).is_some_and(|tail| tail.starts_with("::"))) {
+                known.insert(self.test(&node));
+                continue;
+            }
+            let named: Vec<TestId> = self.tests.values().filter(|id| id.name == rest || id.name.ends_with(&format!("::{rest}"))).cloned().collect();
+            if named.is_empty() {
+                bare.insert(rest.to_owned());
+            }
+            known.extend(named);
+        }
+        Ok((known, bare))
+    }
+
     pub fn embedders(&self, path: &str) -> Result<Vec<String>, String> {
         self.subjects("embeds", path)
     }

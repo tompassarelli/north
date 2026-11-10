@@ -100,3 +100,8 @@ pub fn carried_since(root: &Path, commit: &str, base: &str, change: &Change) -> 
     arguments.extend(rust);
     git(root, &arguments).ok().map(|text| hunks::parse(&text))
 }
+
+pub fn rust_since(root: &Path, commit: &str, base: &str) -> Option<Hunks> {
+    git(root, &["cat-file", "-e", &format!("{commit}^{{commit}}")]).ok()?;
+    git(root, &["diff", "-U0", "--no-renames", "--no-color", "--no-ext-diff", commit, base, "--", "*.rs"]).ok().map(|text| hunks::parse(&text))
+}

@@ -9,8 +9,6 @@ use super::tree_wide_units::Units;
 
 const IT_BINARY: &str = "north::it";
 const IT_PACKAGE: &str = "north";
-const BIN_MARK: &str = "::bin/";
-const IT_SUFFIX: &str = "::it";
 const FILTER_LIMIT: usize = 96 * 1024;
 
 #[derive(Deserialize)]
@@ -24,6 +22,8 @@ struct Answer {
     known: usize,
     #[serde(default)]
     carried: Vec<String>,
+    #[serde(default)]
+    since: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -85,6 +85,7 @@ pub struct Tests {
     known: usize,
     carried: usize,
     listed: BTreeMap<String, Listed>,
+    since: BTreeSet<String>,
 }
 
 impl Tests {
@@ -93,18 +94,16 @@ impl Tests {
         let mut by_binary: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for id in answer.tests.iter().chain(&answer.always) {
             let (binary, name) = id.split_once(' ')?;
-            if built(binary) {
-                by_binary.entry(binary.to_owned()).or_default().insert(name.to_owned());
-            }
+            by_binary.entry(binary.to_owned()).or_default().insert(name.to_owned());
         }
         let added = answer.added.into_iter().map(|test| (test.package, test.name)).collect();
-        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new() };
+        let tests = Self { by_binary, added, modules: BTreeSet::new(), units: Units::default(), floor: Floor::default(), known: answer.known, carried: answer.carried.len(), listed: BTreeMap::new(), since: answer.since.into_iter().collect() };
         (!tests.by_binary.is_empty() || !tests.added.is_empty()).then_some(tests)
     }
 
     /// The inclusion filter's second source: every test `cargo nextest list` sees that the map does not know. `added` already names the unknown tests the change graph scanned; the listing gives each its binary, and it catches a test the scan cannot see. A test the listing does not match stays a name term. `None` when the resulting filter passes the limit, so the caller runs the whole closure instead of fewer tests.
     pub fn with_listed(mut self, listed: ListedTests) -> Option<Self> {
-        let listed: ListedTests = listed.into_iter().filter(|(binary, suite)| built(binary) && !suite.tests.is_empty()).collect();
+        let listed: ListedTests = listed.into_iter().filter(|(_, suite)| !suite.tests.is_empty()).collect();
         if !listed.is_empty() {
             let unknown = self.added.clone();
             let matches: Vec<(String, String)> = listed
@@ -149,12 +148,16 @@ impl Tests {
 
     pub fn selected(&self) -> Selected {
         let tests = self.by_binary.values().flatten().cloned().chain(self.units.tests().map(str::to_owned)).collect();
-        Selected { tests, added: self.added.iter().map(|(_, name)| name.clone()).collect(), modules: self.modules.clone() }
+        Selected { tests, added: self.added.iter().map(|(_, name)| name.clone()).collect(), modules: self.modules.clone(), floor: self.floor.entries(), every: false }
     }
 
     pub fn arguments(&self) -> String {
-        let it = !self.modules.is_empty() || self.by_binary.keys().any(|binary| binary.ends_with(IT_SUFFIX)) || self.added.iter().any(|(package, _)| package == IT_PACKAGE) || self.floor.has_it_case();
-        format!("{}-E {}", if it { "--test it " } else { "" }, self.filter())
+        format!("--tests -E {}", self.filter())
+    }
+
+    pub fn unselected_since(&self) -> Vec<String> {
+        let selected = self.selected();
+        self.since.iter().filter(|id| id.split_once(' ').is_none_or(|(binary, name)| !selected.holds(name) && (binary != IT_BINARY || !self.runs_module(name.split("::").next().unwrap_or(name))))).cloned().collect()
     }
 
     pub fn summary(&self) -> String {
@@ -210,22 +213,23 @@ pub struct Selected {
     pub tests: BTreeSet<String>,
     pub added: BTreeSet<String>,
     pub modules: BTreeSet<String>,
+    #[serde(default)]
+    pub floor: BTreeSet<String>,
+    #[serde(default)]
+    pub every: bool,
 }
 
 impl Selected {
     pub fn holds(&self, name: &str) -> bool {
         let added = |added: &String| name == added || name.ends_with(&format!("::{added}"));
-        self.tests.contains(name) || self.added.iter().any(added) || self.modules.iter().any(|module| name.starts_with(&format!("{module}::")))
+        let floor = |entry: &String| entry.split_once(' ').is_some_and(|(_, module)| name.starts_with(module));
+        self.every || self.tests.contains(name) || self.floor.iter().any(floor) || self.added.iter().any(added) || self.modules.iter().any(|module| name.starts_with(&format!("{module}::")))
     }
 }
 
 struct Wholly {
     packages: BTreeSet<String>,
     binaries: BTreeSet<String>,
-}
-
-fn built(binary: &str) -> bool {
-    !binary.contains("::") || binary.contains(BIN_MARK) || binary.ends_with(IT_SUFFIX)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

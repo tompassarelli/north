@@ -157,8 +157,9 @@ fn affected(context: &Context, options: &Options) -> Result<u8, String> {
     cone.tests.retain(|test| !carried.contains(test));
     cone.always.retain(|test| !carried.contains(test));
     if options.json {
+        let since = cone::since_base(&context.root, &facts, base, &cone)?;
         let added: Vec<Value> = cone.added.iter().map(|test| json!({ "package": test.package, "name": test.name })).collect();
-        println!("{}", json!({ "tests": ids(&cone.tests), "always": ids(&cone.always), "added": added, "files": cone.files, "untraced": cone.untraced, "known": facts.all_tests().len(), "carried": ids(&carried) }));
+        println!("{}", json!({ "tests": ids(&cone.tests), "always": ids(&cone.always), "added": added, "files": cone.files, "untraced": cone.untraced, "known": facts.all_tests().len(), "carried": ids(&carried), "since": ids(&since) }));
     } else if options.nextest {
         let arguments = cone.nextest_arguments();
         if cone.untraced.is_none() && !arguments.is_empty() {

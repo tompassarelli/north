@@ -32,12 +32,12 @@ pub enum Selection {
 impl Selection {
     pub fn arguments(&self) -> String {
         match self {
-            Self::Every => format!("--test it -E {UNIT}|{EVERY_IT}"),
+            Self::Every => format!("--tests -E {UNIT}|{EVERY_IT}"),
             Self::Modules { modules, floor, .. } => {
                 let traced = (!modules.is_empty()).then(|| format!("({IT}&test(/{}/))", modules.iter().map(|module| format!("{module}::")).collect::<Vec<_>>().join("|")));
                 let extra = (!floor.is_empty()).then(|| floor.filter());
                 let filter = std::iter::once(UNIT.to_owned()).chain(traced).chain(extra).collect::<Vec<_>>().join("|");
-                format!("{}-E {filter}", if !modules.is_empty() || floor.has_it_case() { "--test it " } else { "" })
+                format!("{}-E {filter}", if !modules.is_empty() || floor.has_it_case() { "--tests " } else { "" })
             }
             Self::Tests(tests) => tests.arguments(),
         }

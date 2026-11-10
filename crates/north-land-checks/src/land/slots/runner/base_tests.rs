@@ -9,7 +9,6 @@ use crate::platform::land_queue::ROUND;
 use super::spawn::Ran;
 use super::{Shared, say, warn};
 
-const IT_BINARY: &str = "north::it";
 
 type Tests = BTreeSet<(String, String)>;
 
@@ -26,8 +25,7 @@ pub(super) fn failing_tests(log: &str) -> Tests {
 
 pub(super) fn narrowed(command: &str, tests: &Tests) -> String {
     let filter = tests.iter().map(|(binary, test)| format!("(binary_id(={binary})&test(={test}))")).collect::<Vec<_>>().join("|");
-    let it = if tests.iter().any(|(binary, _)| binary == IT_BINARY) { "--test it " } else { "" };
-    format!("export SAFE_PUSH_LAND_IT={}; {command}", unit_reuse::quote(&format!("{it}-E {filter}")))
+    format!("export SAFE_PUSH_LAND_IT={}; {command}", unit_reuse::quote(&format!("--tests -E {filter}")))
 }
 
 fn names(tests: impl IntoIterator<Item = (String, String)>) -> String {

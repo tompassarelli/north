@@ -136,6 +136,10 @@ impl Floor {
         module || case
     }
 
+    pub fn entries(&self) -> BTreeSet<String> {
+        self.tests.iter().map(|(package, module)| module.as_ref().map_or_else(|| package.clone(), |module| format!("{package} {module}"))).collect()
+    }
+
     pub fn filter(&self) -> String {
         let tests = self.tests.iter().map(|(package, module)| module.as_ref().map_or_else(|| format!("package({package})"), |module| format!("(package({package})&test(/^{module}/))")));
         let cases = self.cases.iter().map(|(binary, test)| format!("(binary_id({binary})&test(={test}))"));

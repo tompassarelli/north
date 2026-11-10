@@ -200,3 +200,35 @@ fn a_changed_constant_selects_the_tests_whose_reached_functions_use_it() {
     let unindexed = cone::proof(&facts, &at(8), Some(&Hunks::new()));
     assert_eq!(unindexed.tests, [id("north-base", "limits::capped"), id("north-base", "limits::shape"), id("north::it", "fleet_relay")].into());
 }
+
+#[test]
+fn a_selection_miss_edge_selects_its_test_for_the_file_it_guards() {
+    let graph = graph(&[(GATE_ROWS, "in-binary", "north-fleet-supervisor"), (GATE_ROWS, "read-set", "set-1"), (GATE_ROWS, "guards", "harness/gates.toml"), ("reads:north", "reads-commit", "bde3db9c6")]);
+    let facts = Facts::read(&graph, "north").unwrap();
+    let cone = cone::of(&facts, &changed(&["harness/gates.toml"], Hunks::new()), None).unwrap();
+    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-fleet-supervisor", "gate::gate_rows")], "rule 2 of docs/rationale/test-selection.md: a (test :guards FILE) fact selects the test whenever the lane changes FILE");
+}
+
+#[test]
+fn a_function_changed_since_the_map_selects_the_tests_that_reached_it() {
+    let graph = graph(&[
+        ("test:north::it::fleet_relay", "in-binary", "north::it"),
+        ("test:north::it::agent_text_reads", "in-binary", "north::it"),
+        ("fn:crates/north-fleet/src/fleet/upward.rs:5-30", "in-file", "crates/north-fleet/src/fleet/upward.rs"),
+        ("fn:crates/north-fleet/src/fleet/upward.rs:40-60", "in-file", "crates/north-fleet/src/fleet/upward.rs"),
+        ("test:north::it::fleet_relay", "reaches", "fn:crates/north-fleet/src/fleet/upward.rs:5-30"),
+        ("test:north::it::agent_text_reads", "reaches", "fn:crates/north-fleet/src/fleet/upward.rs:40-60"),
+    ]);
+    let facts = Facts::read(&graph, "north").unwrap();
+    let since = parse("diff --git a/crates/north-fleet/src/fleet/upward.rs b/crates/north-fleet/src/fleet/upward.rs\n--- a/crates/north-fleet/src/fleet/upward.rs\n+++ b/crates/north-fleet/src/fleet/upward.rs\n@@ -12 +12 @@\ndiff --git a/crates/north-fleet/src/fleet/new.rs b/crates/north-fleet/src/fleet/new.rs\n--- /dev/null\n+++ b/crates/north-fleet/src/fleet/new.rs\n@@ -0,0 +1,9 @@\n");
+    assert_eq!(cone::since_map(&facts, &since).unwrap().into_iter().collect::<Vec<_>>(), vec![id("north::it", "fleet_relay")], "a landed lane after the map commit changed a function fleet_relay reached, so a later lane cannot prove fleet_relay unaffected; agent_text_reads reached only an unchanged function, and a file no test reached at the map commit selects nothing");
+}
+
+#[test]
+fn a_bare_selection_miss_edge_selects_its_test_in_whichever_binary_holds_it() {
+    let graph = graph(&[(GATE_ROWS, "in-binary", "north-fleet-supervisor"), (GATE_ROWS, "read-set", "set-1"), ("test:gate::gate_rows", "guards", "harness/gates.toml"), ("test:worker_sandbox::confined", "guards", "harness/gates.toml"), ("reads:north", "reads-commit", "bde3db9c6")]);
+    let facts = Facts::read(&graph, "north").unwrap();
+    let cone = cone::of(&facts, &changed(&["harness/gates.toml"], Hunks::new()), None).unwrap();
+    assert_eq!(cone.tests.into_iter().collect::<Vec<_>>(), vec![id("north-fleet-supervisor", "gate::gate_rows")], "north land missed tells test:NAME when no map holds the binary; a known name resolves to its binary");
+    assert_eq!(cone.added, vec![cone::Added { package: String::new(), name: "worker_sandbox::confined".to_owned() }], "an unknown bare name runs by name in every binary rather than as binary worker_sandbox");
+}

@@ -64,3 +64,7 @@ mode = "shadow"
 # Phase 2 of docs/rationale/test-selection.md: a Rust change outside every function region selects only the tests whose reached functions refer to the changed item, by the `rust-analyzer scip` index recorded with the coverage map, and the crate closure where the index does not know the line (north#1039). `north graph ask affected` computes it beside the selection that gates and appends both sizes, the extra and the dropped tests to $XDG_STATE_HOME/north/gates/test-selection-proof.jsonl on the asking host.
 [gate.test-selection-proof]
 mode = "shadow"
+
+# Pre-landing test selection by measured reachability (docs/rationale/test-selection.md, north#1039). Every alone check and after-landing run records the selection that runs as a `selected` line in its outcome, and appends one row to $XDG_STATE_HOME/north/gates/test-selection.jsonl on the checking host with the base, the head, the size of the selection that runs and the tests only the new selection adds, by rule: today `since-map`, the known tests whose reached functions changed between the coverage map's commit and the lane's base (the M..HEAD condition). Those extra tests do not gate yet; the review reads every host's log after 24 h and at least 20 lanes with a non-empty difference.
+[gate.test-selection]
+mode = "shadow"

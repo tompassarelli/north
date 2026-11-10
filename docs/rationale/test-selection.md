@@ -132,10 +132,11 @@ A test runs before landing when any of these holds:
 A test in a package outside the crate closure runs only through rules 1, 2, 4, 5 or 6. A Rust change cannot compile
 into such a test, and data reads reach it through rules 4 and 5.
 
-The universe is every test target of the reached packages. Today the check line builds only `--lib --bins --test it`
-(`.safe-push`), and `graph_selection::built` drops every other integration binary, so `north-ops`'s `health_filing`
-and `north-land-sandbox`'s `record` can never be selected. The check line builds every test target of the closure's
-packages instead, and the `built` filter goes.
+The universe is every test target of the reached packages. Until n1039-select-rest the check line built only
+`--lib --bins --test it` (`.safe-push`), and `graph_selection::built` dropped every other integration binary, so
+`north-ops`'s `health_filing` and `north-land-sandbox`'s `record` could never be selected. Every selection now
+passes `--tests` in `SAFE_PUSH_LAND_IT`, which builds every test target of the scoped packages, and the `built` filter
+is gone.
 
 The filter is built by inclusion, not by subtraction. A subtraction filter for a hub lane would name about 1100
 tests at about 117 bytes each, past `graph_selection`'s 96 KiB limit. The included tests are the known tests no rule
@@ -341,6 +342,15 @@ Each lane has a box on north#1039 with its Done when command:
   crate selection over the lane's compiled files instead of replacing it. The guard floor and the joined selection
   run at once rather than in shadow: they only add tests to the check that already gates. The rest of both boxes is
   n1039-select-rest.
+- Landed by n1039-select-rest: rule 2, the `(test :guards FILE)` reader in the change graph's cone, which resolves the
+  bare `test:NAME` node `north land missed` tells when no map holds the binary to the known tests of that name, else to
+  a name term in every binary; every test target
+  of the scoped packages built (`--tests`) and the `built` filter removed; the `selected` record of every alone check
+  and after-landing run, for every kind of selection (graph answer, module table, every module, guard floor); and
+  `[gate.test-selection]` in shadow, whose rows in `gates/test-selection.jsonl` carry the selection that runs and the
+  M..HEAD tests (`north graph ask affected`'s `since`: known tests whose reached functions changed between the map's
+  commit and the lane's base) that the new selection adds. The Rust test check line firing whenever the selection is
+  non-empty and the inclusion filter with its `cargo nextest list` step landed as n1039-select-tail (a0cd450b3).
 - n1039-blame: every prefix probe runs exactly the failed tests, a single named suspect is confirmed against its
   parent, a red base walks back to the first differentially red lane and reverts it, and `Cone::holds` follows the
   new rules.

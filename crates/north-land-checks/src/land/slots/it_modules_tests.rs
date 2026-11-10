@@ -23,7 +23,7 @@ fn a_probe_through_src_and_four_crates_runs_only_the_tests_it_modules_their_crat
     let expected: BTreeSet<String> = table.modules().filter(|module| !table.crates(module).unwrap().is_disjoint(&affected)).map(str::to_owned).collect();
     let selection = selected(&probe);
     assert_eq!(selection, Selection::Modules { modules: expected, units: Units::default(), floor: Floor::default() }, "the probe runs the modules crates.txt maps to its crates");
-    assert!(selection.arguments().starts_with("--test it -E kind(lib)|kind(bin)|(binary_id(north::it)&test(/"), "the root package's unit tests still run");
+    assert!(selection.arguments().starts_with("--tests -E kind(lib)|kind(bin)|(binary_id(north::it)&test(/"), "the root package's unit tests still run");
     let modules = |names: &[&str]| Selection::Modules { modules: names.iter().map(|name| (*name).to_owned()).chain(["affected_modules", "agent_text_reads"].map(str::to_owned)).collect(), units: Units::default(), floor: Floor::default() };
     assert_eq!(selected(&["tests/it/threads_ledger.rs"]), modules(&["threads_ledger"]), "an edited module runs with the tree-wide ones");
     assert_eq!(selected(&["tests/it/runtime_update/prune.rs"]), modules(&["runtime_update"]), "a file in a module's directory selects it");
@@ -46,11 +46,11 @@ fn a_lane_the_graph_traces_runs_only_its_tests_and_an_untraced_lane_runs_the_cra
     let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", &Batch::default(), BTreeMap::new).unwrap();
     assert_eq!(
         selection.arguments(),
-        "--test it -E (binary_id(north-base::bin/probe)&(test(=tests::reads_home)))|(binary_id(north-land-checks)&(test(=land::slots::select::tests::queues)))|(binary_id(north::it)&(test(=fleet::launch::refuses_a_full_window)))|(package(north-land-checks)&test(/(^|::)narrows_to_ids$/))|(binary_id(north::it)&test(/^(affected_modules|agent_text_reads)::/))|(binary_id(=north-code-health)&test(=code_health::habits_tests::the_north_tree_keeps_its_rust_habits))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree))",
-        "a traced lane runs its traced and always tests in the binaries the land check builds, the tests it adds, and the tree-wide tests/it modules"
+        "--tests -E (binary_id(north-base::bin/probe)&(test(=tests::reads_home)))|(binary_id(north-coverage::pick_tests)&(test(=pick::regions)))|(binary_id(north-land-checks)&(test(=land::slots::select::tests::queues)))|(binary_id(north::it)&(test(=fleet::launch::refuses_a_full_window)))|(package(north-land-checks)&test(/(^|::)narrows_to_ids$/))|(binary_id(north::it)&test(/^(affected_modules|agent_text_reads)::/))|(binary_id(=north-code-health)&test(=code_health::habits_tests::the_north_tree_keeps_its_rust_habits))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input))|(binary_id(=north-runtime)&test(=runtime::reuse::tests::no_source_or_test_embeds_a_table_the_runtime_reads_from_its_tree))",
+        "a traced lane runs its traced and always tests in every test binary, integration binaries outside tests/it included, the tests it adds, and the tree-wide tests/it modules"
     );
     assert!(selection.runs_module("agent_text_reads") && selection.runs_module("fleet") && !selection.runs_module("safe_push"), "a traced lane keeps the tree-wide modules that coverage cannot link to a change (north#706)");
-    assert_eq!(selection.packages(), ["north", "north-base", "north-code-health", "north-land-checks", "north-runtime"].map(str::to_owned).into(), "the packages of the selected tests and of the tree-wide unit tests are built");
+    assert_eq!(selection.packages(), ["north", "north-base", "north-code-health", "north-coverage", "north-land-checks", "north-runtime"].map(str::to_owned).into(), "the packages of the selected tests and of the tree-wide unit tests are built");
     let crate_level = select(&read(STRUCTURE), &read(TABLE), &spawners(root()), &[]).unwrap().with_units(units(&read(tree_wide_units::TABLE), &Plan::parse(&read(STRUCTURE)).unwrap()).unwrap());
     for (name, body) in [("untraced", "echo '{\"tests\":[]}'; exit 3"), ("missing", "exit 2")] {
         let program = graph_stub(directory.path(), name, body);
@@ -115,7 +115,7 @@ fn a_selected_integration_binary_of_another_crate_is_built_and_run() {
     let traced = graph_stub(directory.path(), "traced", r#"printf '%s' '{"tests":["north-lander::it land_chaos::reverts_the_red_lane"],"files":[]}'"#);
     let selection = selection_asking_with(&traced, root(), "HEAD", "HEAD", &Batch::default(), BTreeMap::new).unwrap();
     let arguments = selection.arguments();
-    assert!(arguments.starts_with("--test it -E "), "the tests/it binaries are built: {arguments}");
+    assert!(arguments.starts_with("--tests -E "), "the tests/it binaries are built: {arguments}");
     assert!(arguments.contains("(binary_id(north-lander::it)&(test(=land_chaos::reverts_the_red_lane)))"), "the selected test runs: {arguments}");
     assert!(selection.packages().contains("north-lander"), "its package is built");
     assert!(Selection::Every.arguments().ends_with("|kind(test)"), "the whole-workspace run keeps every tests/it binary");
