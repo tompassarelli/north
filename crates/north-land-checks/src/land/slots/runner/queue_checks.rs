@@ -7,14 +7,23 @@ use north_base::foundation::exit::{NO_VERDICT_STATUS, SLOTS_BUSY_STATUS};
 
 const ATTEMPTS: usize = 3;
 
-pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {
+/// The checks a lane runs alone before its ticket is written: its clippy (build and link), the
+/// `@enqueue` land.check lines, and the land test selection the batch would otherwise run. Read
+/// without running them, so a test can pin the set (north#892).
+pub fn queue_commands(root: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let config = Config::load(root, head);
     let landing = config.after_set().commands(root, base, head)?;
     let clippy = clippy_first::listed(&landing, |command| !config.is_inferred(command));
     let queued_lines = config.queue_set(crate::landing_refusals::enforcing()).commands(root, base, head)?;
     let queued: Vec<String> = queued_lines.iter().map(|command| shared_build::built(command)).collect();
     let tests = lane_tests(&landing);
-    let commands: Vec<String> = clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).chain(tests).collect();
+    Ok(clippy.iter().cloned().chain(queued.into_iter().filter(|command| clippy.as_ref() != Some(command))).chain(tests).collect())
+}
+
+pub fn refuse_queue_checks(root: &Path, base: &str, head: &str) -> Result<(), String> {
+    let config = Config::load(root, head);
+    let clippy = clippy_first::listed(&config.after_set().commands(root, base, head)?, |command| !config.is_inferred(command));
+    let commands = queue_commands(root, base, head)?;
     if commands.is_empty() {
         return Ok(());
     }

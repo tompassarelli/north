@@ -238,8 +238,12 @@ fn the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_befor
         fs::write(repo.join(path), text).unwrap();
     }
     commit(repo, "n882-context: pack context from graph-ground");
-    let queued = crate::land::slots::select::Config::load(repo, "HEAD").queue_set(false).commands(repo, &base, "HEAD").unwrap();
-    for gate in ["code-health layers", "check experiments"] {
+    let queued = crate::land::slots::runner::queue_commands(repo, &base, "HEAD").unwrap();
+    // Every check of 2026-11-08's one-bad-lane class is in the set the enqueue runs alone before the ticket:
+    // n882-context's layers, experiments and test admission, n882-plan's citations, and the habits wall-clock scan.
+    // n842-recorder's -lseccomp link failure is the clippy that builds and links the lane, and n706-cost-words' five
+    // gate_rows tests are the land test selection the enqueue runs beside it.
+    for gate in ["cargo clippy --all-targets", "code-health layers", "check experiments", "check citations", "land scan test-admission kills", "code-health habits", "cargo nextest run"] {
         assert!(queued.iter().any(|command| command.contains(gate)), "{gate} is not run before queueing: {queued:#?}");
     }
 }

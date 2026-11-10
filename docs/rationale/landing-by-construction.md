@@ -60,20 +60,37 @@ worker updates its own class's line when its lane lands.
   not build read as a transient. 24744118dc pulls a lane after two failed probes, which catches
   the failure after it has cost two batches.
 - Invariant: alone before together (1).
-- Mechanism: (a) every gate that judges only the lane's diff runs once at enqueue and refuses
-  there (n842-lanegates). (b) Enqueue runs the lane's own land.check lines (build, link, clippy,
-  footprint-selected tests) with the `@enqueue` lines on the probe build hosts. A failure refuses
-  the lane, and a pass records the lane's head as its alone verdict. The round planner puts a
-  lane without an alone verdict only in a solo probe, and only vouched lanes form cumulative
-  prefixes. `bin/head-north` passes cargo's exit status through (n892-solo). Checking at enqueue
-  adds one check before a lane is queued and nothing to its landing, where a solo probe for
-  every lane would add a round to each landing (probe p50 156 s, p90 419 s, round p50 239 s
-  over the 3 h to 10:00 AM).
-- Replay: `cargo nextest run -p north-lander -p north-land-probes`. n842-recorder's link failure,
-  n706-cost-words' tests, n876-t3-fixed-default's privacy failure and n882-context's layers
-  failure are each refused, or held in a solo probe, before any multi-lane probe carries them.
-- Status: in flight. n842-lanegates (diff gates, lanes 9e003671b5 and 3ef579cf4d queued) and
-  n892-solo (alone build, link and tests at enqueue). Caught today, not prevented: 24744118dc.
+- Mechanism: every check of this class runs once before the ticket is written, and refuses there
+  or, under shadow, logs its would-be refusal: the lane-local `land.check` lines marked
+  `@enqueue` (citations, code-health
+  layers, experiments, test admission, gate-shadow, the tests/it module list, the nix lock and
+  nix-entry, safe-push-verbs and run-time-data, 5b770fd9d7); the lane's clippy, which builds and
+  links it, and its land test selection (`refuse_queue_checks`); the privacy scans (secrets,
+  deny-list, commit email, native refs), where a judge that reaches no verdict withholds the pass
+  and the lander judges it again alone before it lands (263e4e51ca); and the built-in after-landing
+  gates (code-health, crate-lines, instruction-limits, generated-rewrite), which now run as lane
+  gates at enqueue and at the pick (521411db26); beside them the lane gates run test admission (the
+  bug needs its test), test integrity (the wall-clock scan), the incident test, tool removal and
+  the policy sweep. A pass records `alone_green` and `alone_base` on
+  the ticket; a lander round batches only a pass whose head is the lane's and whose base is main or
+  at most `landing.alone-pass-landings` first-parent commits behind it, and a lane without a
+  current pass is checked alone on current main before it joins a batch (f5fd775d71,
+  `land/serve/alone.rs`). The `@enqueue` land.check lines refuse in either mode; a lane gate
+  outside them follows `landing_refusals`, so in shadow it logs its would-be refusal at enqueue and
+  cannot fail a batch later. Privacy judges each commit's added prose as its own segment, so one
+  lane's text never fails another's pass (4127fb389a). One ticket is batched without a pass: the
+  sheriff's revert, whose tree is the main its culprit replaced and so the side of a red main that
+  already passed.
+- Replay: `cargo nextest run -p north-lander the_lane_local_land_checks_that_refused_n882_context_in_every_probe_run_before_its_ticket_is_written`
+  reads the check set the enqueue runs and pins n882-context's layers, experiments and test
+  admission, n882-plan's citations, the habits wall-clock scan, and the clippy and land test
+  selection that carry n842-recorder's link and n706-cost-words' tests; the same test file's
+  `@enqueue` refusal fixture refuses a lane whose check fails. `cargo nextest run -p north-landing an_alone_pass_vouches_for_its_lane_until_main_gains_more_landings_than_the_setting_allows_or_stops_descending_from_the_main_it_was_checked_on`
+  pins that only a current pass batches, and `cargo nextest run -p north-landing-gates two_lanes_adding_lines_to_one_doc_are_judged_as_separate_segments`
+  replays n876-t3-fixed-default's privacy failure.
+- Status: enforced. 5b770fd9d7, 521411db26, 263e4e51ca, 4127fb389a and f5fd775d71 (which replaced
+  the probe rounds and the enqueue-time full land.check run with the alone pass this class now
+  rests on), with the replay above added by this lane.
 
 ### 2. A check or test passes or fails on host load
 

@@ -34,7 +34,7 @@ mod selection;
 mod spawn;
 mod timeout_row;
 mod verdict;
-pub use queue_checks::refuse_queue_checks;
+pub use queue_checks::{queue_commands, refuse_queue_checks};
 use crate::platform::north_binary::land_north as program;
 use crate::land::telemetry::epoch;
 use crate::land::trace::{self, Category, Span};
