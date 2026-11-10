@@ -91,9 +91,56 @@ pub fn promised(reply: &str, resolves: &dyn Fn(&str) -> bool) -> Vec<Claim> {
         .collect()
 }
 
+/// The inline code spans of `text`, paired the way Markdown pairs backtick runs: a run opens a span
+/// only when a later run of the same length closes it, and the runs between them are its content,
+/// so a quotation holding a single backtick inside a doubled span stays one span and a run with no
+/// partner stays literal text instead of re-pairing the spans after it.
 fn spans(text: &str) -> Vec<&str> {
-    let parts: Vec<&str> = text.split('`').collect();
-    parts.iter().enumerate().skip(1).step_by(2).filter(|(index, _)| index + 1 < parts.len()).map(|(_, span)| *span).collect()
+    let mut spans = Vec::new();
+    let mut at = 0;
+    while let Some((open, length)) = run(text, at) {
+        let mut search = open + length;
+        let mut close = None;
+        while let Some((start, width)) = run(text, search) {
+            if width == length {
+                close = Some(start);
+                break;
+            }
+            search = start + width;
+        }
+        match close {
+            Some(end) => {
+                spans.push(code(&text[open + length..end]));
+                at = end + length;
+            }
+            None => at = open + length,
+        }
+    }
+    spans
+}
+
+/// The backtick run at or after byte `from`: where it starts and how many backticks it holds.
+fn run(text: &str, from: usize) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut at = from;
+    while at < bytes.len() && bytes[at] != b'`' {
+        at += 1;
+    }
+    if at == bytes.len() {
+        return None;
+    }
+    let start = at;
+    while at < bytes.len() && bytes[at] == b'`' {
+        at += 1;
+    }
+    Some((start, at - start))
+}
+
+/// Markdown strips one space from each end of a span whose content starts and ends with one and is
+/// not all spaces, so a doubled delimiter around a shorter span holds it without padded spaces.
+fn code(content: &str) -> &str {
+    let trimmed = content.strip_prefix(' ').and_then(|rest| rest.strip_suffix(' '));
+    trimmed.filter(|inner| !inner.is_empty() && !inner.bytes().all(|byte| byte == b' ')).unwrap_or(content)
 }
 
 pub fn resolver<'a>(cwd: &'a Path, search: &'a OsStr) -> impl Fn(&str) -> bool + 'a {

@@ -240,10 +240,14 @@ worker updates its own class's line when its lane lands.
   report and reported a broken promise.
 - Root cause: backtick pairs were matched across sentences, and any span was run.
 - Invariant: read the source of truth (4). A promise is parsed, not guessed.
-- Mechanism: one backtick span on the time claim's line, paired within the line, whose first word
-  resolves to a program. Anything else is no checkable promise, logged and never reported broken.
+- Mechanism: the last backtick span on the time claim's line whose first word resolves to a
+  program, with runs paired within the line the way Markdown pairs them: a run closes only
+  against a run of its own length, and a run with no partner stays literal text rather than
+  re-pairing the spans after it (north#1041). Anything else is no checkable promise, logged and
+  never reported broken.
 - Replay: `cargo nextest run -p north-fleet promises` runs only the report's
-  `git ... merge-base --is-ancestor` command.
+  `git ... merge-base --is-ancestor` command, and the n842-reuse report line that quotes the
+  shell's unmatched-quote error before its promise.
 - Status: in flight. n892-promise.
 
 ### 13. A health gate reads busyness as broken
