@@ -61,8 +61,6 @@ impl Runtime for Claude {
                 "--strict-mcp-config",
                 "--permission-mode",
                 "bypassPermissions",
-                "--system-prompt-snapshot",
-                "off",
                 "--settings",
                 r#"{"switchModelsOnFlag":true}"#,
             ]
@@ -129,8 +127,12 @@ impl Runtime for Claude {
         Vec::new()
     }
 
-    fn open(&self, _name: &str, _request: &LaunchRequest, _opening: Opening, _instructions: Instructions) -> NorthResult<Vec<String>> {
-        Ok(Vec::new())
+    fn open(&self, name: &str, _request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>> {
+        let refresh = match opening {
+            Opening::Resume(_) => instructions.changed && !instructions.text.is_empty(),
+            Opening::Fresh(_) => false,
+        };
+        Ok(if refresh { vec![encode_user_message(&format!("{name}:system-prompt:{}", new_uuid()?), instructions.text)] } else { Vec::new() })
     }
 
     fn message(&self, _transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {

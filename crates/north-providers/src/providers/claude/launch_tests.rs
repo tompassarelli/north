@@ -36,6 +36,30 @@ fn request() -> LaunchRequest {
 }
 
 #[test]
+fn a_revived_session_keeps_its_recorded_system_prompt_and_takes_changed_orders_as_one_message() {
+    let scratch = tempfile::tempdir().unwrap();
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: scratch.path().join("home"), token_file: None, api: None };
+    let orders = "You are a session in north fleet.\n\n- Think, don't agree.";
+    let argv = |opening: Opening| Claude.host(&account, &request(), opening, orders).unwrap().argv;
+
+    let fresh = argv(Opening::Fresh(None));
+    assert!(!fresh.iter().any(|arg| arg == "--system-prompt-snapshot"), "{fresh:?}");
+    assert!(fresh.windows(2).any(|pair| pair == ["--append-system-prompt", orders]), "{fresh:?}");
+
+    let resumed = argv(Opening::Resume("conversation"));
+    assert!(resumed.windows(2).any(|pair| pair == ["--resume", "conversation"]), "{resumed:?}");
+    assert!(!resumed.iter().any(|arg| arg == "--system-prompt-snapshot"), "a revive opted out of the recorded prompt: {resumed:?}");
+
+    let opened = |opening: Opening, changed: bool| Claude.open("worker", &request(), opening, Instructions { text: orders, changed }).unwrap();
+    let frames = opened(Opening::Resume("conversation"), true);
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    let frame: serde_json::Value = serde_json::from_str(&frames[0]).unwrap();
+    assert_eq!((frame["type"].as_str(), frame["message"]["role"].as_str(), frame["message"]["content"].as_str()), (Some("user"), Some("user"), Some(orders)));
+    assert!(opened(Opening::Resume("conversation"), false).is_empty(), "unchanged orders were delivered again");
+    assert!(opened(Opening::Fresh(None), true).is_empty(), "a fresh launch delivers its orders in argv, not as a message");
+}
+
+#[test]
 fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_or_the_spec_env() {
     let scratch = tempfile::tempdir().unwrap();
     let token = scratch.path().join("token");
