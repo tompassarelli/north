@@ -8,7 +8,7 @@ use serde_json::json;
 use super::issues::Issues;
 use super::ledger::{self, Taken};
 use super::lifecycle::{self, Moved};
-use super::{Claim, Issue, OVERDUE_RATIO, Standing, box_slug, split_key};
+use super::{Claim, Issue, OVERDUE_RATIO, Standing, box_slug, names_box, split_key};
 use crate::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
@@ -103,6 +103,12 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let by = parsed.by.clone().unwrap_or_else(|| context.actor.clone());
     let item = format!("{repo}#{number}");
     let slug = parsed.box_text.as_deref().map(|text| box_slug(text).ok_or_else(|| format!("--box {text} names no word of a box"))).transpose()?;
+    if let (Some(slug), Some(text)) = (&slug, &parsed.box_text)
+        && let Some(body) = (!CATALOG.is_native(&repo)).then(|| context.issues.body(&repo, number)).flatten()
+        && !names_box(&body, slug)
+    {
+        return Err(format!("--box {text:?} names no box of {item}; a box another issue holds is claimed on that issue, since a claim on a box its issue lacks holds every box of it"));
+    }
     let mut db = ledger::open(context.database, true)?;
     let github = context.issues.read(&github_items(std::iter::once(item.as_str())));
     let issue = issue_of(&db, &item, &github);

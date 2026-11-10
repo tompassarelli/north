@@ -10,6 +10,8 @@ use crate::threads::catalog::CATALOG;
 pub trait Issues {
     /// Each `(repo, number)` asked for, as GitHub shows it.
     fn read(&self, items: &BTreeSet<(String, u64)>) -> BTreeMap<(String, u64), Issue>;
+    /// The body of `repo`#`number` as GitHub holds it now, `None` when it could not be read.
+    fn body(&self, repo: &str, number: u64) -> Option<String>;
 }
 
 pub struct GitHub;
@@ -23,6 +25,12 @@ impl Issues for GitHub {
         let output = crate::platform::github::run_owned(&["api".into(), "graphql".into(), "-f".into(), query]);
         let reply = output.ok().and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok()).unwrap_or(Value::Null);
         answers(items, &reply)
+    }
+
+    fn body(&self, repo: &str, number: u64) -> Option<String> {
+        let (number, repo) = (number.to_string(), format!("{}/{repo}", CATALOG.owner));
+        let issue = crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "body"]).ok()?;
+        issue["body"].as_str().map(str::to_owned)
     }
 }
 

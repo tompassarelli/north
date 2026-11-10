@@ -15,11 +15,15 @@ CREATE TABLE claims(item TEXT PRIMARY KEY, owner TEXT NOT NULL, since TEXT NOT N
 CREATE TABLE items(ns TEXT NOT NULL, number INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'open', created TEXT NOT NULL, closed TEXT, due TEXT, PRIMARY KEY(ns, number)) STRICT;";
 const NOW: &str = "2026-10-27T12:00:00Z";
 
-struct Seen(BTreeMap<(String, u64), Issue>);
+struct Seen(BTreeMap<(String, u64), Issue>, BTreeMap<(String, u64), String>);
 
 impl Issues for Seen {
     fn read(&self, items: &BTreeSet<(String, u64)>) -> BTreeMap<(String, u64), Issue> {
         items.iter().filter_map(|item| Some((item.clone(), *self.0.get(item)?))).collect()
+    }
+
+    fn body(&self, repo: &str, number: u64) -> Option<String> {
+        self.1.get(&(repo.to_owned(), number)).cloned()
     }
 }
 
@@ -39,7 +43,7 @@ fn ledger(issues: &[(u64, Issue)]) -> Ledger {
     let directory = tempfile::tempdir_in("/dev/shm").or_else(|_| tempfile::tempdir()).unwrap();
     let path = directory.path().join("threads.db");
     Connection::open(&path).unwrap().execute_batch(SCHEMA).unwrap();
-    let issues = Seen(issues.iter().map(|(number, issue)| (("makgora".to_owned(), *number), *issue)).collect());
+    let issues = Seen(issues.iter().map(|(number, issue)| (("makgora".to_owned(), *number), *issue)).collect(), BTreeMap::new());
     Ledger { _directory: directory, path, issues, no_native: None, alive: None }
 }
 
@@ -126,4 +130,23 @@ fn three_workers_claim_three_boxes_of_one_issue_while_a_second_claim_on_one_box_
     assert_eq!(boxed.iter().map(|(_, slug, _)| slug.as_str()).collect::<Vec<_>>(), ["the-loss-is-classified", "the-run-row-names-its-box", "the-staffing-replays"]);
     ledger.db().execute("DELETE FROM claims", []).unwrap();
     assert_eq!(ledger.run(&["claim", "makgora#782", "--by", "n-late"]).0, 0, "the whole issue is claimable once every box claim is gone");
+}
+
+/// On 2026-11-11 gex45-n1109-mirror launched with `--task north#1109` and a box of north#872, so its claim named no box of north#1109 and dispatch held all thirteen of its boxes; north#1020 was held the same way at 5:20 AM +07.
+#[test]
+fn a_claim_on_a_box_its_issue_lacks_is_refused_and_one_on_its_own_box_holds_only_that_box() {
+    let mut ledger = ledger(&[(1109, Issue::Open { opened: at("2026-10-26T08:00:00Z") })]);
+    let body = "- [ ] north-fleet: no test in crates/north-fleet waits on the clock\n- [x] north-base: no test in crates/north-base waits on the clock\n- [ ] north-ops: no test in crates/north-ops waits on the clock";
+    ledger.issues.1.insert(("makgora".to_owned(), 1109), body.to_owned());
+    let (code, _, err) = ledger.run(&["claim", "makgora#1109", "--box", "Dispatch on nexus sees every issue filed since its token broke", "--by", "n1109-mirror"]);
+    assert_eq!(code, 1);
+    assert!(err.contains("names no box of makgora#1109"), "{err}");
+    assert!(ledger.listed().is_empty(), "a refused claim holds nothing");
+    for (worker, text) in [("n-fleet", "north-fleet: no test"), ("n-base", "north-base: no test in crates/north-base waits on the clock")] {
+        let (code, _, err) = ledger.run(&["claim", "makgora#1109", "--box", text, "--by", worker]);
+        assert_eq!((code, err.as_str()), (0, ""), "{worker}: a box's first words and a ticked box are boxes of the issue");
+    }
+    assert!(ledger.dispatch_holds().is_empty(), "box claims hold boxes, not the issue");
+    ledger.issues.1.clear();
+    assert_eq!(ledger.run(&["claim", "makgora#1109", "--box", "a box GitHub could not show", "--by", "n-unread"]).0, 0, "an unread body refuses nothing");
 }

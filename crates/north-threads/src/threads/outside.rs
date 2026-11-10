@@ -60,6 +60,10 @@ impl Issues for Live {
     fn read(&self, items: &BTreeSet<(String, u64)>) -> BTreeMap<(String, u64), Issue> {
         GitHub.read(items)
     }
+
+    fn body(&self, repo: &str, number: u64) -> Option<String> {
+        GitHub.body(repo, number)
+    }
 }
 
 impl super::verb::Outside for Live {

@@ -32,6 +32,10 @@ impl Issues for Recorded {
     fn read(&self, items: &BTreeSet<(String, u64)>) -> BTreeMap<(String, u64), Issue> {
         items.iter().map(|item| (item.clone(), Issue::Unread)).collect()
     }
+
+    fn body(&self, _repo: &str, _number: u64) -> Option<String> {
+        None
+    }
 }
 
 impl Outside for Recorded {

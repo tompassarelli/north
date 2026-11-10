@@ -44,6 +44,16 @@ pub fn box_node(item: &str, text: &str) -> Option<String> {
     box_slug(text).map(|slug| format!("box:{item}:{slug}"))
 }
 
+/// Whether `slug` names a box of the issue `body`, ticked or not, as [`same_box`] matches a claim to a box.
+pub fn names_box(body: &str, slug: &str) -> bool {
+    body.lines().filter_map(checked).filter_map(box_slug).any(|line| same_box(slug, &line))
+}
+
+fn checked(line: &str) -> Option<&str> {
+    let text = line.trim_start().strip_prefix(['-', '*'])?.trim_start();
+    ["[ ]", "[x]", "[X]"].into_iter().find_map(move |mark| text.strip_prefix(mark))
+}
+
 /// The claims table's key for `item` held whole, or for the box `slug` of it.
 pub fn key(item: &str, slug: Option<&str>) -> String {
     slug.map_or_else(|| item.to_owned(), |slug| format!("{item}{BOX_MARK}{slug}"))
