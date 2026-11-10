@@ -1,5 +1,10 @@
-//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec`, which reruns a lock-changing lane's program under `north depbox run`. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere: the domain guards removal, not edits. Reading is open apart from the logins. When a worker command hands work to another local process, the outside broker carries the same removal roots to that process, and depbox applies them again inside the mount namespace it must build outside the domain. See docs/rationale/worker-sandbox.md.
+//! `north --worker-sandbox COMMAND`: runs one shell command of an agent session under a Landlock domain. Every agent session's domain keeps the operator's own logins unreadable, since an agent calls GitHub as an App installation, and sets git's GitHub credential helper to that App. It also refuses to execute build output (a lane's `target/` and `node_modules/`) by its path, so the code a lane's dependencies bring runs only inside depbox, which the toolchain shims enter, or through `north lane exec` for a lane whose lock files equal main's. A worker's domain also confines removal: a file or directory can be removed or renamed away only beneath the worker's lane, its git state and the scratch and cache trees its builds need. A delete whose target is computed at run time (an unset variable, a split `xargs` word, a `dirname` of the wrong line, a `remove_dir_all` on a computed path) meets the kernel with the real path, so the home directory, project containers, main checkouts, other lanes, pins and transcripts survive it. Creating and writing files stays open everywhere: the domain guards removal, not edits. Reading is open apart from the logins. When a worker command hands work to another local process, the outside broker carries the same removal roots to that process, and depbox applies them again inside the mount namespace it must build outside the domain. See docs/rationale/worker-sandbox.md.
 mod broker;
+mod except;
+mod executable;
+mod lane_only;
+mod readable;
+mod removable;
 mod sockets;
 
 use std::ffi::OsString;
@@ -7,12 +12,13 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use landlock::{AccessFs, CompatLevel, Compatible, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
+use landlock::{AccessFs, BitFlags, CompatLevel, Compatible, RulesetAttr, RulesetCreatedAttr, RulesetStatus, path_beneath_rules};
 use north_base::platform::git_credential;
 use north_base::platform::session_scope::REMOVAL_ROOTS;
-use north_base::platform::worker_sandbox::{confine, lane_only};
 
-pub use north_base::platform::worker_sandbox::{Context, build_outputs, executable, readable, removable};
+pub use executable::{build_outputs, executable};
+pub use readable::readable;
+pub use removable::{Context, removable};
 pub use sockets::runtime;
 
 pub const FLAG: &str = "--worker-sandbox";
@@ -36,6 +42,24 @@ fn confine_removal(roots: &[PathBuf]) -> Result<RulesetStatus, String> {
     let ruleset = ruleset.create().map_err(|error| error.to_string())?;
     let ruleset = ruleset.add_rules(path_beneath_rules(["/"], AccessFs::Refer)).map_err(|error| error.to_string())?;
     let ruleset = ruleset.add_rules(path_beneath_rules(roots.iter().filter(|root| root.is_dir()), removal)).map_err(|error| error.to_string())?;
+    ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
+}
+
+fn removal() -> BitFlags<AccessFs> {
+    AccessFs::RemoveDir | AccessFs::RemoveFile | AccessFs::Refer
+}
+
+/// Restricts this process, and everything it starts, to reading only files beneath `readable`, given `executable` to executing only files beneath it, and given `roots` to removing and renaming away only beneath them. Refer is handled either way, so a file cannot be linked or moved to where it would become readable or executable.
+pub fn confine(roots: Option<&[PathBuf]>, readable: &[PathBuf], executable: Option<&[PathBuf]>) -> Result<RulesetStatus, String> {
+    let handled = if roots.is_some() { removal() } else { BitFlags::from(AccessFs::Refer) };
+    let handled = if executable.is_some() { handled | AccessFs::Execute } else { handled };
+    let ruleset = landlock::Ruleset::default().set_compatibility(CompatLevel::HardRequirement).handle_access(handled | AccessFs::ReadFile).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.create().map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(["/"], AccessFs::Refer)).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(roots.unwrap_or_default().iter().filter(|root| root.is_dir()), removal())).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(readable, AccessFs::ReadFile)).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.add_rules(path_beneath_rules(executable.unwrap_or_default(), AccessFs::Execute)).map_err(|error| error.to_string())?;
+    let ruleset = ruleset.set_compatibility(CompatLevel::BestEffort).log_new_exec(true).map_err(|error| error.to_string())?;
     ruleset.restrict_self().map(|status| status.ruleset).map_err(|error| error.to_string())
 }
 
@@ -122,9 +146,8 @@ fn program(program: &[String], lift: bool) -> std::process::ExitCode {
     std::process::ExitCode::from(126)
 }
 
-/// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable. Its shell re-enters a fresh lane domain through the broker for each command, so the broker must answer before this long-lived domain hides the sockets.
+/// Runs `program` confined to its lane for an agent that is not Claude (OpenCode): removal confined as for a worker, and reading limited to the lane, its project's main checkout, the toolchains and the system, so no other checkout, no private repository, no sops key and no agent state is readable. Its own scratch directory, named by NORTH_SANDBOX_SCRATCH, stays readable.
 fn in_lane(program: &[String]) -> std::process::ExitCode {
-    broker::ensure();
     let context = Context::from_env(&program.join(" "));
     let hidden = hide_sockets(&context);
     report(confine(Some(&removable(&context)), &lane_only::readable_in_lane(&context), Some(&executable(&context))));

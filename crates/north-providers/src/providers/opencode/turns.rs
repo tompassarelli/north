@@ -217,7 +217,6 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
     }
     std::fs::create_dir_all(host.scratch.join("tmp"))?;
     command.env("TMPDIR", host.scratch.join("tmp")).env("NORTH_SANDBOX_SCRATCH", &host.scratch);
-    command.env("SHELL", command_shell(host)?);
     let key = match route {
         Route::Go => {
             let file = host.key_file.as_ref().ok_or_else(|| NorthError::Refused("the paid Go route has no key file".into()))?;
@@ -227,15 +226,6 @@ fn spawn(host: &Host, route: Route, text: &str) -> NorthResult<Child> {
     };
     harness::apply(&mut command, host.harness.environment(host, route, key.as_deref()));
     command.spawn().map_err(|error| NorthError::State(format!("{}: {error}", words[0])))
-}
-
-/// The shell the harness's shell tool runs each command through: a fresh lane-only domain asked of the broker. The turn's own lane-only domain was built before any lane the turn creates, so its Landlock rules cannot cover that lane; the broker leaves it for a domain built when the command starts, which keeps the lanes the command's text names.
-fn command_shell(host: &Host) -> NorthResult<PathBuf> {
-    let path = host.scratch.join("shell");
-    let north = north_base::platform::north_binary::north_binary();
-    let script = format!("exec env SHELL=/bin/sh {} --worker-sandbox --outside -- {} --worker-sandbox --lane -- /bin/sh \"$@\"\n", north.display(), north.display());
-    north_base::foundation::shim::write_script(&path, &script);
-    Ok(path)
 }
 
 fn usage(harness: &dyn Harness) -> String {

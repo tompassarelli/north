@@ -63,5 +63,4 @@ pub mod trials;
 pub mod twister;
 pub mod wait;
 pub mod watch_named;
-pub mod worker_sandbox;
 pub mod toml_json;
