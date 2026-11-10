@@ -4,6 +4,10 @@ use crate::pacing::placement;
 use north_safe_push::entry::{self, HostFacts};
 
 pub fn safe_push(arguments: &[String]) -> u8 {
+    let request: Vec<String> = std::iter::once("safe-push".to_owned()).chain(arguments.iter().cloned()).collect();
+    if let Some(code) = north_runtime::worker_sandbox::reenter_lane_only(&request) {
+        return code;
+    }
     entry::safe_push(arguments, &host_facts())
 }
 

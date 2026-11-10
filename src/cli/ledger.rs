@@ -3,10 +3,12 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
+const USAGE: &str = "Usage: north ledger (flow|incident|opencode|tempo|worker) ... | north ledger duplicate [--days N] [--json] | north ledger runs [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task comment REPO#N --body TEXT | north task check REF -- CMD... | north task check --done-when [--dry-run] [--main DIR] (--body-file FILE | REPO#N | --repo OWNER/REPO)";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
+        [task, verb, ..] if task == "task" && (verb == "comment" || verb == "check" && arguments.iter().any(|word| word == "--done-when")) && let Some(code) = north_runtime::worker_sandbox::reenter_lane_only(arguments) => return ExitCode::from(code),
+        [task, verb, reference, flag, body] if task == "task" && verb == "comment" && flag == "--body" => comment(reference, body),
         [ledger, verb, rest @ ..] if ledger == "ledger" && let Some(run) = super::tools::ledger_runner(verb) => return ExitCode::from(run(rest)),
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "claude-runs" => {
             crate::providers::claude::runs::run(rest).map(|()| ExitCode::SUCCESS)
@@ -49,4 +51,12 @@ fn dispatch(store: &Ledger, arguments: &[String]) -> NorthResult<ExitCode> {
         }
         _ => Err(NorthError::Usage(USAGE.into())),
     }
+}
+
+fn comment(reference: &str, body: &str) -> NorthResult<ExitCode> {
+    let (repository, number) = reference.split_once('#').and_then(|(repository, number)| Some((repository, number.parse::<u64>().ok()?))).filter(|(repository, _)| !repository.is_empty()).ok_or_else(|| NorthError::Usage(format!("{reference} is not REPO#N")))?;
+    let repository = if repository.contains('/') { repository.to_owned() } else { format!("tompassarelli/{repository}") };
+    crate::platform::github::comment(&repository, number, body).map_err(NorthError::Usage)?;
+    println!("commented on {repository}#{number}");
+    Ok(ExitCode::SUCCESS)
 }

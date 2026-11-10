@@ -1,9 +1,11 @@
+use std::fs::File;
 use std::io::{IoSlice, IoSliceMut, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -13,6 +15,7 @@ use north_base::platform::{git_credential, session_scope};
 use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, recvmsg, sendmsg};
 use serde::{Deserialize, Serialize};
 
+use super::lane_grant::{self, Host};
 use super::{Context, FLAG, LANE_ONLY, MAKER, MARK, SOCKETS_HIDDEN, removable};
 
 const DIRECTORY: &str = "north-outside";
@@ -31,10 +34,10 @@ const INJECTED_NAMES: [&str; 19] = [
 const INJECTED_PREFIXES: [&str; 6] = ["LD_", "MALLOC_", "PYTHON", "PERL5", "RUBY", "GIT_CONFIG"];
 
 #[derive(Serialize, Deserialize)]
-struct Request {
-    arguments: Vec<String>,
-    directory: PathBuf,
-    environment: Vec<(String, String)>,
+pub(super) struct Request {
+    pub arguments: Vec<String>,
+    pub directory: PathBuf,
+    pub environment: Vec<(String, String)>,
 }
 
 /// This user's runtime directory, where the user manager's bus and the capacity admission database live.
@@ -69,7 +72,7 @@ pub(super) fn permitted(arguments: &[String]) -> bool {
         ["lane", "unlock" | "stray" | "remove" | "gc", ..] => true,
         ["home", "move", ..] => true,
         ["capacity", "host", "run", rest @ ..] => payload(rest).is_some(),
-        _ => false,
+        _ => lane_grant::privileged(arguments),
     }
 }
 
@@ -113,19 +116,26 @@ pub fn request(arguments: &[String]) -> Result<u8, String> {
     }
     let path = socket();
     let stream = UnixStream::connect(&path).map_err(|error| format!("north worker-sandbox: the outside broker at {} does not answer ({error}); it starts with the next agent command", path.display()))?;
-    let body = serde_json::to_vec(&Request { arguments: arguments.to_vec(), directory: std::env::current_dir().map_err(|error| error.to_string())?, environment: std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect() }).map_err(|error| error.to_string())?;
+    let directory = std::env::current_dir().map_err(|error| error.to_string())?;
+    let environment = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
     let (stdin, stdout, stderr) = (std::io::stdin(), std::io::stdout(), std::io::stderr());
-    let streams: [BorrowedFd; STDIO] = [stdin.as_fd(), stdout.as_fd(), stderr.as_fd()];
+    send(&stream, Request { arguments: arguments.to_vec(), directory, environment }, [stdin.as_fd(), stdout.as_fd(), stderr.as_fd()])
+}
+
+/// Sends `request` with `streams` as its standard streams over `stream` and waits for its exit code.
+pub(super) fn send(stream: &UnixStream, request: Request, streams: [BorrowedFd; STDIO]) -> Result<u8, String> {
+    let body = serde_json::to_vec(&request).map_err(|error| error.to_string())?;
     let mut space = [0u8; 64];
     let mut control = SendAncillaryBuffer::new(&mut space);
     control.push(SendAncillaryMessage::ScmRights(&streams));
     let length = (body.len() as u64).to_le_bytes();
-    sendmsg(&stream, &[IoSlice::new(&length)], &mut control, SendFlags::empty()).map_err(|error| error.to_string())?;
-    (&stream).write_all(&body).map_err(|error| error.to_string())?;
+    sendmsg(stream, &[IoSlice::new(&length)], &mut control, SendFlags::empty()).map_err(|error| error.to_string())?;
+    (&*stream).write_all(&body).map_err(|error| error.to_string())?;
     let mut code = [0u8; 1];
-    (&stream).read_exact(&mut code).map_err(|error| format!("north worker-sandbox: the outside broker closed the request without an answer ({error})"))?;
+    (&*stream).read_exact(&mut code).map_err(|error| format!("north worker-sandbox: the outside broker closed the request without an answer ({error})"))?;
     Ok(code[0])
 }
+
 
 /// Starts the broker as a transient user service when nothing answers its socket. Called before a command's domain is applied: afterwards the command cannot start a service, only ask this one.
 pub fn ensure() {
@@ -239,21 +249,22 @@ fn handle(north: &Path, stream: UnixStream) -> Result<(), String> {
     if peer.uid.as_raw() != rustix::process::getuid().as_raw() {
         return Err(format!("refused a request from uid {}", peer.uid.as_raw()));
     }
-    let Some((request, streams)) = receive(&stream)? else { return Ok(()) };
-    if request.arguments == [NAMESPACE] {
-        return answer_namespaces(north, &stream, &request);
-    }
-    let code = match run(north, request, streams, &stream, peer.pid.as_raw_nonzero().get()) {
-        Ok(code) => code,
-        Err(message) => {
-            eprintln!("north worker-sandbox broker: {message}");
-            126
-        }
-    };
-    (&stream).write_all(&[code]).map_err(|error| error.to_string())
+    let cgroup = std::fs::read_to_string(format!("/proc/{}/cgroup", peer.pid.as_raw_nonzero().get())).ok();
+    answer(north, &stream, cgroup.as_deref(), &Host::own())
 }
 
-fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStream, caller: i32) -> Result<u8, String> {
+/// Answers the one request on `stream` from a caller whose `/proc/PID/cgroup` reads `cgroup` (`None` when unreadable), on `host`; a refused or failed request is answered 126 and its reason returned for the broker's log.
+pub(super) fn answer(north: &Path, stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<(), String> {
+    let Some((request, streams)) = receive(stream)? else { return Ok(()) };
+    if request.arguments == [NAMESPACE] {
+        return answer_namespaces(north, stream, &request);
+    }
+    let outcome = run(north, request, streams, stream, cgroup, host);
+    (&*stream).write_all(&[*outcome.as_ref().unwrap_or(&126)]).map_err(|error| error.to_string())?;
+    outcome.map(|_| ())
+}
+
+fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
     if !permitted(&request.arguments) {
         return Err(format!("{} is not a request the broker runs", request.arguments.join(" ")));
     }
@@ -261,12 +272,15 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
     if !request.directory.is_absolute() {
         return Err(format!("working directory {} is not absolute", request.directory.display()));
     }
+    if lane_grant::privileged(&request.arguments) {
+        return run_granted(north, &request, [stdout, stderr], stream, cgroup, host);
+    }
     let roots = request.arguments.first().is_some_and(|word| word == "depbox").then(|| hand_off_roots(&request.arguments, &request.directory, &request.environment));
-    let mut variables = environment(request.environment, std::fs::read_to_string(format!("/proc/{caller}/cgroup")).ok().as_deref(), &runtime(), &own_homes());
+    let mut variables = environment(request.environment, cgroup, &runtime(), &own_homes());
     if let Some(roots) = roots {
         variables.push((REMOVAL_ROOTS.to_owned(), serde_json::to_string(&roots).unwrap_or_else(|_| "[]".to_owned())));
     }
-    let mut child = Command::new(north)
+    let child = Command::new(north)
         .args(confined(north, request.arguments.clone()))
         .current_dir(&request.directory)
         .env_clear()
@@ -277,6 +291,49 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         .process_group(0)
         .spawn()
         .map_err(|error| format!("{}: {error}", north.display()))?;
+    wait(child, stream)
+}
+
+/// Runs a verb `lane_grant` grants a lane-only session in its own lane, with the broker's environment and no input, relaying its output to the client's `stdout` and `stderr` with every token withheld; a refusal is told to the client and logged.
+fn run_granted(north: &Path, request: &Request, [stdout, stderr]: [OwnedFd; 2], stream: &UnixStream, cgroup: Option<&str>, host: &Host) -> Result<u8, String> {
+    let granted = lane_grant::session(cgroup.unwrap_or_default(), &host.fleet).and_then(|session| {
+        let arguments = lane_grant::grant(&session, &request.arguments, &request.directory)?;
+        let variables = lane_grant::environment(&session, host.environment.iter().cloned(), &host.home)?;
+        Ok((session, arguments, variables))
+    });
+    let (session, arguments, variables) = match granted {
+        Ok(granted) => granted,
+        Err(why) => {
+            let _ = writeln!(File::from(stderr), "north worker-sandbox broker: refused: {why}");
+            return Err(format!("refused {:?} from {}: {why}", request.arguments.first().map(String::as_str).unwrap_or_default(), request.directory.display()));
+        }
+    };
+    eprintln!("north worker-sandbox broker: granted {} to {} ({})", arguments.iter().take(3).cloned().collect::<Vec<_>>().join(" "), session.name, session.task);
+    let mut child = Command::new(north)
+        .args(&arguments)
+        .current_dir(&session.lane)
+        .env_clear()
+        .envs(variables)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .map_err(|error| format!("{}: {error}", north.display()))?;
+    let relays: Vec<_> = [child.stdout.take().map(|out| Box::new(out) as Box<dyn Read + Send>), child.stderr.take().map(|err| Box::new(err) as Box<dyn Read + Send>)]
+        .into_iter()
+        .zip([stdout, stderr])
+        .filter_map(|(from, to)| from.map(|from| std::thread::spawn(move || lane_grant::relay(from, File::from(to)))))
+        .collect();
+    let code = wait(child, stream);
+    for relay in relays {
+        let _ = relay.join();
+    }
+    code
+}
+
+/// The exit code of `child`, whose process group is killed when the client hangs up `stream`.
+fn wait(mut child: Child, stream: &UnixStream) -> Result<u8, String> {
     let group = rustix::process::Pid::from_raw(child.id() as i32);
     loop {
         if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
@@ -292,6 +349,7 @@ fn run(north: &Path, request: Request, streams: Vec<OwnedFd>, stream: &UnixStrea
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
 
 /// Whether the client end of `stream` is gone: it sends nothing after its request, so an end of stream is a closed one.
 fn hung_up(stream: &UnixStream) -> bool {

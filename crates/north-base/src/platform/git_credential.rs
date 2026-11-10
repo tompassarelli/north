@@ -19,7 +19,12 @@ const HELPER: &str = "!north git-credential";
 const PATH_SCOPE: &str = "credential.https://github.com.useHttpPath";
 
 pub fn session_env() -> Vec<(String, String)> {
-    let entries = [(SCOPE, ""), (SCOPE, HELPER), (PATH_SCOPE, "true")];
+    session_env_with(&[])
+}
+
+/// `session_env` with the `extra` git configuration after the helper's; GIT_CONFIG_COUNT entries outrank a repository's own configuration.
+pub fn session_env_with(extra: &[(&str, &str)]) -> Vec<(String, String)> {
+    let entries: Vec<(&str, &str)> = [(SCOPE, ""), (SCOPE, HELPER), (PATH_SCOPE, "true")].into_iter().chain(extra.iter().copied()).collect();
     let mut env = vec![("GIT_CONFIG_COUNT".to_owned(), entries.len().to_string())];
     for (index, (key, value)) in entries.into_iter().enumerate() {
         env.push((format!("GIT_CONFIG_KEY_{index}"), key.to_owned()));

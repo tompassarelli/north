@@ -122,3 +122,17 @@ impl CommitStatuses for Gh {
         format!("https://github.com/{repo}.git")
     }
 }
+
+/// Comments `body` on issue `number` of `repo` (`OWNER/REPO`), the body on gh's standard input so no argument limit cuts it.
+pub fn comment(repo: &str, number: u64, body: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut child = std::process::Command::new("gh")
+        .args(["issue", "comment", &number.to_string(), "-R", repo, "--body-file", "-"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("cannot run gh: {error}"))?;
+    let written = child.stdin.take().ok_or("gh took no input")?.write_all(body.as_bytes()).map_err(|error| error.to_string());
+    let status = child.wait().map_err(|error| error.to_string())?;
+    written?;
+    if status.success() { Ok(()) } else { Err(format!("gh issue comment {number} -R {repo} failed")) }
+}

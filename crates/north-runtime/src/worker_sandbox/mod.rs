@@ -2,6 +2,7 @@
 mod broker;
 mod except;
 mod executable;
+mod lane_grant;
 mod lane_only;
 mod lane_session;
 mod readable;
@@ -197,6 +198,13 @@ fn report(confined: Result<RulesetStatus, String>) {
 /// Runs `north ARGUMENTS` outside the worker's Landlock domain when called inside it, for a verb that enforces its own removal rule (`north lane unlock`, `north lane stray`); `None` outside a worker sandbox, where the verb runs in place.
 pub fn reenter_outside(arguments: &[String]) -> Option<u8> {
     std::env::var_os(MARK)?;
+    Some(through_broker(arguments))
+}
+
+/// Has the outside broker run `north ARGUMENTS` with the host's GitHub credentials when called in a lane-only session's domain, which holds none: landing its own lane and writing its own task issue (lane_grant.rs). The broker decides what the caller may from its cgroup; the marker only routes the request. `None` elsewhere, where the verb runs in place.
+pub fn reenter_lane_only(arguments: &[String]) -> Option<u8> {
+    std::env::var_os(MARK)?;
+    std::env::var_os(LANE_ONLY)?;
     Some(through_broker(arguments))
 }
 
