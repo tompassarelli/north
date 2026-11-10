@@ -73,3 +73,22 @@ fn climb_dry_run_is_the_one_ops_climb_form_a_remote_host_may_ask() {
         assert!(matches!(plan(command), Err(Refusal::Verb(_))), "{command}");
     }
 }
+
+#[test]
+fn nexus_reaches_a_worker_only_through_its_own_verb_set() {
+    use super::{Grants, Job, Jobs, NEXUS_PEER, plan_for};
+    struct NoJobs;
+    impl Jobs for NoJobs {
+        fn job(&self, _: i64) -> Option<Job> {
+            None
+        }
+    }
+    let nexus = Grants { peer: NEXUS_PEER.into(), repos: vec![] };
+    for allowed in ["north fleet spool cache", "north fleet spool registry", "north fleet list --json", "north dash --closed --since 30d", "north runtime health"] {
+        assert!(plan_for(allowed, &nexus, &NoJobs).is_ok(), "{allowed}");
+    }
+    for refused in ["sh -s", "bash -s", "sh -c id", "north fleet spool", "north dash --closed --since 3w", "threads claim north#1", "south land", "cat x"] {
+        assert!(plan_for(refused, &nexus, &NoJobs).is_err(), "{refused}");
+    }
+    assert!(plan_for("north fleet spool cache", &Grants { peer: "w1".into(), repos: vec![] }, &NoJobs).is_err());
+}

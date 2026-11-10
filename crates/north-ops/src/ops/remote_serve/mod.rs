@@ -6,6 +6,7 @@ pub mod log;
 pub mod south_land;
 pub mod south_policy;
 mod verbs;
+mod worker_verbs;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -19,6 +20,7 @@ use crate::foundation::clock::Timestamp;
 
 pub use guards::REMOTE_PEER;
 
+pub const NEXUS_PEER: &str = "nexus";
 pub const MAX_COMMAND_BYTES: usize = 80 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -58,6 +60,10 @@ impl fmt::Display for Refusal {
 }
 
 pub fn plan(original_command: &str) -> Result<Plan, Refusal> {
+    plan_with(original_command, verbs::authorize)
+}
+
+fn plan_with(original_command: &str, authorize: fn(&[String]) -> Result<String, Refusal>) -> Result<Plan, Refusal> {
     if original_command.len() > MAX_COMMAND_BYTES {
         return Err(Refusal::TooLong);
     }
@@ -66,7 +72,7 @@ pub fn plan(original_command: &str) -> Result<Plan, Refusal> {
     if argv.is_empty() {
         return Err(Refusal::Empty);
     }
-    let verb = verbs::authorize(argv)?;
+    let verb = authorize(argv)?;
     Ok(Plan { verb, argv: argv.to_vec(), env })
 }
 
@@ -110,7 +116,11 @@ pub fn ledger(env: &BTreeMap<String, String>) -> Option<PathBuf> {
 }
 
 pub fn plan_for(original_command: &str, grants: &Grants, jobs: &dyn Jobs) -> Result<Plan, Refusal> {
-    guards::guard(plan(original_command)?, grants, jobs)
+    if grants.peer == NEXUS_PEER {
+        plan_with(original_command, worker_verbs::authorize)
+    } else {
+        guards::guard(plan(original_command)?, grants, jobs)
+    }
 }
 
 pub fn serve(original_command: Option<&str>, grants: &Grants, jobs: &dyn Jobs, launch: &dyn Launch, log: &mut log::Log, err: &mut dyn Write) -> io::Result<i32> {
