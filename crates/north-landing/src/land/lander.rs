@@ -12,7 +12,7 @@ use north_base::land_ticket::Records;
 use north_base::land_ticket::Phase;
 
 pub const OFFLOAD_OWNER: &str = "north-land";
-const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
+use super::after::route::SSH_OPTIONS;
 const WAIT_TICK: Duration = Duration::from_millis(200);
 
 pub struct Lander {

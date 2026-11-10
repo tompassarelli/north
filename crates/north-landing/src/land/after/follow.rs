@@ -7,6 +7,7 @@ use std::time::Duration;
 use north_base::platform::process::child_within;
 
 use crate::land::telemetry::epoch;
+use super::route;
 use crate::platform::land_notice;
 use crate::land::trace::{self, AFTER, Category, PHASE, Span};
 
@@ -94,8 +95,24 @@ pub fn run(arguments: &[String]) -> u8 {
     0
 }
 
+struct Fleet;
+
+impl route::Courier for Fleet {
+    fn here(&self, session: &str, message: &str) -> bool {
+        sent(Command::new(program()).args(["fleet", "send", "--from", land_notice::SENDER, session, message]))
+    }
+
+    fn on(&self, host: &str, session: &str, message: &str) -> bool {
+        let script = format!("n=\"$HOME/.local/state/north/current/north\"; [ -x \"$n\" ] || n=north; exec \"$n\" fleet send --from {} {} {}", land_notice::SENDER, route::quote(session), route::quote(message));
+        sent(Command::new("ssh").args(route::SSH_OPTIONS).args(["-T", host, "--", &script]))
+    }
+}
+
+/// Sends `message` to `session` through the fleet registry of the host the session's name starts with when that host is one the lander pulls an outbox from, since that registry alone lists it; otherwise through this host's.
 pub fn send(session: &str, message: &str) -> bool {
-    sent(Command::new(program()).args(["fleet", "send", "--from", land_notice::SENDER, session, message]))
+    let here = trace::this_host();
+    let hosts: Vec<String> = route::fleet_hosts().into_iter().filter(|host| *host != here).collect();
+    route::deliver(&Fleet, &hosts, session, message)
 }
 
 /// Sends `message` under the fleet store's condition `key`, which delivers it once per episode; `cleared` ends the episode.

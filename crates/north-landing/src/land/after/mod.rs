@@ -5,6 +5,7 @@ pub use follow::{send, send_condition};
 pub mod gates;
 pub mod goals;
 pub mod owner;
+pub mod route;
 pub mod tick;
 
 use std::fs;
