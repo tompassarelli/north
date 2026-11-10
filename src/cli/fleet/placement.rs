@@ -484,10 +484,6 @@ pub(super) fn machine_load(fleet: &Fleet) -> NorthResult<BTreeMap<String, i64>> 
     Ok(load)
 }
 
-pub(in crate::cli) fn fleet_load() -> NorthResult<BTreeMap<String, i64>> {
-    machine_load(&super::router::open_fleet()?)
-}
-
 #[cfg(test)]
 #[path = "placement_tests.rs"]
 mod tests;

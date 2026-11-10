@@ -1,3 +1,4 @@
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
@@ -10,7 +11,6 @@ use crate::pacing::placement::{config, gate, pass};
 
 use super::api_spend;
 use super::dispatch_tick;
-use super::launch_queue;
 use super::ledger::Ledger;
 use super::rebooted;
 use super::waits::Probes;
@@ -18,6 +18,9 @@ use super::window_move;
 
 const USAGE: &str = "Usage: north fleet tick";
 const BESIDE: Duration = Duration::from_secs(20);
+pub(super) const QUEUE_ENTRY: &str = "NORTH_FLEET_QUEUE_ENTRY";
+const QUEUE_RETRY_MS: u64 = 3 * 60 * 1000;
+const QUEUE_BUDGET: Duration = Duration::from_secs(15);
 
 fn always_pulled(fleet: &Fleet) -> Vec<FarHost> {
     config().map(|cfg| gate::spool_pulls(&cfg, fleet.host())).unwrap_or_default().into_iter().map(|(name, ssh)| FarHost { name, ssh }).collect()
@@ -45,7 +48,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if probes == Probes::Registry {
         let ticked = probe_pass(fleet, &ledger, &probes, Budgets::TICK)?;
         ticked.lines().iter().for_each(|line| println!("{line}"));
-        launch_queue::drain(fleet)?.iter().for_each(|line| println!("{line}"));
+        drain_queue(fleet)?.iter().for_each(|line| println!("{line}"));
         println!("{}", ticked.timing());
         if let Some(line) = dispatch_line(&dispatch_pass(fleet)) {
             println!("{line}");
@@ -84,7 +87,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         Err(late) => late_beside(&mut ticked, "window_move", &late.why(BESIDE), began),
     };
     let queueing = Instant::now();
-    let queued = launch_queue::drain(fleet)?;
+    let queued = drain_queue(fleet)?;
     ticked.steps.push(Step { name: "launch_queue", began: queueing - began, took: queueing.elapsed() });
     let dispatching = Instant::now();
     let dispatched = dispatch_pass(fleet);
@@ -96,6 +99,35 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         println!("{line}");
     }
     revived
+}
+
+fn drain_queue(fleet: &Fleet) -> NorthResult<Vec<String>> {
+    let started = Instant::now();
+    let now = crate::fleet::runtime::now_ms();
+    let mut lines = Vec::new();
+    for queued in fleet.queued_launches()? {
+        if queued.tried_ms.is_some_and(|tried| now.saturating_sub(tried) < QUEUE_RETRY_MS) {
+            continue;
+        }
+        fleet.mark_queued_tried(&queued.name, now)?;
+        let north = std::env::current_exe()?;
+        let spawned = Command::new(north)
+            .args(["fleet", "launch"])
+            .args(&queued.words)
+            .env(QUEUE_ENTRY, &queued.name)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        match spawned {
+            Ok(_) => lines.push(format!("started queued launch {} at {} priority", queued.name, queued.priority.label())),
+            Err(error) => lines.push(format!("cannot start queued launch {}: {error}", queued.name)),
+        }
+        if started.elapsed() >= QUEUE_BUDGET {
+            break;
+        }
+    }
+    Ok(lines)
 }
 
 fn late_beside(ticked: &mut Ticked, name: &'static str, why: &str, began: Instant) -> Vec<String> {

@@ -3,12 +3,11 @@ use std::sync::Arc;
 
 use crate::error::{NorthError, NorthResult};
 use super::claims::{self, SWEEP_VERB, ThreadsCli, release_exited_claims};
-use crate::fleet::launch_queue::QueuedLaunch;
 use crate::fleet::model::{ProviderName, Role};
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::{SESSION_ENV, now_ms};
+use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::runtimes::Runtimes;
 use crate::pacing::placement::{self as pacing_placement, config};
 use crate::providers::claude::fleet::Claude;
@@ -19,21 +18,17 @@ use crate::ledger::Ledger;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
-use super::placement::{self, Overrides};
+use super::placement::Overrides;
+use super::{admission, desktop, gated, one_proxy, ranked, spend_queue, tier};
 use super::run_ingest::IngestRuns;
 use super::usage_ingest::IngestUsage;
 use super::accounts;
 use super::adopt;
 use super::ask;
-use super::admission;
-use super::desktop;
 use super::digest;
 use super::drain;
-use super::gated;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
-use super::ranked;
-use super::one_proxy;
 use super::launch::{LaunchParts, launch_parts};
 use super::list;
 use super::usage::usage;
@@ -46,7 +41,6 @@ use super::need;
 use super::spend;
 use super::waits;
 use super::tick;
-use super::tier;
 use super::tree;
 use crate::cli::{gate, orders, send};
 
@@ -204,16 +198,25 @@ fn forget(fleet: &Fleet, name: &str, force: Option<&str>, successor: Option<&str
 }
 
 
+pub(in crate::cli) fn fleet_load() -> NorthResult<std::collections::BTreeMap<String, i64>> {
+    super::placement::machine_load(&open_fleet()?)
+}
+
 pub(super) fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
     let parts = launch_parts(&fleet.providers(), words, caller.clone(), proxy)?;
-    launch_prepared(fleet, parts, caller, None)
+    let queued = std::env::var(super::tick::QUEUE_ENTRY).ok().filter(|name| !name.is_empty());
+    let result = launch_prepared(fleet, parts, caller, queued.as_deref());
+    if let Some(name) = queued.filter(|_| !matches!(&result, Err(NorthError::Saturated(_)))) {
+        let _ = fleet.remove_queued(&name);
+    }
+    result
 }
 
-pub(super) fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>) -> NorthResult<()> {
-    let LaunchParts { mut request, mut overrides, wait, take_over, priority } = parts;
+fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<String>, queued: Option<&str>) -> NorthResult<()> {
+    let LaunchParts { mut request, mut overrides, wait, take_over, priority, words } = parts;
     if !(take_over && request.role() == Role::Proxy) {
         one_proxy::admit(fleet, caller.as_deref(), &format!("launch {}", request.name))?;
     }
@@ -222,21 +225,17 @@ pub(super) fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
-    let settled = admission::admitted(&request.name, waiting, |first| placement::placed(fleet, &request, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
+    let settled = admission::admitted(&request.name, waiting, |first| super::placement::placed(fleet, &request, started.as_ref().map_or(&[][..], |start| start.needs.as_slice()), &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     let mut placed = match settled {
         Ok(placed) => placed,
-        Err(placement::Refusal::Spend(why)) => {
-            if queued.is_some() {
-                return Err(NorthError::Saturated(why));
-            }
-            let mut entry = QueuedLaunch::new(request.clone(), priority, now_ms(), why.clone());
-            (entry.local, entry.pin, entry.tier, entry.take_over, entry.caller) = (overrides.local.clone(), overrides.pin.clone(), overrides.tier.clone(), take_over, caller);
-            fleet.queue_launch(&entry)?;
+        Err(super::placement::Refusal::Spend(why)) if queued.is_none() => {
+            spend_queue::enqueue(fleet, spend_queue::Refused { request: &request, overrides: &overrides, take_over, priority, caller, words: &words, why: why.clone() })?;
             eprintln!("fleet launch: {} is queued at {} priority: {why}", request.name, priority.label());
             println!("queued {}", request.name);
             return Ok(());
         }
-        Err(placement::Refusal::Saturated(why)) => return Err(NorthError::Saturated(why)),
+        Err(super::placement::Refusal::Spend(why)) => return Err(NorthError::Saturated(why)),
+        Err(super::placement::Refusal::Saturated(why)) => return Err(NorthError::Saturated(why)),
         Err(refusal) => return Err(refusal.into()),
     };
     if let Some(account) = placed.account.take() {
@@ -256,9 +255,6 @@ pub(super) fn launch_prepared(fleet: &Fleet, parts: LaunchParts, caller: Option<
     }
     let record = if take_over { fleet.take_over(&request).inspect(|record| desktop::show_taken(fleet, record))? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);
-    if let Some(name) = queued {
-        let _ = fleet.remove_queued(name);
-    }
     println!("{}", record.name);
     Ok(())
 }

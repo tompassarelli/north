@@ -115,6 +115,8 @@ pub(super) struct LaunchParts {
     pub take_over: bool,
     /// `--priority`: where a spend-refused launch waits in the launch queue.
     pub priority: Priority,
+    /// The launch's own command line, replayed when the queue starts it.
+    pub words: Vec<String>,
 }
 
 pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<LaunchParts> {
@@ -136,7 +138,7 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
     }
     let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
     let (overrides, take_over, priority) = (std::mem::take(&mut flags.overrides), flags.take_over, flags.priority);
-    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority })
+    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over, priority, words: words.iter().map(|word| (*word).to_owned()).collect() })
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {
@@ -154,3 +156,4 @@ fn default_name(provider: &ProviderName, account: &str) -> NorthResult<String> {
     }
     Ok(format!("{}-{account}-{short}", provider.label()))
 }
+

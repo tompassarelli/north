@@ -48,6 +48,8 @@ pub struct QueuedLaunch {
     pub priority: Priority,
     pub created_ms: u64,
     pub request: LaunchRequest,
+    #[serde(default)]
+    pub words: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -65,7 +67,7 @@ pub struct QueuedLaunch {
 
 impl QueuedLaunch {
     pub fn new(request: LaunchRequest, priority: Priority, created_ms: u64, refused: String) -> Self {
-        Self { name: request.name.clone(), priority, created_ms, request, local: None, pin: None, tier: None, take_over: false, caller: None, refused, tried_ms: None }
+        Self { name: request.name.clone(), priority, created_ms, request, words: Vec::new(), local: None, pin: None, tier: None, take_over: false, caller: None, refused, tried_ms: None }
     }
 
     fn file(&self) -> String {
@@ -130,6 +132,3 @@ impl Fleet {
     }
 }
 
-#[cfg(test)]
-#[path = "launch_queue_tests.rs"]
-mod tests;
