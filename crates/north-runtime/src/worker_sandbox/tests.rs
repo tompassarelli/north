@@ -365,9 +365,7 @@ fn a_lane_only_write_child() {
     };
     let home = PathBuf::from(home);
     let context = Context { home: home.clone(), cwd: home.join("code/alpha/worktrees/lane"), uid: 0, tmpdir: None, cache: None, config: None, runtime: None, cargo_home: None, cargo_target: None, named_lanes: Vec::new(), named_projects: Vec::new(), runtimes: None };
-    let roots = removable(&context);
-    let writable = super::lane_only::writable_in_lane(&roots);
-    assert!(matches!(confine(Some(&roots), &super::lane_only::readable_in_lane(&context, &[]), Some(&executable(&context)), Some(&writable)), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
+    assert!(matches!(super::confine_to_lane(&context, &[]), Ok(RulesetStatus::FullyEnforced)), "Landlock does not enforce here");
     let writes = |path: &str| std::fs::OpenOptions::new().write(true).open(home.join(path)).is_ok();
     assert!(writes("code/alpha/worktrees/lane/file"), "a lane-only command cannot write its own lane");
     for refused in [".local/state/north/fleet/sessions/s1.json", "sys/fs/cgroup/agent.slice/north-session-lane-s1.scope/cgroup.procs", "code/beta/main/file"] {

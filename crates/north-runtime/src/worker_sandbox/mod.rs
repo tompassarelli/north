@@ -186,11 +186,16 @@ fn in_lane(program: &[String], screen: Screen) -> std::process::ExitCode {
         Vec::new()
     };
     let hidden = hide_sockets(&context);
-    let roots = removable(&context);
-    report(confine(Some(&roots), &lane_only::readable_in_lane(&context, &kept), Some(&executable(&context)), Some(&lane_only::writable_in_lane(&roots))));
+    report(confine_to_lane(&context, &kept));
     let error = Command::new(&program[0]).args(&program[1..]).envs(git_credential::session_env()).env(MARK, "1").env(LANE_ONLY, "1").env_remove(SESSION_SCOPE).envs(hidden.then_some((SOCKETS_HIDDEN, "1"))).exec();
     eprintln!("north worker-sandbox: {}: {error}", program[0]);
     std::process::ExitCode::from(126)
+}
+
+/// Restricts this process, and everything it starts, to the lane-only domain of `context`: removal and writing only in its lane, scratch and caches, no build output run by its path, and reading only what `lane_only::readable_in_lane` keeps, with the `fresh` lanes a fresh domain adds.
+pub fn confine_to_lane(context: &Context, fresh: &[PathBuf]) -> Result<RulesetStatus, String> {
+    let roots = removable(context);
+    confine(Some(&roots), &lane_only::readable_in_lane(context, fresh), Some(&executable(context)), Some(&lane_only::writable_in_lane(&roots)))
 }
 
 /// Hides the sockets that start processes outside the domain, before the domain is applied: a kernel before Landlock ABI 9 cannot limit which Unix sockets a command connects through, and Landlock refuses mount(2), so a session that already runs inside a domain (one launched from a confined command) joins the namespaces the broker laid, and one that does not lays them itself. Whether they are hidden.
