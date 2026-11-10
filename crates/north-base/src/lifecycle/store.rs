@@ -115,9 +115,7 @@ impl Store {
 
     /// Every instance of `L`, oldest record first.
     pub fn instances<L: Lifecycle>(&self) -> NorthResult<Vec<Record<L::State>>> {
-        let mut statement = self.connection.prepare("SELECT instance FROM lifecycle_states WHERE machine = ?1 ORDER BY since_ms").map_err(sql)?;
-        let names: Vec<String> = statement.query_map([L::NAME], |row| row.get(0)).map_err(sql)?.collect::<Result<_, _>>().map_err(sql)?;
-        names.iter().filter_map(|name| self.current::<L>(name).transpose()).collect()
+        self.instances_under::<L>("")
     }
 
     /// Every instance of `L` whose name starts with `prefix`, oldest record first.
@@ -181,6 +179,16 @@ impl Store {
             Ok(record) => Ok(record),
             Err(_) => self.current::<L>(instance),
         }
+    }
+
+    /// Moves every instance of `L` whose holder is gone to its orphan state, logged with the holder, and returns those
+    /// records, so such a row is retired and reported once rather than as an orphaned fault on every read.
+    pub fn retire_gone<L: Lifecycle>(&mut self, at: Timestamp) -> NorthResult<Vec<Record<L::State>>> {
+        let mut retired = Vec::new();
+        for old in self.instances::<L>()? {
+            retired.extend(self.settle::<L>(&old.instance, at)?.filter(|new| new.seq != old.seq));
+        }
+        Ok(retired)
     }
 
     fn moving<L: Lifecycle>(&mut self, instance: &str, to: L::State, cause: &str, at: Timestamp, (holder, deadline): (&Owner, Option<Timestamp>), effects: &[Effect]) -> NorthResult<Moved<L::State>> {

@@ -216,3 +216,21 @@ fn an_effect_that_failed_every_delivery_and_one_leased_past_its_hold_are_health_
     assert_eq!(outbox[1].line(at(400)), "pull/laptop pull-started: its effect planted/process-bound is still leased 1 min past its hold, 6 min after its move");
     assert!(store.faults(at(320)).unwrap().iter().all(|fault| !matches!(fault.kind, FaultKind::LeaseLapsed { .. })));
 }
+
+#[test]
+fn a_gone_holder_s_row_is_retired_and_reported_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    store(&path, owner("laptop", 10), 0).transition::<Puller>("gex45", Pull::Pulling, "pulling", at(0)).unwrap().unwrap();
+    let mut next = store(&path, owner("laptop", 20), 10);
+    assert_eq!(next.faults(at(5)).unwrap().len(), 1);
+
+    let first = next.retire_gone::<Puller>(at(5)).unwrap();
+    let second = next.retire_gone::<Puller>(at(6)).unwrap();
+
+    assert_eq!(first.iter().map(|record| (record.instance.as_str(), record.state)).collect::<Vec<_>>(), [("gex45", Pull::Abandoned)]);
+    assert!(second.is_empty());
+    assert!(next.faults(at(7)).unwrap().is_empty());
+    let moves: Vec<_> = next.history("pull", "gex45").unwrap().into_iter().map(|logged| (logged.to, logged.cause)).collect();
+    assert_eq!(moves, [("pulling".to_owned(), "pulling".to_owned()), ("abandoned".to_owned(), "the holder, pid 10 on laptop, is gone".to_owned())]);
+}

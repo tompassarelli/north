@@ -234,6 +234,9 @@ pub fn journal(store: &mut Store, queue: &Path, head: &str, cause: &str, run: se
 /// Every journaled after-landing run of `queue` no live lander holds, leased to this one until its verdict.
 pub fn take(store: &mut Store, queue: &Path) -> Result<Vec<Leased>, String> {
     let kind = run_kind(queue);
+    for record in store.retire_gone::<AfterLandingRun>(Timestamp::now()).map_err(|error| error.to_string())? {
+        println!("north land: after-landing-run {} lost its holder and is now {}", record.instance, record.state.name());
+    }
     std::iter::from_fn(|| store.lease(&kind, Timestamp::now(), RUN_HOLD).transpose()).collect::<Result<_, _>>().map_err(|error| error.to_string())
 }
 
