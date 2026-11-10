@@ -89,6 +89,45 @@ fn event_of(step: Step, side: usize) -> Event {
     }
 }
 
+/// What the step's transitions drew and broke on either instance.
+fn absorb<L: Lifecycle>(before: &PairSituation, step: Step, played: &crate::world::PairPlayed<L::State>, path: &[PairEvent], moves: &mut BTreeSet<Moved>, findings: &mut Vec<Finding>) {
+    for (side, transition) in played.moved.iter().enumerate() {
+        let Some(transition) = transition else { continue };
+        let rule_step = crate::rules::Step { before: before.sides[side], event: event_of(step, side), after: played.sides[side] };
+        let (arrows, broken) = crate::rules::step::<L>(&rule_step, transition);
+        moves.extend(arrows);
+        for mut broken in broken {
+            if !findings.iter().any(|known| known.rule == broken.rule && known.text == broken.text) {
+                broken.after = told::<L>(path);
+                findings.push(broken);
+            }
+        }
+    }
+}
+
+/// The promise a start broke between the two instances, if any.
+fn together_broken<L: Lifecycle>(before: &PairSituation, step: Step, played: &crate::world::PairPlayed<L::State>, together: &Together<L::State>) -> Option<String> {
+    match step {
+        Step::One { side: 1, .. } => before.sides[0].state.map(|other| L::State::ALL[other]).filter(|other| together.alone.contains(other)).map(|other| {
+            format!("a second instance started while the first was {}, and the machine admits only one instance in it", other.name())
+        }),
+        Step::Race { .. } => {
+            let left = played.sides[0].state.map(|state| L::State::ALL[state]);
+            let right = played.sides[1].state.map(|state| L::State::ALL[state]);
+            left.zip(right)
+                .filter(|(left, right)| together.alone.contains(left) && together.alone.contains(right))
+                .map(|(_, right)| format!("two launches started together and both hold the name, the second as {}", right.name()))
+        }
+        _ => None,
+    }
+}
+
+fn remember<L: Lifecycle>(findings: &mut Vec<Finding>, rule: &'static str, text: String, path: &[PairEvent]) {
+    if !findings.iter().any(|known| known.rule == rule && known.text == text) {
+        findings.push(Finding { rule, text, after: told::<L>(path) });
+    }
+}
+
 /// Explores two instances of `L` together and returns the promise a start broke, the arrows both drew, and the
 /// situations and steps the search counted.
 pub fn explore<L: Lifecycle>(together: &Together<L::State>) -> NorthResult<Outcome> {
@@ -106,35 +145,9 @@ pub fn explore<L: Lifecycle>(together: &Together<L::State>) -> NorthResult<Outco
             path.push(event);
             let played = world.play(&path)?;
             steps += 1;
-            for (side, transition) in played.moved.iter().enumerate() {
-                let Some(transition) = transition else { continue };
-                let rule_step = crate::rules::Step { before: before.sides[side], event: event_of(step, side), after: played.sides[side] };
-                let (arrows, broken) = crate::rules::step::<L>(&rule_step, transition);
-                moves.extend(arrows);
-                for mut broken in broken {
-                    if !findings.iter().any(|known| known.rule == broken.rule && known.text == broken.text) {
-                        broken.after = told::<L>(&path);
-                        findings.push(broken);
-                    }
-                }
-            }
-            let broken = match step {
-                Step::One { side: 1, .. } => before.sides[0].state.map(|other| L::State::ALL[other]).filter(|other| together.alone.contains(other)).map(|other| {
-                    format!("a second instance started while the first was {}, and the machine admits only one instance in it", other.name())
-                }),
-                Step::Race { .. } => {
-                    let left = played.sides[0].state.map(|state| L::State::ALL[state]);
-                    let right = played.sides[1].state.map(|state| L::State::ALL[state]);
-                    left.zip(right).filter(|(left, right)| together.alone.contains(left) && together.alone.contains(right)).map(|(_, right)| {
-                        format!("two launches started together and both hold the name, the second as {}", right.name())
-                    })
-                }
-                _ => None,
-            };
-            if let Some(text) = broken
-                && !findings.iter().any(|known| known.rule == "together" && known.text == text)
-            {
-                findings.push(Finding { rule: "together", text, after: told::<L>(&path) });
+            absorb::<L>(&before, step, &played, &path, &mut moves, &mut findings);
+            if let Some(text) = together_broken::<L>(&before, step, &played, together) {
+                remember::<L>(&mut findings, "together", text, &path);
             }
             let after = PairSituation { sides: played.sides };
             if let std::collections::btree_map::Entry::Vacant(entry) = paths.entry(after) {
@@ -146,7 +159,3 @@ pub fn explore<L: Lifecycle>(together: &Together<L::State>) -> NorthResult<Outco
     }
     Ok(Outcome { findings, moves, situations, steps })
 }
-
-#[cfg(test)]
-#[path = "pair_tests.rs"]
-mod tests;

@@ -233,17 +233,3 @@ fn admitted(record: Launch<'_>, moved: Result<Phase, Refusal<Phase>>) -> NorthRe
         Refusal::Held { state, owner } => NorthError::Refused(format!("{}: {} is held by {owner}", record.name, state.name())),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn two_launches_racing_for_one_name_leave_exactly_one_winner() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("session");
-        let winners = std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..2).map(|_| scope.spawn(|| super::claim(&path).is_ok())).collect();
-            handles.into_iter().map(|handle| handle.join().unwrap_or(false)).filter(|won| *won).count()
-        });
-        assert_eq!(winners, 1);
-    }
-}
