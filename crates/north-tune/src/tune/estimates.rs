@@ -95,7 +95,7 @@ pub fn issue_body(calibrations: &[Calibration]) -> Option<String> {
     (!sections.is_empty()).then(|| {
         format!(
             "`north tune` keeps this issue while any tier and category's median ratio of actual to estimated minutes or cost over the last 7 days sits outside {low}-{high}x (each ratio holding at least {DRIFT_MIN_RUNS} runs), and closes it on the first tick none does. \
-             The readings feed the brief ETA calibration, so this issue carries no box for a worker.\n\n{sections}",
+             \n\n## Done when\n\n- [ ] Every drifted estimator below is recalibrated from its runs, so each tier and category's median ratio sits inside {low}-{high}x. Done when: `north tune --dry-run | rg -q 'would file: {TITLE}'; test $? -eq 1`\n\n{sections}",
             low = CALIBRATED.0,
             high = CALIBRATED.1,
         )
