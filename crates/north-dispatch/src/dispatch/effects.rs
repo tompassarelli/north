@@ -31,13 +31,7 @@ pub fn session_name(launch: &Launch, at: f64) -> String {
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     let name = format!("{short}-{}-d{hhmm}", launch.item.number);
     match super::facets::declared_in(&launch.brief, "Box").and_then(crate::threads::claims::box_slug) {
-        // A session's host socket lives at <state>/north/fleet/<name>/host.sock, and a unix socket path
-        // must fit in 107 bytes, so the box slug is cut to keep the whole name at most 40 characters.
-        Some(slug) => {
-            let room = 40usize.saturating_sub(name.len() + 1);
-            let slug: String = slug.chars().take(room).collect();
-            format!("{name}-{}", slug.trim_end_matches('-'))
-        }
+        Some(slug) => format!("{name}-{slug}"),
         None => name,
     }
 }
