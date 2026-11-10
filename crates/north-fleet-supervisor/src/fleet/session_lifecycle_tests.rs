@@ -33,6 +33,7 @@ fn mid_turn(fleet: &Fleet, name: &str) -> PathBuf {
 
 #[test]
 fn a_retired_session_refuses_a_revival_and_keeps_its_retired_record_with_the_reports_stop_line() {
+    fleet_session_model_is_sound();
     let home = tempfile::tempdir().unwrap();
     let fleet = fleet(home.path());
     mid_turn(&fleet, "worker");
@@ -145,4 +146,35 @@ fn a_retired_session_with_no_done_report_reopens_as_a_new_launch_of_its_own_conv
     assert_eq!((reopened.phase(), reopened.conversation.as_deref(), reopened.addressed_since()), (Some(Phase::Parked), Some("worker"), 1));
     assert!(reopened.created_ms > 1);
     assert!(dir.join("session.json").exists());
+}
+
+/// The fleet-session model `north check machines` explores: one instance through every ordering, then a second
+/// instance starting at every situation the name claim admits, and two launches racing from no record. The assertion
+/// is here so `cargo nextest run -p north-fleet-supervisor -E 'test(a_retired_session_refuses_a_revival_and_keeps_its_retired_record_with_the_reports_stop_line)'`
+/// replays the model, and a launch that stops claiming the name atomically fails it.
+fn fleet_session_model_is_sound() {
+    use north_machine_model::{Promises, Together, explore_together};
+    use north_session_host::session_lifecycle::claim;
+    let together = Together {
+        alone: &[Phase::Live, Phase::Parked, Phase::IdleExited, Phase::HostEnded, Phase::Stopped, Phase::Adopted],
+        admits: |other| match other {
+            Phase::Retired => true,
+            _ => tempfile::tempdir().is_ok_and(|root| {
+                let path = root.path().join("launch");
+                claim(&path).is_ok() && claim(&path).is_ok()
+            }),
+        },
+        race: || {
+            let Ok(root) = tempfile::tempdir() else { return 0 };
+            let path = root.path().join("launch");
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..2).map(|_| scope.spawn(|| claim(&path).is_ok())).collect();
+                handles.into_iter().map(|handle| handle.join().unwrap_or(false)).filter(|won| *won).count()
+            })
+        },
+    };
+    let model = explore_together::<Session>(&Promises { ends: &[Phase::Retired], repeats: &[Phase::Live, Phase::Stopped, Phase::Adopted] }, &together).expect("the fleet-session search runs");
+    assert_eq!(model.instances, 2, "the name claim is checked between two launches");
+    let broken: Vec<String> = model.findings.iter().map(|finding| format!("{}: {}", model.machine, finding.line())).collect();
+    assert!(broken.is_empty(), "{}", broken.join("; "));
 }

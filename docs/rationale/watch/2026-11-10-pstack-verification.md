@@ -194,10 +194,18 @@ All measured on 2026-11-10 on gex45. The check is `north check machines --root .
 - **E2, the two top machines.** Fleet session and land ticket have no fix to their tables since they were converted.
   Their recorded ordering fixes are between instances: two launches of one session name (`97e4aa682`), a withdrawn
   head queued again (`f1ff89dde`, parent `249dbce78`), a take-over racing a delivery revive (`c3b40831c`). A search
-  of one instance cannot express them, so the check passes at those parents, and each table is shown killing a
-  mutant instead: letting `retired` move on gives `fleet-session: ends: retired is promised as an end and the table
-  lets it move to live, stopped`; letting `checking` repeat gives `land-ticket: repeats: the table lets a writer
-  announce checking again and the machine does not promise that`.
+  of one instance cannot express them; the two-instance search drives each machine's real admission path, so the
+  check fails when each guard is put back as it stood at the parent. With `Session::claim` removed, because the
+  launch at `97e4aa682`'s parent (`dcb3a077b`) only checked `session_dir.exists()` and two racers both passed,
+  `cargo nextest run -p north-fleet-supervisor -E 'test(a_retired_session_refuses_a_revival_and_keeps_its_retired_record_with_the_reports_stop_line)'`
+  reports `fleet-session: together: ...`; with `refuse_requeue` not consulted, as enqueue did not at `f1ff89dde`'s
+  parent, `cargo nextest run -p north-lander -E 'test(a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queues_the_same_head_until_the_withdrawer_clears_it_or_the_head_changes)'`
+  reports `land-ticket: together: ...`. Both pass on origin/main with the claim and the withdrawal check gating
+  admission.
+  Each table is also shown killing a mutant: letting `retired` move on gives
+  `fleet-session: ends: retired is promised as an end and the table lets it move to live, stopped`; letting
+  `checking` repeat gives `land-ticket: repeats: the table lets a writer announce checking again and the machine
+  does not promise that`.
 - **E3, mutants of the kernel**, which every machine shares. Treating an unseen holder as gone
   (`liveness.alive(&owner).unwrap_or(overdue)` in `release`): 28 `one-holder` and 6 `stuck` findings across six
   machines, such as `fleet-session: one-holder: b3 declared a1, a live process holding live, gone (after: a1 moves it

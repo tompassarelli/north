@@ -26,5 +26,8 @@ toml_edit.workspace = true
 [features]
 test-support = ["north-fleet/test-support"]
 
+[dev-dependencies]
+north-machine-model = { path = "../north-machine-model" }
+
 [lints]
 workspace = true

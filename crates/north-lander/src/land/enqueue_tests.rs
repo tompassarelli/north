@@ -204,6 +204,7 @@ fn a_lane_that_began_with_a_wip_commit_lands_under_its_last_commit_and_a_lane_en
 
 #[test]
 fn a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queues_the_same_head_until_the_withdrawer_clears_it_or_the_head_changes() {
+    land_ticket_model_is_sound();
     let lane = Lane::new();
     let (state, denylist) = (lane.dir.path().join("state"), without_south(lane.dir.path()));
     let enqueue_as = |session: &str| {
@@ -415,4 +416,48 @@ fn a_lane_locking_an_npm_version_with_an_open_advisory_is_refused() {
 
 fn without_south(dir: &Path) -> Denylist {
     Denylist { south: dir.join("absent-south"), south_named: false, config: None, kinds: None }
+}
+
+/// The land-ticket model `north check machines` explores: one ticket through every ordering, then a second ticket
+/// starting at every situation the withdrawal check admits. The assertion is here so
+/// `cargo nextest run -p north-lander -E 'test(a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queues_the_same_head_until_the_withdrawer_clears_it_or_the_head_changes)'`
+/// replays the model, and an enqueue that stops consulting the withdrawal fails it.
+fn land_ticket_model_is_sound() {
+    use north_base::land_ticket::{LandTicket, Phase};
+    use north_machine_model::{Promises, Together, explore_together};
+    let together = Together {
+        alone: &[Phase::Withdrawn],
+        admits: |other| match other {
+            Phase::Withdrawn => withdrawn_head_admitted(),
+            _ => true,
+        },
+        race: || 1,
+    };
+    let model = explore_together::<LandTicket>(&Promises { ends: &[Phase::Landed, Phase::Replaced, Phase::Withdrawn], repeats: &[Phase::Queued] }, &together).expect("the land-ticket search runs");
+    assert_eq!(model.instances, 2, "the withdrawal check is checked between two tickets");
+    let broken: Vec<String> = model.findings.iter().map(|finding| format!("{}: {}", model.machine, finding.line())).collect();
+    assert!(broken.is_empty(), "{}", broken.join("; "));
+}
+
+/// Whether the withdrawal check admits a second ticket at a head a session left withdrawn, which the model's second
+/// instance asks before it starts.
+fn withdrawn_head_admitted() -> bool {
+    let Ok(root) = tempfile::tempdir() else { return false };
+    let queue = root.path().join("queue");
+    let withdrawn = queue.join("withdrawn");
+    if fs::create_dir_all(&withdrawn).is_err() {
+        return false;
+    }
+    let ticket = json!({
+        "root": root.path().to_string_lossy(),
+        "branch": "lane",
+        "head": "abc",
+        "session": "session",
+        "verdict": "withdrawn by Tom: the callers were not audited",
+        "queued_micros": 1
+    });
+    if fs::write(withdrawn.join("1-ticket.json"), ticket.to_string()).is_err() {
+        return false;
+    }
+    north_land_scans::withdrawal::refuse_requeue(&queue, root.path(), "lane", "abc", Some("session")).is_ok()
 }

@@ -383,3 +383,15 @@ formal-verification skills, TLA+, stateright and Kani, and the measured results,
   `together` promise names the situations in which no second instance may start: a live session name, a withdrawn
   head. The recorded ordering fixes `97e4aa682` (two launches of one name) and `f1ff89dde` (a withdrawn head queued
   again) are of that kind (north#1042).
+- **Replay at a recorded fix parent.** Each of the two highest-ranked machines asserts its model inside an existing
+  nextest test, so the command replays every ordering of its stated scope and fails with the guard of its recorded
+  ordering fix put back as the parent had it:
+  `cargo nextest run -p north-fleet-supervisor -E 'test(a_retired_session_refuses_a_revival_and_keeps_its_retired_record_with_the_reports_stop_line)'`
+  fails with `fleet-session: together: two launches started together and both hold the name, the second as live ...`
+  when `Session::claim` is removed, because the launch at `97e4aa682`'s parent (`dcb3a077b`) only checked
+  `session_dir.exists()` and two racers both passed it, and
+  `cargo nextest run -p north-lander -E 'test(a_withdrawn_lane_is_refused_with_the_withdrawal_reason_when_its_session_queues_the_same_head_until_the_withdrawer_clears_it_or_the_head_changes)'`
+  fails with `land-ticket: together: a second instance started while the first was withdrawn ...` when
+  `refuse_requeue` is not consulted, as enqueue did not at `f1ff89dde`'s parent (`249dbce78`). Both pass on
+  origin/main, where the claim and the withdrawal check gate admission, and `north check machines --root .` runs the
+  same searches at every change.
