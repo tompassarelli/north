@@ -115,6 +115,10 @@ impl Row {
     pub fn owner(&self) -> &str {
         self.source.split_whitespace().next().unwrap_or("unknown")
     }
+
+    pub fn summary(&self) -> String {
+        format!("{} {} {}: {}", self.owner(), self.kind, self.at.get(..10).unwrap_or(&self.at), self.topic)
+    }
 }
 
 struct Paths {
