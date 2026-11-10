@@ -43,29 +43,18 @@ impl Fleet {
         if record.verification {
             return Ok(());
         }
-        if record.hold(task) {
+        if !record.tasks().any(|held| held == task) {
+            if record.task_ref.is_none() {
+                record.task_ref = Some(task.to_owned());
+            } else {
+                record.extra_tasks.push(task.to_owned());
+            }
             write_record(&session_dir, &record)?;
         }
         match self.claims.hold(task, name, &self.ancestors(record.parent.as_deref())) {
             Ok(Some(moved)) => println!("{moved}"),
             Ok(None) => println!("{name} holds {task}"),
             Err(error) => eprintln!("north fleet: {name} holds {task} in its record, but the threads ledger did not take its claim: {}", error.user_message()),
-        }
-        Ok(())
-    }
-
-    /// Undoes [`Self::hold_task`]: the session's record drops `task`, so `north fleet list --json` stops showing it to dispatch, and every claim the session holds on its issue is given up. A ledger that cannot be read is a warning, because the record no longer holds the issue.
-    pub fn release_task(&self, name: &str, task: &str) -> NorthResult<()> {
-        let session_dir = self.session_dir(name)?;
-        let mut record = read_record(&session_dir)?;
-        let dropped = record.release(task);
-        if dropped {
-            write_record(&session_dir, &record)?;
-        }
-        match claims::release_task(self.claims.as_ref(), name, task) {
-            Ok(released) if dropped || released > 0 => println!("{name} no longer holds {task}"),
-            Ok(_) => println!("{name} did not hold {task}"),
-            Err(error) => eprintln!("north fleet: {name} no longer holds {task} in its record, but the threads ledger did not release its claim: {}", error.user_message()),
         }
         Ok(())
     }

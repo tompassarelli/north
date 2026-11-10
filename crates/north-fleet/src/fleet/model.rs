@@ -444,31 +444,6 @@ impl SessionRecord {
         self.task_ref.iter().chain(&self.extra_tasks).map(String::as_str)
     }
 
-    /// Adds `task` to the issues this session holds, as a launch's `--task` would have; false when it held it already.
-    pub fn hold(&mut self, task: &str) -> bool {
-        if self.tasks().any(|held| held == task) {
-            return false;
-        }
-        if self.task_ref.is_none() {
-            self.task_ref = Some(task.to_owned());
-        } else {
-            self.extra_tasks.push(task.to_owned());
-        }
-        true
-    }
-
-    /// Drops `task` from the issues this session holds, with the box its launch named on it and the boxes its brief named of it; false when it held none of them.
-    pub fn release(&mut self, task: &str) -> bool {
-        let before = (self.task_ref.clone(), self.extra_tasks.len(), self.other_claims.len());
-        if self.task_ref.as_deref() == Some(task) {
-            self.claim_box = None;
-            self.task_ref = (!self.extra_tasks.is_empty()).then(|| self.extra_tasks.remove(0));
-        }
-        self.extra_tasks.retain(|held| held != task);
-        self.other_claims.retain(|key| super::claims::split_key(key).0 != task);
-        before != (self.task_ref.clone(), self.extra_tasks.len(), self.other_claims.len())
-    }
-
     /// The keys of the claims this session holds: each task, the first as the box its launch named.
     pub fn claim_keys(&self) -> Vec<String> {
         let tasks: Vec<String> = self.tasks().map(str::to_owned).collect();
