@@ -105,7 +105,8 @@ fn stored_role(r: &Row, f: &Fields, brief: &Value) -> String {
     let category = raw.as_deref().filter(|category| CATEGORIES.contains(category)).unwrap_or("unknown");
     let text = r.get("brief_text").or(Some(brief)).and_then(Value::as_str).unwrap_or_default();
     let minutes = r.get("actual_min").and_then(Value::as_f64).map_or(-1, |minutes| minutes as i64);
-    run_roles::ingest_role(category, text, r.get("outcome").and_then(Value::as_str).unwrap_or_default(), minutes).to_owned()
+    let landed = r.get("landed_sha").and_then(Value::as_str).is_some_and(|sha| !sha.is_empty()) || r.get("landed").and_then(Value::as_f64) == Some(1.0);
+    run_roles::ingest_role(category, text, r.get("outcome").and_then(Value::as_str).unwrap_or_default(), minutes, landed).to_owned()
 }
 
 /// Canonical repo#N, or None when the value is not an issue ref.

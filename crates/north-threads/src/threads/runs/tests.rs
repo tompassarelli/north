@@ -312,3 +312,13 @@ fn a_not_done_run_whose_session_carries_on_reads_idle_until_its_next_report_deci
     ledger.ingest(&[run("finished", true, "2026-10-28T09:10:00Z", Some("not done"))]);
     assert_eq!(outcome(), read("not done"), "the next finished turn decides it again");
 }
+
+/// On 2026-11-10 verify-north's Claude worker landed its commit in 13 s with a brief naming no category, and its run read
+/// `not done`: every ended run arrives `not done` for the settle to judge, the zero-minute uncategorized run was stored as
+/// a judge, and the settle judges workers only (north#1022). A run that landed a commit is a worker, settled done.
+#[test]
+fn a_quick_uncategorized_run_that_landed_its_commit_is_a_worker_settled_done() {
+    let ledger = ledger();
+    ledger.ingest(&[json!({"id": "vn", "fleet_name": "vn-1", "account": "api", "tier": "haiku", "actual_min": 0, "started": "2026-10-28T08:20:00.000Z", "ended": "2026-10-28T08:20:30.000Z", "outcome": "not done", "report": "Done: queued.", "expects_landing": 1, "landed": 1, "landed_sha": "f57cfd3"})]);
+    assert_eq!(ledger.rows("SELECT role, outcome, landed, landed_sha FROM runs"), vec![vec![Value::Text("worker".into()), Value::Text("done".into()), Value::Integer(1), Value::Text("f57cfd3".into())]]);
+}

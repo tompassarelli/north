@@ -18,13 +18,13 @@ fn read_only_review(brief: &str) -> bool {
     head.contains("review") && (head.contains("read-only") || head.contains("do not edit"))
 }
 
-/// The stored role of a finished worker run, by the rule `ROLE_SQL` reads old rows with.
-pub fn ingest_role(category: &str, brief: &str, outcome: &str, minutes: i64) -> &'static str {
+/// The stored role of a finished worker run, by the rule `ROLE_SQL` reads old rows with. A run that landed a commit is a worker: every ended run arrives `not done` for the ledger to settle, so a quick run whose brief names no category read as a judge, which the settle skips, and verify-north's landed worker stayed `not done` (north#1022).
+pub fn ingest_role(category: &str, brief: &str, outcome: &str, minutes: i64, landed: bool) -> &'static str {
     let lowered = brief.to_lowercase();
     let declared = category == "unknown" && (lowered.contains("category: review") || lowered.contains("category:review"));
     if category == "review" || declared || read_only_review(brief) {
         "reviewer"
-    } else if category == "unknown" && !matches!(outcome, "idle" | "running") && minutes == 0 {
+    } else if category == "unknown" && !matches!(outcome, "idle" | "running") && minutes == 0 && !landed {
         "judge"
     } else {
         "worker"
