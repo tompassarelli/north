@@ -199,7 +199,7 @@ pub(super) fn state_of<L: Lifecycle>(layout: &Layout, instance: &str) -> Result<
     Ok(record_of::<L>(layout, instance)?.map(|record| record.state))
 }
 
-/// The runtime a rollback of `failed_sha` returns to: the newest one a promotion replaced whose canary passed on this host.
+/// The runtime a rollback of `failed_sha` returns to: the newest one a promotion replaced that a canary passed, or an earlier rollback trusted, in this ledger.
 /// A host whose ledger holds no passed canary at all never walked the spine, so it takes the newest replaced runtime.
 pub(super) fn previous(layout: &Layout, failed_sha: &str, usable: impl Fn(&str) -> bool) -> Result<Option<String>, Failure> {
     let store = store(layout)?;
