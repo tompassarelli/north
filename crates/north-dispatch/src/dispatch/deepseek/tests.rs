@@ -82,21 +82,21 @@ fn a_category_is_reviewed_in_full_until_ten_clean_then_one_in_five_while_a_defec
     let sampled = "00000005";
     let mut verdicts: Vec<Verdict> = Vec::new();
     for _ in 0..FULL_REVIEWS {
-        assert!(sampling::reviews(&verdicts, "feature", false, unsampled), "a category under 10 clean reviews is reviewed in full");
+        assert!(sampling::reviews(&verdicts, "feature", false, false, unsampled), "a category under 10 clean reviews is reviewed in full");
         verdicts.push(verdict("feature", Kind::Clean, unsampled));
     }
     verdicts.push(verdict("tooling", Kind::Defect, unsampled));
-    assert!(!sampling::reviews(&verdicts, "feature", false, unsampled), "after 10 clean, an unsampled sha goes straight to the lander");
-    assert!(sampling::reviews(&verdicts, "feature", false, sampled), "after 10 clean, one sha in 5 is still reviewed");
-    assert!(sampling::reviews(&verdicts, "feature", true, unsampled), "a landing box is always reviewed");
-    let shown = (0..1000u32).filter(|number| sampling::reviews(&verdicts, "feature", false, &format!("{number:08x}"))).count();
+    assert!(!sampling::reviews(&verdicts, "feature", false, false, unsampled), "after 10 clean, an unsampled sha goes straight to the lander");
+    assert!(sampling::reviews(&verdicts, "feature", false, false, sampled), "after 10 clean, one sha in 5 is still reviewed");
+    assert!(sampling::reviews(&verdicts, "feature", true, false, unsampled), "a landing box is always reviewed");
+    let shown = (0..1000u32).filter(|number| sampling::reviews(&verdicts, "feature", false, false, &format!("{number:08x}"))).count();
     assert_eq!(shown, 200, "one sha in five is sampled");
 
     verdicts.push(verdict("feature", Kind::Defect, unsampled));
-    assert!(sampling::reviews(&verdicts, "feature", false, unsampled), "a defect puts the category back on full review");
+    assert!(sampling::reviews(&verdicts, "feature", false, false, unsampled), "a defect puts the category back on full review");
     verdicts.extend((0..FULL_REVIEWS).map(|_| verdict("feature", Kind::Clean, unsampled)));
     verdicts.push(verdict("feature", Kind::Refused, unsampled));
-    assert!(sampling::reviews(&verdicts, "feature", false, unsampled), "the lander refusing an unreviewed commit resets it too");
+    assert!(sampling::reviews(&verdicts, "feature", false, false, unsampled), "the lander refusing an unreviewed commit resets it too");
 }
 
 fn an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_no_other_session_does() {
@@ -109,7 +109,7 @@ fn an_idle_deepseek_session_whose_last_report_is_done_queues_one_review_job_and_
 
     let found = review::done(&lists, &reports, &[], &[landing], &queued);
 
-    assert_eq!(found, [Done { name: "ds-done".into(), host: "whiterabbit".into(), item: IssueRef::new("north", 7), box_text: Some("the box".into()), category: "feature".into(), landing: true }]);
+    assert_eq!(found, [Done { name: "ds-done".into(), host: "whiterabbit".into(), item: IssueRef::new("north", 7), box_text: Some("the box".into()), category: "feature".into(), landing: true, oracle: Vec::new() }]);
     assert_eq!(review::job(&found[0]), ["fleet", "dispatch", "review", "ds-done", "--item", "north#7", "--category", "feature", "--box", "the box", "--landing"]);
 }
 

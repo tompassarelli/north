@@ -6,6 +6,7 @@
 use super::super::issues::{Issue, IssueRef, references};
 use super::super::record::{self, Record};
 use super::super::{facets, fleets};
+use super::mechanical;
 use super::sampling::{self, Kind, Verdict};
 use super::PROVIDER;
 use crate::pacing::placement;
@@ -23,12 +24,14 @@ const REQUEUE_S: f64 = 30.0 * 60.0;
 const GIT_WAIT: Duration = Duration::from_secs(60);
 const LANDING_LABEL: &str = "area:landing";
 /// The classes a reviewer rejects a DeepSeek commit for, each a mistake the lander saw from DeepSeek workers on 2026-11-09/10.
-pub const CLASSES: [(&str, &str); 7] = [
+pub const CLASSES: [(&str, &str); 9] = [
     ("test-passes-on-base", "an added test passes with the lane's non-test changes reverted"),
     ("test-budget", "the lane grows the test count past the verification budget of 20 s without deleting as many tests"),
     ("restored-revert", "it restores work that a revert on main removed"),
     ("test-reads-host", "a test reads /proc, the wall clock or another live host fact"),
     ("unchecked-tick", "it ticks a box without running that box's check"),
+    ("duplicate", "origin/main already holds a commit of the same name"),
+    ("oracle-edit", "it edits the file defining a Done-when test that stood before staffing"),
     ("out-of-scope", "it changes behaviour the box does not ask for"),
     ("other-defect", "any other real defect"),
 ];
@@ -42,6 +45,8 @@ pub struct Done {
     pub box_text: Option<String>,
     pub category: String,
     pub landing: bool,
+    /// The Done-when tests of the box, named by their `test(/NAME/)` filters.
+    pub oracle: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -82,10 +87,16 @@ pub fn done(lists: &[(String, Value)], reports: &[(String, Value)], records: &[R
             let issue = issues.iter().find(|issue| issue.reference() == item);
             let category = records.iter().rev().find(|record| record.name == name).and_then(|record| record.category.clone()).or_else(|| issue.and_then(|issue| facets::declared_in(&issue.body, "Category")).map(str::to_owned)).unwrap_or_else(|| "unknown".into());
             let landing = issue.is_some_and(|issue| issue.labels.iter().any(|label| label == LANDING_LABEL));
-            found.push(Done { name: name.to_owned(), host: host.clone(), item, box_text: session["box"].as_str().map(str::to_owned), category, landing });
+            found.push(Done { name: name.to_owned(), host: host.clone(), item, box_text: session["box"].as_str().map(str::to_owned), category, landing, oracle: issue.map(|issue| oracle_tests(&issue.body, session["box"].as_str())).unwrap_or_default() });
         }
     }
     found
+}
+
+/// The test names the box's own line of `body` gives as `test(/NAME/)` filters.
+fn oracle_tests(body: &str, box_text: Option<&str>) -> Vec<String> {
+    let line = box_text.and_then(|text| body.lines().find(|line| line.contains(text))).unwrap_or_default();
+    line.split("test(/").skip(1).filter_map(|rest| rest.split_once('/').map(|(name, _)| name.to_owned())).collect()
 }
 
 /// The `north` words of the review job for `done`.
@@ -96,6 +107,9 @@ pub fn job(done: &Done) -> Vec<String> {
     }
     if done.landing {
         words.push("--landing".into());
+    }
+    for test in &done.oracle {
+        words.extend(["--oracle".to_owned(), test.clone()]);
     }
     words
 }
@@ -136,11 +150,12 @@ struct Job {
     category: String,
     box_text: Option<String>,
     landing: bool,
+    oracle: Vec<String>,
 }
 
 fn parse(arguments: &[String]) -> Option<Job> {
     let (name, mut rest) = arguments.split_first()?;
-    let mut job = Job { name: name.clone(), item: String::new(), category: String::new(), box_text: None, landing: false };
+    let mut job = Job { name: name.clone(), item: String::new(), category: String::new(), box_text: None, landing: false, oracle: Vec::new() };
     while let Some((flag, tail)) = rest.split_first() {
         rest = tail;
         if flag == "--landing" {
@@ -153,6 +168,7 @@ fn parse(arguments: &[String]) -> Option<Job> {
             "--item" => job.item = value.clone(),
             "--category" => job.category = value.clone(),
             "--box" => job.box_text = Some(value.clone()),
+            "--oracle" => job.oracle.push(value.clone()),
             _ => return None,
         }
     }
@@ -243,7 +259,14 @@ fn review(job: &Job) -> Result<String, String> {
         sampling::append(&directory, &verdict(kind, None))?;
         return Ok(format!("{} reported Done with no commit ahead of origin/main ({kind:?}); forgot it", job.name));
     }
-    if sampling::reviews(&sampling::read(&directory), &job.category, job.landing, &sha) {
+    if let Some(failed) = mechanical_failure(&lane, &job.oracle)? {
+        let told = format!("A mechanical check refused your commit {sha} before any review: {} ({}). Fix it in the lane and report Done again.", failed.why, failed.class);
+        north(&["fleet", "send", &job.name, &told])?;
+        sampling::append(&directory, &verdict(Kind::Bounced, Some(failed.class.to_owned())))?;
+        return Ok(format!("{} bounced to {}: {}; no reviewer launched", job.item, job.name, failed.class));
+    }
+    let locked = !oracle_files(&lane, &git(&lane, &["merge-base", "origin/main", "HEAD"])?, &job.oracle).is_empty();
+    if sampling::reviews(&sampling::read(&directory), &job.category, job.landing, locked, &sha) {
         let reviewer = format!("{}-rv", job.name);
         let effort = sampling::reviewer_effort(&job.name);
         let text = brief(&job.name, &job.item, &job.category, job.box_text.as_deref(), &lane, &sha, effort);
@@ -293,4 +316,19 @@ pub fn verdict(arguments: &[String]) -> u8 {
             1
         }
     }
+}
+
+/// The files at `base` that define the tests named `oracle`.
+fn oracle_files(lane: &Path, base: &str, oracle: &[String]) -> Vec<String> {
+    oracle.iter().flat_map(|name| git(lane, &["grep", "-l", "-e", &format!("fn {name}"), base, "--", "*.rs"]).unwrap_or_default().lines().filter_map(|hit| hit.split_once(':').map(|(_, file)| file.to_owned())).collect::<Vec<_>>()).collect()
+}
+
+/// The first mechanical check the lane's head fails, run before any reviewer launches.
+fn mechanical_failure(lane: &Path, oracle: &[String]) -> Result<Option<mechanical::Failure>, String> {
+    let base = git(lane, &["merge-base", "origin/main", "HEAD"])?;
+    let diff = git(lane, &["diff", "-U0", &format!("{base}..HEAD")])?;
+    let subject = git(lane, &["log", "-1", "--format=%s"])?;
+    let main_subjects: Vec<String> = git(lane, &["log", "--format=%s", "-n", "2000", "origin/main"])?.lines().map(str::to_owned).collect();
+    let oracle_files = oracle_files(lane, &base, oracle);
+    Ok(mechanical::failing(&mechanical::Lane { diff: &diff, subject: &subject, main_subjects: &main_subjects, oracle_files: &oracle_files }))
 }

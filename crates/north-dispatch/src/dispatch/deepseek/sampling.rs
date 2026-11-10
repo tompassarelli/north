@@ -25,6 +25,8 @@ pub enum Kind {
     Landed,
     /// The session reported Done with no commit ahead of main and no landed ticket.
     Empty,
+    /// A mechanical check refused it before any reviewer launched, and the session was told.
+    Bounced,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -63,9 +65,10 @@ pub fn clean_run(verdicts: &[Verdict], category: &str) -> usize {
     verdicts.iter().rev().filter(|verdict| verdict.category == category).take_while(|verdict| !verdict.resets()).filter(|verdict| verdict.kind == Kind::Clean).count()
 }
 
-/// Whether the commit `sha` of a box in `category` goes to a reviewer before it lands.
-pub fn reviews(verdicts: &[Verdict], category: &str, landing: bool, sha: &str) -> bool {
-    landing || clean_run(verdicts, category) < FULL_REVIEWS || sampled(sha)
+/// Whether the commit `sha` of a box in `category` goes to a reviewer before it lands. An oracle-locked box (its
+/// Done-when test stood before staffing) is sampled from its first run, a landing box always reviewed.
+pub fn reviews(verdicts: &[Verdict], category: &str, landing: bool, locked: bool, sha: &str) -> bool {
+    landing || sampled(sha) || (!locked && clean_run(verdicts, category) < FULL_REVIEWS)
 }
 
 fn sampled(sha: &str) -> bool {
