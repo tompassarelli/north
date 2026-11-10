@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::Refusal;
 
-// An actor is a session name, which is a directory name, so NAME_MAX bounds it.
+// The session name is also a directory name, so the filesystem format's NAME_MAX bounds the actor.
 const ACTOR_LENGTH: std::ops::RangeInclusive<usize> = 1..=255;
 const OWNERS_BYTES: usize = 64 * 1024;
 const GRACE_DIGITS: std::ops::RangeInclusive<usize> = 1..=6;

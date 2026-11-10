@@ -199,23 +199,7 @@ fn usage_days(fetch: &Fetch<'_>, start: &str, now: Timestamp, prices: &PriceTabl
     for _ in 0..PAGES {
         let page: Page = serde_json::from_value(fetch(USAGE, &params)?).map_err(|error| format!("usage report does not parse: {error}"))?;
         for bucket in page.data {
-            let day = bucket.starting_at.get(..10).unwrap_or_default().to_owned();
-            for row in bucket.results {
-                let Some(model) = row.model.as_deref() else { continue };
-                match prices.price(model) {
-                    Some(price) => {
-                        let tokens = TokenUse {
-                            input: row.uncached_input_tokens,
-                            output: row.output_tokens,
-                            cache_read: row.cache_read_input_tokens,
-                            cache_write: row.cache_creation.ephemeral_1h_input_tokens + row.cache_creation.ephemeral_5m_input_tokens,
-                        };
-                        *usage.priced.entry(day.clone()).or_default() += price.of(tokens);
-                    }
-                    None if !usage.unpriced.iter().any(|seen| seen == model) => usage.unpriced.push(model.to_owned()),
-                    None => {}
-                }
-            }
+            price_bucket(bucket, prices, &mut usage);
         }
         match page.next_page {
             Some(next) => {
@@ -226,6 +210,28 @@ fn usage_days(fetch: &Fetch<'_>, start: &str, now: Timestamp, prices: &PriceTabl
         }
     }
     Err("usage report did not reach its last page".into())
+}
+
+/// One hourly bucket's rows: each priced model adds its tokens to that UTC day, and a model the table
+/// does not know is named once so the reading says so instead of silently counting it at zero.
+fn price_bucket(bucket: Bucket, prices: &PriceTable, usage: &mut Usage) {
+    let day = bucket.starting_at.get(..10).unwrap_or_default().to_owned();
+    for row in bucket.results {
+        let Some(model) = row.model.as_deref() else { continue };
+        match prices.price(model) {
+            Some(price) => {
+                let tokens = TokenUse {
+                    input: row.uncached_input_tokens,
+                    output: row.output_tokens,
+                    cache_read: row.cache_read_input_tokens,
+                    cache_write: row.cache_creation.ephemeral_1h_input_tokens + row.cache_creation.ephemeral_5m_input_tokens,
+                };
+                *usage.priced.entry(day.clone()).or_default() += price.of(tokens);
+            }
+            None if !usage.unpriced.iter().any(|seen| seen == model) => usage.unpriced.push(model.to_owned()),
+            None => {}
+        }
+    }
 }
 
 fn cost_days(fetch: &Fetch<'_>, start: &str, now: Timestamp) -> Result<BTreeMap<String, f64>, String> {

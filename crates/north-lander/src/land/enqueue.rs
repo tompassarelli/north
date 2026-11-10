@@ -193,17 +193,12 @@ fn marks(root: &Path, base: &str, head: &str, destination: &str) -> Result<Marks
 }
 
 pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
-    let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
-    let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .map_err(|_| "HEAD is detached; switch to the lane's own branch".to_owned())?;
+    let (root, branch) = checkout(repo)?;
     let origin = git(&root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
     repositories::servable(&root).map_err(|error| format!("the lander cannot serve this repository: {error}"))?;
     refuse_archived(&origin)?;
     let destination = default_branch(&root);
-    let remote_ref = format!("refs/remotes/origin/{destination}");
-    git(&root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
-        .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
-    let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
+    let (remote_ref, base) = fetch_base(&root, &destination)?;
     refuse_conflict(&root, &base, &destination)?;
     super::scans::generated_registry::check(&root, &base, &git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?)?;
     let folded = crate::landing::merge_continue::fold(&root, &root.join(crate::landing::merge_set::DEFAULT_CONFIG), &base)?;
@@ -254,6 +249,23 @@ pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environ
     let path = directory.join(queue::file_name(queued_micros, &branch));
     file(&directory, &path, &ticket, outbox)?;
     Ok(Queued { path, outbox, ticket, squash })
+}
+
+/// The lane's branch and the root of its checkout.
+fn checkout(repo: &Path) -> Result<(PathBuf, String), String> {
+    let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
+    let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .map_err(|_| "HEAD is detached; switch to the lane's own branch".to_owned())?;
+    Ok((root, branch))
+}
+
+/// Fetches `destination` into its remote ref and returns the ref and the commit it now names.
+fn fetch_base(root: &Path, destination: &str) -> Result<(String, String), String> {
+    let remote_ref = format!("refs/remotes/origin/{destination}");
+    git(root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
+        .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
+    let base = git(root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
+    Ok((remote_ref, base))
 }
 
 /// `outcome` as it stands at enqueue: a refusal, or under `landing_refusals = "shadow"` a logged would-be refusal.

@@ -379,27 +379,46 @@ fn expand(word: &str, vars: &BTreeMap<String, String>) -> String {
     let mut out = String::new();
     let mut at = 0;
     while at < chars.len() {
-        if chars[at] == '$' && at + 1 < chars.len() {
-            let (name, next) = if chars[at + 1] == '{' {
-                chars[at + 2..].iter().position(|character| *character == '}').map_or((String::new(), at + 1), |end| (chars[at + 2..at + 2 + end].iter().collect(), at + 3 + end))
-            } else {
-                let mut end = at + 1;
-                while end < chars.len() && (chars[end] == '_' || chars[end].is_ascii_alphanumeric()) {
-                    end += 1;
+        match chars[at] {
+            '$' => match variable(&chars, at + 1, vars) {
+                Some((value, next)) => {
+                    out.push_str(&value);
+                    at = next;
                 }
-                (chars[at + 1..end].iter().collect(), end)
-            };
-            let value = (!name.is_empty()).then(|| vars.get(&name).cloned().or_else(|| std::env::var(&name).ok())).flatten();
-            if let Some(value) = value {
-                out.push_str(&value);
-                at = next;
-                continue;
+                None => {
+                    out.push('$');
+                    at += 1;
+                }
+            },
+            character => {
+                out.push(character);
+                at += 1;
             }
         }
-        out.push(chars[at]);
-        at += 1;
     }
     out
+}
+
+/// The value `$NAME` or `${NAME}` names at `start` and the index after it, or none when the word holds no
+/// such variable or nothing defines it; an unset name keeps its `$` so the command text stays as written.
+fn variable(chars: &[char], start: usize, vars: &BTreeMap<String, String>) -> Option<(String, usize)> {
+    if start >= chars.len() {
+        return None;
+    }
+    let (name, next) = if chars[start] == '{' {
+        chars[start + 1..].iter().position(|character| *character == '}').map_or((String::new(), start), |end| (chars[start + 1..start + 1 + end].iter().collect(), start + 2 + end))
+    } else {
+        let mut end = start;
+        while end < chars.len() && (chars[end] == '_' || chars[end].is_ascii_alphanumeric()) {
+            end += 1;
+        }
+        (chars[start..end].iter().collect(), end)
+    };
+    if name.is_empty() {
+        return None;
+    }
+    let value = vars.get(&name).cloned().or_else(|| std::env::var(&name).ok())?;
+    Some((value, next))
 }
 
 fn resolve(path: &str, cwd: Option<&str>) -> PathBuf {

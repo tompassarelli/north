@@ -163,57 +163,55 @@ impl<'a> Filer<'a> {
         let mut outcomes = Vec::new();
         let mut written = 0;
         for finding in findings {
-            let mut outcome = |filed: bool, note: String| outcomes.push(Outcome { finding: finding.clone(), filed, note });
-            if state.filed.contains_key(&finding.key) {
-                outcome(false, "already filed".into());
-                continue;
-            }
-            let Some(owner) = finding.owner.as_deref() else {
-                outcome(false, "not filed: the source names no owning issue".into());
-                continue;
-            };
-            let Some((slug, number)) = issue_of(owner) else {
-                outcome(false, format!("not filed: owner {owner} is not REPO#N"));
-                continue;
-            };
-            if written >= FILE_LIMIT {
-                outcome(false, "deferred: this tick filed its limit".into());
-                continue;
-            }
-            let policy = waits::policy(finding.detector);
-            let wait = match policy.as_ref().map(|policy| self.wait(&state, finding, policy, now)).transpose() {
-                Ok(wait) => wait,
-                Err(error) => {
-                    outcome(false, format!("not filed: {error}"));
-                    continue;
-                }
-            };
-            if let Some((wait, Some(last))) = wait {
-                outcome(false, format!("waiting: the last box on {} was filed {} ago and this subject now waits {} between boxes", finding.subject(), waits::describe(now - last), waits::describe(wait)));
-                continue;
-            }
-            match self.append(finding, &slug, &number) {
-                Ok(appended) => {
-                    state.filed.insert(finding.key.clone(), Filed { at: now, issue: owner.to_owned() });
-                    if let (Appended::Box, Some((wait_s, _))) = (&appended, wait) {
-                        state.subjects.insert(subject_id(finding), Subject { at: now, key: finding.key.clone(), issue: owner.to_owned(), wait_s });
-                    }
-                    self.save(&state)?;
-                    let note = match appended {
-                        Appended::Box => {
-                            written += 1;
-                            format!("filed a box on {owner}")
-                        }
-                        Appended::Commented => format!("commented the repeated cause on {owner} instead of filing a second box"),
-                        Appended::Skipped(why) => format!("not filed: {why}"),
-                    };
-                    outcome(appended == Appended::Box, note);
-                }
-                Err(error) => outcome(false, format!("not filed: {error}")),
-            }
+            let (filed, note) = self.file_one(&mut state, finding, now, &mut written)?;
+            outcomes.push(Outcome { finding: finding.clone(), filed, note });
         }
         self.save(&state)?;
         Ok(outcomes)
+    }
+
+    /// Files one finding: appends its box or comments its repeated cause on the owner, and records it in
+    /// `state`; `written` counts this tick's boxes so one tick cannot exceed its filing limit.
+    fn file_one(&self, state: &mut State, finding: &Finding, now: f64, written: &mut usize) -> Result<(bool, String), String> {
+        if state.filed.contains_key(&finding.key) {
+            return Ok((false, "already filed".into()));
+        }
+        let Some(owner) = finding.owner.as_deref() else {
+            return Ok((false, "not filed: the source names no owning issue".into()));
+        };
+        let Some((slug, number)) = issue_of(owner) else {
+            return Ok((false, format!("not filed: owner {owner} is not REPO#N")));
+        };
+        if *written >= FILE_LIMIT {
+            return Ok((false, "deferred: this tick filed its limit".into()));
+        }
+        let policy = waits::policy(finding.detector);
+        let wait = match policy.as_ref().map(|policy| self.wait(state, finding, policy, now)).transpose() {
+            Ok(wait) => wait,
+            Err(error) => return Ok((false, format!("not filed: {error}"))),
+        };
+        if let Some((wait, Some(last))) = wait {
+            return Ok((false, format!("waiting: the last box on {} was filed {} ago and this subject now waits {} between boxes", finding.subject(), waits::describe(now - last), waits::describe(wait))));
+        }
+        match self.append(finding, &slug, &number) {
+            Ok(appended) => {
+                state.filed.insert(finding.key.clone(), Filed { at: now, issue: owner.to_owned() });
+                if let (Appended::Box, Some((wait_s, _))) = (&appended, wait) {
+                    state.subjects.insert(subject_id(finding), Subject { at: now, key: finding.key.clone(), issue: owner.to_owned(), wait_s });
+                }
+                self.save(state)?;
+                let note = match appended {
+                    Appended::Box => {
+                        *written += 1;
+                        format!("filed a box on {owner}")
+                    }
+                    Appended::Commented => format!("commented the repeated cause on {owner} instead of filing a second box"),
+                    Appended::Skipped(why) => format!("not filed: {why}"),
+                };
+                Ok((appended == Appended::Box, note))
+            }
+            Err(error) => Ok((false, format!("not filed: {error}"))),
+        }
     }
 }
 

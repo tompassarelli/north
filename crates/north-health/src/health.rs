@@ -455,7 +455,7 @@ pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> 
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
-        [verb] if verb == "facts" => return facts(),
+        [verb] if verb == "facts" => return facts::run(),
         _ => {
             eprintln!("Usage: north health [--dry-run] | facts");
             return ExitCode::from(1);
@@ -475,23 +475,7 @@ pub fn run(arguments: &[String], citations: fn(&Path) -> Result<(), String>) -> 
     }
 }
 
-fn facts() -> ExitCode {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        eprintln!("health: HOME missing");
-        return ExitCode::from(1);
-    };
-    match serde_json::to_string(&flows::facts::gather(&home)) {
-        Ok(text) => {
-            println!("{text}");
-            ExitCode::SUCCESS
-        }
-        Err(error) => {
-            eprintln!("health: facts: {error}");
-            ExitCode::from(1)
-        }
-    }
-}
-
+mod facts;
 mod failed_starts;
 pub mod flows;
 mod issues;

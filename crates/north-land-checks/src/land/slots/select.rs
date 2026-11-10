@@ -55,15 +55,24 @@ fn expand_store_input(repo: &Path, head: &str, input: &str) -> Vec<String> {
         return vec![input.to_owned()];
     }
     let mut expanded = vec![store.to_owned()];
-    for family in git_lines(repo, &["ls-tree", "--name-only", &format!("{head}:{pins}")]) {
-        if family.is_empty() || !family.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)) {
-            continue;
-        }
-        let text = git_lines(repo, &["show", &format!("{head}:{pins}/{family}")]).join("\n");
-        let Some(entry) = text.split(|character: char| !character.is_ascii_alphanumeric()).find(|word| word.len() == ENTRY_LEN && word.bytes().all(|byte| byte.is_ascii_hexdigit())) else { continue };
-        expanded.push(format!("{store}/{family}/{entry}"));
-    }
+    expanded.extend(pinned_entries(repo, head, pins).into_iter().map(|entry| format!("{store}/{entry}")));
     if expanded.len() == 1 { vec![input.to_owned()] } else { expanded }
+}
+
+/// Each `FAMILY/ENTRY` the pins directory names at `head`, where an entry is the first 64-hex name in the
+/// family file; a family file that names none is left out so the probe reports the store entry missing.
+fn pinned_entries(repo: &Path, head: &str, pins: &str) -> Vec<String> {
+    git_lines(repo, &["ls-tree", "--name-only", &format!("{head}:{pins}")])
+        .into_iter()
+        .filter_map(|family| {
+            if family.is_empty() || !family.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)) {
+                return None;
+            }
+            let text = git_lines(repo, &["show", &format!("{head}:{pins}/{family}")]).join("\n");
+            let entry = text.split(|character: char| !character.is_ascii_alphanumeric()).find(|word| word.len() == ENTRY_LEN && word.bytes().all(|byte| byte.is_ascii_hexdigit()))?;
+            Some(format!("{family}/{entry}"))
+        })
+        .collect()
 }
 
 fn expand_host_inputs(repo: &Path, head: &str, line: String) -> String {

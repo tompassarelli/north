@@ -274,23 +274,24 @@ fn timeout_us(text: &str) -> Option<u64> {
     if text == "infinity" {
         return Some(u64::MAX);
     }
-    let mut total = 0_u64;
-    for part in text.replace('_', " ").split_whitespace() {
-        let split = part.find(|character: char| !character.is_ascii_digit())?;
-        let (amount, unit) = part.split_at(split);
-        let amount = amount.parse::<u64>().ok()?;
-        let micros = match unit {
-            "us" => 1,
-            "ms" => 1_000,
-            "s" => 1_000_000,
-            "min" => 60_000_000,
-            "h" => 3_600_000_000,
-            "d" => 86_400_000_000,
-            _ => return None,
-        };
-        total = total.checked_add(amount.checked_mul(micros)?)?;
-    }
-    Some(total)
+    text.replace('_', " ").split_whitespace().try_fold(0_u64, |total, part| total.checked_add(part_us(part)?))
+}
+
+/// One `AMOUNT UNIT` word of a systemd timeout: the microseconds it names, or none when the word is not one.
+fn part_us(part: &str) -> Option<u64> {
+    let split = part.find(|character: char| !character.is_ascii_digit())?;
+    let (amount, unit) = part.split_at(split);
+    let amount = amount.parse::<u64>().ok()?;
+    let micros = match unit {
+        "us" => 1,
+        "ms" => 1_000,
+        "s" => 1_000_000,
+        "min" => 60_000_000,
+        "h" => 3_600_000_000,
+        "d" => 86_400_000_000,
+        _ => return None,
+    };
+    amount.checked_mul(micros)
 }
 
 fn display(state: &str) -> String {

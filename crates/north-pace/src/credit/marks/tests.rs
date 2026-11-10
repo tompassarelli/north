@@ -75,7 +75,6 @@ fn clearing_a_mark_leaves_a_tombstone_so_a_peer_resending_that_same_mark_cannot_
     assert_eq!(adopt(dir.path(), &fresh, "2026-11-11").unwrap(), ["g"]);
     assert!(held(dir.path(), "g", "2026-11-11"));
 
-    // A probe that keeps a bodyless mark rewrites its body; the peer still holds that bodyless copy.
     let bodyless = "north-1 2026-11-30\n";
     std::fs::write(dir.path().join("h"), bodyless).unwrap();
     assert!(refresh(dir.path(), "h", REFUSAL).unwrap());
