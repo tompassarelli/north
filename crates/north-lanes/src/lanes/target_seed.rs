@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
 use north_base::platform::shared_target;
@@ -13,6 +13,8 @@ const HASH_LEN: usize = 16;
 const BUILD_LOCKS: [&str; 2] = [".cargo-lock", ".cargo-build-lock"];
 const STAGING_PREFIX: &str = "target.seeding-";
 const DEAD_SEED_AGE: Duration = Duration::from_secs(3600);
+const BTRFS_SUPER_MAGIC: u64 = 0x9123_683e;
+const CACHEDIR_TAG: &str = "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by cargo.\n# For information about cache directory tags see https://bford.info/cachedir/\n";
 
 pub struct DeadSeed {
     pub path: PathBuf,
@@ -63,6 +65,9 @@ fn seed_or_build_cold(here: &Path) -> u8 {
         Ok(None) => {}
         Err(error) => eprintln!("lane seed: {error}; this checkout builds without a seed"),
     }
+    if let Err(error) = fresh_target(here) {
+        eprintln!("lane seed: {error}; this checkout's build output goes into home snapshots");
+    }
     0
 }
 
@@ -95,6 +100,7 @@ pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {
         return Ok(None);
     };
     let staging = Staging::new(workspace.join(format!("{STAGING_PREFIX}{}", std::process::id())));
+    target_dir(&staging.path)?;
     let seeded = copy(&from, &staging.path).and_then(|()| {
         File::open(&staging.path)?.set_modified(SystemTime::now())?;
         forget_own_packages(&staging.path, &lock)
@@ -105,6 +111,37 @@ pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {
     }
     staging.keep();
     Ok(Some(from))
+}
+
+fn fresh_target(here: &Path) -> io::Result<()> {
+    let Some(workspace) = workspace_root(here) else { return Ok(()) };
+    let target = workspace.join("target");
+    if target.exists() || !on_btrfs(&workspace) {
+        return Ok(());
+    }
+    let staging = Staging::new(workspace.join(format!("{STAGING_PREFIX}{}", std::process::id())));
+    target_dir(&staging.path)?;
+    fs::write(staging.path.join("CACHEDIR.TAG"), CACHEDIR_TAG)?;
+    if fs::rename(&staging.path, &target).is_ok() {
+        staging.keep();
+    }
+    Ok(())
+}
+
+// A btrfs snapshot leaves nested subvolumes out, so build output in its own subvolume is never held by a /home snapshot after it is deleted.
+fn target_dir(path: &Path) -> io::Result<()> {
+    if on_btrfs(path.parent().unwrap_or(path)) {
+        let created = Command::new("btrfs").args(["subvolume", "create"]).arg(path).stdout(Stdio::null()).status();
+        return match created {
+            Ok(status) if status.success() => Ok(()),
+            _ => Err(io::Error::other(format!("could not create the btrfs subvolume {}", path.display()))),
+        };
+    }
+    fs::create_dir(path)
+}
+
+fn on_btrfs(dir: &Path) -> bool {
+    rustix::fs::statfs(dir).is_ok_and(|stat| u64::try_from(stat.f_type).is_ok_and(|kind| kind == BTRFS_SUPER_MAGIC))
 }
 
 pub fn reclaim_dead_seeds(code: &Path, proc_root: &Path, now: SystemTime, dry_run: bool) -> Vec<DeadSeed> {
@@ -153,7 +190,7 @@ fn checkouts(code: &Path) -> Vec<PathBuf> {
 }
 
 fn copy(from: &Path, to: &Path) -> io::Result<()> {
-    let copied = Command::new("cp").arg("-a").arg("--reflink=auto").arg(from).arg(to).status()?;
+    let copied = Command::new("cp").arg("-a").arg("--reflink=auto").arg(from.join(".")).arg(to).status()?;
     if copied.success() { Ok(()) } else { Err(io::Error::other(format!("could not copy {}", from.display()))) }
 }
 
