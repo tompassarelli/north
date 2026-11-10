@@ -56,12 +56,6 @@ fn findings(path: &str, text: &str, tree: &Tree, own: &str, touched: bool, state
     found
 }
 
-fn origin_name(directory: &Path) -> String {
-    let url = git::text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let name = url.trim().rsplit(['/', ':']).next().unwrap_or_default();
-    name.strip_suffix(".git").unwrap_or(name).to_owned()
-}
-
 pub fn scan(directory: &Path, range: &str, mirror: &Mirror, out: &mut impl Write) -> u8 {
     let Some(Range { base, head: revision }) = Range::parse(range) else {
         let _ = writeln!(out, "docs-owners: expected BASE..HEAD, got {range}");
@@ -74,7 +68,7 @@ pub fn scan(directory: &Path, range: &str, mirror: &Mirror, out: &mut impl Write
         return 1;
     };
     let tree = Tree::new(&listing);
-    let own = origin_name(directory);
+    let own = git::origin_name(directory);
     let state = |repository: &str, number: u64| recorded_issue_state(mirror, repository, number);
     let mut refused = false;
     for path in tree.files.iter().filter(|path| is_plan_document(path)) {

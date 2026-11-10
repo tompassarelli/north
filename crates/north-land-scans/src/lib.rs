@@ -26,6 +26,7 @@ pub mod slug;
 pub mod shell_hook;
 pub mod strategy_purity;
 pub mod strategy_replay;
+mod stranded_boxes;
 pub mod stale_revert;
 pub mod test_admission;
 mod test_file;

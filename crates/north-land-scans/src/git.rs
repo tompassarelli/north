@@ -27,3 +27,9 @@ pub fn messages(directory: &Path, base: &str, head: &str) -> String {
     )
     .unwrap_or_default()
 }
+
+pub fn origin_name(directory: &Path) -> String {
+    let url = text(directory, &["remote", "get-url", "origin"]).unwrap_or_default();
+    let name = url.trim().rsplit(['/', ':']).next().unwrap_or_default();
+    name.strip_suffix(".git").unwrap_or(name).to_owned()
+}

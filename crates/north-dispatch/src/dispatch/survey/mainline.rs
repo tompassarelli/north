@@ -1,5 +1,6 @@
 use super::super::issues::Issue;
-use super::super::retired::{self, Mainline, Verbs};
+use super::super::retired::{self, Mainline};
+use north_base::platform::cli_verbs::{self, Verbs};
 use std::collections::{BTreeMap, BTreeSet};
 
 fn git(checkout: &std::path::Path, args: &[&str]) -> Option<String> {
@@ -48,7 +49,7 @@ fn gone(repo: &str, issues: &[&Issue], at: f64, notes: &mut Vec<String>) -> BTre
 
 /// What origin/main no longer has that the open boxes name: the verbs its CLI reference lists and the paths it deleted.
 pub(super) fn read(issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Mainline {
-    let reference = checkout("north").and_then(|checkout| git(&checkout, &["show", "origin/main:src/cli/reference.txt"]));
+    let reference = checkout("north").and_then(|checkout| git(&checkout, &["show", &format!("origin/main:{}", cli_verbs::REFERENCE)]));
     if reference.is_none() {
         notes.push("north's CLI reference on origin/main is unread, so a box naming a retired verb is not held".into());
     }

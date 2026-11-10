@@ -360,7 +360,7 @@ fn a_box_whose_check_names_a_retired_verb_is_held() {
     let path = "arms are read in crates/north-climb/src/arms.rs";
     let body = format!("- [ ] {live}\n- [ ] {verb}\n- [ ] {path}");
     let mut survey = survey(vec![issue("north", 872, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
-    survey.mainline = super::retired::Mainline { verbs: Some(super::retired::Verbs::parse(reference)), gone: BTreeMap::from([("north".to_owned(), BTreeSet::from(["crates/north-climb/src/arms.rs".to_owned()]))]) };
+    survey.mainline = super::retired::Mainline { verbs: Some(north_base::platform::cli_verbs::Verbs::parse(reference)), gone: BTreeMap::from([("north".to_owned(), BTreeSet::from(["crates/north-climb/src/arms.rs".to_owned()]))]) };
     let outcome = decide(&survey, "test");
     let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
     assert_eq!(boxes, [live], "only the box whose check main still has launches");

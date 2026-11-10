@@ -17,6 +17,7 @@ pub mod decision_log;
 pub mod frozen_topics;
 pub mod box_oracles;
 pub mod cleanup;
+pub mod cli_verbs;
 pub mod disk_budget;
 pub mod disk_ledger;
 pub mod orchestration;
