@@ -103,8 +103,7 @@ fn evidence(threads: &Connection, attempt: &workers::Attempt) -> String {
     }
     match attempt.basis {
         Basis::Recorded => "the ledger recorded its cause with no boundary row".into(),
-        Basis::Report => "no boundary row; the class came from the run's final report".into(),
-        Basis::Unclaimed => "no boundary row and no phrase rule; the run is the worker's".into(),
+        Basis::Unclaimed => "no boundary row; the run is the worker's".into(),
         Basis::Done => "done".into(),
     }
 }

@@ -6,7 +6,7 @@ A worker run can fail because of the worker or because of the harness that staff
 
 A bar, an attribution class or a routing score reads only mechanical sources: git ancestry of origin/main, lander verdicts and queue state, exit codes, capacity admission records, registered waits, placement refusals and fleet lifecycle records. Text an agent wrote (a `Stop:` line, a `Done:` or `Not done:` word, the prose of a report, a comment or an issue body) is a hint: it may be shown, searched and quoted, and it never decides a verdict, so a worker's wording cannot move a harness number (north#791; on 2026-11-07 waits and capacity were read from `Stop:` text, host needs were guessed from issue prose, and first tries were scored on what the worker said instead of what the harness recorded).
 
-The phrase rules and report readers below are the fallback that predates this rule. `harness/agent-text-reads.toml` lists every file that still reads agent text to decide a verdict, with the count of lines that do; each box of north#791 replaces one kind with its mechanical source and lowers its entry. `tests/it/agent_text_reads.rs` scans the workspace sources and refuses any line that reads a report beyond that list, so a new read cannot land while the old ones are replaced; the same test plants a read in a new file and in a listed file and checks that both are refused.
+Attribution itself reads no report since north#872 (below); the report readers that remain elsewhere are the fallback that predates this rule. `harness/agent-text-reads.toml` lists every file that still reads agent text to decide a verdict, with the count of lines that do; each box of north#791 replaces one kind with its mechanical source and lowers its entry. `tests/it/agent_text_reads.rs` scans the workspace sources and refuses any line that reads a report beyond that list, so a new read cannot land while the old ones are replaced; the same test plants a read in a new file and in a listed file and checks that both are refused.
 
 ## Inventory of 2026-11-07
 
@@ -25,37 +25,35 @@ Replay of the closing `Stop:` lines of the runs that did not finish Done from 23
 - `Stop: wait until`, 24 runs: 2 have a boundary cause and none has a row in `fleet_waits`, which holds only live leases and drops a wait at its end, so the registered wait is gone when the run is scored.
 - `Stop: host`, 20 runs: 4 had a boundary cause; the host a worker named was kept only by dispatch's `host-needs.jsonl`, which that report line fed; a worker now records it with `north fleet need HOST REASON`, which writes the row (north#791), and dispatch's HOST regex is gone.
 
-Capacity, waits and host therefore need a record written at the boundary and kept before their phrase rules are removed; until then the allowlist keeps their reads.
+Capacity, waits and host therefore needed a record written at the boundary and kept before their phrase rules were removed; north#872 removed them once the forward check below found the records in place.
 
 Order of replacement: done from the landed sha with the push-log join, then each `Stop:` kind from its registered or recorded source.
 
 ## The rule
 
-`north_threads::threads::attribution::attribute` reads a finished run's outcome, the cause a boundary recorded for it (below), its final report and its compaction count, and returns one cause:
+`north_threads::threads::attribution::attribute` reads a finished run's outcome and the cause a boundary recorded for it (below), and returns one cause. It reads no report: since north#872 (2026-11-10) the phrase rules over the final report, its `Stop:` line, its opener and its compaction wording are gone, so a class is named only by the boundary that saw it happen.
 
-- **worker**: every Done, `Stop: reasoning` or `Stop: leash` (the worker ran out of approach or budget, whatever else the report mentions), and any failure no rule below claims.
-- **tom**: halted or paused by Tom, `Stop: decision`, or a `Blocked:` report no harness class claims. Neither side failed.
+- **worker**: every Done, and any failure no record names (counted as unattributed on `north ledger flow`). A `Stop: reasoning`, `Stop: leash` or `Split:` lands here because no boundary records it.
+- **tom**: a gate the session opened (`north gate open` writes a `tom` cause row with source `gate` for the session it names), or a halt or pause by Tom that the fleet records. Neither side failed.
 - **proxy**: a proxy-role session stopped, forgot, relaunched or interrupted the worker mid-turn; only the fleet's record names it, and `north ledger flow` counts it apart from the harness classes, so its fixes aim at the proxy rather than at workers.
-- **harness**, the first class whose rule the report matches, in this order:
-  - placement: a session that recorded a host need with `north fleet need` inside the run (a `host-need` cause row, north#791), or the report says this host or machine cannot run, push, land or reach what the box needs.
-  - access: a GitHub, ssh, token or credential call failed, expired or could not decrypt.
-  - capacity: a usage or rate limit, or capacity admission deferred the run; `Stop: capacity|client|budget` no longer decides it.
-  - waits: only a recorded wait (below); the report's `Stop: wait until` and its prose no longer decide it.
-  - false revert: the lander, the after-landing gate or red-main reverted the worker's landing.
-  - duplicate: the work was already on main, already claimed, owned or overtaken by another session.
-  - landing refusal: `Stop: landing`, the lander rejected the lane or safe-push refused it.
-  - gate refusal: a gate, guard, hook or judge refused or blocked the work.
-  - compaction: the report says the run compacted or hit its context limit, or the run compacted and its last message carries no `Done:`, `Not done:`, `Split:` or `Blocked:` opener, so it was parked rather than finished.
+- **harness**, the class the latest boundary row since the run started names:
+  - placement: a session that recorded a host need with `north fleet need` inside the run (a `host-need` cause row, north#791), or a launch that failed to place.
+  - access: a GitHub, ssh, token or credential call the access path saw fail.
+  - capacity: a usage or rate limit park, an account move, an exit 75 build, or a capacity admission queue past the bound.
+  - waits: a recorded wait or deferral (below).
+  - false revert, duplicate, landing refusal, gate refusal: the lander, dispatch or the gate that refused or reverted records it.
+  - compaction: the fleet watch saw the turn compact and end without a standard opener, so it was parked rather than finished.
   - halted: the fleet stopped the session in the middle of a turn (a stop, forget, relaunch, take-over or retirement); only the fleet's record names it.
   - provider error: a provider's stream ended a turn on its own error, when it is not an access refusal or an account limit; only the provider that read the stream records it, with the error it read.
   - safety refusal: a provider's safety classifier flagged a turn and refused it or moved it to a fallback model; only the provider that read the frame records it, naming the category and the models, and dispatch never climbs the box on one.
   - launch refusal: the launch gate refused to start a session, so there is no run of it to carry the loss; only the gate records it, against the name the launch would have had.
   - lease timeout: the deadline a capacity lease set expired under the command the lease held, rather than the command waiting for a slot; only the lease's guard records it, against its session.
-- **worker**, from the report itself when no class claims it: a `Split:`, or a report with no `Done:`, `Not done:`, `Split:` or `Blocked:` opener, which is the worker's own call or a report that broke the report protocol.
+
+The forward check that preceded the cut (north#872, 2026-11-10, gex45's ledger snapshot): of the 13 first tries that failed in the 24 h before 09:30 UTC, 8 had a record and 5 had none, closing on `Stop: leash`, `Stop: laptop`, `Stop: landing`, `Stop: client` and no Stop line. Those 5 now read as the worker's: a landing the lander refused records it, a host need `north fleet need` records it, and a lane still queued holds its first try pending, so a `Stop:` line no boundary backs claims nothing a record shows.
 
 ## Boundary records first
 
-Each boundary of the harness that touches a session writes its own cause for that session with `north cause record --session NAME --source BOUNDARY --cause CAUSE --reason TEXT` (the `boundary_causes` table). The ingest records each run's fleet session name (`runs.fleet_name`), and `attribute` takes the latest cause recorded under that name since the run started for any run that did not finish Done; the phrase rules above apply only to a run no boundary names.
+Each boundary of the harness that touches a session writes its own cause for that session with `north cause record --session NAME --source BOUNDARY --cause CAUSE --reason TEXT` (the `boundary_causes` table). The ingest records each run's fleet session name (`runs.fleet_name`), and `attribute` takes the latest cause recorded under that name since the run started for any run that did not finish Done; a run no boundary names is the worker's.
 
 - lander: a failing check or a conflict in the lane's own lines is worker-caused; a deferral, a hang, a transient error or an origin that refused the push is a landing refusal.
 - dispatch: a launch that failed to place (a host that would not take it) is placement.
@@ -65,11 +63,12 @@ Each boundary of the harness that touches a session writes its own cause for tha
 - fleet: a turn that compacted and ended without a standard opener is compaction; a stop that cuts a turn short is halted (Tom when he opened the conversation in its interactive UI); a session parked on its account's usage limit or handed over to another account is capacity.
 - provider: the provider's stream ended the turn on its own error (`is_error` on the Claude result frame, or the failed turn's error on Codex and OpenCode), unless the same frame carried the account's limit or a credential failure, which the limit watch and the access path own; the row names the session the transcript belongs to and quotes the provider's message. A `system/model_refusal_fallback` or `system/model_refusal_no_fallback` frame is a safety refusal instead, naming its category and models, and dispatch reads it as a boundary row rather than a reasoning failure.
 - launch: the launch gate refused the launch, so no run exists; the row is written against the name the session would have had, with the refusal text, by `placement::placed` in `src/cli/fleet/placement.rs`.
+- gate: `north gate open` records `tom` for the session it names (source `gate`), so a run that ends waiting on Tom's decision is his from the gate it opened, never from `Stop: decision` or a `Blocked:` opener (north#872).
 - lease: a capacity lease's deadline expired under the command the lease held (no slot wait), written by `north capacity deadline` for the session in `$NORTH_FLEET_SESSION`; a command that expired while waiting for a slot stays capacity.
 
-The worker's own `Stop:` line is the fallback: the ingest keeps each report's last `Stop:` line in `runs.stop`, because the ledger keeps only a report's first 600 characters and a long report's closing line fell outside them, and the rules read it after the kept head.
+The ingest keeps each report's last `Stop:` line in `runs.stop`, because the ledger keeps only a report's first 600 characters and a long report's closing line fell outside them; it is shown, never read for a class.
 
-`north ledger flow` prints, beside the costliest harness classes, the share of the last 3 h of usage and of the last 24 h whose failed runs have neither a record nor a matching phrase rule ("unattributed"). A rule that reads the wrong side shows up as a class whose count moves the wrong way on `north ledger flow`, and the phrase rules are tuned against reports the ledger holds. Runs recorded before the ingest kept a fleet name stay on the phrase rules.
+`north ledger flow` prints, beside the costliest harness classes, the share of the last 3 h of usage and of the last 24 h whose failed runs have no record ("unattributed"). A boundary that writes no row for a cause it sees shows up as unattributed usage, which is where the next record goes. Runs recorded before the ingest kept a fleet name have no record and read as the worker's.
 
 ## Where it is read
 

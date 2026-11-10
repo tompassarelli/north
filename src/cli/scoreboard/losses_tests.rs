@@ -28,6 +28,7 @@ fn the_losses_list_names_each_first_try_the_bar_charged_to_the_harness_with_its_
     db.execute("INSERT INTO boundary_causes(session, source, cause, reason, at) VALUES ('north-725-d0411', 'resume', 'landing refusal', 'the lane was resumed', '2026-11-07T03:40:00Z')", []).unwrap();
     run(&db, ["d0501", "north#725", "2026-11-07T03:12:00Z", "2026-11-07T04:20:00Z", "not done", "Not done: the wrong approach.\nStop: reasoning", "north-725-d0501"]);
     run(&db, ["d0401", "north#725", "2026-11-07T03:52:00Z", "2026-11-07T04:15:00Z", "not done", "Not done: the build is queued behind capacity.\nStop: capacity", "north-725-d0401"]);
+    db.execute("INSERT INTO boundary_causes(session, source, cause, reason, at) VALUES ('north-725-d0401', 'capacity', 'capacity', 'the build ended with exit 75', '2026-11-07T04:10:00Z')", []).unwrap();
     run(&db, ["d0301", "north#725", "2026-11-07T04:20:00Z", "2026-11-07T04:30:00Z", "done", "Done: landed as abc1234.", "north-725-d0301"]);
 
     let attempts = workers::attempts(&db, 0, &BTreeSet::new(), &workers::Pending::default()).unwrap();
@@ -36,6 +37,6 @@ fn the_losses_list_names_each_first_try_the_bar_charged_to_the_harness_with_its_
 
     assert_eq!(
         text,
-        "north: 2 of 4 first tries lost to the harness in 24.0 h to 2026-11-07T05:00:00Z\nclasses: capacity 1, placement 1\n2026-11-07T04:12:00Z north-725-d0411 north#725 [placement] recorded by dispatch as placement at 2026-11-07T03:30:00Z: the box needs the laptop row\n2026-11-07T04:15:00Z north-725-d0401 north#725 [capacity] no boundary row; the class came from the run's final report\n"
+        "north: 2 of 4 first tries lost to the harness in 24.0 h to 2026-11-07T05:00:00Z\nclasses: capacity 1, placement 1\n2026-11-07T04:12:00Z north-725-d0411 north#725 [placement] recorded by dispatch as placement at 2026-11-07T03:30:00Z: the box needs the laptop row\n2026-11-07T04:15:00Z north-725-d0401 north#725 [capacity] recorded by capacity as capacity at 2026-11-07T04:10:00Z: the build ended with exit 75\n"
     );
 }

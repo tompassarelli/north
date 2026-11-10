@@ -11,6 +11,7 @@ use crate::fleet::sender::Sender;
 use crate::fleet::store::GateRow;
 use crate::dispatch::{IssueRef, OWNER, product_boxes};
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
+use crate::platform::attribution::{self, Cause};
 
 const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
@@ -75,7 +76,9 @@ fn usage() -> NorthError {
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     let request = gate_request(flags)?;
     scoped(&request, open_boxes)?;
-    match fleet.open_or_spool_gate(&request, &Sender::typed(fleet.caller()))? {
+    let opened = fleet.open_or_spool_gate(&request, &Sender::typed(fleet.caller()))?;
+    attribution::record(&request.session, "gate", Cause::Tom, &request.question);
+    match opened {
         Opened::Here(id) => println!("{id}"),
         Opened::Spooled(row) => {
             println!("{}", row.id);

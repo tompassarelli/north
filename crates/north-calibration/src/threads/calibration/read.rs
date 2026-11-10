@@ -6,7 +6,7 @@ use rusqlite::{Connection, Row as SqlRow};
 
 use crate::router::pricing::PriceTable;
 use crate::platform::run_roles::worker_where;
-use crate::threads::attribution::{Cause, attribute, recorded_column, report_column};
+use crate::threads::attribution::{Cause, attribute, recorded_column};
 
 use super::boxes::{BoxRun, box_name, item_chains};
 use super::rework::{Rework, Sources};
@@ -36,7 +36,7 @@ pub struct Raw {
 }
 
 const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min";
-const ACCOUNT_COLUMN: usize = 26;
+const ACCOUNT_COLUMN: usize = 24;
 
 static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("router/prices.json parses"));
 
@@ -46,7 +46,7 @@ impl Raw {
         let (input, cache_read, output): (i64, i64, i64) = (row.get(18)?, row.get(19)?, row.get(20)?);
         let model: Option<String> = row.get(17)?;
         let outcome: String = row.get(3)?;
-        let cause = attribute(&outcome, &row.get::<_, String>(23)?, row.get(24)?, row.get::<_, Option<String>>(25)?.as_deref());
+        let cause = attribute(&outcome, row.get::<_, Option<String>>(23)?.as_deref());
         let api_usd = (input + output > 0).then(|| PRICES.run_usd(model.as_deref(), &tier, input, cache_read, output));
         let cell = |index: usize| -> rusqlite::Result<String> {
             let value: Option<String> = row.get(7 + index)?;
@@ -101,7 +101,7 @@ pub fn every_run(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSq
 }
 
 fn runs_where(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<Vec<Raw>> {
-    let mut statement = db.prepare(&format!("SELECT {COLUMNS}, {}, COALESCE(compactions, 0), {}, account FROM runs WHERE {condition}", report_column(db), recorded_column(db)))?;
+    let mut statement = db.prepare(&format!("SELECT {COLUMNS}, {}, account FROM runs WHERE {condition}", recorded_column(db)))?;
     statement.query_map(params, Raw::read)?.collect()
 }
 

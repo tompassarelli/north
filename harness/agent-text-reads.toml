@@ -6,12 +6,6 @@
 # entry (docs/rationale/attribution.md).
 
 [[read]]
-file = "crates/north-threads/src/threads/attribution.rs"
-lines = 15
-kind = "verdict"
-all_patterns = true
-
-[[read]]
 file = "crates/north-providers/src/providers/claude/runs/outcome.rs"
 lines = 29
 kind = "verdict"
@@ -50,16 +44,6 @@ all_patterns = true
 [[read]]
 file = "crates/north-base/src/platform/attribution.rs"
 lines = 2
-kind = "verdict"
-
-[[read]]
-file = "crates/north-calibration/src/threads/calibration/read.rs"
-lines = 1
-kind = "verdict"
-
-[[read]]
-file = "src/cli/scoreboard/workers.rs"
-lines = 1
 kind = "verdict"
 
 [[read]]

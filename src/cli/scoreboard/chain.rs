@@ -16,8 +16,6 @@ const NEED_SOURCE: &str = "host-need";
 #[derive(Clone)]
 pub struct End {
     pub outcome: String,
-    pub report: String,
-    pub compactions: u32,
     pub recorded: Option<String>,
 }
 

@@ -1,38 +1,15 @@
 //! Which side a finished worker run's outcome belongs to: the worker, the harness that staffed, placed, landed or
-//! gated it, or Tom. Read from the cause a boundary of the harness recorded for the run's session, else from the
-//! run's final report and its compaction count, so the ready bar, `north ledger flow` and tier learning share one
-//! attribution (north#706, docs/rationale/attribution.md).
+//! gated it, or Tom. Read from the cause a boundary of the harness recorded for the run's session, never from what the
+//! run's report says, so the ready bar, `north ledger flow` and tier learning share one attribution that a worker's
+//! wording cannot move (north#706, north#872, docs/rationale/attribution.md).
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::LazyLock;
 
-use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 
 pub use crate::platform::attribution::{Cause, Harness};
 use crate::foundation::clock::Timestamp;
-use crate::platform::attribution::has_opener;
 use crate::platform::run_roles::worker_where;
-
-fn pattern(text: &str) -> Regex {
-    Regex::new(text).expect("attribution pattern")
-}
-
-static WORKER: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?im)^\W*stop:\s*(reasoning|leash)\b"));
-static COMPACTED: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?i)\bcompacted\b|\bcontext limit\b"));
-static TOM: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?im)halted by tom|\btom paused\b|^\W*stop:\s*decision\b"));
-static BLOCKED: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?i)^\W*blocked:"));
-static RULES: LazyLock<Vec<(Harness, Regex)>> = LazyLock::new(|| {
-    vec![
-        (Harness::Placement, pattern(r"(?i)\b(isn't|is not|not) on this host\b|\bthis (host|machine|session)\b[^.\n]{0,60}\b(can't|cannot|has no|lacks)\b|\b(can't|cannot|couldn't)\b[^.\n]{0,80}\b(from|on) (here|this (host|machine))\b|\bdispatch (put|placed|sent) this session\b|\b(checked|run|measured) on the laptop\b|\b(can't|cannot) reach\b|\bunreachable\b|\bno route to\b|\bnative capture\b|\bclient pair\b|\bcan't (be )?(push|pushed|land|landed|run|reach)\w*( it)? (from|on) \w+")),
-        (Harness::Access, pattern(r"(?i)\b(gh|github|token|ssh|credential|broker)\b[^.\n]{0,80}\b(fails?|failed|refus\w*|expired|unreachable|could not decrypt|can't decrypt)\b")),
-        (Harness::Capacity, pattern(r"(?im)^\W*stop:\s*capacity\b|\bqueued behind (machine-)?capacity\b|\bcapacity (admission )?(deferred|refused|denied)\b|\b(usage|rate) limit\b|\bout of slots\b|\bcredit balance is too low\b")),
-        (Harness::FalseRevert, pattern(r"(?i)\b(lander|after-landing|red[- ]main)\b[^.\n]{0,80}\brevert|\brevert(ed)?\b[^.\n]{0,80}\b(lander|after-landing|red[- ]main)\b")),
-        (Harness::Duplicate, pattern(r"(?i)\balready (on origin/main|landed|closed|done|claimed)\b|\bovertaken\b|\bduplicate (dispatch|launch|run)\b|\bsomeone else holds\b|\balready (owns|has|have) a (named )?owner\b|\balready owns\b|\balready on main\b|\bstood down\b|\b(another|other|peer) session (holds|owns|landed|is working)\b|\b(another|the same) lane\b")),
-        (Harness::LandingRefusal, pattern(r"(?im)^\W*stop:\s*landing\b|\blander[^.\n]{0,40}\b(rejected|refused)\b|\bsafe-push\b[^.\n]{0,60}\brefused\b|\blanding (freeze|queue is (stuck|stalled))\b|\bqueued behind\b")),
-        (Harness::GateRefusal, pattern(r"(?i)\b(gate|guard|hook|judge)\b[^.\n]{0,60}\b(refused|refuses|blocked|denied)\b")),
-    ]
-});
 
 /// What an attribution rests on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,9 +17,7 @@ pub enum Basis {
     Done,
     /// A boundary of the harness recorded the cause for this run's session.
     Recorded,
-    /// A phrase rule matched the final report or the compaction count.
-    Report,
-    /// A failure no record names and no rule claims, left to the worker by default.
+    /// A failure no record names, left to the worker by default.
     Unclaimed,
 }
 
@@ -53,46 +28,18 @@ pub struct Verdict {
 }
 
 /// The cause of a finished run's outcome. A Done run is the worker's; a failure takes the cause a boundary recorded for
-/// its session, else the first harness class its report matches, else compaction when it says it compacted or
-/// compacted and ended with no standard opener, else Tom's for a `Blocked:` opener no harness rule claims. A Split, or any other report without a standard opener, is the worker's
-/// own call; the rest is the worker's by default.
-pub fn judge(outcome: &str, report: &str, compactions: u32, recorded: Option<Cause>) -> Verdict {
-    let by = |cause, basis| Verdict { cause, basis };
-    if outcome == "done" {
-        return by(Cause::Worker, Basis::Done);
+/// its session (a gate the session opened is Tom's, a host need placement, a compacted turn compaction), else it is the
+/// worker's.
+pub fn judge(outcome: &str, recorded: Option<Cause>) -> Verdict {
+    match recorded {
+        _ if outcome == "done" => Verdict { cause: Cause::Worker, basis: Basis::Done },
+        Some(cause) => Verdict { cause, basis: Basis::Recorded },
+        None => Verdict { cause: Cause::Worker, basis: Basis::Unclaimed },
     }
-    if let Some(cause) = recorded {
-        return by(cause, Basis::Recorded);
-    }
-    if WORKER.is_match(report) {
-        return by(Cause::Worker, Basis::Report);
-    }
-    if TOM.is_match(report) {
-        return by(Cause::Tom, Basis::Report);
-    }
-    if let Some((harness, _)) = RULES.iter().find(|(_, rule)| rule.is_match(report)) {
-        return by(Cause::Harness(*harness), Basis::Report);
-    }
-    if (compactions > 0 && !has_opener(report)) || COMPACTED.is_match(report) {
-        return by(Cause::Harness(Harness::Compaction), Basis::Report);
-    }
-    if BLOCKED.is_match(report) {
-        return by(Cause::Tom, Basis::Report);
-    }
-    if outcome == "split" || !has_opener(report) {
-        return by(Cause::Worker, Basis::Report);
-    }
-    by(Cause::Worker, Basis::Unclaimed)
 }
 
-pub fn attribute(outcome: &str, report: &str, compactions: u32, recorded: Option<&str>) -> Cause {
-    judge(outcome, report, compactions, recorded.and_then(Cause::parse)).cause
-}
-
-/// The SQL expression for a run's report as attribution reads it: the 600 characters the ledger keeps, then the report's
-/// last `Stop:` line, which a long report's kept head loses.
-pub fn report_column(db: &Connection) -> &'static str {
-    if db.query_row("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'stop'", [], |_| Ok(())).is_ok() { "report || coalesce(char(10) || stop, '')" } else { "report" }
+pub fn attribute(outcome: &str, recorded: Option<&str>) -> Cause {
+    judge(outcome, recorded.and_then(Cause::parse)).cause
 }
 
 /// The SQL expression for a run's outcome as the bars read it: a `done` run that expected a landing and has no landed sha
@@ -145,7 +92,7 @@ pub struct Loss {
     pub usd: f64,
 }
 
-/// The finished worker runs that ended in a window: the harness classes behind them, costliest first, and the usage no record or rule attributes.
+/// The finished worker runs that ended in a window: the harness classes behind them, costliest first, and the usage no record attributes.
 #[derive(Debug, PartialEq)]
 pub struct Reading {
     pub losses: Vec<Loss>,
@@ -162,12 +109,12 @@ impl Reading {
 }
 
 pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
-    let mut statement = db.prepare(&format!("SELECT {}, {}, coalesce(compactions, 0), coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", outcome_column(db), report_column(db), recorded_column(db), worker_where()))?;
-    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u32>(2)?, row.get::<_, f64>(3)?, row.get::<_, Option<String>>(4)?)))?;
+    let mut statement = db.prepare(&format!("SELECT {}, coalesce(cost_usd, 0), {} FROM runs WHERE {} AND outcome NOT IN ('running', 'idle') AND ended >= ?1", outcome_column(db), recorded_column(db), worker_where()))?;
+    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?, row.get::<_, Option<String>>(2)?)))?;
     let mut by: BTreeMap<Harness, (usize, f64)> = BTreeMap::new();
     let (mut unclaimed_usd, mut total_usd, mut proxy) = (0.0, 0.0, (0, 0.0));
-    for (outcome, report, compactions, usd, recorded) in rows.filter_map(Result::ok) {
-        let verdict = judge(&outcome, &report, compactions, recorded.as_deref().and_then(Cause::parse));
+    for (outcome, usd, recorded) in rows.filter_map(Result::ok) {
+        let verdict = judge(&outcome, recorded.as_deref().and_then(Cause::parse));
         total_usd += usd;
         if verdict.basis == Basis::Unclaimed {
             unclaimed_usd += usd;
@@ -190,7 +137,7 @@ pub fn losses(db: &Connection, since: i64) -> rusqlite::Result<Reading> {
     Ok(Reading { losses, proxy, unclaimed_usd, total_usd })
 }
 
-/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, the runs a proxy session cut short, and the share of usage no record or rule attributes over the last 3 h and the last 24 h.
+/// The line `north ledger flow` prints: the five costliest harness classes of the last 24 h, the order the proxy staffs harness fixes in, the runs a proxy session cut short, and the share of usage no record attributes over the last 3 h and the last 24 h.
 pub fn pareto_line(ledger: &Path, now: i64) -> String {
     let read = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).and_then(|db| Ok((losses(&db, now - DAY_S)?, losses(&db, now - VERDICT_S)?)));
     match read {

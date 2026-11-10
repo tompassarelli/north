@@ -14,7 +14,7 @@ use crate::platform::run_roles::worker_where;
 use crate::platform::{land_queue, records_mirror};
 use crate::capacity::host::{capacity_database_readonly, queued_behind_capacity};
 use crate::land_ticket::{Lane, lanes_by_session};
-use crate::threads::attribution::{Basis, Cause, Harness, fleet_column, judge, outcome_column, recorded_column, report_column};
+use crate::threads::attribution::{Basis, Cause, Harness, fleet_column, judge, outcome_column, recorded_column};
 
 const SOURCE: &str = "worker-ledger runs with no Follows: (first attempts), done with no later run following them; split, idle, running, deferred, lander-queued and job-waking runs left out unless the deferred box's check missed (threads runs, GitHub mirror)";
 const ALL: &str = "all categories";
@@ -58,22 +58,22 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
     let mut statement = db.prepare(&format!(
         "SELECT agent, category, started, ended, {}, coalesce(item, ''), {}, {} FROM runs WHERE {} AND coalesce(follows, '') = '' AND outcome NOT IN ('running', 'idle', 'split') AND ended >= ?1",
         outcome_column(db),
-        end_columns(db),
+        recorded_column(db),
         fleet_column(db),
         worker_where()
     ))?;
-    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, u32>(7)?, row.get::<_, Option<String>>(8)?, row.get::<_, String>(9)?)))?;
+    let rows = statement.query_map([Timestamp::from_unix_seconds(since).iso()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?)))?;
     let raws = rows
         .filter_map(Result::ok)
-        .filter_map(|(agent, category, started, ended, outcome, item, report, compactions, recorded, session)| {
+        .filter_map(|(agent, category, started, ended, outcome, item, recorded, session)| {
             let (started, ended) = (Timestamp::parse(&started).map_or(0, |at| at.unix_seconds()), Timestamp::parse(&ended).ok()?.unix_seconds());
-            Some(Raw { agent, category, item, session, started, ended, end: End { outcome, report, compactions, recorded } })
+            Some(Raw { agent, category, item, session, started, ended, end: End { outcome, recorded } })
         })
         .collect();
     let relaunches = relaunches(db)?;
     Ok(chain::fold(raws, &Marks::read(db), &relaunches, pending.now.saturating_sub(RELAUNCH_WAIT_S))
         .into_iter()
-        .filter_map(|Raw { agent, category, item, session, started, ended, end: End { outcome, report, compactions, recorded } }| {
+        .filter_map(|Raw { agent, category, item, session, started, ended, end: End { outcome, recorded } }| {
             let outcome = if outcome != "done" && pending.landed_during(&session, started, ended) { "done".to_owned() } else { outcome };
             let recorded = recorded.or_else(|| (outcome != "done" && pending.queued_behind_capacity(&session, started, ended)).then(|| Cause::Harness(Harness::Capacity).label().to_owned()));
             let checked_miss = || references(&item).iter().any(|issue| missed.contains(issue));
@@ -81,22 +81,17 @@ pub fn attempts(db: &Connection, since: i64, missed: &BTreeSet<String>, pending:
                 return None;
             }
             let deferred = outcome != "done" && recorded.as_deref() == Some(Cause::Harness(Harness::Waits).label()) && !checked_miss();
-            let verdict = judge(&outcome, &report, compactions, recorded.as_deref().and_then(Cause::parse));
+            let verdict = judge(&outcome, recorded.as_deref().and_then(Cause::parse));
             let repos = repos(&item);
             Some(Attempt { succeeded: outcome == "done" && !followed.contains(&agent), agent, session, item, category, started, ended, repos, cause: verdict.cause, basis: verdict.basis, deferred })
         })
         .collect())
 }
 
-/// The columns of how a run ended, in the order `End` reads them: its report, its compactions and its recorded cause.
-fn end_columns(db: &Connection) -> String {
-    format!("{}, coalesce(compactions, 0), {}", report_column(db), recorded_column(db))
-}
-
 /// The ends of the runs that relaunched a session that recorded a host need, by the stopped session.
 fn relaunches(db: &Connection) -> rusqlite::Result<BTreeMap<String, End>> {
-    let mut statement = db.prepare(&format!("SELECT follows, {}, {} FROM runs WHERE follows LIKE '% (Stop: host %'", outcome_column(db), end_columns(db)))?;
-    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, End { outcome: row.get(1)?, report: row.get(2)?, compactions: row.get(3)?, recorded: row.get(4)? })))?;
+    let mut statement = db.prepare(&format!("SELECT follows, {}, {} FROM runs WHERE follows LIKE '% (Stop: host %'", outcome_column(db), recorded_column(db)))?;
+    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, End { outcome: row.get(1)?, recorded: row.get(2)? })))?;
     Ok(rows.filter_map(Result::ok).filter_map(|(follows, end)| Some((follows.split_once(" (Stop: host ")?.0.to_owned(), end))).collect())
 }
 

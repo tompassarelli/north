@@ -28,7 +28,7 @@ fn a_landing_stop_is_pending_while_its_ticket_waits_in_the_lander_queue() {
     }
     let read = attempts(&db, 0, &BTreeSet::new(), &Pending { lanes: lanes_by_session(&land_queue::queues(state.path())).unwrap(), waking: BTreeSet::new(), ..Pending::default() }).unwrap();
     let causes: Vec<(Cause, bool)> = read.iter().map(|attempt| (attempt.cause, attempt.succeeded)).collect();
-    assert_eq!(causes, [(Cause::Harness(Harness::LandingRefusal), false), (Cause::Worker, true)], "north-255-d1828 queued a lane that landed six minutes after its Stop: landing report on 2026-11-07, and read as lost until the ledger's join caught up");
+    assert_eq!(causes, [(Cause::Worker, false), (Cause::Worker, true)], "a decided lane no lander record names is the worker's whatever its Stop: line says (north#872); north-255-d1828 queued a lane that landed six minutes after its Stop: landing report on 2026-11-07, and read as lost until the ledger's join caught up");
 }
 
 /// north-751-d0501 ended `Stop: wait until 2026-11-07T05:45Z` on 2026-11-07 because its only open box measured a time

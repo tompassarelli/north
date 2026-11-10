@@ -162,11 +162,11 @@ fn a_usage_batch_rewrites_only_the_intervals_its_rows_fall_in_and_leaves_run_cos
 }
 
 /// A long report's closing `Stop:` line fell outside the 600 characters the ledger keeps, so 40% of a day's worker
-/// usage read as unattributed (north#706): the kept line names the worker's own cause, and a boundary's record wins.
+/// usage read as unattributed (north#706); since north#872 the kept line names no class, and only a boundary's record does.
 /// Eleven of the 26 runs read as landing refusals over the 24 h to 2026-11-07T18:26Z ended `Stop: landing` on a queued
 /// lane that then landed with the run's sha (north#829): a run whose lane landed is no harness loss.
 #[test]
-fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overrides_its_report() {
+fn a_failed_run_is_attributed_by_its_boundary_record_and_its_kept_stop_line_alone_names_no_class() {
     let ledger = ledger();
     let worker = |id: &str, report: &str, stop: Option<&str>| {
         json!({"id": id, "role": "worker", "fleet_name": format!("w-{id}"), "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
@@ -182,17 +182,17 @@ fn a_failed_run_is_attributed_by_its_kept_stop_line_and_a_boundary_record_overri
     }
     let reading = losses(&Connection::open(&ledger.path).unwrap(), 0).unwrap();
     let classes: Vec<(Harness, usize)> = reading.losses.iter().map(|loss| (loss.harness, loss.runs)).collect();
-    assert_eq!(classes, vec![(Harness::LandingRefusal, 1), (Harness::Halted, 1), (Harness::ProviderError, 1), (Harness::LaunchRefusal, 1), (Harness::LeaseTimeout, 1), (Harness::SafetyRefusal, 1)]);
+    assert_eq!(classes, vec![(Harness::Halted, 1), (Harness::ProviderError, 1), (Harness::LaunchRefusal, 1), (Harness::LeaseTimeout, 1), (Harness::SafetyRefusal, 1)]);
     assert_eq!(reading.proxy.0, 1, "a run the proxy cut short is the proxy's, apart from the harness classes");
     assert_eq!(reading.unclaimed_usd, 0.0, "{reading:?}");
 }
 
 /// north-730-d0235 opened `Blocked:` on ccx33 and the ready bar read it as Tom's on 2026-11-07, hiding a placement loss
 /// (north#751). Workers now record a need with `north fleet need`, which writes a `host-need` cause row for their session:
-/// a run whose session recorded one inside its window is placement whatever its report says, and a Blocked report on
-/// Tom's decision stays his.
+/// a run whose session recorded one inside its window is placement whatever its report says, and a run whose session
+/// opened a gate is Tom's from the gate's row, no harness loss, whatever its `Blocked:` words say (north#872).
 #[test]
-fn a_run_whose_session_recorded_a_host_need_is_placement_and_a_blocked_decision_stays_toms() {
+fn a_run_whose_session_recorded_a_host_need_is_placement_and_a_gated_one_is_no_harness_loss() {
     let ledger = ledger();
     let worker = |id: &str, report: &str| {
         json!({"id": id, "role": "worker", "fleet_name": format!("w-{id}"), "account": "claude-b", "usage_samples": [{"request": id, "ts": "2026-10-28T08:30:00Z", "weight": 100.0}],
@@ -200,21 +200,13 @@ fn a_run_whose_session_recorded_a_host_need_is_placement_and_a_blocked_decision_
     };
     ledger.ingest(&[worker("need", "Blocked: I'm on ccx33, and the runner lane lives on gex45."), worker("tom", "Blocked: the pilot spends money.\nStop: decision")]);
     let context = Context { database: &ledger.path, actor: "tester".into(), no_native: None, outside: &ledger.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
-    let argv: Vec<String> = ["cause", "record", "--session", "w-need", "--source", "host-need", "--cause", "placement", "--reason", "gex45: the runner lane lives there"].map(str::to_owned).to_vec();
-    assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
+    for (session, source, cause, reason) in [("w-need", "host-need", "placement", "gex45: the runner lane lives there"), ("w-tom", "gate", "tom", "the pilot spends money")] {
+        let argv: Vec<String> = ["cause", "record", "--session", session, "--source", source, "--cause", cause, "--reason", reason].map(str::to_owned).to_vec();
+        assert_eq!(causes::run(&argv, &context, &mut "".as_bytes(), &mut Vec::new(), &mut Vec::new()), 0);
+    }
     let reading = losses(&Connection::open(&ledger.path).unwrap(), 0).unwrap();
     let classes: Vec<(Harness, usize)> = reading.losses.iter().map(|loss| (loss.harness, loss.runs)).collect();
     assert_eq!(classes, vec![(Harness::Placement, 1)], "{reading:?}");
-}
-
-/// north-751-d0333 found runs that ended on the API's "Credit balance is too low" charged to the worker on 2026-11-07
-/// when no boundary recorded a cause: a run the API refused for credit is a capacity loss. north-641-d1935 and
-/// north-766-d0421 waited on capacity admission on 2026-11-06 and read as landing refusals for "queued behind" (north#829).
-#[test]
-fn a_run_that_ends_on_the_api_credit_error_or_a_capacity_queue_is_capacity() {
-    for report in ["Credit balance is too low", "Not done: the cargo check is still queued behind machine-capacity admission.", "Not done: the test run waits in line.\nStop: capacity"] {
-        assert_eq!(crate::threads::attribution::attribute("not done", report, 0, None), crate::threads::attribution::Cause::Harness(Harness::Capacity), "{report}");
-    }
 }
 
 /// On 2026-11-07, 22 of the 24 Done runs from 23:00 to 06:14 UTC that expected a landing showed `landed = 0` on their row
