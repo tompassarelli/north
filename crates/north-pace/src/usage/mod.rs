@@ -35,6 +35,8 @@ mod plain;
 mod table;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod windows_tests;
 mod web;
 
 const USAGE: &str = "usage: north fleet usage [--refresh [--local]] [--json | --verbose] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate | sample";
