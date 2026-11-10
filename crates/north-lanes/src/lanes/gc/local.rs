@@ -106,6 +106,21 @@ fn cited(issues: &[String]) -> String {
     if issues.is_empty() { String::new() } else { format!(" ({})", issues.join(" ")) }
 }
 
+/// The names of the `branch.<name>` sections listed by `git config --local --get-regexp '^branch\.'`
+/// whose branch is not in `branches`. A key is `branch.<name>.<variable>`, and a variable holds no dot,
+/// so the name is everything before the last dot.
+fn orphaned_branch_sections(listed: &str, branches: &HashSet<String>) -> Vec<String> {
+    let mut names: Vec<String> = listed
+        .lines()
+        .filter_map(|line| line.split_whitespace().next()?.strip_prefix("branch."))
+        .filter_map(|key| key.rsplit_once('.').map(|(name, _)| name.to_owned()))
+        .filter(|name| !branches.contains(name))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 impl Gc {
     pub(super) fn sweep(&mut self, container: &Path, live: &[PathBuf]) -> Result<(), String> {
         let name = container.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -151,6 +166,7 @@ impl Gc {
         let swept = self.sweep_lanes(&mut sweep, &worktrees, live);
         self.stale.repo(&sweep.name).local_stale = std::mem::take(&mut sweep.local_stale);
         swept?;
+        self.prune_branch_config(&sweep);
         sweep.owned.sort_by_key(|row| std::cmp::Reverse(row.age_h));
         self.stale.repo(&sweep.name).owned = Some(sweep.owned);
         if !dry {
@@ -196,6 +212,26 @@ impl Gc {
             lane_issue::forget(main, branch);
         }
         deleted
+    }
+
+    /// Removes the `branch.<name>` sections whose branch no longer exists: `delete_branch` drops the ref
+    /// with `git update-ref -d`, which leaves the section behind, so a machine that has retired thousands
+    /// of lanes carries thousands of stale sections in the config every lane shares (north#1054).
+    fn prune_branch_config(&mut self, sweep: &Container) {
+        let branches: HashSet<String> = git(&sweep.main, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]).out.lines().map(str::to_owned).collect();
+        let listed = git(&sweep.main, &["config", "--local", "--get-regexp", r"^branch\."]).out;
+        let orphans = orphaned_branch_sections(&listed, &branches);
+        if self.options.dry_run {
+            if !orphans.is_empty() {
+                println!("{}: prune {} branch configs whose branch no longer exists", sweep.name, orphans.len());
+            }
+            return;
+        }
+        for name in orphans {
+            if git(&sweep.main, &["config", "--local", "--remove-section", &format!("branch.{name}")]).ok {
+                self.counts.pruned_branch_configs += 1;
+            }
+        }
     }
 
     fn sweep_worktree(&mut self, sweep: &mut Container, fields: &BTreeMap<String, String>, live: &[PathBuf]) -> Result<(), String> {

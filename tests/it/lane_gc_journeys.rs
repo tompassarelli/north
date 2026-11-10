@@ -258,6 +258,9 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
     let rig = &fixture.rig;
+    for branch in ["gone", "equiv", "wip"] {
+        rig.git(&fixture.main, &["config", &format!("branch.{branch}.remote"), "origin"]);
+    }
 
     let dry = fixture.run(&["--dry-run"]);
     for expected in [
@@ -272,9 +275,13 @@ fn unlanded_lanes_stay_whatever_their_age_or_dirt_and_are_reported_with_issue_st
     }
     assert!(dry.lines().any(|line| line == "north: owned branch loose: surface to north-parent"), "{dry}");
     assert!(fixture.kept_intact() && !fixture.gone("equiv") && !rig.root.join("alerts").exists());
+    assert!(rig.git_ok(&fixture.main, &["config", "--get", "branch.gone.remote"]), "a dry run prunes nothing");
 
     let out = fixture.run(&[]);
     assert!(fixture.gone("equiv") && !fixture.gone("sup") && fixture.kept_intact(), "{out}");
+    assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.gone.remote"]), "a section whose branch no longer exists is pruned: {out}");
+    assert!(!rig.git_ok(&fixture.main, &["config", "--get", "branch.equiv.remote"]), "a section whose branch this run deleted is pruned: {out}");
+    assert!(rig.git_ok(&fixture.main, &["config", "--get", "branch.wip.remote"]), "a kept branch keeps its config: {out}");
     assert_eq!(rig.github_calls(), 2, "one search per run: {}", rig.read("gh-calls"));
     let wip = rig.home.join("code/north/worktrees/wip");
     assert!(wip.join("new.txt").is_file() && fs::read_to_string(wip.join("README")).unwrap().contains("edited"));
