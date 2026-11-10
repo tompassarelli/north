@@ -10,10 +10,10 @@ const USAGE: &str = "usage: north ledger opencode [--since 7d|YYYY-MM-DD]";
 const DEEPSEEK: [&str; 2] = ["opencode", "pi"];
 
 #[derive(Default)]
-struct Tally {
-    landed: usize,
-    rejected: usize,
-    pending: usize,
+pub(super) struct Tally {
+    pub(super) landed: usize,
+    pub(super) rejected: usize,
+    pub(super) pending: usize,
 }
 
 struct Session {
@@ -59,7 +59,7 @@ pub fn run(arguments: &[String]) -> u8 {
     0
 }
 
-fn tally(runs: &[Run], tasks: &BTreeMap<&str, &Task>, lanes: &BTreeMap<String, Vec<land_ticket::Lane>>, since: Option<i64>) -> BTreeMap<String, Tally> {
+pub(super) fn tally(runs: &[Run], tasks: &BTreeMap<&str, &Task>, lanes: &BTreeMap<String, Vec<land_ticket::Lane>>, since: Option<i64>) -> BTreeMap<String, Tally> {
     let mut sessions: BTreeMap<&str, Session> = BTreeMap::new();
     for run in runs.iter().filter(|run| deepseek(run) && since.is_none_or(|since| run.started_ms >= since)) {
         let session = sessions.entry(run.session.as_str()).or_insert_with(|| Session { arm: run.overlay.clone().unwrap_or_else(|| "unlabelled".into()), tasks: BTreeSet::new() });
@@ -70,11 +70,13 @@ fn tally(runs: &[Run], tasks: &BTreeMap<&str, &Task>, lanes: &BTreeMap<String, V
     let mut tallies: BTreeMap<String, Tally> = BTreeMap::new();
     for (name, session) in sessions {
         let tally = tallies.entry(session.arm).or_default();
+        let reviewer = format!("{name}-rv");
+        let tickets: Vec<&land_ticket::Lane> = [name, reviewer.as_str()].iter().filter_map(|session| lanes.get(*session)).flatten().collect();
         let landed = session.tasks.iter().filter_map(|task| tasks.get(task.as_str())).any(|task| task.outcome.as_deref() == Some("landed") && task.landed_sha.as_deref().is_some_and(|sha| !sha.is_empty()))
-            || lanes.get(name).is_some_and(|lanes| lanes.iter().any(|lane| lane.phase == Phase::Landed));
+            || tickets.iter().any(|lane| lane.phase == Phase::Landed);
         let rejected = !landed
             && (session.tasks.iter().filter_map(|task| tasks.get(task.as_str())).any(|task| matches!(task.outcome.as_deref(), Some("abandoned" | "not done")))
-                || lanes.get(name).is_some_and(|lanes| lanes.iter().any(|lane| matches!(lane.phase, Phase::Failed | Phase::Conflict | Phase::Quarantined | Phase::Withdrawn))));
+                || tickets.iter().any(|lane| matches!(lane.phase, Phase::Failed | Phase::Conflict | Phase::Quarantined | Phase::Withdrawn)));
         match (landed, rejected) {
             (true, _) => tally.landed += 1,
             (false, true) => tally.rejected += 1,

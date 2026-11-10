@@ -17,11 +17,11 @@ pub(super) fn code_health(arguments: &[String]) -> u8 {
 
 fn opencode(arguments: &[String]) -> u8 {
     let value = ledger_verb("opencode", arguments);
-    if value != 0 {
+    if value == 2 {
         return value;
     }
     println!();
-    crate::providers::opencode::report::run(arguments)
+    value.max(crate::providers::opencode::report::run(arguments))
 }
 
 pub(super) fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
