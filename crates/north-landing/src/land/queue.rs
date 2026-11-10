@@ -72,6 +72,8 @@ pub struct Ticket {
     pub alone_green: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alone_base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alone_unsettled: Option<String>,
 }
 
 impl Ticket {

@@ -224,3 +224,22 @@ fn a_lane_whose_alone_pass_is_six_landings_old_lands_in_the_same_batch_as_a_fres
     assert!(verdict(&north, "stale").starts_with("landed "), "{journal}");
     assert_eq!(calls(&calls_file), 0, "an aged alone pass held its lane for a serial alone check: {journal}");
 }
+
+#[test]
+fn a_lane_whose_alone_check_reaches_no_verdict_twice_steps_aside_while_a_lane_with_a_pass_lands_beside_it() {
+    let world = World::new();
+    let north = world.repository("north");
+    let path = world.path().join("bin/checker");
+    north_base::foundation::shim::write_executable(&path, "#!/bin/sh\npwd >> \"$0.calls\"\necho 'the private-text judge did not finish' >&2\nexit 75\n");
+    north.lane("unsettled");
+    let ticket = fs::read_dir(&north.queue).unwrap().flatten().map(|entry| entry.path()).find(|path| path.is_file() && queue::read(path).is_ok_and(|ticket| ticket.branch == "unsettled")).unwrap();
+    queue::write(&ticket, &queue::Ticket { alone_green: None, alone_base: None, ..queue::read(&ticket).unwrap() }).unwrap();
+    north.lane("passed");
+    let first = report(&world.lander(&north, None).wait_with_output().unwrap());
+    assert!(verdict(&north, "passed").starts_with("landed "), "{first}");
+    assert!(first.contains("it is checked once more next round"), "{first}");
+    let journal = serve(&world, &north);
+    let unsettled = verdict(&north, "unsettled");
+    assert!(unsettled.starts_with("failed ") && unsettled.contains("reached no verdict twice"), "a lane whose alone check never settles held the queue: {unsettled}\n{journal}");
+    assert_eq!(calls(&world.path().join("bin/checker.calls")), 2, "{journal}");
+}
