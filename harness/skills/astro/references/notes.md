@@ -3,7 +3,7 @@
 Read this when upgrading a project, porting an older example, or touching
 Markdown plugins, adapters or on-demand rendering. Facts were taken from the
 official v6 and v7 upgrade guides and the Fonts and Routing guides on
-docs.astro.build on 2026-10-19; recheck there for later majors.
+docs.astro.build, rechecked on 2026-11-10; recheck there for later majors.
 
 ## Upgrading
 
@@ -77,4 +77,4 @@ can still build. Add `@types/bun` when tests use `bun:test`.
 Adapted from the `astro` skill in astrolicious/agent-skills at
 `cb4839f3794189ebf35c55d3ba5d3876dff7acf0`, whose frontmatter declares
 `license: MIT` and credits the "Astro Team"; see
-this package's `PROVENANCE.md` and `NOTICE`.
+`docs/rationale/skill-provenance.md` and the repository `NOTICE`.
