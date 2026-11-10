@@ -58,4 +58,21 @@ fn a_brief_carries_no_prior_report_from_before_its_issue_was_opened() {
     assert_eq!(ledger.grounds("wisp#83", BEFORE - 1.0, BODY, &route()).prior.len(), 2, "an issue opened before every report still carries its newest two");
 }
 
+/// n1054-d1217: dispatch carried north#722's report naming /home/tom/code/north/worktrees/n722-gate-debt into a brief after
+/// the lane was gone, so the next worker was sent to a lane this host no longer held.
+#[test]
+fn a_prior_report_naming_a_gone_lane_path_is_dropped_from_the_brief() {
+    let scratch = tempfile::tempdir().unwrap();
+    let home = scratch.path();
+    let gone = home.join("code/north/worktrees/n722-gate-debt");
+    let here = home.join("code/north/worktrees/n1054-carried-report");
+    std::fs::create_dir_all(&here).unwrap();
+    let report = format!("Not done: the lanes at {} and {} still hold the work", gone.display(), here.display());
+    let grounds = super::grounds::Grounds { home: Some(home.to_path_buf()), ..super::grounds::Grounds::default() }.carrying(Some(&report));
+    let brief = super::brief::brief(&super::tests::issue("north", 1054, "- [ ] a", &[]), "dispatch", &route(), &grounds, None);
+
+    assert!(!brief.contains(&gone.display().to_string()), "a gone lane's path still reaches the worker: {brief}");
+    assert!(brief.contains(&format!(" and {} still hold the work", here.display())), "a lane this host holds stays named: {brief}");
+    assert!(brief.contains("Prior report: Not done: the lanes at [absent on this host]"), "{brief}");
+}
 

@@ -7,6 +7,7 @@ use super::tuned::{Figure, Tuned};
 use crate::ledger::{self, ClosedReport, Figures, PriorReport, RunEnd, RunTime};
 use crate::threads::calibration::scaled;
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 pub const REPORT_CHARS: usize = 600;
 const PRIOR_REPORTS: usize = 2;
@@ -27,6 +28,8 @@ pub struct Ledger {
     ends: BTreeMap<String, RunEnd>,
     tuned: Tuned,
     eta_scales: BTreeMap<Tier, EtaScale>,
+    /// This host's home: a carried report's path under it that is gone here is marked, so no worker is sent to it.
+    home: Option<PathBuf>,
 }
 
 /// A tier's walk-forward `eta_pred` calibration: the factor that brings the measured ETA to the share
@@ -51,7 +54,8 @@ impl Ledger {
                 Err(error) => notes.push(format!("eta_pred calibration of {} unread, so its briefs keep the unscaled ETA: {error}", tier.key())),
             }
         }
-        Self { closed, prior, times, ends, tuned: Tuned::current(), eta_scales }
+        let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
+        Self { closed, prior, times, ends, tuned: Tuned::current(), eta_scales, home }
     }
 
     #[cfg(test)]
@@ -93,6 +97,7 @@ impl Ledger {
             floor: self.closed.as_ref().and_then(ClosedReport::median_box_usd),
             prior,
             not_required: not_required(body),
+            home: self.home.clone(),
         }
     }
 }
@@ -110,6 +115,8 @@ pub struct Grounds {
     pub floor: Option<(f64, usize)>,
     pub prior: Vec<String>,
     pub not_required: Vec<String>,
+    /// This host's home, whose absent paths in a carried report read as `[absent on this host]`.
+    pub home: Option<PathBuf>,
 }
 
 impl Grounds {
@@ -175,7 +182,7 @@ impl Grounds {
     /// The issue's Not required lines and the prior reports on it.
     pub fn trace(&self) -> Vec<String> {
         let mut lines: Vec<String> = self.not_required.iter().map(|line| format!("Not required: {line}")).collect();
-        lines.extend(self.prior.iter().map(|report| format!("Prior report: {}", report.chars().take(REPORT_CHARS).collect::<String>())));
+        lines.extend(self.prior.iter().map(|report| format!("Prior report: {}", carried(report, self.home.as_deref()))));
         lines
     }
 
@@ -190,6 +197,13 @@ impl Grounds {
         };
         format!("Why: {}; the ETA and budget are {source}", route.why)
     }
+}
+
+/// The carried report as the brief says it: this host's absent paths are marked, so a worker is not sent to a lane other
+/// hosts had, and the whole is cut to [`REPORT_CHARS`].
+fn carried(report: &str, home: Option<&Path>) -> String {
+    let marked = home.map_or_else(|| report.to_owned(), |home| crate::platform::home_paths::without_absent(report, home));
+    marked.chars().take(REPORT_CHARS).collect()
 }
 
 /// The minutes a brief's ETA gives a box in a cell with these figures.
