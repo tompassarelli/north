@@ -99,4 +99,8 @@ fn a_replay_that_fails_keeps_its_check_log_in_the_queue_logs_and_a_green_replay_
     let green = replay();
     assert!(green.contains("replay: verdict landed"), "{green}");
     assert_eq!(replay_logs(), before, "a green replay keeps no log");
+    let tip = north_landing::land::queue::read(&ticket).unwrap().verdict.and_then(|verdict| verdict.strip_prefix("landed ").map(str::to_owned)).expect("a landed ticket names its tip");
+    let checks = fixture.read("checks");
+    let head = checks.lines().last().and_then(|line| line.split_whitespace().next()).unwrap_or_default();
+    assert_eq!(head, tip, "a replay runs its checks on the recorded landed candidate, not a rebuild of the lane heads: {checks}");
 }

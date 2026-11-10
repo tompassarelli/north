@@ -57,25 +57,54 @@ impl Replayed {
     }
 }
 
+/// The commit a recorded round landed as, when every ticket records a landed tip: the tip every other tip
+/// descends from, which is the candidate the round pushed. A replay of that round checks that candidate
+/// rather than rebuilding it from the lane heads, so the generated registries the lander wrote at land time
+/// are already in it and a replay never depends on a generator that no longer covers the round's tree.
+pub fn landed_tip(verdict: &str) -> Option<&str> {
+    let tip = verdict.strip_prefix("landed ")?.split_whitespace().next()?;
+    (tip.len() == 40 && tip.bytes().all(|byte| byte.is_ascii_hexdigit())).then_some(tip)
+}
+
+fn landed_candidate(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)]) -> Option<String> {
+    let tips: Vec<&str> = tickets.iter().filter_map(|(_, ticket)| landed_tip(ticket.verdict.as_deref()?)).collect();
+    if tips.is_empty() {
+        return None;
+    }
+    let head = tips.iter().find(|candidate| tips.iter().all(|other| *other == **candidate || git(worktree, &["merge-base", "--is-ancestor", other, candidate]).is_ok()))?;
+    git(worktree, &["merge-base", "--is-ancestor", base, head]).ok().map(|_| (*head).to_owned())
+}
+
 fn replay(options: &Options) -> Result<Replayed, String> {
     let checkout = super::repositories::checkout(&options.repo)?;
     let (worktree, _held) = free_worktree(&candidate::lander_worktree(&checkout, WORKTREE)?)?;
     candidate::ensure(&checkout, &worktree)?;
     git(&worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"])?;
     let base = git(&worktree, &["rev-parse", &format!("{}^{{commit}}", options.base)])?;
-    let tickets: Vec<(PathBuf, Ticket)> = options.tickets.iter().map(|path| queue::read(path).map(|ticket| (path.clone(), Ticket { verdict: None, ..ticket })).map_err(|error| error.to_string())).collect::<Result<_, _>>()?;
+    let read: Vec<(PathBuf, Ticket)> = options.tickets.iter().map(|path| queue::read(path).map(|ticket| (path.clone(), ticket)).map_err(|error| error.to_string())).collect::<Result<_, _>>()?;
+    let candidate = landed_candidate(&worktree, &base, &read);
+    let tickets: Vec<(PathBuf, Ticket)> = read.into_iter().map(|(path, ticket)| (path, Ticket { verdict: None, ..ticket })).collect();
     let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let built = candidate::rebuild_recorded(&worktree, &base, &tickets, scratch.path())?;
-    for pick in &built.picks {
-        match pick {
-            Pick::Included => {}
-            Pick::Decided(verdict) => return Ok(Replayed::of(verdict.split_whitespace().next().unwrap_or("undecided"))),
-            Pick::Refused(refused) => return Ok(Replayed { verdict: "failed".to_owned(), failures: BTreeSet::from([Failure::Line(refused.verdict.split("; log:").next().unwrap_or_default().trim().to_owned())]) }),
-            Pick::Undecided(reason) | Pick::Deferred(reason) => return Ok(Replayed::of(format!("undecided {reason}"))),
+    let built = match &candidate {
+        Some(tip) => {
+            git(&worktree, &["reset", "-q", "--hard"])?;
+            git(&worktree, &["checkout", "-q", "-f", "--detach", tip])?;
+            None
         }
-    }
-    if built.picks.len() != tickets.len() {
-        return Ok(Replayed::of("undecided not every lane was picked"));
+        None => Some(candidate::rebuild_recorded(&worktree, &base, &tickets, scratch.path())?),
+    };
+    if let Some(built) = &built {
+        for pick in &built.picks {
+            match pick {
+                Pick::Included => {}
+                Pick::Decided(verdict) => return Ok(Replayed::of(verdict.split_whitespace().next().unwrap_or("undecided"))),
+                Pick::Refused(refused) => return Ok(Replayed { verdict: "failed".to_owned(), failures: BTreeSet::from([Failure::Line(refused.verdict.split("; log:").next().unwrap_or_default().trim().to_owned())]) }),
+                Pick::Undecided(reason) | Pick::Deferred(reason) => return Ok(Replayed::of(format!("undecided {reason}"))),
+            }
+        }
+        if built.picks.len() != tickets.len() {
+            return Ok(Replayed::of("undecided not every lane was picked"));
+        }
     }
     let log = kept_log(&checkout, &base)?;
     let verdict = match checks::start(&checks::Launch { checker: &options.checker, offload_owner: "north-land-replay", round: "replay".to_owned(), red_fix: false, lander_slot: false, off_host: true, local: false, lanes: String::new(), tips: String::new() }, &worktree, &base, &log, false) {

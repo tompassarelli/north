@@ -167,6 +167,9 @@ fn base_of(checkout: &Path, round: &Round) -> Option<String> {
 }
 
 fn readable(checkout: &Path, round: &Round) -> bool {
+    if let Some(tip) = replay::landed_tip(&round.verdict) {
+        return output(checkout, &["cat-file", "-e", &format!("{tip}^{{commit}}")]).is_ok_and(|output| output.status.success());
+    }
     round.lanes.iter().all(|lane| output(checkout, &["cat-file", "-e", &format!("{}^{{commit}}", lane.head)]).is_ok_and(|output| output.status.success()))
 }
 
