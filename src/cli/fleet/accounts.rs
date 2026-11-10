@@ -9,6 +9,7 @@ pub(super) fn run(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
         ["--api"] => api_pool_listing(),
         ["--plan"] => super::router::account_plan(fleet),
         ["--reading", account, usd] => reading(account, usd),
+        ["--poll"] => poll(),
         ["--probe"] => probe(),
         [name] => super::router::session_verb(fleet, "accounts", name),
         _ => Err(super::usage::usage()),
@@ -32,6 +33,32 @@ fn probe() -> NorthResult<()> {
         println!("{line}");
     }
     Ok(())
+}
+
+/// Reads each api organization's Admin reports now, records its provider reading and says what it read;
+/// records nothing when this host holds no Admin key.
+fn poll() -> NorthResult<()> {
+    for line in poll_lines() {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// The fleet tick's poll: the same read at most every ten minutes, so a 30 s tick does not call the provider
+/// six times a minute.
+pub(super) fn poll_tick() -> Vec<String> {
+    let home = home();
+    crate::providers::claude::admin::poll_due(&policy(), &home.join(".local/state"), std::path::Path::new(crate::providers::claude::admin::KEY_DIR), crate::providers::claude::admin::EVERY, Timestamp::now())
+}
+
+/// A hand-run `--poll` reads whether or not the tick read within ten minutes, and stamps the attempt.
+fn poll_lines() -> Vec<String> {
+    let home = home();
+    crate::providers::claude::admin::poll_due(&policy(), &home.join(".local/state"), std::path::Path::new(crate::providers::claude::admin::KEY_DIR), std::time::Duration::ZERO, Timestamp::now())
+}
+
+fn home() -> std::path::PathBuf {
+    std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default()
 }
 
 fn policy() -> std::path::PathBuf {

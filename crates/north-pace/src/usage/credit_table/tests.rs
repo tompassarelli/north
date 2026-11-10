@@ -3,7 +3,7 @@ use crate::credit::{Balance, Grant, Reading};
 use crate::usage::plain::grid;
 
 fn grant(usd: f64, expires: &str) -> Grant {
-    Grant { usd, expires: expires.to_owned() }
+    Grant { usd, granted: String::new(), expires: expires.to_owned() }
 }
 
 fn entry(name: &str, expires: &str, spent: f64, later: &[Grant]) -> Entry {

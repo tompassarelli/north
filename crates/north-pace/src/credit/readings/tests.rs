@@ -85,6 +85,16 @@ fn a_provider_reading_outranks_a_console_reading_until_a_newer_provider_figure_i
 
     let kept = get(&readings, id).unwrap();
     assert_eq!((kept.usd, kept.source), (120.0, Source::Provider));
+    assert!(
+        !record(&readings, id, &Reading { usd: 130.0, at: AT - 60, source: Source::Provider }).unwrap(),
+        "an older provider reading replaced a newer one"
+    );
+    assert_eq!(get(&readings, id).unwrap().usd, 120.0);
+    assert!(
+        record(&readings, id, &Reading { usd: 110.0, at: AT + 120, source: Source::Provider }).unwrap(),
+        "a newer provider reading did not replace the older one"
+    );
+    assert_eq!(get(&readings, id).unwrap().usd, 110.0);
 }
 
 #[test]

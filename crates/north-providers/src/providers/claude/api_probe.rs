@@ -87,7 +87,7 @@ pub fn probe_at(endpoint: &str, limit: Duration, key: &Path) -> Result<Answer, S
     })
 }
 
-fn curl_config(key: &str) -> Result<String, String> {
+pub(super) fn curl_config(key: &str) -> Result<String, String> {
     if key.is_empty()
         || !key
             .bytes()

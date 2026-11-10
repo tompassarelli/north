@@ -37,6 +37,7 @@ use super::revive;
 const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH, pid:PID@START or usage:ACCOUNT@TIME)";
 const PROBE: Duration = Duration::from_secs(30);
 const API_SPENT: Duration = Duration::from_secs(14);
+const API_READING: Duration = Duration::from_secs(14);
 const ALERT: Duration = Duration::from_secs(30);
 const JOB_STARTED_BEFORE_MS: f64 = 30.0 * 60_000.0;
 
@@ -113,6 +114,7 @@ impl WaitProbes for Probes {
             ProbeJob { name: "probes.settle.waits", own: None, run: Box::new(|fleet| settle_waits(&fleet)) },
             ProbeJob { name: "probes.settle.park_limited", own: None, run: Box::new(|fleet| said(park_limited(&fleet, &UsageTable, now_ms()).iter().map(Parked::line))) },
             ProbeJob { name: "probes.settle.api_spent", own: Some(API_SPENT), run: Box::new(|fleet| said(api_spent(&fleet))) },
+            ProbeJob { name: "probes.settle.api_reading", own: Some(API_READING), run: Box::new(|_| said(super::accounts::poll_tick())) },
             ProbeJob { name: "probes.settle.breaker", own: None, run: Box::new(|fleet| said(super::breaker::watch(&fleet, &tell_tom, now_ms()))) },
             ProbeJob { name: "probes.settle.promises", own: Some(super::promises::RUN * 2), run: Box::new(|fleet| said(super::promises::watch(&fleet, now_ms()))) },
             ProbeJob { name: "probes.settle.spend_trips", own: None, run: Box::new(|fleet| said(super::trips::watch(&fleet, now_ms()))) },

@@ -62,11 +62,12 @@ fn parse(text: &str) -> Option<Reading> {
 }
 
 /// Records `reading` for organization `id` under `dir`; a console reading never replaces a provider reading,
-/// so the provider's figure keeps overriding the estimate once it exists. Whether it wrote.
+/// so the provider's figure keeps overriding the estimate once it exists, and an older reading never
+/// replaces a newer one. Whether it wrote.
 pub fn record(dir: &Path, id: &str, reading: &Reading) -> io::Result<bool> {
-    if get(dir, id).is_some_and(|existing| {
-        existing.source == Source::Provider && reading.source == Source::Console
-    }) {
+    if let Some(existing) = get(dir, id)
+        && (existing.source == Source::Provider && reading.source == Source::Console || reading.at < existing.at)
+    {
         return Ok(false);
     }
     std::fs::create_dir_all(dir)?;

@@ -1,0 +1,66 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-11-07T00:00:00Z",
+      "ending_at": "2026-11-07T01:00:00Z",
+      "results": [
+        {
+          "uncached_input_tokens": 1000000,
+          "cache_creation": { "ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 2000000 },
+          "cache_read_input_tokens": 10000000,
+          "output_tokens": 1000000,
+          "server_tool_use": { "web_search_requests": 0 },
+          "api_key_id": null,
+          "workspace_id": null,
+          "account_id": null,
+          "service_account_id": null,
+          "model": "claude-sonnet-5-5",
+          "service_tier": null,
+          "context_window": null,
+          "inference_geo": null,
+          "speed": null
+        }
+      ]
+    },
+    {
+      "starting_at": "2026-11-10T01:00:00Z",
+      "ending_at": "2026-11-10T02:00:00Z",
+      "results": [
+        {
+          "uncached_input_tokens": 0,
+          "cache_creation": { "ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0 },
+          "cache_read_input_tokens": 0,
+          "output_tokens": 2000000,
+          "server_tool_use": { "web_search_requests": 0 },
+          "api_key_id": null,
+          "workspace_id": null,
+          "account_id": null,
+          "service_account_id": null,
+          "model": "claude-sonnet-5-5",
+          "service_tier": null,
+          "context_window": null,
+          "inference_geo": null,
+          "speed": null
+        },
+        {
+          "uncached_input_tokens": 16,
+          "cache_creation": { "ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0 },
+          "cache_read_input_tokens": 0,
+          "output_tokens": 2,
+          "server_tool_use": { "web_search_requests": 0 },
+          "api_key_id": null,
+          "workspace_id": null,
+          "account_id": null,
+          "service_account_id": null,
+          "model": "claude-haiku-4-5-20251001",
+          "service_tier": null,
+          "context_window": null,
+          "inference_geo": null,
+          "speed": null
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

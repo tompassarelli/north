@@ -11,7 +11,7 @@ use std::path::Path;
 const POLICY: &str = "[accounts.claude.api_orgs.proton]\nid = \"p\"\nkeys = { gex45 = [\"/k/p\"] }\n[accounts.claude.api_orgs.gmail]\nid = \"g\"\nkeys = { gex45 = [\"/k/g\"] }\n";
 
 fn grant(usd: f64, expires: &str) -> Grant {
-    Grant { usd, expires: expires.to_owned() }
+    Grant { usd, granted: String::new(), expires: expires.to_owned() }
 }
 
 #[test]

@@ -1,4 +1,5 @@
 mod accounts;
+pub mod admin;
 pub mod api_probe;
 pub mod api_pool;
 mod limit;

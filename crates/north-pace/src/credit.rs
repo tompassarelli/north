@@ -16,6 +16,8 @@ pub use runs::{Finished, Open, Reading, Snapshot, api_runs, store};
 #[derive(Clone, Debug, PartialEq)]
 pub struct Grant {
     pub usd: f64,
+    /// The UTC day the credit was granted, empty when the file does not say.
+    pub granted: String,
     pub expires: String,
 }
 
@@ -50,7 +52,7 @@ pub fn grants(policy: &Path) -> BTreeMap<String, Vec<Grant>> {
         let Some(id) = org.get("id").and_then(Item::as_str) else { continue };
         let listed = org.get("grants").and_then(Item::as_array).into_iter().flatten().filter_map(Value::as_inline_table);
         let grants = found.entry(id.to_owned()).or_default();
-        grants.extend(listed.filter_map(|grant| Some(Grant { usd: grant.get("usd")?.as_float()?, expires: date(grant.get("expires")?)? })));
+        grants.extend(listed.filter_map(|grant| Some(Grant { usd: grant.get("usd")?.as_float()?, granted: grant.get("granted").and_then(date).unwrap_or_default(), expires: date(grant.get("expires")?)? })));
         grants.sort_by(|a, b| a.expires.cmp(&b.expires));
     }
     found
@@ -75,7 +77,7 @@ fn has_credit(left: f64) -> bool {
 fn remaining(grants: &[Grant], spends: &[(String, f64)]) -> Vec<f64> {
     let mut left: Vec<f64> = grants.iter().map(|grant| grant.usd).collect();
     for (day, usd) in spends {
-        let open: Vec<usize> = (0..grants.len()).filter(|index| grants[*index].expires.as_str() >= day.as_str()).collect();
+        let open: Vec<usize> = (0..grants.len()).filter(|index| grants[*index].granted.as_str() <= day.as_str() && grants[*index].expires.as_str() >= day.as_str()).collect();
         let mut rest = *usd;
         for index in &open {
             let taken = rest.min(left[*index].max(0.0));
@@ -87,6 +89,12 @@ fn remaining(grants: &[Grant], spends: &[(String, f64)]) -> Vec<f64> {
         }
     }
     left
+}
+
+/// Each grant's credit left after charging `spends`' (UTC day, usd) to the soonest-expiring grant granted
+/// on or before that day and unexpired then, the overflow to the next; a day no grant covers is dropped.
+pub fn left_after(grants: &[Grant], spends: &[(String, f64)]) -> Vec<f64> {
+    remaining(grants, spends)
 }
 
 /// The grants unexpired on `today` a launch may draw on, from the soonest one list-price `spends` leave credit on, else the last of them: counted spend only ranks an
