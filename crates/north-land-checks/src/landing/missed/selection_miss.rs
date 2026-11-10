@@ -110,7 +110,7 @@ fn landed(ledger: &Path) -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-fn rev_parse(repo: &Path, revision: &str) -> Option<String> {
+pub(super) fn rev_parse(repo: &Path, revision: &str) -> Option<String> {
     git_lines(repo, &["rev-parse", "--verify", "--quiet", revision]).into_iter().next()
 }
 

@@ -11,12 +11,15 @@ use crate::land::slots::graph_selection::{SELECTED, Selected};
 use crate::land::slots::guard_suites::Suites;
 use crate::platform::records_mirror;
 
+mod base;
+pub use base::classify;
+use selection_miss::rev_parse;
 mod responsible;
 mod selection_miss;
 
 
 const USAGE: &str = "usage: north land missed --since DATE [--until DATE] [--repo DIR]
-lists each failing Cargo run on main created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z), its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
+lists each failing Cargo run on main created at or after DATE and before --until (gh's --created form, such as 2026-11-09T01:00:00Z), its failed tests, and the ones the change graph's after-landing selection for the landing range holding that commit left out, apart from a test that also failed in the run on that commit's parent, which is listed as an environment failure and is no miss; for each failed test it names the lane that turned it red, and when that lane's own selection did not hold the test it records a selection-miss incident and tells the graph (test :guards FILE) for each file the lane changed; exits 1 when one was left out";
 const SETTLED: f64 = 3600.0;
 
 #[derive(Deserialize)]
@@ -104,11 +107,12 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("run {} at {}: its log names no failed test", run.id, short(&run.sha));
             continue;
         }
-        tally.add(after_landing(&repo, &landings, suites.as_ref(), run, &tests));
+        let on_base = rev_parse(&repo, &format!("{}^", run.sha)).and_then(|parent| outcomes.get(&parent)).map(|failed| failed.iter().cloned().collect::<Vec<_>>());
+        tally.add(after_landing(&repo, &landings, suites.as_ref(), run, &tests, on_base.as_deref()));
     }
     let failing_count = failing.len();
     selection_miss::name_lanes(&repo, &runs, failing, &outcomes, &landings, &records.home().join("safe-push/post-land.tsv"));
-    println!("north land missed: {failing_count} failing Cargo runs on main since {}; of {} failed tests in a range with a recorded selection, {} were left out of it; {} failed in a range with none", window.since, tally.judged, tally.missed, tally.unjudged);
+    println!("north land missed: {failing_count} failing Cargo runs on main since {}; of {} failed tests in a range with a recorded selection, {} were left out of it; {} more also fail on their base commit and are environment failures; {} failed in a range with none", window.since, tally.judged, tally.missed, tally.environment, tally.unjudged);
     u8::from(tally.missed > 0)
 }
 
@@ -117,6 +121,7 @@ struct Tally {
     judged: usize,
     missed: usize,
     unjudged: usize,
+    environment: usize,
 }
 
 impl Tally {
@@ -124,6 +129,7 @@ impl Tally {
         self.judged += other.judged;
         self.missed += other.missed;
         self.unjudged += other.unjudged;
+        self.environment += other.environment;
     }
 }
 
@@ -131,24 +137,26 @@ fn failed_tests(repo: &Path, run: u64) -> Vec<String> {
     log(repo, run).map(|text| check_log::failures(&text).into_iter().filter_map(|failure| if let Failure::Cargo(name) = failure { Some(name) } else { None }).collect()).unwrap_or_default()
 }
 
-fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String]) -> Tally {
+fn after_landing(repo: &Path, landings: &[Landing], suites: Option<&Suites>, run: &Run, tests: &[String], on_base: Option<&[String]>) -> Tally {
     let Some(landing) = landings.iter().find(|landing| holds(repo, landing, &run.sha)) else {
         println!("run {} at {}: {} failed tests, and no after-landing run recorded a change-graph selection for a range holding it: {}", run.id, short(&run.sha), tests.len(), tests.join(", "));
         return Tally { unjudged: tests.len(), ..Tally::default() };
     };
     let floor = suites.map(|suites| suites.floor(&changed(repo, &landing.base, &landing.head)));
     let guards = |name: &str| floor.as_ref().is_some_and(|floor| floor.selects(name));
-    let guarded = tests.iter().filter(|name| !landing.selected.holds(name) && guards(name)).count();
-    let left: Vec<&str> = tests.iter().map(String::as_str).filter(|name| !landing.selected.holds(name) && !guards(name)).collect();
-    let detail = if !left.is_empty() {
-        format!("; left out: {}", left.join(", "))
+    let verdict = classify(tests, on_base, |name| landing.selected.holds(name) || guards(name));
+    let guarded = verdict.selected.iter().filter(|name| !landing.selected.holds(name)).count();
+    let mut detail = String::new();
+    if !verdict.left_out.is_empty() {
+        detail.push_str(&format!("; left out: {}", verdict.left_out.join(", ")));
     } else if guarded > 0 {
-        format!("; {guarded} held by the guard suite")
-    } else {
-        String::new()
-    };
-    println!("run {} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.id, short(&run.sha), tests.len(), tests.len() - left.len(), short(&landing.base), short(&landing.head));
-    Tally { judged: tests.len(), missed: left.len(), unjudged: 0 }
+        detail.push_str(&format!("; {guarded} held by the guard suite"));
+    }
+    if !verdict.environment.is_empty() {
+        detail.push_str(&format!("; environment failures that also fail on the base: {}", verdict.environment.join(", ")));
+    }
+    println!("run {} at {}: {} failed tests, {} in the after-landing selection of {}..{}{detail}", run.id, short(&run.sha), tests.len(), verdict.selected.len(), short(&landing.base), short(&landing.head));
+    Tally { judged: verdict.selected.len() + verdict.left_out.len(), missed: verdict.left_out.len(), unjudged: 0, environment: verdict.environment.len() }
 }
 
 fn short(sha: &str) -> &str {
