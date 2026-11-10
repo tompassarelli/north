@@ -87,10 +87,11 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         return Verdict::Skipped;
     }
     let (probes, ran) = run_probes(host, sha, short, machine);
-    let Tallies { failures, broken, faults, unrun } = tallies(&probes, &ran);
+    let tallied = tallies(&probes, &ran);
+    let Tallies { failures, broken, faults, unrun } = &tallied;
     if failures.is_empty() {
         if !faults.is_empty() {
-            return host_fault(host, short, machine, &faults, finish);
+            return host_fault(host, short, machine, faults, finish);
         }
         if unrun.is_empty() {
             finish(Canary::Passed, &format!("all {} core-loop probes exited 0", probes.len()));
@@ -103,12 +104,8 @@ pub(super) fn check(layout: &Layout, host: &str, sha: &str, machine: &impl Machi
         return Verdict::Unrun(why);
     }
     let failure = format!("{} on {host} for runtime {short}", failures.join("; "));
-    if let Some(baseline) = baseline::of(layout, host, sha, &broken, machine).filter(|baseline| !baseline.beats(&broken)) {
-        let kept = layout::short(&baseline.sha);
-        finish(Canary::Kept, &format!("{failure}; {kept}, the runtime it would roll back to, fails there too, so it stays live{}", faults.iter().chain(&unrun).map(|why| format!("; {why}")).collect::<String>()));
-        println!("north runtime canary: {host}: {short} stays live: {kept}, the runtime it would roll back to, fails the same probes no later");
-        machine.page(&baseline::shared_key(host, &broken), &format!("north runtime canary: {failure}; {kept}, the runtime it would roll back to, fails there too, so {host} keeps {short} live"));
-        return Verdict::Kept;
+    if let Some(baseline) = baseline::of(layout, host, sha, broken, machine).filter(|baseline| !baseline.beats(broken)) {
+        return stays_live(host, short, &baseline.sha, &failure, &tallied, machine, finish);
     }
     match machine.roll_back(sha) {
         Rollback::To(previous) => {
@@ -151,6 +148,14 @@ fn tallies(probes: &[Probe], ran: &[Ran]) -> Tallies {
         }
     }
     tallies
+}
+
+fn stays_live(host: &str, short: &str, baseline: &str, failure: &str, tallied: &Tallies, machine: &impl Machine, finish: impl Fn(Canary, &str)) -> Verdict {
+    let kept = layout::short(baseline);
+    finish(Canary::Kept, &format!("{failure}; {kept}, the runtime it would roll back to, fails there too, so it stays live{}", tallied.faults.iter().chain(&tallied.unrun).map(|why| format!("; {why}")).collect::<String>()));
+    println!("north runtime canary: {host}: {short} stays live: {kept}, the runtime it would roll back to, fails the same probes no later");
+    machine.page(&baseline::shared_key(host, &tallied.broken), &format!("north runtime canary: {failure}; {kept}, the runtime it would roll back to, fails there too, so {host} keeps {short} live"));
+    Verdict::Kept
 }
 
 fn host_fault(host: &str, short: &str, machine: &impl Machine, faults: &[String], finish: impl Fn(Canary, &str)) -> Verdict {
