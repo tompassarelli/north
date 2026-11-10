@@ -360,10 +360,29 @@ fn a_box_whose_check_names_a_retired_verb_is_held() {
     let path = "arms are read in crates/north-climb/src/arms.rs";
     let body = format!("- [ ] {live}\n- [ ] {verb}\n- [ ] {path}");
     let mut survey = survey(vec![issue("north", 872, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
-    survey.mainline = super::retired::Mainline { verbs: Some(north_cli_reference::Verbs::parse(reference)), gone: BTreeMap::from([("north".to_owned(), BTreeSet::from(["crates/north-climb/src/arms.rs".to_owned()]))]) };
+    let history = "-  ops climb run --dry-run [--since 7d]  Print the loss\n";
+    survey.mainline = super::retired::Mainline { verbs: Some(north_cli_reference::Verbs::parse(reference)), removed: Some(north_cli_reference::Verbs::removed_in(history)), gone: BTreeMap::from([("north".to_owned(), BTreeSet::from(["crates/north-climb/src/arms.rs".to_owned()]))]) };
     let outcome = decide(&survey, "test");
     let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
     assert_eq!(boxes, [live], "only the box whose check main still has launches");
     let held: Vec<&String> = outcome.skipped.iter().map(|(_, why)| why).collect();
     assert!(held.len() == 2 && held[0].contains("check retired: north ops climb") && held[1].contains("check retired: crates/north-climb/src/arms.rs"), "{held:?}");
+}
+
+/// On 2026-11-11 at 6:06 AM +07 nexus held 17 ready boxes as `check retired` because their checks name `north concerns` and `north project`, verbs those boxes exist to add, which the reference never listed.
+#[test]
+fn a_box_whose_check_names_a_verb_main_never_had_is_placed_and_one_a_landed_commit_removed_is_held() {
+    let (_, accounts) = fleet();
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    let reference = "Commands:\n  fleet dispatch [--dry-run]  Place\n";
+    let history = "--- a/src/cli/reference.txt\n+++ b/src/cli/reference.txt\n-  scoreboard [--record]  Print the numbers\n";
+    let adds = "the verb prints a table when `north concerns list` runs";
+    let removed = "the numbers print when `north scoreboard --record` runs";
+    let body = format!("- [ ] {adds}\n- [ ] {removed}");
+    let mut survey = survey(vec![issue("north", 709, &body, &[])], Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    survey.mainline = super::retired::Mainline { verbs: Some(north_cli_reference::Verbs::parse(reference)), removed: Some(north_cli_reference::Verbs::removed_in(history)), gone: BTreeMap::new() };
+    let outcome = decide(&survey, "test");
+    let boxes: Vec<String> = outcome.launches.iter().filter_map(|launch| super::facets::declared_in(&launch.brief, "Box").map(str::to_owned)).collect();
+    assert_eq!(boxes, [adds], "{:?}", outcome.skipped);
+    assert!(outcome.skipped.iter().any(|(_, why)| why.contains("check retired: north scoreboard")), "{:?}", outcome.skipped);
 }

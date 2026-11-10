@@ -32,6 +32,11 @@ impl Verbs {
         Self(verbs)
     }
 
+    /// The verbs the command lines a reference's history removed listed, read from `git log -p` of the reference file: a line the diff drops is a command some landed commit took out or reworded.
+    pub fn removed_in(history: &str) -> Self {
+        Self::parse(&history.lines().filter_map(|line| line.strip_prefix('-')).filter(|line| !line.starts_with("--")).collect::<Vec<_>>().join("\n"))
+    }
+
     /// The call `north VERB [SUB]` as this reference lacks it, or `None` when the reference lists it.
     pub fn lacks(&self, call: &Call) -> Option<String> {
         match (self.0.get(&call.verb), call.sub.as_deref()) {

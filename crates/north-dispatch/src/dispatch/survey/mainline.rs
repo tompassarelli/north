@@ -47,15 +47,19 @@ fn gone(repo: &str, issues: &[&Issue], at: f64, notes: &mut Vec<String>) -> BTre
         .collect()
 }
 
-/// What origin/main no longer has that the open boxes name: the verbs its CLI reference lists and the paths it deleted.
+/// What origin/main no longer has that the open boxes name: the verbs its CLI reference lists, those its history removed from the reference, and the paths it deleted.
 pub(super) fn read(issues: &[Issue], at: f64, notes: &mut Vec<String>) -> Mainline {
     let reference = checkout("north").and_then(|checkout| git(&checkout, &["show", &format!("origin/main:{}", north_cli_reference::REFERENCE)]));
     if reference.is_none() {
         notes.push("north's CLI reference on origin/main is unread, so a box naming a retired verb is not held".into());
     }
+    let removed = reference.as_ref().and_then(|_| checkout("north")).and_then(|checkout| git(&checkout, &["log", "origin/main", "--format=", "-p", "-U0", "--", north_cli_reference::REFERENCE]));
+    if reference.is_some() && removed.is_none() {
+        notes.push("north's CLI reference history on origin/main is unread, so a box naming a retired verb is not held".into());
+    }
     let mut by_repo: BTreeMap<&str, Vec<&Issue>> = BTreeMap::new();
     for issue in issues {
         by_repo.entry(issue.repo.as_str()).or_default().push(issue);
     }
-    Mainline { verbs: reference.as_deref().map(Verbs::parse), gone: by_repo.into_iter().map(|(repo, issues)| (repo.to_owned(), gone(repo, &issues, at, notes))).collect() }
+    Mainline { verbs: reference.as_deref().map(Verbs::parse), removed: removed.as_deref().map(Verbs::removed_in), gone: by_repo.into_iter().map(|(repo, issues)| (repo.to_owned(), gone(repo, &issues, at, notes))).collect() }
 }

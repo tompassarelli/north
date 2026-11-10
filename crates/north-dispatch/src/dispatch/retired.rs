@@ -1,14 +1,16 @@
-//! What a box's check names that main no longer has: a `north` verb the CLI reference does not list
-//! and a source path a landed commit deleted, which a worker would spend its first turns discovering.
+//! What a box's check names that main no longer has: a `north` verb a landed commit took out of the CLI reference
+//! and a source path a landed commit deleted, which a worker would spend its first turns discovering. A verb the
+//! reference never listed is one the box may exist to add, so it places the box.
 use super::hotspots;
 use super::issues::{Issue, IssueRef};
 use north_cli_reference::Verbs;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The checks of origin/main, read once per run: its CLI reference and, per repository, the paths a landed commit deleted that its tree lacks.
+/// The checks of origin/main, read once per run: its CLI reference, the commands its history removed from that reference and, per repository, the paths a landed commit deleted that its tree lacks.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Mainline {
     pub verbs: Option<Verbs>,
+    pub removed: Option<Verbs>,
     pub gone: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -29,7 +31,7 @@ impl Mainline {
 
     /// What the box `text` of an issue in `repo` names that main no longer has, for the hold's reason.
     fn retired(&self, repo: &str, text: &str) -> Option<String> {
-        let verb = self.verbs.as_ref().and_then(|verbs| north_cli_reference::calls(text).iter().find_map(|call| verbs.lacks(call)));
+        let verb = self.verbs.as_ref().zip(self.removed.as_ref()).and_then(|(verbs, removed)| north_cli_reference::calls(text).iter().find_map(|call| verbs.lacks(call).filter(|_| removed.lacks(call).is_none())));
         verb.or_else(|| hotspots::named(text).into_iter().find(|path| self.gone.get(repo).is_some_and(|gone| gone.contains(path))))
     }
 }
