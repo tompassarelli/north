@@ -163,22 +163,26 @@ pub fn rejudge(policy: &Path, home: &Path, state_root: &Path, here: &str, probe:
             continue;
         };
         match probe(key) {
-            Ok(()) => match marks::clear(&marks, &id, Timestamp::now().unix_seconds()) {
-                Ok(true) => lines.push(format!("api:{} exhausted mark cleared: a one-token probe passed (it kept {})", org.name, mark.lines().next().unwrap_or(""))),
-                Ok(false) => {}
-                Err(error) => lines.push(format!("api:{} exhausted mark was not cleared: {error}", org.name)),
-            },
-            Err(body) => {
-                let refreshed = marks::refresh(&marks, &id, &body);
-                let now = match refreshed {
-                    Ok(true) => " (its mark now keeps this body)",
-                    _ => "",
-                };
-                lines.push(format!("api:{} keeps its exhausted mark{now}: the probe refused with {}", org.name, body.trim().replace(['\r', '\n'], " ")));
-            }
+            Ok(()) => lines.extend(cleared_line(&marks, &id, &org.name, &mark)),
+            Err(body) => lines.push(kept_line(&marks, &id, &org.name, &body)),
         }
     }
     lines
+}
+
+/// The line a passing probe leaves for organization `name` whose mark `mark` it cleared, or none when the mark was already gone.
+fn cleared_line(marks: &Path, id: &str, name: &str, mark: &str) -> Option<String> {
+    match marks::clear(marks, id, Timestamp::now().unix_seconds()) {
+        Ok(true) => Some(format!("api:{name} exhausted mark cleared: a one-token probe passed (it kept {})", mark.lines().next().unwrap_or(""))),
+        Ok(false) => None,
+        Err(error) => Some(format!("api:{name} exhausted mark was not cleared: {error}")),
+    }
+}
+
+/// The line a refusing probe leaves for organization `name`, whose mark now keeps the provider's `body` when that body names low credit.
+fn kept_line(marks: &Path, id: &str, name: &str, body: &str) -> String {
+    let now = if marks::refresh(marks, id, body).unwrap_or(false) { " (its mark now keeps this body)" } else { "" };
+    format!("api:{name} keeps its exhausted mark{now}: the probe refused with {}", body.trim().replace(['\r', '\n'], " "))
 }
 
 /// The transcript of `conversation` in the host stream at `stream` from byte `since` on: the turns a session ran on the account it moved onto there.
