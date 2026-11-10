@@ -585,3 +585,13 @@ Rejected or changed:
   features entry, because the features-index check requires it in the same landing.
 - Committing the measured transcript as P2's fixture: it holds Tom's messages and north is public, so
   P2 commits a synthetic truth table and reproduces section 1 on the laptop.
+
+## 7. Break glass
+
+The proxy's look budgets exist so that an investigation goes to a worker. They cannot bind when no
+worker can start, so `north fleet break-glass --issue REPO#N REASON...` lifts them for at most 30 minutes
+(`break_glass_minutes`), and only when the harness measures the stall itself: the last two launches
+failed, or the launch probe exits non-zero. A proxy that merely wants to read more is refused. The grant
+is recorded with who, why and when, opens a box on the issue that tracks the cause, and is printed in
+Tom's next `north gate digest`, so the lift is never silent and never outlasts the stall.
+**Enforced by** `crates/north-guard/src/guard/break_glass.rs`.

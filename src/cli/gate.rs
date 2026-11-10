@@ -12,6 +12,7 @@ use crate::fleet::store::GateRow;
 use crate::dispatch::{IssueRef, OWNER, product_boxes};
 use crate::github_mirror::store::{Mirror, OPEN_ISSUES, key};
 use crate::platform::attribution::{self, Cause};
+use north_guard::guard::break_glass;
 
 const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N [--default N --default-after DURATION (30s, 10m, 4h, 1d)] [--issue OWNER/REPO#N [--box TEXT]] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate answer ID N --relayed-from-turn CONVO_ID | north gate list [--json] | north gate digest [--peek]";
 const BOX_HELP: &str = "--box TEXT scopes the --issue hold to the one box whose `Item:` line carries TEXT, so launches for the issue's other boxes go ahead; an issue with more than one open box needs --box, and one with a single open box is held whole.";
@@ -149,6 +150,7 @@ fn digest(fleet: &Fleet, mark: bool) -> NorthResult<()> {
     let since = seen.as_ref().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| text.trim().parse().ok()).unwrap_or_else(|| now_ms().saturating_sub(FIRST_LOOK_MS));
     let now = now_ms();
     print!("{}", decision_queue::digest(&fleet.digest(since)?.gates, since, now));
+    print!("{}", break_glass::digest_section(&break_glass::recorded(), since, now));
     if let Some(path) = seen.filter(|_| mark) {
         let _ = path.parent().map(std::fs::create_dir_all);
         std::fs::write(&path, now.to_string()).map_err(|why| NorthError::State(format!("cannot record the digest look in {}: {why}", path.display())))?;

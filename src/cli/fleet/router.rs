@@ -25,6 +25,7 @@ use super::usage_ingest::IngestUsage;
 use super::accounts;
 use super::adopt;
 use super::ask;
+use super::break_glass;
 use super::drain;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
@@ -113,6 +114,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     match words.as_slice() {
         [] => tui::fleet::run(fleet, crate::cli::dash::for_fleet, crate::cli::glance::lines),
         ["need", rest @ ..] => need::run(rest),
+        ["break-glass", rest @ ..] => break_glass::run(rest),
         ["drain", rest @ ..] => drain::run(rest),
         [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["hold", rest @ ..] => claims::hold(&fleet, rest),

@@ -1708,6 +1708,14 @@ source = "measured: `north config proxy calls` on the laptop proxy's 2026-11-08 
 fallback = "none"
 consumers = ["crates/north-guard/src/guard/proxy_role.rs"]
 
+[break_glass_minutes]
+value = 30
+allowed = { min = 1, max = 30 }
+unit = "minutes one `north fleet break-glass` lifts the proxy's look budgets, granted only while the harness measures that workers cannot start (the last two launches failed, or the launch probe exits non-zero)"
+source = "north#1106, 2026-11-11: Tom asked for a break-glass path beside the proxy-role table, bounded to 30 minutes so a lifted budget cannot outlast the stall that justified it"
+fallback = "none"
+consumers = ["crates/north-guard/src/guard/break_glass.rs"]
+
 [graph_retired_writers]
 value = ["decision-log"]
 allowed = { min_len = 0 }

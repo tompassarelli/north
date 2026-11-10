@@ -351,7 +351,7 @@ fn wrapped(words: &[&str]) -> bool {
 }
 
 pub fn evaluate_streak(input: &HookInput) -> Verdict {
-    if crate::guard::activation::authoring_guards_off("north-hook") || !is_proxy(&Live, input) {
+    if crate::guard::activation::authoring_guards_off("north-hook") || !is_proxy(&Live, input) || crate::guard::break_glass::lifted_now() {
         return Verdict::Allow;
     }
     let Some(transcript) = input.data["transcript_path"].as_str().and_then(transcript_tail) else { return Verdict::Allow };

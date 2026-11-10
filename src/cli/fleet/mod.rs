@@ -5,6 +5,7 @@ mod accounts;
 mod api_spend;
 mod adopt;
 mod breaker;
+mod break_glass;
 mod claims;
 mod claude_only;
 mod desktop;
