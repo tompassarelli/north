@@ -1,6 +1,6 @@
 use crate::platform::process;
 pub use north_base::foundation::check_log::{Failure, failures, log_text};
-use north_base::foundation::exit::RED_MAIN;
+use north_base::foundation::exit::{NO_VERDICT, RED_MAIN};
 use crate::platform::rolling_issue::{self, Tracker, section_box, settle};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -254,6 +254,10 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let request = Request { main, log: PathBuf::from(log), lane: flag(arguments, "--lane").unwrap_or_default() };
+    if let Some(line) = fs::read_to_string(&request.log).ok().and_then(|text| north_base::foundation::check_log::ref_lock(&text)) {
+        println!("red check: environment: git could not lock a ref ({line}); not this lane's failure");
+        return NO_VERDICT;
+    }
     let failed = failures(&fs::read_to_string(&request.log).unwrap_or_default());
     if failed.is_empty() {
         println!("red check: the failed log names no test; treating it as this lane's failure");

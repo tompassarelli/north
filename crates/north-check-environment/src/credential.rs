@@ -11,7 +11,8 @@ pub fn refusal(log: &str) -> Option<String> {
     log.lines().find(refused).map(|line| line.trim().chars().take(200).collect())
 }
 
-/// The verdict that reverts nothing when the log at `log` shows such a refusal, None when it is unreadable or shows none.
+/// The verdict that reverts nothing when the log at `log` shows such a refusal or a ref-lock failure, None when it is unreadable or shows none.
 pub fn incident(log: &Path) -> Option<String> {
-    refusal(&fs::read_to_string(log).ok()?).map(|line| format!("infrastructure incident, not a lane's failure ({line}); nothing is reverted"))
+    let text = fs::read_to_string(log).ok()?;
+    refusal(&text).or_else(|| north_base::foundation::check_log::ref_lock(&text)).map(|line| format!("infrastructure incident, not a lane's failure ({line}); nothing is reverted"))
 }

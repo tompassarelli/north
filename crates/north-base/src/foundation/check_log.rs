@@ -79,3 +79,8 @@ pub fn failures(log: &str) -> BTreeSet<Failure> {
     }
     found
 }
+
+/// The first line of `log` where git could not lock a ref, as two fetches racing on one checkout leave (north#902).
+pub fn ref_lock(log: &str) -> Option<String> {
+    log.lines().find(|line| line.contains("cannot lock ref")).map(|line| line.trim().chars().take(200).collect())
+}
