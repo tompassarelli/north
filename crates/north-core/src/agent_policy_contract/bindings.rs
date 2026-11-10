@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::ordered_json::Json;
 use super::wiring::{
-    EVENT_ORDER, PROVIDERS, bindings, codex_adapters, guards, nix_adapters, render_claude,
+    EVENT_ORDER, HOOKLESS_PROVIDERS, PROVIDERS, SHARED_LAYERS, bindings, codex_adapters, guards, nix_adapters, render_claude,
     render_codex, text,
 };
 use super::{Contract, Locations, UNIT, py_list, py_repr};
@@ -55,6 +55,27 @@ fn check_absent_reasons(contract: &mut Contract, guard: &Value, unit: &str) {
     }
 }
 
+fn check_shared_layers(contract: &mut Contract, guard: &Value, unit: &str) {
+    for provider in HOOKLESS_PROVIDERS {
+        let layers = bindings(guard, &format!("{provider}_layer"));
+        let absent = !text(guard, &format!("{provider}_absent")).is_empty();
+        if layers.is_empty() != absent {
+            contract.reject(format!(
+                "{unit}: {provider} has no hook, so name the shared layer that enforces it in {provider}_layer or give {provider}_absent a reason, not both"
+            ));
+        }
+        for layer in layers {
+            if !SHARED_LAYERS.contains(&layer) {
+                contract.reject(format!(
+                    "{unit}: unknown {provider}_layer {}; shared layers are {}",
+                    py_repr(layer),
+                    py_list(SHARED_LAYERS.into_iter())
+                ));
+            }
+        }
+    }
+}
+
 fn check_north_hook(contract: &mut Contract, guard: &Value, registration: Option<&Value>) {
     let unit = text(guard, "unit");
     if text(guard, "north_hook").is_empty() {
@@ -71,6 +92,7 @@ fn check_north_hook(contract: &mut Contract, guard: &Value, registration: Option
     }
     check_events(contract, guard, unit);
     check_absent_reasons(contract, guard, unit);
+    check_shared_layers(contract, guard, unit);
 }
 
 fn read(path: &Path, what: &str) -> Result<String, String> {
@@ -145,4 +167,29 @@ pub(super) fn check(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refusals(guard: &Value) -> Vec<String> {
+        let mut contract = Contract::default();
+        check_shared_layers(&mut contract, guard, text(guard, "unit"));
+        contract.errors
+    }
+
+    #[test]
+    fn a_guard_unit_lacking_an_opencode_entry_is_refused_since_opencode_runs_no_hook() {
+        let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/../../harness/policy-owners.toml");
+        let mut policy = crate::platform::toml_json::parse(&std::fs::read_to_string(manifest).unwrap()).unwrap();
+        for guard in guards(&policy) {
+            assert_eq!(refusals(guard), Vec::<String>::new());
+        }
+        let guard = &mut policy["guard"][0];
+        guard.as_object_mut().unwrap().remove("opencode_layer");
+        let refused = refusals(guard);
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert!(refused[0].contains("opencode_layer"), "{refused:?}");
+    }
 }
