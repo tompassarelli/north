@@ -47,11 +47,21 @@ pub struct Screen {
     pub work: Result<board::Work, String>,
 }
 
+/// The live infra total the money line prints, from `north infra`'s read model; a read with no priced
+/// resource says why instead of printing an empty amount.
+fn infra_total() -> Result<String, String> {
+    let infra = crate::cli::views::infra::read()?;
+    if !infra.report.totals.is_empty() {
+        return Ok(infra.report.total_line());
+    }
+    Err(infra.unread.into_iter().next().unwrap_or_else(|| "no priced resource".to_owned()))
+}
+
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["audit", ..] | ["losses", ..] | ["--weekly"] | ["--record"] | ["--frontier"] | ["--rework", ..] => return scoreboard::run(arguments),
-        ["--bars", rest @ ..] => return scoreboard::run(&rest.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>()),
+        ["audit", ..] | ["losses", ..] | ["--weekly"] | ["--record"] | ["--frontier"] | ["--rework", ..] => return scoreboard::run(arguments, infra_total),
+        ["--bars", rest @ ..] => return scoreboard::run(&rest.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>(), infra_total),
         ["--closed", "--since", window] | ["--since", window, "--closed"] => return closed(window),
         _ => {}
     }

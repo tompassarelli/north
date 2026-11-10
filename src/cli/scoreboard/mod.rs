@@ -137,16 +137,6 @@ impl Figure {
     }
 }
 
-/// The live infra total the money line prints, from `north infra`'s read model; a read with no priced
-/// resource says why instead of printing an empty amount.
-fn infra_total() -> Result<String, String> {
-    let infra = crate::cli::views::infra::read()?;
-    if !infra.report.totals.is_empty() {
-        return Ok(infra.report.total_line());
-    }
-    Err(infra.unread.into_iter().next().unwrap_or_else(|| "no priced resource".to_owned()))
-}
-
 pub(super) fn render(report: &Weekly, infra: Result<String, String>, now: i64) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "north dash --weekly: last 7 days | the 7 days before, ending {} today", Timestamp::from_unix_seconds(now).local_twelve_hour());
@@ -259,7 +249,8 @@ fn ready_table(flags: &[String]) -> u8 {
     }
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+/// `infra_total` reads the live infra total the money line prints, so the caller owns the read model and this module imports no view.
+pub fn run(arguments: &[String], infra_total: fn() -> Result<String, String>) -> u8 {
     let recording = match arguments {
         [word, rest @ ..] if word == "audit" => return audit::run(rest),
         [word, rest @ ..] if word == "losses" => return losses::run(rest),
