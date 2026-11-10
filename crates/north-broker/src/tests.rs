@@ -10,7 +10,7 @@ use north_base::platform::broker_client::Client;
 use north_base::platform::broker_wire::Request;
 use serde_json::{Value, json};
 
-use crate::credentials::Source;
+use crate::credentials::{GITHUB_USER_FILE, Source};
 use crate::github::Minter;
 use crate::policy::Policy;
 use crate::proxy::providers;
@@ -18,6 +18,7 @@ use crate::server::{Broker, Peer};
 
 const NOW: i64 = 1_800_000_000;
 const REAL_TOKEN: &str = "dop_real_secret";
+const USER_TOKEN: &str = "ghp_owner_secret";
 const POLICY: &str = r#"
 [[caller]]
 uid = 1001
@@ -26,6 +27,7 @@ repositories = ["north", "south"]
 permissions = { contents = "write", issues = "write" }
 [caller.proxy]
 digitalocean = ["GET /v2/droplets", "GET /v2/echo", "POST /v2/droplets/*/actions", "POST /v2/body"]
+github-user = ["POST /user/repos"]
 "#;
 
 type Seen = Arc<Mutex<Vec<(String, Vec<(String, String)>, String)>>>;
@@ -83,6 +85,7 @@ fn credentials() -> (tempfile::TempDir, Source) {
     let pem = std::fs::read_to_string(&key).unwrap();
     std::fs::write(directory.path().join("github-app.yaml"), json!({ "app_id": 123, "installation_id": 42, "private_key": pem }).to_string()).unwrap();
     std::fs::write(directory.path().join("digitalocean.yaml"), json!({ "token": REAL_TOKEN }).to_string()).unwrap();
+    std::fs::write(directory.path().join(GITHUB_USER_FILE), json!({ "token": USER_TOKEN }).to_string()).unwrap();
     let source = Source::Directory(directory.path().to_path_buf());
     (directory, source)
 }
@@ -200,4 +203,46 @@ fn a_lane_only_session_gets_no_github_token_and_no_cloud_call() {
     };
     assert_eq!(ask("/github/token", &[]), 403);
     assert_eq!(ask("/digitalocean/v2/customers/my/balance", &[("Authorization", "Bearer placeholder")]), 403);
+}
+
+#[test]
+fn create_repository_is_always_private() {
+    let (upstream, seen) = fake_upstream(|_, request| (201, json!({ "echo": request })));
+    let (_keep, broker) = broker("http://127.0.0.1:9", &upstream, 1001);
+    let headers = [("Authorization", "Bearer placeholder")];
+    let create = |body: &Value| call(&broker, 1001, "POST", "/github-user/user/repos", &headers, body);
+
+    let private = json!({ "name": "north-new", "private": true });
+    assert_eq!(create(&private).0, 201);
+    {
+        let sent = seen.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0, "/user/repos");
+        assert_eq!(sent[0].2, private.to_string());
+        let authorization = sent[0].1.iter().find(|(name, _)| name.eq_ignore_ascii_case("authorization")).unwrap();
+        assert_eq!(authorization.1, format!("Bearer {USER_TOKEN}"));
+    }
+
+    for refused in [
+        json!({ "name": "north-new" }),
+        json!({ "name": "north-new", "private": false }),
+        json!({ "name": "north-new", "private": "true" }),
+        json!({ "name": "north-new", "private": true, "visibility": "public" }),
+        json!({ "name": "north-new", "private": true, "visibility": "internal" }),
+        json!({ "name": "north-new", "private": true, "auto_init": true }),
+        json!({ "name": "../north", "private": true }),
+        json!({ "name": "a/b", "private": true }),
+        json!({ "name": "..", "private": true }),
+        json!({ "private": true }),
+        json!(["north-new"]),
+    ] {
+        let (status, answer) = create(&refused);
+        assert_eq!(status, 403, "{refused} was not refused: {answer}");
+    }
+    assert_eq!(seen.lock().unwrap().len(), 1, "a refused creation reached GitHub");
+
+    for (method, target) in [("GET", "/github-user/user"), ("POST", "/github-user/user/repos?x=1"), ("DELETE", "/github-user/repos/tom/north"), ("POST", "/github-user/orgs/acme/repos")] {
+        assert_eq!(call(&broker, 1001, method, target, &headers, &private).0, 403, "{method} {target} was not refused");
+    }
+    assert_eq!(seen.lock().unwrap().len(), 1, "a call other than POST /user/repos reached GitHub");
 }

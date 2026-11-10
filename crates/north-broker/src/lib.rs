@@ -4,6 +4,7 @@ mod curl;
 mod github;
 mod policy;
 mod proxy;
+mod repository;
 mod retire;
 mod server;
 

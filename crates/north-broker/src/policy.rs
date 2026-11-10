@@ -101,7 +101,7 @@ fn rank(level: &str) -> usize {
     LEVELS.iter().position(|known| *known == level).unwrap_or(usize::MAX)
 }
 
-fn name_ok(name: &str) -> bool {
+pub fn name_ok(name: &str) -> bool {
     !name.is_empty() && name.len() <= 100 && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 

@@ -1,6 +1,6 @@
 [[module]]
 name = "broker"
 paths = ["crates/north-broker/src/**"]
-responsibility = "The credential broker: a per-uid policy ceiling, scoped GitHub App installation tokens and allowlisted cloud calls forwarded with the credential swapped in."
+responsibility = "The credential broker: a per-uid policy ceiling, scoped GitHub App installation tokens, allowlisted cloud calls forwarded with the credential swapped in, and the owner's private repository creation."
 may_use = ["foundation", "platform", "platform.process", "runtime_follow"]
 

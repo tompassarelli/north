@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use north_base::platform::broker_wire::{Request, Response, header};
 
-use crate::credentials::{CLOUDFLARE_FILE, DIGITALOCEAN_FILE, HETZNER_FILE, Source};
+use crate::credentials::{CLOUDFLARE_FILE, DIGITALOCEAN_FILE, GITHUB_USER_FILE, HETZNER_FILE, Source};
 use crate::curl;
 use crate::policy::Rules;
+use crate::repository;
 
 const FORWARD_LIMIT: Duration = Duration::from_secs(60);
 const REQUEST_HEADERS: [&str; 5] = ["accept", "content-type", "if-none-match", "user-agent", "x-auth-email"];
@@ -23,14 +24,31 @@ pub struct Provider {
     file: &'static str,
     field: &'static str,
     auth: Auth,
+    body: Body,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Body {
+    Any,
+    PrivateRepository,
+}
+
+impl Body {
+    fn check(self, body: &[u8]) -> Result<(), String> {
+        match self {
+            Self::Any => Ok(()),
+            Self::PrivateRepository => repository::private_repository(body),
+        }
+    }
 }
 
 pub fn providers() -> Vec<Provider> {
-    let make = |name, upstream: &str, file, field, auth| Provider { name, upstream: upstream.to_owned(), file, field, auth };
+    let make = |name, upstream: &str, file, field, auth, body| Provider { name, upstream: upstream.to_owned(), file, field, auth, body };
     vec![
-        make("digitalocean", "https://api.digitalocean.com", DIGITALOCEAN_FILE, "token", Auth::Bearer),
-        make("hcloud", "https://api.hetzner.cloud", HETZNER_FILE, "hcloud_token", Auth::Bearer),
-        make("cloudflare", "https://api.cloudflare.com", CLOUDFLARE_FILE, "cloudflare-global-api-key", Auth::KeyHeader("X-Auth-Key")),
+        make("digitalocean", "https://api.digitalocean.com", DIGITALOCEAN_FILE, "token", Auth::Bearer, Body::Any),
+        make("hcloud", "https://api.hetzner.cloud", HETZNER_FILE, "hcloud_token", Auth::Bearer, Body::Any),
+        make("cloudflare", "https://api.cloudflare.com", CLOUDFLARE_FILE, "cloudflare-global-api-key", Auth::KeyHeader("X-Auth-Key"), Body::Any),
+        make("github-user", "https://api.github.com", GITHUB_USER_FILE, "token", Auth::Bearer, Body::PrivateRepository),
     ]
 }
 
@@ -46,6 +64,9 @@ impl Provider {
         let upstream_path = format!("/{path}");
         if !rules.allows(&request.method, &upstream_path, query) {
             return Response::refusal(403, &format!("{} {upstream_path}{} is outside the {} allowlist", request.method, if query.is_empty() { String::new() } else { format!("?{query}") }, self.name));
+        }
+        if let Err(why) = self.body.check(&request.body) {
+            return Response::refusal(403, &why);
         }
         if let Some((name, _)) = request.headers.iter().find(|(name, value)| has_control(name) || has_control(value)) {
             return Response::refusal(400, &format!("header {name:?} holds a control character"));
