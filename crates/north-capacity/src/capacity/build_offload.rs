@@ -164,6 +164,11 @@ pub fn wants_offload(candidate: &Candidate) -> bool {
     }
 }
 
+/// Whether a run goes to the build hosts before this host's own admission decides on it: a fleet session's run on a host that is not itself a build host, so it takes the build host with the most free room and this host builds it only once every build host is full or out of reach. A build host decides on its own sessions' runs first, as does any host on a run from outside a fleet session.
+pub fn offers_first(agent: bool, build_host: bool) -> bool {
+    agent && !build_host
+}
+
 /// Whether a build started in this environment came from a fleet session that has no local need, is not a landing and did not already reach a build host: the compiles that session starts belong on a build host, wherever its own host would admit them.
 pub fn is_agent_build(env: impl Fn(&str) -> Option<String>) -> bool {
     let set = |name: &str| env(name).is_some_and(|value| !value.is_empty());

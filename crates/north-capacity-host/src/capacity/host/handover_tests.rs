@@ -121,6 +121,7 @@ fn host() -> Host {
         build_offload: never_pushed,
         hand_over: relaying_hand_over,
         lease_builds: || true,
+        build_host: || false,
         own_build_refusal: || None,
         reclaim_disk: || None,
         tend_disk: || {},

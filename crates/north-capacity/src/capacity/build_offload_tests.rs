@@ -101,3 +101,23 @@ fn capacity_a_build_that_writes_the_callers_artifact_is_not_offloaded_and_does_n
     let none = || vec![("laptop".to_owned(), Room::Unreachable)];
     assert!(matches!(route(&build, none), Route::Declined(declined) if declined.lacks_host() && declined.reason() == "unreachable"), "with no host in reach the build reports the lack as any other");
 }
+
+#[test]
+fn capacity_a_fleet_session_build_on_the_saturated_laptop_goes_to_the_build_host_with_the_most_free_room() {
+    let room = |limit: f64, committed: f64| {
+        let status = serde_json::json!({ "profile": "unattended", "aggregateCpuLimit": limit, "committedBatchCpus": committed, "cpuSomeAvg10": 0.0 });
+        let admission = Admission::from_status(&status).expect("a host status");
+        admission.shortfall(6.0, 0.0).map_or(Room::Free { free_cpus: admission.free_cpus() }, Room::Short)
+    };
+    let (laptop_is_a_build_host, gex45_is_a_build_host) = (false, true);
+    assert!(offers_first(true, laptop_is_a_build_host), "the laptop at load 22 of 24 offers its fleet sessions' builds to the build hosts before its own admission decides");
+    assert!(!offers_first(true, gex45_is_a_build_host), "a build host decides on its own sessions' builds first");
+    assert!(!offers_first(false, laptop_is_a_build_host), "a build outside a fleet session stays on the laptop");
+    let build = candidate("heavy", true, false);
+    let measured = || vec![("gex45".to_owned(), room(20.0, 6.3)), ("cpx62".to_owned(), room(16.0, 0.8))];
+    assert_eq!(route(&build, measured), Route::Offload { host: "cpx62".to_owned() });
+    let busy_cpx62 = || vec![("gex45".to_owned(), room(20.0, 6.3)), ("cpx62".to_owned(), room(16.0, 12.0))];
+    assert_eq!(route(&build, busy_cpx62), Route::Offload { host: "gex45".to_owned() });
+    let full = || vec![("gex45".to_owned(), room(20.0, 18.0)), ("cpx62".to_owned(), Room::Unreachable)];
+    assert!(matches!(route(&build, full), Route::Declined(declined) if declined.lacks_host()), "the laptop builds it only once every build host is full or out of reach");
+}

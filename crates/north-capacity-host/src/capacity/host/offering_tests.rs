@@ -1,5 +1,5 @@
 use super::json::Obj;
-use super::offering::{Declines, HELD_HOST, deferred_session_build, held_build_refusal, offers_before_deciding, session_build_refusal};
+use super::offering::{Declines, HELD_HOST, deferred_session_build, held_build_refusal, session_build_refusal};
 use super::request::Create;
 use crate::capacity::build_offload::{Candidate, Declined, Job};
 use crate::capacity::effects::Host;
@@ -21,6 +21,7 @@ fn laptop(own_build_refusal: fn() -> Option<String>) -> Host {
         build_offload: never_pushed,
         hand_over: never_handed,
         lease_builds: || false,
+        build_host: || false,
         own_build_refusal,
         reclaim_disk: || None,
         tend_disk: || {},
@@ -54,15 +55,6 @@ fn a_session_compile_this_host_took_is_refused_at_once_when_its_admission_defers
     let admitted = Obj::new().put("decision", "RESERVED").put("reason", "RUN");
     assert!(deferred_session_build(&laptop(|| None), &cargo, Some(&full), &create, &admitted).is_none(), "admitted now: it runs here");
     assert!(deferred_session_build(&laptop(|| None), &cargo, None, &create, &deferred).is_none(), "not taken for want of a build host: it queues as before");
-}
-
-#[test]
-fn a_session_build_is_offered_away_before_deciding_only_on_a_host_that_does_not_lease_its_own_builds() {
-    let playing = laptop(|| None);
-    let free = Host { lease_builds: || true, ..laptop(|| None) };
-    assert!(offers_before_deciding(&playing, true), "the laptop under a playtest lease sends its sessions' builds to a build host first");
-    assert!(!offers_before_deciding(&free, true), "the laptop with no playtest lease decides on them here first");
-    assert!(!offers_before_deciding(&playing, false), "a build outside a fleet session is decided here first");
 }
 
 static RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

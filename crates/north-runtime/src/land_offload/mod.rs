@@ -86,6 +86,11 @@ pub fn build_hosts() -> Vec<(String, String)> {
     config().map(|cfg| destinations::build_hosts(&cfg, &crate::platform::host::name())).unwrap_or_default()
 }
 
+/// Whether other hosts send builds to this one: `[hosts.HERE] offload_builds`.
+pub fn builds_for_peers() -> bool {
+    config().is_ok_and(|cfg| destinations::offloads_builds(&cfg, &crate::platform::host::name()))
+}
+
 pub use destinations::Deployment;
 
 pub fn deployment() -> Deployment {

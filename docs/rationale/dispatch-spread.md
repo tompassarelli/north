@@ -47,3 +47,16 @@ on 2026-11-06:
 
 Nexus keeps 6; it takes no dispatch boxes until it becomes a target. Interactive sessions count against the same cap
 through `north resident-cap gate`, so a lead on gex45 shares those 8 places with the workers it staffs.
+
+## A fleet session's build goes to the build hosts first
+
+The rule before north#1036 was local first: a host that leases its own builds, which the laptop is in every capacity
+mode but a playtest lease, decided on its sessions' compiles itself and offered one to a build host only when its own
+admission deferred it. The laptop admits up to 22 of its 24 threads, so it saturated while the build hosts idled.
+
+One rule replaces it (`build_offload::offers_first`): a fleet session's heavy or moderate compile on a host that is not
+itself a build host (`[hosts.NAME] offload_builds` unset) is offered to the build hosts it reaches before its own
+admission decides, and goes to the one with the most free cores (`build_offload::most_free`). The host builds it
+itself only when every build host is short of room or out of reach, and its queued run offers itself again every 15 s.
+A build host decides on its own sessions' builds first, and a build outside a fleet session never leaves
+the host it started on.

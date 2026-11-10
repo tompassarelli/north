@@ -204,15 +204,10 @@ pub(super) fn deferred_session_build(host: &Host, command: &[String], missing: O
     Some(no_build_host(missing?, &format!("its admission defers it ({reason})"), create))
 }
 
-/// Whether a heavy request goes to the build hosts before this host decides on it: a fleet session's, on a host that does not lease its own builds (the laptop under a playtest lease), so a build this host would admit still runs where there is room. A host that leases its own builds (a build host, the laptop with no playtest lease) decides first and offers the request elsewhere only when it defers it.
-pub(super) fn offers_before_deciding(host: &Host, agent: bool) -> bool {
-    agent && !(host.lease_builds)()
-}
-
 /// A request offered before deciding runs on a build host with room; any other runs elsewhere only when this host defers it on the first look. None sends it to the queue.
 pub(super) async fn offer_first(mut waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
     let (root, request, create) = (waiting.root, waiting.request, waiting.create);
-    let offered_before = offers_before_deciding(host, agent_session());
+    let offered_before = build_offload::offers_first(agent_session(), (host.build_host)());
     if offered_before {
         if let Some(code) = try_offload(waiting.again(), false, host, terminations, None).await {
             return Some(Admitted::Offloaded(code));
