@@ -143,6 +143,12 @@ fn squash_parent(repo: &Path, boundaries: &[String], destination: &str) -> Optio
     })
 }
 
+fn landed_tip(repo: &Path, destination: &str, lane: &[&str]) -> Result<Option<usize>, String> {
+    let cherry = git(repo, &["cherry", destination, "HEAD"])?;
+    let landed: BTreeSet<&str> = cherry.lines().filter_map(|line| line.strip_prefix("- ")).collect();
+    Ok(lane.iter().rposition(|oid| landed.contains(oid)))
+}
+
 pub fn squash(repo: &Path, destination: &str, supplied: Option<&str>) -> Result<Squash, String> {
     let tips = published_tips(repo, destination)?;
     let mut walk = vec!["rev-list".to_owned(), "--reverse".to_owned(), "--topo-order".to_owned(), "--boundary".to_owned(), "HEAD".to_owned(), "--not".to_owned()];
@@ -150,11 +156,21 @@ pub fn squash(repo: &Path, destination: &str, supplied: Option<&str>) -> Result<
     let walk: Vec<&str> = walk.iter().map(String::as_str).collect();
     let listing = git(repo, &walk)?;
     let boundaries: Vec<String> = listing.lines().filter_map(|line| line.strip_prefix('-')).map(str::to_owned).collect();
-    let lane: Vec<&str> = listing.lines().filter(|line| !line.starts_with('-') && !line.is_empty()).collect();
+    let mut lane: Vec<&str> = listing.lines().filter(|line| !line.starts_with('-') && !line.is_empty()).collect();
+    let mut landed_parent = None;
+    if let Some(position) = landed_tip(repo, destination, &lane)? {
+        let landed = lane[position];
+        let later = lane.split_off(position + 1);
+        if later.iter().any(|oid| !succeeds(repo, &["merge-base", "--is-ancestor", landed, oid])) {
+            return Ok(Squash::Kept(format!("its commit {landed} already landed on {destination} and later commits do not all follow it; landing them as they are")));
+        }
+        landed_parent = Some(landed.to_owned());
+        lane = later;
+    }
     if lane.is_empty() || (lane.len() < 2 && supplied.is_none()) {
         return Ok(Squash::Unchanged);
     }
-    let Some(parent) = squash_parent(repo, &boundaries, destination) else {
+    let Some(parent) = landed_parent.or_else(|| squash_parent(repo, &boundaries, destination)) else {
         return Ok(Squash::Kept(format!(
             "its {} commits rest on published commits that are not one line of history; landing them as they are",
             lane.len()
