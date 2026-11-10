@@ -5,6 +5,9 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use toml_edit::{DocumentMut, Item};
 
+use crate::usage::decide::world::ModelFamily;
+use crate::usage::meter;
+
 pub const WEEK_H: f64 = 7.0 * 24.0;
 
 /// What a plan holds of each window, in Max 5x units: Ultra 10x holds four times the five-hour room of Max 5x but only twice its week.
@@ -66,11 +69,34 @@ pub fn room(windows: &Value, at: f64) -> Room {
     let mut room = Room { five_hour: 100.0, week: 100.0, week_reset_h: WEEK_H };
     for window in windows.as_array().into_iter().flatten() {
         let (Some(name), Some(used)) = (window["window"].as_str(), window["used_pct"].as_f64()) else { continue };
+        if !matches!(name, "5h" | "week" | "weekly_all") {
+            continue;
+        }
         let resets = window["resets_at"].as_str().and_then(crate::foundation::clock::rfc3339_seconds);
         let left = if resets.is_some_and(|resets| resets <= at) { 100.0 } else { (100.0 - used).max(0.0) };
         if name == "5h" {
             room.five_hour = room.five_hour.min(left);
         } else if left <= room.week {
+            let reset = resets.map(|resets| (resets - at) / 3600.0);
+            room = Room { week: left, week_reset_h: reset.or_else(|| window["reset_h"].as_f64()).unwrap_or(WEEK_H), ..room };
+        }
+    }
+    room
+}
+
+/// The room a model family leaves: its shared week tightened by the family's own scoped weekly meter
+/// (`weekly_scoped/Fable`), or the shared week alone when the provider reported no scoped row.
+pub fn room_for(windows: &Value, at: f64, family: ModelFamily) -> Room {
+    let mut room = room(windows, at);
+    let scoped = meter::scoped(family);
+    for window in windows.as_array().into_iter().flatten() {
+        if window["window"].as_str() != Some(scoped.as_str()) {
+            continue;
+        }
+        let Some(used) = window["used_pct"].as_f64() else { continue };
+        let resets = window["resets_at"].as_str().and_then(crate::foundation::clock::rfc3339_seconds);
+        let left = if resets.is_some_and(|resets| resets <= at) { 100.0 } else { (100.0 - used).max(0.0) };
+        if left <= room.week {
             let reset = resets.map(|resets| (resets - at) / 3600.0);
             room = Room { week: left, week_reset_h: reset.or_else(|| window["reset_h"].as_f64()).unwrap_or(WEEK_H), ..room };
         }
@@ -88,23 +114,35 @@ pub struct Rank {
     deadline_h: Option<f64>,
     expiring: f64,
     five_hour: f64,
+    /// Set only when an account is ranked by the room its own family's meter leaves, as the coordinator is.
+    headroom: Option<f64>,
 }
 
 impl Rank {
     pub fn of(room: Room, plan: PlanSize) -> Self {
         let deadline_h = (room.week > 0.0).then(|| room.week_reset_h.max(Room::SOONEST_RESET_H));
-        Self { urgent: false, deadline_h, expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour }
+        Self { urgent: false, deadline_h, expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour, headroom: None }
+    }
+
+    /// Order accounts by the room their own family's meter leaves, so the coordinator starts where its
+    /// Fable week has the most headroom rather than where the shared week expires soonest.
+    pub fn headroom(room: f64) -> Self {
+        Self { urgent: false, deadline_h: None, expiring: 0.0, five_hour: 0.0, headroom: Some(room) }
     }
 
     /// An API grant with credit left: its deadline is its expiry, and it is urgent when the measured burn would not spend it by then.
     pub fn grant(deadline_h: f64, urgent: bool) -> Self {
-        Self { urgent, deadline_h: Some(deadline_h.max(Room::SOONEST_RESET_H)), expiring: 0.0, five_hour: 0.0 }
+        Self { urgent, deadline_h: Some(deadline_h.max(Room::SOONEST_RESET_H)), expiring: 0.0, five_hour: 0.0, headroom: None }
     }
 
     pub fn order(&self, other: &Self) -> Ordering {
         let soonest = |rank: &Self| rank.deadline_h.map_or(0.0, |hours| 1.0 / hours);
         self.urgent
             .cmp(&other.urgent)
+            .then(match (self.headroom, other.headroom) {
+                (Some(left), Some(right)) => left.total_cmp(&right),
+                _ => Ordering::Equal,
+            })
             .then(soonest(self).total_cmp(&soonest(other)))
             .then(self.expiring.total_cmp(&other.expiring))
             .then(self.five_hour.total_cmp(&other.five_hour))
@@ -112,6 +150,9 @@ impl Rank {
 
     /// Why the source ranks where it does, as a placement records it.
     pub fn reason(&self) -> String {
+        if let Some(headroom) = self.headroom {
+            return format!("{headroom:.0}% headroom");
+        }
         match (self.urgent, self.deadline_h) {
             (true, Some(hours)) => format!("cannot drain before its deadline in {hours:.0}h"),
             (false, Some(hours)) => format!("deadline in {hours:.0}h"),
@@ -151,5 +192,13 @@ impl<'a> Basis<'a> {
             return Rank::default();
         }
         Rank::of(room(usage, self.at), self.plan(account).unwrap_or(PlanSize { five_hour: 1.0, week: 1.0 }))
+    }
+
+    /// The rank of one model family's room: the shared week tightened by that family's scoped meter.
+    pub fn rank_for(&self, family: ModelFamily, available: bool, account: &str, usage: &Value) -> Rank {
+        if !available {
+            return Rank::default();
+        }
+        Rank::of(room_for(usage, self.at, family), self.plan(account).unwrap_or(PlanSize { five_hour: 1.0, week: 1.0 }))
     }
 }

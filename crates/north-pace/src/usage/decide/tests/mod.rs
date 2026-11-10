@@ -1,3 +1,4 @@
+mod coordinator;
 mod properties;
 
 use std::collections::BTreeSet;

@@ -8,9 +8,10 @@ use north_base::platform::attribution::{self, Cause, Harness};
 use serde::{Deserialize, Serialize};
 
 use crate::error::NorthResult;
-use crate::fleet::model::{Delivery, LaunchRequest, SessionRecord, Status};
+use crate::fleet::model::{Delivery, Effort, LaunchRequest, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::sender::Sender;
+use crate::usage::decide::world::ModelFamily;
 
 pub const DEADLINE_MS: u64 = 5 * 60_000;
 const DESK: &str = ".handovers";
@@ -87,12 +88,19 @@ impl Desk {
 }
 
 /// Takes the proxy `record` one step toward account `to` and says what it did; None while it waits for its hand-over or its turn.
-pub fn advance(fleet: &Fleet, record: &SessionRecord, to: &str, take_over: &dyn Fn(&LaunchRequest) -> NorthResult<SessionRecord>, now_ms: u64) -> Option<String> {
+pub fn advance(fleet: &Fleet, record: &SessionRecord, to: &str, family: Option<ModelFamily>, take_over: &dyn Fn(&LaunchRequest) -> NorthResult<SessionRecord>, now_ms: u64) -> Option<String> {
     let desk = Desk::of(&fleet.root, &record.name);
     let (name, from) = (&record.name, &record.account);
     let conversation = record.conversation.as_deref();
     let asked_ms = desk.asked(conversation);
-    let request = |prompt: String, resume: Option<String>| LaunchRequest { account: to.to_owned(), prompt, placement: Some(format!("handed over from account {from}")), resume, ..record.relaunch_request() };
+    let request = |prompt: String, resume: Option<String>| {
+        let mut request = LaunchRequest { account: to.to_owned(), prompt, placement: Some(format!("handed over from account {from}")), resume, ..record.relaunch_request() };
+        if let Some(family) = family {
+            request.model = Some(model_name(family).to_owned());
+            request.effort = Some(Effort::High);
+        }
+        request
+    };
     match step(asked_ms, desk.written(), fleet.status(record) != Status::Working, now_ms) {
         Step::Wait => None,
         Step::Ask => Some(match desk.ask(conversation, now_ms).and_then(|()| fleet.send_signed(&Sender::fleet(), name, &ask(record, to, &desk.file()), Delivery::Now)) {
@@ -119,6 +127,16 @@ pub fn advance(fleet: &Fleet, record: &SessionRecord, to: &str, take_over: &dyn 
             }
             Err(error) => format!("{name}: not handed over from account {from} to {to}: {}", error.user_message()),
         }),
+    }
+}
+
+/// The model name a family switch writes on the successor's record.
+fn model_name(family: ModelFamily) -> &'static str {
+    match family {
+        ModelFamily::Fable => "fable",
+        ModelFamily::Opus => "opus",
+        ModelFamily::Sonnet => "sonnet",
+        ModelFamily::Haiku => "haiku",
     }
 }
 
