@@ -40,11 +40,11 @@ impl Target {
         if !retires(!reach.is_empty(), 0) {
             return Err(format!("HEAD {head} is not reachable from origin/main, refs/archive/* or a local branch"));
         }
-        let roots = self.reference_roots();
-        self.refuse_references(&roots)?;
         if !retires(true, u32::from(self.dirty())) {
             return Err(format!("pin has tracked or untracked changes; refusing retirement: {}", self.pin.display()));
         }
+        let roots = self.reference_roots();
+        self.refuse_references(&roots)?;
         let mut lines = vec![
             format!("pin-retire --unconsumed proof for {}", self.pin.display()),
             format!("  (a) naming: {naming}"),

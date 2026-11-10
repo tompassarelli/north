@@ -187,9 +187,15 @@ fn an_unconsumed_pin_is_retired_with_its_proof_and_a_dirty_or_referenced_one_is_
     let leaf = pin.file_name().unwrap().to_string_lossy().into_owned();
     fs::write(world.consumer().join("asset.bin"), [&[0u8; 16][..], leaf.as_bytes()].concat()).unwrap();
 
-    fs::write(pin.join("untracked.txt"), "untracked\n").unwrap();
+    fs::write(pin.join("history.txt"), "formatter rewrite\n").unwrap();
+    fs::write(world.consumer().join("pin.ref"), format!("pin {leaf}\n")).unwrap();
     let dirty = world.retire(&["--unconsumed", "--", &pin_arg]).unwrap_err();
     assert!(dirty.contains("tracked or untracked changes"), "{dirty}");
+    git_in(&pin, &["checkout", "-q", "--", "history.txt"]);
+    fs::write(pin.join("untracked.txt"), "untracked\n").unwrap();
+    fs::write(world.consumer().join("pin.ref"), "current\n").unwrap();
+    let untracked = world.retire(&["--unconsumed", "--", &pin_arg]).unwrap_err();
+    assert!(untracked.contains("tracked or untracked changes"), "{untracked}");
     fs::remove_file(pin.join("untracked.txt")).unwrap();
 
     fs::write(world.consumer().join("pin.ref"), format!("pin {leaf}\n")).unwrap();
