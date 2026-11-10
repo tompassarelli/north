@@ -188,7 +188,12 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let (mirror, at) = (Mirror::local(), crate::foundation::clock::Timestamp::now().unix_seconds_f64());
     let mut failed = false;
-    for (key, result) in std::iter::once(audit::account(&Gh, &mirror, at)).chain(repos.iter().flat_map(|repo| repository(&Gh, &mirror, repo, at))) {
+    let account = audit::account(&Gh, &mirror, at);
+    let listed: Vec<_> = std::thread::scope(|scope| {
+        let readers: Vec<_> = repos.iter().map(|repo| scope.spawn(|| repository(&Gh, &mirror, repo, at))).collect();
+        readers.into_iter().flat_map(|reader| reader.join().expect("a repository sync thread panicked")).collect()
+    });
+    for (key, result) in std::iter::once(account).chain(listed) {
         match result {
             Ok(Fetch::Unchanged) => println!("{key} unchanged"),
             Ok(Fetch::Refreshed) => println!("{key} refreshed"),

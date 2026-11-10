@@ -59,6 +59,10 @@ fn declared_for_broker(secrets: &std::path::Path, file: &std::path::Path) -> Res
     }
 }
 
+fn first_line(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr).lines().map(str::trim).find(|line| !line.is_empty()).map_or_else(|| "no message".to_owned(), |line| line.chars().take(160).collect())
+}
+
 fn decrypt(secrets: &std::path::Path, name: &str) -> Result<String, String> {
     let candidates: Vec<PathBuf> = [secrets.join("nexus").join(name), secrets.join(name)].into_iter().filter(|path| path.exists()).collect();
     if candidates.is_empty() {
@@ -72,9 +76,11 @@ fn decrypt(secrets: &std::path::Path, name: &str) -> Result<String, String> {
         }
         let mut command = Command::new("sops");
         command.args(["-d", "--output-type", "json"]).arg(&file);
-        match process::run_command_within(command, None, DECRYPT_LIMIT) {
-            Some(output) if output.status.success() => return String::from_utf8(output.stdout).map_err(|_| format!("decrypted {name} is not text")),
-            _ => last = format!("could not decrypt {name}"),
+        match process::try_run_command_within(command, None, DECRYPT_LIMIT) {
+            Ok(Some(output)) if output.status.success() => return String::from_utf8(output.stdout).map_err(|_| format!("decrypted {name} is not text")),
+            Ok(Some(output)) => last = format!("could not decrypt {name}: sops {}: {}", output.status, first_line(&output.stderr)),
+            Ok(None) => last = format!("could not decrypt {name}: sops did not finish within {} s", DECRYPT_LIMIT.as_secs()),
+            Err(error) => last = format!("could not decrypt {name}: cannot run sops: {error}"),
         }
     }
     Err(last)
