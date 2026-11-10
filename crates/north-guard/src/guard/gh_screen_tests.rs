@@ -65,11 +65,37 @@ fn a_box_with_no_runnable_check_in_a_body_file_is_logged_when_gh_runs_whatever_w
     for words in [vec!["issue", "create", "--title", "x", "--label", "bug", "--body-file", file], vec!["issue", "edit", "1041", "-R", "tompassarelli/north", "-F", file]] {
         let words: Vec<String> = words.into_iter().map(str::to_owned).collect();
         let (_, _, write) = parse(&words).unwrap();
-        let mut world = Fake { body: Some("- [ ] An old box".to_owned()), stdin: Vec::new(), rows: Vec::new() };
+        let mut world = Fake { body: Some("Item: x\n\n## Done when\n\n- [ ] An old box\n- [ ] Another old box that was already in the body\n".to_owned()), stdin: Vec::new(), rows: Vec::new() };
         judge(&write, None, &mut world).unwrap();
         let logged: Vec<(&str, &str)> = world.rows.iter().map(|row| (row["verb"].as_str().unwrap(), row["box"].as_str().unwrap())).collect();
         assert_eq!(logged, [(if write.creates { "create" } else { "edit" }, "A box naming no command")]);
     }
+}
+
+#[test]
+fn an_edit_that_repeats_a_box_line_or_doubles_the_body_is_refused_unless_growth_is_allowed_north_892() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("902.md");
+    let file = file.to_str().unwrap();
+    let box_line = format!("- [ ] {}", "A box that a runaway sed would append after every line. ".repeat(2));
+    let old = format!("Item: x\n\n{box_line}\n- [ ] short\n{}\n", "context line\n".repeat(40));
+    let edit = |extra: &[&str]| {
+        let mut words = vec!["issue", "edit", "902", "-R", "tompassarelli/north", "--body-file", file];
+        words.extend(extra);
+        let words: Vec<String> = words.into_iter().map(str::to_owned).collect();
+        let (_, _, write) = parse(&words).unwrap();
+        let mut world = Fake { body: Some(old.clone()), stdin: Vec::new(), rows: Vec::new() };
+        judge(&write, None, &mut world)
+    };
+    std::fs::write(file, format!("{old}{box_line}\n")).unwrap();
+    assert!(edit(&[]).unwrap_err().contains("repeats the box line"));
+    assert!(edit(&["--allow-growth", "two identical boxes are meant"]).is_ok());
+    assert!(edit(&["--allow-growth=meant"]).is_ok());
+    assert!(edit(&["--allow-growth", " "]).is_err());
+    std::fs::write(file, format!("{old}{}", "other text\n".repeat(200))).unwrap();
+    assert!(edit(&[]).unwrap_err().contains("more than double"));
+    std::fs::write(file, format!("{old}- [ ] A second box of a different wording that adds one new line to the body.\n")).unwrap();
+    assert!(edit(&[]).is_ok());
 }
 
 #[test]
