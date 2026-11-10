@@ -213,3 +213,19 @@ fn a_claude_workers_safe_push_runs_outside_with_its_own_environment_and_reads_on
     assert!(leaked.logged.contains("outside the files the caller can read"), "{}", leaked.logged);
     assert_eq!(fixture.ran().len(), 1, "a message file the worker cannot read is never handed to safe-push");
 }
+
+#[test]
+fn a_lane_whose_git_config_sets_a_filter_driver_or_ssh_command_is_not_landed_and_its_filter_does_not_run() {
+    let fixture = Fixture::new();
+    let git = |arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(&fixture.lane).args(arguments).status().unwrap().success());
+    git(&["init", "-q"]);
+    let ran = fixture.root.path().join("filter-ran");
+    git(&["config", "filter.evil.clean", &format!("touch {}", ran.display())]);
+    fixture.ask(&["safe-push", "--to", "main"], &fixture.lane).refused("filter.evil.clean");
+    git(&["config", "--unset", "filter.evil.clean"]);
+    git(&["config", "core.sshCommand", "touch pwned"]);
+    fixture.ask(&["safe-push", "--to", "main"], &fixture.lane).refused("core.sshcommand");
+    assert!(!ran.exists() && fixture.ran().is_empty(), "nothing ran for a refused lane");
+    git(&["config", "--unset", "core.sshCommand"]);
+    assert_eq!(fixture.ask(&["safe-push", "--to", "main"], &fixture.lane).code, 0);
+}

@@ -1,4 +1,4 @@
-//! The verbs the outside broker runs with the host's GitHub credentials for a lane-only session (DeepSeek's harnesses, which hold no token: south#104), so it lands and reports without one (north#1056): `safe-push --to main` from its own lane, which enqueues that lane for the lander, and a comment on, or the Done-when checker's tick of a box of, its own task issue. The session is the fleet session whose scope the caller's cgroup names, never anything the request says; its lane is `PROJECT/worktrees/NAME` beside the `main` it was launched in (or the lane it was launched in), and its task the `--task` of its launch. A request's words choose only among those verbs; any other ref, repository, issue or option is refused. The command runs with the broker's own environment, never the client's, with git's hooks and fsmonitor off whatever the repository's configuration says, and with GitHub reached through the gh shim as the Agent App under the session's name; its output reaches the client with every token-shaped word withheld, and no descriptor goes back but the client's own streams.
+//! The verbs the outside broker runs with the host's GitHub credentials for a lane-only session (DeepSeek's harnesses, which hold no token: south#104), so it lands and reports without one (north#1056): `safe-push --to main` from its own lane, which enqueues that lane for the lander, and a comment on, or the Done-when checker's tick of a box of, its own task issue. The session is the fleet session whose scope the caller's cgroup names, never anything the request says; its lane is `PROJECT/worktrees/NAME` beside the `main` it was launched in (or the lane it was launched in), and its task the `--task` of its launch. A request's words choose only among those verbs; any other ref, repository, issue or option is refused. The command runs with the broker's own environment, never the client's, with git's hooks, fsmonitor and ssh command off whatever the repository's configuration says, and refuses a lane whose git configuration names a filter driver or `core.sshCommand`, and with GitHub reached through the gh shim as the Agent App under the session's name; its output reaches the client with every token-shaped word withheld, and no descriptor goes back but the client's own streams.
 
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -15,7 +15,8 @@ use super::{LANE_ONLY, MARK, SOCKETS_HIDDEN};
 const DESTINATION: &str = "main";
 const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
 const SHIM_DIRECTORIES: [&str; 2] = [".local/bin", ".local/share/north/bin"];
-const GIT_HARDENING: [(&str, &str); 2] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false")];
+const GIT_HARDENING: [(&str, &str); 3] = [("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"), ("core.sshCommand", "false")];
+const COMMAND_KEYS: &str = r"^(filter\..+\.(clean|smudge|process)|core\.sshcommand)$";
 const WITHHELD: &str = "[token withheld]";
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}").expect("the token pattern compiles"));
 
@@ -100,6 +101,7 @@ fn land(session: &Session, rest: &[&str], directory: &Path) -> Result<Vec<String
     if !inside {
         return Err(format!("{} is not inside {}, the lane of {}; a lane-only session lands only its own lane", directory.display(), session.lane.display(), session.name));
     }
+    refuse_command_config(session)?;
     let mut granted = vec!["safe-push".to_owned(), "--to".to_owned(), DESTINATION.to_owned()];
     let mut words = rest.iter();
     while let Some(word) = words.next() {
@@ -117,6 +119,25 @@ fn land(session: &Session, rest: &[&str], directory: &Path) -> Result<Vec<String
         }
     }
     Ok(granted)
+}
+
+/// Refuses a lane whose own git configuration (the repository's or the lane's) names a filter driver or `core.sshCommand`, which git would run with the broker's credentials when it lands the lane.
+fn refuse_command_config(session: &Session) -> Result<(), String> {
+    for scope in ["--local", "--worktree"] {
+        let found = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&session.lane)
+            .args(["config", scope, "--name-only", "--get-regexp", COMMAND_KEYS])
+            .env_remove("GIT_DIR")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .map_err(|error| format!("git config in {}: {error}", session.lane.display()))?;
+        let keys = String::from_utf8_lossy(&found.stdout);
+        if let Some(key) = keys.lines().next() {
+            return Err(format!("{} sets {key} in its git configuration, which git would run with the broker's credentials; remove it before landing", session.lane.display()));
+        }
+    }
+    Ok(())
 }
 
 fn comment(session: &Session, rest: &[&str]) -> Result<Vec<String>, String> {
