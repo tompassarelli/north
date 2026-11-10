@@ -133,14 +133,16 @@ updates its own class's line when its lane lands.
 - Mechanism: promote moves the link on matches plus transients and holds only on a divergence or
   zero matches. Its replays run on build hosts, and the doctor pages the proxy when the link lags
   more than 3 landings or 15 minutes (n842-promote). The lander names the build it runs, read from
-  its own executable, and its count of lander-input commits behind origin/main whenever that note
-  changes at the start of a serve round, over the limit past 3 behind (north-892-d0221); the doctor's
-  link-behind bound is the one page for a lagging lander, since the lander follows its link within
+  its own executable, and the lander-input commits behind origin/main it lacks whenever that note
+  changes at the start of a serve round, over the limit once the first of them landed more than 15
+  minutes ago, since promote-on-landing passes several changes within minutes (north-892-d0221,
+  north#1048); the doctor's link-behind bound is the one page for a lagging lander, since the lander follows its link within
   seconds (north#1081).
 - Replay: `cargo nextest run -p north-lander -p north-lander-doctor`. Matches plus one transient
-  round move the link, and a divergence still holds it. The build_lag replay names a build 4
-  lander changes behind main as over the limit of 3:
-  `a_lander_more_than_the_limit_of_lander_changes_behind_main_names_its_build`.
+  round move the link, and a divergence still holds it. The build_lag replay names a build six
+  lander changes behind main as within the limit after 2 minutes and over it after 17:
+  `a_lander_missing_lander_code_main_landed_over_fifteen_minutes_ago_names_its_build`; a lander
+  checking a lane moves to its promoted link within 10 s: `a_busy_lander_moves_to_a_promoted_link_within_its_bound`.
 - Status: enforced. n842-promote landed as cd2922adad and north-892-d0221 as
   1bc7787e31af64a04159f42190d62fc111fafb82, both ancestors of origin/main.
 

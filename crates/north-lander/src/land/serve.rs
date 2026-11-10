@@ -136,13 +136,13 @@ fn serve_loop(lander: &Lander, once: bool, retire: &AtomicBool, wake: &outbox::W
     }
     let mut backoff = Backoff::default();
     let mut watch = Watch::resume(lander);
-    let mut shown = String::new();
+    let mut shown: Option<super::build_lag::Lag> = None;
     loop {
-        if let Some(note) = super::build_lag::report(&lander.repo)
-            && note != shown
+        if let Some(lag) = super::build_lag::report(&lander.repo)
+            && shown.as_ref().is_none_or(|shown| !shown.same_episode(&lag))
         {
-            println!("north land: {note}");
-            shown = note;
+            println!("north land: {}", lag.note());
+            shown = Some(lag);
         }
         if retire.load(Ordering::Relaxed) {
             return handover::hand_over(lander, &watch);

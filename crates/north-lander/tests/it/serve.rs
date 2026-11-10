@@ -24,12 +24,12 @@ fn enqueue_process() {
 }
 
 #[test]
-fn a_runtime_change_that_touches_no_lander_input_still_exits_the_lander_while_a_check_is_in_flight() {
+fn a_busy_lander_moves_to_a_promoted_link_within_its_bound() {
     let world = World::new();
     let repository = world.repository("north");
     let old = runtime_commit(&repository, "old");
     let new = runtime_commit(&repository, "new");
-    std::os::unix::fs::symlink(format!("runtimes/{old}"), world.path().join("current")).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{old}"), world.path().join("lander")).unwrap();
     repository.lane("stale");
     let (path, mut ticket) = queue::pending(&repository.queue).unwrap().pop().unwrap();
     ticket.alone_green = None;
@@ -49,8 +49,8 @@ fn a_runtime_change_that_touches_no_lander_input_still_exits_the_lander_while_a_
         let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         panic!("the lander never started checking the stale lane:\n{text}");
     }
-    std::fs::remove_file(world.path().join("current")).unwrap();
-    std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("current")).unwrap();
+    std::fs::remove_file(world.path().join("lander")).unwrap();
+    std::os::unix::fs::symlink(format!("runtimes/{new}"), world.path().join("lander")).unwrap();
     let exited = wait::until(Duration::from_secs(10), || child.try_wait().unwrap().is_some());
     std::fs::write(world.path().join("hold.release"), "").unwrap();
     if !exited {
@@ -143,7 +143,7 @@ impl World {
             .env("NORTH_DECISION_LOG", self.path().join("state/north/decisions"))
             .env("HOME", self.path())
             .env("NORTH_LAND_NORTH", self.path().join("bin/north"))
-            .env("NORTH_RUNTIME_LINK", self.path().join("current"))
+            .env("NORTH_RUNTIME_LINK", self.path().join("lander"))
             .env("GIT_CONFIG_GLOBAL", self.path().join("gitconfig"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("HOLD")
