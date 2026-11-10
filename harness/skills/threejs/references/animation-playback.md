@@ -2,7 +2,7 @@
 
 ## Decisions and rationale
 
-A clip is reusable keyframe data; a mixer binds it to a root, and an action controls playback. Keep those lifetimes separate. One clock sample per frame avoids advancing time differently for two systems; fixed-step simulation can instead feed one explicit delta per step.
+A clip is reusable keyframe data; a mixer binds it to a root, and an action controls playback. Keep those lifetimes separate. One timer update per frame avoids advancing time differently for two systems; fixed-step simulation can instead feed one explicit delta per step.
 
 ## Basic Example
 
@@ -10,11 +10,12 @@ A clip is reusable keyframe data; a mixer binds it to a root, and an action cont
 import * as THREE from "three";
 
 // Simple procedural animation
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
 
-function animate() {
-  const delta = clock.getDelta();
-  const elapsed = clock.elapsedTime; // getDelta already advanced the clock
+function animate(timestamp) {
+  timer.update(timestamp);
+  const delta = timer.getDelta();
+  const elapsed = timer.getElapsed();
 
   mesh.rotation.y += delta;
   mesh.position.y = Math.sin(elapsed) * 0.5;
@@ -127,8 +128,9 @@ const action = mixer.clipAction(clip);
 action.play();
 
 // Update in animation loop
-function animate() {
-  const delta = clock.getDelta();
+function animate(timestamp) {
+  timer.update(timestamp);
+  const delta = timer.getDelta();
   mixer.update(delta); // Required!
 
   requestAnimationFrame(animate);
@@ -247,8 +249,9 @@ loader.load("model.glb", (gltf) => {
 });
 
 // Animation loop
-function animate() {
-  const delta = clock.getDelta();
+function animate(timestamp) {
+  timer.update(timestamp);
+  const delta = timer.getDelta();
   if (window.mixer) window.mixer.update(delta);
 
   requestAnimationFrame(animate);

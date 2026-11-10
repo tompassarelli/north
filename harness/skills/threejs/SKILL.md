@@ -2,8 +2,8 @@
 name: threejs
 description: >-
   Build or debug Three.js scenes: materials, lighting, loading, animation, controls, shaders.
-grounded: 2026-10-09
-written: 2026-10-09
+grounded: 2026-11-10
+written: 2026-11-10
 portable: true
 ---
 
@@ -11,7 +11,7 @@ portable: true
 
 1. Check the installed version before selecting addon, shader-chunk or WebGPU APIs.
 2. Assign one owner to the canvas, scene, renderer, frame loop, listeners and GPU resources through their last consumer.
-3. Drive all updates from one loop and one time sample in seconds per frame.
+3. Drive all updates from one loop and one `THREE.Timer` update per frame, reading seconds (`THREE.Clock` is deprecated since r183).
 4. Use source color space for color images, `NoColorSpace` for numeric maps and one final output conversion.
 5. Resize camera, renderer, composer, targets and resolution uniforms from the canvas display box with a capped pixel ratio.
 6. Measure CPU updates, draw calls, fill rate and allocation before choosing an optimization.

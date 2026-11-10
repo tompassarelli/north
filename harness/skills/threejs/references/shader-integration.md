@@ -35,7 +35,7 @@ material.onBeforeCompile = (shader) => {
 
 // Update in animation loop
 if (material.userData.shader) {
-  material.userData.shader.uniforms.time.value = clock.getElapsedTime();
+  material.userData.shader.uniforms.time.value = timer.getElapsed();
 }
 ```
 

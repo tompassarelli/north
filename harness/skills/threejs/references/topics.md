@@ -5,7 +5,7 @@ Resolve paths relative to the skill directory.
 
 | Read | When |
 |---|---|
-| `references/scene-and-lifecycle.md` | setting up scene, cameras, renderer, Object3D hierarchy, clock, resize or cleanup |
+| `references/scene-and-lifecycle.md` | setting up scene, cameras, renderer, Object3D hierarchy, timer, resize or cleanup |
 | `references/coordinates-and-math.md` | working with Vector3, Matrix4, Quaternion, Euler, Color or MathUtils |
 | `references/performance.md` | a measured frame-time or memory problem needs a fix |
 | `references/geometry-primitives.md` | choosing built-in shapes, text, edges, points or lines |

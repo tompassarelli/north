@@ -280,14 +280,15 @@ function dispose() {
 }
 ```
 
-### Clock for Animation
+### Timer for Animation
 
 ```javascript
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
 
-function animate() {
-  const delta = clock.getDelta(); // Time since last frame (seconds)
-  const elapsed = clock.getElapsedTime(); // Total time (seconds)
+function animate(timestamp) {
+  timer.update(timestamp);
+  const delta = timer.getDelta(); // Time since last frame (seconds)
+  const elapsed = timer.getElapsed(); // Total time (seconds)
 
   mesh.rotation.y += delta * 0.5; // Consistent speed regardless of framerate
 

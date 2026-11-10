@@ -48,10 +48,11 @@ lightProbe.copy(
 ## Light Animation
 
 ```javascript
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
 
-function animate() {
-  const time = clock.getElapsedTime();
+function animate(timestamp) {
+  timer.update(timestamp);
+  const time = timer.getElapsed();
 
   // Orbit light around scene
   light.position.x = Math.cos(time) * 5;

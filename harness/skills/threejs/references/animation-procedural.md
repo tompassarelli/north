@@ -66,7 +66,7 @@ function animate() {
 
 ```javascript
 function animate() {
-  const t = clock.getElapsedTime();
+  const t = timer.getElapsed();
 
   // Sine wave
   mesh.position.y = Math.sin(t * 2) * 0.5;

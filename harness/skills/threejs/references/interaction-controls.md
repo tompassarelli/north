@@ -58,7 +58,7 @@ controls.dragToLook = true;
 
 // Update with delta
 function animate() {
-  controls.update(clock.getDelta());
+  controls.update(timer.getDelta());
   renderer.render(scene, camera);
 }
 ```
@@ -77,7 +77,7 @@ controls.verticalMin = Math.PI / 4;
 controls.verticalMax = (Math.PI * 3) / 4;
 
 function animate() {
-  controls.update(clock.getDelta());
+  controls.update(timer.getDelta());
 }
 ```
 

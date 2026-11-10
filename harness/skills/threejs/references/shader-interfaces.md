@@ -29,7 +29,7 @@ const material = new THREE.ShaderMaterial({
 });
 
 // Update in animation loop
-material.uniforms.time.value = clock.getElapsedTime();
+material.uniforms.time.value = timer.getElapsed();
 ```
 
 ## ShaderMaterial vs RawShaderMaterial
@@ -152,7 +152,7 @@ uniform vec3 vec3Array[2];
 
 ```javascript
 // Direct assignment
-material.uniforms.time.value = clock.getElapsedTime();
+material.uniforms.time.value = timer.getElapsed();
 
 // Vector/Color updates
 material.uniforms.position.value.set(x, y, z);

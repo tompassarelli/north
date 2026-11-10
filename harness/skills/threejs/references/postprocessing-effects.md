@@ -267,7 +267,7 @@ const customPass = new ShaderPass(CustomShader);
 composer.addPass(customPass);
 
 // Update in animation loop
-customPass.uniforms.time.value = clock.getElapsedTime();
+customPass.uniforms.time.value = timer.getElapsed();
 ```
 
 ### Invert Colors Shader

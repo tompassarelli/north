@@ -79,7 +79,7 @@ mesh.morphTargetInfluences[smileIndex] = 1;
 ```javascript
 // Procedural
 function animate() {
-  const t = clock.getElapsedTime();
+  const t = timer.getElapsed();
   mesh.morphTargetInfluences[0] = (Math.sin(t) + 1) / 2;
 }
 
