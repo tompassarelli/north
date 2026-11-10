@@ -166,6 +166,40 @@ impl<'g> Facts<'g> {
         Ok(rows.into_iter().flatten().map(|node| self.test(&node)).collect())
     }
 
+    pub fn items(&self, path: &str) -> Result<Vec<Region>, String> {
+        let prefix = format!("item:{path}:");
+        let mut items: Vec<Region> = self
+            .subjects("item-in", path)?
+            .into_iter()
+            .filter_map(|node| {
+                let (start, end) = node.strip_prefix(&prefix)?.split_once('-')?;
+                let (start, end) = (start.parse().ok()?, end.parse().ok()?);
+                Some(Region { node, start, end })
+            })
+            .collect();
+        items.sort_by_key(|item| (item.start, item.end));
+        Ok(items)
+    }
+
+    pub fn referring(&self, item: &str) -> Result<Option<BTreeSet<TestId>>, String> {
+        let mut symbols = self.objects(item, "defines")?;
+        if symbols.is_empty() {
+            return Ok(None);
+        }
+        let mut seen: BTreeSet<String> = symbols.iter().cloned().collect();
+        let mut tests = BTreeSet::new();
+        while let Some(symbol) = symbols.pop() {
+            for user in self.subjects("refers-to", &symbol)? {
+                if user.starts_with("fn:") {
+                    tests.extend(self.reaching(&user)?);
+                } else {
+                    symbols.extend(self.objects(&user, "defines")?.into_iter().filter(|defined| seen.insert(defined.clone())));
+                }
+            }
+        }
+        Ok(Some(tests))
+    }
+
     pub fn knows_crates(&self) -> bool {
         !self.crates.is_empty()
     }

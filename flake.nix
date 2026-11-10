@@ -29,6 +29,7 @@
                     pkgs.osv-scanner
                     pkgs.cargo-mutants
                     pkgs.cargo-nextest
+                    pkgs.rust-analyzer
                     # The release firn's bunRelease installs on every host, so tests here run the bun the north services run.
                     (pkgs.bun.overrideAttrs (_old: {
                       version = "1.4.4";

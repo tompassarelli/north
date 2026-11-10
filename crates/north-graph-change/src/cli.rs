@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use north_coverage::hunks::Hunks;
 use north_coverage::run_selected::{git, repository};
 use north_graph::{Graph, default_path};
 use serde_json::{Value, json};
@@ -12,6 +13,7 @@ use crate::cone::{self, Cone};
 use crate::facts::{Facts, TestId};
 use crate::lane::{self, Change, Lane};
 use crate::overlap;
+use crate::shadow;
 
 pub const VERBS: [&str; 3] = ["affected", "overlap", "blame"];
 const UNTRACED: u8 = 3;
@@ -75,9 +77,14 @@ impl Context {
     }
 }
 
-fn cone_between(root: &Path, facts: &Facts, base: &str, head: &str) -> Result<Cone, String> {
+fn change_between(root: &Path, facts: &Facts, base: &str, head: &str) -> Result<(Change, Option<Hunks>), String> {
     let change = Change::read(root, base, head)?;
     let stale = facts.coverage_commit.as_deref().and_then(|commit| lane::carried_since(root, commit, base, &change));
+    Ok((change, stale))
+}
+
+fn cone_between(root: &Path, facts: &Facts, base: &str, head: &str) -> Result<Cone, String> {
+    let (change, stale) = change_between(root, facts, base, head)?;
     cone::of(facts, &change, stale.as_ref())
 }
 
@@ -141,7 +148,11 @@ pub fn run(arguments: &[String]) -> u8 {
 fn affected(context: &Context, options: &Options) -> Result<u8, String> {
     let [base, head] = options.positional.as_slice() else { return Err(format!("affected takes BASE HEAD\n{USAGE}")) };
     let facts = context.facts()?;
-    let mut cone = cone_between(&context.root, &facts, base, head)?;
+    let (change, stale) = change_between(&context.root, &facts, base, head)?;
+    let mut cone = cone::of(&facts, &change, stale.as_ref())?;
+    if shadow::shadowed(&context.root) && let Err(why) = shadow::record(base, head, &cone, &cone::proof(&facts, &change, stale.as_ref())) {
+        eprintln!("north graph ask affected: gate {} logs nothing: {why}", shadow::GATE);
+    }
     let carried = if cone.untraced.is_none() { carried(&context.root, &facts, base, options) } else { BTreeSet::new() };
     cone.tests.retain(|test| !carried.contains(test));
     cone.always.retain(|test| !carried.contains(test));

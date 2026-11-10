@@ -22,7 +22,7 @@ fn each_test_reaches_the_spans_of_the_functions_it_executed_and_unexecuted_funct
 
 #[test]
 fn a_map_missing_more_than_a_tenth_of_the_listed_tests_is_refused() {
-    let map = |tests: usize| Map { commit: "c".to_owned(), recorded: 0, tests: (0..tests).map(|index| Test { binary: "b".to_owned(), name: index.to_string() }).collect(), functions: Vec::new() };
+    let map = |tests: usize| Map { commit: "c".to_owned(), recorded: 0, tests: (0..tests).map(|index| Test { binary: "b".to_owned(), name: index.to_string() }).collect(), functions: Vec::new(), index: Index::default() };
     assert!(complete(map(0), 0).is_err());
     assert!(complete(map(8), 10).is_err());
     assert!(complete(map(9), 10).is_ok());

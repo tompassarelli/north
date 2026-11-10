@@ -5,7 +5,7 @@ use std::process::Command;
 use serde::Deserialize;
 
 use crate::exec::{TOOLS_ENV, WORK_ENV, Work};
-use crate::map::{Function, Map, Test};
+use crate::map::{Function, Index, Map, Test};
 
 pub const MAP_LINE: &str = "north-coverage-map ";
 const SUITE: [&str; 5] = ["--workspace", "--lib", "--bins", "--test", "it"];
@@ -92,7 +92,11 @@ fn record(arguments: &[String]) -> Result<Map, String> {
     let spans = spans(&root, &tools, &work, &objects)?;
     let reached = read_reach(&work.reach())?;
     let recorded = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
-    let map = assemble(commit, recorded, &binaries, &spans, &reached);
+    let mut map = assemble(commit, recorded, &binaries, &spans, &reached);
+    match crate::index::record(&root, &work.root, &map.functions) {
+        Ok(index) => map.index = index,
+        Err(why) => eprintln!("north test coverage record: no item-reference index, so a change outside every function selects its crate closure: {why}"),
+    }
     complete(map, listed)
 }
 
@@ -199,7 +203,7 @@ pub fn assemble(commit: String, recorded: u64, binaries: &HashMap<String, String
         }
     }
     let functions = by_span.into_iter().map(|((file, start, end), reached_by)| Function { file: file.to_owned(), start, end, reached_by: reached_by.into_iter().collect() }).collect();
-    Map { commit, recorded, tests, functions }
+    Map { commit, recorded, tests, functions, index: Index::default() }
 }
 
 #[cfg(test)]

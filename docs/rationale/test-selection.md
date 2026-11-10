@@ -338,5 +338,15 @@ Each lane has a box on north#1039 with its Done when command:
   with lag reporting, the cadence, and the record's measured cost added to this note.
 - n1039-proof: phase 2. The item-reference index recorded with the map, and rule 3's outside-function condition
   narrowed by the index, in shadow as `[gate.test-selection-proof]`, after n1039-map.
+- Landed by n1039-proof: `north test coverage record` runs `rust-analyzer scip` (from the dev shell) after the
+  instrumented run and stores the index in the map: each definition's line span widened over its attributes and doc
+  comments, each `use` statement as an item that counts for every function of its file, each `impl` header line as
+  an item standing for the trait and type it names, and the symbols every function region and item refers to. The
+  ingest tells them as `item-in`, `defines` and `refers-to` facts. `north graph ask affected` computes the phase 2
+  selection beside the one that gates: a changed line outside every function region selects the tests reaching the
+  functions that refer to its innermost item, through items that refer to it; a line in no item selects the crate
+  closure. Each answer appends both sizes and the extra and dropped tests to
+  `$XDG_STATE_HOME/north/gates/test-selection-proof.jsonl`. A record without the index leaves every outside line
+  at the crate closure. The review needs n1039-map's record running on the build hosts.
 - n1039-enforce: the shadow review and the switch to enforce of phase 1, once n1039-select and n1039-guards have run
   24 h. Phase 2's review belongs to n1039-proof.

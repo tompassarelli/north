@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use north_coverage::hunks::Hunks;
-use north_coverage::pick::{Touched, touched_regions};
+use north_coverage::hunks::{Hunk, Hunks};
+use north_coverage::pick::{Probe, innermost, locate};
 
 use crate::facts::{Facts, TestId};
 use crate::lane::{Change, Changed, Status};
@@ -19,6 +19,12 @@ pub struct Cone {
     pub always: BTreeSet<TestId>,
     pub added: Vec<Added>,
     pub files: Vec<String>,
+    pub untraced: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Proof {
+    pub tests: BTreeSet<TestId>,
     pub untraced: Option<String>,
 }
 
@@ -55,6 +61,7 @@ fn parent(path: &str) -> &str {
 struct Walk<'f, 'g> {
     facts: &'f Facts<'g>,
     stale: Option<&'f Hunks>,
+    proof: bool,
     tests: BTreeSet<TestId>,
     fallback: BTreeSet<String>,
 }
@@ -69,22 +76,41 @@ impl Walk<'_, '_> {
         Ok(())
     }
 
-    fn rust(&mut self, path: &str, lane: Option<&[north_coverage::hunks::Hunk]>) -> Result<(), String> {
+    fn rust(&mut self, path: &str, lane: Option<&[Hunk]>) -> Result<(), String> {
         let regions = self.facts.regions(path)?;
         let Some(stale) = self.stale.filter(|_| !regions.is_empty()) else {
             return self.crate_fallback(path);
         };
-        let touched = match lane {
-            Some(hunks) => touched_regions(&regions.iter().map(|region| (region.start, region.end)).collect::<Vec<_>>(), stale.get(path).map_or(&[][..], Vec::as_slice), hunks),
-            None => Touched::Outside,
+        let Some(hunks) = lane else {
+            self.tests.extend(self.facts.reaching_file(path)?);
+            return Ok(());
         };
-        match touched {
-            Touched::Regions(indices) => {
-                for index in indices {
-                    self.tests.extend(self.facts.reaching(&regions[index].node)?);
-                }
+        let stale = stale.get(path).map_or(&[][..], Vec::as_slice);
+        let located = locate(&regions.iter().map(|region| (region.start, region.end)).collect::<Vec<_>>(), stale, hunks);
+        for index in located.regions {
+            self.tests.extend(self.facts.reaching(&regions[index].node)?);
+        }
+        match (located.outside.is_empty(), self.proof) {
+            (true, _) => Ok(()),
+            (false, false) => {
+                self.tests.extend(self.facts.reaching_file(path)?);
+                Ok(())
             }
-            Touched::Outside => self.tests.extend(self.facts.reaching_file(path)?),
+            (false, true) => self.outside(path, stale, &located.outside),
+        }
+    }
+
+    fn outside(&mut self, path: &str, stale: &[Hunk], probes: &[Probe]) -> Result<(), String> {
+        let items = self.facts.items(path)?;
+        let spans: Vec<(u32, u32)> = items.iter().map(|item| (item.start, item.end)).collect();
+        for probe in probes {
+            let Some(index) = innermost(&spans, stale, *probe) else {
+                return self.crate_fallback(path);
+            };
+            match self.facts.referring(&items[index].node)? {
+                Some(tests) => self.tests.extend(tests),
+                None => self.tests.extend(self.facts.reaching_file(path)?),
+            }
         }
         Ok(())
     }
@@ -96,7 +122,7 @@ pub fn of(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<Cone,
     let mut cone = Cone { added, files, ..Cone::default() };
     let unknown = unknown(facts, change, &cone.added);
     cone.added.extend(unknown);
-    match walk(facts, change, stale) {
+    match walk(facts, change, stale, false) {
         Ok(tests) => cone.tests = tests,
         Err(reason) => cone.untraced = Some(reason),
     }
@@ -163,11 +189,18 @@ impl Walk<'_, '_> {
     }
 }
 
-fn walk(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Result<BTreeSet<TestId>, String> {
+pub fn proof(facts: &Facts, change: &Change, stale: Option<&Hunks>) -> Proof {
+    match walk(facts, change, stale, true) {
+        Ok(tests) => Proof { tests, untraced: None },
+        Err(reason) => Proof { tests: BTreeSet::new(), untraced: Some(reason) },
+    }
+}
+
+fn walk(facts: &Facts, change: &Change, stale: Option<&Hunks>, proof: bool) -> Result<BTreeSet<TestId>, String> {
     if let Some(input) = change.files.iter().find(|changed| untraced_input(&changed.path)) {
         return Err(format!("{} is a toolchain input the graph does not trace", input.path));
     }
-    let mut walk = Walk { facts, stale, tests: BTreeSet::new(), fallback: workspace_fallback(facts, &change.workspace)? };
+    let mut walk = Walk { facts, stale, proof, tests: BTreeSet::new(), fallback: workspace_fallback(facts, &change.workspace)? };
     let mut seen: BTreeSet<String> = change.files.iter().map(|changed| changed.path.clone()).collect();
     let mut embedded: Vec<String> = Vec::new();
     for changed in &change.files {

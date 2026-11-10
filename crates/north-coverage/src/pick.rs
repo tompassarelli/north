@@ -119,23 +119,47 @@ pub enum Touched {
     Outside,
 }
 
-pub fn touched_regions(regions: &[(u32, u32)], stale: &[Hunk], lane: &[Hunk]) -> Touched {
-    let fresh: Vec<(u32, u32, usize)> = regions.iter().enumerate().filter_map(|(index, &(start, end))| carry(start, end, stale).map(|(start, end)| (start, end, index))).collect();
-    let mut touched = BTreeSet::new();
-    let mut outside = false;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Probe {
+    pub line: u32,
+    pub insertion: bool,
+}
+
+impl Probe {
+    fn within(self, start: u32, end: u32) -> bool {
+        if self.insertion { start <= self.line && self.line < end } else { start <= self.line && self.line <= end }
+    }
+}
+
+pub struct Located {
+    pub regions: BTreeSet<usize>,
+    pub outside: Vec<Probe>,
+}
+
+pub fn innermost(regions: &[(u32, u32)], stale: &[Hunk], probe: Probe) -> Option<usize> {
+    regions.iter().enumerate().filter_map(|(index, &(start, end))| carry(start, end, stale).map(|(start, end)| (start, end, index))).filter(|(start, end, _)| probe.within(*start, *end)).min_by_key(|(start, end, _)| end - start).map(|(_, _, index)| index)
+}
+
+pub fn locate(regions: &[(u32, u32)], stale: &[Hunk], lane: &[Hunk]) -> Located {
+    let mut located = Located { regions: BTreeSet::new(), outside: Vec::new() };
     for hunk in lane {
-        let probes: Vec<u32> = if hunk.old_count == 0 { vec![hunk.old_start] } else { hunk.lines().collect() };
-        for line in probes {
-            let inside = |start: u32, end: u32| if hunk.old_count == 0 { start <= line && line < end } else { start <= line && line <= end };
-            match fresh.iter().filter(|(start, end, _)| inside(*start, *end)).min_by_key(|(start, end, _)| end - start) {
-                Some(innermost) => {
-                    touched.insert(innermost.2);
+        let insertion = hunk.old_count == 0;
+        let lines: Vec<u32> = if insertion { vec![hunk.old_start] } else { hunk.lines().collect() };
+        for probe in lines.into_iter().map(|line| Probe { line, insertion }) {
+            match innermost(regions, stale, probe) {
+                Some(index) => {
+                    located.regions.insert(index);
                 }
-                None => outside = true,
+                None => located.outside.push(probe),
             }
         }
     }
-    if outside { Touched::Outside } else { Touched::Regions(touched) }
+    located
+}
+
+pub fn touched_regions(regions: &[(u32, u32)], stale: &[Hunk], lane: &[Hunk]) -> Touched {
+    let located = locate(regions, stale, lane);
+    if located.outside.is_empty() { Touched::Regions(located.regions) } else { Touched::Outside }
 }
 
 fn short(commit: &str) -> &str {
